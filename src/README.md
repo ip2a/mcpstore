@@ -225,6 +225,127 @@ agent_result = await store.for_agent(agent_id).use_tool(
 print('[链式agent] 步行导航结果:', agent_result)
 ```
 
+
+🤖 与 LangChain 的无缝集成
+
+MCPStore 的核心目标之一，就是让您的 LangChain 智能体 (Agent) 能够极其简单地使用通过 MCP 协议管理的任何工具。得益于内置的 LangChainAdapter，您无需编写任何复杂的适配代码，即可将 mcpstore 管理的动态工具集无缝接入 LangChain 的生态系统。
+✨ 集成亮点
+
+    一行代码，模式切换: 通过 .for_langchain() 链式调用，即可进入 LangChain 适配模式。
+
+    工具自动转换: 无需手动创建 Tool 对象，适配器会自动将 mcpstore 的工具定义（包括名称、描述、参数结构）转换为 LangChain “即用型”工具。
+
+    兼容原生工具: mcpstore 提供的动态工具可以与您在本地用 @tool 定义的静态工具轻松合并，共同赋能您的智能体。
+
+    拥抱现代架构: 完美兼容 LangChain 最新的、基于“工具调用 (Tool Calling)”的 Agent 架构，代码更简洁，更稳定。
+
+💡 简约用法展示
+
+设想您已经通过 mcpstore 注册了一个名为 WeatherService 的天气服务。现在，要让 LangChain Agent 使用它，代码就是这么直观：
+
+import asyncio
+from mcpstore import MCPStore
+from langchain_openai import ChatOpenAI
+from langchain.agents import AgentExecutor, create_openai_tools_agent
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
+# 1. 初始化 Store 并链式获取 LangChain 工具
+#    从 for_store() 开始，一步到位完成服务注册和工具转换
+tools = await (
+    MCPStore.setup_store()
+    .for_store()
+    .add_service({"name": "WeatherService", "url": "http://127.0.0.1:8000/mcp"})
+    .for_langchain()
+    .list_tools()
+)
+
+# 2. 构建一个标准的 LangChain Agent
+llm = ChatOpenAI(model="deepseek-chat", api_key="sk-...", ...)
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "你是一个乐于助人的助手。"),
+    ("user", "{input}"),
+    MessagesPlaceholder(variable_name="agent_scratchpad"),
+])
+agent = create_openai_tools_agent(llm, tools, prompt)
+agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+
+# 3. 开始使用！
+async def main():
+    response = await agent_executor.ainvoke({"input": "北京今天的天气怎么样？"})
+    print(response['output'])
+
+asyncio.run(main())
+
+如您所见，mcpstore 将所有复杂的工具适配工作都封装在了后台。您只需要专注于构建 Agent 的核心逻辑，mcpstore 会像一个可靠的“军火库”一样，按需为您的智能体提供精准、即用的工具。
+⚙️ 可完整运行的示例代码
+
+为了方便您快速上手和复现，我们提供了一个包含了所有细节的完整示例。此脚本展示了如何合并 mcpstore 的动态工具和本地的静态工具，并让 Agent 正确地调用它们。
+
+# langchain_full_demo.py
+
+import asyncio
+from datetime import date
+from typing import List
+
+# 1. 导入您的 mcpstore 库
+from mcpstore import MCPStore
+
+# 2. 导入所有 LangChain 相关的组件
+from langchain.agents import AgentExecutor, create_openai_tools_agent
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.tools import tool
+from langchain_openai import ChatOpenAI
+
+# 3. (可选) 定义一个本地静态工具
+@tool
+def get_current_date() -> str:
+    """返回今天的ISO 8601格式日期。当用户询问“今天”是几号时使用。"""
+    return date.today().isoformat()
+
+# 4. 核心逻辑
+async def main():
+    # 通过链式调用，从 mcpstore 获取动态工具
+    mcp_tools = await (
+        MCPStore.setup_store()
+        .for_store()
+        .add_service({"name": "WeatherService", "url": "http://127.0.0.1:8000/mcp"})
+        .for_langchain()
+        .list_tools()
+    )
+
+    # 合并动态工具和静态工具
+    all_tools = mcp_tools + [get_current_date]
+    print(f"✅ 工具准备就绪，共 {len(all_tools)} 个。")
+
+    # 配置 LLM
+    llm = ChatOpenAI(
+        temperature=0,
+        model="deepseek-chat",
+        openai_api_key="sk-...", # 请替换为您的 API Key
+        openai_api_base="https://api.deepseek.com",
+    )
+
+    # 创建 Agent
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "你是一个强大的助手。"),
+        ("user", "{input}"),
+        MessagesPlaceholder(variable_name="agent_scratchpad"),
+    ])
+    agent = create_openai_tools_agent(llm, all_tools, prompt)
+    agent_executor = AgentExecutor(agent=agent, tools=all_tools, verbose=True)
+
+    # 发起两次提问，分别测试不同来源的工具
+    await agent_executor.ainvoke({"input": "北京今天的天气怎么样？"})
+    await agent_executor.ainvoke({"input": "今天是几号？"})
+
+if __name__ == "__main__":
+    # 前提：请确保您的本地 WeatherService 正在运行
+    # python s.py 
+    asyncio.run(main())
+
+(注意: 上述代码中的 create_openai_tools_agent 是 LangChain 提供的一个便捷函数，它封装了我们之前手动构建的、包含 format_to_openai_tool_messages 和 OpenAIToolsAgentOutputParser 的核心逻辑链，让代码更加简洁。)
+
+
 ## 架构设计
 
 MCPStore 采用分层架构设计：

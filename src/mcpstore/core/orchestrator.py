@@ -27,7 +27,7 @@ from fastmcp.client.transports import (
     NpxStdioTransport
 )
 from mcpstore.plugins.json_mcp import MCPConfig
-from mcpstore.core.models.service import TransportType, ServiceRegistrationResult
+from mcpstore.core.models.service import TransportType
 from mcpstore.core.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)

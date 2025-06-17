@@ -3,14 +3,17 @@ from mcpstore.core.registry import ServiceRegistry
 from mcpstore.plugins.json_mcp import MCPConfig
 from mcpstore.core.client_manager import ClientManager
 from mcpstore.core.session_manager import SessionManager
+from mcpstore.core.unified_config import UnifiedConfigManager
 from mcpstore.core.models.service import (
-    RegisterRequestUnion, JsonRegistrationResponse, JsonUpdateRequest, JsonConfigResponse,
-    ServiceInfo, ServicesResponse, TransportType, ServiceInfoResponse,
-    ServiceRegistrationResult
+    RegisterRequestUnion, JsonUpdateRequest,
+    ServiceInfo, ServicesResponse, TransportType, ServiceInfoResponse
 )
-from mcpstore.core.models.client import ClientRegistrationResponse
+from mcpstore.core.models.client import ClientRegistrationRequest
 from mcpstore.core.models.tool import (
-    ToolExecutionResponse, ToolInfo, ToolsResponse, ToolExecutionRequest
+    ToolInfo, ToolsResponse, ToolExecutionRequest
+)
+from mcpstore.core.models.common import (
+    RegistrationResponse, ConfigResponse, ExecutionResponse
 )
 import logging
 from typing import Optional, List, Dict, Any, Union
@@ -30,6 +33,13 @@ class MCPStore:
         self.client_manager = orchestrator.client_manager
         self.session_manager = orchestrator.session_manager
         self.logger = logging.getLogger(__name__)
+
+        # 统一配置管理器
+        self._unified_config = UnifiedConfigManager(
+            mcp_config_path=config.json_path,
+            client_services_path=self.client_manager.services_path
+        )
+
         self._context_cache: Dict[str, MCPStoreContext] = {}
         self._store_context = self._create_store_context()
 
@@ -59,6 +69,14 @@ class MCPStore:
             self._context_cache[agent_id] = self._create_agent_context(agent_id)
         return self._context_cache[agent_id]
 
+    def get_unified_config(self) -> UnifiedConfigManager:
+        """获取统一配置管理器
+
+        Returns:
+            UnifiedConfigManager: 统一配置管理器实例
+        """
+        return self._unified_config
+
     async def register_service(self, payload: RegisterRequestUnion, agent_id: Optional[str] = None) -> Dict[str, str]:
         """重构：注册服务，支持批量 service_names 注册"""
         service_names = getattr(payload, 'service_names', None)
@@ -85,7 +103,7 @@ class MCPStore:
             results[name] = f"注册成功，工具数: {len(added_tools)}"
         return results
 
-    async def register_json_service(self, client_id: Optional[str] = None, service_names: Optional[List[str]] = None) -> JsonRegistrationResponse:
+    async def register_json_service(self, client_id: Optional[str] = None, service_names: Optional[List[str]] = None) -> RegistrationResponse:
         """
         批量注册服务，支持多种场景：
         1. Store 全量注册：client_id == main_client_id，不指定 service_names
@@ -98,7 +116,7 @@ class MCPStore:
             service_names: 服务名称列表，可选
             
         Returns:
-            JsonRegistrationResponse: 注册结果
+            RegistrationResponse: 注册结果
         """
         try:
             # 重新加载配置以确保使用最新配置
@@ -125,7 +143,8 @@ class MCPStore:
                         print(f"[ERROR][register_json_service] 注册服务 {name} 失败: {e}")
                         continue
                         
-                return JsonRegistrationResponse(
+                return RegistrationResponse(
+                    success=True,
                     client_id=agent_id,
                     service_names=registered_services,
                     config={"client_ids": registered_client_ids, "services": registered_services}
@@ -137,7 +156,8 @@ class MCPStore:
                 config = self.orchestrator.create_client_config_from_names(service_names)
                 import time; agent_id = f"agent_{int(time.time() * 1000)}"
                 results = await self.orchestrator.register_json_services(config)
-                return JsonRegistrationResponse(
+                return RegistrationResponse(
+                    success=True,
                     client_id=agent_id,
                     service_names=list(results.get("services", {}).keys()),
                     config=config
@@ -173,7 +193,8 @@ class MCPStore:
                         print(f"[ERROR][register_json_service] 注册服务 {name} 失败: {e}")
                         continue
                         
-                return JsonRegistrationResponse(
+                return RegistrationResponse(
+                    success=True,
                     client_id=agent_id,
                     service_names=registered_services,
                     config={"client_ids": registered_client_ids, "services": registered_services}
@@ -181,29 +202,33 @@ class MCPStore:
                 
         except Exception as e:
             print(f"[ERROR][register_json_service] 服务注册失败: {e}")
-            return JsonRegistrationResponse(
+            return RegistrationResponse(
+                success=False,
+                message=str(e),
                 client_id=client_id or self.client_manager.main_client_id,
                 service_names=[],
                 config={}
             )
 
-    async def update_json_service(self, payload: JsonUpdateRequest) -> JsonRegistrationResponse:
+    async def update_json_service(self, payload: JsonUpdateRequest) -> RegistrationResponse:
         """更新服务配置，等价于 PUT /register/json"""
         results = await self.orchestrator.register_json_services(
             config=payload.config,
             client_id=payload.client_id
         )
-        return JsonRegistrationResponse(
+        return RegistrationResponse(
+            success=True,
             client_id=results.get("client_id", payload.client_id or "main_client"),
             service_names=list(results.get("services", {}).keys()),
             config=payload.config
         )
 
-    def get_json_config(self, client_id: Optional[str] = None) -> JsonConfigResponse:
+    def get_json_config(self, client_id: Optional[str] = None) -> ConfigResponse:
         """查询服务配置，等价于 GET /register/json"""
         if not client_id or client_id == self.client_manager.main_client_id:
             config = self.config.load_config()
-            return JsonConfigResponse(
+            return ConfigResponse(
+                success=True,
                 client_id=self.client_manager.main_client_id,
                 config=config
             )
@@ -211,12 +236,13 @@ class MCPStore:
             config = self.client_manager.get_client_config(client_id)
             if not config:
                 raise ValueError(f"Client configuration not found: {client_id}")
-            return JsonConfigResponse(
+            return ConfigResponse(
+                success=True,
                 client_id=client_id,
                 config=config
             )
 
-    async def process_tool_request(self, request: ToolExecutionRequest) -> ToolExecutionResponse:
+    async def process_tool_request(self, request: ToolExecutionRequest) -> ExecutionResponse:
         """
         处理工具执行请求
         - 验证工具名称格式
@@ -226,7 +252,7 @@ class MCPStore:
             request: 工具执行请求
             
         Returns:
-            ToolExecutionResponse: 工具执行响应
+            ExecutionResponse: 工具执行响应
         """
         try:
             # 从工具名称中提取服务名称
@@ -243,23 +269,29 @@ class MCPStore:
                 agent_id=request.agent_id
             )
             
-            return ToolExecutionResponse(
+            return ExecutionResponse(
                 success=True,
                 result=result
             )
         except Exception as e:
             logger.error(f"Tool execution failed: {e}")
-            return ToolExecutionResponse(
+            return ExecutionResponse(
                 success=False,
                 error=str(e)
             )
 
-    def register_clients(self, client_configs: Dict[str, Any]) -> ClientRegistrationResponse:
+    def register_clients(self, client_configs: Dict[str, Any]) -> RegistrationResponse:
         """注册客户端，等价于 /register_clients"""
         # 这里只是示例，具体实现需根据 client_manager 逻辑完善
         for client_id, config in client_configs.items():
             self.client_manager.save_client_config(client_id, config)
-        return ClientRegistrationResponse(status="success", client_ids=list(client_configs.keys()))
+        return RegistrationResponse(
+            success=True,
+            message="Clients registered successfully",
+            client_id="",  # 多客户端注册时不适用
+            service_names=[],  # 多客户端注册时不适用
+            config={"client_ids": list(client_configs.keys())}
+        )
 
     async def get_health_status(self, id: Optional[str] = None, agent_mode: bool = False) -> Dict[str, Any]:
         """
@@ -699,4 +731,4 @@ class MCPStore:
         Returns:
             Dict[str, Any]: mcp.json 文件的内容
         """
-        return self.config.load_config() 
+        return self.config.load_config()

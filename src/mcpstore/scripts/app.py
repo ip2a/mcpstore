@@ -22,13 +22,15 @@ from mcpstore.plugins.json_mcp import MCPConfig
 from mcpstore.core.client_manager import ClientManager
 from mcpstore.core.session_manager import SessionManager
 from mcpstore.core.models.service import (
-    RegisterRequestUnion, JsonRegistrationResponse, JsonUpdateRequest, JsonConfigResponse,
-    ServiceInfo, ServicesResponse, TransportType, ServiceInfoResponse,
-    ServiceRegistrationResult
+    RegisterRequestUnion, JsonUpdateRequest,
+    ServiceInfo, ServicesResponse, TransportType, ServiceInfoResponse
 )
-from mcpstore.core.models.client import ClientRegistrationResponse
+from mcpstore.core.models.client import ClientRegistrationRequest
 from mcpstore.core.models.tool import (
-    ToolExecutionResponse, ToolInfo, ToolsResponse, ToolExecutionRequest
+    ToolInfo, ToolsResponse, ToolExecutionRequest
+)
+from mcpstore.core.models.common import (
+    RegistrationResponse, ConfigResponse, ExecutionResponse
 )
 from mcpstore.scripts.api import handle_exceptions
 from mcpstore.scripts.deps import app_state
@@ -62,7 +64,7 @@ async def lifespan(app: FastAPI):
     logger.info("    - MCPOrchestrator 实例已创建。")
 
     store = MCPStore(orchestrator=orchestrator, config=mcp_config_handler)
-    logger.info("    - McpStore 实例已创建，聚合了所有核心组件。")
+    logger.info("    - MCPStore 实例已创建，聚合了所有核心组件。")
     logger.info("【第11步】所有核心组件的唯一实例已创建完毕。")
 
     logger.info("    - 准备调用 orchestrator.setup()")
@@ -79,7 +81,7 @@ async def lifespan(app: FastAPI):
     # logger.info(f"    - 服务注册结果: \n{json.dumps(registration_results, indent=2, ensure_ascii=False)}")
 
     app_state["store"] = store
-    logger.info("    - 唯一的 McpStore 实例已存入 app_state。")
+    logger.info("    - 唯一的 MCPStore 实例已存入 app_state。")
     logger.info("【第12步】应用启动流程 (lifespan) 即将完成，准备移交控制权。")
 
     try:

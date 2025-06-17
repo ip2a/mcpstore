@@ -409,5 +409,567 @@
         "url": "http://127.0.0.1:8000/mcp"
       }
     }
+  },
+  "client_20250617174322_6l34xo": {
+    "mcpServers": {
+      "高德": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250617174323_0kuwc6": {
+    "mcpServers": {
+      "新服务": {
+        "command": "python",
+        "args": [
+          "service.py"
+        ],
+        "env": {
+          "DEBUG": "true"
+        }
+      }
+    }
+  },
+  "client_20250617174323_yfr92i": {
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617174327_v1o9te": {
+    "mcpServers": {
+      "天气服务": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617174329_lbst0s": {
+    "mcpServers": {
+      "WeatherService": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617174331_ujvjc6": {
+    "mcpServers": {
+      "高德": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250617174332_idefei": {
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617174430_7wuco1": {
+    "mcpServers": {
+      "高德": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250617174431_ludvzr": {
+    "mcpServers": {
+      "新服务": {
+        "command": "python",
+        "args": [
+          "service.py"
+        ],
+        "env": {
+          "DEBUG": "true"
+        }
+      }
+    }
+  },
+  "client_20250617174431_1uub7b": {
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617174435_90juz2": {
+    "mcpServers": {
+      "天气服务": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617174435_3vv6o7": {
+    "mcpServers": {
+      "WeatherService": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617174435_tn6vsp": {
+    "mcpServers": {
+      "高德": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250617174436_8u7av1": {
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617175017_dmuhuf": {
+    "mcpServers": {
+      "高德": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250617175018_njgrgc": {
+    "mcpServers": {
+      "新服务": {
+        "command": "python",
+        "args": [
+          "service.py"
+        ],
+        "env": {
+          "DEBUG": "true"
+        }
+      }
+    }
+  },
+  "client_20250617175018_hfuo7i": {
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617175023_3a0not": {
+    "mcpServers": {
+      "天气服务": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617175023_rmw6np": {
+    "mcpServers": {
+      "WeatherService": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617175023_ddshbm": {
+    "mcpServers": {
+      "高德": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250617175024_xelybj": {
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617180153_8velur": {
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617180158_pq3i1y": {
+    "mcpServers": {
+      "WeatherService": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617180158_xrc58o": {
+    "mcpServers": {
+      "map": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250617180158_l74skl": {
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617180203_imiyip": {
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617180207_uki8dj": {
+    "mcpServers": {
+      "howtocook-mcp": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617180218_sfpu1q": {
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617180222_mk2k2o": {
+    "mcpServers": {
+      "WeatherService": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617180222_bww3s1": {
+    "mcpServers": {
+      "map": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250617180223_dc9qbx": {
+    "mcpServers": {
+      "howtocook-mcp": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617180302_e2pifz": {
+    "mcpServers": {
+      "map": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250617180304_8tvx9s": {
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617180309_qnd8yz": {
+    "mcpServers": {
+      "WeatherService": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617180309_xwuewo": {
+    "mcpServers": {
+      "map": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250617180309_i0fvjx": {
+    "mcpServers": {
+      "howtocook-mcp": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617180400_twcud6": {
+    "mcpServers": {
+      "map": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250617180931_cacnam": {
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617180936_idqu3c": {
+    "mcpServers": {
+      "WeatherService": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617180936_jmqfvx": {
+    "mcpServers": {
+      "map": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250617180937_wmn34o": {
+    "mcpServers": {
+      "howtocook-mcp": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617223347_17tnt8": {
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617223355_6ltpyh": {
+    "mcpServers": {
+      "WeatherService": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617223355_542j6d": {
+    "mcpServers": {
+      "map": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250617223356_dccg4n": {
+    "mcpServers": {
+      "howtocook-mcp": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617223404_neug30": {
+    "mcpServers": {
+      "map": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250617223405_a1b4zg": {
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617223411_bfje2c": {
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617223416_lcg4ll": {
+    "mcpServers": {
+      "howtocook-mcp": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617223423_vgca8f": {
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617223429_7nm09k": {
+    "mcpServers": {
+      "WeatherService": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617223429_xxujf0": {
+    "mcpServers": {
+      "map": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250617223431_lj1wcn": {
+    "mcpServers": {
+      "howtocook-mcp": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617223533_0wxqip": {
+    "mcpServers": {
+      "map": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250617223537_hr8if6": {
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617223542_uembe2": {
+    "mcpServers": {
+      "WeatherService": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617223542_mdho6v": {
+    "mcpServers": {
+      "map": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250617223544_eu29s5": {
+    "mcpServers": {
+      "howtocook-mcp": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617223824_tx3def": {
+    "mcpServers": {
+      "天气服务": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617223844_b2ai3b": {
+    "mcpServers": {
+      "WeatherService": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617224117_dsu1gc": {
+    "mcpServers": {
+      "WeatherService": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
   }
 }

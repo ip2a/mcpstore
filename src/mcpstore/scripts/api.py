@@ -6,22 +6,22 @@ MCPStore API 路由
 from fastapi import APIRouter, HTTPException, Depends
 from mcpstore import MCPStore
 from mcpstore.core.models.service import (
-    RegisterRequestUnion, JsonRegistrationResponse, JsonUpdateRequest,
-    JsonConfigResponse, ServiceInfoResponse, ServicesResponse
+    RegisterRequestUnion, JsonUpdateRequest,
+    ServiceInfoResponse, ServicesResponse
 )
 from mcpstore.core.models.tool import (
-    ToolExecutionRequest, ToolExecutionResponse, ToolsResponse
+    ToolExecutionRequest, ToolsResponse
+)
+from mcpstore.core.models.common import (
+    APIResponse, RegistrationResponse, ConfigResponse,
+    ExecutionResponse
 )
 from typing import Optional, List, Dict, Any, Union
 from pydantic import BaseModel
 from functools import wraps
 
 # === 统一响应模型 ===
-class APIResponse(BaseModel):
-    """统一的API响应格式"""
-    success: bool
-    data: Optional[Any] = None
-    message: Optional[str] = None
+# APIResponse 已移动到 common.py 中，通过导入使用
 
 # === 工具函数 ===
 def handle_exceptions(func):

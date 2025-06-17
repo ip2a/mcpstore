@@ -4,9 +4,9 @@ MCPStore Context Module
 """
 
 from typing import Dict, List, Optional, Any, Union, TYPE_CHECKING
-from dataclasses import dataclass
 from enum import Enum
-from mcpstore.core.models.tool import ToolExecutionRequest, ToolExecutionResponse
+from mcpstore.core.models.tool import ToolExecutionRequest, ToolInfo
+from mcpstore.core.models.common import ExecutionResponse
 from mcpstore.core.models.service import (
     ServiceInfo, AddServiceRequest, ServiceConfigUnion,
     URLServiceConfig, CommandServiceConfig, MCPServerConfig
@@ -15,22 +15,8 @@ import logging
 from .exceptions import ServiceNotFoundError, InvalidConfigError, DeleteServiceError
 
 if TYPE_CHECKING:
-    from ..langchain_adapter import LangChainAdapter
-
-@dataclass
-class ServiceInfo:
-    """服务信息"""
-    name: str
-    status: str
-    description: str
-    tools: List[str]
-
-@dataclass
-class ToolInfo:
-    """工具信息"""
-    name: str
-    description: str
-    parameters: Dict[str, Any]
+    from ..adapters.langchain_adapter import LangChainAdapter
+    from .unified_config import UnifiedConfigManager
 
 class ContextType(Enum):
     """上下文类型"""
@@ -402,4 +388,17 @@ class MCPStoreContext:
             
         except Exception as e:
             logging.error(f"Failed to delete service {name}: {str(e)}")
-            raise 
+            raise
+
+    def for_langchain(self) -> 'LangChainAdapter':
+        """返回LangChain适配器实例"""
+        from mcpstore.adapters.langchain_adapter import LangChainAdapter
+        return LangChainAdapter(self)
+
+    def get_unified_config(self) -> 'UnifiedConfigManager':
+        """获取统一配置管理器
+
+        Returns:
+            UnifiedConfigManager: 统一配置管理器实例
+        """
+        return self._store.get_unified_config()

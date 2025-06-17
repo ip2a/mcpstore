@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any, Literal, Union
 from enum import Enum
 from datetime import datetime
+from .common import BaseResponse, ListResponse, DataResponse, RegistrationResponse, ConfigResponse
 
 class TransportType(str, Enum):
     STREAMABLE_HTTP = "streamable_http"
@@ -26,14 +27,19 @@ class ServiceInfo(BaseModel):
 
 class ServiceInfoResponse(BaseModel):
     """单个服务的详细信息响应模型"""
-    service: ServiceInfo
-    tools: List[Dict[str, Any]]
-    connected: bool
+    service: Optional[ServiceInfo] = Field(None, description="服务信息")
+    tools: List[Dict[str, Any]] = Field(..., description="服务提供的工具列表")
+    connected: bool = Field(..., description="服务连接状态")
+    success: bool = Field(True, description="操作是否成功")
+    message: Optional[str] = Field(None, description="响应消息")
 
 class ServicesResponse(BaseModel):
-    services: List[ServiceInfo]
-    total_services: int
-    total_tools: int
+    """服务列表响应模型"""
+    services: List[ServiceInfo] = Field(..., description="服务列表")
+    total_services: int = Field(..., description="服务总数")
+    total_tools: int = Field(..., description="工具总数")
+    success: bool = Field(True, description="操作是否成功")
+    message: Optional[str] = Field(None, description="响应消息")
 
 class RegisterRequestUnion(BaseModel):
     url: Optional[str] = None
@@ -51,18 +57,7 @@ class JsonUpdateRequest(BaseModel):
     service_names: Optional[List[str]] = None
     config: Dict[str, Any]
 
-class JsonRegistrationResponse(BaseModel):
-    client_id: str
-    service_names: List[str]
-    config: Dict[str, Any]
-
-class JsonConfigResponse(BaseModel):
-    client_id: str
-    config: Dict[str, Any]
-
-class ServiceRegistrationResult(BaseModel):
-    success: bool
-    message: str
+# 这些响应模型已移动到 common.py 中，请直接从 common.py 导入
 
 class ServiceConfig(BaseModel):
     """服务配置基类"""

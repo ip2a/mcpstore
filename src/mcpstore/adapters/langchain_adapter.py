@@ -1,4 +1,4 @@
-# src/mcpstore/langchain_adapter.py (最终定稿)
+# src/mcpstore/adapters/langchain_adapter.py
 
 import json
 from typing import Type, List, TYPE_CHECKING
@@ -7,8 +7,8 @@ from pydantic import BaseModel, create_model
 
 # 使用 TYPE_CHECKING 和字符串提示来避免循环导入
 if TYPE_CHECKING:
-    from .core.context import MCPStoreContext
-    from .core.models.tool import ToolInfo
+    from ..core.context import MCPStoreContext
+    from ..core.models.tool import ToolInfo
 
 class LangChainAdapter:
     """
