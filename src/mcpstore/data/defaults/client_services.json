@@ -196,5 +196,218 @@
         "transport": "sse"
       }
     }
+  },
+  "client_20250616014502_kpdocm": {
+    "mcpServers": {
+      "高德": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250616014512_27ghrj": {
+    "mcpServers": {
+      "新服务": {
+        "command": "python",
+        "args": [
+          "service.py"
+        ],
+        "env": {
+          "DEBUG": "true"
+        }
+      }
+    }
+  },
+  "client_20250616015626_hmp3zu": {
+    "mcpServers": {
+      "高德": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250616015627_p8tdeg": {
+    "mcpServers": {
+      "新服务": {
+        "command": "python",
+        "args": [
+          "service.py"
+        ],
+        "env": {
+          "DEBUG": "true"
+        }
+      }
+    }
+  },
+  "client_20250616015627_jx2yu7": {
+    "mcpServers": {
+      "高德": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250616015627_099uxh": {
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250616015631_h1yf3s": {
+    "mcpServers": {
+      "新服务": {
+        "command": "python",
+        "args": [
+          "service.py"
+        ],
+        "env": {
+          "DEBUG": "true"
+        }
+      }
+    }
+  },
+  "client_20250616015632_ob8gdd": {
+    "mcpServers": {
+      "高德": {
+        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+        "transport": "sse"
+      }
+    }
+  },
+  "client_20250616015632_9f602w": {
+    "mcpServers": {
+      "新服务": {
+        "command": "python",
+        "args": [
+          "service.py"
+        ],
+        "env": {
+          "DEBUG": "true"
+        }
+      }
+    }
+  },
+  "client_20250616015632_5pmaaw": {
+    "mcpServers": {
+      "context7": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250617073455_pm40u7": {
+    "mcpServers": {
+      "天气服务": {
+        "url": "http://127.0.0.1:8000/mcp",
+        "transport": "streamable_http"
+      }
+    }
+  },
+  "client_20250617073607_8q3owq": {
+    "mcpServers": {
+      "天气服务": {
+        "url": "http://127.0.0.1:8000/mcp",
+        "transport": "streamable_http"
+      }
+    }
+  },
+  "client_20250617073626_vjtsv1": {
+    "mcpServers": {
+      "天气服务": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617073730_u3dy9x": {
+    "mcpServers": {
+      "天气服务": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617073850_lyn6yc": {
+    "mcpServers": {
+      "天气服务": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617074009_n2edd0": {
+    "mcpServers": {
+      "天气服务": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617074113_7nsme7": {
+    "mcpServers": {
+      "天气服务": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617124159_ezonvr": {
+    "mcpServers": {
+      "WeatherService": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617124426_xixsww": {
+    "mcpServers": {
+      "WeatherService": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617124833_yu89vk": {
+    "mcpServers": {
+      "WeatherService": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617135137_n77iy9": {
+    "mcpServers": {
+      "天气服务": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617135414_bxfgcd": {
+    "mcpServers": {
+      "天气服务": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617135432_tk0boy": {
+    "mcpServers": {
+      "WeatherService": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617140240_x7unz1": {
+    "mcpServers": {
+      "WeatherService": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
+  },
+  "client_20250617140259_lkvq9c": {
+    "mcpServers": {
+      "天气服务": {
+        "url": "http://127.0.0.1:8000/mcp"
+      }
+    }
   }
 }

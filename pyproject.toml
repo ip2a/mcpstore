@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcpstore"
+version = "0.1.9"
+description = "A composable, ready-to-use MCP toolkit for agents and rapid integration."
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "fastapi>=0.115.12",
+    "fastmcp>=2.7.1",
+    "httpx>=0.28.1",
+    "pydantic>=2.11.5",
+    "uuid>=1.30",
+]
+authors = [
+    {name = "ooooofish", email = "ooooofish@126.com"}
+]
+license = "MIT"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/whillhill/mcpstore"
+"Bug Tracker" = "https://github.com/whillhill/mcpstore/issues"
+
+[tool.setuptools]
+include-package-data = true
+license-files = ["LICENSE*"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

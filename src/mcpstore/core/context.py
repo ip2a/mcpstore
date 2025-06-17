@@ -3,7 +3,7 @@ MCPStore Context Module
 提供 MCPStore 的上下文管理功能
 """
 
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, TYPE_CHECKING
 from dataclasses import dataclass
 from enum import Enum
 from mcpstore.core.models.tool import ToolExecutionRequest, ToolExecutionResponse
@@ -13,6 +13,9 @@ from mcpstore.core.models.service import (
 )
 import logging
 from .exceptions import ServiceNotFoundError, InvalidConfigError, DeleteServiceError
+
+if TYPE_CHECKING:
+    from ..langchain_adapter import LangChainAdapter
 
 @dataclass
 class ServiceInfo:
@@ -49,6 +52,11 @@ class MCPStoreContext:
         self._config: Dict[str, Any] = {}
         self._cache: Dict[str, Any] = {}
 
+    def for_langchain(self) -> 'LangChainAdapter':
+        """返回一个 LangChain 适配器实例，用于后续的 LangChain 相关操作。"""
+        from ..langchain_adapter import LangChainAdapter
+        return LangChainAdapter(self)
+
     # === 核心服务接口 ===
     async def list_services(self) -> List[ServiceInfo]:
         """
@@ -61,7 +69,7 @@ class MCPStoreContext:
         else:
             return await self._store.list_services(self._agent_id, agent_mode=True)
 
-    async def add_service(self, config: Union[ServiceConfigUnion, List[str], None] = None) -> bool:
+    async def add_service(self, config: Union[ServiceConfigUnion, List[str], None] = None) -> 'MCPStoreContext':
         """
         增强版的服务添加方法，支持多种配置格式：
         1. URL方式：
@@ -100,7 +108,7 @@ class MCPStoreContext:
             config: 服务配置，支持多种格式
             
         Returns:
-            bool: 是否成功添加服务
+            MCPStoreContext: 返回自身实例以支持链式调用
         """
         try:
             # 获取正确的 client_id
@@ -114,16 +122,16 @@ class MCPStoreContext:
                     print("[INFO][add_service] STORE模式-全量注册所有服务")
                     resp = await self._store.register_json_service()
                     print(f"[INFO][add_service] 注册结果: {resp}")
-                    return bool(resp and resp.service_names)
+                    if not (resp and resp.service_names):
+                        raise Exception("服务注册失败")
                 else:
                     print("[WARN][add_service] AGENT模式-未指定服务配置")
-                    return False
+                    raise Exception("AGENT模式必须指定服务配置")
                     
             # 处理服务名称列表
-            if isinstance(config, list):
+            elif isinstance(config, list):
                 if not config:
-                    print("[WARN][add_service] 服务名称列表为空")
-                    return False
+                    raise Exception("服务名称列表为空")
                     
                 print(f"[INFO][add_service] 注册指定服务: {config}")
                 resp = await self._store.register_json_service(
@@ -131,10 +139,11 @@ class MCPStoreContext:
                     service_names=config
                 )
                 print(f"[INFO][add_service] 注册结果: {resp}")
-                return bool(resp and resp.service_names)
+                if not (resp and resp.service_names):
+                    raise Exception("服务注册失败")
                 
             # 处理字典格式的配置
-            if isinstance(config, dict):
+            elif isinstance(config, dict):
                 # 转换为标准格式
                 if "mcpServers" in config:
                     # 已经是MCPConfig格式
@@ -143,8 +152,7 @@ class MCPStoreContext:
                     # 单个服务配置，需要转换为MCPConfig格式
                     service_name = config.get("name")
                     if not service_name:
-                        print("[ERROR][add_service] 服务配置缺少name字段")
-                        return False
+                        raise Exception("服务配置缺少name字段")
                         
                     mcp_config = {
                         "mcpServers": {
@@ -175,18 +183,20 @@ class MCPStoreContext:
                         service_names=service_names
                     )
                     print(f"[INFO][add_service] 注册结果: {resp}")
-                    return bool(resp and resp.service_names)
+                    if not (resp and resp.service_names):
+                        raise Exception("服务注册失败")
                     
                 except Exception as e:
-                    print(f"[ERROR][add_service] 更新配置文件失败: {e}")
-                    return False
+                    raise Exception(f"更新配置文件失败: {e}")
             
-            print(f"[ERROR][add_service] 不支持的配置格式: {type(config)}")
-            return False
+            else:
+                raise Exception(f"不支持的配置格式: {type(config)}")
+            
+            return self
             
         except Exception as e:
             print(f"[ERROR][add_service] 服务添加失败: {e}")
-            return False
+            raise
 
     async def list_tools(self) -> List[ToolInfo]:
         """

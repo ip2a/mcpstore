@@ -3,6 +3,28 @@
     "高德": {
       "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
       "transport": "sse"
+    },
+    "新服务": {
+      "command": "python",
+      "args": [
+        "service.py"
+      ],
+      "env": {
+        "DEBUG": "true"
+      }
+    },
+    "context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ]
+    },
+    "天气服务": {
+      "url": "http://127.0.0.1:8000/mcp"
+    },
+    "WeatherService": {
+      "url": "http://127.0.0.1:8000/mcp"
     }
   }
 }
