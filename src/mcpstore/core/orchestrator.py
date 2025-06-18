@@ -29,6 +29,7 @@ from fastmcp.client.transports import (
 from mcpstore.plugins.json_mcp import MCPConfig
 from mcpstore.core.models.service import TransportType
 from mcpstore.core.session_manager import SessionManager
+from mcpstore.core.smart_reconnection import SmartReconnectionManager, ReconnectionPriority
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,8 @@ class MCPOrchestrator:
         self.main_client_ctx = None  # async context manager for main_client
         self.main_config = {"mcpServers": {}}  # 中央配置
         self.agent_clients: Dict[str, Client] = {}  # agent_id -> client映射
-        self.pending_reconnection: Set[str] = set()
+        # 使用智能重连管理器替代简单的set
+        self.smart_reconnection = SmartReconnectionManager()
         self.react_agent = None
 
         # 从配置中获取心跳和重连设置
@@ -67,7 +69,13 @@ class MCPOrchestrator:
         # 监控任务
         self.heartbeat_task = None
         self.reconnection_task = None
+        self.cleanup_task = None
         self.mcp_config = MCPConfig()
+
+        # 资源管理配置
+        self.max_reconnection_queue_size = 50  # 最大重连队列大小
+        self.cleanup_interval = timedelta(hours=1)  # 清理间隔：1小时
+        self.max_heartbeat_history_hours = 24  # 心跳历史保留时间：24小时
 
         # 客户端管理器
         self.client_manager = ClientManager()
@@ -82,18 +90,36 @@ class MCPOrchestrator:
         pass
 
     async def start_monitoring(self):
-        """启动后台健康检查和重连监视器"""
-        logger.info("Starting monitoring tasks...")
+        """启动后台健康检查、重连监视器和资源清理任务（带极端场景处理）"""
+        try:
+            # 验证配置完整性
+            if not self._validate_configuration():
+                logger.error("Configuration validation failed, monitoring disabled")
+                return False
 
-        # 启动心跳监视器
-        if self.heartbeat_task is None or self.heartbeat_task.done():
-            logger.info(f"Starting heartbeat monitor. Interval: {self.heartbeat_interval.total_seconds()}s")
-            self.heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+            logger.info("Starting monitoring tasks...")
 
-        # 启动重连监视器
-        if self.reconnection_task is None or self.reconnection_task.done():
-            logger.info(f"Starting reconnection monitor. Interval: {self.reconnection_interval.total_seconds()}s")
-            self.reconnection_task = asyncio.create_task(self._reconnection_loop())
+            # 启动心跳监视器
+            if self.heartbeat_task is None or self.heartbeat_task.done():
+                logger.info(f"Starting heartbeat monitor. Interval: {self.heartbeat_interval.total_seconds()}s")
+                self.heartbeat_task = asyncio.create_task(self._heartbeat_loop_with_error_handling())
+
+            # 启动重连监视器
+            if self.reconnection_task is None or self.reconnection_task.done():
+                logger.info(f"Starting reconnection monitor. Interval: {self.reconnection_interval.total_seconds()}s")
+                self.reconnection_task = asyncio.create_task(self._reconnection_loop_with_error_handling())
+
+            # 启动资源清理任务
+            if self.cleanup_task is None or self.cleanup_task.done():
+                logger.info(f"Starting resource cleanup task. Interval: {self.cleanup_interval.total_seconds()}s")
+                self.cleanup_task = asyncio.create_task(self._cleanup_loop_with_error_handling())
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to start monitoring: {e}")
+            # 不抛出异常，允许系统继续运行
+            return False
 
     async def _heartbeat_loop(self):
         """后台循环，用于定期健康检查"""
@@ -102,21 +128,79 @@ class MCPOrchestrator:
             await self._check_services_health()
 
     async def _check_services_health(self):
-        """检查所有服务的健康状态"""
-        logger.debug("Running periodic health check for all services...")
+        """并发检查所有服务的健康状态"""
+        logger.debug("Running concurrent periodic health check for all services...")
+
+        # 收集所有需要检查的服务
+        health_check_tasks = []
         for client_id, services in self.registry.sessions.items():
             for name in services:
-                try:
-                    is_healthy = await self.is_service_healthy(name, client_id)
-                    if is_healthy:
-                        logger.debug(f"Health check SUCCESS for: {name} (client_id={client_id})")
-                        self.registry.update_service_health(client_id, name)
-                    else:
-                        logger.warning(f"Health check FAILED for {name} (client_id={client_id})")
-                        self.pending_reconnection.add(name)
-                except Exception as e:
-                    logger.warning(f"Health check error for {name} (client_id={client_id}): {e}")
-                    self.pending_reconnection.add(name)
+                task = asyncio.create_task(
+                    self._check_single_service_health(name, client_id),
+                    name=f"health_check_{name}_{client_id}"
+                )
+                health_check_tasks.append(task)
+
+        if not health_check_tasks:
+            logger.debug("No services to check")
+            return
+
+        logger.debug(f"Starting concurrent health check for {len(health_check_tasks)} services")
+
+        try:
+            # 并发执行所有健康检查，设置总体超时时间
+            results = await asyncio.wait_for(
+                asyncio.gather(*health_check_tasks, return_exceptions=True),
+                timeout=30.0  # 30秒总体超时
+            )
+
+            # 处理结果
+            success_count = 0
+            failed_count = 0
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    failed_count += 1
+                    logger.warning(f"Health check task failed: {result}")
+                elif result:
+                    success_count += 1
+                else:
+                    failed_count += 1
+
+            logger.info(f"Health check completed: {success_count} healthy, {failed_count} failed")
+
+        except asyncio.TimeoutError:
+            logger.warning("Health check batch timeout (30s), cancelling remaining tasks")
+            # 取消未完成的任务
+            for task in health_check_tasks:
+                if not task.done():
+                    task.cancel()
+        except Exception as e:
+            logger.error(f"Unexpected error during health check: {e}")
+
+    async def _check_single_service_health(self, name: str, client_id: str) -> bool:
+        """检查单个服务的健康状态"""
+        try:
+            is_healthy = await self.is_service_healthy(name, client_id)
+            service_key = f"{client_id}:{name}"
+
+            if is_healthy:
+                logger.debug(f"Health check SUCCESS for: {name} (client_id={client_id})")
+                self.registry.update_service_health(client_id, name)
+                # 如果服务恢复健康，从智能重连队列中移除
+                self.smart_reconnection.mark_success(service_key)
+                return True
+            else:
+                logger.warning(f"Health check FAILED for {name} (client_id={client_id})")
+                # 推断服务优先级并添加到智能重连队列
+                priority = self.smart_reconnection._infer_service_priority(name)
+                self.smart_reconnection.add_service(client_id, name, priority)
+                return False
+        except Exception as e:
+            logger.warning(f"Health check error for {name} (client_id={client_id}): {e}")
+            # 推断服务优先级并添加到智能重连队列
+            priority = self.smart_reconnection._infer_service_priority(name)
+            self.smart_reconnection.add_service(client_id, name, priority)
+            return False
 
     async def _reconnection_loop(self):
         """定期尝试重新连接服务的后台循环"""
@@ -125,26 +209,94 @@ class MCPOrchestrator:
             await self._attempt_reconnections()
 
     async def _attempt_reconnections(self):
-        """尝试重新连接所有待重连的服务"""
-        if not self.pending_reconnection:
-            return  # 如果没有待重连的服务，跳过
+        """尝试重新连接所有待重连的服务（智能重连策略）"""
+        # 获取准备重试的服务列表（按优先级排序）
+        ready_services = self.smart_reconnection.get_services_ready_for_retry()
 
-        # 创建副本以避免迭代过程中修改集合的问题
-        names_to_retry = list(self.pending_reconnection)
-        logger.info(f"Attempting to reconnect {len(names_to_retry)} service(s): {names_to_retry}")
+        if not ready_services:
+            logger.debug("No services ready for reconnection")
+            return
 
-        for name in names_to_retry:
+        logger.info(f"Attempting to reconnect {len(ready_services)} service(s) with smart strategy")
+
+        # 清理无效的客户端条目
+        valid_client_ids = set(self.client_manager.get_all_clients().keys())
+        cleaned_count = self.smart_reconnection.cleanup_invalid_clients(valid_client_ids)
+        if cleaned_count > 0:
+            logger.info(f"Cleaned up {cleaned_count} invalid client entries from reconnection queue")
+
+        # 按优先级尝试重连
+        for entry in ready_services:
             try:
+                # 检查client是否仍然有效
+                if not self.client_manager.has_client(entry.client_id):
+                    logger.info(f"Client {entry.client_id} no longer exists, removing {entry.service_name} from reconnection queue")
+                    self.smart_reconnection.remove_service(entry.service_key)
+                    continue
+
                 # 尝试重新连接
-                success, message = await self.connect_service(name)
+                logger.debug(f"Attempting reconnection for {entry.service_name} (priority: {entry.priority.name}, "
+                           f"failures: {entry.failure_count})")
+
+                success, message = await self.connect_service(entry.service_name)
                 if success:
-                    logger.info(f"Reconnection successful for: {name}")
-                    self.pending_reconnection.discard(name)
+                    logger.info(f"Smart reconnection successful for: {entry.service_name} "
+                              f"(priority: {entry.priority.name}, after {entry.failure_count} failures)")
+                    self.smart_reconnection.mark_success(entry.service_key)
                 else:
-                    logger.warning(f"Reconnection attempt failed for {name}: {message}")
-                    # 保持name在pending_reconnection中，等待下一个周期
+                    logger.debug(f"Smart reconnection attempt failed for {entry.service_name}: {message}")
+                    self.smart_reconnection.mark_failure(entry.service_key)
+
             except Exception as e:
-                logger.warning(f"Reconnection attempt failed for {name}: {e}")
+                logger.warning(f"Smart reconnection attempt failed for {entry.service_key}: {e}")
+                self.smart_reconnection.mark_failure(entry.service_key)
+
+    async def _cleanup_loop(self):
+        """定期资源清理循环"""
+        while True:
+            await asyncio.sleep(self.cleanup_interval.total_seconds())
+            await self._perform_cleanup()
+
+    async def _perform_cleanup(self):
+        """执行资源清理"""
+        logger.debug("Performing periodic resource cleanup...")
+
+        try:
+            # 清理过期的心跳记录
+            cutoff_time = datetime.now() - timedelta(hours=self.max_heartbeat_history_hours)
+            cleaned_services = 0
+            cleaned_agents = 0
+
+            for agent_id in list(self.registry.service_health.keys()):
+                services_to_remove = []
+                for service_name, last_heartbeat in self.registry.service_health[agent_id].items():
+                    if last_heartbeat < cutoff_time:
+                        services_to_remove.append(service_name)
+
+                # 移除过期的服务记录
+                for service_name in services_to_remove:
+                    del self.registry.service_health[agent_id][service_name]
+                    cleaned_services += 1
+
+                # 如果agent下没有服务了，移除agent记录
+                if not self.registry.service_health[agent_id]:
+                    del self.registry.service_health[agent_id]
+                    cleaned_agents += 1
+
+            # 清理智能重连管理器中的过期和无效条目
+            valid_client_ids = set(self.client_manager.get_all_clients().keys())
+            cleaned_invalid_clients = self.smart_reconnection.cleanup_invalid_clients(valid_client_ids)
+            cleaned_expired_entries = self.smart_reconnection.cleanup_expired_entries()
+
+            if cleaned_services > 0 or cleaned_agents > 0 or cleaned_invalid_clients > 0 or cleaned_expired_entries > 0:
+                logger.info(f"Cleanup completed: removed {cleaned_services} expired heartbeat records, "
+                          f"{cleaned_agents} empty agent records, {cleaned_invalid_clients} invalid client entries, "
+                          f"{cleaned_expired_entries} expired reconnection entries")
+            else:
+                logger.debug("Cleanup completed: no expired records found")
+
+        except Exception as e:
+            logger.error(f"Error during resource cleanup: {e}")
 
     async def connect_service(self, name: str, url: str = None) -> Tuple[bool, str]:
         """
@@ -234,12 +386,12 @@ class MCPOrchestrator:
 
     async def is_service_healthy(self, name: str, client_id: Optional[str] = None) -> bool:
         """
-        检查服务是否健康
-        
+        检查服务是否健康（优化版本，快速失败，带网络检测）
+
         Args:
             name: 服务名
             client_id: 可选的客户端ID，用于多客户端环境
-            
+
         Returns:
             bool: 服务是否健康
         """
@@ -247,23 +399,40 @@ class MCPOrchestrator:
             # 获取服务配置
             service_config = self.mcp_config.get_service_config(name)
             if not service_config:
-                logger.warning(f"Service configuration not found for {name}")
+                logger.debug(f"Service configuration not found for {name}")
                 return False
-            
+
+            # 快速网络连通性检查（仅对HTTP服务）
+            if service_config.get("url"):
+                if not await self._quick_network_check(service_config["url"]):
+                    logger.debug(f"Quick network check failed for {name}")
+                    return False
+
+            # 确保配置包含transport字段（自动推断）
+            normalized_config = self._normalize_service_config(service_config)
+
             # 创建新的客户端实例
-            client = Client({"mcpServers": {name: service_config}})
-            
+            client = Client({"mcpServers": {name: normalized_config}})
+
             try:
-                # 使用超时控制的异步上下文管理器
-                async with asyncio.timeout(self.http_timeout):
+                # 使用更短的超时时间，快速失败
+                timeout_seconds = min(self.http_timeout, 3)  # 最大3秒，更快失败
+                async with asyncio.timeout(timeout_seconds):
                     async with client:
                         await client.ping()
                         return True
             except asyncio.TimeoutError:
-                logger.warning(f"Health check timeout for {name} (client_id={client_id})")
+                logger.debug(f"Health check timeout for {name} (client_id={client_id}) after {timeout_seconds}s")
+                return False
+            except ConnectionError as e:
+                logger.debug(f"Connection error for {name} (client_id={client_id}): {e}")
                 return False
             except Exception as e:
-                logger.warning(f"Health check failed for {name} (client_id={client_id}): {e}")
+                # 检查是否是网络相关错误
+                if self._is_network_error(e):
+                    logger.debug(f"Network error for {name} (client_id={client_id}): {e}")
+                else:
+                    logger.debug(f"Health check failed for {name} (client_id={client_id}): {e}")
                 return False
             finally:
                 # 确保客户端被正确关闭
@@ -271,10 +440,66 @@ class MCPOrchestrator:
                     await client.close()
                 except Exception:
                     pass  # 忽略关闭时的错误
-                    
+
         except Exception as e:
-            logger.warning(f"Health check failed for {name} (client_id={client_id}): {e}")
+            logger.debug(f"Health check failed for {name} (client_id={client_id}): {e}")
             return False
+
+    async def _quick_network_check(self, url: str) -> bool:
+        """快速网络连通性检查"""
+        try:
+            import aiohttp
+            from urllib.parse import urlparse
+
+            parsed = urlparse(url)
+            if not parsed.hostname:
+                return True  # 无法解析主机名，跳过检查
+
+            # 简单的TCP连接检查
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(parsed.hostname, parsed.port or 80),
+                    timeout=1.0  # 1秒超时
+                )
+                writer.close()
+                await writer.wait_closed()
+                return True
+            except Exception:
+                return False
+
+        except ImportError:
+            # 如果没有aiohttp，跳过网络检查
+            return True
+        except Exception:
+            return False
+
+    def _is_network_error(self, error: Exception) -> bool:
+        """判断是否是网络相关错误"""
+        error_str = str(error).lower()
+        network_error_keywords = [
+            'connection', 'network', 'timeout', 'unreachable',
+            'refused', 'reset', 'dns', 'resolve', 'socket'
+        ]
+        return any(keyword in error_str for keyword in network_error_keywords)
+
+    def _normalize_service_config(self, service_config: Dict[str, Any]) -> Dict[str, Any]:
+        """规范化服务配置，确保包含必要的字段"""
+        if not service_config:
+            return service_config
+
+        # 创建配置副本
+        normalized = service_config.copy()
+
+        # 自动推断transport类型（如果未指定）
+        if "url" in normalized and "transport" not in normalized:
+            url = normalized["url"]
+            if "/sse" in url.lower():
+                normalized["transport"] = "sse"
+            else:
+                normalized["transport"] = "streamable-http"
+            logger.debug(f"Auto-inferred transport type: {normalized['transport']} for URL: {url}")
+
+        return normalized
 
     # async def process_unified_query(
     #     self,
@@ -330,8 +555,10 @@ class MCPOrchestrator:
                             continue
                             
                         logger.debug(f"Creating new client for service {service_name} with config: {service_config}")
+                        # 确保配置包含transport字段（自动推断）
+                        normalized_config = self._normalize_service_config(service_config)
                         # 创建新的客户端实例
-                        client = Client({"mcpServers": {service_name: service_config}})
+                        client = Client({"mcpServers": {service_name: normalized_config}})
                         try:
                             async with client:
                                 logger.debug(f"Client connected: {client.is_connected()}")
@@ -377,8 +604,10 @@ class MCPOrchestrator:
                             continue
                             
                         logger.debug(f"Creating new client for service {service_name} with config: {service_config}")
+                        # 确保配置包含transport字段（自动推断）
+                        normalized_config = self._normalize_service_config(service_config)
                         # 创建新的客户端实例
-                        client = Client({"mcpServers": {service_name: service_config}})
+                        client = Client({"mcpServers": {service_name: normalized_config}})
                         try:
                             async with client:
                                 logger.debug(f"Client connected: {client.is_connected()}")
@@ -419,20 +648,23 @@ class MCPOrchestrator:
         # 清理会话
         self.session_manager.cleanup_expired_sessions()
 
-        # 停止监控任务
-        if self.heartbeat_task and not self.heartbeat_task.done():
-            self.heartbeat_task.cancel()
-            try:
-                await self.heartbeat_task
-            except asyncio.CancelledError:
-                pass
+        # 停止所有监控任务
+        tasks_to_cancel = [
+            ("heartbeat", self.heartbeat_task),
+            ("reconnection", self.reconnection_task),
+            ("cleanup", self.cleanup_task)
+        ]
 
-        if self.reconnection_task and not self.reconnection_task.done():
-            self.reconnection_task.cancel()
-            try:
-                await self.reconnection_task
-            except asyncio.CancelledError:
-                pass
+        for task_name, task in tasks_to_cancel:
+            if task and not task.done():
+                logger.debug(f"Cancelling {task_name} task...")
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    logger.debug(f"{task_name} task cancelled successfully")
+                except Exception as e:
+                    logger.warning(f"Error cancelling {task_name} task: {e}")
 
         # 关闭所有客户端连接
         for name, client in self.clients.items():
@@ -441,8 +673,159 @@ class MCPOrchestrator:
             except Exception as e:
                 logger.error(f"Error closing client {name}: {e}")
 
+        # 清理所有状态
         self.clients.clear()
-        self.pending_reconnection.clear()
+        # 清理智能重连管理器
+        self.smart_reconnection.entries.clear()
+
+        logger.info("MCP Orchestrator cleanup completed")
+
+    async def _restart_monitoring_tasks(self):
+        """重启监控任务以应用新配置"""
+        logger.info("Restarting monitoring tasks with new configuration...")
+
+        # 停止现有任务
+        tasks_to_stop = [
+            ("heartbeat", self.heartbeat_task),
+            ("reconnection", self.reconnection_task),
+            ("cleanup", self.cleanup_task)
+        ]
+
+        for task_name, task in tasks_to_stop:
+            if task and not task.done():
+                logger.debug(f"Stopping {task_name} task...")
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    logger.debug(f"{task_name} task stopped successfully")
+                except Exception as e:
+                    logger.warning(f"Error stopping {task_name} task: {e}")
+
+        # 重新启动监控
+        await self.start_monitoring()
+        logger.info("Monitoring tasks restarted successfully")
+
+    def _validate_configuration(self) -> bool:
+        """验证配置完整性"""
+        try:
+            # 检查基本配置
+            if not hasattr(self, 'mcp_config') or self.mcp_config is None:
+                logger.error("MCP configuration is missing")
+                return False
+
+            # 检查时间间隔配置
+            if self.heartbeat_interval.total_seconds() <= 0:
+                logger.error("Invalid heartbeat interval")
+                return False
+
+            if self.reconnection_interval.total_seconds() <= 0:
+                logger.error("Invalid reconnection interval")
+                return False
+
+            if self.cleanup_interval.total_seconds() <= 0:
+                logger.error("Invalid cleanup interval")
+                return False
+
+            # 检查客户端管理器
+            if not hasattr(self, 'client_manager') or self.client_manager is None:
+                logger.error("Client manager is missing")
+                return False
+
+            # 检查注册表
+            if not hasattr(self, 'registry') or self.registry is None:
+                logger.error("Service registry is missing")
+                return False
+
+            # 检查智能重连管理器
+            if not hasattr(self, 'smart_reconnection') or self.smart_reconnection is None:
+                logger.error("Smart reconnection manager is missing")
+                return False
+
+            logger.debug("Configuration validation passed")
+            return True
+
+        except Exception as e:
+            logger.error(f"Configuration validation failed: {e}")
+            return False
+
+    async def _heartbeat_loop_with_error_handling(self):
+        """带错误处理的心跳循环"""
+        consecutive_failures = 0
+        max_consecutive_failures = 5
+
+        while True:
+            try:
+                await asyncio.sleep(self.heartbeat_interval.total_seconds())
+                await self._check_services_health()
+                consecutive_failures = 0  # 重置失败计数
+
+            except asyncio.CancelledError:
+                logger.info("Heartbeat loop cancelled")
+                break
+            except Exception as e:
+                consecutive_failures += 1
+                logger.error(f"Heartbeat loop error (failure {consecutive_failures}/{max_consecutive_failures}): {e}")
+
+                if consecutive_failures >= max_consecutive_failures:
+                    logger.critical("Too many consecutive heartbeat failures, stopping heartbeat loop")
+                    break
+
+                # 指数退避延迟
+                backoff_delay = min(60 * (2 ** consecutive_failures), 300)  # 最大5分钟
+                await asyncio.sleep(backoff_delay)
+
+    async def _reconnection_loop_with_error_handling(self):
+        """带错误处理的重连循环"""
+        consecutive_failures = 0
+        max_consecutive_failures = 5
+
+        while True:
+            try:
+                await asyncio.sleep(self.reconnection_interval.total_seconds())
+                await self._attempt_reconnections()
+                consecutive_failures = 0  # 重置失败计数
+
+            except asyncio.CancelledError:
+                logger.info("Reconnection loop cancelled")
+                break
+            except Exception as e:
+                consecutive_failures += 1
+                logger.error(f"Reconnection loop error (failure {consecutive_failures}/{max_consecutive_failures}): {e}")
+
+                if consecutive_failures >= max_consecutive_failures:
+                    logger.critical("Too many consecutive reconnection failures, stopping reconnection loop")
+                    break
+
+                # 指数退避延迟
+                backoff_delay = min(60 * (2 ** consecutive_failures), 300)  # 最大5分钟
+                await asyncio.sleep(backoff_delay)
+
+    async def _cleanup_loop_with_error_handling(self):
+        """带错误处理的清理循环"""
+        consecutive_failures = 0
+        max_consecutive_failures = 3
+
+        while True:
+            try:
+                await asyncio.sleep(self.cleanup_interval.total_seconds())
+                await self._perform_cleanup()
+                consecutive_failures = 0  # 重置失败计数
+
+            except asyncio.CancelledError:
+                logger.info("Cleanup loop cancelled")
+                break
+            except Exception as e:
+                consecutive_failures += 1
+                logger.error(f"Cleanup loop error (failure {consecutive_failures}/{max_consecutive_failures}): {e}")
+
+                if consecutive_failures >= max_consecutive_failures:
+                    logger.critical("Too many consecutive cleanup failures, stopping cleanup loop")
+                    break
+
+                # 较长的退避延迟（清理不那么关键）
+                backoff_delay = min(300 * (2 ** consecutive_failures), 1800)  # 最大30分钟
+                await asyncio.sleep(backoff_delay)
 
     async def register_agent_client(self, agent_id: str, config: Optional[Dict[str, Any]] = None) -> Client:
         """
@@ -496,8 +879,10 @@ class MCPOrchestrator:
                     logger.warning(f"Service configuration not found for {name}")
                     continue
 
+                # 确保配置包含transport字段（自动推断）
+                normalized_config = self._normalize_service_config(service_config)
                 # 创建新的客户端实例
-                client = Client({"mcpServers": {name: service_config}})
+                client = Client({"mcpServers": {name: normalized_config}})
                 
                 try:
                     # 使用超时控制的异步上下文管理器

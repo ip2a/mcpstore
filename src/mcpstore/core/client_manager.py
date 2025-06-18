@@ -152,18 +152,12 @@ class ClientManager:
     def get_agent_clients(self, agent_id: str) -> List[str]:
         """
         获取指定 agent 下的所有 client_id
-        如果是 main_client，返回所有 client_id
         """
-        if agent_id == self.main_client_id:
-            return list(self.get_all_clients().keys())
         data = self.load_all_agent_clients()
         return data.get(agent_id, [])
 
     def add_agent_client_mapping(self, agent_id: str, client_id: str):
         """添加agent-client映射"""
-        if agent_id == self.main_client_id:
-            logger.debug("Skipping mapping for main_client as it's handled automatically")
-            return
         data = self.load_all_agent_clients()
         if agent_id not in data:
             data[agent_id] = [client_id]
@@ -174,9 +168,6 @@ class ClientManager:
 
     def remove_agent_client_mapping(self, agent_id: str, client_id: str):
         """移除agent-client映射"""
-        if agent_id == self.main_client_id:
-            logger.warning("Cannot remove mapping for main_client")
-            return
         data = self.load_all_agent_clients()
         if agent_id in data and client_id in data[agent_id]:
             data[agent_id].remove(client_id)
@@ -191,4 +182,41 @@ class ClientManager:
 
     def is_valid_client(self, client_id: str) -> bool:
         """检查是否是有效的 client_id"""
-        return self.has_client(client_id) 
+        return self.has_client(client_id)
+
+    def reset_agent_config(self, agent_id: str) -> bool:
+        """
+        重置指定Agent的配置
+        1. 删除该Agent的所有client配置
+        2. 删除agent-client映射
+
+        Args:
+            agent_id: 要重置的Agent ID
+
+        Returns:
+            是否成功重置
+        """
+        try:
+            # 获取该Agent的所有client_id
+            client_ids = self.get_agent_clients(agent_id)
+
+            # 删除所有client配置
+            for client_id in client_ids:
+                self.remove_client(client_id)
+                logger.info(f"Removed client {client_id} for agent {agent_id}")
+
+            # 删除agent-client映射
+            data = self.load_all_agent_clients()
+            if agent_id in data:
+                del data[agent_id]
+                self.save_all_agent_clients(data)
+                logger.info(f"Removed agent-client mapping for agent {agent_id}")
+
+            logger.info(f"Successfully reset config for agent {agent_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to reset config for agent {agent_id}: {e}")
+            return False
+
+

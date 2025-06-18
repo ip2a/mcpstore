@@ -405,37 +405,51 @@ class MCPStore:
 
     async def get_service_info(self, name: str, agent_id: Optional[str] = None) -> ServiceInfoResponse:
         """
-        获取服务详细信息：
-        - 未传 agent_id：在 main_client 下所有 client_id 中查找服务
-        - 传 agent_id：在该 agent_id 下所有 client_id 中查找服务
+        获取服务详细信息（严格按上下文隔离）：
+        - 未传 agent_id：仅在 main_client 下所有 client_id 中查找服务
+        - 传 agent_id：仅在该 agent_id 下所有 client_id 中查找服务
+
+        优先级：按client_id顺序返回第一个匹配的服务
         """
         from mcpstore.core.client_manager import ClientManager
         client_manager: ClientManager = self.client_manager
 
-        # 获取要查找的 client_ids
+        # 严格按上下文获取要查找的 client_ids
         if not agent_id:
+            # Store上下文：只查找main_client下的服务
             client_ids = client_manager.get_agent_clients(self.client_manager.main_client_id)
+            context_type = "store"
         else:
+            # Agent上下文：只查找指定agent下的服务
             client_ids = client_manager.get_agent_clients(agent_id)
+            context_type = f"agent({agent_id})"
 
-        # 在所有相关的 client 中查找服务
+        if not client_ids:
+            self.logger.debug(f"No clients found for {context_type} context")
+            return ServiceInfoResponse(service=None, tools=[], connected=False)
+
+        self.logger.debug(f"Searching for service '{name}' in {context_type} context, clients: {client_ids}")
+
+        # 按优先级在相关的 client 中查找服务（返回第一个匹配的）
         for client_id in client_ids:
             if self.registry.has_service(client_id, name):
+                self.logger.debug(f"Found service '{name}' in client '{client_id}' for {context_type}")
+
                 # 获取服务配置
                 config = self.config.get_service_config(name) or {}
                 service_tools = self.registry.get_tools_for_service(client_id, name)
-                
+
                 # 获取工具详细信息
                 detailed_tools = []
                 for tool_name in service_tools:
                     tool_info = self.registry._get_detailed_tool_info(client_id, tool_name)
                     if tool_info:
                         detailed_tools.append(tool_info)
-                
+
                 # 获取服务健康状态
                 is_healthy = await self.orchestrator.is_service_healthy(name, client_id)
-                
-                # 构建服务信息
+
+                # 构建服务信息（包含client_id用于调试）
                 service_info = ServiceInfo(
                     url=config.get("url", ""),
                     name=name,
@@ -450,13 +464,14 @@ class MCPStore:
                     args=config.get("args"),
                     package_name=config.get("package_name")
                 )
-                
+
                 return ServiceInfoResponse(
                     service=service_info,
                     tools=detailed_tools,
                     connected=True
                 )
 
+        self.logger.debug(f"Service '{name}' not found in any client for {context_type}")
         return ServiceInfoResponse(
             service=None,
             tools=[],

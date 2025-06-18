@@ -194,7 +194,19 @@ class MCPConfig:
         current_config = self.load_config()
         current_config["mcpServers"][name] = config
         return self.save_config(current_config)
-    
+
+    def update_service_config(self, name: str, config: Dict[str, Any]) -> bool:
+        """Update service configuration (alias for update_service)
+
+        Args:
+            name: Service name
+            config: Service configuration
+
+        Returns:
+            bool: True if update was successful
+        """
+        return self.update_service(name, config)
+
     def remove_service(self, name: str) -> bool:
         """Remove a service configuration
         
@@ -234,4 +246,61 @@ class MCPConfig:
             "added": list(added),
             "removed": list(removed),
             "modified": list(modified)
-        } 
+        }
+
+    def reset_json_config(self) -> bool:
+        """
+        重置JSON配置文件
+        1. 备份当前配置文件
+        2. 将配置重置为空字典
+
+        Returns:
+            是否成功重置
+        """
+        try:
+            import shutil
+            from datetime import datetime
+
+            # 创建备份
+            backup_path = f"{self.json_path}.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            shutil.copy2(self.json_path, backup_path)
+            logger.info(f"Created backup at {backup_path}")
+
+            # 重置为空配置
+            empty_config = {"mcpServers": {}}
+            self.save_config(empty_config)
+
+            logger.info("Successfully reset JSON configuration to empty")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to reset JSON configuration: {e}")
+            return False
+
+    def restore_default_config(self) -> bool:
+        """
+        恢复默认配置（高德和天气服务）
+
+        Returns:
+            是否成功恢复
+        """
+        try:
+            default_config = {
+                "mcpServers": {
+                    "高德": {
+                        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
+                        "transport": "sse"
+                    },
+                    "天气服务": {
+                        "url": "http://127.0.0.1:8000/mcp"
+                    }
+                }
+            }
+
+            self.save_config(default_config)
+            logger.info("Successfully restored default configuration")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to restore default configuration: {e}")
+            return False

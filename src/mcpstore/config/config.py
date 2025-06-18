@@ -8,13 +8,13 @@ from typing import Dict, Any
 logger = logging.getLogger(__name__)
 
 # --- Configuration Constants (default values) ---
-HEARTBEAT_INTERVAL_SECONDS = 60
-HEARTBEAT_TIMEOUT_SECONDS = 180
-HTTP_TIMEOUT_SECONDS = 10
-RECONNECTION_INTERVAL_SECONDS = 60
-REACT_MAX_ITERATIONS = 5
-REACT_ENABLE_TRACE = False
-STREAMABLE_HTTP_ENDPOINT = "/mcp"
+# 核心监控配置
+HEARTBEAT_INTERVAL_SECONDS = 60  # 心跳检查间隔（秒）
+HTTP_TIMEOUT_SECONDS = 10        # HTTP请求超时（秒）
+RECONNECTION_INTERVAL_SECONDS = 60  # 重连尝试间隔（秒）
+
+# HTTP端点配置
+STREAMABLE_HTTP_ENDPOINT = "/mcp"  # 流式HTTP端点路径
 
 # @dataclass
 # class LLMConfig:
@@ -51,12 +51,12 @@ def _get_env_bool(var: str, default: bool) -> bool:
 def load_app_config() -> Dict[str, Any]:
     """从环境变量加载全局配置"""
     config_data = {
+        # 核心监控配置
         "heartbeat_interval": _get_env_int("HEARTBEAT_INTERVAL_SECONDS", HEARTBEAT_INTERVAL_SECONDS),
-        "heartbeat_timeout": _get_env_int("HEARTBEAT_TIMEOUT_SECONDS", HEARTBEAT_TIMEOUT_SECONDS),
         "http_timeout": _get_env_int("HTTP_TIMEOUT_SECONDS", HTTP_TIMEOUT_SECONDS),
         "reconnection_interval": _get_env_int("RECONNECTION_INTERVAL_SECONDS", RECONNECTION_INTERVAL_SECONDS),
-        "react_max_iterations": _get_env_int("REACT_MAX_ITERATIONS", REACT_MAX_ITERATIONS),
-        "react_enable_trace": _get_env_bool("REACT_ENABLE_TRACE", REACT_ENABLE_TRACE),
+
+        # HTTP端点配置
         "streamable_http_endpoint": os.environ.get("STREAMABLE_HTTP_ENDPOINT", STREAMABLE_HTTP_ENDPOINT),
     }
     # 加载LLM配置

@@ -97,9 +97,9 @@ class MCPStoreContext:
             MCPStoreContext: 返回自身实例以支持链式调用
         """
         try:
-            # 获取正确的 client_id
-            client_id = self._agent_id if self._context_type == ContextType.AGENT else self._store.client_manager.main_client_id
-            print(f"[INFO][add_service] 当前模式: {self._context_type.name}, client_id: {client_id}")
+            # 获取正确的 agent_id（Store级别使用main_client作为agent_id）
+            agent_id = self._agent_id if self._context_type == ContextType.AGENT else self._store.orchestrator.client_manager.main_client_id
+            print(f"[INFO][add_service] 当前模式: {self._context_type.name}, agent_id: {agent_id}")
             
             # 处理不同的输入格式
             if config is None:
@@ -121,7 +121,7 @@ class MCPStoreContext:
                     
                 print(f"[INFO][add_service] 注册指定服务: {config}")
                 resp = await self._store.register_json_service(
-                    client_id=client_id,
+                    client_id=agent_id,
                     service_names=config
                 )
                 print(f"[INFO][add_service] 注册结果: {resp}")
@@ -165,7 +165,7 @@ class MCPStoreContext:
                     service_names = list(mcp_config["mcpServers"].keys())
                     print(f"[INFO][add_service] 注册服务: {service_names}")
                     resp = await self._store.register_json_service(
-                        client_id=client_id,
+                        client_id=agent_id,
                         service_names=service_names
                     )
                     print(f"[INFO][add_service] 注册结果: {resp}")
@@ -280,9 +280,8 @@ class MCPStoreContext:
             Dict[str, Any]: 包含所有相关client配置的字典
         """
         # 获取所有相关的client_ids
-        client_ids = self._store.orchestrator.client_manager.get_agent_clients(
-            self._agent_id if self._context_type == ContextType.AGENT else self._store.orchestrator.client_manager.main_client_id
-        )
+        agent_id = self._agent_id if self._context_type == ContextType.AGENT else self._store.orchestrator.client_manager.main_client_id
+        client_ids = self._store.orchestrator.client_manager.get_agent_clients(agent_id)
         
         # 获取每个client的配置
         result = {}
@@ -394,6 +393,269 @@ class MCPStoreContext:
         """返回LangChain适配器实例"""
         from mcpstore.adapters.langchain_adapter import LangChainAdapter
         return LangChainAdapter(self)
+
+    async def reset_config(self) -> bool:
+        """
+        重置配置
+        - Store级别：重置main_client的所有配置
+        - Agent级别：重置指定Agent的所有配置和映射
+
+        Returns:
+            是否成功重置
+        """
+        try:
+            if self._agent_id is None:
+                # Store级别重置 - 使用main_client作为agent_id
+                main_client_id = self._store.orchestrator.client_manager.main_client_id
+                success = self._store.orchestrator.client_manager.reset_agent_config(main_client_id)
+                if success:
+                    # 清理registry中的store级别数据
+                    if main_client_id in self._store.orchestrator.registry.sessions:
+                        del self._store.orchestrator.registry.sessions[main_client_id]
+                    if main_client_id in self._store.orchestrator.registry.service_health:
+                        del self._store.orchestrator.registry.service_health[main_client_id]
+                    if main_client_id in self._store.orchestrator.registry.tool_cache:
+                        del self._store.orchestrator.registry.tool_cache[main_client_id]
+                    if main_client_id in self._store.orchestrator.registry.tool_to_session_map:
+                        del self._store.orchestrator.registry.tool_to_session_map[main_client_id]
+
+                    # 清理重连队列中与该client相关的条目
+                    self._cleanup_reconnection_queue_for_client(main_client_id)
+
+                    logging.info("Successfully reset store config and registry")
+                return success
+            else:
+                # Agent级别重置
+                success = self._store.orchestrator.client_manager.reset_agent_config(self._agent_id)
+                if success:
+                    # 清理registry中的agent级别数据
+                    if self._agent_id in self._store.orchestrator.registry.sessions:
+                        del self._store.orchestrator.registry.sessions[self._agent_id]
+                    if self._agent_id in self._store.orchestrator.registry.service_health:
+                        del self._store.orchestrator.registry.service_health[self._agent_id]
+                    if self._agent_id in self._store.orchestrator.registry.tool_cache:
+                        del self._store.orchestrator.registry.tool_cache[self._agent_id]
+                    if self._agent_id in self._store.orchestrator.registry.tool_to_session_map:
+                        del self._store.orchestrator.registry.tool_to_session_map[self._agent_id]
+
+                    # 清理重连队列中与该agent相关的条目
+                    agent_clients = self._store.orchestrator.client_manager.get_agent_clients(self._agent_id)
+                    for client_id in agent_clients:
+                        self._cleanup_reconnection_queue_for_client(client_id)
+
+                    logging.info(f"Successfully reset agent {self._agent_id} config and registry")
+                return success
+
+        except Exception as e:
+            logging.error(f"Failed to reset config: {str(e)}")
+            return False
+
+    def _cleanup_reconnection_queue_for_client(self, client_id: str):
+        """清理重连队列中与指定client相关的条目"""
+        try:
+            # 查找所有与该client相关的重连条目
+            entries_to_remove = []
+            for service_key in self._store.orchestrator.smart_reconnection.entries:
+                if service_key.startswith(f"{client_id}:"):
+                    entries_to_remove.append(service_key)
+
+            # 移除这些条目
+            for entry in entries_to_remove:
+                self._store.orchestrator.smart_reconnection.remove_service(entry)
+
+            if entries_to_remove:
+                logging.info(f"Cleaned up {len(entries_to_remove)} reconnection queue entries for client {client_id}")
+
+        except Exception as e:
+            logging.warning(f"Failed to cleanup reconnection queue for client {client_id}: {e}")
+
+    def show_mcpconfig(self) -> dict:
+        """显示MCP配置"""
+        try:
+            config = self._store.config.load_config()
+            # 确保返回格式正确
+            if isinstance(config, dict) and 'mcpServers' in config:
+                return config
+            else:
+                logging.warning("Invalid MCP config format")
+                return {"mcpServers": {}}
+        except Exception as e:
+            logging.error(f"Failed to show MCP config: {e}")
+            return {"mcpServers": {}}
+
+    async def get_service_status(self, name: str) -> dict:
+        """获取单个服务的状态信息"""
+        try:
+            service_info = await self.get_service_info(name)
+            if hasattr(service_info, 'service') and service_info.service:
+                return {
+                    "name": service_info.service.name,
+                    "status": service_info.service.status,
+                    "connected": service_info.connected,
+                    "tool_count": service_info.service.tool_count,
+                    "last_heartbeat": service_info.service.last_heartbeat,
+                    "transport_type": service_info.service.transport_type
+                }
+            else:
+                return {
+                    "name": name,
+                    "status": "not_found",
+                    "connected": False,
+                    "tool_count": 0,
+                    "last_heartbeat": None,
+                    "transport_type": None
+                }
+        except Exception as e:
+            logging.error(f"Failed to get service status for {name}: {e}")
+            return {
+                "name": name,
+                "status": "error",
+                "connected": False,
+                "error": str(e)
+            }
+
+    async def restart_service(self, name: str) -> bool:
+        """重启指定服务"""
+        try:
+            # 首先验证服务是否存在
+            service_info = await self.get_service_info(name)
+            if not (hasattr(service_info, 'service') and service_info.service):
+                logging.error(f"Service {name} not found in registry")
+                return False
+
+            # 获取服务配置
+            service_config = self._store.config.get_service_config(name)
+            if not service_config:
+                logging.error(f"Service config not found for {name} in mcp.json")
+                # 尝试从当前运行的服务中获取配置信息
+                logging.info(f"Attempting to restart service {name} without config reload")
+                # 简单的重连尝试
+                try:
+                    # 获取当前上下文的client_id
+                    agent_id = self._agent_id if self._context_type == ContextType.AGENT else self._store.orchestrator.client_manager.main_client_id
+                    client_ids = self._store.orchestrator.client_manager.get_agent_clients(agent_id)
+
+                    for client_id in client_ids:
+                        if self._store.orchestrator.registry.has_service(client_id, name):
+                            # 尝试重新连接服务
+                            success, message = await self._store.orchestrator.connect_service(name)
+                            if success:
+                                logging.info(f"Service {name} reconnected successfully")
+                                return True
+
+                    logging.error(f"Failed to reconnect service {name}")
+                    return False
+                except Exception as e:
+                    logging.error(f"Failed to reconnect service {name}: {e}")
+                    return False
+
+            # 先删除服务
+            delete_success = await self.delete_service(name)
+            if not delete_success:
+                logging.warning(f"Failed to delete service {name} during restart, attempting to continue")
+
+            # 等待一小段时间确保服务完全停止
+            import asyncio
+            await asyncio.sleep(1)
+
+            # 构造添加服务的配置
+            add_config = {
+                "name": name,
+                **service_config
+            }
+
+            # 重新添加服务
+            await self.add_service(add_config)
+            logging.info(f"Service {name} restarted successfully")
+            return True
+
+        except Exception as e:
+            logging.error(f"Failed to restart service {name}: {e}")
+            return False
+
+    async def update_service(self, name: str, config: dict) -> bool:
+        """更新服务配置"""
+        try:
+            # 验证服务是否存在
+            service_info = await self.get_service_info(name)
+            if not (hasattr(service_info, 'service') and service_info.service):
+                logging.error(f"Service {name} not found")
+                return False
+
+            # 更新配置文件
+            current_config = self._store.config.get_service_config(name) or {}
+            updated_config = {**current_config, **config}
+
+            # 移除name字段（如果存在）因为它是key
+            if 'name' in updated_config:
+                del updated_config['name']
+
+            # 更新到配置文件
+            success = self._store.config.update_service_config(name, updated_config)
+            if not success:
+                logging.error(f"Failed to update config for service {name}")
+                return False
+
+            # 重启服务以应用新配置
+            restart_success = await self.restart_service(name)
+            if restart_success:
+                logging.info(f"Service {name} updated and restarted successfully")
+                return True
+            else:
+                logging.warning(f"Service {name} config updated but restart failed")
+                return False
+
+        except Exception as e:
+            logging.error(f"Failed to update service {name}: {e}")
+            return False
+
+    async def reset_json_config(self) -> bool:
+        """
+        重置JSON配置文件（仅Store级别可用）
+        将mcp.json备份后重置为空字典
+
+        Returns:
+            是否成功重置
+        """
+        if self._agent_id is not None:
+            logging.warning("reset_json_config is only available for store level")
+            return False
+
+        try:
+            success = self._store.config.reset_json_config()
+            if success:
+                # 重置后需要重新加载配置
+                await self._store.orchestrator.setup()
+                logging.info("Successfully reset JSON config and reloaded")
+            return success
+
+        except Exception as e:
+            logging.error(f"Failed to reset JSON config: {str(e)}")
+            return False
+
+    async def restore_default_config(self) -> bool:
+        """
+        恢复默认配置（仅Store级别可用）
+        恢复高德和天气服务的默认配置
+
+        Returns:
+            是否成功恢复
+        """
+        if self._agent_id is not None:
+            logging.warning("restore_default_config is only available for store level")
+            return False
+
+        try:
+            success = self._store.config.restore_default_config()
+            if success:
+                # 恢复后需要重新加载配置
+                await self._store.orchestrator.setup()
+                logging.info("Successfully restored default config and reloaded")
+            return success
+
+        except Exception as e:
+            logging.error(f"Failed to restore default config: {str(e)}")
+            return False
 
     def get_unified_config(self) -> 'UnifiedConfigManager':
         """获取统一配置管理器
