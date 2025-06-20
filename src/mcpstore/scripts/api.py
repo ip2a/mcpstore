@@ -1611,3 +1611,141 @@ async def restart_monitoring():
             data={},
             message=f"Failed to restart monitoring: {str(e)}"
         )
+
+# === 批量操作API ===
+@router.post("/for_store/batch_update_services", response_model=APIResponse)
+@handle_exceptions
+async def store_batch_update_services(request: Dict[str, List[Dict]]):
+    """Store级别批量更新服务配置"""
+    services = request.get("services", [])
+    if not services:
+        raise HTTPException(status_code=400, detail="Services list is required")
+
+    try:
+        context = store.for_store()
+        results = []
+
+        for service_config in services:
+            service_name = service_config.get("name")
+            if not service_name:
+                results.append({"name": "unknown", "success": False, "error": "Service name is required"})
+                continue
+
+            try:
+                # 更新服务配置
+                result = await context.update_service(service_name, service_config)
+                results.append({"name": service_name, "success": True, "result": result})
+            except Exception as e:
+                results.append({"name": service_name, "success": False, "error": str(e)})
+
+        success_count = sum(1 for r in results if r["success"])
+        total_count = len(results)
+
+        return APIResponse(
+            success=success_count > 0,
+            data={
+                "results": results,
+                "summary": {
+                    "total": total_count,
+                    "success": success_count,
+                    "failed": total_count - success_count
+                }
+            },
+            message=f"Batch update completed: {success_count}/{total_count} services updated successfully"
+        )
+    except Exception as e:
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Batch update failed: {str(e)}"
+        )
+
+@router.post("/for_store/batch_restart_services", response_model=APIResponse)
+@handle_exceptions
+async def store_batch_restart_services(request: Dict[str, List[str]]):
+    """Store级别批量重启服务"""
+    service_names = request.get("service_names", [])
+    if not service_names:
+        raise HTTPException(status_code=400, detail="Service names list is required")
+
+    try:
+        context = store.for_store()
+        results = []
+
+        for service_name in service_names:
+            try:
+                # 重启服务
+                result = await context.restart_service(service_name)
+                results.append({"name": service_name, "success": True, "result": result})
+            except Exception as e:
+                results.append({"name": service_name, "success": False, "error": str(e)})
+
+        success_count = sum(1 for r in results if r["success"])
+        total_count = len(results)
+
+        return APIResponse(
+            success=success_count > 0,
+            data={
+                "results": results,
+                "summary": {
+                    "total": total_count,
+                    "success": success_count,
+                    "failed": total_count - success_count
+                }
+            },
+            message=f"Batch restart completed: {success_count}/{total_count} services restarted successfully"
+        )
+    except Exception as e:
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Batch restart failed: {str(e)}"
+        )
+
+@router.post("/for_store/batch_delete_services", response_model=APIResponse)
+@handle_exceptions
+async def store_batch_delete_services(request: Dict[str, List[str]]):
+    """Store级别批量删除服务"""
+    service_names = request.get("service_names", [])
+    if not service_names:
+        raise HTTPException(status_code=400, detail="Service names list is required")
+
+    try:
+        context = store.for_store()
+        results = []
+
+        for service_name in service_names:
+            try:
+                # 删除服务
+                result = await context.delete_service(service_name)
+                results.append({"name": service_name, "success": True, "result": result})
+            except Exception as e:
+                results.append({"name": service_name, "success": False, "error": str(e)})
+
+        success_count = sum(1 for r in results if r["success"])
+        total_count = len(results)
+
+        return APIResponse(
+            success=success_count > 0,
+            data={
+                "results": results,
+                "summary": {
+                    "total": total_count,
+                    "success": success_count,
+                    "failed": total_count - success_count
+                }
+            },
+            message=f"Batch delete completed: {success_count}/{total_count} services deleted successfully"
+        )
+    except Exception as e:
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Batch delete failed: {str(e)}"
+        )
+    except Exception as e:
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Failed to restart monitoring: {str(e)}"
+        )

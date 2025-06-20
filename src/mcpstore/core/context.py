@@ -13,6 +13,7 @@ from mcpstore.core.models.service import (
 )
 import logging
 from .exceptions import ServiceNotFoundError, InvalidConfigError, DeleteServiceError
+from .async_sync_helper import get_global_helper
 
 if TYPE_CHECKING:
     from ..adapters.langchain_adapter import LangChainAdapter
@@ -32,7 +33,10 @@ class MCPStoreContext:
         self._store = store
         self._agent_id = agent_id
         self._context_type = ContextType.STORE if agent_id is None else ContextType.AGENT
-        
+
+        # 异步/同步兼容助手
+        self._sync_helper = get_global_helper()
+
         # 扩展预留
         self._metadata: Dict[str, Any] = {}
         self._config: Dict[str, Any] = {}
@@ -44,9 +48,17 @@ class MCPStoreContext:
         return LangChainAdapter(self)
 
     # === 核心服务接口 ===
-    async def list_services(self) -> List[ServiceInfo]:
+    def list_services(self) -> List[ServiceInfo]:
         """
-        列出服务列表
+        列出服务列表（同步版本）
+        - store上下文：聚合 main_client 下所有 client_id 的服务
+        - agent上下文：聚合 agent_id 下所有 client_id 的服务
+        """
+        return self._sync_helper.run_async(self.list_services_async())
+
+    async def list_services_async(self) -> List[ServiceInfo]:
+        """
+        列出服务列表（异步版本）
         - store上下文：聚合 main_client 下所有 client_id 的服务
         - agent上下文：聚合 agent_id 下所有 client_id 的服务
         """
@@ -55,7 +67,17 @@ class MCPStoreContext:
         else:
             return await self._store.list_services(self._agent_id, agent_mode=True)
 
-    async def add_service(self, config: Union[ServiceConfigUnion, List[str], None] = None) -> 'MCPStoreContext':
+    def add_service(self, config: Union[ServiceConfigUnion, List[str], None] = None, json_file: str = None) -> 'MCPStoreContext':
+        """
+        增强版的服务添加方法（同步版本），支持多种配置格式
+
+        Args:
+            config: 服务配置，支持多种格式
+            json_file: JSON文件路径，如果指定则读取该文件作为配置
+        """
+        return self._sync_helper.run_async(self.add_service_async(config, json_file))
+
+    async def add_service_async(self, config: Union[ServiceConfigUnion, List[str], None] = None, json_file: str = None) -> 'MCPStoreContext':
         """
         增强版的服务添加方法，支持多种配置格式：
         1. URL方式：
@@ -64,7 +86,7 @@ class MCPStoreContext:
                "url": "https://weather-api.example.com/mcp",
                "transport": "streamable-http"
            })
-        
+
         2. 本地命令方式：
            await add_service({
                "name": "assistant",
@@ -72,7 +94,7 @@ class MCPStoreContext:
                "args": ["./assistant_server.py"],
                "env": {"DEBUG": "true"}
            })
-        
+
         3. MCPConfig字典方式：
            await add_service({
                "mcpServers": {
@@ -81,21 +103,58 @@ class MCPStoreContext:
                    }
                }
            })
-        
+
         4. 服务名称列表方式（从现有配置中选择）：
            await add_service(['weather', 'assistant'])
-        
+
         5. 无参数方式（仅限Store上下文）：
            await add_service()  # 注册所有服务
-        
+
+        6. JSON文件方式：
+           await add_service(json_file="path/to/config.json")  # 读取JSON文件作为配置
+
         所有新添加的服务都会同步到 mcp.json 配置文件中。
-        
+
         Args:
             config: 服务配置，支持多种格式
-            
+            json_file: JSON文件路径，如果指定则读取该文件作为配置
+
         Returns:
             MCPStoreContext: 返回自身实例以支持链式调用
         """
+        try:
+            # 处理json_file参数
+            if json_file is not None:
+                print(f"[INFO][add_service] 从JSON文件读取配置: {json_file}")
+                try:
+                    import json
+                    import os
+
+                    if not os.path.exists(json_file):
+                        raise Exception(f"JSON文件不存在: {json_file}")
+
+                    with open(json_file, 'r', encoding='utf-8') as f:
+                        file_config = json.load(f)
+
+                    print(f"[INFO][add_service] 成功读取JSON文件，配置: {file_config}")
+
+                    # 如果同时指定了config和json_file，优先使用json_file
+                    if config is not None:
+                        print("[WARN][add_service] 同时指定了config和json_file参数，将使用json_file")
+
+                    config = file_config
+
+                except Exception as e:
+                    raise Exception(f"读取JSON文件失败: {e}")
+
+            # 如果既没有config也没有json_file，且不是Store模式的全量注册，则报错
+            if config is None and json_file is None and self._context_type != ContextType.STORE:
+                raise Exception("必须指定config参数或json_file参数")
+
+        except Exception as e:
+            print(f"[ERROR][add_service] 参数处理失败: {e}")
+            raise
+
         try:
             # 获取正确的 agent_id（Store级别使用main_client作为agent_id）
             agent_id = self._agent_id if self._context_type == ContextType.AGENT else self._store.orchestrator.client_manager.main_client_id
@@ -146,32 +205,56 @@ class MCPStoreContext:
                         }
                     }
                 
-                # 更新配置文件
+                # 更新配置文件和处理同名服务
                 try:
                     # 1. 加载现有配置
                     current_config = self._store.config.load_config()
-                    
-                    # 2. 合并新配置
+
+                    # 2. 合并新配置到mcp.json
                     for name, service_config in mcp_config["mcpServers"].items():
                         current_config["mcpServers"][name] = service_config
-                    
+
                     # 3. 保存更新后的配置
                     self._store.config.save_config(current_config)
-                    
+
                     # 4. 重新加载配置以确保同步
                     self._store.config.load_config()
-                    
-                    # 5. 注册服务
-                    service_names = list(mcp_config["mcpServers"].keys())
-                    print(f"[INFO][add_service] 注册服务: {service_names}")
-                    resp = await self._store.register_json_service(
-                        client_id=agent_id,
-                        service_names=service_names
-                    )
-                    print(f"[INFO][add_service] 注册结果: {resp}")
-                    if not (resp and resp.service_names):
-                        raise Exception("服务注册失败")
-                    
+
+                    # 5. 处理同名服务替换（新增逻辑）
+                    created_client_ids = []
+                    for name, service_config in mcp_config["mcpServers"].items():
+                        # 使用新的同名服务处理逻辑
+                        success = self._store.client_manager.replace_service_in_agent(
+                            agent_id=agent_id,
+                            service_name=name,
+                            new_service_config=service_config
+                        )
+                        if not success:
+                            raise Exception(f"替换服务 {name} 失败")
+                        print(f"[INFO][add_service] 成功处理同名服务: {name}")
+
+                        # 获取刚创建的client_id用于Registry注册
+                        client_ids = self._store.client_manager.get_agent_clients(agent_id)
+                        for client_id in client_ids:
+                            client_config = self._store.client_manager.get_client_config(client_id)
+                            if client_config and name in client_config.get("mcpServers", {}):
+                                if client_id not in created_client_ids:
+                                    created_client_ids.append(client_id)
+                                break
+
+                    # 6. 注册服务到Registry（使用已创建的client配置）
+                    print(f"[INFO][add_service] 注册服务到Registry，使用client_ids: {created_client_ids}")
+                    for client_id in created_client_ids:
+                        client_config = self._store.client_manager.get_client_config(client_id)
+                        if client_config:
+                            try:
+                                await self._store.orchestrator.register_json_services(client_config, client_id=client_id)
+                                print(f"[INFO][add_service] 成功注册client {client_id} 到Registry")
+                            except Exception as e:
+                                print(f"[WARN][add_service] 注册client {client_id} 到Registry失败: {e}")
+
+                    print(f"[INFO][add_service] 服务配置更新和Registry注册完成")
+
                 except Exception as e:
                     raise Exception(f"更新配置文件失败: {e}")
             
@@ -184,9 +267,17 @@ class MCPStoreContext:
             print(f"[ERROR][add_service] 服务添加失败: {e}")
             raise
 
-    async def list_tools(self) -> List[ToolInfo]:
+    def list_tools(self) -> List[ToolInfo]:
         """
-        列出工具列表
+        列出工具列表（同步版本）
+        - store上下文：聚合 main_client 下所有 client_id 的工具
+        - agent上下文：聚合 agent_id 下所有 client_id 的工具
+        """
+        return self._sync_helper.run_async(self.list_tools_async())
+
+    async def list_tools_async(self) -> List[ToolInfo]:
+        """
+        列出工具列表（异步版本）
         - store上下文：聚合 main_client 下所有 client_id 的工具
         - agent上下文：聚合 agent_id 下所有 client_id 的工具
         """
@@ -195,7 +286,15 @@ class MCPStoreContext:
         else:
             return await self._store.list_tools(self._agent_id, agent_mode=True)
 
-    async def check_services(self) -> dict:
+    def check_services(self) -> dict:
+        """
+        健康检查（同步版本），store/agent上下文自动判断
+        - store上下文：聚合 main_client 下所有 client_id 的服务健康状态
+        - agent上下文：聚合 agent_id 下所有 client_id 的服务健康状态
+        """
+        return self._sync_helper.run_async(self.check_services_async())
+
+    async def check_services_async(self) -> dict:
         """
         异步健康检查，store/agent上下文自动判断
         - store上下文：聚合 main_client 下所有 client_id 的服务健康状态
@@ -209,15 +308,23 @@ class MCPStoreContext:
             print(f"[ERROR][check_services] 未知上下文类型: {self._context_type}")
             return {}
 
-    async def get_service_info(self, name: str) -> Any:
+    def get_service_info(self, name: str) -> Any:
         """
-        获取服务详情，支持 store/agent 上下文
+        获取服务详情（同步版本），支持 store/agent 上下文
+        - store上下文：在 main_client 下的所有 client 中查找服务
+        - agent上下文：在指定 agent_id 下的所有 client 中查找服务
+        """
+        return self._sync_helper.run_async(self.get_service_info_async(name))
+
+    async def get_service_info_async(self, name: str) -> Any:
+        """
+        获取服务详情（异步版本），支持 store/agent 上下文
         - store上下文：在 main_client 下的所有 client 中查找服务
         - agent上下文：在指定 agent_id 下的所有 client 中查找服务
         """
         if not name:
             return {}
-            
+
         if self._context_type == ContextType.STORE:
             print(f"[INFO][get_service_info] STORE模式-在main_client中查找服务: {name}")
             return await self._store.get_service_info(name)
@@ -228,23 +335,38 @@ class MCPStoreContext:
             print(f"[ERROR][get_service_info] 未知上下文类型: {self._context_type}")
             return {}
 
-    async def use_tool(self, tool_name: str, args: Dict[str, Any]) -> Any:
+    def use_tool(self, tool_name: str, args: Dict[str, Any]) -> Any:
         """
-        使用工具，支持 store/agent 上下文
+        使用工具（同步版本），支持 store/agent 上下文
         - store上下文：在 main_client 下的所有 client 中查找并使用工具
         - agent上下文：在指定 agent_id 下的所有 client 中查找并使用工具
-        
+
         Args:
             tool_name: 工具名称，格式为 service_toolname
             args: 工具参数
-            
+
+        Returns:
+            Any: 工具执行结果
+        """
+        return self._sync_helper.run_async(self.use_tool_async(tool_name, args))
+
+    async def use_tool_async(self, tool_name: str, args: Dict[str, Any]) -> Any:
+        """
+        使用工具（异步版本），支持 store/agent 上下文
+        - store上下文：在 main_client 下的所有 client 中查找并使用工具
+        - agent上下文：在指定 agent_id 下的所有 client 中查找并使用工具
+
+        Args:
+            tool_name: 工具名称，格式为 service_toolname
+            args: 工具参数
+
         Returns:
             Any: 工具执行结果
         """
         # 从工具名称中提取服务名称
         if "_" not in tool_name:
             raise ValueError(f"Invalid tool name format: {tool_name}. Expected format: service_toolname")
-        
+
         if self._context_type == ContextType.STORE:
             print(f"[INFO][use_tool] STORE模式-在main_client中使用工具: {tool_name}")
             request = ToolExecutionRequest(
@@ -258,7 +380,7 @@ class MCPStoreContext:
                 args=args,
                 agent_id=self._agent_id
             )
-            
+
         return await self._store.process_tool_request(request)
 
     # === 上下文信息 ===
@@ -292,7 +414,20 @@ class MCPStoreContext:
                 
         return result 
 
-    async def update_service(self, name: str, config: Dict[str, Any]) -> bool:
+    def update_service(self, name: str, config: Dict[str, Any]) -> bool:
+        """
+        更新服务配置（同步版本）
+
+        Args:
+            name: 服务名称（不可更改）
+            config: 新的服务配置
+
+        Returns:
+            bool: 更新是否成功
+        """
+        return self._sync_helper.run_async(self.update_service_async(name, config))
+
+    async def update_service_async(self, name: str, config: Dict[str, Any]) -> bool:
         """
         更新服务配置
         
@@ -337,7 +472,19 @@ class MCPStoreContext:
             logging.error(f"Failed to update service {name}: {str(e)}")
             raise
 
-    async def delete_service(self, name: str) -> bool:
+    def delete_service(self, name: str) -> bool:
+        """
+        删除服务（同步版本）
+
+        Args:
+            name: 要删除的服务名称
+
+        Returns:
+            bool: 删除是否成功
+        """
+        return self._sync_helper.run_async(self.delete_service_async(name))
+
+    async def delete_service_async(self, name: str) -> bool:
         """
         删除服务
         

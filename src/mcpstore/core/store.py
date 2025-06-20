@@ -48,8 +48,17 @@ class MCPStore:
         return MCPStoreContext(self)
 
     @staticmethod
-    def setup_store():
-        config = MCPConfig()
+    def setup_store(mcp_config_file: str = None):
+        """
+        初始化MCPStore实例
+
+        Args:
+            mcp_config_file: 自定义mcp.json配置文件路径，如果不指定则使用默认路径
+
+        Returns:
+            MCPStore实例
+        """
+        config = MCPConfig(json_path=mcp_config_file)
         registry = ServiceRegistry()
         orchestrator = MCPOrchestrator(config.load_config(), registry)
         return MCPStore(orchestrator, config)

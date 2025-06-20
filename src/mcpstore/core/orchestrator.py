@@ -16,6 +16,7 @@ from urllib.parse import urljoin
 
 from mcpstore.core.registry import ServiceRegistry
 from mcpstore.core.client_manager import ClientManager
+from mcpstore.core.config_processor import ConfigProcessor
 from fastmcp import Client
 from fastmcp.client.transports import (
     MCPConfigTransport,
@@ -408,11 +409,13 @@ class MCPOrchestrator:
                     logger.debug(f"Quick network check failed for {name}")
                     return False
 
-            # 确保配置包含transport字段（自动推断）
-            normalized_config = self._normalize_service_config(service_config)
+            # 使用ConfigProcessor处理配置，确保FastMCP兼容性
+            user_config = {"mcpServers": {name: service_config}}
+            fastmcp_config = ConfigProcessor.process_user_config_for_fastmcp(user_config)
+            logger.debug(f"Health check config processed for {name}: {fastmcp_config}")
 
             # 创建新的客户端实例
-            client = Client({"mcpServers": {name: normalized_config}})
+            client = Client(fastmcp_config)
 
             try:
                 # 使用更短的超时时间，快速失败
@@ -950,9 +953,14 @@ class MCPOrchestrator:
                     for name in healthy_services
                 }
             }
-            
-            # 使用健康的配置创建客户端
-            client = Client(healthy_config)
+
+            # 使用ConfigProcessor处理配置，确保FastMCP兼容性
+            logger.debug(f"Processing config for FastMCP compatibility: {list(healthy_config['mcpServers'].keys())}")
+            fastmcp_config = ConfigProcessor.process_user_config_for_fastmcp(healthy_config)
+            logger.debug(f"Config processed for FastMCP: {fastmcp_config}")
+
+            # 使用处理后的配置创建客户端
+            client = Client(fastmcp_config)
 
             try:
                 async with client:

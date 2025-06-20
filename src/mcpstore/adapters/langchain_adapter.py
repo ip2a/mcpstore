@@ -4,6 +4,7 @@ import json
 from typing import Type, List, TYPE_CHECKING
 from langchain_core.tools import Tool
 from pydantic import BaseModel, create_model
+from ..core.async_sync_helper import get_global_helper
 
 # 使用 TYPE_CHECKING 和字符串提示来避免循环导入
 if TYPE_CHECKING:
@@ -17,6 +18,7 @@ class LangChainAdapter:
     """
     def __init__(self, context: 'MCPStoreContext'):
         self._context = context
+        self._sync_helper = get_global_helper()
 
     def _enhance_description(self, tool_info: 'ToolInfo') -> str:
         """
@@ -81,8 +83,8 @@ class LangChainAdapter:
                 
                 # 使用 Pydantic 模型严格验证参数，如果名称或类型不匹配会在此处报错
                 validated_args = args_schema(**tool_input)
-                # 调用 mcpstore 的核心方法
-                result = await self._context.use_tool(tool_name, validated_args.model_dump())
+                # 调用 mcpstore 的核心方法（使用异步版本，因为这个函数本身就是异步的）
+                result = await self._context.use_tool_async(tool_name, validated_args.model_dump())
                 
                 if isinstance(result, (dict, list)):
                     return json.dumps(result, ensure_ascii=False)
@@ -91,15 +93,19 @@ class LangChainAdapter:
                 return f"执行工具 '{tool_name}' 时出错: {e}。收到的参数为: args={args}, kwargs={kwargs}"
         return _tool_executor
 
-    async def list_tools(self) -> List[Tool]:
-        """获取所有可用的 mcpstore 工具，并将其转换为 LangChain Tool 列表。"""
-        mcp_tools_info = await self._context.list_tools()
+    def list_tools(self) -> List[Tool]:
+        """获取所有可用的 mcpstore 工具，并将其转换为 LangChain Tool 列表（同步版本）。"""
+        return self._sync_helper.run_async(self.list_tools_async())
+
+    async def list_tools_async(self) -> List[Tool]:
+        """获取所有可用的 mcpstore 工具，并将其转换为 LangChain Tool 列表（异步版本）。"""
+        mcp_tools_info = await self._context.list_tools_async()
         langchain_tools = []
         for tool_info in mcp_tools_info:
             enhanced_description = self._enhance_description(tool_info)
             args_schema = self._create_args_schema(tool_info)
             coroutine = await self._create_tool_coroutine(tool_info.name, args_schema)
-            
+
             langchain_tools.append(
                 Tool(
                     name=tool_info.name,

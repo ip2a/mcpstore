@@ -61,7 +61,7 @@ async def main():
     3. Integrate MCPStore tools into the Agent and execute it.
     """
     # Step 1: Get tools with MCPStore's core three lines of code
-    store = MCPStore.setup_store()
+store = MCPStore.setup_store()
     context = await store.for_store().add_service({"name": "mcpstore-wiki", "url": "[http://59.110.160.18:21923/mcp](http://59.110.160.18:21923/mcp)"})
     mcp_tools = await context.for_langchain().list_tools()
 

@@ -1,3 +1,76 @@
 {
-  "mcpServers": {}
+  "mcpServers": {
+    "mcpstore-demo-weather-0": {
+      "url": "http://59.110.160.18:21923/mcp",
+      "transport": "streamable-http"
+    },
+    "howtocook-test-1": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "howtocook-mcp"
+      ]
+    },
+    "高德": {
+      "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c"
+    },
+    "agent_service": {
+      "url": "http://59.110.160.18:21923/mcp"
+    },
+    "isolation_test": {
+      "url": "http://59.110.160.18:21923/mcp"
+    },
+    "weather-test-1": {
+      "url": "http://59.110.160.18:21923/mcp"
+    },
+    "test_update_service_1": {
+      "url": "http://example1.com/mcp"
+    },
+    "test_update_service_2": {
+      "command": "echo",
+      "args": [
+        "test"
+      ]
+    },
+    "agent_service_1": {
+      "url": "http://agent1.example.com/mcp"
+    },
+    "agent_service_2": {
+      "url": "http://agent2.example.com/mcp"
+    },
+    "agent_service_3": {
+      "url": "http://agent3.example.com/mcp"
+    },
+    "test": {
+      "url": "http://example.com",
+      "command": "echo"
+    },
+    "duplicate_test": {
+      "url": "http://example.com/mcp"
+    },
+    "agent_context_service": {
+      "url": "http://agent-context.example.com/mcp"
+    },
+    "reset_test_1": {
+      "url": "http://reset1.example.com/mcp"
+    },
+    "reset_test_2": {
+      "command": "echo",
+      "args": [
+        "reset2"
+      ]
+    },
+    "agent_reset_service_reset_agent_1": {
+      "url": "http://reset_agent_1.example.com/mcp"
+    },
+    "agent_reset_service_reset_agent_2": {
+      "url": "http://reset_agent_2.example.com/mcp"
+    },
+    "workflow_service": {
+      "url": "http://workflow.example.com/mcp"
+    },
+    "consistency_service": {
+      "url": "http://consistency.example.com/mcp"
+    }
+  }
 }

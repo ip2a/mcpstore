@@ -184,6 +184,218 @@ class ClientManager:
         """检查是否是有效的 client_id"""
         return self.has_client(client_id)
 
+    def find_clients_with_service(self, agent_id: str, service_name: str) -> List[str]:
+        """
+        查找指定Agent下包含特定服务的所有client_id
+
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+
+        Returns:
+            包含该服务的client_id列表
+        """
+        client_ids = self.get_agent_clients(agent_id)
+        matching_clients = []
+
+        for client_id in client_ids:
+            client_config = self.get_client_config(client_id)
+            if client_config and service_name in client_config.get("mcpServers", {}):
+                matching_clients.append(client_id)
+
+        return matching_clients
+
+    def replace_service_in_agent(self, agent_id: str, service_name: str, new_service_config: Dict[str, Any]) -> bool:
+        """
+        在指定Agent中替换同名服务
+
+        Store级别：删除所有包含该服务的client，创建新client
+        Agent级别：只替换包含该服务的client
+
+        Args:
+            agent_id: Agent ID (main_client for Store level)
+            service_name: 服务名称
+            new_service_config: 新的服务配置
+
+        Returns:
+            是否成功替换
+        """
+        try:
+            # 1. 查找包含该服务的所有client_id
+            matching_clients = self.find_clients_with_service(agent_id, service_name)
+
+            if not matching_clients:
+                # 没有找到同名服务，直接创建新的client
+                logger.info(f"No existing service '{service_name}' found for agent {agent_id}, creating new client")
+                return self._create_new_service_client(agent_id, service_name, new_service_config)
+
+            # 2. Store级别：完全替换策略
+            if agent_id == self.main_client_id:
+                logger.info(f"Store level: Replacing service '{service_name}' in {len(matching_clients)} clients")
+
+                # 删除所有包含该服务的旧client
+                for client_id in matching_clients:
+                    self._remove_client_and_mapping(agent_id, client_id)
+                    logger.info(f"Removed old client {client_id} containing service '{service_name}'")
+
+                # 创建新的client
+                return self._create_new_service_client(agent_id, service_name, new_service_config)
+
+            # 3. Agent级别：精确替换策略
+            else:
+                logger.info(f"Agent level: Replacing service '{service_name}' in {len(matching_clients)} clients for agent {agent_id}")
+
+                # 对每个包含该服务的client进行替换
+                for client_id in matching_clients:
+                    client_config = self.get_client_config(client_id)
+                    if client_config:
+                        # 更新服务配置
+                        client_config["mcpServers"][service_name] = new_service_config
+                        self.save_client_config_with_return(client_id, client_config)
+                        logger.info(f"Updated service '{service_name}' in client {client_id}")
+
+                return True
+
+        except Exception as e:
+            logger.error(f"Failed to replace service '{service_name}' for agent {agent_id}: {e}")
+            return False
+
+    def _create_new_service_client(self, agent_id: str, service_name: str, service_config: Dict[str, Any]) -> bool:
+        """
+        为指定服务创建新的client
+
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+            service_config: 服务配置
+
+        Returns:
+            是否成功创建
+        """
+        try:
+            # 生成新的client_id
+            new_client_id = self.generate_client_id()
+
+            # 创建client配置
+            client_config = {
+                "mcpServers": {
+                    service_name: service_config
+                }
+            }
+
+            # 保存client配置
+            self.save_client_config_with_return(new_client_id, client_config)
+
+            # 添加agent-client映射
+            self.add_agent_client_mapping(agent_id, new_client_id)
+
+            logger.info(f"Created new client {new_client_id} for service '{service_name}' under agent {agent_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to create new client for service '{service_name}': {e}")
+            return False
+
+    def _remove_client_and_mapping(self, agent_id: str, client_id: str) -> bool:
+        """
+        删除client配置和agent映射
+
+        Args:
+            agent_id: Agent ID
+            client_id: Client ID
+
+        Returns:
+            是否成功删除
+        """
+        try:
+            # 删除client配置
+            self.remove_client(client_id)
+
+            # 删除agent-client映射
+            self.remove_agent_client_mapping(agent_id, client_id)
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to remove client {client_id} and mapping for agent {agent_id}: {e}")
+            return False
+
+    def add_agent_client_mapping(self, agent_id: str, client_id: str) -> bool:
+        """
+        添加Agent-Client映射关系
+
+        Args:
+            agent_id: Agent ID
+            client_id: Client ID
+
+        Returns:
+            是否成功添加
+        """
+        try:
+            data = self.load_all_agent_clients()
+            if agent_id not in data:
+                data[agent_id] = []
+
+            if client_id not in data[agent_id]:
+                data[agent_id].append(client_id)
+                self.save_all_agent_clients(data)
+                logger.info(f"Added client {client_id} to agent {agent_id}")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to add agent-client mapping: {e}")
+            return False
+
+    def remove_agent_client_mapping(self, agent_id: str, client_id: str) -> bool:
+        """
+        移除Agent-Client映射关系
+
+        Args:
+            agent_id: Agent ID
+            client_id: Client ID
+
+        Returns:
+            是否成功移除
+        """
+        try:
+            data = self.load_all_agent_clients()
+            if agent_id in data and client_id in data[agent_id]:
+                data[agent_id].remove(client_id)
+
+                # 如果Agent没有任何Client了，删除Agent条目
+                if not data[agent_id]:
+                    del data[agent_id]
+
+                self.save_all_agent_clients(data)
+                logger.info(f"Removed client {client_id} from agent {agent_id}")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to remove agent-client mapping: {e}")
+            return False
+
+    def save_client_config_with_return(self, client_id: str, config: Dict[str, Any]) -> bool:
+        """
+        保存Client配置（带返回值版本）
+
+        Args:
+            client_id: Client ID
+            config: Client配置
+
+        Returns:
+            是否成功保存
+        """
+        try:
+            # 使用已存在的方法
+            self.save_client_config(client_id, config)
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to save client config: {e}")
+            return False
+
     def reset_agent_config(self, agent_id: str) -> bool:
         """
         重置指定Agent的配置

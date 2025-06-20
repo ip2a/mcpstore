@@ -10,26 +10,46 @@ logger = logging.getLogger(__name__)
 BACKUP_COUNT = 3
 
 class MCPServerModel(BaseModel):
+    """
+    宽容的MCP服务配置模型，支持FastMCP Client的所有配置格式
+    参考: https://docs.fastmcp.com/clients/transports
+    """
+    # 远程服务配置
     url: Optional[str] = None
-    transport: Optional[str] = None
+    transport: Optional[str] = None  # 可选，Client会自动推断
+    headers: Optional[Dict[str, str]] = None
+
+    # 本地服务配置
     command: Optional[str] = None
     args: Optional[List[str]] = None
     env: Optional[Dict[str, str]] = None
+
+    # 通用配置
     name: Optional[str] = None
+    description: Optional[str] = None
+    keep_alive: Optional[bool] = None
+    timeout: Optional[int] = None
+
+    # 允许额外字段，保持最大兼容性
+    class Config:
+        extra = "allow"  # 允许额外字段
 
     @root_validator(pre=True)
-    def at_least_one_protocol(cls, values):
-        if not (
-            values.get("url") or
-            values.get("command") or
-            values.get("args") or
-            values.get("env")
-        ):
-            raise ValueError("Each MCP server must have at least a url or command/args/env defined")
+    def validate_basic_config(cls, values):
+        """基本配置验证：至少要有url或command之一"""
+        if not (values.get("url") or values.get("command")):
+            raise ValueError("MCP server must have either 'url' or 'command' field")
         return values
 
 class MCPConfigModel(BaseModel):
-    mcpServers: Dict[str, MCPServerModel]
+    """
+    宽容的MCP配置模型，支持FastMCP的配置格式
+    """
+    mcpServers: Dict[str, Dict[str, Any]]  # 使用Dict而不是严格的MCPServerModel
+
+    # 允许额外字段
+    class Config:
+        extra = "allow"
 
     @root_validator(pre=True)
     def ensure_mcpServers(cls, values):
@@ -105,11 +125,17 @@ class MCPConfig:
         try:
             with open(self.json_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            try:
-                MCPConfigModel.parse_obj(data)
-            except ValidationError as ve:
-                raise ConfigValidationError(f"Configuration validation failed: {ve}")
+
+            # 基本格式检查，但不进行严格验证
+            if not isinstance(data, dict):
+                raise ConfigValidationError("Configuration must be a dictionary")
+
+            if "mcpServers" in data and not isinstance(data["mcpServers"], dict):
+                raise ConfigValidationError("mcpServers must be a dictionary")
+
+            # 不再进行严格的Pydantic验证，让FastMCP Client自己处理
             return data
+
         except json.JSONDecodeError as e:
             raise ConfigIOError(f"Failed to parse configuration file: {e}")
         except Exception as e:
@@ -128,10 +154,14 @@ class MCPConfig:
             ConfigValidationError: If configuration is invalid
             ConfigIOError: If file operations fail
         """
-        try:
-            MCPConfigModel.parse_obj(config)
-        except ValidationError as ve:
-            raise ConfigValidationError(f"Configuration validation failed: {ve}")
+        # 基本格式检查，但不进行严格验证
+        if not isinstance(config, dict):
+            raise ConfigValidationError("Configuration must be a dictionary")
+
+        if "mcpServers" in config and not isinstance(config["mcpServers"], dict):
+            raise ConfigValidationError("mcpServers must be a dictionary")
+
+        # 不再进行严格的Pydantic验证，让FastMCP Client自己处理
             
         self._backup()
         tmp_path = f"{self.json_path}.tmp"
@@ -186,10 +216,15 @@ class MCPConfig:
         Raises:
             ConfigValidationError: If service configuration is invalid
         """
-        try:
-            MCPServerModel.parse_obj(config)
-        except ValidationError as ve:
-            raise ConfigValidationError(f"Service configuration validation failed: {ve}")
+        # 基本格式检查，但不进行严格验证
+        if not isinstance(config, dict):
+            raise ConfigValidationError("Service configuration must be a dictionary")
+
+        # 检查基本要求：至少要有url或command
+        if not (config.get("url") or config.get("command")):
+            raise ConfigValidationError("Service must have either 'url' or 'command' field")
+
+        # 不再进行严格的Pydantic验证，让FastMCP Client自己处理
             
         current_config = self.load_config()
         current_config["mcpServers"][name] = config

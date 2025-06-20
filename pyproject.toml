@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcpstore"
-version = "0.1.9"
+version = "0.2.1"
 description = "A composable, ready-to-use MCP toolkit for agents and rapid integration."
 readme = "README.md"
 requires-python = ">=3.8"
