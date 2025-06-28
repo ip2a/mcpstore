@@ -169,26 +169,53 @@ class MCPStoreContext:
                     print(f"[INFO][add_service] 注册结果: {resp}")
                     if not (resp and resp.service_names):
                         raise Exception("服务注册失败")
+                    # 无参数注册完成，直接返回
+                    return self
                 else:
                     print("[WARN][add_service] AGENT模式-未指定服务配置")
                     raise Exception("AGENT模式必须指定服务配置")
                     
-            # 处理服务名称列表
+            # 处理列表格式
             elif isinstance(config, list):
                 if not config:
-                    raise Exception("服务名称列表为空")
-                    
-                print(f"[INFO][add_service] 注册指定服务: {config}")
-                resp = await self._store.register_json_service(
-                    client_id=agent_id,
-                    service_names=config
-                )
-                print(f"[INFO][add_service] 注册结果: {resp}")
-                if not (resp and resp.service_names):
-                    raise Exception("服务注册失败")
-                
-            # 处理字典格式的配置
-            elif isinstance(config, dict):
+                    raise Exception("列表为空")
+
+                # 判断是服务名称列表还是服务配置列表
+                if all(isinstance(item, str) for item in config):
+                    # 服务名称列表
+                    print(f"[INFO][add_service] 注册指定服务: {config}")
+                    resp = await self._store.register_json_service(
+                        client_id=agent_id,
+                        service_names=config
+                    )
+                    print(f"[INFO][add_service] 注册结果: {resp}")
+                    if not (resp and resp.service_names):
+                        raise Exception("服务注册失败")
+                    # 服务名称列表注册完成，直接返回
+                    return self
+
+                elif all(isinstance(item, dict) for item in config):
+                    # 批量服务配置列表
+                    print(f"[INFO][add_service] 批量服务配置注册，数量: {len(config)}")
+
+                    # 转换为MCPConfig格式
+                    mcp_config = {"mcpServers": {}}
+                    for service_config in config:
+                        service_name = service_config.get("name")
+                        if not service_name:
+                            raise Exception("批量配置中的服务缺少name字段")
+                        mcp_config["mcpServers"][service_name] = {
+                            k: v for k, v in service_config.items() if k != "name"
+                        }
+
+                    # 将config设置为转换后的mcp_config，然后继续处理
+                    config = mcp_config
+
+                else:
+                    raise Exception("列表中的元素类型不一致，必须全部是字符串（服务名称）或全部是字典（服务配置）")
+
+            # 处理字典格式的配置（包括从批量配置转换来的）
+            if isinstance(config, dict):
                 # 转换为标准格式
                 if "mcpServers" in config:
                     # 已经是MCPConfig格式
@@ -416,16 +443,32 @@ class MCPStoreContext:
 
     def update_service(self, name: str, config: Dict[str, Any]) -> bool:
         """
-        更新服务配置（同步版本）
+        更新服务配置（同步版本）- 完全替换配置
 
         Args:
             name: 服务名称（不可更改）
-            config: 新的服务配置
+            config: 新的完整服务配置（必须包含url或command字段）
+
+        Returns:
+            bool: 更新是否成功
+
+        Note:
+            此方法会完全替换服务配置。如需增量更新，请使用 patch_service() 方法。
+        """
+        return self._sync_helper.run_async(self.update_service_async(name, config))
+
+    def patch_service(self, name: str, updates: Dict[str, Any]) -> bool:
+        """
+        增量更新服务配置（同步版本）- 推荐使用
+
+        Args:
+            name: 服务名称（不可更改）
+            updates: 要更新的字段（会与现有配置合并）
 
         Returns:
             bool: 更新是否成功
         """
-        return self._sync_helper.run_async(self.update_service_async(name, config))
+        return self._sync_helper.run_async(self.patch_service_async(name, updates))
 
     async def update_service_async(self, name: str, config: Dict[str, Any]) -> bool:
         """
@@ -470,6 +513,37 @@ class MCPStoreContext:
             
         except Exception as e:
             logging.error(f"Failed to update service {name}: {str(e)}")
+            raise
+
+    async def patch_service_async(self, name: str, updates: Dict[str, Any]) -> bool:
+        """
+        增量更新服务配置（异步版本）
+
+        Args:
+            name: 服务名称（不可更改）
+            updates: 要更新的字段（会与现有配置合并）
+
+        Returns:
+            bool: 更新是否成功
+
+        Raises:
+            ServiceNotFoundError: 服务不存在
+            InvalidConfigError: 配置无效
+        """
+        try:
+            # 1. 获取当前服务配置
+            current_config = self._store.config.get_service_config(name)
+            if not current_config:
+                raise ServiceNotFoundError(f"Service {name} not found")
+
+            # 2. 合并配置（updates 覆盖 current_config）
+            merged_config = {**current_config, **updates}
+
+            # 3. 调用完整更新方法
+            return await self.update_service_async(name, merged_config)
+
+        except Exception as e:
+            logging.error(f"Failed to patch service {name}: {str(e)}")
             raise
 
     def delete_service(self, name: str) -> bool:
@@ -541,7 +615,11 @@ class MCPStoreContext:
         from mcpstore.adapters.langchain_adapter import LangChainAdapter
         return LangChainAdapter(self)
 
-    async def reset_config(self) -> bool:
+    def reset_config(self) -> bool:
+        """重置配置（同步版本）"""
+        return self._sync_helper.run_async(self.reset_config_async())
+
+    async def reset_config_async(self) -> bool:
         """
         重置配置
         - Store级别：重置main_client的所有配置
@@ -630,10 +708,14 @@ class MCPStoreContext:
             logging.error(f"Failed to show MCP config: {e}")
             return {"mcpServers": {}}
 
-    async def get_service_status(self, name: str) -> dict:
+    def get_service_status(self, name: str) -> dict:
+        """获取单个服务的状态信息（同步版本）"""
+        return self._sync_helper.run_async(self.get_service_status_async(name))
+
+    async def get_service_status_async(self, name: str) -> dict:
         """获取单个服务的状态信息"""
         try:
-            service_info = await self.get_service_info(name)
+            service_info = await self.get_service_info_async(name)
             if hasattr(service_info, 'service') and service_info.service:
                 return {
                     "name": service_info.service.name,
@@ -661,11 +743,15 @@ class MCPStoreContext:
                 "error": str(e)
             }
 
-    async def restart_service(self, name: str) -> bool:
+    def restart_service(self, name: str) -> bool:
+        """重启指定服务（同步版本）"""
+        return self._sync_helper.run_async(self.restart_service_async(name))
+
+    async def restart_service_async(self, name: str) -> bool:
         """重启指定服务"""
         try:
             # 首先验证服务是否存在
-            service_info = await self.get_service_info(name)
+            service_info = await self.get_service_info_async(name)
             if not (hasattr(service_info, 'service') and service_info.service):
                 logging.error(f"Service {name} not found in registry")
                 return False
@@ -697,7 +783,7 @@ class MCPStoreContext:
                     return False
 
             # 先删除服务
-            delete_success = await self.delete_service(name)
+            delete_success = await self.delete_service_async(name)
             if not delete_success:
                 logging.warning(f"Failed to delete service {name} during restart, attempting to continue")
 
@@ -712,7 +798,7 @@ class MCPStoreContext:
             }
 
             # 重新添加服务
-            await self.add_service(add_config)
+            await self.add_service_async(add_config)
             logging.info(f"Service {name} restarted successfully")
             return True
 
@@ -720,43 +806,13 @@ class MCPStoreContext:
             logging.error(f"Failed to restart service {name}: {e}")
             return False
 
-    async def update_service(self, name: str, config: dict) -> bool:
-        """更新服务配置"""
-        try:
-            # 验证服务是否存在
-            service_info = await self.get_service_info(name)
-            if not (hasattr(service_info, 'service') and service_info.service):
-                logging.error(f"Service {name} not found")
-                return False
 
-            # 更新配置文件
-            current_config = self._store.config.get_service_config(name) or {}
-            updated_config = {**current_config, **config}
 
-            # 移除name字段（如果存在）因为它是key
-            if 'name' in updated_config:
-                del updated_config['name']
+    def reset_json_config(self) -> bool:
+        """重置JSON配置文件（同步版本）"""
+        return self._sync_helper.run_async(self.reset_json_config_async())
 
-            # 更新到配置文件
-            success = self._store.config.update_service_config(name, updated_config)
-            if not success:
-                logging.error(f"Failed to update config for service {name}")
-                return False
-
-            # 重启服务以应用新配置
-            restart_success = await self.restart_service(name)
-            if restart_success:
-                logging.info(f"Service {name} updated and restarted successfully")
-                return True
-            else:
-                logging.warning(f"Service {name} config updated but restart failed")
-                return False
-
-        except Exception as e:
-            logging.error(f"Failed to update service {name}: {e}")
-            return False
-
-    async def reset_json_config(self) -> bool:
+    async def reset_json_config_async(self) -> bool:
         """
         重置JSON配置文件（仅Store级别可用）
         将mcp.json备份后重置为空字典
@@ -780,7 +836,11 @@ class MCPStoreContext:
             logging.error(f"Failed to reset JSON config: {str(e)}")
             return False
 
-    async def restore_default_config(self) -> bool:
+    def restore_default_config(self) -> bool:
+        """恢复默认配置（同步版本）"""
+        return self._sync_helper.run_async(self.restore_default_config_async())
+
+    async def restore_default_config_async(self) -> bool:
         """
         恢复默认配置（仅Store级别可用）
         恢复高德和天气服务的默认配置

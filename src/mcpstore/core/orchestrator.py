@@ -17,6 +17,7 @@ from urllib.parse import urljoin
 from mcpstore.core.registry import ServiceRegistry
 from mcpstore.core.client_manager import ClientManager
 from mcpstore.core.config_processor import ConfigProcessor
+from mcpstore.core.tool_naming import ToolNamingManager
 from fastmcp import Client
 from fastmcp.client.transports import (
     MCPConfigTransport,
@@ -397,22 +398,52 @@ class MCPOrchestrator:
             bool: 服务是否健康
         """
         try:
-            # 获取服务配置
-            service_config = self.mcp_config.get_service_config(name)
-            if not service_config:
-                logger.debug(f"Service configuration not found for {name}")
-                return False
+            # 优先使用已处理的client配置，如果没有则使用原始配置
+            if client_id:
+                client_config = self.client_manager.get_client_config(client_id)
+                if client_config and name in client_config.get("mcpServers", {}):
+                    # 使用已处理的client配置
+                    service_config = client_config["mcpServers"][name]
+                    fastmcp_config = client_config
+                    logger.debug(f"Using processed client config for health check: {name}")
+                else:
+                    # 回退到原始配置
+                    service_config = self.mcp_config.get_service_config(name)
+                    if not service_config:
+                        logger.debug(f"Service configuration not found for {name}")
+                        return False
+
+                    # 使用ConfigProcessor处理配置
+                    user_config = {"mcpServers": {name: service_config}}
+                    fastmcp_config = ConfigProcessor.process_user_config_for_fastmcp(user_config)
+                    logger.debug(f"Health check config processed for {name}: {fastmcp_config}")
+
+                    # 检查ConfigProcessor是否移除了服务（配置错误）
+                    if name not in fastmcp_config.get("mcpServers", {}):
+                        logger.warning(f"Service {name} removed by ConfigProcessor due to configuration errors")
+                        return False
+            else:
+                # 没有client_id，使用原始配置
+                service_config = self.mcp_config.get_service_config(name)
+                if not service_config:
+                    logger.debug(f"Service configuration not found for {name}")
+                    return False
+
+                # 使用ConfigProcessor处理配置
+                user_config = {"mcpServers": {name: service_config}}
+                fastmcp_config = ConfigProcessor.process_user_config_for_fastmcp(user_config)
+                logger.debug(f"Health check config processed for {name}: {fastmcp_config}")
+
+                # 检查ConfigProcessor是否移除了服务（配置错误）
+                if name not in fastmcp_config.get("mcpServers", {}):
+                    logger.warning(f"Service {name} removed by ConfigProcessor due to configuration errors")
+                    return False
 
             # 快速网络连通性检查（仅对HTTP服务）
             if service_config.get("url"):
                 if not await self._quick_network_check(service_config["url"]):
                     logger.debug(f"Quick network check failed for {name}")
                     return False
-
-            # 使用ConfigProcessor处理配置，确保FastMCP兼容性
-            user_config = {"mcpServers": {name: service_config}}
-            fastmcp_config = ConfigProcessor.process_user_config_for_fastmcp(user_config)
-            logger.debug(f"Health check config processed for {name}: {fastmcp_config}")
 
             # 创建新的客户端实例
             client = Client(fastmcp_config)
@@ -430,12 +461,32 @@ class MCPOrchestrator:
             except ConnectionError as e:
                 logger.debug(f"Connection error for {name} (client_id={client_id}): {e}")
                 return False
+            except FileNotFoundError as e:
+                # 命令服务的文件不存在
+                logger.debug(f"Command service file not found for {name} (client_id={client_id}): {e}")
+                return False
+            except PermissionError as e:
+                # 权限错误
+                logger.debug(f"Permission error for {name} (client_id={client_id}): {e}")
+                return False
             except Exception as e:
+                # 使用ConfigProcessor提供更友好的错误信息
+                friendly_error = ConfigProcessor.get_user_friendly_error(str(e))
+
+                # 检查是否是文件系统相关错误
+                if self._is_filesystem_error(e):
+                    logger.debug(f"Filesystem error for {name} (client_id={client_id}): {friendly_error}")
                 # 检查是否是网络相关错误
-                if self._is_network_error(e):
-                    logger.debug(f"Network error for {name} (client_id={client_id}): {e}")
+                elif self._is_network_error(e):
+                    logger.debug(f"Network error for {name} (client_id={client_id}): {friendly_error}")
+                elif "validation errors" in str(e).lower():
+                    # 配置验证错误通常是由于用户自定义字段，这是正常的
+                    logger.debug(f"Configuration has user-defined fields for {name} (client_id={client_id}): {friendly_error}")
+                    # 对于配置验证错误，我们认为服务是"可用但需要配置清理"的状态
+                    # 不应该完全标记为失败，而是标记为需要注意
+                    logger.info(f"Service {name} has configuration validation issues but may still be functional")
                 else:
-                    logger.debug(f"Health check failed for {name} (client_id={client_id}): {e}")
+                    logger.debug(f"Health check failed for {name} (client_id={client_id}): {friendly_error}")
                 return False
             finally:
                 # 确保客户端被正确关闭
@@ -484,6 +535,18 @@ class MCPOrchestrator:
             'refused', 'reset', 'dns', 'resolve', 'socket'
         ]
         return any(keyword in error_str for keyword in network_error_keywords)
+
+    def _is_filesystem_error(self, error: Exception) -> bool:
+        """判断是否是文件系统相关错误"""
+        if isinstance(error, (FileNotFoundError, PermissionError, OSError, IOError)):
+            return True
+
+        error_str = str(error).lower()
+        filesystem_error_keywords = [
+            'no such file', 'file not found', 'permission denied',
+            'access denied', 'directory not found', 'path not found'
+        ]
+        return any(keyword in error_str for keyword in filesystem_error_keywords)
 
     def _normalize_service_config(self, service_config: Dict[str, Any]) -> Dict[str, Any]:
         """规范化服务配置，确保包含必要的字段"""
@@ -984,24 +1047,30 @@ class MCPOrchestrator:
                     for tool in tool_list:
                         tool_name = tool.name
                         
-                        # 确定工具所属的服务
+                        # 🆕 使用ToolNamingManager处理工具名称
+                        original_tool_name = tool_name
+
                         if is_single_service:
-                            # 单服务情况：所有工具都属于这个服务
+                            # 单服务情况：使用新的命名管理器创建工具名
                             service_name = healthy_services[0]
-                            # 如果工具名称还没有服务前缀，添加前缀
-                            if not tool_name.startswith(f"{service_name}_"):
-                                tool_name = f"{service_name}_{tool_name}"
+                            # 检查是否已经是正确格式
+                            if not ToolNamingManager.belongs_to_service(tool_name, service_name):
+                                tool_name = ToolNamingManager.create_tool_name(service_name, original_tool_name)
+                                logger.debug(f"Created tool name for single service: {original_tool_name} -> {tool_name}")
                         else:
-                            # 多服务情况：根据工具名称前缀判断
+                            # 多服务情况：根据工具名称判断归属
                             service_name = None
                             for name in healthy_services:
-                                if tool_name.startswith(f"{name}_"):
+                                if ToolNamingManager.belongs_to_service(tool_name, name):
                                     service_name = name
                                     break
-                                    
+
                             if not service_name:
-                                logger.warning(f"Tool {tool_name} does not belong to any service, skipping")
-                                continue
+                                # 如果无法确定归属，尝试为每个服务创建工具名
+                                logger.warning(f"Tool {tool_name} does not belong to any service, will try to assign to first service")
+                                service_name = healthy_services[0]
+                                tool_name = ToolNamingManager.create_tool_name(service_name, original_tool_name)
+                                logger.debug(f"Assigned tool to service: {original_tool_name} -> {service_name} -> {tool_name}")
 
                         # 处理参数信息
                         parameters = {}
@@ -1020,12 +1089,16 @@ class MCPOrchestrator:
                         }
                         all_tools.append((tool_name, tool_def))  # 使用可能被修改过的tool_name
 
-                    # 为每个服务注册其工具
+                    # 🆕 为每个服务注册其工具（使用新的工具归属判断）
                     for service_name in healthy_services:
                         if is_single_service:
                             service_tools = all_tools
                         else:
-                            service_tools = [(name, tool_def) for name, tool_def in all_tools if name.startswith(f"{service_name}_")]
+                            # 使用ToolNamingManager进行工具过滤
+                            all_tool_names = [name for name, _ in all_tools]
+                            service_tool_names = ToolNamingManager.get_tools_for_service(all_tool_names, service_name)
+                            service_tools = [(name, tool_def) for name, tool_def in all_tools if name in service_tool_names]
+
                         logger.info(f"Filtered {len(service_tools)} tools for service {service_name}")
                         self.registry.add_service(agent_key, service_name, client, service_tools)
                         self.clients[service_name] = client

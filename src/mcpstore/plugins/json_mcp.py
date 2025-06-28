@@ -222,7 +222,12 @@ class MCPConfig:
 
         # 检查基本要求：至少要有url或command
         if not (config.get("url") or config.get("command")):
-            raise ConfigValidationError("Service must have either 'url' or 'command' field")
+            available_fields = list(config.keys())
+            raise ConfigValidationError(
+                f"Service must have either 'url' or 'command' field. "
+                f"Current config has: {available_fields}. "
+                f"Tip: For incremental updates, use patch_service() instead of update_service()."
+            )
 
         # 不再进行严格的Pydantic验证，让FastMCP Client自己处理
             

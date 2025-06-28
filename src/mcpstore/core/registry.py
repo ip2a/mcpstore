@@ -3,6 +3,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple, List, Set, TypeVar, Generic, Protocol
+from mcpstore.core.tool_naming import ToolNamingManager
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,8 @@ class ServiceRegistry:
         self.service_health[agent_id][name] = datetime.now() # Mark healthy on add
         added_tool_names = []
         for tool_name, tool_definition in tools:
-            if not tool_name.startswith(f"{name}_"):
+            # 🆕 使用ToolNamingManager进行工具归属判断
+            if not ToolNamingManager.belongs_to_service(tool_name, name):
                 logger.warning(f"Tool '{tool_name}' does not belong to service '{name}'. Skipping this tool.")
                 continue
             if tool_name in self.tool_cache[agent_id]:
@@ -194,8 +196,10 @@ class ServiceRegistry:
         
         if not session:
             return []
-            
-        tools = [tool_name for tool_name in self.tool_cache.get(agent_id, {}).keys() if tool_name.startswith(f"{name}_")]
+
+        # 🆕 使用ToolNamingManager进行工具过滤
+        all_tool_names = list(self.tool_cache.get(agent_id, {}).keys())
+        tools = ToolNamingManager.get_tools_for_service(all_tool_names, name)
         return tools
 
     def _extract_description_from_schema(self, prop_info):

@@ -140,14 +140,26 @@ class MCPStore:
                 
                 for name in all_services.keys():
                     try:
-                        new_client_id = self.client_manager.generate_client_id()
-                        client_config = {"mcpServers": {name: all_services[name]}}
-                        self.client_manager.save_client_config(new_client_id, client_config)
-                        self.client_manager.add_agent_client_mapping(agent_id, new_client_id)
-                        await self.orchestrator.register_json_services(client_config, client_id=new_client_id)
-                        registered_client_ids.append(new_client_id)
-                        registered_services.append(name)
-                        print(f"[INFO][register_json_service] 成功注册服务: {name}")
+                        # 🔧 修复：使用同名服务处理逻辑
+                        success = self.client_manager.replace_service_in_agent(
+                            agent_id=agent_id,
+                            service_name=name,
+                            new_service_config=all_services[name]
+                        )
+                        if not success:
+                            print(f"[ERROR][register_json_service] 替换服务 {name} 失败")
+                            continue
+
+                        # 获取刚创建/更新的client_id用于Registry注册
+                        client_ids = self.client_manager.get_agent_clients(agent_id)
+                        for client_id_check in client_ids:
+                            client_config = self.client_manager.get_client_config(client_id_check)
+                            if client_config and name in client_config.get("mcpServers", {}):
+                                await self.orchestrator.register_json_services(client_config, client_id=client_id_check)
+                                registered_client_ids.append(client_id_check)
+                                registered_services.append(name)
+                                print(f"[INFO][register_json_service] 成功注册服务: {name}")
+                                break
                     except Exception as e:
                         print(f"[ERROR][register_json_service] 注册服务 {name} 失败: {e}")
                         continue
@@ -175,7 +187,43 @@ class MCPStore:
             # 情况3: 默认全量注册
             elif not client_id and not service_names:
                 print("[INFO][register_json_service] 默认全量注册")
-                return await self.register_json_service(client_id=self.client_manager.main_client_id)
+                # 直接执行全量注册逻辑，避免递归调用
+                agent_id = self.client_manager.main_client_id
+                registered_client_ids = []
+                registered_services = []
+
+                for name in all_services.keys():
+                    try:
+                        # 🔧 修复：使用同名服务处理逻辑
+                        success = self.client_manager.replace_service_in_agent(
+                            agent_id=agent_id,
+                            service_name=name,
+                            new_service_config=all_services[name]
+                        )
+                        if not success:
+                            print(f"[ERROR][register_json_service] 替换服务 {name} 失败")
+                            continue
+
+                        # 获取刚创建/更新的client_id用于Registry注册
+                        client_ids = self.client_manager.get_agent_clients(agent_id)
+                        for client_id_check in client_ids:
+                            client_config = self.client_manager.get_client_config(client_id_check)
+                            if client_config and name in client_config.get("mcpServers", {}):
+                                await self.orchestrator.register_json_services(client_config, client_id=client_id_check)
+                                registered_client_ids.append(client_id_check)
+                                registered_services.append(name)
+                                print(f"[INFO][register_json_service] 成功注册服务: {name}")
+                                break
+                    except Exception as e:
+                        print(f"[ERROR][register_json_service] 注册服务 {name} 失败: {e}")
+                        continue
+
+                return RegistrationResponse(
+                    success=True,
+                    client_id=agent_id,
+                    service_names=registered_services,
+                    config={"client_ids": registered_client_ids, "services": registered_services}
+                )
                 
             # 情况4: Agent 指定服务注册
             else:
@@ -189,15 +237,27 @@ class MCPStore:
                         if name not in all_services:
                             print(f"[WARN][register_json_service] 服务 {name} 未在全局配置中找到，跳过")
                             continue
-                            
-                        new_client_id = self.client_manager.generate_client_id()
-                        client_config = {"mcpServers": {name: all_services[name]}}
-                        self.client_manager.save_client_config(new_client_id, client_config)
-                        self.client_manager.add_agent_client_mapping(agent_id, new_client_id)
-                        await self.orchestrator.register_json_services(client_config, client_id=new_client_id)
-                        registered_client_ids.append(new_client_id)
-                        registered_services.append(name)
-                        print(f"[INFO][register_json_service] 成功注册服务: {name}")
+
+                        # 🔧 修复：使用同名服务处理逻辑
+                        success = self.client_manager.replace_service_in_agent(
+                            agent_id=agent_id,
+                            service_name=name,
+                            new_service_config=all_services[name]
+                        )
+                        if not success:
+                            print(f"[ERROR][register_json_service] 替换服务 {name} 失败")
+                            continue
+
+                        # 获取刚创建/更新的client_id用于Registry注册
+                        client_ids = self.client_manager.get_agent_clients(agent_id)
+                        for client_id_check in client_ids:
+                            client_config = self.client_manager.get_client_config(client_id_check)
+                            if client_config and name in client_config.get("mcpServers", {}):
+                                await self.orchestrator.register_json_services(client_config, client_id=client_id_check)
+                                registered_client_ids.append(client_id_check)
+                                registered_services.append(name)
+                                print(f"[INFO][register_json_service] 成功注册服务: {name}")
+                                break
                     except Exception as e:
                         print(f"[ERROR][register_json_service] 注册服务 {name} 失败: {e}")
                         continue
