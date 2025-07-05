@@ -11,7 +11,18 @@ from typing import Any, Coroutine, TypeVar
 from concurrent.futures import ThreadPoolExecutor
 import logging
 
-logger = logging.getLogger(__name__)
+# 确保logger始终可用
+try:
+    logger = logging.getLogger(__name__)
+except Exception:
+    # 如果出现任何问题，创建一个基本的logger
+    import sys
+    logger = logging.getLogger(__name__)
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter('%(name)s - %(levelname)s - %(message)s'))
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
 
 T = TypeVar('T')
 
@@ -81,28 +92,18 @@ class AsyncSyncHelper:
         """
         try:
             # 检查是否已经在事件循环中
-            current_loop = asyncio.get_running_loop()
-            
-            # 如果已经在事件循环中，使用后台循环
-            if current_loop.is_running():
+            try:
+                current_loop = asyncio.get_running_loop()
+                # 如果已经在事件循环中，使用后台循环
                 logger.debug("Running coroutine in background loop (nested)")
                 loop = self._ensure_loop()
                 future = asyncio.run_coroutine_threadsafe(coro, loop)
                 return future.result(timeout=timeout)
-            else:
-                # 当前循环未运行，直接使用
-                logger.debug("Running coroutine in current loop")
-                return current_loop.run_until_complete(coro)
-                
-        except RuntimeError as e:
-            if "no running event loop" in str(e).lower():
-                # 没有事件循环，使用后台循环
-                logger.debug("Running coroutine in background loop (no current loop)")
-                loop = self._ensure_loop()
-                future = asyncio.run_coroutine_threadsafe(coro, loop)
-                return future.result(timeout=timeout)
-            else:
-                raise
+            except RuntimeError:
+                # 没有运行中的事件循环，使用 asyncio.run
+                logger.debug("Running coroutine with asyncio.run")
+                return asyncio.run(coro)
+
         except Exception as e:
             logger.error(f"Error running async function: {e}")
             raise

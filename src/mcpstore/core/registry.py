@@ -3,7 +3,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple, List, Set, TypeVar, Generic, Protocol
-from mcpstore.core.tool_naming import ToolNamingManager
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +66,7 @@ class ServiceRegistry:
             
         # 只在首次注册时打印日志
         if name not in self.sessions[agent_id]:
-            print(f"[DEBUG][add_service] 首次注册服务 - agent_id={agent_id}, name={name}")
+            logger.debug(f"首次注册服务 - agent_id={agent_id}, name={name}")
         
         if name in self.sessions[agent_id]:
             logger.warning(f"Attempting to add already registered service: {name} for agent {agent_id}. Removing old service before overwriting.")
@@ -77,18 +76,31 @@ class ServiceRegistry:
         self.service_health[agent_id][name] = datetime.now() # Mark healthy on add
         added_tool_names = []
         for tool_name, tool_definition in tools:
-            # 🆕 使用ToolNamingManager进行工具归属判断
-            if not ToolNamingManager.belongs_to_service(tool_name, name):
-                logger.warning(f"Tool '{tool_name}' does not belong to service '{name}'. Skipping this tool.")
+            # 🆕 使用新的工具归属判断逻辑
+            # 检查工具定义中的服务归属
+            tool_service_name = None
+            if "function" in tool_definition:
+                tool_service_name = tool_definition["function"].get("service_name")
+            else:
+                tool_service_name = tool_definition.get("service_name")
+
+            # 验证工具是否属于当前服务
+            if tool_service_name and tool_service_name != name:
+                logger.warning(f"Tool '{tool_name}' belongs to service '{tool_service_name}', not '{name}'. Skipping this tool.")
                 continue
+
+            # 检查工具名冲突
             if tool_name in self.tool_cache[agent_id]:
                 existing_session = self.tool_to_session_map[agent_id].get(tool_name)
                 if existing_session is not session:
                     logger.warning(f"Tool name conflict: '{tool_name}' from {name} for agent {agent_id} conflicts with existing tool. Skipping this tool.")
                     continue
+
+            # 存储工具
             self.tool_cache[agent_id][tool_name] = tool_definition
             self.tool_to_session_map[agent_id][tool_name] = session
             added_tool_names.append(tool_name)
+
         logger.info(f"Service '{name}' for agent '{agent_id}' added with tools: {added_tool_names}")
         return added_tool_names
 
@@ -189,17 +201,21 @@ class ServiceRegistry:
         """
         session = self.sessions.get(agent_id, {}).get(name)
         logger.info(f"Getting tools for service: {name} (agent_id={agent_id})")
-        
+
         # 只在调试特定问题时打印详细日志
         if logger.getEffectiveLevel() <= logging.DEBUG:
             print(f"[DEBUG][get_tools_for_service] agent_id={agent_id}, name={name}, id(session)={id(session) if session else None}")
-        
+
         if not session:
             return []
 
-        # 🆕 使用ToolNamingManager进行工具过滤
-        all_tool_names = list(self.tool_cache.get(agent_id, {}).keys())
-        tools = ToolNamingManager.get_tools_for_service(all_tool_names, name)
+        # 🆕 使用新的工具过滤逻辑：根据 session 匹配
+        tools = []
+        for tool_name, tool_session in self.tool_to_session_map.get(agent_id, {}).items():
+            if tool_session is session:
+                tools.append(tool_name)
+
+        logger.debug(f"Found {len(tools)} tools for service {name}: {tools}")
         return tools
 
     def _extract_description_from_schema(self, prop_info):
@@ -257,20 +273,25 @@ class ServiceRegistry:
                 if sess is session:
                     service_name = name
                     break
+
         if "function" in tool_def:
             function_data = tool_def["function"]
             tool_info = {
-                "name": tool_name,
+                "name": tool_name,  # 这是存储的键名（显示名称）
+                "display_name": function_data.get("display_name", tool_name),  # 用户友好的显示名称
                 "description": function_data.get("description", ""),
                 "service_name": service_name,
-                "inputSchema": function_data.get("parameters", {})
+                "inputSchema": function_data.get("parameters", {}),
+                "original_name": function_data.get("name", tool_name)  # FastMCP 原始名称
             }
         else:
             tool_info = {
                 "name": tool_name,
+                "display_name": tool_def.get("display_name", tool_name),
                 "description": tool_def.get("description", ""),
                 "service_name": service_name,
-                "inputSchema": tool_def.get("parameters", {})
+                "inputSchema": tool_def.get("parameters", {}),
+                "original_name": tool_def.get("name", tool_name)
             }
         return tool_info
 

@@ -7,6 +7,138 @@ from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
+class LoggingConfig:
+    """日志配置管理器"""
+
+    _debug_enabled = False
+    _configured = False
+
+    @classmethod
+    def setup_logging(cls, debug: bool = False, force_reconfigure: bool = False):
+        """
+        设置日志配置
+
+        Args:
+            debug: 是否启用调试日志
+            force_reconfigure: 是否强制重新配置
+        """
+        if cls._configured and not force_reconfigure:
+            # 如果已经配置过且不强制重新配置，只更新日志级别
+            if debug != cls._debug_enabled:
+                cls._set_log_level(debug)
+            return
+
+        # 配置日志格式
+        if debug:
+            log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            log_level = logging.DEBUG
+        else:
+            log_format = '%(levelname)s - %(message)s'
+            log_level = logging.ERROR  # 非调试模式只显示错误
+
+        # 获取根日志器
+        root_logger = logging.getLogger()
+
+        # 清除现有的处理器
+        for handler in root_logger.handlers[:]:
+            root_logger.removeHandler(handler)
+
+        # 创建新的处理器
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter(log_format)
+        handler.setFormatter(formatter)
+
+        # 设置日志级别
+        root_logger.setLevel(log_level)
+        handler.setLevel(log_level)
+
+        # 添加处理器
+        root_logger.addHandler(handler)
+
+        # 设置特定模块的日志级别
+        cls._configure_module_loggers(debug)
+
+        cls._debug_enabled = debug
+        cls._configured = True
+
+    @classmethod
+    def _set_log_level(cls, debug: bool):
+        """设置日志级别"""
+        if debug:
+            log_level = logging.DEBUG
+        else:
+            log_level = logging.ERROR  # 非调试模式只显示错误
+
+        # 更新根日志器级别
+        root_logger = logging.getLogger()
+        root_logger.setLevel(log_level)
+
+        # 更新所有处理器级别
+        for handler in root_logger.handlers:
+            handler.setLevel(log_level)
+
+        # 更新特定模块的日志级别
+        cls._configure_module_loggers(debug)
+
+        cls._debug_enabled = debug
+
+    @classmethod
+    def _configure_module_loggers(cls, debug: bool):
+        """配置特定模块的日志器"""
+        if debug:
+            # 调试模式：显示所有 MCPStore 相关日志
+            mcpstore_loggers = [
+                'mcpstore',
+                'mcpstore.core',
+                'mcpstore.core.store',
+                'mcpstore.core.context',
+                'mcpstore.core.orchestrator',
+                'mcpstore.core.registry',
+                'mcpstore.core.client_manager',
+                'mcpstore.core.session_manager',
+                'mcpstore.core.tool_resolver',
+                'mcpstore.plugins.json_mcp',
+                'mcpstore.adapters.langchain_adapter'
+            ]
+
+            for logger_name in mcpstore_loggers:
+                module_logger = logging.getLogger(logger_name)
+                module_logger.setLevel(logging.DEBUG)
+        else:
+            # 非调试模式：只显示警告和错误
+            mcpstore_loggers = [
+                'mcpstore',
+                'mcpstore.core',
+                'mcpstore.core.store',
+                'mcpstore.core.context',
+                'mcpstore.core.orchestrator',
+                'mcpstore.core.registry',
+                'mcpstore.core.client_manager',
+                'mcpstore.core.session_manager',
+                'mcpstore.core.tool_resolver',
+                'mcpstore.plugins.json_mcp',
+                'mcpstore.adapters.langchain_adapter'
+            ]
+
+            for logger_name in mcpstore_loggers:
+                module_logger = logging.getLogger(logger_name)
+                module_logger.setLevel(logging.ERROR)  # 非调试模式只显示错误
+
+    @classmethod
+    def is_debug_enabled(cls) -> bool:
+        """检查是否启用了调试模式"""
+        return cls._debug_enabled
+
+    @classmethod
+    def enable_debug(cls):
+        """启用调试模式"""
+        cls.setup_logging(debug=True, force_reconfigure=True)
+
+    @classmethod
+    def disable_debug(cls):
+        """禁用调试模式"""
+        cls.setup_logging(debug=False, force_reconfigure=True)
+
 # --- Configuration Constants (default values) ---
 # 核心监控配置
 HEARTBEAT_INTERVAL_SECONDS = 60  # 心跳检查间隔（秒）

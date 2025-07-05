@@ -1,1 +1,433 @@
-{}
+{
+  "client_20250628234812_fqltj0": {
+    "mcpServers": {
+      "agent_exclusive_service": {
+        "url": "http://59.110.160.18:21923/mcp"
+      }
+    }
+  },
+  "client_20250628235008_g4bcdq": {
+    "mcpServers": {
+      "analysis_service": {
+        "url": "http://59.110.160.18:21923/mcp"
+      }
+    }
+  },
+  "client_20250703052804_tsixya": {
+    "mcpServers": {
+      "agent_remote_service": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703052805_hc90it": {
+    "mcpServers": {
+      "agent_local_service": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250703052809_tnp8aw": {
+    "mcpServers": {
+      "agent_mcp_remote": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703052809_vwj45p": {
+    "mcpServers": {
+      "agent_mcp_local": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250703052814_z5mvvs": {
+    "mcpServers": {
+      "agent_json_service": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703052815_ouo4bw": {
+    "mcpServers": {
+      "json_file_service": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703052816_jgfmsx": {
+    "mcpServers": {
+      "mcp_config_local": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250703052825_hm0moi": {
+    "mcpServers": {
+      "chain_agent_remote": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703052826_z9uhsy": {
+    "mcpServers": {
+      "chain_agent_local": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250703053104_an0eb1": {
+    "mcpServers": {
+      "agent_remote_service": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703060820_jclbn7": {
+    "mcpServers": {
+      "mcpstore-demo-weather": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703060821_rg04oy": {
+    "mcpServers": {
+      "agent_exclusive_service": {
+        "url": "http://59.110.160.18:21923/mcp"
+      }
+    }
+  },
+  "client_20250703060822_1wovqv": {
+    "mcpServers": {
+      "analysis_service": {
+        "url": "http://59.110.160.18:21923/mcp"
+      }
+    }
+  },
+  "client_20250703060823_1fm4mq": {
+    "mcpServers": {
+      "mcpstore-wiki": {
+        "url": "http://59.110.160.18:21923/mcp"
+      }
+    }
+  },
+  "client_20250703060824_wzjzgg": {
+    "mcpServers": {
+      "remote_service_1": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703060825_nls4ry": {
+    "mcpServers": {
+      "local_service_1": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250703060828_r1l55z": {
+    "mcpServers": {
+      "mcp_config_remote": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703060830_eae745": {
+    "mcpServers": {
+      "mcp_config_local": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250703060833_3sxh8s": {
+    "mcpServers": {
+      "json_file_service": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703060834_6lmm2w": {
+    "mcpServers": {
+      "agent_remote_service": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703060835_ck659h": {
+    "mcpServers": {
+      "agent_local_service": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250703060839_ooaqd8": {
+    "mcpServers": {
+      "agent_mcp_remote": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703060840_6jx42i": {
+    "mcpServers": {
+      "agent_mcp_local": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250703060844_xjbxh4": {
+    "mcpServers": {
+      "agent_json_service": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703060845_uvwd02": {
+    "mcpServers": {
+      "chain_remote_1": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703060846_f2uh7j": {
+    "mcpServers": {
+      "chain_local_1": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250703060850_vyw3a8": {
+    "mcpServers": {
+      "chain_agent_remote": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703060851_x0xn5z": {
+    "mcpServers": {
+      "chain_agent_local": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250703060855_pmrj40": {
+    "mcpServers": {
+      "test_remote_service": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703060856_6485ap": {
+    "mcpServers": {
+      "test_local_service": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250703060900_19uwvb": {
+    "mcpServers": {
+      "minimal_weather": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703060901_0wthtl": {
+    "mcpServers": {
+      "complete_weather": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http",
+        "description": "完整配置的天气服务",
+        "timeout": 30,
+        "extra_field": "这个字段会被忽略"
+      }
+    }
+  },
+  "client_20250703060901_6n6610": {
+    "mcpServers": {
+      "simple_cook": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250703060905_n0rdl3": {
+    "mcpServers": {
+      "full_cook": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ],
+        "env": {
+          "NODE_ENV": "test",
+          "DEBUG": "true"
+        },
+        "working_dir": ".",
+        "unknown_field": "会被忽略"
+      }
+    }
+  },
+  "client_20250703060905_m5vwl9": {
+    "mcpServers": {
+      "single_weather": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703060906_9ifmpr": {
+    "mcpServers": {
+      "multi_weather": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703060907_y5q8q2": {
+    "mcpServers": {
+      "multi_cook": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250703060911_jbt3sz": {
+    "mcpServers": {
+      "simple_weather": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703060912_3r1ygi": {
+    "mcpServers": {
+      "local_cook": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ],
+        "env": {
+          "NODE_ENV": "production"
+        }
+      }
+    }
+  },
+  "client_20250703060917_7k06mj": {
+    "mcpServers": {
+      "weather_mcp": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  },
+  "client_20250703060918_68leh3": {
+    "mcpServers": {
+      "cook_mcp": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250703060922_i33i0j": {
+    "mcpServers": {
+      "auto_transport": {
+        "url": "http://59.110.160.18:21923/mcp"
+      }
+    }
+  },
+  "client_20250703060923_mroefj": {
+    "mcpServers": {
+      "extra_fields": {
+        "url": "http://59.110.160.18:21923/mcp",
+        "transport": "streamable-http",
+        "unknown_field1": "value1",
+        "unknown_field2": {
+          "nested": "value"
+        },
+        "unknown_field3": [
+          1,
+          2,
+          3
+        ]
+      }
+    }
+  },
+  "client_20250703060923_ps4rss": {
+    "mcpServers": {
+      "empty_args": {
+        "command": "npx",
+        "args": []
+      }
+    }
+  }
+}

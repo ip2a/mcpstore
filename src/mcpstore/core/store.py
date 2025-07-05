@@ -48,16 +48,21 @@ class MCPStore:
         return MCPStoreContext(self)
 
     @staticmethod
-    def setup_store(mcp_config_file: str = None):
+    def setup_store(mcp_config_file: str = None, debug: bool = False):
         """
         初始化MCPStore实例
 
         Args:
             mcp_config_file: 自定义mcp.json配置文件路径，如果不指定则使用默认路径
+            debug: 是否启用调试日志，默认为False（不显示调试信息）
 
         Returns:
             MCPStore实例
         """
+        # 配置日志
+        from mcpstore.config.config import LoggingConfig
+        LoggingConfig.setup_logging(debug=debug)
+
         config = MCPConfig(json_path=mcp_config_file)
         registry = ServiceRegistry()
         orchestrator = MCPOrchestrator(config.load_config(), registry)
@@ -133,7 +138,7 @@ class MCPStore:
             
             # 情况1: Store 全量注册
             if client_id and client_id == self.client_manager.main_client_id and not service_names:
-                print(f"[INFO][register_json_service] STORE模式-全量注册，client_id: {client_id}")
+                logger.info(f"STORE模式-全量注册，client_id: {client_id}")
                 agent_id = self.client_manager.main_client_id
                 registered_client_ids = []
                 registered_services = []
@@ -147,7 +152,7 @@ class MCPStore:
                             new_service_config=all_services[name]
                         )
                         if not success:
-                            print(f"[ERROR][register_json_service] 替换服务 {name} 失败")
+                            logger.error(f"替换服务 {name} 失败")
                             continue
 
                         # 获取刚创建/更新的client_id用于Registry注册
@@ -158,10 +163,10 @@ class MCPStore:
                                 await self.orchestrator.register_json_services(client_config, client_id=client_id_check)
                                 registered_client_ids.append(client_id_check)
                                 registered_services.append(name)
-                                print(f"[INFO][register_json_service] 成功注册服务: {name}")
+                                logger.info(f"成功注册服务: {name}")
                                 break
                     except Exception as e:
-                        print(f"[ERROR][register_json_service] 注册服务 {name} 失败: {e}")
+                        logger.error(f"注册服务 {name} 失败: {e}")
                         continue
                         
                 return RegistrationResponse(
@@ -173,7 +178,7 @@ class MCPStore:
                 
             # 情况2: 临时注册（不提供client_id但提供service_names）
             elif not client_id and service_names:
-                print(f"[INFO][register_json_service] 临时注册模式，services: {service_names}")
+                logger.info(f"临时注册模式，services: {service_names}")
                 config = self.orchestrator.create_client_config_from_names(service_names)
                 import time; agent_id = f"agent_{int(time.time() * 1000)}"
                 results = await self.orchestrator.register_json_services(config)
@@ -186,7 +191,7 @@ class MCPStore:
                 
             # 情况3: 默认全量注册
             elif not client_id and not service_names:
-                print("[INFO][register_json_service] 默认全量注册")
+                logger.info("默认全量注册")
                 # 直接执行全量注册逻辑，避免递归调用
                 agent_id = self.client_manager.main_client_id
                 registered_client_ids = []
@@ -201,7 +206,7 @@ class MCPStore:
                             new_service_config=all_services[name]
                         )
                         if not success:
-                            print(f"[ERROR][register_json_service] 替换服务 {name} 失败")
+                            logger.error(f"替换服务 {name} 失败")
                             continue
 
                         # 获取刚创建/更新的client_id用于Registry注册
@@ -212,10 +217,10 @@ class MCPStore:
                                 await self.orchestrator.register_json_services(client_config, client_id=client_id_check)
                                 registered_client_ids.append(client_id_check)
                                 registered_services.append(name)
-                                print(f"[INFO][register_json_service] 成功注册服务: {name}")
+                                logger.info(f"成功注册服务: {name}")
                                 break
                     except Exception as e:
-                        print(f"[ERROR][register_json_service] 注册服务 {name} 失败: {e}")
+                        logger.error(f"注册服务 {name} 失败: {e}")
                         continue
 
                 return RegistrationResponse(
@@ -227,7 +232,7 @@ class MCPStore:
                 
             # 情况4: Agent 指定服务注册
             else:
-                print(f"[INFO][register_json_service] AGENT模式-指定服务注册，client_id: {client_id}, services: {service_names}")
+                logger.info(f"AGENT模式-指定服务注册，client_id: {client_id}, services: {service_names}")
                 agent_id = client_id
                 registered_client_ids = []
                 registered_services = []
@@ -235,7 +240,7 @@ class MCPStore:
                 for name in service_names or []:
                     try:
                         if name not in all_services:
-                            print(f"[WARN][register_json_service] 服务 {name} 未在全局配置中找到，跳过")
+                            logger.warning(f"服务 {name} 未在全局配置中找到，跳过")
                             continue
 
                         # 🔧 修复：使用同名服务处理逻辑
@@ -245,7 +250,7 @@ class MCPStore:
                             new_service_config=all_services[name]
                         )
                         if not success:
-                            print(f"[ERROR][register_json_service] 替换服务 {name} 失败")
+                            logger.error(f"替换服务 {name} 失败")
                             continue
 
                         # 获取刚创建/更新的client_id用于Registry注册
@@ -256,10 +261,10 @@ class MCPStore:
                                 await self.orchestrator.register_json_services(client_config, client_id=client_id_check)
                                 registered_client_ids.append(client_id_check)
                                 registered_services.append(name)
-                                print(f"[INFO][register_json_service] 成功注册服务: {name}")
+                                logger.info(f"成功注册服务: {name}")
                                 break
                     except Exception as e:
-                        print(f"[ERROR][register_json_service] 注册服务 {name} 失败: {e}")
+                        logger.error(f"注册服务 {name} 失败: {e}")
                         continue
                         
                 return RegistrationResponse(
@@ -270,7 +275,7 @@ class MCPStore:
                 )
                 
         except Exception as e:
-            print(f"[ERROR][register_json_service] 服务注册失败: {e}")
+            logger.error(f"服务注册失败: {e}")
             return RegistrationResponse(
                 success=False,
                 message=str(e),
@@ -313,31 +318,34 @@ class MCPStore:
 
     async def process_tool_request(self, request: ToolExecutionRequest) -> ExecutionResponse:
         """
-        处理工具执行请求
-        - 验证工具名称格式
-        - 转发请求到 orchestrator 执行
-        
+        处理工具执行请求（FastMCP 标准）
+
         Args:
             request: 工具执行请求
-            
+
         Returns:
             ExecutionResponse: 工具执行响应
         """
         try:
-            # 从工具名称中提取服务名称
-            if "_" not in request.tool_name:
-                raise ValueError(f"Invalid tool name format: {request.tool_name}. Expected format: service_toolname")
-            
-            service_name = request.tool_name.split("_")[0]
-            
-            # 执行工具
-            result = await self.orchestrator.execute_tool(
-                service_name=service_name,
+            # 验证请求参数
+            if not request.tool_name:
+                raise ValueError("Tool name cannot be empty")
+            if not request.service_name:
+                raise ValueError("Service name cannot be empty")
+
+            logger.debug(f"Processing tool request: {request.service_name}::{request.tool_name}")
+
+            # 执行工具（使用 FastMCP 标准）
+            result = await self.orchestrator.execute_tool_fastmcp(
+                service_name=request.service_name,
                 tool_name=request.tool_name,
-                parameters=request.args,
-                agent_id=request.agent_id
+                arguments=request.args,
+                agent_id=request.agent_id,
+                timeout=request.timeout,
+                progress_handler=request.progress_handler,
+                raise_on_error=request.raise_on_error
             )
-            
+
             return ExecutionResponse(
                 success=True,
                 result=result
@@ -706,8 +714,10 @@ class MCPStore:
             for client_id in client_ids:
                 tool_dicts = self.registry.get_all_tool_info(client_id)
                 for tool in tool_dicts:
+                    # 使用存储的键名作为显示名称（现在键名就是显示名称）
+                    display_name = tool.get("name", "")
                     tools.append(ToolInfo(
-                        name=tool.get("name", ""),
+                        name=display_name,
                         description=tool.get("description", ""),
                         service_name=tool.get("service_name", ""),
                         client_id=tool.get("client_id", ""),
@@ -720,8 +730,10 @@ class MCPStore:
                 return tools
             tool_dicts = self.registry.get_all_tool_info(id)
             for tool in tool_dicts:
+                # 使用存储的键名作为显示名称（现在键名就是显示名称）
+                display_name = tool.get("name", "")
                 tools.append(ToolInfo(
-                    name=tool.get("name", ""),
+                    name=display_name,
                     description=tool.get("description", ""),
                     service_name=tool.get("service_name", ""),
                     client_id=tool.get("client_id", ""),
@@ -735,8 +747,10 @@ class MCPStore:
                 for client_id in client_ids:
                     tool_dicts = self.registry.get_all_tool_info(client_id)
                     for tool in tool_dicts:
+                        # 使用存储的键名作为显示名称（现在键名就是显示名称）
+                        display_name = tool.get("name", "")
                         tools.append(ToolInfo(
-                            name=tool.get("name", ""),
+                            name=display_name,
                             description=tool.get("description", ""),
                             service_name=tool.get("service_name", ""),
                             client_id=tool.get("client_id", ""),
@@ -746,8 +760,10 @@ class MCPStore:
             else:
                 tool_dicts = self.registry.get_all_tool_info(id)
                 for tool in tool_dicts:
+                    # 使用存储的键名作为显示名称（现在键名就是显示名称）
+                    display_name = tool.get("name", "")
                     tools.append(ToolInfo(
-                        name=tool.get("name", ""),
+                        name=display_name,
                         description=tool.get("description", ""),
                         service_name=tool.get("service_name", ""),
                         client_id=tool.get("client_id", ""),

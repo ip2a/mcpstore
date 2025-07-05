@@ -60,6 +60,47 @@ class LangChainAdapter:
             **fields
         )
 
+    def _create_tool_function(self, tool_name: str, args_schema: Type[BaseModel]):
+        """
+        (后端守卫) 创建一个健壮的同步执行函数，以应对 LangChain 不同的调用方式。
+        """
+        def _tool_executor(*args, **kwargs):
+            tool_input = {}
+            try:
+                # 优先处理关键字参数 (e.g., func(query='北京'))
+                if kwargs:
+                    tool_input = kwargs
+                # 其次处理位置参数
+                elif args:
+                    # 如果第一个位置参数是字典，直接使用 (e.g., func({'query':'北京'}))
+                    if isinstance(args[0], dict):
+                        tool_input = args[0]
+                    # 如果是单个值，智能地映射到 schema 的第一个字段 (e.g., func('北京'))
+                    else:
+                        schema_fields = args_schema.model_json_schema()['properties']
+                        first_field_name = next(iter(schema_fields))
+                        tool_input = {first_field_name: args[0]}
+
+                # 使用 Pydantic 模型严格验证参数，如果名称或类型不匹配会在此处报错
+                validated_args = args_schema(**tool_input)
+                # 调用 mcpstore 的核心方法（使用同步版本）
+                result = self._context.use_tool(tool_name, validated_args.model_dump())
+
+                # 提取实际结果
+                if hasattr(result, 'result') and result.result is not None:
+                    actual_result = result.result
+                elif hasattr(result, 'success') and result.success:
+                    actual_result = getattr(result, 'data', str(result))
+                else:
+                    actual_result = str(result)
+
+                if isinstance(actual_result, (dict, list)):
+                    return json.dumps(actual_result, ensure_ascii=False)
+                return str(actual_result)
+            except Exception as e:
+                return f"执行工具 '{tool_name}' 时出错: {e}。收到的参数为: args={args}, kwargs={kwargs}"
+        return _tool_executor
+
     async def _create_tool_coroutine(self, tool_name: str, args_schema: Type[BaseModel]):
         """
         (后端守卫) 创建一个健壮的异步执行函数，以应对 LangChain 不同的调用方式。
@@ -85,10 +126,18 @@ class LangChainAdapter:
                 validated_args = args_schema(**tool_input)
                 # 调用 mcpstore 的核心方法（使用异步版本，因为这个函数本身就是异步的）
                 result = await self._context.use_tool_async(tool_name, validated_args.model_dump())
-                
-                if isinstance(result, (dict, list)):
-                    return json.dumps(result, ensure_ascii=False)
-                return str(result)
+
+                # 提取实际结果
+                if hasattr(result, 'result') and result.result is not None:
+                    actual_result = result.result
+                elif hasattr(result, 'success') and result.success:
+                    actual_result = getattr(result, 'data', str(result))
+                else:
+                    actual_result = str(result)
+
+                if isinstance(actual_result, (dict, list)):
+                    return json.dumps(actual_result, ensure_ascii=False)
+                return str(actual_result)
             except Exception as e:
                 return f"执行工具 '{tool_name}' 时出错: {e}。收到的参数为: args={args}, kwargs={kwargs}"
         return _tool_executor
@@ -104,14 +153,17 @@ class LangChainAdapter:
         for tool_info in mcp_tools_info:
             enhanced_description = self._enhance_description(tool_info)
             args_schema = self._create_args_schema(tool_info)
-            coroutine = await self._create_tool_coroutine(tool_info.name, args_schema)
+
+            # 创建同步和异步函数
+            sync_func = self._create_tool_function(tool_info.name, args_schema)
+            async_coroutine = await self._create_tool_coroutine(tool_info.name, args_schema)
 
             langchain_tools.append(
                 Tool(
                     name=tool_info.name,
                     description=enhanced_description,
-                    func=None,
-                    coroutine=coroutine,
+                    func=sync_func,  # 提供同步函数
+                    coroutine=async_coroutine,  # 提供异步函数
                     args_schema=args_schema,
                 )
             )

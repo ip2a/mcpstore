@@ -3,6 +3,191 @@
     "mcpstore-demo-weather": {
       "url": "http://59.110.160.18:21923/mcp",
       "transport": "streamable-http"
+    },
+    "agent_exclusive_service": {
+      "url": "http://59.110.160.18:21923/mcp"
+    },
+    "analysis_service": {
+      "url": "http://59.110.160.18:21923/mcp"
+    },
+    "mcpstore-wiki": {
+      "url": "http://59.110.160.18:21923/mcp"
+    },
+    "remote_service_1": {
+      "url": "http://59.110.160.18:21923/mcp",
+      "transport": "streamable-http"
+    },
+    "local_service_1": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "howtocook-mcp"
+      ]
+    },
+    "mcp_config_remote": {
+      "url": "http://59.110.160.18:21923/mcp",
+      "transport": "streamable-http"
+    },
+    "mcp_config_local": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "howtocook-mcp"
+      ]
+    },
+    "json_file_service": {
+      "url": "http://59.110.160.18:21923/mcp",
+      "transport": "streamable-http"
+    },
+    "agent_remote_service": {
+      "url": "http://59.110.160.18:21923/mcp",
+      "transport": "streamable-http"
+    },
+    "agent_local_service": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "howtocook-mcp"
+      ]
+    },
+    "agent_mcp_remote": {
+      "url": "http://59.110.160.18:21923/mcp",
+      "transport": "streamable-http"
+    },
+    "agent_mcp_local": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "howtocook-mcp"
+      ]
+    },
+    "agent_json_service": {
+      "url": "http://59.110.160.18:21923/mcp",
+      "transport": "streamable-http"
+    },
+    "chain_remote_1": {
+      "url": "http://59.110.160.18:21923/mcp",
+      "transport": "streamable-http"
+    },
+    "chain_local_1": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "howtocook-mcp"
+      ]
+    },
+    "chain_agent_remote": {
+      "url": "http://59.110.160.18:21923/mcp",
+      "transport": "streamable-http"
+    },
+    "chain_agent_local": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "howtocook-mcp"
+      ]
+    },
+    "test_remote_service": {
+      "url": "http://59.110.160.18:21923/mcp",
+      "transport": "streamable-http"
+    },
+    "test_local_service": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "howtocook-mcp"
+      ]
+    },
+    "minimal_weather": {
+      "url": "http://59.110.160.18:21923/mcp",
+      "transport": "streamable-http"
+    },
+    "complete_weather": {
+      "url": "http://59.110.160.18:21923/mcp",
+      "transport": "streamable-http",
+      "description": "完整配置的天气服务",
+      "timeout": 30,
+      "extra_field": "这个字段会被忽略"
+    },
+    "simple_cook": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "howtocook-mcp"
+      ]
+    },
+    "full_cook": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "howtocook-mcp"
+      ],
+      "env": {
+        "NODE_ENV": "test",
+        "DEBUG": "true"
+      },
+      "working_dir": ".",
+      "unknown_field": "会被忽略"
+    },
+    "single_weather": {
+      "url": "http://59.110.160.18:21923/mcp",
+      "transport": "streamable-http"
+    },
+    "multi_weather": {
+      "url": "http://59.110.160.18:21923/mcp",
+      "transport": "streamable-http"
+    },
+    "multi_cook": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "howtocook-mcp"
+      ]
+    },
+    "simple_weather": {
+      "url": "http://59.110.160.18:21923/mcp",
+      "transport": "streamable-http"
+    },
+    "local_cook": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "howtocook-mcp"
+      ],
+      "env": {
+        "NODE_ENV": "production"
+      }
+    },
+    "weather_mcp": {
+      "url": "http://59.110.160.18:21923/mcp",
+      "transport": "streamable-http"
+    },
+    "cook_mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "howtocook-mcp"
+      ]
+    },
+    "auto_transport": {
+      "url": "http://59.110.160.18:21923/mcp"
+    },
+    "extra_fields": {
+      "url": "http://59.110.160.18:21923/mcp",
+      "transport": "streamable-http",
+      "unknown_field1": "value1",
+      "unknown_field2": {
+        "nested": "value"
+      },
+      "unknown_field3": [
+        1,
+        2,
+        3
+      ]
+    },
+    "empty_args": {
+      "command": "npx",
+      "args": []
     }
   }
 }

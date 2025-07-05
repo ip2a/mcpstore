@@ -17,7 +17,6 @@ from urllib.parse import urljoin
 from mcpstore.core.registry import ServiceRegistry
 from mcpstore.core.client_manager import ClientManager
 from mcpstore.core.config_processor import ConfigProcessor
-from mcpstore.core.tool_naming import ToolNamingManager
 from fastmcp import Client
 from fastmcp.client.transports import (
     MCPConfigTransport,
@@ -596,6 +595,98 @@ class MCPOrchestrator:
     #     # 处理查询...
     #     return {"result": "query processed", "session_id": session.agent_id}
 
+    async def execute_tool_fastmcp(
+        self,
+        service_name: str,
+        tool_name: str,
+        arguments: Dict[str, Any] = None,
+        agent_id: Optional[str] = None,
+        timeout: Optional[float] = None,
+        progress_handler = None,
+        raise_on_error: bool = True
+    ) -> Any:
+        """
+        执行工具（FastMCP 标准）
+        严格按照 FastMCP 官网标准执行工具调用
+
+        Args:
+            service_name: 服务名称
+            tool_name: 工具名称（FastMCP 原始名称）
+            arguments: 工具参数
+            agent_id: Agent ID（可选）
+            timeout: 超时时间（秒）
+            progress_handler: 进度处理器
+            raise_on_error: 是否在错误时抛出异常
+
+        Returns:
+            FastMCP CallToolResult 或提取的数据
+        """
+        from mcpstore.core.tool_resolver import FastMCPToolExecutor
+
+        arguments = arguments or {}
+        executor = FastMCPToolExecutor(default_timeout=timeout or 30.0)
+
+        try:
+            if agent_id:
+                # Agent 模式：在指定 Agent 的客户端中查找服务
+                client_ids = self.client_manager.get_agent_clients(agent_id)
+                if not client_ids:
+                    raise Exception(f"No clients found for agent {agent_id}")
+            else:
+                # Store 模式：在 main_client 的客户端中查找服务
+                client_ids = self.client_manager.get_agent_clients(self.client_manager.main_client_id)
+                if not client_ids:
+                    raise Exception("No clients found in main_client")
+
+            # 遍历客户端查找服务
+            for client_id in client_ids:
+                if self.registry.has_service(client_id, service_name):
+                    try:
+                        # 获取服务配置并创建客户端
+                        service_config = self.mcp_config.get_service_config(service_name)
+                        if not service_config:
+                            logger.warning(f"Service configuration not found for {service_name}")
+                            continue
+
+                        # 标准化配置并创建 FastMCP 客户端
+                        normalized_config = self._normalize_service_config(service_config)
+                        client = Client({"mcpServers": {service_name: normalized_config}})
+
+                        async with client:
+                            # 验证工具存在
+                            tools = await client.list_tools()
+                            if not any(t.name == tool_name for t in tools):
+                                logger.warning(f"Tool {tool_name} not found in service {service_name}")
+                                continue
+
+                            # 使用 FastMCP 标准执行器执行工具
+                            result = await executor.execute_tool(
+                                client=client,
+                                tool_name=tool_name,
+                                arguments=arguments,
+                                timeout=timeout,
+                                progress_handler=progress_handler,
+                                raise_on_error=raise_on_error
+                            )
+
+                            # 提取结果数据（按照 FastMCP 标准）
+                            extracted_data = executor.extract_result_data(result)
+
+                            logger.info(f"Tool {tool_name} executed successfully in service {service_name}")
+                            return extracted_data
+
+                    except Exception as e:
+                        logger.error(f"Failed to execute tool in client {client_id}: {e}")
+                        if raise_on_error:
+                            raise
+                        continue
+
+            raise Exception(f"Tool {tool_name} not found in service {service_name}")
+
+        except Exception as e:
+            logger.error(f"FastMCP tool execution failed: {e}")
+            raise Exception(f"Tool execution failed: {str(e)}")
+
     async def execute_tool(
         self,
         service_name: str,
@@ -603,7 +694,13 @@ class MCPOrchestrator:
         parameters: Dict[str, Any],
         agent_id: Optional[str] = None
     ) -> Any:
-        """执行工具"""
+        """
+        执行工具（旧版本，已废弃）
+
+        ⚠️ 此方法已废弃，请使用 execute_tool_fastmcp() 方法
+        该方法保留仅为向后兼容，将在未来版本中移除
+        """
+        logger.warning("execute_tool() is deprecated, use execute_tool_fastmcp() instead")
         try:
             if agent_id:
                 # agent模式：在agent的所有client中查找服务
@@ -1045,32 +1142,21 @@ class MCPOrchestrator:
                     is_single_service = len(healthy_services) == 1
                     
                     for tool in tool_list:
-                        tool_name = tool.name
-                        
-                        # 🆕 使用ToolNamingManager处理工具名称
-                        original_tool_name = tool_name
+                        original_tool_name = tool.name
+
+                        # 🆕 使用统一的工具命名标准
+                        from mcpstore.core.tool_resolver import ToolNameResolver
 
                         if is_single_service:
-                            # 单服务情况：使用新的命名管理器创建工具名
+                            # 单服务情况：直接使用原始工具名，记录服务归属
                             service_name = healthy_services[0]
-                            # 检查是否已经是正确格式
-                            if not ToolNamingManager.belongs_to_service(tool_name, service_name):
-                                tool_name = ToolNamingManager.create_tool_name(service_name, original_tool_name)
-                                logger.debug(f"Created tool name for single service: {original_tool_name} -> {tool_name}")
+                            display_name = ToolNameResolver().create_user_friendly_name(service_name, original_tool_name)
+                            logger.debug(f"Single service tool: {original_tool_name} -> display as {display_name}")
                         else:
-                            # 多服务情况：根据工具名称判断归属
-                            service_name = None
-                            for name in healthy_services:
-                                if ToolNamingManager.belongs_to_service(tool_name, name):
-                                    service_name = name
-                                    break
-
-                            if not service_name:
-                                # 如果无法确定归属，尝试为每个服务创建工具名
-                                logger.warning(f"Tool {tool_name} does not belong to any service, will try to assign to first service")
-                                service_name = healthy_services[0]
-                                tool_name = ToolNamingManager.create_tool_name(service_name, original_tool_name)
-                                logger.debug(f"Assigned tool to service: {original_tool_name} -> {service_name} -> {tool_name}")
+                            # 多服务情况：为每个服务分别注册工具
+                            service_name = healthy_services[0]  # 默认分配给第一个服务
+                            display_name = ToolNameResolver().create_user_friendly_name(service_name, original_tool_name)
+                            logger.debug(f"Multi-service tool: {original_tool_name} -> assigned to {service_name} -> display as {display_name}")
 
                         # 处理参数信息
                         parameters = {}
@@ -1079,27 +1165,30 @@ class MCPOrchestrator:
                         elif hasattr(tool, 'parameters') and tool.parameters:
                             parameters = tool.parameters
 
+                        # 构造工具定义（存储显示名称和原始名称）
                         tool_def = {
                             "type": "function",
                             "function": {
-                                "name": tool_name,  # 使用可能被修改过的tool_name
+                                "name": original_tool_name,  # FastMCP 原始名称
+                                "display_name": display_name,  # 用户友好的显示名称
                                 "description": tool.description,
-                                "parameters": parameters
+                                "parameters": parameters,
+                                "service_name": service_name  # 明确的服务归属
                             }
                         }
-                        all_tools.append((tool_name, tool_def))  # 使用可能被修改过的tool_name
+                        # 使用显示名称作为存储键，这样用户输入的显示名称可以直接匹配
+                        all_tools.append((display_name, tool_def, service_name))
 
-                    # 🆕 为每个服务注册其工具（使用新的工具归属判断）
+                    # 🆕 为每个服务注册其工具（使用统一的标准）
                     for service_name in healthy_services:
-                        if is_single_service:
-                            service_tools = all_tools
-                        else:
-                            # 使用ToolNamingManager进行工具过滤
-                            all_tool_names = [name for name, _ in all_tools]
-                            service_tool_names = ToolNamingManager.get_tools_for_service(all_tool_names, service_name)
-                            service_tools = [(name, tool_def) for name, tool_def in all_tools if name in service_tool_names]
+                        # 筛选属于该服务的工具
+                        service_tools = []
+                        for tool_name, tool_def, tool_service in all_tools:
+                            if tool_service == service_name:
+                                # 存储格式：(原始名称, 工具定义)
+                                service_tools.append((tool_name, tool_def))
 
-                        logger.info(f"Filtered {len(service_tools)} tools for service {service_name}")
+                        logger.info(f"Registering {len(service_tools)} tools for service {service_name}")
                         self.registry.add_service(agent_key, service_name, client, service_tools)
                         self.clients[service_name] = client
 
