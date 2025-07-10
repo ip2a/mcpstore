@@ -36,7 +36,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from mcpstore import MCPStore
 store = MCPStore.setup_store()
-store.for_store().add_service({"name": "mcpstore-wiki", "url": "http://59.110.160.18:21923/mcp"})
+store.for_store().add_service({"name": "mcpstore-wiki", "url": "http://mcpstore.wiki/mcp"})
 tools = store.for_store().to_langchain_tools()
 llm = ChatOpenAI(
     temperature=0, model="deepseek-chat",
