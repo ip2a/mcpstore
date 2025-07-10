@@ -1,324 +1,468 @@
 [中文](https://github.com/whillhill/mcpstore/blob/main/README_zh.md) | English
 
-# 🚀 MCPStore: Enterprise-Grade MCP Toolchain Management Solution
+# 🚀 McpStore - Add MCP Capabilities to Your Agent in Three Lines of Code
 
-MCPStore is an enterprise-grade MCP (Model Context Protocol) tool management library designed specifically to address the real-world pain points of Large Language Model (LLM) applications in production environments. It is dedicated to simplifying the process of AI Agent tool integration, service management, and system monitoring, helping developers build more powerful and reliable AI applications.
+`McpStore` is a tool management library specifically designed to solve the problem of Agents wanting to use `MCP (Model Context Protocol)` capabilities while being overwhelmed by MCP management.
 
-## 1. Project Background: Addressing the Challenges of AI Agent Development
+`MCP` is rapidly evolving, and we all want to add `MCP` capabilities to existing `Agents`, but introducing new tools to `Agents` typically requires writing a lot of repetitive `"glue code"`, making the process cumbersome 😤
 
-When building complex AI Agent systems, developers commonly face the following challenges:
 
-* **High Tool Integration Costs**: Introducing new tools to an Agent often requires writing a large amount of repetitive "glue code," making the process cumbersome and inefficient.
-* **Complex Service Management and Maintenance**: Effectively managing the lifecycle (registration, discovery, updates, deregistration) of multiple MCP services and ensuring their high availability is a daunting task.
-* **Difficulty in Ensuring Service Stability**: Network fluctuations or service abnormalities can lead to connection interruptions. A lack of effective automatic reconnection and health check mechanisms can severely impact the Agent's stability.
-* **Ecosystem Integration Barriers**: Seamlessly integrating MCP tools from different sources and with different protocols into mainstream AI frameworks like LangChain and LlamaIndex presents a high technical barrier.
 
-MCPStore was created to address these challenges, aiming to provide a unified, efficient, and reliable solution.
+## Implement MCP Tools Ready-to-Use in Three Lines of Code ⚡
 
-## 2. Core Philosophy: Simplify Complexity with Three Lines of Code
-
-The core design philosophy of MCPStore is to encapsulate complexity and provide an extremely simple user experience. A tool integration task that would traditionally require dozens of lines of code can be accomplished with just three lines using MCPStore.
+No need to worry about `mcp` protocol and configuration details, just use intuitive classes and functions with an `extremely simple` user experience.
 
 ```python
-# Import the MCPStore library
+# Import MCPStore library
 from mcpstore import MCPStore
-
-# Step 1: Initialize the Store, the core entry point for managing all MCP services
+# Step 1: Initialize a Store, which is the core entry point for managing all MCP services
 store = MCPStore.setup_store()
-
-# Step 2: Register an external MCP service. MCPStore will automatically handle the connection and tool loading
-await store.for_store().add_service({"name": "mcpstore-wiki", "url": "[http://59.110.160.18:21923/mcp](http://59.110.160.18:21923/mcp)"})
-
-# Step 3: Get a list of tools fully compatible with LangChain, ready to be used by an Agent
-tools = await store.for_store().for_langchain().list_tools()
-
-# At this point, your LangChain Agent has successfully integrated all tools provided by mcpstore-wiki
+# Step 2: Register an external MCP service, MCPStore will automatically handle connection and tool loading
+store.for_store().add_service({"name":"mcpstore-wiki","url":"http://mcpstore.wiki/mcp"})
+# Step 3: Get a tool list fully compatible with LangChain, ready for direct use with Agent
+tools = store.for_store().for_langchain().list_tools()
+# At this moment, your LangChain Agent has successfully integrated all tools provided by mcpstore-wiki
 ```
 
-## 3. LangChain in Action: A Complete, Runnable Example
 
-Below is a complete, runnable example that demonstrates how to seamlessly integrate tools fetched by MCPStore into a standard LangChain Agent.
+
+## A Complete Runnable Example - Direct Integration of MCP Services with LangChain 🔥
+
+Below is a complete, directly runnable example showing how to seamlessly integrate tools obtained from `McpStore` into a standard `langChain Agent`.
 
 ```python
-import asyncio
-
-from langchain.agents import AgentExecutor
-from langchain.agents.format_scratchpad.openai_tools import (
-    format_to_openai_tool_messages,
-)
-from langchain.agents.output_parsers.openai_tools import OpenAIToolsAgentOutputParser
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain.agents import create_tool_calling_agent, AgentExecutor
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-
 from mcpstore import MCPStore
-
-
-async def main():
-    """
-    A complete demonstration function showing how to:
-    1. Load tools using MCPStore.
-    2. Configure a standard LangChain Agent.
-    3. Integrate MCPStore tools into the Agent and execute it.
-    """
-    # Step 1: Get tools with MCPStore's core three lines of code
 store = MCPStore.setup_store()
-    context = await store.for_store().add_service({"name": "mcpstore-wiki", "url": "[http://59.110.160.18:21923/mcp](http://59.110.160.18:21923/mcp)"})
-    mcp_tools = await context.for_langchain().list_tools()
-
-    # Step 2: Configure a powerful language model
-    # Note: You need to replace "YOUR_DEEPSEEK_API_KEY" with your own valid API key.
-    llm = ChatOpenAI(
-        temperature=0,
-        model="deepseek-chat",
-        openai_api_key="YOUR_DEEPSEEK_API_KEY",
-        openai_api_base="[https://api.deepseek.com](https://api.deepseek.com)"
-    )
-
-    # Step 3: Build the Agent's reasoning chain
-    # This is a standard LangChain Agent setup for handling input, calling tools, and formatting intermediate steps.
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a powerful assistant."),
-        ("user", "{input}"),
-        MessagesPlaceholder(variable_name="agent_scratchpad"),
-    ])
-
-    llm_with_tools = llm.bind_tools(mcp_tools)
-
-    agent_chain = (
-        {
-            "input": lambda x: x["input"],
-            "agent_scratchpad": lambda x: format_to_openai_tool_messages(x["intermediate_steps"]),
-        }
-        | prompt
-        | llm_with_tools
-        | OpenAIToolsAgentOutputParser()
-    )
-
-    agent_executor = AgentExecutor(agent=agent_chain, tools=mcp_tools, verbose=True)
-
-    # Step 4: Execute the Agent and get the result
-    test_question = "What's the weather like in Beijing today?"
-    print(f"🤔 Question: {test_question}")
-
-    response = await agent_executor.ainvoke({"input": test_question})
-    print(f"\n🎯 Agent Answer:")
-    print(f"{response['output']}")
-
-
-if __name__ == "__main__":
-    # Run the async main function using asyncio
-    asyncio.run(main())
+store.for_store().add_service({"name":"mcpstore-wiki","url":"http://mcpstore.wiki/mcp"})
+tools = store.for_store().to_langchain_tools()
+llm = ChatOpenAI(
+    temperature=0, model="deepseek-chat",
+    openai_api_key="sk-****",
+    openai_api_base="https://api.deepseek.com"
+)
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are an assistant, answer with emojis"),
+    ("human", "{input}"),
+    ("placeholder", "{agent_scratchpad}"),
+])
+agent = create_tool_calling_agent(llm, tools, prompt)
+agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+query = "How's the weather in Beijing?"
+print(f"\n   🤔: {query}")
+response = agent_executor.invoke({"input": query})
+print(f"   🤖 : {response['output']}")
 ```
 
-## 4. Powerful Service Registration with `add_service`
 
-MCPStore provides a highly flexible `add_service` method to integrate tool services from different sources and types.
+![image-20250711002833332](./assets/image-20250711002833332.png)
+
+
+Or if you don't want to use `langchain` and plan to `design your own tool calls` 🛠️
+
+```
+from mcpstore import MCPStore
+store = MCPStore.setup_store()
+store.for_store().add_service({"name":"mcpstore-wiki","url":"http://mcpstore.wiki/mcp"})
+tools = store.for_store().list_tools()
+print(store.for_store().use_tool(tools[0].name,{"query":'Beijing'}))
+```
+
+
+
+## Quick Start
+
+### Installation
+```bash
+pip install mcpstore
+```
+
+
+## Chaining Calls ⛓️
+
+I really dislike complex and overly long function names. For intuitive code display, `McpStore` uses `chaining`. Specifically, `store` is a foundation. If you have different `agents` and want your different `agents` to be experts in different domains (using isolated different `MCPs`), you can try `for_agent`. Each `agent` is isolated, and you can determine your `agent`'s identity through a custom `agentid`, ensuring it performs better within its scope.
+
+* `store.for_store()`: Enter `global context`, where managed services and tools are visible to all Agents.
+* `store.for_agent("agent_id")`: Create an `isolated private context` for an Agent with the specified ID. Each
+
+
+## Multi-Agent Isolation 🏠
+
+The following code demonstrates how to use `context isolation` to assign `dedicated tool sets` to Agents with different functions.
+
+```python
+# Initialize Store
+store = MCPStore.setup_store()
+
+# Assign dedicated Wiki tools to "Knowledge Management Agent"
+# This operation is performed in the "knowledge" agent's private context
+agent_id1 = "my-knowledge-agent"
+knowledge_agent_context = store.for_agent(agent_id1).add_service(
+    {"name": "mcpstore-wiki", "url": "http://mcpstore.wiki/mcp"}
+)
+
+# Assign dedicated development tools to "Development Support Agent"
+# This operation is performed in the "development" agent's private context
+agent_id2 = "my-development-agent"
+dev_agent_context = store.for_agent(agent_id2).add_service(
+    {"name": "mcpstore-demo", "url": "http://mcpstore.wiki/mcp"}
+)
+
+# Each Agent's tool set is completely isolated without affecting each other
+knowledge_tools = store.for_agent(agent_id1).list_tools()
+dev_tools = store.for_agent(agent_id2).list_tools()
+```
+Intuitively, you can use almost all functions through `store.for_store()` and `store.for_agent("agent_id")` ✨
+
+
+## McpStore's setup_store() 🔧
+
+
+### 📋 Overview
+
+`MCPStore.setup_store()` is MCPStore's `core initialization method`, used to create and configure MCPStore instances. This method supports `custom configuration file paths` and `debug mode`, providing `flexible configuration options` for different environments and use cases.
+
+### 🔧 Method Signature
+
+```python
+@staticmethod
+def setup_store(mcp_config_file: str = None, debug: bool = False) -> MCPStore
+```
+
+**Parameter Description**:
+- `mcp_config_file`: Custom mcp.json configuration file path (optional)
+- `debug`: Whether to enable debug logging mode (optional, default False)
+- **Return Value**: Fully initialized MCPStore instance
+
+### 📋 Parameter Details
+
+#### 1. `mcp_config_file` Parameter
+
+- **When not specified**: Uses default path `src/mcpstore/data/mcp.json`
+- **When specified**: Uses the specified `mcp.json` configuration file to instantiate your store, supports `mainstream client file formats`, `ready to use` 🎯
+
+#### 2. `debug` Parameter
+
+##### Basic Description
+- **Type**: `bool`
+- **Default Value**: `False`
+- **Function**: Controls log output level and detail
+
+##### Log Configuration Comparison
+
+| Mode | debug=False (default) | debug=True |
+|------|-------------------|------------|
+| **Log Level** | ERROR | DEBUG |
+| **Log Format** | `%(levelname)s - %(message)s` | `%(asctime)s - %(name)s - %(levelname)s - %(message)s` |
+| **Display Content** | Only error messages | All debug information |
+
+
+### 📁 Supported JSON Configuration Formats
+
+#### Standard MCP Configuration Format
+
+MCPStore uses `standard MCP configuration format`, supporting both `URL-based` and `command-based` service configurations:
+
+```json
+{
+  "mcpServers": {
+    "mcpstore-wiki": {
+      "url": "http://mcpstore.wiki/mcp"
+    },
+    "howtocook": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "howtocook-mcp"
+      ]
+    }
+  }
+}
+```
+
+
+#### Scenario: Multi-tenant Configuration 🏢
+
+```python
+# Tenant A configuration
+tenant_a_store = MCPStore.setup_store(
+    mcp_config_file="tenant_a_mcp.json",
+    debug=False
+)
+
+# Tenant B configuration
+tenant_b_store = MCPStore.setup_store(
+    mcp_config_file="tenant_b_mcp.json",
+    debug=False
+)
+
+# Provide isolated services for different tenants
+tenant_a_tools = tenant_a_store.for_store().list_tools()
+tenant_b_tools = tenant_b_store.for_store().list_tools()
+```
+
+
+## Powerful Service Registration `add_service` 💪
+
+The core of `mcpstore` is `store`. Simply initialize a `store` through `setup_store()`, and you can register `any number` of services supporting all `MCP protocols` on this `store`. No need to worry about the `lifecycle and maintenance` of individual mcp services, no need to worry about `CRUD operations` for mcp services - `store` will `take full responsibility` for the lifecycle maintenance of these services.
+
+When you need to integrate these services into langchain Agent, calling `store.for_store().to_langchain_tools()` provides `one-click conversion` to a tool set fully compatible with langchain `Tool` structure, convenient for direct use or `seamless integration` with existing tools.
+
+Or you can directly use the `store.for_store().use_tool()` method to `customize your desired tool calls` 🎯.
 
 ### Service Registration Methods
 
-`add_service` supports multiple parameter formats to suit different use cases:
+All services added through `add_service` have their configurations `uniformly managed` and can optionally be persisted to the `mcp.json` file registered during setup_store. `Deduplication and updates` are `automatically handled` by mcpstore ⚙️.
 
-* **Load from a configuration file**:
-  By not passing any arguments, `add_service` will automatically find and load the `mcp.json` file from the project's root directory, which is compatible with mainstream formats.
 
-  ```python
-  # Automatically load mcp.json
-  await store.for_store().add_service()
-  ```
+### Basic Syntax
+```python
+store = MCPStore.setup_store()
+store.for_store().add_service(config)
+```
 
-* **Register via URL**:
-  The most common method, directly providing the service's name and URL. MCPStore will automatically infer the transport protocol.
+### Supported Registration Methods
 
-  ```python
-  # Add a service via its network address
-  await store.for_store().add_service({
-     "name": "weather",
-     "url": "[https://weather-api.example.com/mcp](https://weather-api.example.com/mcp)",
-     "transport": "streamable-http" # transport is optional and will be inferred
-  })
-  ```
+#### 1. 🔄 Full Registration (No Parameters)
+Register all services in the `mcp.json` configuration file.
 
-* **Start via local command**:
-  For services provided by local scripts or executables, you can directly specify the startup command.
+```python
+store.for_store().add_service()
+```
+Without passing any parameters, `add_service` will `automatically find and load` the `mcp.json` file in the project root directory, which is `compatible with mainstream formats`.
 
-  ```python
-  # Start a local Python script as a service
-  await store.for_store().add_service({
-     "name": "assistant",
-     "command": "python",
-     "args": ["./assistant_server.py"],
-     "env": {"DEBUG": "true"}
-  })
-  ```
+**Use Cases**:
+- `One-time registration` of all pre-configured services during project initialization
+- `Reload` all service configurations
 
-* **Register via dictionary configuration**:
-  Supports passing a dictionary structure that conforms to the MCPConfig specification directly.
+---
 
-  ```python
-  # Add a service using the MCPConfig dictionary format
-  await store.for_store().add_service({
-     "mcpServers": {
-         "weather": {
-             "url": "[https://weather-api.example.com/mcp](https://weather-api.example.com/mcp)"
-         }
-     }
-  })
-  ```
+#### 2. 🌐 URL-based Registration
+Add remote MCP services through URL.
 
-All services added via `add_service` will have their configurations managed centrally and can optionally be persisted to the `mcp.json` file.
+```python
+store.for_store().add_service({
+    "name": "mcpstore-wiki",
+    "url": "http://mcpstore.wiki/mcp",
+    "transport": "streamable-http"
+})
+```
 
-## 5. Comprehensive RESTful API
+**Fields**:
+- `name`: Service name
+- `url`: Service URL
+- `transport`: Optional field, can `automatically infer` transport protocol (`streamable-http`, `sse`)
 
-In addition to being used as a Python library, MCPStore also provides a complete set of RESTful APIs, allowing you to seamlessly integrate MCP tool management capabilities into any backend service or management platform.
+---
 
-A single command starts the full-featured web service:
+#### 3. 💻 Local Command Registration
+Start local MCP service processes.
+
+```python
+# Python service
+store.for_store().add_service({
+    "name": "local_assistant",
+    "command": "python",
+    "args": ["./assistant_server.py"],
+    "env": {"DEBUG": "true", "API_KEY": "your_key"},
+    "working_dir": "/path/to/service"
+})
+
+# Node.js service
+store.for_store().add_service({
+    "name": "node_service",
+    "command": "node",
+    "args": ["server.js", "--port", "8080"],
+    "env": {"NODE_ENV": "production"}
+})
+
+# Executable file
+store.for_store().add_service({
+    "name": "binary_service",
+    "command": "./mcp_server",
+    "args": ["--config", "config.json"]
+})
+```
+
+**Required Fields**:
+- `name`: Service name
+- `command`: Execution command
+
+**Optional Fields**:
+- `args`: Command parameter list
+- `env`: Environment variable dictionary
+- `working_dir`: Working directory
+
+---
+
+#### 4. 📄 MCPConfig Dictionary Registration
+Use standard MCP configuration format.
+
+```python
+store.for_store().add_service({
+  "mcpServers": {
+    "mcpstore-wiki": {
+      "url": "http://mcpstore.wiki/mcp"
+    },
+    "howtocook": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "howtocook-mcp"
+      ]
+    }
+  }
+})
+```
+
+---
+
+#### 5. 📝 Service Name List Registration
+Register specific services from existing configuration.
+
+```python
+# Register specified services
+store.for_store().add_service(['mcpstore-wiki', 'howtocook'])
+
+# Register single service
+store.for_store().add_service(['howtocook'])
+```
+
+**Prerequisites**: Services must be defined in the `mcp.json` configuration file 📋.
+
+---
+
+#### 6. 📁 JSON File Registration
+Read configuration from external JSON files.
+
+```python
+# Read configuration from file
+store.for_store().add_service(json_file="./demo_config.json")
+
+# Specify both config and json_file (json_file takes priority)
+store.for_store().add_service(
+    config={"name": "backup"},
+    json_file="./demo_config.json"  # This will be used ⚡
+)
+```
+
+**JSON File Format Examples**:
+```json
+{
+  "mcpServers": {
+    "mcpstore-wiki": {
+      "url": "http://mcpstore.wiki/mcp"
+    },
+    "howtocook": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "howtocook-mcp"
+      ]
+    }
+  }
+}
+```
+And other formats supported by `add_service` 📝
+
+``` json
+{
+    "name": "mcpstore-wiki",
+    "url": "http://mcpstore.wiki/mcp"
+}
+```
+
+---
+
+
+## RESTful API 🌐
+
+In addition to being used as a `Python library`, MCPStore also provides a `complete RESTful API suite`, allowing you to seamlessly integrate `MCP tool management capabilities` into any backend service or management platform.
+
+`One command` to start a complete Web service:
 ```bash
 pip install mcpstore
 mcpstore run api
 ```
+Get `38` API endpoints immediately after startup 🚀
 
-Once started, you will instantly have access to **38** professional API endpoints!
+### 📡 Complete API Ecosystem
 
-### 📡 A Complete API Ecosystem
+#### Store Level API 🏪
 
-#### Store-Level APIs (17 endpoints)
 ```bash
 # Service Management
-POST /for_store/add_service          # Add a service
+POST /for_store/add_service          # Add service
 GET  /for_store/list_services        # Get service list
-POST /for_store/delete_service       # Delete a service
-POST /for_store/update_service       # Update a service
-POST /for_store/restart_service      # Restart a service
+POST /for_store/delete_service       # Delete service
+POST /for_store/update_service       # Update service
+POST /for_store/restart_service      # Restart service
 
 # Tool Operations
 GET  /for_store/list_tools           # Get tool list
-POST /for_store/use_tool             # Execute a tool
+POST /for_store/use_tool             # Execute tool
 
 # Batch Operations
-POST /for_store/batch_add_services   # Batch add services
-POST /for_store/batch_update_services # Batch update services
+POST /for_store/batch_add_services   # Batch add
+POST /for_store/batch_update_services # Batch update
 
 # Monitoring & Statistics
-GET  /for_store/get_stats            # Get system statistics
+GET  /for_store/get_stats            # System statistics
 GET  /for_store/health               # Health check
 ```
 
-#### Agent-Level APIs (17 endpoints)
+#### Agent Level API 🤖
+
 ```bash
-# Fully correspond to Store-level, supporting multi-tenant isolation
+# Fully corresponds to Store level, supports multi-tenant isolation
 POST /for_agent/{agent_id}/add_service
 GET  /for_agent/{agent_id}/list_services
-# ... all Store-level functions are supported
+# ... All Store level features are supported
 ```
 
-#### Monitoring System APIs (3 endpoints)
+#### Monitoring System API (3 endpoints) 📊
+
 ```bash
 GET  /monitoring/status              # Get monitoring status
 POST /monitoring/config              # Update monitoring configuration
 POST /monitoring/restart             # Restart monitoring tasks
 ```
 
-#### General API (1 endpoint)
+#### General API 🔧
+
 ```bash
 GET  /services/{name}                # Cross-context service query
 ```
 
-## 6. Core Design: Chainable Calls and Context Management
 
-MCPStore uses an expressive, chainable API design that makes code logic clearer and more readable. At the same time, it provides independent and secure service management spaces for different Agents or the global Store through its **Context Isolation** mechanism.
 
-* `store.for_store()`: Enters the global context. Services and tools managed here are visible to all Agents.
-* `store.for_agent("agent_id")`: Creates an isolated, private context for the specified Agent ID. Each Agent's toolset does not interfere with others, which is key to implementing multi-tenancy and complex Agent systems.
 
-### Scenario: Building a Complex System with Isolated Multi-Agents
+## Developer Documentation & Resources 📚
 
-The following code demonstrates how to use context isolation to assign dedicated toolsets to Agents with different functions.
-```python
-# Initialize the Store
-store = MCPStore.setup_store()
+### Detailed API Interface Documentation
+We provide `comprehensive RESTful API documentation` aimed at helping developers `quickly integrate and debug`. The documentation provides `comprehensive information` for each API endpoint, including:
+* **Function Description**: Interface purpose and business logic.
+* **URL & HTTP Methods**: Standard request paths and methods.
+* **Request Parameters**: Detailed input parameter descriptions, types, and validation rules.
+* **Response Examples**: Clear success and failure response structure examples.
+* **Curl Call Examples**: Command-line call examples that can be directly copied and run.
+* **Source Code Tracing**: Links to backend source code files, classes, and key functions that implement the interface, achieving `API-to-code transparency`, greatly facilitating `in-depth debugging and problem localization` 🔍.
 
-# Assign a dedicated Wiki tool to the "Knowledge Management Agent"
-# This operation is performed in the private context of the "knowledge" agent
-agent_id1 = "my-knowledge-agent"
-knowledge_agent_context = await store.for_agent(agent_id1).add_service(
-    {"name": "mcpstore-wiki", "url": "[http://59.110.160.18:21923/mcp](http://59.110.160.18:21923/mcp)"}
-)
+### Source Code Level Development Documentation (LLM-Friendly) 🤖
+To support `deep customization and secondary development`, we also provide a `unique source code level reference documentation`. This documentation not only `systematically organizes` all core classes, properties, and methods in the project, but more importantly, we additionally provide an `LLM-optimized` `llm.txt` version.
+Developers can directly provide this `plain text format` documentation to AI models, allowing AI to assist with `code understanding`, `feature extension`, or `refactoring`, thus achieving true `AI-Driven Development` ✨.
 
-# Assign dedicated development tools to the "Development Support Agent"
-# This operation is performed in the private context of the "development" agent
-agent_id2 = "my-development-agent"
-dev_agent_context = await store.for_agent(agent_id2).add_service(
-    {"name": "mcpstore-demo", "url": "[http://59.110.160.18:21924/mcp](http://59.110.160.18:21924/mcp)"}
-)
+## Contributing 🤝
 
-# The toolsets of each Agent are completely isolated and do not affect each other
-knowledge_tools = await store.for_agent(agent_id1).list_tools()
-dev_tools = await store.for_agent(agent_id2).list_tools()
-```
+MCPStore is an `open source project`, and we welcome `any form of contribution` from the community:
 
-## 7. Core Features
-### 7.1. Unified Service Management
-Provides powerful service lifecycle management capabilities, supports multiple service registration methods, and includes a built-in health check mechanism.
-### 7.2. Seamless Framework Integration
-Designed with compatibility with mainstream AI frameworks in mind, allowing the MCP tool ecosystem to be easily integrated into existing workflows.
-### 7.3. Enterprise-Grade Monitoring and Reliability
-Includes a production-grade monitoring system with service auto-recovery capabilities, ensuring high availability in complex environments.
-
-* **Automatic Health Checks**: Periodically checks the status of all services.
-* **Intelligent Reconnection Mechanism**: Automatically attempts to reconnect after a service disconnection, with support for an exponential backoff strategy to avoid overwhelming the service.
-* **Dynamic Configuration Hot-Reload**: Adjust monitoring parameters in real-time via the API without restarting the service.
-
-## 8. Installation and Quick Start
-### Installation
-```bash
-pip install mcpstore
-```
-### Quick Start
-```bash
-# Start the full-featured API service
-mcpstore run api
-
-# In another terminal, access the monitoring dashboard to get system status
-curl http://localhost:18611/monitoring/status
-
-# Test adding an MCP service
-curl -X POST http://localhost:18611/for_store/add_service \
-  -H "Content-Type: application/json" \
-  -d '{"name": "mcpstore-wiki", "url": "[http://59.110.160.18:21923/mcp](http://59.110.160.18:21923/mcp)"}'
-```
-
-## 9. Why Choose MCPStore?
-
-* **Extreme Development Efficiency**: Reduces complex tool integration processes to just a few lines of code, significantly accelerating development iterations.
-* **Production-Grade Stability and Reliability**: Built-in health checks, intelligent reconnection, and resource management strategies ensure stable service operation under high load and in complex network environments.
-* **Systematic Solution**: Provides an end-to-end toolchain management solution, from a Python library to a RESTful API and a monitoring system.
-* **Powerful Ecosystem Compatibility**: Seamlessly integrates with mainstream frameworks like LangChain and supports multiple MCP service protocols.
-* **Flexible Multi-Tenant Architecture**: Easily supports complex multi-Agent application scenarios through Agent-level context isolation.
-
-## 10. Developer Documentation & Resources
-
-### Detailed API Documentation
-We provide exhaustive RESTful API documentation to help developers integrate and debug quickly. The documentation offers comprehensive information for each API endpoint, including:
-* **Function Description**: The purpose and business logic of the endpoint.
-* **URL and HTTP Method**: Standard request path and method.
-* **Request Parameters**: Detailed descriptions, types, and validation rules for input parameters.
-* **Response Examples**: Clear examples of success and failure response structures.
-* **Curl Call Examples**: Command-line examples that can be copied and run directly.
-* **Source Code Traceability**: Links to the backend source file, class, and key functions that implement the API, creating transparency from API to code and greatly facilitating deep debugging and problem-solving.
-
-### Source-Level Developer Documentation (LLM-Friendly)
-To support deep customization and secondary development, we also offer a unique source-level reference document. This document not only systematically organizes all the core classes, attributes, and methods in the project but, more importantly, we provide an additional `llm.txt` version optimized for Large Language Models (LLMs).
-Developers can directly feed this plain-text document to an AI model, allowing the AI to assist with code comprehension, feature extension, or refactoring, thus achieving true AI-Driven Development.
-
-## 11. Contributing
-
-MCPStore is an open-source project, and we welcome contributions of any kind from the community:
-
-* ⭐ If the project is helpful to you, please give us a Star on **GitHub**.
-* 🐛 Submit bug reports or feature suggestions via **Issues**.
-* 🔧 Contribute your code via **Pull Requests**.
-* 💬 Join the community to share your experiences and best practices.
+* ⭐ If the project helps you, please give us a Star on `GitHub`.
+* 🐛 Submit bug reports or feature suggestions through `Issues`.
+* 🔧 Contribute your code through `Pull Requests`.
+* 💬 Join the community and share your `usage experiences` and `best practices`.
 
 ---
 
-**MCPStore: Making MCP tool management simple and powerful.**
+**MCPStore: Making MCP tool management `simple and powerful` 💪.**
