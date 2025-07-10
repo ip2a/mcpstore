@@ -1,6 +1,5 @@
 {
   "mcpServers": {
-    "mcpstore-demo-weather": {
-      "url": "http://59.110.160.18:21923/mcp",
-      "transport": "streamable-http"
-    }}}
+
+  }
+}
