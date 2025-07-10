@@ -12,7 +12,7 @@ from enum import Enum
 
 # 导入现有的配置组件
 from mcpstore.config.config import load_app_config
-from mcpstore.plugins.json_mcp import MCPConfig, ConfigError, ConfigValidationError, ConfigIOError
+from mcpstore.config.json_config import MCPConfig, ConfigError, ConfigValidationError, ConfigIOError
 from mcpstore.core.client_manager import ClientManager
 
 logger = logging.getLogger(__name__)

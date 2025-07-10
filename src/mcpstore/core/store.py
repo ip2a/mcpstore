@@ -1,6 +1,6 @@
 from mcpstore.core.orchestrator import MCPOrchestrator
 from mcpstore.core.registry import ServiceRegistry
-from mcpstore.plugins.json_mcp import MCPConfig
+from mcpstore.config.json_config import MCPConfig
 from mcpstore.core.client_manager import ClientManager
 from mcpstore.core.session_manager import SessionManager
 from mcpstore.core.unified_config import UnifiedConfigManager

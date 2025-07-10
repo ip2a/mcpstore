@@ -27,7 +27,7 @@ from fastmcp.client.transports import (
     UvxStdioTransport,
     NpxStdioTransport
 )
-from mcpstore.plugins.json_mcp import MCPConfig
+from mcpstore.config.json_config import MCPConfig
 from mcpstore.core.models.service import TransportType
 from mcpstore.core.session_manager import SessionManager
 from mcpstore.core.smart_reconnection import SmartReconnectionManager, ReconnectionPriority
