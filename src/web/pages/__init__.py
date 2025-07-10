@@ -1,1 +1,0 @@
-# MCPStore Web Pages Package
