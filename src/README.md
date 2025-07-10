@@ -57,8 +57,6 @@ print(f"   🤖 : {response['output']}")
 ```
 
 
-![image-20250711002833332](./assets/image-20250711002833332.png)
-
 
 Or if you don't want to use `langchain` and plan to `design your own tool calls` 🛠️
 
