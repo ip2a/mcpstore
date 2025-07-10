@@ -27,8 +27,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
-[tool.uv]
-index-url = "https://mirrors.cernet.edu.cn/pypi/web/simple"
+
 
 [project.urls]
 "Homepage" = "https://github.com/whillhill/mcpstore"
