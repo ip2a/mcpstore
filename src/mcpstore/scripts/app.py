@@ -46,8 +46,21 @@ async def lifespan(app: FastAPI):
 
     # 存储到全局状态
     app_state["store"] = store
+    app_state["orchestrator"] = orchestrator
 
     logger.info("MCPStore API service initialized successfully")
+
+    yield  # 应用运行期间
+
+    # 应用关闭时的清理
+    logger.info("Shutting down MCPStore API service...")
+
+    try:
+        # 清理编排器资源
+        await orchestrator.cleanup()
+        logger.info("MCPStore API service shutdown completed")
+    except Exception as e:
+        logger.error(f"Error during shutdown: {e}")
 
     try:
         yield

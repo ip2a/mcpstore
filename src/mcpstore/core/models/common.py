@@ -18,6 +18,8 @@ class BaseResponse(BaseModel):
 class APIResponse(BaseResponse):
     """通用API响应模型"""
     data: Optional[Any] = Field(None, description="响应数据")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="元数据信息")
+    execution_info: Optional[Dict[str, Any]] = Field(None, description="执行信息")
 
 class ListResponse(BaseResponse, Generic[T]):
     """列表响应模型"""

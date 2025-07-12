@@ -17,6 +17,7 @@ from urllib.parse import urljoin
 from mcpstore.core.registry import ServiceRegistry
 from mcpstore.core.client_manager import ClientManager
 from mcpstore.core.config_processor import ConfigProcessor
+from mcpstore.core.local_service_manager import get_local_service_manager
 from fastmcp import Client
 from fastmcp.client.transports import (
     MCPConfigTransport,
@@ -84,11 +85,33 @@ class MCPOrchestrator:
         # 会话管理器
         self.session_manager = SessionManager()
 
+        # 本地服务管理器
+        self.local_service_manager = get_local_service_manager()
+
     async def setup(self):
         """初始化编排器资源（不再做服务注册）"""
         logger.info("Setting up MCP Orchestrator...")
         # 只做必要的资源初始化
-        pass
+        logger.info("MCP Orchestrator setup completed")
+
+    async def cleanup(self):
+        """清理编排器资源"""
+        logger.info("Cleaning up MCP Orchestrator...")
+
+        # 清理本地服务
+        if hasattr(self, 'local_service_manager'):
+            await self.local_service_manager.cleanup()
+
+        # 关闭所有客户端连接
+        for name, client in self.clients.items():
+            try:
+                await client.close()
+                logger.debug(f"Closed client connection for {name}")
+            except Exception as e:
+                logger.warning(f"Error closing client {name}: {e}")
+
+        self.clients.clear()
+        logger.info("MCP Orchestrator cleanup completed")
 
     async def start_monitoring(self):
         """启动后台健康检查、重连监视器和资源清理任务（带极端场景处理）"""
@@ -301,7 +324,7 @@ class MCPOrchestrator:
 
     async def connect_service(self, name: str, url: str = None) -> Tuple[bool, str]:
         """
-        连接到指定的服务
+        连接到指定的服务（支持本地和远程服务）
 
         Args:
             name: 服务名称
@@ -320,6 +343,64 @@ class MCPOrchestrator:
             if url:
                 service_config["url"] = url
 
+            # 判断是本地服务还是远程服务
+            if "command" in service_config:
+                # 本地服务：先启动进程，再连接
+                return await self._connect_local_service(name, service_config)
+            else:
+                # 远程服务：直接连接
+                return await self._connect_remote_service(name, service_config)
+
+        except Exception as e:
+            logger.error(f"Failed to connect service {name}: {e}")
+            return False, str(e)
+
+    async def _connect_local_service(self, name: str, service_config: Dict[str, Any]) -> Tuple[bool, str]:
+        """连接本地服务"""
+        try:
+            # 1. 启动本地服务进程
+            success, message = await self.local_service_manager.start_local_service(name, service_config)
+            if not success:
+                return False, f"Failed to start local service: {message}"
+
+            # 2. 等待服务启动
+            await asyncio.sleep(2)
+
+            # 3. 创建客户端连接
+            # 本地服务通常使用 stdio 传输
+            local_config = service_config.copy()
+
+            # 使用 ConfigProcessor 处理配置
+            processed_config = ConfigProcessor.process_user_config_for_fastmcp({
+                "mcpServers": {name: local_config}
+            })
+
+            if name not in processed_config.get("mcpServers", {}):
+                return False, "Local service configuration processing failed"
+
+            # 创建客户端
+            client = Client(processed_config)
+
+            # 尝试连接和获取工具列表
+            try:
+                async with client:
+                    tools = await client.list_tools()
+                    logger.info(f"Local service {name} connected successfully with {len(tools)} tools")
+                    self.clients[name] = client
+                    return True, f"Local service connected successfully with {len(tools)} tools"
+            except Exception as e:
+                logger.error(f"Failed to connect to local service {name}: {e}")
+                # 如果连接失败，停止本地服务
+                await self.local_service_manager.stop_local_service(name)
+                return False, f"Failed to connect to local service: {str(e)}"
+
+        except Exception as e:
+            logger.error(f"Error connecting local service {name}: {e}")
+            return False, str(e)
+
+    async def _connect_remote_service(self, name: str, service_config: Dict[str, Any]) -> Tuple[bool, str]:
+        """连接远程服务"""
+        try:
             # 创建新的客户端
             client = Client({"mcpServers": {name: service_config}})
 
@@ -327,14 +408,14 @@ class MCPOrchestrator:
             try:
                 await client.list_tools()
                 self.clients[name] = client
-                logger.info(f"Service {name} connected successfully")
-                return True, "Connected successfully"
+                logger.info(f"Remote service {name} connected successfully")
+                return True, "Remote service connected successfully"
             except Exception as e:
-                logger.error(f"Failed to connect to service {name}: {e}")
+                logger.error(f"Failed to connect to remote service {name}: {e}")
                 return False, str(e)
 
         except Exception as e:
-            logger.error(f"Failed to connect service {name}: {e}")
+            logger.error(f"Error connecting remote service {name}: {e}")
             return False, str(e)
 
     async def disconnect_service(self, url_or_name: str) -> bool:

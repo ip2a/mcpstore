@@ -119,6 +119,7 @@ class MCPStore:
 
     async def register_json_service(self, client_id: Optional[str] = None, service_names: Optional[List[str]] = None) -> RegistrationResponse:
         """
+        TODO：名字不直观，作用模糊，梳理这个函数的上下使用 准备重构
         批量注册服务，支持多种场景：
         1. Store 全量注册：client_id == main_client_id，不指定 service_names
         2. Agent 指定服务注册：提供 client_id 和 service_names
@@ -134,6 +135,7 @@ class MCPStore:
         """
         try:
             # 重新加载配置以确保使用最新配置
+
             all_services = self.config.load_config().get("mcpServers", {})
             
             # 情况1: Store 全量注册

@@ -431,4 +431,135 @@ class ClientManager:
             logger.error(f"Failed to reset config for agent {agent_id}: {e}")
             return False
 
+    # === 文件直接重置功能 ===
+    def reset_client_services_file(self) -> bool:
+        """
+        直接重置client_services.json文件
+        备份后重置为空字典
+
+        Returns:
+            是否成功重置
+        """
+        try:
+            import shutil
+            from datetime import datetime
+
+            # 创建备份
+            backup_path = f"{self.services_path}.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            if os.path.exists(self.services_path):
+                shutil.copy2(self.services_path, backup_path)
+                logger.info(f"Created backup of client_services.json at {backup_path}")
+
+            # 重置为空配置
+            empty_config = {}
+            self.save_all_clients(empty_config)
+
+            logger.info("Successfully reset client_services.json file")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to reset client_services.json file: {e}")
+            return False
+
+    def reset_agent_clients_file(self) -> bool:
+        """
+        直接重置agent_clients.json文件
+        备份后重置为空字典
+
+        Returns:
+            是否成功重置
+        """
+        try:
+            import shutil
+            from datetime import datetime
+
+            # 创建备份
+            backup_path = f"{AGENT_CLIENTS_PATH}.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            if os.path.exists(AGENT_CLIENTS_PATH):
+                shutil.copy2(AGENT_CLIENTS_PATH, backup_path)
+                logger.info(f"Created backup of agent_clients.json at {backup_path}")
+
+            # 重置为空配置
+            empty_config = {}
+            self.save_all_agent_clients(empty_config)
+
+            logger.info("Successfully reset agent_clients.json file")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to reset agent_clients.json file: {e}")
+            return False
+
+    def remove_agent_from_files(self, agent_id: str) -> bool:
+        """
+        从文件中删除指定Agent的相关配置
+        1. 从agent_clients.json中删除该agent的映射
+        2. 从client_services.json中删除该agent关联的client配置
+
+        Args:
+            agent_id: 要删除的Agent ID
+
+        Returns:
+            是否成功删除
+        """
+        try:
+            # 获取该Agent的所有client_id
+            client_ids = self.get_agent_clients(agent_id)
+
+            # 从client_services.json中删除相关client配置
+            all_clients = self.load_all_clients()
+            for client_id in client_ids:
+                if client_id in all_clients:
+                    del all_clients[client_id]
+                    logger.info(f"Removed client {client_id} from client_services.json")
+            self.save_all_clients(all_clients)
+
+            # 从agent_clients.json中删除agent映射
+            agent_data = self.load_all_agent_clients()
+            if agent_id in agent_data:
+                del agent_data[agent_id]
+                self.save_all_agent_clients(agent_data)
+                logger.info(f"Removed agent {agent_id} from agent_clients.json")
+
+            logger.info(f"Successfully removed agent {agent_id} from all files")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to remove agent {agent_id} from files: {e}")
+            return False
+
+    def remove_store_from_files(self, main_client_id: str) -> bool:
+        """
+        从文件中删除Store(main_client)的相关配置
+        1. 从client_services.json中删除main_client的配置
+        2. 从agent_clients.json中删除main_client的映射
+
+        Args:
+            main_client_id: Store的main_client ID
+
+        Returns:
+            是否成功删除
+        """
+        try:
+            # 从client_services.json中删除main_client配置
+            all_clients = self.load_all_clients()
+            if main_client_id in all_clients:
+                del all_clients[main_client_id]
+                self.save_all_clients(all_clients)
+                logger.info(f"Removed main_client {main_client_id} from client_services.json")
+
+            # 从agent_clients.json中删除main_client映射
+            agent_data = self.load_all_agent_clients()
+            if main_client_id in agent_data:
+                del agent_data[main_client_id]
+                self.save_all_agent_clients(agent_data)
+                logger.info(f"Removed main_client {main_client_id} from agent_clients.json")
+
+            logger.info(f"Successfully removed store main_client {main_client_id} from all files")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to remove store main_client {main_client_id} from files: {e}")
+            return False
+
 

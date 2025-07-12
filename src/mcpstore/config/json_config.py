@@ -3,7 +3,7 @@ import json
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-from pydantic import BaseModel, ValidationError, root_validator
+from pydantic import BaseModel, ValidationError, model_validator, ConfigDict
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +31,10 @@ class MCPServerModel(BaseModel):
     timeout: Optional[int] = None
 
     # 允许额外字段，保持最大兼容性
-    class Config:
-        extra = "allow"  # 允许额外字段
+    model_config = ConfigDict(extra="allow")
 
-    @root_validator(pre=True)
+    @model_validator(mode='before')
+    @classmethod
     def validate_basic_config(cls, values):
         """基本配置验证：至少要有url或command之一"""
         if not (values.get("url") or values.get("command")):
@@ -48,10 +48,10 @@ class MCPConfigModel(BaseModel):
     mcpServers: Dict[str, Dict[str, Any]]  # 使用Dict而不是严格的MCPServerModel
 
     # 允许额外字段
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
 
-    @root_validator(pre=True)
+    @model_validator(mode='before')
+    @classmethod
     def ensure_mcpServers(cls, values):
         if "mcpServers" not in values:
             values["mcpServers"] = {}
@@ -288,11 +288,11 @@ class MCPConfig:
             "modified": list(modified)
         }
 
-    def reset_json_config(self) -> bool:
+    def reset_mcp_json_file(self) -> bool:
         """
-        重置JSON配置文件
+        直接重置MCP JSON配置文件
         1. 备份当前配置文件
-        2. 将配置重置为空字典
+        2. 将配置重置为空字典 {"mcpServers": {}}
 
         Returns:
             是否成功重置
@@ -310,37 +310,11 @@ class MCPConfig:
             empty_config = {"mcpServers": {}}
             self.save_config(empty_config)
 
-            logger.info("Successfully reset JSON configuration to empty")
+            logger.info(f"Successfully reset MCP JSON configuration file: {self.json_path}")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to reset JSON configuration: {e}")
+            logger.error(f"Failed to reset MCP JSON configuration file: {e}")
             return False
 
-    def restore_default_config(self) -> bool:
-        """
-        恢复默认配置（高德和天气服务）
 
-        Returns:
-            是否成功恢复
-        """
-        try:
-            default_config = {
-                "mcpServers": {
-                    "高德": {
-                        "url": "https://mcp.amap.com/sse?key=da2c9c39f9edad643b9c53f506fb381c",
-                        "transport": "sse"
-                    },
-                    "天气服务": {
-                        "url": "http://127.0.0.1:8000/mcp"
-                    }
-                }
-            }
-
-            self.save_config(default_config)
-            logger.info("Successfully restored default configuration")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to restore default configuration: {e}")
-            return False
