@@ -34,6 +34,8 @@ class ServiceRegistry:
         self.tool_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}
         # agent_id -> {tool_name: session}
         self.tool_to_session_map: Dict[str, Dict[str, Any]] = {}
+        # 长连接服务标记 - agent_id:service_name
+        self.long_lived_connections: Set[str] = set()
         logger.info("ServiceRegistry initialized (multi-context isolation).")
 
     def clear(self, agent_id: str):
@@ -364,3 +366,29 @@ class ServiceRegistry:
             return orchestrator.mcp_config.get_service_config(name)
             
         return None
+
+    def mark_as_long_lived(self, agent_id: str, service_name: str):
+        """标记服务为长连接服务"""
+        service_key = f"{agent_id}:{service_name}"
+        self.long_lived_connections.add(service_key)
+        logger.debug(f"Marked service '{service_name}' as long-lived for agent '{agent_id}'")
+
+    def is_long_lived_service(self, agent_id: str, service_name: str) -> bool:
+        """检查服务是否为长连接服务"""
+        service_key = f"{agent_id}:{service_name}"
+        return service_key in self.long_lived_connections
+
+    def get_long_lived_services(self, agent_id: str) -> List[str]:
+        """获取指定Agent的所有长连接服务"""
+        prefix = f"{agent_id}:"
+        return [
+            key[len(prefix):] for key in self.long_lived_connections
+            if key.startswith(prefix)
+        ]
+
+    def should_cache_aggressively(self, agent_id: str, service_name: str) -> bool:
+        """
+        判断是否应该激进缓存
+        长连接服务可以更激进地缓存，因为连接稳定
+        """
+        return self.is_long_lived_service(agent_id, service_name)

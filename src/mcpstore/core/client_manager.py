@@ -15,14 +15,16 @@ AGENT_CLIENTS_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'd
 class ClientManager:
     """管理客户端配置的类"""
     
-    def __init__(self, services_path: Optional[str] = None):
+    def __init__(self, services_path: Optional[str] = None, agent_clients_path: Optional[str] = None):
         """
         初始化客户端管理器
-        
+
         Args:
-            services_path: 配置文件目录
+            services_path: 客户端服务配置文件路径
+            agent_clients_path: Agent客户端映射文件路径
         """
         self.services_path = services_path or CLIENT_SERVICES_PATH
+        self.agent_clients_path = agent_clients_path or AGENT_CLIENTS_PATH
         self._ensure_file()
         self.client_services = self.load_all_clients()
         self.main_client_id = "main_client"  # 主客户端ID
@@ -37,9 +39,9 @@ class ClientManager:
 
     def _ensure_agent_clients_file(self):
         """确保agent-client映射文件存在"""
-        os.makedirs(os.path.dirname(AGENT_CLIENTS_PATH), exist_ok=True)
-        if not os.path.exists(AGENT_CLIENTS_PATH):
-            with open(AGENT_CLIENTS_PATH, 'w', encoding='utf-8') as f:
+        os.makedirs(os.path.dirname(self.agent_clients_path), exist_ok=True)
+        if not os.path.exists(self.agent_clients_path):
+            with open(self.agent_clients_path, 'w', encoding='utf-8') as f:
                 json.dump({}, f)
 
     def load_all_clients(self) -> Dict[str, Any]:
@@ -141,12 +143,12 @@ class ClientManager:
     def load_all_agent_clients(self) -> Dict[str, Any]:
         """加载所有agent-client映射"""
         self._ensure_agent_clients_file()
-        with open(AGENT_CLIENTS_PATH, 'r', encoding='utf-8') as f:
+        with open(self.agent_clients_path, 'r', encoding='utf-8') as f:
             return json.load(f)
 
     def save_all_agent_clients(self, data: Dict[str, Any]):
         """保存agent-client映射"""
-        with open(AGENT_CLIENTS_PATH, 'w', encoding='utf-8') as f:
+        with open(self.agent_clients_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
     def get_agent_clients(self, agent_id: str) -> List[str]:
@@ -474,9 +476,9 @@ class ClientManager:
             from datetime import datetime
 
             # 创建备份
-            backup_path = f"{AGENT_CLIENTS_PATH}.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            if os.path.exists(AGENT_CLIENTS_PATH):
-                shutil.copy2(AGENT_CLIENTS_PATH, backup_path)
+            backup_path = f"{self.agent_clients_path}.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            if os.path.exists(self.agent_clients_path):
+                shutil.copy2(self.agent_clients_path, backup_path)
                 logger.info(f"Created backup of agent_clients.json at {backup_path}")
 
             # 重置为空配置

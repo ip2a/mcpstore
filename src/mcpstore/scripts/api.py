@@ -17,6 +17,10 @@ from mcpstore.core.models.common import (
     APIResponse, RegistrationResponse, ConfigResponse,
     ExecutionResponse
 )
+from mcpstore.core.monitoring import (
+    PerformanceMetrics, ToolUsageStats, AlertInfo,
+    NetworkEndpoint, SystemResourceInfo
+)
 from typing import Optional, List, Dict, Any, Union
 from pydantic import BaseModel, ValidationError, Field
 import logging
@@ -24,9 +28,70 @@ import traceback
 from functools import wraps
 from datetime import timedelta
 import asyncio
+import time
 
 # 创建logger实例
 logger = logging.getLogger(__name__)
+
+# === 监控相关的响应模型 ===
+
+class PerformanceMetricsResponse(BaseModel):
+    """性能指标响应"""
+    api_response_time: float = Field(description="API平均响应时间(ms)")
+    active_connections: int = Field(description="活跃连接数")
+    today_api_calls: int = Field(description="今日API调用数")
+    memory_usage: float = Field(description="内存使用率(%)")
+    cpu_usage: float = Field(description="CPU使用率(%)")
+    uptime: float = Field(description="运行时间(秒)")
+
+class ToolUsageStatsResponse(BaseModel):
+    """工具使用统计响应"""
+    tool_name: str = Field(description="工具名称")
+    service_name: str = Field(description="服务名称")
+    execution_count: int = Field(description="执行次数")
+    last_executed: Optional[str] = Field(description="最后执行时间")
+    average_response_time: float = Field(description="平均响应时间")
+    success_rate: float = Field(description="成功率")
+
+class AlertInfoResponse(BaseModel):
+    """告警信息响应"""
+    alert_id: str = Field(description="告警ID")
+    type: str = Field(description="告警类型")
+    title: str = Field(description="告警标题")
+    message: str = Field(description="告警消息")
+    timestamp: str = Field(description="告警时间")
+    service_name: Optional[str] = Field(description="相关服务名称")
+    resolved: bool = Field(description="是否已解决")
+
+class NetworkEndpointResponse(BaseModel):
+    """网络端点响应"""
+    endpoint_name: str = Field(description="端点名称")
+    url: str = Field(description="端点URL")
+    status: str = Field(description="状态")
+    response_time: float = Field(description="响应时间")
+    last_checked: str = Field(description="最后检查时间")
+    uptime_percentage: float = Field(description="可用性百分比")
+
+class SystemResourceInfoResponse(BaseModel):
+    """系统资源信息响应"""
+    server_uptime: str = Field(description="服务器运行时间")
+    memory_total: int = Field(description="总内存")
+    memory_used: int = Field(description="已用内存")
+    memory_percentage: float = Field(description="内存使用率")
+    disk_usage_percentage: float = Field(description="磁盘使用率")
+    network_traffic_in: int = Field(description="网络入流量")
+    network_traffic_out: int = Field(description="网络出流量")
+
+class AddAlertRequest(BaseModel):
+    """添加告警请求"""
+    type: str = Field(description="告警类型: warning, error, info")
+    title: str = Field(description="告警标题")
+    message: str = Field(description="告警消息")
+    service_name: Optional[str] = Field(None, description="相关服务名称")
+
+class NetworkEndpointCheckRequest(BaseModel):
+    """网络端点检查请求"""
+    endpoints: List[Dict[str, str]] = Field(description="端点列表")
 
 # 简化的工具执行请求模型（用于API）
 class SimpleToolExecutionRequest(BaseModel):
@@ -71,6 +136,44 @@ def handle_exceptions(func):
             raise HTTPException(status_code=500, detail=str(e))
     return wrapper
 
+def monitor_api_performance(func):
+    """API性能监控装饰器"""
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        start_time = time.time()
+
+        # 获取store实例（从依赖注入中）
+        store = None
+        for arg in args:
+            if isinstance(arg, MCPStore):
+                store = arg
+                break
+
+        # 如果没有在args中找到，检查kwargs
+        if store is None:
+            store = kwargs.get('store')
+
+        try:
+            # 增加活跃连接数
+            store = get_store()
+            if store:
+                store.for_store().increment_active_connections()
+
+            result = await func(*args, **kwargs)
+
+            # 记录API调用
+            if store:
+                response_time = (time.time() - start_time) * 1000  # 转换为毫秒
+                store.for_store().record_api_call(response_time)
+
+            return result
+        finally:
+            # 减少活跃连接数
+            if store:
+                store.for_store().decrement_active_connections()
+
+    return wrapper
+
 def validate_agent_id(agent_id: str):
     """验证 agent_id"""
     if not agent_id:
@@ -95,7 +198,13 @@ def validate_service_names(service_names: Optional[List[str]]):
         raise HTTPException(status_code=400, detail="All service names must be strings")
 
 router = APIRouter()
-store = MCPStore.setup_store()
+
+# === 依赖注入函数 ===
+def get_store() -> MCPStore:
+    """获取MCPStore实例的依赖注入函数"""
+    # 从api_app模块获取当前的store实例
+    from .api_app import get_store as get_app_store
+    return get_app_store()
 
 # === Store 级别操作 ===
 @router.post("/for_store/add_service", response_model=APIResponse)
@@ -139,11 +248,14 @@ async def store_add_service(
         }
     """
     try:
+        store = get_store()
+        store = get_store()
+
         context = store.for_store()
 
         # 1. 空参数注册
         if not payload:
-            result = context.add_service()
+            result = await context.add_service_async()
             success = result is not None
             return APIResponse(
                 success=success,
@@ -153,7 +265,7 @@ async def store_add_service(
 
         # 2/3. 配置方式添加服务 - 直接使用SDK的详细处理方法
         # SDK已经包含了所有业务逻辑：配置验证、transport推断、服务名解析等
-        result = context.add_service_with_details(payload)
+        result = await context.add_service_with_details_async(payload)
 
         # 直接返回SDK处理的结果，只需要包装成APIResponse格式
         return APIResponse(
@@ -178,6 +290,9 @@ async def store_add_service(
 async def store_list_services():
     """Store 级别获取服务列表"""
     try:
+        store = get_store()
+        store = get_store()
+
         context = store.for_store()
         services = context.list_services()
 
@@ -198,6 +313,9 @@ async def store_list_services():
 async def store_list_tools():
     """Store 级别获取工具列表"""
     try:
+        store = get_store()
+        store = get_store()
+
         context = store.for_store()
         # 使用SDK的统计方法
         result = context.get_tools_with_stats()
@@ -220,6 +338,9 @@ async def store_list_tools():
 async def store_check_services():
     """Store 级别健康检查"""
     try:
+        store = get_store()
+        store = get_store()
+
         context = store.for_store()
         health_status = context.check_services()
 
@@ -254,10 +375,39 @@ async def store_use_tool(request: SimpleToolExecutionRequest):
 
         # 🔧 直接使用SDK的use_tool_async方法，它已经包含了完整的工具解析逻辑
         # SDK会自动处理：工具名称解析、服务推断、格式转换等
+        store = get_store()
+        store = get_store()
+
+        store = get_store()
+
+
         result = await store.for_store().use_tool_async(request.tool_name, request.args)
 
         # 计算执行时间
         duration_ms = int((time.time() - start_time) * 1000)
+
+        # 📊 记录工具执行统计
+        try:
+            # 从工具名提取服务名
+            service_name = request.tool_name.split('_')[0] if '_' in request.tool_name else 'unknown'
+
+            # 判断执行是否成功
+            success = True
+            if hasattr(result, 'is_error') and result.is_error:
+                success = False
+            elif isinstance(result, dict) and result.get('error'):
+                success = False
+
+            # 记录工具执行（store已在函数开头获取）
+            store.for_store().record_tool_execution(
+                request.tool_name,
+                service_name,
+                duration_ms,
+                success
+            )
+        except Exception as e:
+            # 监控记录失败不应该影响工具执行
+            logger.warning(f"Failed to record tool execution: {e}")
 
         # 提取实际结果（SDK返回的是FastMCP标准结果）
         actual_result = result.result if hasattr(result, 'result') else result
@@ -276,6 +426,22 @@ async def store_use_tool(request: SimpleToolExecutionRequest):
     except HTTPException:
         raise
     except Exception as e:
+        # 📊 记录失败的工具执行
+        try:
+            duration_ms = int((time.time() - start_time) * 1000)
+            service_name = request.tool_name.split('_')[0] if '_' in request.tool_name else 'unknown'
+
+            # 获取store实例记录失败的工具执行
+            store = get_store()
+            store.for_store().record_tool_execution(
+                request.tool_name,
+                service_name,
+                duration_ms,
+                False  # 执行失败
+            )
+        except Exception as monitor_error:
+            logger.warning(f"Failed to record failed tool execution: {monitor_error}")
+
         # 如果工具存在但执行失败，仍然返回成功但包含错误信息
         return APIResponse(
             success=False,
@@ -318,11 +484,12 @@ async def agent_add_service(
     """
     try:
         validate_agent_id(agent_id)
+        store = get_store()
         context = store.for_agent(agent_id)
         
         # 直接使用SDK的详细处理方法，支持所有格式
         # SDK已经包含了所有业务逻辑：配置验证、transport推断、服务名解析等
-        result = context.add_service_with_details(payload)
+        result = await context.add_service_with_details_async(payload)
 
         # 直接返回SDK处理的结果，只需要包装成APIResponse格式
         return APIResponse(
@@ -349,6 +516,7 @@ async def agent_list_services(agent_id: str):
     """Agent 级别获取服务列表"""
     try:
         validate_agent_id(agent_id)
+        store = get_store()
         context = store.for_agent(agent_id)
         services = await context.list_services()
 
@@ -370,6 +538,7 @@ async def agent_list_tools(agent_id: str):
     """Agent 级别获取工具列表"""
     try:
         validate_agent_id(agent_id)
+        store = get_store()
         context = store.for_agent(agent_id)
         # 使用SDK的统计方法
         result = context.get_tools_with_stats()
@@ -393,6 +562,7 @@ async def agent_check_services(agent_id: str):
     """Agent 级别健康检查"""
     try:
         validate_agent_id(agent_id)
+        store = get_store()
         context = store.for_agent(agent_id)
         health_status = await context.check_services_async()
 
@@ -427,10 +597,36 @@ async def agent_use_tool(agent_id: str, request: SimpleToolExecutionRequest):
         trace_id = str(uuid.uuid4())[:8]
 
         # 🔧 直接使用SDK的use_tool_async方法，它已经包含了完整的工具解析逻辑
+        store = get_store()
         result = await store.for_agent(agent_id).use_tool_async(request.tool_name, request.args)
 
         # 计算执行时间
         duration_ms = int((time.time() - start_time) * 1000)
+
+        # 📊 记录工具执行统计
+        try:
+            # 从工具名提取服务名
+            service_name = request.tool_name.split('_')[0] if '_' in request.tool_name else 'unknown'
+
+            # 判断执行是否成功
+            success = True
+            if hasattr(result, 'is_error') and result.is_error:
+                success = False
+            elif isinstance(result, dict) and result.get('error'):
+                success = False
+
+            # 记录工具执行
+            store = get_store()
+
+            store.for_agent(agent_id).record_tool_execution(
+                request.tool_name,
+                service_name,
+                duration_ms,
+                success
+            )
+        except Exception as e:
+            # 监控记录失败不应该影响工具执行
+            logger.warning(f"Failed to record tool execution for agent {agent_id}: {e}")
 
         # 提取实际结果
         actual_result = result.result if hasattr(result, 'result') else result
@@ -450,6 +646,23 @@ async def agent_use_tool(agent_id: str, request: SimpleToolExecutionRequest):
     except HTTPException:
         raise
     except Exception as e:
+        # 📊 记录失败的工具执行
+        try:
+            duration_ms = int((time.time() - start_time) * 1000)
+            service_name = request.tool_name.split('_')[0] if '_' in request.tool_name else 'unknown'
+
+            store = get_store()
+
+
+            store.for_agent(agent_id).record_tool_execution(
+                request.tool_name,
+                service_name,
+                duration_ms,
+                False  # 执行失败
+            )
+        except Exception as monitor_error:
+            logger.warning(f"Failed to record failed tool execution for agent {agent_id}: {monitor_error}")
+
         return APIResponse(
             success=False,
             data={"error": str(e)},
@@ -463,8 +676,8 @@ async def get_service_info(name: str, agent_id: Optional[str] = None):
     """获取服务信息，支持 Store/Agent 上下文"""
     if agent_id:
         validate_agent_id(agent_id)
-        return await store.for_agent(agent_id).get_service_info(name)
-    return await store.for_store().get_service_info(name)
+        return await store.for_agent(agent_id).get_service_info_async(name)
+    return await store.for_store().get_service_info_async(name)
 
 # === Store 级别服务管理操作 ===
 @router.post("/for_store/delete_service", response_model=APIResponse)
@@ -476,7 +689,12 @@ async def store_delete_service(request: Dict[str, str]):
         raise HTTPException(status_code=400, detail="Service name is required")
 
     try:
-        result = await store.for_store().delete_service(service_name)
+        store = get_store()
+
+        store = get_store()
+
+
+        result = await store.for_store().delete_service_async(service_name)
         return APIResponse(
             success=result,
             data=result,
@@ -502,7 +720,12 @@ async def store_update_service(request: Dict[str, Any]):
         raise HTTPException(status_code=400, detail="Service config is required")
 
     try:
-        result = await store.for_store().update_service(service_name, config)
+        store = get_store()
+
+        store = get_store()
+
+
+        result = await store.for_store().update_service_async(service_name, config)
         return APIResponse(
             success=result,
             data=result,
@@ -524,20 +747,22 @@ async def store_restart_service(request: Dict[str, str]):
         raise HTTPException(status_code=400, detail="Service name is required")
 
     try:
+        store = get_store()
+
         context = store.for_store()
 
         # 获取服务配置
-        service_info = await context.get_service_info(service_name)
+        service_info = await context.get_service_info_async(service_name)
         if not service_info:
             raise HTTPException(status_code=404, detail=f"Service {service_name} not found")
 
         # 删除服务
-        delete_result = await context.delete_service(service_name)
+        delete_result = await context.delete_service_async(service_name)
         if not delete_result:
             raise HTTPException(status_code=500, detail=f"Failed to stop service {service_name}")
 
         # 重新添加服务
-        add_result = await context.add_service([service_name])
+        add_result = await context.add_service_async([service_name])
 
         return APIResponse(
             success=add_result,
@@ -562,7 +787,7 @@ async def agent_delete_service(agent_id: str, request: Dict[str, str]):
         raise HTTPException(status_code=400, detail="Service name is required")
 
     try:
-        result = await store.for_agent(agent_id).delete_service(service_name)
+        result = await store.for_agent(agent_id).delete_service_async(service_name)
         return APIResponse(
             success=result,
             data=result,
@@ -589,7 +814,7 @@ async def agent_update_service(agent_id: str, request: Dict[str, Any]):
         raise HTTPException(status_code=400, detail="Service config is required")
 
     try:
-        result = await store.for_agent(agent_id).update_service(service_name, config)
+        result = await store.for_agent(agent_id).update_service_async(service_name, config)
         return APIResponse(
             success=result,
             data=result,
@@ -615,17 +840,17 @@ async def agent_restart_service(agent_id: str, request: Dict[str, str]):
         context = store.for_agent(agent_id)
 
         # 获取服务配置
-        service_info = await context.get_service_info(service_name)
+        service_info = await context.get_service_info_async(service_name)
         if not service_info:
             raise HTTPException(status_code=404, detail=f"Service {service_name} not found")
 
         # 删除服务
-        delete_result = await context.delete_service(service_name)
+        delete_result = await context.delete_service_async(service_name)
         if not delete_result:
             raise HTTPException(status_code=500, detail=f"Failed to stop service {service_name}")
 
         # 重新添加服务
-        add_result = await context.add_service([service_name])
+        add_result = await context.add_service_async([service_name])
 
         return APIResponse(
             success=add_result,
@@ -647,6 +872,9 @@ async def store_batch_add_services(request: Dict[str, List[Any]]):
     services = request.get("services", [])
     if not services:
         raise HTTPException(status_code=400, detail="Services list is required")
+
+    store = get_store()
+
 
     context = store.for_store()
     results = []
@@ -708,6 +936,9 @@ async def store_batch_update_services(request: Dict[str, List[Dict[str, Any]]]):
     if not updates:
         raise HTTPException(status_code=400, detail="Updates list is required")
 
+    store = get_store()
+
+
     context = store.for_store()
     results = []
 
@@ -732,7 +963,7 @@ async def store_batch_update_services(request: Dict[str, List[Dict[str, Any]]]):
             continue
 
         try:
-            result = await context.update_service(name, config)
+            result = await context.update_service_async(name, config)
             results.append({
                 "index": i,
                 "name": name,
@@ -776,7 +1007,7 @@ async def agent_batch_add_services(agent_id: str, request: Dict[str, List[Any]])
 
     context = store.for_agent(agent_id)
     # 使用SDK的批量操作方法
-    result = context.batch_add_services(services)
+    result = await context.batch_add_services_async(services)
 
     return APIResponse(
         success=result["success"],
@@ -820,7 +1051,7 @@ async def agent_batch_update_services(agent_id: str, request: Dict[str, List[Dic
             continue
 
         try:
-            result = await context.update_service(name, config)
+            result = await context.update_service_async(name, config)
             results.append({
                 "index": i,
                 "name": name,
@@ -862,7 +1093,12 @@ async def store_get_service_info(request: Dict[str, str]):
         raise HTTPException(status_code=400, detail="Service name is required")
 
     try:
-        result = await store.for_store().get_service_info(service_name)
+        store = get_store()
+
+        store = get_store()
+
+
+        result = await store.for_store().get_service_info_async(service_name)
 
         # 检查服务是否存在 - 主要检查service字段是否为None
         if (not result or
@@ -896,7 +1132,7 @@ async def agent_get_service_info(agent_id: str, request: Dict[str, str]):
         raise HTTPException(status_code=400, detail="Service name is required")
 
     try:
-        result = await store.for_agent(agent_id).get_service_info(service_name)
+        result = await store.for_agent(agent_id).get_service_info_async(service_name)
 
         # 检查服务是否存在 - 主要检查service字段是否为None
         if (not result or
@@ -924,6 +1160,8 @@ async def agent_get_service_info(agent_id: str, request: Dict[str, str]):
 @handle_exceptions
 async def store_get_config():
     """Store 级别获取配置"""
+    store = get_store()
+
     return store.get_json_config()
 
 @router.get("/for_store/show_mcpconfig", response_model=APIResponse)
@@ -950,6 +1188,8 @@ async def store_update_config(payload: JsonUpdateRequest):
     """Store 级别更新配置"""
     if not payload.config:
         raise HTTPException(status_code=400, detail="Config is required")
+    store = get_store()
+
     return await store.update_json_service(payload)
 
 @router.get("/for_store/validate_config", response_model=APIResponse)
@@ -957,6 +1197,8 @@ async def store_update_config(payload: JsonUpdateRequest):
 async def store_validate_config():
     """Store 级别验证配置有效性"""
     try:
+        store = get_store()
+
         config = store.get_json_config()
         is_valid = bool(config and isinstance(config, dict))
 
@@ -980,6 +1222,8 @@ async def store_validate_config():
 async def store_reload_config():
     """Store 级别重新加载配置"""
     try:
+        store = get_store()
+
         await store.orchestrator.refresh_services()
         return APIResponse(
             success=True,
@@ -1040,6 +1284,8 @@ async def agent_update_config(agent_id: str, payload: JsonUpdateRequest):
     if not payload.config:
         raise HTTPException(status_code=400, detail="Config is required")
     payload.client_id = agent_id  # 确保使用正确的agent_id
+    store = get_store()
+
     return await store.update_json_service(payload)
 
 @router.get("/for_agent/{agent_id}/validate_config", response_model=APIResponse)
@@ -1072,6 +1318,8 @@ async def agent_validate_config(agent_id: str):
 async def store_get_stats():
     """Store 级别获取系统统计信息"""
     try:
+        store = get_store()
+
         context = store.for_store()
         # 使用SDK的统计方法
         stats = context.get_system_stats()
@@ -1121,6 +1369,8 @@ async def store_get_service_status(request: Dict[str, str]):
         raise HTTPException(status_code=400, detail="Service name is required")
 
     try:
+        store = get_store()
+
         context = store.for_store()
 
         # 获取服务信息
@@ -1229,6 +1479,8 @@ async def store_health_check():
     """Store 级别系统健康检查"""
     try:
         # 检查Store级别健康状态
+        store = get_store()
+
         store_health = await store.for_store().check_services_async()
 
         # 基本系统信息
@@ -1289,6 +1541,7 @@ async def agent_health_check(agent_id: str):
     validate_agent_id(agent_id)
     try:
         # 检查Agent级别健康状态
+        store = get_store()
         agent_health = await store.for_agent(agent_id).check_services()
 
         # 基本系统信息
@@ -1349,6 +1602,11 @@ async def agent_health_check(agent_id: str):
 async def store_reset_config():
     """Store 级别重置配置"""
     try:
+        store = get_store()
+
+        store = get_store()
+
+
         success = await store.for_store().reset_config()
         return APIResponse(
             success=success,
@@ -1368,6 +1626,11 @@ async def store_reset_config():
 async def store_reset_mcp_json_file():
     """Store 级别直接重置MCP JSON配置文件"""
     try:
+        store = get_store()
+
+        store = get_store()
+
+
         success = await store.for_store().reset_mcp_json_file()
         return APIResponse(
             success=success,
@@ -1386,6 +1649,11 @@ async def store_reset_mcp_json_file():
 async def store_reset_client_services_file():
     """Store 级别直接重置client_services.json文件"""
     try:
+        store = get_store()
+
+        store = get_store()
+
+
         success = await store.for_store().reset_client_services_file()
         return APIResponse(
             success=success,
@@ -1404,6 +1672,11 @@ async def store_reset_client_services_file():
 async def store_reset_agent_clients_file():
     """Store 级别直接重置agent_clients.json文件"""
     try:
+        store = get_store()
+
+        store = get_store()
+
+
         success = await store.for_store().reset_agent_clients_file()
         return APIResponse(
             success=success,
@@ -1607,6 +1880,8 @@ async def store_batch_update_services(request: Dict[str, List[Dict]]):
         raise HTTPException(status_code=400, detail="Services list is required")
 
     try:
+        store = get_store()
+
         context = store.for_store()
         results = []
 
@@ -1618,7 +1893,7 @@ async def store_batch_update_services(request: Dict[str, List[Dict]]):
 
             try:
                 # 更新服务配置
-                result = await context.update_service(service_name, service_config)
+                result = await context.update_service_async(service_name, service_config)
                 results.append({"name": service_name, "success": True, "result": result})
             except Exception as e:
                 results.append({"name": service_name, "success": False, "error": str(e)})
@@ -1654,6 +1929,8 @@ async def store_batch_restart_services(request: Dict[str, List[str]]):
         raise HTTPException(status_code=400, detail="Service names list is required")
 
     try:
+        store = get_store()
+
         context = store.for_store()
         results = []
 
@@ -1696,13 +1973,15 @@ async def store_batch_delete_services(request: Dict[str, List[str]]):
         raise HTTPException(status_code=400, detail="Service names list is required")
 
     try:
+        store = get_store()
+
         context = store.for_store()
         results = []
 
         for service_name in service_names:
             try:
                 # 删除服务
-                result = await context.delete_service(service_name)
+                result = await context.delete_service_async(service_name)
                 results.append({"name": service_name, "success": True, "result": result})
             except Exception as e:
                 results.append({"name": service_name, "success": False, "error": str(e)})
@@ -1733,4 +2012,358 @@ async def store_batch_delete_services(request: Dict[str, List[str]]):
             success=False,
             data={},
             message=f"Failed to restart monitoring: {str(e)}"
+        )
+
+# === 监控和统计API ===
+
+@router.get("/for_store/performance_metrics", response_model=APIResponse)
+async def get_store_performance_metrics(store: MCPStore = Depends(get_store)):
+    """获取Store级别的性能指标"""
+    try:
+        store = get_store()
+
+        metrics = await store.for_store().get_performance_metrics_async()
+
+        return APIResponse(
+            success=True,
+            data=PerformanceMetricsResponse(
+                api_response_time=metrics.api_response_time,
+                active_connections=metrics.active_connections,
+                today_api_calls=metrics.today_api_calls,
+                memory_usage=metrics.memory_usage,
+                cpu_usage=metrics.cpu_usage,
+                uptime=metrics.uptime
+            ).dict(),
+            message="Performance metrics retrieved successfully"
+        )
+    except Exception as e:
+        logger.error(f"Failed to get performance metrics: {e}")
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Failed to get performance metrics: {str(e)}"
+        )
+
+@router.get("/for_agent/{agent_id}/performance_metrics", response_model=APIResponse)
+async def get_agent_performance_metrics(agent_id: str, store: MCPStore = Depends(get_store)):
+    """获取Agent级别的性能指标"""
+    try:
+        validate_agent_id(agent_id)
+        metrics = await store.for_agent(agent_id).get_performance_metrics_async()
+
+        return APIResponse(
+            success=True,
+            data=PerformanceMetricsResponse(
+                api_response_time=metrics.api_response_time,
+                active_connections=metrics.active_connections,
+                today_api_calls=metrics.today_api_calls,
+                memory_usage=metrics.memory_usage,
+                cpu_usage=metrics.cpu_usage,
+                uptime=metrics.uptime
+            ).dict(),
+            message=f"Agent '{agent_id}' performance metrics retrieved successfully"
+        )
+    except Exception as e:
+        logger.error(f"Failed to get agent performance metrics: {e}")
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Failed to get agent performance metrics: {str(e)}"
+        )
+
+@router.get("/for_store/tool_usage_stats", response_model=APIResponse)
+async def get_store_tool_usage_stats(limit: int = 10, store: MCPStore = Depends(get_store)):
+    """获取Store级别的工具使用统计"""
+    try:
+        store = get_store()
+
+        stats = await store.for_store().get_tool_usage_stats_async(limit)
+
+        stats_data = [
+            ToolUsageStatsResponse(
+                tool_name=stat.tool_name,
+                service_name=stat.service_name,
+                execution_count=stat.execution_count,
+                last_executed=stat.last_executed,
+                average_response_time=stat.average_response_time,
+                success_rate=stat.success_rate
+            ).dict() for stat in stats
+        ]
+
+        return APIResponse(
+            success=True,
+            data=stats_data,
+            message="Tool usage statistics retrieved successfully"
+        )
+    except Exception as e:
+        logger.error(f"Failed to get tool usage stats: {e}")
+        return APIResponse(
+            success=False,
+            data=[],
+            message=f"Failed to get tool usage stats: {str(e)}"
+        )
+
+@router.get("/for_agent/{agent_id}/tool_usage_stats", response_model=APIResponse)
+async def get_agent_tool_usage_stats(agent_id: str, limit: int = 10, store: MCPStore = Depends(get_store)):
+    """获取Agent级别的工具使用统计"""
+    try:
+        validate_agent_id(agent_id)
+        stats = await store.for_agent(agent_id).get_tool_usage_stats_async(limit)
+
+        stats_data = [
+            ToolUsageStatsResponse(
+                tool_name=stat.tool_name,
+                service_name=stat.service_name,
+                execution_count=stat.execution_count,
+                last_executed=stat.last_executed,
+                average_response_time=stat.average_response_time,
+                success_rate=stat.success_rate
+            ).dict() for stat in stats
+        ]
+
+        return APIResponse(
+            success=True,
+            data=stats_data,
+            message=f"Agent '{agent_id}' tool usage statistics retrieved successfully"
+        )
+    except Exception as e:
+        logger.error(f"Failed to get agent tool usage stats: {e}")
+        return APIResponse(
+            success=False,
+            data=[],
+            message=f"Failed to get agent tool usage stats: {str(e)}"
+        )
+
+@router.get("/for_store/alerts", response_model=APIResponse)
+async def get_store_alerts(unresolved_only: bool = False, store: MCPStore = Depends(get_store)):
+    """获取Store级别的告警列表"""
+    try:
+        store = get_store()
+
+        alerts = await store.for_store().get_alerts_async(unresolved_only)
+
+        alerts_data = [
+            AlertInfoResponse(
+                alert_id=alert.alert_id,
+                type=alert.type,
+                title=alert.title,
+                message=alert.message,
+                timestamp=alert.timestamp,
+                service_name=alert.service_name,
+                resolved=alert.resolved
+            ).dict() for alert in alerts
+        ]
+
+        return APIResponse(
+            success=True,
+            data=alerts_data,
+            message="Alerts retrieved successfully"
+        )
+    except Exception as e:
+        logger.error(f"Failed to get alerts: {e}")
+        return APIResponse(
+            success=False,
+            data=[],
+            message=f"Failed to get alerts: {str(e)}"
+        )
+
+@router.post("/for_store/alerts", response_model=APIResponse)
+async def add_store_alert(request: AddAlertRequest, store: MCPStore = Depends(get_store)):
+    """添加Store级别的告警"""
+    try:
+        store = get_store()
+
+        alert_id = await store.for_store().add_alert_async(
+            request.type, request.title, request.message, request.service_name
+        )
+
+        return APIResponse(
+            success=True,
+            data={"alert_id": alert_id},
+            message="Alert added successfully"
+        )
+    except Exception as e:
+        logger.error(f"Failed to add alert: {e}")
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Failed to add alert: {str(e)}"
+        )
+
+@router.put("/for_store/alerts/{alert_id}/resolve", response_model=APIResponse)
+async def resolve_store_alert(alert_id: str, store: MCPStore = Depends(get_store)):
+    """解决Store级别的告警"""
+    try:
+        store = get_store()
+
+        store = get_store()
+
+
+        success = await store.for_store().resolve_alert_async(alert_id)
+
+        if success:
+            return APIResponse(
+                success=True,
+                data={},
+                message="Alert resolved successfully"
+            )
+        else:
+            return APIResponse(
+                success=False,
+                data={},
+                message="Alert not found or already resolved"
+            )
+    except Exception as e:
+        logger.error(f"Failed to resolve alert: {e}")
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Failed to resolve alert: {str(e)}"
+        )
+
+@router.delete("/for_store/alerts", response_model=APIResponse)
+async def clear_store_alerts(store: MCPStore = Depends(get_store)):
+    """清除Store级别的所有告警"""
+    try:
+        store = get_store()
+
+        store = get_store()
+
+
+        success = await store.for_store().clear_all_alerts_async()
+
+        if success:
+            return APIResponse(
+                success=True,
+                data={},
+                message="All alerts cleared successfully"
+            )
+        else:
+            return APIResponse(
+                success=False,
+                data={},
+                message="Failed to clear alerts"
+            )
+    except Exception as e:
+        logger.error(f"Failed to clear alerts: {e}")
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Failed to clear alerts: {str(e)}"
+        )
+
+@router.post("/for_store/network_check", response_model=APIResponse)
+async def check_store_network_endpoints(request: NetworkEndpointCheckRequest, store: MCPStore = Depends(get_store)):
+    """检查Store级别的网络端点状态"""
+    try:
+        store = get_store()
+
+        endpoints = await store.for_store().check_network_endpoints(request.endpoints)
+
+        endpoints_data = [
+            NetworkEndpointResponse(
+                endpoint_name=endpoint.endpoint_name,
+                url=endpoint.url,
+                status=endpoint.status,
+                response_time=endpoint.response_time,
+                last_checked=endpoint.last_checked,
+                uptime_percentage=endpoint.uptime_percentage
+            ).dict() for endpoint in endpoints
+        ]
+
+        return APIResponse(
+            success=True,
+            data=endpoints_data,
+            message="Network endpoints checked successfully"
+        )
+    except Exception as e:
+        logger.error(f"Failed to check network endpoints: {e}")
+        return APIResponse(
+            success=False,
+            data=[],
+            message=f"Failed to check network endpoints: {str(e)}"
+        )
+
+@router.get("/for_store/system_resources", response_model=APIResponse)
+async def get_store_system_resources(store: MCPStore = Depends(get_store)):
+    """获取Store级别的系统资源信息"""
+    try:
+        store = get_store()
+
+        resources = await store.for_store().get_system_resource_info_async()
+
+        return APIResponse(
+            success=True,
+            data=SystemResourceInfoResponse(
+                server_uptime=resources.server_uptime,
+                memory_total=resources.memory_total,
+                memory_used=resources.memory_used,
+                memory_percentage=resources.memory_percentage,
+                disk_usage_percentage=resources.disk_usage_percentage,
+                network_traffic_in=resources.network_traffic_in,
+                network_traffic_out=resources.network_traffic_out
+            ).dict(),
+            message="System resources retrieved successfully"
+        )
+    except Exception as e:
+        logger.error(f"Failed to get system resources: {e}")
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Failed to get system resources: {str(e)}"
+        )
+
+# Agent级别的告警API (简化版，复用Store的逻辑)
+@router.get("/for_agent/{agent_id}/alerts", response_model=APIResponse)
+async def get_agent_alerts(agent_id: str, unresolved_only: bool = False, store: MCPStore = Depends(get_store)):
+    """获取Agent级别的告警列表"""
+    try:
+        validate_agent_id(agent_id)
+        alerts = await store.for_agent(agent_id).get_alerts_async(unresolved_only)
+
+        alerts_data = [
+            AlertInfoResponse(
+                alert_id=alert.alert_id,
+                type=alert.type,
+                title=alert.title,
+                message=alert.message,
+                timestamp=alert.timestamp,
+                service_name=alert.service_name,
+                resolved=alert.resolved
+            ).dict() for alert in alerts
+        ]
+
+        return APIResponse(
+            success=True,
+            data=alerts_data,
+            message=f"Agent '{agent_id}' alerts retrieved successfully"
+        )
+    except Exception as e:
+        logger.error(f"Failed to get agent alerts: {e}")
+        return APIResponse(
+            success=False,
+            data=[],
+            message=f"Failed to get agent alerts: {str(e)}"
+        )
+
+@router.post("/for_agent/{agent_id}/alerts", response_model=APIResponse)
+async def add_agent_alert(agent_id: str, request: AddAlertRequest, store: MCPStore = Depends(get_store)):
+    """添加Agent级别的告警"""
+    try:
+        validate_agent_id(agent_id)
+        alert_id = await store.for_agent(agent_id).add_alert_async(
+            request.type, request.title, request.message, request.service_name
+        )
+
+        return APIResponse(
+            success=True,
+            data={"alert_id": alert_id},
+            message=f"Alert added to agent '{agent_id}' successfully"
+        )
+    except Exception as e:
+        logger.error(f"Failed to add agent alert: {e}")
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Failed to add agent alert: {str(e)}"
         )

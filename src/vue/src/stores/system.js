@@ -180,6 +180,107 @@ export const useSystemStore = defineStore('system', () => {
       throw error
     }
   }
+
+  const updateService = async (serviceName, config) => {
+    try {
+      loading.value = true
+      const response = await storeServiceAPI.updateService(serviceName, config)
+
+      if (response.data.success) {
+        // 刷新服务列表
+        await fetchServices()
+        await fetchTools()
+      }
+
+      return response.data.success
+    } catch (error) {
+      console.error('Failed to update service:', error)
+      throw error
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const patchService = async (serviceName, updates) => {
+    try {
+      loading.value = true
+      const response = await storeServiceAPI.patchService(serviceName, updates)
+
+      if (response.data.success) {
+        // 刷新服务列表
+        await fetchServices()
+        await fetchTools()
+      }
+
+      return response.data.success
+    } catch (error) {
+      console.error('Failed to patch service:', error)
+      throw error
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const batchUpdateServices = async (updates) => {
+    try {
+      loading.value = true
+      const response = await storeServiceAPI.batchUpdateServices(updates)
+
+      if (response.data.success) {
+        // 刷新服务列表
+        await fetchServices()
+        await fetchTools()
+      }
+
+      return response.data
+    } catch (error) {
+      console.error('Failed to batch update services:', error)
+      throw error
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const batchDeleteServices = async (serviceNames) => {
+    try {
+      loading.value = true
+      const response = await storeServiceAPI.batchDeleteServices(serviceNames)
+
+      if (response.data.success) {
+        // 从本地状态中移除
+        services.value = services.value.filter(s => !serviceNames.includes(s.name))
+        tools.value = tools.value.filter(t => !serviceNames.includes(t.service_name))
+        updateStats()
+      }
+
+      return response.data
+    } catch (error) {
+      console.error('Failed to batch delete services:', error)
+      throw error
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const batchRestartServices = async (serviceNames) => {
+    try {
+      loading.value = true
+      const response = await storeServiceAPI.batchRestartServices(serviceNames)
+
+      if (response.data.success) {
+        // 刷新服务状态
+        await fetchServices()
+        await fetchSystemStatus()
+      }
+
+      return response.data
+    } catch (error) {
+      console.error('Failed to batch restart services:', error)
+      throw error
+    } finally {
+      loading.value = false
+    }
+  }
   
   const updateStats = () => {
     const totalServices = services.value.length
@@ -287,6 +388,11 @@ export const useSystemStore = defineStore('system', () => {
     fetchSystemStatus,
     addService,
     deleteService,
+    updateService,
+    patchService,
+    batchUpdateServices,
+    batchDeleteServices,
+    batchRestartServices,
     restartService,
     executeToolAction,
     getServiceInfo,

@@ -42,13 +42,15 @@ class MCPOrchestrator:
     负责管理服务连接、工具调用和查询处理。
     """
 
-    def __init__(self, config: Dict[str, Any], registry: ServiceRegistry):
+    def __init__(self, config: Dict[str, Any], registry: ServiceRegistry, standalone_config_manager=None, client_services_path=None):
         """
         初始化MCP编排器
 
         Args:
             config: 配置字典
             registry: 服务注册表实例
+            standalone_config_manager: 独立配置管理器（可选）
+            client_services_path: 客户端服务配置文件路径（可选，用于数据空间）
         """
         self.config = config
         self.registry = registry
@@ -61,6 +63,9 @@ class MCPOrchestrator:
         self.smart_reconnection = SmartReconnectionManager()
         self.react_agent = None
 
+        # 🔧 新增：独立配置管理器
+        self.standalone_config_manager = standalone_config_manager
+
         # 从配置中获取心跳和重连设置
         timing_config = config.get("timing", {})
         self.heartbeat_interval = timedelta(seconds=int(timing_config.get("heartbeat_interval_seconds", 60)))
@@ -72,15 +77,22 @@ class MCPOrchestrator:
         self.heartbeat_task = None
         self.reconnection_task = None
         self.cleanup_task = None
-        self.mcp_config = MCPConfig()
+
+        # 🔧 修改：根据是否有独立配置管理器决定如何初始化MCPConfig
+        if standalone_config_manager:
+            # 使用独立配置，不依赖文件系统
+            self.mcp_config = self._create_standalone_mcp_config(standalone_config_manager)
+        else:
+            # 使用传统配置
+            self.mcp_config = MCPConfig()
 
         # 资源管理配置
         self.max_reconnection_queue_size = 50  # 最大重连队列大小
         self.cleanup_interval = timedelta(hours=1)  # 清理间隔：1小时
         self.max_heartbeat_history_hours = 24  # 心跳历史保留时间：24小时
 
-        # 客户端管理器
-        self.client_manager = ClientManager()
+        # 客户端管理器 - 支持数据空间
+        self.client_manager = ClientManager(services_path=client_services_path)
 
         # 会话管理器
         self.session_manager = SessionManager()
@@ -262,7 +274,8 @@ class MCPOrchestrator:
                 logger.debug(f"Attempting reconnection for {entry.service_name} (priority: {entry.priority.name}, "
                            f"failures: {entry.failure_count})")
 
-                success, message = await self.connect_service(entry.service_name)
+                # 🔧 修复：传递agent_id以确保缓存更新到正确的Agent
+                success, message = await self.connect_service(entry.service_name, agent_id=entry.client_id)
                 if success:
                     logger.info(f"Smart reconnection successful for: {entry.service_name} "
                               f"(priority: {entry.priority.name}, after {entry.failure_count} failures)")
@@ -322,18 +335,22 @@ class MCPOrchestrator:
         except Exception as e:
             logger.error(f"Error during resource cleanup: {e}")
 
-    async def connect_service(self, name: str, url: str = None) -> Tuple[bool, str]:
+    async def connect_service(self, name: str, url: str = None, agent_id: str = None) -> Tuple[bool, str]:
         """
-        连接到指定的服务（支持本地和远程服务）
+        连接到指定的服务（支持本地和远程服务）并更新缓存
 
         Args:
             name: 服务名称
             url: 服务URL（可选，如果不提供则从配置中获取）
+            agent_id: Agent ID（可选，如果不提供则使用main_client_id）
 
         Returns:
             Tuple[bool, str]: (是否成功, 消息)
         """
         try:
+            # 确定Agent ID
+            agent_key = agent_id or self.client_manager.main_client_id
+
             # 获取服务配置
             service_config = self.mcp_config.get_service_config(name)
             if not service_config:
@@ -346,17 +363,17 @@ class MCPOrchestrator:
             # 判断是本地服务还是远程服务
             if "command" in service_config:
                 # 本地服务：先启动进程，再连接
-                return await self._connect_local_service(name, service_config)
+                return await self._connect_local_service(name, service_config, agent_key)
             else:
                 # 远程服务：直接连接
-                return await self._connect_remote_service(name, service_config)
+                return await self._connect_remote_service(name, service_config, agent_key)
 
         except Exception as e:
             logger.error(f"Failed to connect service {name}: {e}")
             return False, str(e)
 
-    async def _connect_local_service(self, name: str, service_config: Dict[str, Any]) -> Tuple[bool, str]:
-        """连接本地服务"""
+    async def _connect_local_service(self, name: str, service_config: Dict[str, Any], agent_id: str) -> Tuple[bool, str]:
+        """连接本地服务并更新缓存"""
         try:
             # 1. 启动本地服务进程
             success, message = await self.local_service_manager.start_local_service(name, service_config)
@@ -385,8 +402,14 @@ class MCPOrchestrator:
             try:
                 async with client:
                     tools = await client.list_tools()
-                    logger.info(f"Local service {name} connected successfully with {len(tools)} tools")
+
+                    # 🔧 修复：更新Registry缓存
+                    await self._update_service_cache(agent_id, name, client, tools, service_config)
+
+                    # 更新客户端缓存（保持向后兼容）
                     self.clients[name] = client
+
+                    logger.info(f"Local service {name} connected successfully with {len(tools)} tools for agent {agent_id}")
                     return True, f"Local service connected successfully with {len(tools)} tools"
             except Exception as e:
                 logger.error(f"Failed to connect to local service {name}: {e}")
@@ -398,18 +421,25 @@ class MCPOrchestrator:
             logger.error(f"Error connecting local service {name}: {e}")
             return False, str(e)
 
-    async def _connect_remote_service(self, name: str, service_config: Dict[str, Any]) -> Tuple[bool, str]:
-        """连接远程服务"""
+    async def _connect_remote_service(self, name: str, service_config: Dict[str, Any], agent_id: str) -> Tuple[bool, str]:
+        """连接远程服务并更新缓存"""
         try:
             # 创建新的客户端
             client = Client({"mcpServers": {name: service_config}})
 
             # 尝试连接
             try:
-                await client.list_tools()
-                self.clients[name] = client
-                logger.info(f"Remote service {name} connected successfully")
-                return True, "Remote service connected successfully"
+                async with client:
+                    tools = await client.list_tools()
+
+                    # 🔧 修复：更新Registry缓存
+                    await self._update_service_cache(agent_id, name, client, tools, service_config)
+
+                    # 更新客户端缓存（保持向后兼容）
+                    self.clients[name] = client
+
+                    logger.info(f"Remote service {name} connected successfully with {len(tools)} tools for agent {agent_id}")
+                    return True, f"Remote service connected successfully with {len(tools)} tools"
             except Exception as e:
                 logger.error(f"Failed to connect to remote service {name}: {e}")
                 return False, str(e)
@@ -417,6 +447,106 @@ class MCPOrchestrator:
         except Exception as e:
             logger.error(f"Error connecting remote service {name}: {e}")
             return False, str(e)
+
+    async def _update_service_cache(self, agent_id: str, service_name: str, client: Client, tools: List[Any], service_config: Dict[str, Any]):
+        """
+        更新服务缓存（工具定义、映射关系等）
+
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+            client: FastMCP客户端
+            tools: 工具列表
+            service_config: 服务配置
+        """
+        try:
+            # 清除旧缓存
+            self.registry.remove_service(agent_id, service_name)
+
+            # 处理工具定义（复用register_json_services的逻辑）
+            processed_tools = []
+            for tool in tools:
+                try:
+                    original_tool_name = tool.name
+                    display_name = self._generate_display_name(original_tool_name, service_name)
+
+                    # 处理参数
+                    parameters = {}
+                    if hasattr(tool, 'inputSchema') and tool.inputSchema:
+                        if hasattr(tool.inputSchema, 'model_dump'):
+                            parameters = tool.inputSchema.model_dump()
+                        elif isinstance(tool.inputSchema, dict):
+                            parameters = tool.inputSchema
+
+                    # 构建工具定义
+                    tool_def = {
+                        "type": "function",
+                        "function": {
+                            "name": original_tool_name,
+                            "display_name": display_name,
+                            "description": tool.description,
+                            "parameters": parameters,
+                            "service_name": service_name
+                        }
+                    }
+
+                    processed_tools.append((display_name, tool_def))
+
+                except Exception as e:
+                    logger.error(f"Failed to process tool {tool.name}: {e}")
+                    continue
+
+            # 添加到Registry缓存
+            self.registry.add_service(agent_id, service_name, client, processed_tools)
+
+            # 标记长连接服务
+            if self._is_long_lived_service(service_config):
+                self.registry.mark_as_long_lived(agent_id, service_name)
+
+            logger.info(f"Updated cache for service '{service_name}' with {len(processed_tools)} tools for agent '{agent_id}'")
+
+        except Exception as e:
+            logger.error(f"Failed to update service cache for '{service_name}': {e}")
+
+    def _is_long_lived_service(self, service_config: Dict[str, Any]) -> bool:
+        """
+        判断是否为长连接服务
+
+        Args:
+            service_config: 服务配置
+
+        Returns:
+            是否为长连接服务
+        """
+        # STDIO服务默认是长连接（keep_alive=True）
+        if "command" in service_config:
+            return service_config.get("keep_alive", True)
+
+        # HTTP服务通常也是长连接
+        if "url" in service_config:
+            return True
+
+        return False
+
+    def _generate_display_name(self, original_tool_name: str, service_name: str) -> str:
+        """
+        生成用户友好的工具显示名称
+
+        Args:
+            original_tool_name: 原始工具名称
+            service_name: 服务名称
+
+        Returns:
+            用户友好的显示名称
+        """
+        try:
+            from mcpstore.core.tool_resolver import ToolNameResolver
+            resolver = ToolNameResolver()
+            return resolver.create_user_friendly_name(service_name, original_tool_name)
+        except Exception as e:
+            logger.warning(f"Failed to generate display name for {original_tool_name}: {e}")
+            # 回退到简单格式
+            return f"{service_name}_{original_tool_name}"
 
     async def disconnect_service(self, url_or_name: str) -> bool:
         """从配置中移除服务并更新main_client"""
@@ -1345,3 +1475,50 @@ class MCPOrchestrator:
     def has_service(self, service_name: str, agent_id: str = None):
         agent_key = agent_id or self.client_manager.main_client_id
         return self.registry.has_service(agent_key, service_name)
+
+    def _create_standalone_mcp_config(self, config_manager):
+        """
+        创建独立的MCP配置对象
+
+        Args:
+            config_manager: 独立配置管理器
+
+        Returns:
+            兼容的MCP配置对象
+        """
+        class StandaloneMCPConfigAdapter:
+            """独立配置适配器 - 兼容MCPConfig接口"""
+
+            def __init__(self, config_manager):
+                self.config_manager = config_manager
+                self.json_path = ":memory:"  # 表示内存配置
+
+            def load_config(self):
+                """加载配置"""
+                return self.config_manager.get_mcp_config()
+
+            def get_service_config(self, name):
+                """获取服务配置"""
+                return self.config_manager.get_service_config(name)
+
+            def save_config(self, config):
+                """保存配置（内存模式下不执行实际保存）"""
+                logger.info("Standalone mode: config save skipped (memory-only)")
+                return True
+
+            def add_service(self, name, config):
+                """添加服务"""
+                self.config_manager.add_service_config(name, config)
+                return True
+
+            def remove_service(self, name):
+                """移除服务"""
+                # 在独立模式下，我们可以从运行时配置中移除
+                services = self.config_manager.get_all_service_configs()
+                if name in services:
+                    del services[name]
+                    logger.info(f"Removed service '{name}' from standalone config")
+                    return True
+                return False
+
+        return StandaloneMCPConfigAdapter(config_manager)

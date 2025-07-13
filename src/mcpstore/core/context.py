@@ -5,6 +5,7 @@ MCPStore Context Module
 
 from typing import Dict, List, Optional, Any, Union, TYPE_CHECKING
 from enum import Enum
+from pathlib import Path
 from mcpstore.core.models.tool import ToolExecutionRequest, ToolInfo
 from mcpstore.core.models.common import ExecutionResponse
 from mcpstore.core.models.service import (
@@ -22,6 +23,7 @@ from .openapi_integration import get_openapi_manager
 from .auth_security import get_auth_manager
 from .cache_performance import get_performance_optimizer
 from .monitoring_analytics import get_monitoring_manager
+from .monitoring import MonitoringManager, PerformanceMetrics, ToolUsageStats, AlertInfo, NetworkEndpoint, SystemResourceInfo
 
 # 创建logger实例
 logger = logging.getLogger(__name__)
@@ -55,6 +57,17 @@ class MCPStoreContext:
         self._auth_manager = get_auth_manager()
         self._performance_optimizer = get_performance_optimizer()
         self._monitoring_manager = get_monitoring_manager()
+
+        # 监控管理器 - 使用数据空间管理器或默认路径
+        if hasattr(self._store, '_data_space_manager') and self._store._data_space_manager:
+            # 使用数据空间管理器的路径
+            data_dir = self._store._data_space_manager.get_file_path("monitoring").parent
+        else:
+            # 使用默认路径（向后兼容）
+            config_dir = Path(self._store.config.json_path).parent
+            data_dir = config_dir / "monitoring"
+
+        self._monitoring = MonitoringManager(data_dir)
 
         # 扩展预留
         self._metadata: Dict[str, Any] = {}
@@ -94,7 +107,7 @@ class MCPStoreContext:
             config: 服务配置，支持多种格式
             json_file: JSON文件路径，如果指定则读取该文件作为配置
         """
-        return self._sync_helper.run_async(self.add_service_async(config, json_file))
+        return self._sync_helper.run_async(self.add_service_async(config, json_file), timeout=120.0)
 
     def add_service_with_details(self, config: Union[Dict[str, Any], List[Dict[str, Any]], str] = None) -> Dict[str, Any]:
         """
@@ -106,7 +119,7 @@ class MCPStoreContext:
         Returns:
             Dict: 包含添加结果的详细信息
         """
-        return self._sync_helper.run_async(self.add_service_with_details_async(config))
+        return self._sync_helper.run_async(self.add_service_with_details_async(config), timeout=120.0)
 
     async def add_service_with_details_async(self, config: Union[Dict[str, Any], List[Dict[str, Any]], str] = None) -> Dict[str, Any]:
         """
@@ -158,8 +171,8 @@ class MCPStoreContext:
             }
 
         # 获取添加后的详情
-        services = self.list_services()
-        tools = self.list_tools()
+        services = await self.list_services_async()
+        tools = await self.list_tools_async()
 
         # 分析添加结果
         expected_service_names = self._extract_service_names(config)
@@ -337,7 +350,7 @@ class MCPStoreContext:
                 # Store模式下的全量注册
                 if self._context_type == ContextType.STORE:
                     logger.info("STORE模式-全量注册所有服务")
-                    resp = await self._store.register_json_service()
+                    resp = await self._store.register_all_services_for_store()
                     logger.info(f"注册结果: {resp}")
                     if not (resp and resp.service_names):
                         raise Exception("服务注册失败")
@@ -351,15 +364,15 @@ class MCPStoreContext:
             elif isinstance(config, list):
                 if not config:
                     raise Exception("列表为空")
-                # TODO:这个函数的参数诡异 并不标准
+
                 # 判断是服务名称列表还是服务配置列表
                 if all(isinstance(item, str) for item in config):
                     # 服务名称列表
                     logger.info(f"注册指定服务: {config}")
-                    resp = await self._store.register_json_service(
-                        client_id=agent_id,
-                        service_names=config
-                    )
+                    if self._context_type == ContextType.STORE:
+                        resp = await self._store.register_selected_services_for_store(config)
+                    else:
+                        resp = await self._store.register_services_for_agent(agent_id, config)
                     logger.info(f"注册结果: {resp}")
                     if not (resp and resp.service_names):
                         raise Exception("服务注册失败")
@@ -587,7 +600,7 @@ class MCPStoreContext:
         Returns:
             Dict: 批量操作结果
         """
-        return self._sync_helper.run_async(self.batch_add_services_async(services))
+        return self._sync_helper.run_async(self.batch_add_services_async(services), timeout=180.0)
 
     async def batch_add_services_async(self, services: List[Union[str, Dict[str, Any]]]) -> Dict[str, Any]:
         """
@@ -1045,7 +1058,7 @@ class MCPStoreContext:
 
     def reset_config(self) -> bool:
         """重置配置（同步版本）"""
-        return self._sync_helper.run_async(self.reset_config_async())
+        return self._sync_helper.run_async(self.reset_config_async(), timeout=60.0)
 
     async def reset_config_async(self) -> bool:
         """
@@ -1251,7 +1264,7 @@ class MCPStoreContext:
     # === 文件直接重置功能 ===
     def reset_mcp_json_file(self) -> bool:
         """直接重置MCP JSON配置文件（同步版本）"""
-        return self._sync_helper.run_async(self.reset_mcp_json_file_async())
+        return self._sync_helper.run_async(self.reset_mcp_json_file_async(), timeout=60.0)
 
     async def reset_mcp_json_file_async(self) -> bool:
         """
@@ -1279,7 +1292,7 @@ class MCPStoreContext:
 
     def reset_client_services_file(self) -> bool:
         """直接重置client_services.json文件（同步版本）"""
-        return self._sync_helper.run_async(self.reset_client_services_file_async())
+        return self._sync_helper.run_async(self.reset_client_services_file_async(), timeout=60.0)
 
     async def reset_client_services_file_async(self) -> bool:
         """
@@ -1307,7 +1320,7 @@ class MCPStoreContext:
 
     def reset_agent_clients_file(self) -> bool:
         """直接重置agent_clients.json文件（同步版本）"""
-        return self._sync_helper.run_async(self.reset_agent_clients_file_async())
+        return self._sync_helper.run_async(self.reset_agent_clients_file_async(), timeout=60.0)
 
     async def reset_agent_clients_file_async(self) -> bool:
         """
@@ -1597,5 +1610,86 @@ class MCPStoreContext:
         if "_" in tool_name:
             return tool_name.split("_")[0]
         return "unknown"
+
+    # === 监控和统计接口 ===
+
+    def get_performance_metrics(self) -> PerformanceMetrics:
+        """获取性能指标"""
+        return self._monitoring.get_performance_metrics()
+
+    async def get_performance_metrics_async(self) -> PerformanceMetrics:
+        """异步获取性能指标"""
+        return self.get_performance_metrics()
+
+    def get_tool_usage_stats(self, limit: int = 10) -> List[ToolUsageStats]:
+        """获取工具使用统计"""
+        return self._monitoring.get_tool_usage_stats(limit)
+
+    async def get_tool_usage_stats_async(self, limit: int = 10) -> List[ToolUsageStats]:
+        """异步获取工具使用统计"""
+        return self.get_tool_usage_stats(limit)
+
+    def get_alerts(self, unresolved_only: bool = False) -> List[AlertInfo]:
+        """获取告警列表"""
+        return self._monitoring.get_alerts(unresolved_only)
+
+    async def get_alerts_async(self, unresolved_only: bool = False) -> List[AlertInfo]:
+        """异步获取告警列表"""
+        return self.get_alerts(unresolved_only)
+
+    def add_alert(self, alert_type: str, title: str, message: str,
+                  service_name: Optional[str] = None) -> str:
+        """添加告警"""
+        return self._monitoring.add_alert(alert_type, title, message, service_name)
+
+    async def add_alert_async(self, alert_type: str, title: str, message: str,
+                             service_name: Optional[str] = None) -> str:
+        """异步添加告警"""
+        return self.add_alert(alert_type, title, message, service_name)
+
+    def resolve_alert(self, alert_id: str) -> bool:
+        """解决告警"""
+        return self._monitoring.resolve_alert(alert_id)
+
+    async def resolve_alert_async(self, alert_id: str) -> bool:
+        """异步解决告警"""
+        return self.resolve_alert(alert_id)
+
+    def clear_all_alerts(self) -> bool:
+        """清除所有告警"""
+        return self._monitoring.clear_all_alerts()
+
+    async def clear_all_alerts_async(self) -> bool:
+        """异步清除所有告警"""
+        return self.clear_all_alerts()
+
+    async def check_network_endpoints(self, endpoints: List[Dict[str, str]]) -> List[NetworkEndpoint]:
+        """检查网络端点状态"""
+        return await self._monitoring.check_network_endpoints(endpoints)
+
+    def get_system_resource_info(self) -> SystemResourceInfo:
+        """获取系统资源信息"""
+        return self._monitoring.get_system_resource_info()
+
+    async def get_system_resource_info_async(self) -> SystemResourceInfo:
+        """异步获取系统资源信息"""
+        return self.get_system_resource_info()
+
+    def record_api_call(self, response_time: float):
+        """记录API调用"""
+        self._monitoring.record_api_call(response_time)
+
+    def record_tool_execution(self, tool_name: str, service_name: str,
+                            response_time: float, success: bool):
+        """记录工具执行"""
+        self._monitoring.record_tool_execution(tool_name, service_name, response_time, success)
+
+    def increment_active_connections(self):
+        """增加活跃连接数"""
+        self._monitoring.increment_active_connections()
+
+    def decrement_active_connections(self):
+        """减少活跃连接数"""
+        self._monitoring.decrement_active_connections()
 
 
