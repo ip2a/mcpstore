@@ -1,0 +1,239 @@
+// MCPStore Vue Frontend - SCSS Variables
+// 定义全局样式变量
+
+// 颜色系统
+:root {
+  // 主色调
+  --primary-color: #409EFF;
+  --primary-light: #79bbff;
+  --primary-dark: #337ecc;
+  
+  // 功能色
+  --success-color: #67C23A;
+  --warning-color: #E6A23C;
+  --danger-color: #F56C6C;
+  --info-color: #909399;
+  
+  // 中性色
+  --text-primary: #303133;
+  --text-regular: #606266;
+  --text-secondary: #909399;
+  --text-placeholder: #C0C4CC;
+  
+  // 边框色
+  --border-base: #DCDFE6;
+  --border-light: #E4E7ED;
+  --border-lighter: #EBEEF5;
+  --border-extra-light: #F2F6FC;
+  
+  // 背景色
+  --bg-color: #FFFFFF;
+  --bg-color-page: #F2F3F5;
+  --bg-color-overlay: rgba(255, 255, 255, 0.9);
+  
+  // 阴影
+  --shadow-base: 0 2px 4px rgba(0, 0, 0, 0.12), 0 0 6px rgba(0, 0, 0, 0.04);
+  --shadow-light: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  --shadow-dark: 0 4px 12px rgba(0, 0, 0, 0.15);
+  
+  // 圆角
+  --border-radius-base: 4px;
+  --border-radius-small: 2px;
+  --border-radius-large: 8px;
+  --border-radius-round: 20px;
+  --border-radius-circle: 50%;
+  
+  // 间距
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-xxl: 48px;
+  
+  // 字体
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-base: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-size-xxl: 20px;
+  
+  --font-weight-light: 300;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 700;
+  
+  // 行高
+  --line-height-base: 1.5;
+  --line-height-small: 1.2;
+  --line-height-large: 1.8;
+  
+  // 过渡动画
+  --transition-base: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+  --transition-fast: all 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
+  --transition-slow: all 0.5s cubic-bezier(0.645, 0.045, 0.355, 1);
+  
+  // Z-index层级
+  --z-index-dropdown: 1000;
+  --z-index-sticky: 1020;
+  --z-index-fixed: 1030;
+  --z-index-modal-backdrop: 1040;
+  --z-index-modal: 1050;
+  --z-index-popover: 1060;
+  --z-index-tooltip: 1070;
+  --z-index-toast: 1080;
+}
+
+// 暗色主题
+:root.dark {
+  // 主色调（暗色模式下稍微调亮）
+  --primary-color: #529EFF;
+  --primary-light: #79bbff;
+  --primary-dark: #337ecc;
+  
+  // 功能色
+  --success-color: #7EC23A;
+  --warning-color: #F6A23C;
+  --danger-color: #FF6C6C;
+  --info-color: #A0A4A8;
+  
+  // 中性色
+  --text-primary: #E5EAF3;
+  --text-regular: #CFD3DC;
+  --text-secondary: #A3A6AD;
+  --text-placeholder: #8D9095;
+  
+  // 边框色
+  --border-base: #4C4D4F;
+  --border-light: #414243;
+  --border-lighter: #363637;
+  --border-extra-light: #2B2B2C;
+  
+  // 背景色
+  --bg-color: #1D1E1F;
+  --bg-color-page: #0A0A0A;
+  --bg-color-overlay: rgba(29, 30, 31, 0.9);
+  
+  // 阴影
+  --shadow-base: 0 2px 4px rgba(0, 0, 0, 0.24), 0 0 6px rgba(0, 0, 0, 0.08);
+  --shadow-light: 0 2px 12px 0 rgba(0, 0, 0, 0.2);
+  --shadow-dark: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+// SCSS变量（用于编译时）
+$primary-color: #409EFF;
+$success-color: #67C23A;
+$warning-color: #E6A23C;
+$danger-color: #F56C6C;
+$info-color: #909399;
+
+$text-primary: #303133;
+$text-regular: #606266;
+$text-secondary: #909399;
+$text-placeholder: #C0C4CC;
+
+$border-base: #DCDFE6;
+$border-light: #E4E7ED;
+$border-lighter: #EBEEF5;
+
+$bg-color: #FFFFFF;
+$bg-color-page: #F2F3F5;
+
+$border-radius-base: 4px;
+$border-radius-small: 2px;
+$border-radius-large: 8px;
+
+$spacing-xs: 4px;
+$spacing-sm: 8px;
+$spacing-md: 16px;
+$spacing-lg: 24px;
+$spacing-xl: 32px;
+
+$font-size-xs: 12px;
+$font-size-sm: 13px;
+$font-size-base: 14px;
+$font-size-lg: 16px;
+$font-size-xl: 18px;
+
+$transition-base: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+$transition-fast: all 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
+
+// 断点
+$breakpoint-xs: 480px;
+$breakpoint-sm: 768px;
+$breakpoint-md: 992px;
+$breakpoint-lg: 1200px;
+$breakpoint-xl: 1920px;
+
+// 混合器
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@mixin flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+@mixin text-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@mixin clearfix {
+  &::after {
+    content: "";
+    display: table;
+    clear: both;
+  }
+}
+
+@mixin card-shadow {
+  box-shadow: var(--shadow-base);
+  border-radius: var(--border-radius-base);
+  background: var(--bg-color);
+  border: 1px solid var(--border-lighter);
+}
+
+@mixin hover-shadow {
+  transition: var(--transition-base);
+  
+  &:hover {
+    box-shadow: var(--shadow-light);
+    transform: translateY(-2px);
+  }
+}
+
+// 响应式混合器
+@mixin respond-to($breakpoint) {
+  @if $breakpoint == xs {
+    @media (max-width: #{$breakpoint-xs - 1px}) {
+      @content;
+    }
+  }
+  @if $breakpoint == sm {
+    @media (min-width: #{$breakpoint-sm}) {
+      @content;
+    }
+  }
+  @if $breakpoint == md {
+    @media (min-width: #{$breakpoint-md}) {
+      @content;
+    }
+  }
+  @if $breakpoint == lg {
+    @media (min-width: #{$breakpoint-lg}) {
+      @content;
+    }
+  }
+  @if $breakpoint == xl {
+    @media (min-width: #{$breakpoint-xl}) {
+      @content;
+    }
+  }
+}

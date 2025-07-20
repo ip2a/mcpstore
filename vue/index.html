@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MCPStore 管理面板</title>
+    <meta name="description" content="MCPStore - 强大的MCP服务管理平台，支持本地和远程服务管理" />
+    <meta name="keywords" content="MCP, MCPStore, 服务管理, 工具管理, Agent管理" />
+    <meta name="author" content="MCPStore Team" />
+    
+    <!-- Favicon -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    
+    <!-- Preconnect to improve performance -->
+    <link rel="preconnect" href="http://localhost:18200">
+    
+    <!-- Loading styles -->
+    <style>
+      #loading {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        transition: opacity 0.3s ease;
+      }
+      
+      .loading-content {
+        text-align: center;
+        color: white;
+      }
+      
+      .loading-spinner {
+        width: 50px;
+        height: 50px;
+        border: 3px solid rgba(255, 255, 255, 0.3);
+        border-top: 3px solid white;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 20px;
+      }
+      
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      
+      .loading-text {
+        font-size: 18px;
+        font-weight: 500;
+        margin-bottom: 10px;
+      }
+      
+      .loading-subtitle {
+        font-size: 14px;
+        opacity: 0.8;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Loading Screen -->
+    <div id="loading">
+      <div class="loading-content">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">MCPStore 管理面板</div>
+        <div class="loading-subtitle">正在加载中...</div>
+      </div>
+    </div>
+    
+    <!-- Vue App -->
+    <div id="app"></div>
+    
+    <script type="module" src="/src/main.js"></script>
+    
+    <!-- Remove loading screen when app is ready -->
+    <script>
+      window.addEventListener('load', () => {
+        setTimeout(() => {
+          const loading = document.getElementById('loading');
+          if (loading) {
+            loading.style.opacity = '0';
+            setTimeout(() => {
+              loading.remove();
+            }, 300);
+          }
+        }, 1000);
+      });
+    </script>
+  </body>
+</html>
