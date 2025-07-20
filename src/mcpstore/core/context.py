@@ -725,7 +725,9 @@ class MCPStoreContext:
             **kwargs: 额外参数（timeout, progress_handler等）
 
         Returns:
-            Any: 工具执行结果（FastMCP 标准格式）
+            Any: 工具执行结果
+            - 单个内容块：直接返回字符串/数据
+            - 多个内容块：返回列表
         """
         return self._sync_helper.run_async(self.use_tool_async(tool_name, args, **kwargs))
 

@@ -636,6 +636,7 @@ class MCPStore:
         )
 
     async def get_health_status(self, id: Optional[str] = None, agent_mode: bool = False) -> Dict[str, Any]:
+        # TODO:该方法带完善 这个方法有一定的混乱 要分离面向用户的直观方法名 和面向业务的独立函数功能
         """
         获取服务健康状态：
         - store未传id 或 id==main_client：聚合 main_client 下所有 client_id 的服务健康状态
@@ -1090,6 +1091,7 @@ class MCPStore:
         return context.check_services()
 
     def show_mcpjson(self) -> Dict[str, Any]:
+        # TODO:show_mcpjson和get_json_config是否有一定程度的重合
         """
         直接读取并返回 mcp.json 文件的内容
 

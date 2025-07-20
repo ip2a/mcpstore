@@ -373,19 +373,34 @@ class FastMCPToolExecutor:
 
             # 按照官方文档，content 是 ContentBlock 列表
             if isinstance(result.content, list) and result.content:
-                # 优先返回第一个文本内容块的文本
+                # 提取所有内容块的数据
+                extracted_content = []
+
                 for content_block in result.content:
                     if hasattr(content_block, 'text'):
                         logger.debug(f"Extracting text from TextContent: {content_block.text}")
-                        return content_block.text
+                        extracted_content.append(content_block.text)
                     elif hasattr(content_block, 'data'):
                         logger.debug(f"Found binary content: {len(content_block.data)} bytes")
-                        # 对于二进制内容，返回数据本身
-                        return content_block.data
+                        extracted_content.append(content_block.data)
+                    else:
+                        # 对于其他类型的内容块，保留原始对象
+                        logger.debug(f"Found other content block type: {type(content_block)}")
+                        extracted_content.append(content_block)
 
-                # 如果没有找到可提取的内容，返回第一个内容块
-                logger.debug(f"No extractable content found, returning first content block")
-                return result.content[0]
+                # 根据提取到的内容数量决定返回格式
+                if len(extracted_content) == 0:
+                    # 没有提取到任何内容，返回第一个原始内容块
+                    logger.debug(f"No extractable content found, returning first content block")
+                    return result.content[0]
+                elif len(extracted_content) == 1:
+                    # 只有一个内容块，直接返回内容（保持向后兼容）
+                    logger.debug(f"Single content block extracted, returning content directly")
+                    return extracted_content[0]
+                else:
+                    # 多个内容块，返回列表
+                    logger.debug(f"Multiple content blocks extracted ({len(extracted_content)}), returning as list")
+                    return extracted_content
 
             # 如果 content 不是列表，直接返回
             return result.content

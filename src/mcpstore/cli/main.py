@@ -31,7 +31,7 @@ def callback():
 def run_command(
     service: Annotated[str, typer.Argument(help="Service to run (api, test, etc.)")],
     host: Annotated[str, typer.Option("--host", "-h", help="Host to bind to")] = "0.0.0.0",
-    port: Annotated[int, typer.Option("--port", "-p", help="Port to bind to")] = 18611,
+    port: Annotated[int, typer.Option("--port", "-p", help="Port to bind to")] = 18200,
     reload: Annotated[bool, typer.Option("--reload", "-r", help="Enable auto-reload")] = False,
     log_level: Annotated[str, typer.Option("--log-level", "-l", help="Log level")] = "info",
 ):
