@@ -486,3 +486,5 @@ MCPStore is an `open source project`, and we welcome `any form of contribution` 
 ---
 
 **MCPStore: Making MCP tool management `simple and powerful` 💪.**
+
+![image-20250722000133533](http://www.text2mcp.com/img/image-20250722000133533.png)
