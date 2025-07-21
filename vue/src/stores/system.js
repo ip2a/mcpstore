@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { storeServiceAPI, agentServiceAPI } from '@/api/services'
+import { storeMonitoringAPI } from '@/api/monitoring'
 
 export const useSystemStore = defineStore('system', () => {
   // 状态
@@ -60,7 +61,8 @@ export const useSystemStore = defineStore('system', () => {
     try {
       loading.value = true
       const response = await storeServiceAPI.getServices()
-      services.value = response.data || []
+      // 修复：正确提取服务数组
+      services.value = response.data?.data || []
       updateStats()
       lastUpdateTime.value = new Date()
       return services.value
@@ -76,7 +78,8 @@ export const useSystemStore = defineStore('system', () => {
     try {
       loading.value = true
       const response = await storeServiceAPI.getTools()
-      tools.value = response.data || []
+      // 修复：正确提取工具数组
+      tools.value = response.data?.data || []
       updateStats()
       lastUpdateTime.value = new Date()
       return tools.value
@@ -92,15 +95,37 @@ export const useSystemStore = defineStore('system', () => {
     try {
       loading.value = true
       const response = await storeServiceAPI.checkServices()
-      healthStatus.value = response.data || {}
+      // 修复：正确提取健康状态数据
+      healthStatus.value = response.data?.data || {}
       updateStats()
       lastUpdateTime.value = new Date()
       return healthStatus.value
     } catch (error) {
       console.error('Failed to fetch system status:', error)
+      // 设置默认状态，避免无限loading
+      healthStatus.value = {}
+      stats.value = {
+        totalServices: 0,
+        healthyServices: 0,
+        unhealthyServices: 0,
+        totalTools: 0,
+        totalAgents: 0,
+        localServices: 0,
+        remoteServices: 0
+      }
       throw error
     } finally {
       loading.value = false
+    }
+  }
+
+  // 安全的系统状态检查（静默失败）
+  const safeCheckSystemStatus = async () => {
+    try {
+      await fetchSystemStatus()
+    } catch (error) {
+      // 静默失败，不抛出错误
+      console.warn('System status check failed silently:', error.message)
     }
   }
   
@@ -108,12 +133,17 @@ export const useSystemStore = defineStore('system', () => {
     try {
       loading.value = true
       const response = await storeServiceAPI.addService(serviceConfig)
-      
-      // 刷新服务列表
-      await fetchServices()
-      await fetchTools()
-      
-      return response
+
+      // 检查添加是否成功
+      if (response.data?.success) {
+        // 刷新服务列表
+        await fetchServices()
+        await fetchTools()
+        return response.data
+      } else {
+        // 添加失败，抛出错误
+        throw new Error(response.data?.message || '服务添加失败')
+      }
     } catch (error) {
       console.error('Failed to add service:', error)
       throw error
@@ -162,7 +192,8 @@ export const useSystemStore = defineStore('system', () => {
     try {
       loading.value = true
       const response = await storeServiceAPI.useTool(toolName, args)
-      return response
+      // 修复：返回正确的响应数据
+      return response.data
     } catch (error) {
       console.error('Failed to execute tool:', error)
       throw error
@@ -170,11 +201,12 @@ export const useSystemStore = defineStore('system', () => {
       loading.value = false
     }
   }
-  
+
   const getServiceInfo = async (serviceName) => {
     try {
       const response = await storeServiceAPI.getServiceInfo(serviceName)
-      return response.data
+      // 修复：正确提取服务信息
+      return response.data?.data
     } catch (error) {
       console.error('Failed to get service info:', error)
       throw error
@@ -289,7 +321,7 @@ export const useSystemStore = defineStore('system', () => {
     const totalTools = tools.value.length
     const localServices = services.value.filter(s => s.command).length
     const remoteServices = services.value.filter(s => s.url).length
-    
+
     stats.value = {
       totalServices,
       healthyServices,
@@ -298,6 +330,24 @@ export const useSystemStore = defineStore('system', () => {
       totalAgents: agents.value.length,
       localServices,
       remoteServices
+    }
+  }
+
+  const fetchToolUsageStats = async (limit = 10) => {
+    try {
+      const response = await storeMonitoringAPI.getToolUsageStats(limit)
+      console.log('API响应:', response) // 调试日志
+
+      // API返回格式: { success: true, data: [...], message: "..." }
+      if (response.success && response.data) {
+        return response.data
+      } else {
+        console.warn('API响应格式异常:', response)
+        return []
+      }
+    } catch (error) {
+      console.error('获取工具使用统计失败:', error)
+      return []
     }
   }
   
@@ -386,6 +436,7 @@ export const useSystemStore = defineStore('system', () => {
     fetchServices,
     fetchTools,
     fetchSystemStatus,
+    safeCheckSystemStatus,
     addService,
     deleteService,
     updateService,
@@ -397,6 +448,7 @@ export const useSystemStore = defineStore('system', () => {
     executeToolAction,
     getServiceInfo,
     updateStats,
+    fetchToolUsageStats,
     refreshAllData,
     searchServices,
     searchTools,

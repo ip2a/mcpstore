@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import NProgress from 'nprogress'
 
 // 路由组件懒加载
 const Dashboard = () => import('@/views/Dashboard.vue')
@@ -199,27 +198,26 @@ const router = createRouter({
 
 // 全局前置守卫
 router.beforeEach((to, from, next) => {
-  NProgress.start()
-  
+  // 不启动NProgress，保持静默导航
+
   // 设置页面标题
   if (to.meta.title) {
     document.title = `${to.meta.title} - MCPStore 管理面板`
   } else {
     document.title = 'MCPStore 管理面板'
   }
-  
+
   next()
 })
 
 // 全局后置钩子
-router.afterEach(() => {
-  NProgress.done()
+router.afterEach((to, from) => {
+  // 静默导航，不使用NProgress
 })
 
 // 路由错误处理
 router.onError((error) => {
   console.error('Router Error:', error)
-  NProgress.done()
 })
 
 export default router

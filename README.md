@@ -1,10 +1,31 @@
 [中文](https://github.com/whillhill/mcpstore/blob/main/README_zh.md) | English
 
-# 🚀 McpStore - Add MCP Capabilities to Your Agent in Three Lines of Code
+# 🚀 McpStore - Comprehensive MCP Management Package
 
 `McpStore` is a tool management library specifically designed to solve the problem of Agents wanting to use `MCP (Model Context Protocol)` capabilities while being overwhelmed by MCP management.
 
-`MCP` is rapidly evolving, and we all want to add `MCP` capabilities to existing `Agents`, but introducing new tools to `Agents` typically requires writing a lot of repetitive `"glue code"`, making the process cumbersome 😤
+MCP is developing rapidly, and we all want to add MCP capabilities to existing Agents, but introducing new tools to Agents typically requires writing a lot of repetitive "glue code", making the process cumbersome.
+
+## Online Experience
+
+This project has a simple Vue frontend that allows you to intuitively manage your MCP through SDK or API methods.
+
+![image-20250721212359929](http://www.text2mcp.com/img/image-20250721212359929.png)
+
+You can quickly start API mode with `mcpstore run api`, or you can use a simple piece of code:
+
+```python
+from mcpstore import MCPStore
+prod_store = MCPStore.setup_store()
+prod_store.start_api_server(
+    host='0.0.0.0',
+    port=18200
+)
+```
+
+After quickly starting the backend, clone the project and run `npm run dev` to run the Vue frontend.
+
+You can also quickly experience it through http://www.mcpstore.wiki/web_demo
 
 
 
@@ -13,15 +34,13 @@
 No need to worry about `mcp` protocol and configuration details, just use intuitive classes and functions with an `extremely simple` user experience.
 
 ```python
-# Import MCPStore library
-from mcpstore import MCPStore
-# Step 1: Initialize a Store, which is the core entry point for managing all MCP services
 store = MCPStore.setup_store()
-# Step 2: Register an external MCP service, MCPStore will automatically handle connection and tool loading
+
 store.for_store().add_service({"name":"mcpstore-wiki","url":"http://mcpstore.wiki/mcp"})
-# Step 3: Get a tool list fully compatible with LangChain, ready for direct use with Agent
-tools = store.for_store().for_langchain().list_tools()
-# At this moment, your LangChain Agent has successfully integrated all tools provided by mcpstore-wiki
+
+tools = store.for_store().list_tools()
+
+# store.for_store().use_tool(tools[0].name,{"query":'hi!'})
 ```
 
 
@@ -55,6 +74,8 @@ print(f"\n   🤔: {query}")
 response = agent_executor.invoke({"input": query})
 print(f"   🤖 : {response['output']}")
 ```
+
+![image-20250721212658085](http://www.text2mcp.com/img/image-20250721212658085.png)
 
 
 
@@ -140,6 +161,7 @@ def setup_store(mcp_config_file: str = None, debug: bool = False) -> MCPStore
 
 - **When not specified**: Uses default path `src/mcpstore/data/mcp.json`
 - **When specified**: Uses the specified `mcp.json` configuration file to instantiate your store, supports `mainstream client file formats`, `ready to use` 🎯
+- Note that the store actually revolves around an mcp.json file. When you specify an mcp.json file, it becomes the foundation of this store. You can achieve store import and export effects by simply moving these json files. Similarly, if your Python code calls and API calls point to the same mcp.json, it means you can modify the same store's impact in Python code through the API without modifying the code.
 
 #### 2. `debug` Parameter
 

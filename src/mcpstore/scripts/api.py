@@ -18,8 +18,7 @@ from mcpstore.core.models.common import (
     ExecutionResponse
 )
 from mcpstore.core.monitoring import (
-    PerformanceMetrics, ToolUsageStats, AlertInfo,
-    NetworkEndpoint, SystemResourceInfo
+    ToolUsageStats, NetworkEndpoint, SystemResourceInfo
 )
 from typing import Optional, List, Dict, Any, Union
 from pydantic import BaseModel, ValidationError, Field
@@ -35,15 +34,6 @@ logger = logging.getLogger(__name__)
 
 # === 监控相关的响应模型 ===
 
-class PerformanceMetricsResponse(BaseModel):
-    """性能指标响应"""
-    api_response_time: float = Field(description="API平均响应时间(ms)")
-    active_connections: int = Field(description="活跃连接数")
-    today_api_calls: int = Field(description="今日API调用数")
-    memory_usage: float = Field(description="内存使用率(%)")
-    cpu_usage: float = Field(description="CPU使用率(%)")
-    uptime: float = Field(description="运行时间(秒)")
-
 class ToolUsageStatsResponse(BaseModel):
     """工具使用统计响应"""
     tool_name: str = Field(description="工具名称")
@@ -52,16 +42,6 @@ class ToolUsageStatsResponse(BaseModel):
     last_executed: Optional[str] = Field(description="最后执行时间")
     average_response_time: float = Field(description="平均响应时间")
     success_rate: float = Field(description="成功率")
-
-class AlertInfoResponse(BaseModel):
-    """告警信息响应"""
-    alert_id: str = Field(description="告警ID")
-    type: str = Field(description="告警类型")
-    title: str = Field(description="告警标题")
-    message: str = Field(description="告警消息")
-    timestamp: str = Field(description="告警时间")
-    service_name: Optional[str] = Field(description="相关服务名称")
-    resolved: bool = Field(description="是否已解决")
 
 class NetworkEndpointResponse(BaseModel):
     """网络端点响应"""
@@ -1607,7 +1587,7 @@ async def store_reset_config():
         store = get_store()
 
 
-        success = await store.for_store().reset_config()
+        success = await store.for_store().reset_config_async()
         return APIResponse(
             success=success,
             data=success,
@@ -1631,7 +1611,7 @@ async def store_reset_mcp_json_file():
         store = get_store()
 
 
-        success = await store.for_store().reset_mcp_json_file()
+        success = await store.for_store().reset_mcp_json_file_async()
         return APIResponse(
             success=success,
             data=success,
@@ -1654,7 +1634,7 @@ async def store_reset_client_services_file():
         store = get_store()
 
 
-        success = await store.for_store().reset_client_services_file()
+        success = await store.for_store().reset_client_services_file_async()
         return APIResponse(
             success=success,
             data=success,
@@ -1677,7 +1657,7 @@ async def store_reset_agent_clients_file():
         store = get_store()
 
 
-        success = await store.for_store().reset_agent_clients_file()
+        success = await store.for_store().reset_agent_clients_file_async()
         return APIResponse(
             success=success,
             data=success,
@@ -1698,7 +1678,7 @@ async def agent_reset_config(agent_id: str):
     """Agent 级别重置配置"""
     validate_agent_id(agent_id)
     try:
-        success = await store.for_agent(agent_id).reset_config()
+        success = await store.for_agent(agent_id).reset_config_async()
         return APIResponse(
             success=success,
             data=success,
@@ -2016,60 +1996,9 @@ async def store_batch_delete_services(request: Dict[str, List[str]]):
 
 # === 监控和统计API ===
 
-@router.get("/for_store/performance_metrics", response_model=APIResponse)
-async def get_store_performance_metrics(store: MCPStore = Depends(get_store)):
-    """获取Store级别的性能指标"""
-    try:
-        store = get_store()
 
-        metrics = await store.for_store().get_performance_metrics_async()
 
-        return APIResponse(
-            success=True,
-            data=PerformanceMetricsResponse(
-                api_response_time=metrics.api_response_time,
-                active_connections=metrics.active_connections,
-                today_api_calls=metrics.today_api_calls,
-                memory_usage=metrics.memory_usage,
-                cpu_usage=metrics.cpu_usage,
-                uptime=metrics.uptime
-            ).dict(),
-            message="Performance metrics retrieved successfully"
-        )
-    except Exception as e:
-        logger.error(f"Failed to get performance metrics: {e}")
-        return APIResponse(
-            success=False,
-            data={},
-            message=f"Failed to get performance metrics: {str(e)}"
-        )
 
-@router.get("/for_agent/{agent_id}/performance_metrics", response_model=APIResponse)
-async def get_agent_performance_metrics(agent_id: str, store: MCPStore = Depends(get_store)):
-    """获取Agent级别的性能指标"""
-    try:
-        validate_agent_id(agent_id)
-        metrics = await store.for_agent(agent_id).get_performance_metrics_async()
-
-        return APIResponse(
-            success=True,
-            data=PerformanceMetricsResponse(
-                api_response_time=metrics.api_response_time,
-                active_connections=metrics.active_connections,
-                today_api_calls=metrics.today_api_calls,
-                memory_usage=metrics.memory_usage,
-                cpu_usage=metrics.cpu_usage,
-                uptime=metrics.uptime
-            ).dict(),
-            message=f"Agent '{agent_id}' performance metrics retrieved successfully"
-        )
-    except Exception as e:
-        logger.error(f"Failed to get agent performance metrics: {e}")
-        return APIResponse(
-            success=False,
-            data={},
-            message=f"Failed to get agent performance metrics: {str(e)}"
-        )
 
 @router.get("/for_store/tool_usage_stats", response_model=APIResponse)
 async def get_store_tool_usage_stats(limit: int = 10, store: MCPStore = Depends(get_store)):
@@ -2134,123 +2063,13 @@ async def get_agent_tool_usage_stats(agent_id: str, limit: int = 10, store: MCPS
             message=f"Failed to get agent tool usage stats: {str(e)}"
         )
 
-@router.get("/for_store/alerts", response_model=APIResponse)
-async def get_store_alerts(unresolved_only: bool = False, store: MCPStore = Depends(get_store)):
-    """获取Store级别的告警列表"""
-    try:
-        store = get_store()
-
-        alerts = await store.for_store().get_alerts_async(unresolved_only)
-
-        alerts_data = [
-            AlertInfoResponse(
-                alert_id=alert.alert_id,
-                type=alert.type,
-                title=alert.title,
-                message=alert.message,
-                timestamp=alert.timestamp,
-                service_name=alert.service_name,
-                resolved=alert.resolved
-            ).dict() for alert in alerts
-        ]
-
-        return APIResponse(
-            success=True,
-            data=alerts_data,
-            message="Alerts retrieved successfully"
-        )
-    except Exception as e:
-        logger.error(f"Failed to get alerts: {e}")
-        return APIResponse(
-            success=False,
-            data=[],
-            message=f"Failed to get alerts: {str(e)}"
-        )
-
-@router.post("/for_store/alerts", response_model=APIResponse)
-async def add_store_alert(request: AddAlertRequest, store: MCPStore = Depends(get_store)):
-    """添加Store级别的告警"""
-    try:
-        store = get_store()
-
-        alert_id = await store.for_store().add_alert_async(
-            request.type, request.title, request.message, request.service_name
-        )
-
-        return APIResponse(
-            success=True,
-            data={"alert_id": alert_id},
-            message="Alert added successfully"
-        )
-    except Exception as e:
-        logger.error(f"Failed to add alert: {e}")
-        return APIResponse(
-            success=False,
-            data={},
-            message=f"Failed to add alert: {str(e)}"
-        )
-
-@router.put("/for_store/alerts/{alert_id}/resolve", response_model=APIResponse)
-async def resolve_store_alert(alert_id: str, store: MCPStore = Depends(get_store)):
-    """解决Store级别的告警"""
-    try:
-        store = get_store()
-
-        store = get_store()
 
 
-        success = await store.for_store().resolve_alert_async(alert_id)
-
-        if success:
-            return APIResponse(
-                success=True,
-                data={},
-                message="Alert resolved successfully"
-            )
-        else:
-            return APIResponse(
-                success=False,
-                data={},
-                message="Alert not found or already resolved"
-            )
-    except Exception as e:
-        logger.error(f"Failed to resolve alert: {e}")
-        return APIResponse(
-            success=False,
-            data={},
-            message=f"Failed to resolve alert: {str(e)}"
-        )
-
-@router.delete("/for_store/alerts", response_model=APIResponse)
-async def clear_store_alerts(store: MCPStore = Depends(get_store)):
-    """清除Store级别的所有告警"""
-    try:
-        store = get_store()
-
-        store = get_store()
 
 
-        success = await store.for_store().clear_all_alerts_async()
 
-        if success:
-            return APIResponse(
-                success=True,
-                data={},
-                message="All alerts cleared successfully"
-            )
-        else:
-            return APIResponse(
-                success=False,
-                data={},
-                message="Failed to clear alerts"
-            )
-    except Exception as e:
-        logger.error(f"Failed to clear alerts: {e}")
-        return APIResponse(
-            success=False,
-            data={},
-            message=f"Failed to clear alerts: {str(e)}"
-        )
+
+
 
 @router.post("/for_store/network_check", response_model=APIResponse)
 async def check_store_network_endpoints(request: NetworkEndpointCheckRequest, store: MCPStore = Depends(get_store)):
@@ -2313,57 +2132,4 @@ async def get_store_system_resources(store: MCPStore = Depends(get_store)):
             message=f"Failed to get system resources: {str(e)}"
         )
 
-# Agent级别的告警API (简化版，复用Store的逻辑)
-@router.get("/for_agent/{agent_id}/alerts", response_model=APIResponse)
-async def get_agent_alerts(agent_id: str, unresolved_only: bool = False, store: MCPStore = Depends(get_store)):
-    """获取Agent级别的告警列表"""
-    try:
-        validate_agent_id(agent_id)
-        alerts = await store.for_agent(agent_id).get_alerts_async(unresolved_only)
 
-        alerts_data = [
-            AlertInfoResponse(
-                alert_id=alert.alert_id,
-                type=alert.type,
-                title=alert.title,
-                message=alert.message,
-                timestamp=alert.timestamp,
-                service_name=alert.service_name,
-                resolved=alert.resolved
-            ).dict() for alert in alerts
-        ]
-
-        return APIResponse(
-            success=True,
-            data=alerts_data,
-            message=f"Agent '{agent_id}' alerts retrieved successfully"
-        )
-    except Exception as e:
-        logger.error(f"Failed to get agent alerts: {e}")
-        return APIResponse(
-            success=False,
-            data=[],
-            message=f"Failed to get agent alerts: {str(e)}"
-        )
-
-@router.post("/for_agent/{agent_id}/alerts", response_model=APIResponse)
-async def add_agent_alert(agent_id: str, request: AddAlertRequest, store: MCPStore = Depends(get_store)):
-    """添加Agent级别的告警"""
-    try:
-        validate_agent_id(agent_id)
-        alert_id = await store.for_agent(agent_id).add_alert_async(
-            request.type, request.title, request.message, request.service_name
-        )
-
-        return APIResponse(
-            success=True,
-            data={"alert_id": alert_id},
-            message=f"Alert added to agent '{agent_id}' successfully"
-        )
-    except Exception as e:
-        logger.error(f"Failed to add agent alert: {e}")
-        return APIResponse(
-            success=False,
-            data={},
-            message=f"Failed to add agent alert: {str(e)}"
-        )

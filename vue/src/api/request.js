@@ -5,7 +5,7 @@ import NProgress from 'nprogress'
 // 创建axios实例
 const request = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:18200',
-  timeout: 30000,
+  timeout: parseInt(import.meta.env.VITE_API_TIMEOUT) || 5000,
   headers: {
     'Content-Type': 'application/json'
   }
@@ -14,9 +14,6 @@ const request = axios.create({
 // 请求拦截器
 request.interceptors.request.use(
   (config) => {
-    // 开始进度条
-    NProgress.start()
-    
     // 添加时间戳防止缓存
     if (config.method === 'get') {
       config.params = {
@@ -24,7 +21,7 @@ request.interceptors.request.use(
         _t: Date.now()
       }
     }
-    
+
     // 打印请求信息（开发环境）
     if (import.meta.env.DEV) {
       console.log(`🚀 API Request: ${config.method?.toUpperCase()} ${config.url}`, {
@@ -32,11 +29,10 @@ request.interceptors.request.use(
         data: config.data
       })
     }
-    
+
     return config
   },
   (error) => {
-    NProgress.done()
     console.error('Request Error:', error)
     return Promise.reject(error)
   }
@@ -45,8 +41,6 @@ request.interceptors.request.use(
 // 响应拦截器
 request.interceptors.response.use(
   (response) => {
-    NProgress.done()
-    
     const { data } = response
     
     // 打印响应信息（开发环境）
@@ -57,29 +51,26 @@ request.interceptors.response.use(
     // 检查业务状态码
     if (data && typeof data === 'object') {
       if (data.success === false) {
-        // 业务错误
-        const errorMessage = data.message || '请求失败'
-        ElMessage.error(errorMessage)
-        return Promise.reject(new Error(errorMessage))
+        // 业务错误 - 不在拦截器中显示错误消息，让组件自己处理
+        console.warn('API业务错误:', data.message || '请求失败')
+        // 仍然返回数据，让组件自己判断success字段
+        return { data }
       }
 
       // 检查是否有错误字段
       if (data.error && typeof data.error === 'string') {
-        const errorMessage = data.error
-        ElMessage.error(errorMessage)
-        return Promise.reject(new Error(errorMessage))
+        console.warn('API错误字段:', data.error)
+        return Promise.reject(new Error(data.error))
       }
 
-      // 返回数据
-      return data
+      // 返回完整的响应数据，包装在response对象中
+      return { data }
     }
-    
-    // 直接返回响应数据
-    return data
+
+    // 直接返回响应数据，包装在response对象中
+    return { data }
   },
   (error) => {
-    NProgress.done()
-    
     console.error('Response Error:', error)
     
     let errorMessage = '网络错误'

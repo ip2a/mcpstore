@@ -5,20 +5,11 @@ import 'element-plus/dist/index.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
-import NProgress from 'nprogress'
-import 'nprogress/nprogress.css'
-
 import App from './App.vue'
 import router from './router'
 import './styles/index.scss'
 
-// 配置 NProgress
-NProgress.configure({ 
-  showSpinner: false,
-  minimum: 0.2,
-  easing: 'ease',
-  speed: 500
-})
+// NProgress已移除，保持静默导航体验
 
 const app = createApp(App)
 const pinia = createPinia()
@@ -40,6 +31,18 @@ app.config.errorHandler = (err, vm, info) => {
   console.error('Component:', vm)
   console.error('Info:', info)
 }
+
+// 全局未捕获的Promise错误处理
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('Unhandled Promise Rejection:', event.reason)
+  // 防止默认的控制台错误输出
+  event.preventDefault()
+})
+
+// 全局错误处理
+window.addEventListener('error', (event) => {
+  console.error('Global Error:', event.error)
+})
 
 // 使用插件
 app.use(pinia)

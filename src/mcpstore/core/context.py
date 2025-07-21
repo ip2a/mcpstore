@@ -23,7 +23,7 @@ from .openapi_integration import get_openapi_manager
 from .auth_security import get_auth_manager
 from .cache_performance import get_performance_optimizer
 from .monitoring_analytics import get_monitoring_manager
-from .monitoring import MonitoringManager, PerformanceMetrics, ToolUsageStats, AlertInfo, NetworkEndpoint, SystemResourceInfo
+from .monitoring import MonitoringManager, ToolUsageStats, NetworkEndpoint, SystemResourceInfo
 
 # 创建logger实例
 logger = logging.getLogger(__name__)
@@ -865,6 +865,7 @@ class MCPStoreContext:
         return self._agent_id 
 
     def show_mcpconfig(self) -> Dict[str, Any]:
+        # TODO：检查重复
         """
         根据当前上下文（store/agent）获取对应的配置信息
         
@@ -1615,14 +1616,6 @@ class MCPStoreContext:
 
     # === 监控和统计接口 ===
 
-    def get_performance_metrics(self) -> PerformanceMetrics:
-        """获取性能指标"""
-        return self._monitoring.get_performance_metrics()
-
-    async def get_performance_metrics_async(self) -> PerformanceMetrics:
-        """异步获取性能指标"""
-        return self.get_performance_metrics()
-
     def get_tool_usage_stats(self, limit: int = 10) -> List[ToolUsageStats]:
         """获取工具使用统计"""
         return self._monitoring.get_tool_usage_stats(limit)
@@ -1631,39 +1624,7 @@ class MCPStoreContext:
         """异步获取工具使用统计"""
         return self.get_tool_usage_stats(limit)
 
-    def get_alerts(self, unresolved_only: bool = False) -> List[AlertInfo]:
-        """获取告警列表"""
-        return self._monitoring.get_alerts(unresolved_only)
 
-    async def get_alerts_async(self, unresolved_only: bool = False) -> List[AlertInfo]:
-        """异步获取告警列表"""
-        return self.get_alerts(unresolved_only)
-
-    def add_alert(self, alert_type: str, title: str, message: str,
-                  service_name: Optional[str] = None) -> str:
-        """添加告警"""
-        return self._monitoring.add_alert(alert_type, title, message, service_name)
-
-    async def add_alert_async(self, alert_type: str, title: str, message: str,
-                             service_name: Optional[str] = None) -> str:
-        """异步添加告警"""
-        return self.add_alert(alert_type, title, message, service_name)
-
-    def resolve_alert(self, alert_id: str) -> bool:
-        """解决告警"""
-        return self._monitoring.resolve_alert(alert_id)
-
-    async def resolve_alert_async(self, alert_id: str) -> bool:
-        """异步解决告警"""
-        return self.resolve_alert(alert_id)
-
-    def clear_all_alerts(self) -> bool:
-        """清除所有告警"""
-        return self._monitoring.clear_all_alerts()
-
-    async def clear_all_alerts_async(self) -> bool:
-        """异步清除所有告警"""
-        return self.clear_all_alerts()
 
     async def check_network_endpoints(self, endpoints: List[Dict[str, str]]) -> List[NetworkEndpoint]:
         """检查网络端点状态"""

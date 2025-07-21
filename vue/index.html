@@ -82,17 +82,26 @@
     
     <!-- Remove loading screen when app is ready -->
     <script>
-      window.addEventListener('load', () => {
-        setTimeout(() => {
-          const loading = document.getElementById('loading');
-          if (loading) {
-            loading.style.opacity = '0';
-            setTimeout(() => {
-              loading.remove();
-            }, 300);
-          }
-        }, 1000);
-      });
+      // 立即移除loading屏幕
+      const removeLoading = () => {
+        const loading = document.getElementById('loading');
+        if (loading) {
+          loading.style.opacity = '0';
+          setTimeout(() => {
+            loading.remove();
+          }, 50); // 极短延迟
+        }
+      };
+
+      // 多种方式确保loading被移除
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', removeLoading);
+      } else {
+        removeLoading();
+      }
+
+      // 备用方案：最多等待1秒
+      setTimeout(removeLoading, 1000);
     </script>
   </body>
 </html>

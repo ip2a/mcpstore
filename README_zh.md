@@ -1,25 +1,42 @@
-# 🚀 McpStore 三行代码为你的Agent添加MCP能力
+# 🚀 McpStore 快速综合的MCP管理包
 
 `McpStore` 是一个专为解决 Agent 想要使用 `MCP（Model Context Protocol）` 的能力，但是疲于管理 MCP 的工具管理库。
 
-MCP快速发展,我们都想为现有的Agent添加MCP的能力，但是为Agent引入新工具通常需要编写大量重复的“胶水代码”，流程繁琐
+MCP发展很快,我们都想为现有的Agent添加MCP的能力，但是为Agent引入新工具通常需要编写大量重复的“胶水代码”，流程繁琐
 
+## 在线体验
 
+本项目有一个简易的Vue的前端，你可以通过SDK或者Api的方式直观的管理你的Mcp
+
+![image-20250721212359929](http://www.text2mcp.com/img/image-20250721212359929.png)
+
+你可以通过 mcpstore run api快速启动api模式，或者你可以通过一段简单的代码：
+
+```python
+from mcpstore import MCPStore
+prod_store = MCPStore.setup_store()
+prod_store.start_api_server(
+    host='0.0.0.0',
+    port=18200
+)
+```
+
+快速启动后端，clone项目之后npm run dev即可运行vue的前端
+
+你也可以通过http://www.mcpstore.wiki/web_demo 来快速体验
 
 ## 三行代码实现将 MCP 的工具即拿即用 ⚡
 
-无需关注 `mcp` 层级的协议和配置，只需要简单的使用直观的类和函数，提供 `极致简洁` 的用户体验。
+无需关注 `mcp` 层级的协议和配置，简单的使用直观的类和函数，提供 `极致简洁` 的用户体验。
 
 ```python
-# 引入MCPStore库
-from mcpstore import MCPStore
-# 步骤1: 初始化一个Store，这是管理所有MCP服务的核心入口
 store = MCPStore.setup_store()
-# 步骤2: 注册一个外部MCP服务，MCPStore会自动处理连接和工具加载
+
 store.for_store().add_service({"name":"mcpstore-wiki","url":"http://mcpstore.wiki/mcp"})
-# 步骤3: 获取与LangChain完全兼容的工具列表，可直接用于Agent
-tools = store.for_store().for_langchain().list_tools()
-# 此刻，您的LangChain Agent已成功集成了mcpstore-wiki提供的所有工具
+
+tools = store.for_store().list_tools()
+
+# store.for_store().use_tool(tools[0].name,{"query":'hi!'})
 ```
 
 
@@ -55,7 +72,7 @@ print(f"   🤖 : {response['output']}")
 ```
 
 
-![image-20250711002833332](./assets/image-20250711002833332.png)
+![image-20250721212658085](http://www.text2mcp.com/img/image-20250721212658085.png)
 
 
 或者你不想使用 `langchain`，你打算 `自己设计工具的调用` 🛠️
@@ -139,6 +156,7 @@ def setup_store(mcp_config_file: str = None, debug: bool = False) -> MCPStore
 
 - **未指定时**: 使用默认路径 `src/mcpstore/data/mcp.json`
 - **指定时**: 使用指定的 `mcp.json` 配置文件来实例化你的 store，支持 `主流 client 的文件格式`，`拿来即用` 🎯
+- 注意，store其实就是围绕着一个mcp.json来进行，当你指定了一个mcp.json之后，相当于这个就是这个store的根基，你可以通过简单的移动这些json文件来达到store的导入和导出的效果，同样的，如果你的python代码调用和api的调用指向的是同一个mcp.json，那么意味着你可以在不修改代码的情况下通过api来修改同一个store在python代码中的影响。
 
 #### 2. `debug` 参数
 

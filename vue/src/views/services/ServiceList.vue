@@ -1,6 +1,19 @@
 <template>
   <div class="service-list">
-    <!-- 页面头部 -->
+    <!-- 错误状态 -->
+    <ErrorState
+      v-if="hasError && !pageLoading"
+      :type="errorType"
+      :title="errorTitle"
+      :description="errorDescription"
+      :show-details="showErrorDetails"
+      :error-details="errorDetails"
+      @retry="handleRetry"
+    />
+
+    <!-- 正常内容 -->
+    <div v-else v-loading="pageLoading" element-loading-text="加载服务数据...">
+      <!-- 页面头部 -->
     <div class="page-header">
       <div class="header-left">
         <h2 class="page-title">服务列表</h2>
@@ -17,7 +30,7 @@
         <el-button
           :icon="Refresh"
           @click="refreshServices"
-          :loading="loading"
+          :loading="refreshLoading"
         >
           刷新
         </el-button>
@@ -310,6 +323,7 @@
         <el-button type="warning" @click="restartService(selectedService)">重启服务</el-button>
       </template>
     </el-dialog>
+    </div>
   </div>
 </template>
 
@@ -320,6 +334,7 @@ import { useSystemStore } from '@/stores/system'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import BatchUpdateDialog from './BatchUpdateDialog.vue'
+import ErrorState from '@/components/common/ErrorState.vue'
 import {
   Plus, Refresh, Search, Delete, Connection, FolderOpened,
   Link, Tools, View, ArrowDown, RefreshLeft, Setting, Operation, Edit
@@ -331,6 +346,8 @@ const systemStore = useSystemStore()
 
 // 响应式数据
 const loading = ref(false)
+const pageLoading = ref(false)
+const refreshLoading = ref(false)
 const searchQuery = ref('')
 const statusFilter = ref('')
 const typeFilter = ref('')
@@ -338,6 +355,14 @@ const selectedServices = ref([])
 const detailDialogVisible = ref(false)
 const selectedService = ref(null)
 const batchUpdateDialogVisible = ref(false)
+
+// 错误状态
+const hasError = ref(false)
+const errorType = ref('network')
+const errorTitle = ref('')
+const errorDescription = ref('')
+const errorDetails = ref('')
+const showErrorDetails = ref(false)
 
 // 计算属性
 const filteredServices = computed(() => {
@@ -391,14 +416,15 @@ const envTableData = computed(() => {
 
 // 方法
 const refreshServices = async () => {
-  loading.value = true
+  refreshLoading.value = true
   try {
     await systemStore.fetchServices()
     ElMessage.success('服务列表刷新成功')
   } catch (error) {
+    console.error('刷新服务列表失败:', error)
     ElMessage.error('刷新失败')
   } finally {
-    loading.value = false
+    refreshLoading.value = false
   }
 }
 
@@ -605,9 +631,62 @@ const handleResetStoreConfig = async () => {
   }
 }
 
+// 错误处理函数
+const handleError = (error) => {
+  hasError.value = true
+
+  if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
+    errorType.value = 'network'
+    errorTitle.value = '无法连接到后端服务'
+    errorDescription.value = '请检查后端服务是否正常运行，或稍后重试'
+  } else if (error.response?.status >= 500) {
+    errorType.value = 'server'
+    errorTitle.value = '服务器内部错误'
+    errorDescription.value = '服务器遇到了问题，请稍后重试'
+  } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+    errorType.value = 'network'
+    errorTitle.value = '请求超时'
+    errorDescription.value = '网络连接超时，请检查网络状况或稍后重试'
+  } else {
+    errorType.value = 'unknown'
+    errorTitle.value = '加载失败'
+    errorDescription.value = '服务列表加载失败，请稍后重试'
+  }
+
+  // 显示错误详情（开发环境）
+  if (import.meta.env.DEV) {
+    showErrorDetails.value = true
+    errorDetails.value = `错误类型: ${error.name || 'Unknown'}
+错误消息: ${error.message || '无详细信息'}
+错误代码: ${error.code || 'N/A'}
+状态码: ${error.response?.status || 'N/A'}`
+  }
+}
+
+// 重试处理
+const handleRetry = async () => {
+  pageLoading.value = true
+  hasError.value = false
+  try {
+    await systemStore.fetchServices()
+  } catch (error) {
+    handleError(error)
+  } finally {
+    pageLoading.value = false
+  }
+}
+
 // 生命周期
 onMounted(async () => {
-  await refreshServices()
+  pageLoading.value = true
+  try {
+    await systemStore.fetchServices()
+  } catch (error) {
+    console.error('初始加载服务列表失败:', error)
+    handleError(error)
+  } finally {
+    pageLoading.value = false
+  }
 })
 </script>
 

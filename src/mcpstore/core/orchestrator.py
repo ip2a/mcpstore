@@ -42,7 +42,7 @@ class MCPOrchestrator:
     负责管理服务连接、工具调用和查询处理。
     """
 
-    def __init__(self, config: Dict[str, Any], registry: ServiceRegistry, standalone_config_manager=None, client_services_path=None):
+    def __init__(self, config: Dict[str, Any], registry: ServiceRegistry, standalone_config_manager=None, client_services_path=None, mcp_config=None):
         """
         初始化MCP编排器
 
@@ -51,6 +51,7 @@ class MCPOrchestrator:
             registry: 服务注册表实例
             standalone_config_manager: 独立配置管理器（可选）
             client_services_path: 客户端服务配置文件路径（可选，用于数据空间）
+            mcp_config: MCPConfig实例（可选，用于数据空间）
         """
         self.config = config
         self.registry = registry
@@ -78,10 +79,13 @@ class MCPOrchestrator:
         self.reconnection_task = None
         self.cleanup_task = None
 
-        # 🔧 修改：根据是否有独立配置管理器决定如何初始化MCPConfig
+        # 🔧 修改：根据是否有独立配置管理器或传入的mcp_config决定如何初始化MCPConfig
         if standalone_config_manager:
             # 使用独立配置，不依赖文件系统
             self.mcp_config = self._create_standalone_mcp_config(standalone_config_manager)
+        elif mcp_config:
+            # 使用传入的MCPConfig实例（用于数据空间）
+            self.mcp_config = mcp_config
         else:
             # 使用传统配置
             self.mcp_config = MCPConfig()

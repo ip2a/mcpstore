@@ -1,0 +1,111 @@
+# MCPStore Vue Frontend - Nginx配置示例
+# 用于部署到 http://mcpstore.wiki/web_demo
+
+server {
+    listen 80;
+    server_name mcpstore.wiki;
+    
+    # 前端静态文件 - Vue应用
+    location /web_demo/ {
+        alias /path/to/mcpstore/src/vue/dist/;
+        try_files $uri $uri/ /web_demo/index.html;
+        
+        # 静态资源缓存
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+            add_header Access-Control-Allow-Origin "*";
+        }
+        
+        # HTML文件不缓存
+        location ~* \.html$ {
+            expires -1;
+            add_header Cache-Control "no-cache, no-store, must-revalidate";
+            add_header Pragma "no-cache";
+        }
+        
+        # 安全头
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    }
+    
+    # API代理 - 代理到MCPStore后端
+    location /api/ {
+        proxy_pass http://127.0.0.1:18200/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocket支持
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        # 超时配置
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+        
+        # 缓冲配置
+        proxy_buffering off;
+        proxy_request_buffering off;
+    }
+    
+    # 健康检查
+    location /health {
+        proxy_pass http://127.0.0.1:18200/health;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    
+    # 根路径重定向到前端应用
+    location = / {
+        return 301 /web_demo/;
+    }
+    
+    # 错误页面
+    error_page 404 /web_demo/index.html;
+    error_page 500 502 503 504 /50x.html;
+    
+    location = /50x.html {
+        root /usr/share/nginx/html;
+    }
+    
+    # 日志配置
+    access_log /var/log/nginx/mcpstore_access.log;
+    error_log /var/log/nginx/mcpstore_error.log;
+    
+    # Gzip压缩
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types
+        text/plain
+        text/css
+        text/xml
+        text/javascript
+        application/javascript
+        application/xml+rss
+        application/json;
+}
+
+# HTTPS配置示例（可选）
+# server {
+#     listen 443 ssl http2;
+#     server_name mcpstore.wiki;
+#     
+#     ssl_certificate /path/to/ssl/cert.pem;
+#     ssl_certificate_key /path/to/ssl/key.pem;
+#     
+#     # SSL配置
+#     ssl_protocols TLSv1.2 TLSv1.3;
+#     ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384;
+#     ssl_prefer_server_ciphers off;
+#     
+#     # 其他配置与HTTP相同...
+# }

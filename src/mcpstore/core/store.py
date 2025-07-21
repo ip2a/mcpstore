@@ -115,11 +115,12 @@ class MCPStore:
             client_services_path = str(data_space_manager.get_file_path("defaults/client_services.json"))
             agent_clients_path = str(data_space_manager.get_file_path("defaults/agent_clients.json"))
 
-            # 创建支持数据空间的orchestrator
+            # 创建支持数据空间的orchestrator，传入正确的mcp_config实例
             orchestrator = MCPOrchestrator(
                 config.load_config(),
                 registry,
-                client_services_path=client_services_path
+                client_services_path=client_services_path,
+                mcp_config=config  # 传入数据空间的config实例
             )
 
             # 设置agent_clients_path
@@ -1176,6 +1177,8 @@ class MCPStore:
             import webbrowser
             from pathlib import Path
 
+            logger.info(f"Starting API server for store: data_space={self.is_using_data_space()}")
+
             if show_startup_info:
                 print("🚀 Starting MCPStore API Server...")
                 print(f"   Host: {host}:{port}")
@@ -1194,8 +1197,9 @@ class MCPStore:
                 print("   Press Ctrl+C to stop")
                 print()
 
-            # 设置全局store实例供API使用
+            # 设置全局store实例供API使用（在启动服务器之前）
             self._setup_api_store_instance()
+            logger.info(f"Global store instance set for API: {type(self).__name__}")
 
             # 自动打开浏览器
             if auto_open_browser:
@@ -1213,14 +1217,16 @@ class MCPStore:
                 threading.Thread(target=open_browser, daemon=True).start()
 
             # 启动API服务器
+            # 不使用factory模式，直接创建app实例以保持全局变量
+            from mcpstore.scripts.api_app import create_app
+            app = create_app()
+
             uvicorn.run(
-                "mcpstore.scripts.api_app:create_app",
+                app,
                 host=host,
                 port=port,
                 reload=reload,
-                log_level=log_level,
-                factory=True,
-                app_dir=str(Path(__file__).parent.parent)
+                log_level=log_level
             )
 
         except KeyboardInterrupt:
@@ -1241,3 +1247,5 @@ class MCPStore:
         # 将当前store实例设置为全局实例，供API使用
         import mcpstore.scripts.api_app as api_app
         api_app._global_store_instance = self
+        logger.info(f"Set global store instance: data_space={self.is_using_data_space()}, workspace={self.get_workspace_dir()}")
+        logger.info(f"Global instance id: {id(self)}, api module instance id: {id(api_app._global_store_instance)}")
