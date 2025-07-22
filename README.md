@@ -25,7 +25,7 @@ prod_store.start_api_server(
 
 After quickly starting the backend, clone the project and run `npm run dev` to run the Vue frontend.
 
-You can also quickly experience it through http://www.mcpstore.wiki/web_demo/dashboard
+You can also quickly experience it through http://mcpstore.wiki/web_demo/dashboard
 
 
 
