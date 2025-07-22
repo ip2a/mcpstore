@@ -9,7 +9,7 @@ import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 export default defineConfig(({ mode }) => {
   // 两种环境配置
   const isDomain = mode === 'domain'
-  const base = '/'  // 简化：nginx已经处理了路径重写
+  const base = isDomain ? '/web_demo/' : '/'  // 域名模式需要正确的base路径
 
   return {
     plugins: [
@@ -45,7 +45,7 @@ export default defineConfig(({ mode }) => {
         allowedHosts: ['mcpstore.wiki', 'localhost', '127.0.0.1', '0.0.0.0'],
         hmr: {
           port: 5177,
-          host: 'mcpstore.wiki'
+          host: 'localhost'  // HMR通过localhost连接，避免域名问题
         }
       })
     },

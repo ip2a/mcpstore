@@ -55,6 +55,19 @@ app.use(ElementPlus, {
 // 挂载应用
 app.mount('#app')
 
+// 🔍 环境变量调试信息（总是显示）
+console.log('='.repeat(60))
+console.log('🔍 [MAIN.JS] 环境变量调试信息:')
+console.log('  - NODE_ENV:', import.meta.env.NODE_ENV)
+console.log('  - MODE:', import.meta.env.MODE)
+console.log('  - DEV:', import.meta.env.DEV)
+console.log('  - PROD:', import.meta.env.PROD)
+console.log('  - VITE_API_BASE_URL:', import.meta.env.VITE_API_BASE_URL)
+console.log('  - VITE_API_TIMEOUT:', import.meta.env.VITE_API_TIMEOUT)
+console.log('  - VITE_APP_TITLE:', import.meta.env.VITE_APP_TITLE)
+console.log('  - 完整环境变量对象:', import.meta.env)
+console.log('='.repeat(60))
+
 // 开发环境下的调试信息
 if (import.meta.env.DEV) {
   console.log('🚀 MCPStore Vue Frontend Started')

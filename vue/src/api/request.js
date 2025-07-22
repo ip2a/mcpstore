@@ -2,10 +2,25 @@ import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import NProgress from 'nprogress'
 
+// 🔍 调试信息：环境变量检查
+console.log('🔍 [DEBUG] 环境变量调试信息:')
+console.log('  - import.meta.env.MODE:', import.meta.env.MODE)
+console.log('  - import.meta.env.VITE_API_BASE_URL:', import.meta.env.VITE_API_BASE_URL)
+console.log('  - import.meta.env.VITE_API_TIMEOUT:', import.meta.env.VITE_API_TIMEOUT)
+console.log('  - 所有环境变量:', import.meta.env)
+
+// 确定最终的API配置
+const apiBaseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:18200'
+const apiTimeout = parseInt(import.meta.env.VITE_API_TIMEOUT) || 5000
+
+console.log('🚀 [DEBUG] 最终API配置:')
+console.log('  - baseURL:', apiBaseURL)
+console.log('  - timeout:', apiTimeout)
+
 // 创建axios实例
 const request = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:18200',
-  timeout: parseInt(import.meta.env.VITE_API_TIMEOUT) || 5000,
+  baseURL: apiBaseURL,
+  timeout: apiTimeout,
   headers: {
     'Content-Type': 'application/json'
   }
@@ -22,18 +37,20 @@ request.interceptors.request.use(
       }
     }
 
-    // 打印请求信息（开发环境）
-    if (import.meta.env.DEV) {
-      console.log(`🚀 API Request: ${config.method?.toUpperCase()} ${config.url}`, {
-        params: config.params,
-        data: config.data
-      })
-    }
+    // 🔍 详细的请求调试信息（总是显示）
+    console.log('🚀 [REQUEST] API请求详情:')
+    console.log('  - 方法:', config.method?.toUpperCase())
+    console.log('  - URL:', config.url)
+    console.log('  - 完整URL:', config.baseURL + config.url)
+    console.log('  - 参数:', config.params)
+    console.log('  - 数据:', config.data)
+    console.log('  - 请求头:', config.headers)
+    console.log('  - 超时时间:', config.timeout)
 
     return config
   },
   (error) => {
-    console.error('Request Error:', error)
+    console.error('❌ [REQUEST] 请求错误:', error)
     return Promise.reject(error)
   }
 )
@@ -42,11 +59,15 @@ request.interceptors.request.use(
 request.interceptors.response.use(
   (response) => {
     const { data } = response
-    
-    // 打印响应信息（开发环境）
-    if (import.meta.env.DEV) {
-      console.log(`✅ API Response: ${response.config.method?.toUpperCase()} ${response.config.url}`, data)
-    }
+
+    // 🔍 详细的响应调试信息（总是显示）
+    console.log('✅ [RESPONSE] API响应详情:')
+    console.log('  - 状态码:', response.status)
+    console.log('  - 状态文本:', response.statusText)
+    console.log('  - 请求URL:', response.config.url)
+    console.log('  - 完整URL:', response.config.baseURL + response.config.url)
+    console.log('  - 响应数据:', data)
+    console.log('  - 响应头:', response.headers)
     
     // 检查业务状态码
     if (data && typeof data === 'object') {
@@ -126,10 +147,10 @@ request.interceptors.response.use(
 
 // 通用请求方法
 export const apiRequest = {
-  get: (url, params = {}) => request.get(url, { params }),
+  get: (url, config = {}) => request.get(url, config),
   post: (url, data = {}) => request.post(url, data),
   put: (url, data = {}) => request.put(url, data),
-  delete: (url, params = {}) => request.delete(url, { params }),
+  delete: (url, config = {}) => request.delete(url, config),
   patch: (url, data = {}) => request.patch(url, data)
 }
 

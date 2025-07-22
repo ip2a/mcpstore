@@ -59,15 +59,18 @@ export const useSystemStore = defineStore('system', () => {
   // 方法
   const fetchServices = async () => {
     try {
+      console.log('🔍 [STORE] 开始获取服务列表...')
       loading.value = true
       const response = await storeServiceAPI.getServices()
+      console.log('🔍 [STORE] 服务列表响应:', response)
       // 修复：正确提取服务数组
       services.value = response.data?.data || []
+      console.log('🔍 [STORE] 解析后的服务数据:', services.value)
       updateStats()
       lastUpdateTime.value = new Date()
       return services.value
     } catch (error) {
-      console.error('Failed to fetch services:', error)
+      console.error('❌ [STORE] 获取服务列表失败:', error)
       throw error
     } finally {
       loading.value = false
@@ -93,15 +96,18 @@ export const useSystemStore = defineStore('system', () => {
   
   const fetchSystemStatus = async () => {
     try {
+      console.log('🔍 [STORE] 开始检查服务状态...')
       loading.value = true
       const response = await storeServiceAPI.checkServices()
+      console.log('🔍 [STORE] 服务状态响应:', response)
       // 修复：正确提取健康状态数据
       healthStatus.value = response.data?.data || {}
+      console.log('🔍 [STORE] 解析后的健康状态:', healthStatus.value)
       updateStats()
       lastUpdateTime.value = new Date()
       return healthStatus.value
     } catch (error) {
-      console.error('Failed to fetch system status:', error)
+      console.error('❌ [STORE] 获取服务状态失败:', error)
       // 设置默认状态，避免无限loading
       healthStatus.value = {}
       stats.value = {
@@ -333,21 +339,22 @@ export const useSystemStore = defineStore('system', () => {
     }
   }
 
-  const fetchToolUsageStats = async (limit = 10) => {
+  const fetchToolRecords = async (limit = 50) => {
     try {
-      const response = await storeMonitoringAPI.getToolUsageStats(limit)
+      const response = await storeMonitoringAPI.getToolRecords(limit)
       console.log('API响应:', response) // 调试日志
 
-      // API返回格式: { success: true, data: [...], message: "..." }
-      if (response.success && response.data) {
-        return response.data
+      // API返回格式: { data: { success: true, data: { executions: [...], summary: {...} }, message: "..." } }
+      const apiData = response.data
+      if (apiData && apiData.success && apiData.data) {
+        return apiData.data
       } else {
         console.warn('API响应格式异常:', response)
-        return []
+        return { executions: [], summary: { total_executions: 0, by_tool: {}, by_service: {} } }
       }
     } catch (error) {
-      console.error('获取工具使用统计失败:', error)
-      return []
+      console.error('获取工具执行记录失败:', error)
+      return { executions: [], summary: { total_executions: 0, by_tool: {}, by_service: {} } }
     }
   }
   
@@ -448,7 +455,7 @@ export const useSystemStore = defineStore('system', () => {
     executeToolAction,
     getServiceInfo,
     updateStats,
-    fetchToolUsageStats,
+    fetchToolRecords,
     refreshAllData,
     searchServices,
     searchTools,

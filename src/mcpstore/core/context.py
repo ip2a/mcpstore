@@ -67,7 +67,11 @@ class MCPStoreContext:
             config_dir = Path(self._store.config.json_path).parent
             data_dir = config_dir / "monitoring"
 
-        self._monitoring = MonitoringManager(data_dir)
+        self._monitoring = MonitoringManager(
+            data_dir,
+            self._store.tool_record_max_file_size,
+            self._store.tool_record_retention_days
+        )
 
         # 扩展预留
         self._metadata: Dict[str, Any] = {}
@@ -1616,13 +1620,7 @@ class MCPStoreContext:
 
     # === 监控和统计接口 ===
 
-    def get_tool_usage_stats(self, limit: int = 10) -> List[ToolUsageStats]:
-        """获取工具使用统计"""
-        return self._monitoring.get_tool_usage_stats(limit)
-
-    async def get_tool_usage_stats_async(self, limit: int = 10) -> List[ToolUsageStats]:
-        """异步获取工具使用统计"""
-        return self.get_tool_usage_stats(limit)
+    # 旧的get_tool_usage_stats方法已移除，使用get_tool_records代替
 
 
 
@@ -1642,10 +1640,7 @@ class MCPStoreContext:
         """记录API调用"""
         self._monitoring.record_api_call(response_time)
 
-    def record_tool_execution(self, tool_name: str, service_name: str,
-                            response_time: float, success: bool):
-        """记录工具执行"""
-        self._monitoring.record_tool_execution(tool_name, service_name, response_time, success)
+    # 旧的record_tool_execution方法已移除，使用新的详细记录系统
 
     def increment_active_connections(self):
         """增加活跃连接数"""
@@ -1654,5 +1649,13 @@ class MCPStoreContext:
     def decrement_active_connections(self):
         """减少活跃连接数"""
         self._monitoring.decrement_active_connections()
+
+    def get_tool_records(self, limit: int = 50) -> Dict[str, Any]:
+        """获取工具执行记录"""
+        return self._monitoring.get_tool_records(limit)
+
+    async def get_tool_records_async(self, limit: int = 50) -> Dict[str, Any]:
+        """异步获取工具执行记录"""
+        return self.get_tool_records(limit)
 
 

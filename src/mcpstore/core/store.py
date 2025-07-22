@@ -26,13 +26,18 @@ class MCPStore:
     MCPStore - 智能体工具服务商店
     提供上下文切换的入口和通用操作
     """
-    def __init__(self, orchestrator: MCPOrchestrator, config: MCPConfig):
+    def __init__(self, orchestrator: MCPOrchestrator, config: MCPConfig,
+                 tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7):
         self.orchestrator = orchestrator
         self.config = config
         self.registry = orchestrator.registry
         self.client_manager = orchestrator.client_manager
         self.session_manager = orchestrator.session_manager
         self.logger = logging.getLogger(__name__)
+
+        # 工具记录配置
+        self.tool_record_max_file_size = tool_record_max_file_size
+        self.tool_record_retention_days = tool_record_retention_days
 
         # 统一配置管理器
         self._unified_config = UnifiedConfigManager(
@@ -51,7 +56,8 @@ class MCPStore:
         return MCPStoreContext(self)
 
     @staticmethod
-    def setup_store(mcp_config_file: str = None, debug: bool = False, standalone_config=None):
+    def setup_store(mcp_config_file: str = None, debug: bool = False, standalone_config=None,
+                   tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7):
         """
         初始化MCPStore实例
 
@@ -60,17 +66,21 @@ class MCPStore:
                            🔧 新增：此参数现在支持数据空间隔离，每个JSON文件路径对应独立的数据空间
             debug: 是否启用调试日志，默认为False（不显示调试信息）
             standalone_config: 独立配置对象，如果提供则不依赖环境变量
+            tool_record_max_file_size: 工具记录JSON文件最大大小(MB)，默认30MB，设置为-1表示不限制
+            tool_record_retention_days: 工具记录保留天数，默认7天，设置为-1表示不删除
 
         Returns:
             MCPStore实例
         """
         # 🔧 新增：支持独立配置
         if standalone_config is not None:
-            return MCPStore._setup_with_standalone_config(standalone_config, debug)
+            return MCPStore._setup_with_standalone_config(standalone_config, debug,
+                                                        tool_record_max_file_size, tool_record_retention_days)
 
         # 🔧 新增：数据空间管理
         if mcp_config_file is not None:
-            return MCPStore._setup_with_data_space(mcp_config_file, debug)
+            return MCPStore._setup_with_data_space(mcp_config_file, debug,
+                                                 tool_record_max_file_size, tool_record_retention_days)
 
         # 原有逻辑：使用默认配置
         from mcpstore.config.config import LoggingConfig
@@ -79,16 +89,19 @@ class MCPStore:
         config = MCPConfig()
         registry = ServiceRegistry()
         orchestrator = MCPOrchestrator(config.load_config(), registry)
-        return MCPStore(orchestrator, config)
+        return MCPStore(orchestrator, config, tool_record_max_file_size, tool_record_retention_days)
 
     @staticmethod
-    def _setup_with_data_space(mcp_config_file: str, debug: bool = False):
+    def _setup_with_data_space(mcp_config_file: str, debug: bool = False,
+                              tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7):
         """
         使用数据空间初始化MCPStore（支持独立数据目录）
 
         Args:
             mcp_config_file: MCP JSON配置文件路径（数据空间根目录）
             debug: 是否启用调试日志
+            tool_record_max_file_size: 工具记录JSON文件最大大小(MB)
+            tool_record_retention_days: 工具记录保留天数
 
         Returns:
             MCPStore实例
@@ -127,7 +140,7 @@ class MCPStore:
             orchestrator.client_manager.agent_clients_path = agent_clients_path
 
             # 创建store实例并设置数据空间管理器
-            store = MCPStore(orchestrator, config)
+            store = MCPStore(orchestrator, config, tool_record_max_file_size, tool_record_retention_days)
             store._data_space_manager = data_space_manager
 
             logger.info(f"MCPStore setup with data space completed: {mcp_config_file}")
@@ -138,13 +151,16 @@ class MCPStore:
             raise
 
     @staticmethod
-    def _setup_with_standalone_config(standalone_config, debug: bool = False):
+    def _setup_with_standalone_config(standalone_config, debug: bool = False,
+                                     tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7):
         """
         使用独立配置初始化MCPStore（不依赖环境变量）
 
         Args:
             standalone_config: 独立配置对象
             debug: 是否启用调试日志
+            tool_record_max_file_size: 工具记录JSON文件最大大小(MB)
+            tool_record_retention_days: 工具记录保留天数
 
         Returns:
             MCPStore实例
@@ -200,7 +216,7 @@ class MCPStore:
 
         orchestrator = MCPOrchestrator(orchestrator_config, registry, config_manager)
 
-        return MCPStore(orchestrator, config)
+        return MCPStore(orchestrator, config, tool_record_max_file_size, tool_record_retention_days)
   
     def _create_agent_context(self, agent_id: str) -> MCPStoreContext:
         """创建agent级别的上下文"""
@@ -584,11 +600,14 @@ class MCPStore:
                 else:
                     context = self.for_store()
 
-                context.record_tool_execution(
-                    request.tool_name,
-                    request.service_name,
-                    duration_ms,
-                    True  # 执行成功
+                # 使用新的详细记录方法
+                context._monitoring.record_tool_execution_detailed(
+                    tool_name=request.tool_name,
+                    service_name=request.service_name,
+                    params=request.args,
+                    result=result,
+                    error=None,
+                    response_time=duration_ms
                 )
             except Exception as monitor_error:
                 logger.warning(f"Failed to record tool execution: {monitor_error}")
@@ -608,11 +627,14 @@ class MCPStore:
                 else:
                     context = self.for_store()
 
-                context.record_tool_execution(
-                    request.tool_name,
-                    request.service_name,
-                    duration_ms,
-                    False  # 执行失败
+                # 使用新的详细记录方法
+                context._monitoring.record_tool_execution_detailed(
+                    tool_name=request.tool_name,
+                    service_name=request.service_name,
+                    params=request.args,
+                    result=None,
+                    error=str(e),
+                    response_time=duration_ms
                 )
             except Exception as monitor_error:
                 logger.warning(f"Failed to record failed tool execution: {monitor_error}")

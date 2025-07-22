@@ -43,6 +43,29 @@ class ToolUsageStatsResponse(BaseModel):
     average_response_time: float = Field(description="平均响应时间")
     success_rate: float = Field(description="成功率")
 
+class ToolExecutionRecordResponse(BaseModel):
+    """工具执行记录响应"""
+    id: str = Field(description="记录ID")
+    tool_name: str = Field(description="工具名称")
+    service_name: str = Field(description="服务名称")
+    params: Dict[str, Any] = Field(description="执行参数")
+    result: Optional[Any] = Field(description="执行结果")
+    error: Optional[str] = Field(description="错误信息")
+    response_time: float = Field(description="响应时间(毫秒)")
+    execution_time: str = Field(description="执行时间")
+    timestamp: int = Field(description="时间戳")
+
+class ToolRecordsSummaryResponse(BaseModel):
+    """工具记录汇总响应"""
+    total_executions: int = Field(description="总执行次数")
+    by_tool: Dict[str, Dict[str, Any]] = Field(description="按工具统计")
+    by_service: Dict[str, Dict[str, Any]] = Field(description="按服务统计")
+
+class ToolRecordsResponse(BaseModel):
+    """工具记录完整响应"""
+    executions: List[ToolExecutionRecordResponse] = Field(description="执行记录列表")
+    summary: ToolRecordsSummaryResponse = Field(description="汇总统计")
+
 class NetworkEndpointResponse(BaseModel):
     """网络端点响应"""
     endpoint_name: str = Field(description="端点名称")
@@ -2000,67 +2023,99 @@ async def store_batch_delete_services(request: Dict[str, List[str]]):
 
 
 
-@router.get("/for_store/tool_usage_stats", response_model=APIResponse)
-async def get_store_tool_usage_stats(limit: int = 10, store: MCPStore = Depends(get_store)):
-    """获取Store级别的工具使用统计"""
+@router.get("/for_store/tool_records", response_model=APIResponse)
+async def get_store_tool_records(limit: int = 50, store: MCPStore = Depends(get_store)):
+    """获取Store级别的工具执行记录"""
     try:
         store = get_store()
 
-        stats = await store.for_store().get_tool_usage_stats_async(limit)
+        records_data = await store.for_store().get_tool_records_async(limit)
 
-        stats_data = [
-            ToolUsageStatsResponse(
-                tool_name=stat.tool_name,
-                service_name=stat.service_name,
-                execution_count=stat.execution_count,
-                last_executed=stat.last_executed,
-                average_response_time=stat.average_response_time,
-                success_rate=stat.success_rate
-            ).dict() for stat in stats
+        # 转换执行记录
+        executions = [
+            ToolExecutionRecordResponse(
+                id=record["id"],
+                tool_name=record["tool_name"],
+                service_name=record["service_name"],
+                params=record["params"],
+                result=record["result"],
+                error=record["error"],
+                response_time=record["response_time"],
+                execution_time=record["execution_time"],
+                timestamp=record["timestamp"]
+            ).model_dump() for record in records_data["executions"]
         ]
+
+        # 转换汇总统计
+        summary = ToolRecordsSummaryResponse(
+            total_executions=records_data["summary"]["total_executions"],
+            by_tool=records_data["summary"]["by_tool"],
+            by_service=records_data["summary"]["by_service"]
+        ).model_dump()
+
+        response_data = ToolRecordsResponse(
+            executions=executions,
+            summary=summary
+        ).model_dump()
 
         return APIResponse(
             success=True,
-            data=stats_data,
-            message="Tool usage statistics retrieved successfully"
+            data=response_data,
+            message="Tool execution records retrieved successfully"
         )
     except Exception as e:
-        logger.error(f"Failed to get tool usage stats: {e}")
+        logger.error(f"Failed to get tool records: {e}")
         return APIResponse(
             success=False,
-            data=[],
-            message=f"Failed to get tool usage stats: {str(e)}"
+            data={"executions": [], "summary": {"total_executions": 0, "by_tool": {}, "by_service": {}}},
+            message=f"Failed to get tool records: {str(e)}"
         )
 
-@router.get("/for_agent/{agent_id}/tool_usage_stats", response_model=APIResponse)
-async def get_agent_tool_usage_stats(agent_id: str, limit: int = 10, store: MCPStore = Depends(get_store)):
-    """获取Agent级别的工具使用统计"""
+@router.get("/for_agent/{agent_id}/tool_records", response_model=APIResponse)
+async def get_agent_tool_records(agent_id: str, limit: int = 50, store: MCPStore = Depends(get_store)):
+    """获取Agent级别的工具执行记录"""
     try:
         validate_agent_id(agent_id)
-        stats = await store.for_agent(agent_id).get_tool_usage_stats_async(limit)
+        records_data = await store.for_agent(agent_id).get_tool_records_async(limit)
 
-        stats_data = [
-            ToolUsageStatsResponse(
-                tool_name=stat.tool_name,
-                service_name=stat.service_name,
-                execution_count=stat.execution_count,
-                last_executed=stat.last_executed,
-                average_response_time=stat.average_response_time,
-                success_rate=stat.success_rate
-            ).dict() for stat in stats
+        # 转换执行记录
+        executions = [
+            ToolExecutionRecordResponse(
+                id=record["id"],
+                tool_name=record["tool_name"],
+                service_name=record["service_name"],
+                params=record["params"],
+                result=record["result"],
+                error=record["error"],
+                response_time=record["response_time"],
+                execution_time=record["execution_time"],
+                timestamp=record["timestamp"]
+            ).model_dump() for record in records_data["executions"]
         ]
+
+        # 转换汇总统计
+        summary = ToolRecordsSummaryResponse(
+            total_executions=records_data["summary"]["total_executions"],
+            by_tool=records_data["summary"]["by_tool"],
+            by_service=records_data["summary"]["by_service"]
+        ).model_dump()
+
+        response_data = ToolRecordsResponse(
+            executions=executions,
+            summary=summary
+        ).model_dump()
 
         return APIResponse(
             success=True,
-            data=stats_data,
-            message=f"Agent '{agent_id}' tool usage statistics retrieved successfully"
+            data=response_data,
+            message=f"Agent '{agent_id}' tool execution records retrieved successfully"
         )
     except Exception as e:
-        logger.error(f"Failed to get agent tool usage stats: {e}")
+        logger.error(f"Failed to get agent tool records: {e}")
         return APIResponse(
             success=False,
-            data=[],
-            message=f"Failed to get agent tool usage stats: {str(e)}"
+            data={"executions": [], "summary": {"total_executions": 0, "by_tool": {}, "by_service": {}}},
+            message=f"Failed to get agent tool records: {str(e)}"
         )
 
 
