@@ -3,57 +3,67 @@
     <!-- 页面头部 -->
     <div class="page-header">
       <div class="header-left">
-        <h2 class="page-title">Agent列表</h2>
-        <p class="page-description">管理所有Agent实例</p>
+        <h2 class="page-title">Agent管理</h2>
+        <p class="page-description">管理Agent和对应的MCP服务</p>
       </div>
       <div class="header-right">
-        <el-button 
-          type="primary" 
-          :icon="Plus" 
-          @click="$router.push('/agents/create')"
+        <el-button
+          type="primary"
+          :icon="Plus"
+          @click="$router.push('/agents/service-add')"
         >
-          创建Agent
+          添加服务
         </el-button>
-        <el-button 
-          :icon="Refresh" 
+        <el-button
+          :icon="Refresh"
           @click="refreshAgents"
-          :loading="loading"
+          :loading="agentsStore.loading"
         >
           刷新
         </el-button>
       </div>
     </div>
     
+    <!-- 调试信息 -->
+    <el-card class="debug-card" style="margin-bottom: 20px; background: #f5f5f5;">
+      <div style="font-family: monospace; font-size: 12px;">
+        <div>Loading: {{ agentsStore.loading }}</div>
+        <div>Agents Length: {{ agentsStore.agents.length }}</div>
+        <div>Agents Data: {{ JSON.stringify(agentsStore.agents, null, 2) }}</div>
+      </div>
+    </el-card>
+
     <!-- Agent列表 -->
     <el-card class="agents-card">
-      <div v-if="agents.length === 0 && !loading" class="empty-container">
+      <div v-if="agentsStore.agents.length === 0 && !agentsStore.loading" class="empty-container">
         <el-icon class="empty-icon"><User /></el-icon>
         <div class="empty-text">暂无Agent</div>
-        <div class="empty-description">还没有创建任何Agent实例</div>
-        <el-button 
-          type="primary" 
-          @click="$router.push('/agents/create')"
+        <div class="empty-description">还没有任何Agent，通过添加服务来创建第一个Agent</div>
+        <el-button
+          type="primary"
+          @click="$router.push('/agents/service-add')"
         >
-          创建第一个Agent
+          添加第一个服务
         </el-button>
       </div>
-      
+
       <div v-else class="agents-grid">
-        <div 
-          v-for="agent in agents" 
+        <div
+          v-for="agent in agentsStore.agents"
           :key="agent.id"
           class="agent-card"
+          @click="viewAgentDetails(agent)"
         >
           <div class="agent-header">
             <div class="agent-info">
               <div class="agent-name">{{ agent.name }}</div>
               <div class="agent-id">ID: {{ agent.id }}</div>
             </div>
-            <el-tag 
-              :type="agent.status === 'active' ? 'success' : 'info'"
+            <el-tag
+              :type="getStatusType(agent.status)"
               size="small"
             >
-              {{ agent.status === 'active' ? '活跃' : '非活跃' }}
+              {{ getStatusText(agent.status) }}
             </el-tag>
           </div>
           
@@ -61,7 +71,7 @@
             <div class="agent-description">
               {{ agent.description || '暂无描述' }}
             </div>
-            
+
             <div class="agent-stats">
               <div class="stat-item">
                 <span class="stat-label">服务数:</span>
@@ -72,33 +82,37 @@
                 <span class="stat-value">{{ agent.tools || 0 }}</span>
               </div>
               <div class="stat-item">
-                <span class="stat-label">创建时间:</span>
-                <span class="stat-value">{{ formatTime(agent.created_at) }}</span>
+                <span class="stat-label">健康服务:</span>
+                <span class="stat-value">{{ agent.healthy_services || 0 }}</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">最后活动:</span>
+                <span class="stat-value">{{ formatTime(agent.last_activity) }}</span>
               </div>
             </div>
           </div>
-          
+
           <div class="agent-footer">
             <el-button-group>
-              <el-button 
-                size="small" 
-                @click="viewAgent(agent)"
-              >
-                查看
-              </el-button>
-              <el-button 
-                size="small" 
+              <el-button
+                size="small"
+                @click.stop="addServiceToAgent(agent)"
                 type="primary"
-                @click="manageAgent(agent)"
               >
-                管理
+                添加服务
               </el-button>
-              <el-button 
-                size="small" 
-                type="danger"
-                @click="deleteAgent(agent)"
+              <el-button
+                size="small"
+                @click.stop="manageAgent(agent)"
               >
-                删除
+                管理服务
+              </el-button>
+              <el-button
+                size="small"
+                type="danger"
+                @click.stop="resetAgent(agent)"
+              >
+                重置
               </el-button>
             </el-button-group>
           </div>
@@ -109,79 +123,87 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import { Plus, Refresh, User } from '@element-plus/icons-vue'
+import { useAgentsStore } from '@/stores/agents'
+import { AGENT_STATUS_MAP, AGENT_STATUS_COLORS } from '@/api/agents'
 
 const router = useRouter()
+const agentsStore = useAgentsStore()
 
-// 响应式数据
-const loading = ref(false)
-const agents = ref([
-  {
-    id: 'agent_001',
-    name: '测试Agent',
-    description: '这是一个测试Agent实例',
-    status: 'active',
-    services: 3,
-    tools: 8,
-    created_at: new Date().toISOString()
-  }
-])
+// 状态处理函数
+const getStatusType = (status) => {
+  return AGENT_STATUS_COLORS[status] || 'info'
+}
+
+const getStatusText = (status) => {
+  return AGENT_STATUS_MAP[status] || '未知'
+}
 
 // 方法
 const refreshAgents = async () => {
-  loading.value = true
   try {
-    // 这里应该调用获取Agent列表的API
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    console.log('Starting to refresh agents...')
+    await agentsStore.fetchAgents()
+    console.log('Agents store after fetch:', agentsStore.agents)
+    console.log('Agents store loading:', agentsStore.loading)
     ElMessage.success('Agent列表刷新成功')
   } catch (error) {
-    ElMessage.error('刷新失败')
-  } finally {
-    loading.value = false
+    console.error('Refresh agents error:', error)
+    ElMessage.error('刷新失败: ' + (error.message || error))
   }
 }
 
-const viewAgent = (agent) => {
-  ElMessage.info(`查看Agent: ${agent.name}`)
+const viewAgentDetails = (agent) => {
+  router.push(`/agents/${agent.id}/detail`)
+}
+
+const addServiceToAgent = (agent) => {
+  router.push(`/agents/service-add?agentId=${agent.id}`)
 }
 
 const manageAgent = (agent) => {
-  router.push(`/agents/${agent.id}/manage`)
+  router.push(`/agents/${agent.id}/detail`)
 }
 
-const deleteAgent = async (agent) => {
+const resetAgent = async (agent) => {
   try {
     await ElMessageBox.confirm(
-      `确定要删除Agent "${agent.name}" 吗？`,
-      '删除确认',
+      `确定要重置Agent "${agent.name}" 吗？这将删除该Agent下的所有服务。`,
+      '重置确认',
       {
         confirmButtonText: '确定',
         cancelButtonText: '取消',
         type: 'warning'
       }
     )
-    
-    // 这里应该调用删除Agent的API
-    agents.value = agents.value.filter(a => a.id !== agent.id)
-    ElMessage.success(`Agent ${agent.name} 删除成功`)
+
+    const result = await agentsStore.resetAgentConfig(agent.id)
+    if (result.success) {
+      ElMessage.success(`Agent ${agent.name} 重置成功`)
+    } else {
+      ElMessage.error(`Agent ${agent.name} 重置失败: ${result.error}`)
+    }
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(`Agent ${agent.name} 删除失败`)
+      ElMessage.error(`Agent ${agent.name} 重置失败`)
     }
   }
 }
 
 const formatTime = (time) => {
+  if (!time) return '未知'
   return dayjs(time).format('YYYY-MM-DD HH:mm')
 }
 
 // 生命周期
 onMounted(async () => {
+  console.log('AgentList mounted, starting to fetch agents...')
   await refreshAgents()
+  console.log('Agents fetched:', agentsStore.agents)
 })
 </script>
 
@@ -220,6 +242,13 @@ onMounted(async () => {
         @include card-shadow;
         padding: 16px;
         border-radius: var(--border-radius-base);
+        cursor: pointer;
+        transition: all 0.3s ease;
+
+        &:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+        }
         
         .agent-header {
           @include flex-between;

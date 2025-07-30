@@ -4,6 +4,21 @@ MCPStore 数据模型统一导入模块
 提供所有数据模型的统一导入接口，避免重复定义和导入混乱。
 """
 
+# 客户端相关模型
+from .client import (
+    ClientRegistrationRequest
+)
+# 通用响应模型
+from .common import (
+    BaseResponse,
+    APIResponse,
+    ListResponse,
+    DataResponse,
+    RegistrationResponse,
+    ExecutionResponse,
+    ConfigResponse,
+    HealthResponse
+)
 # 服务相关模型
 from .service import (
     ServiceInfo,
@@ -17,31 +32,15 @@ from .service import (
     MCPServerConfig,
     ServiceConfigUnion,
     AddServiceRequest,
-    TransportType
+    TransportType,
+    ServiceConnectionState,
+    ServiceStateMetadata
 )
-
 # 工具相关模型
 from .tool import (
     ToolInfo,
     ToolsResponse,
     ToolExecutionRequest
-)
-
-# 客户端相关模型
-from .client import (
-    ClientRegistrationRequest
-)
-
-# 通用响应模型
-from .common import (
-    BaseResponse,
-    APIResponse,
-    ListResponse,
-    DataResponse,
-    RegistrationResponse,
-    ExecutionResponse,
-    ConfigResponse,
-    HealthResponse
 )
 
 # 配置管理相关
@@ -66,6 +65,8 @@ __all__ = [
     'ServiceConfigUnion',
     'AddServiceRequest',
     'TransportType',
+    'ServiceConnectionState',
+    'ServiceStateMetadata',
 
     # 工具模型
     'ToolInfo',

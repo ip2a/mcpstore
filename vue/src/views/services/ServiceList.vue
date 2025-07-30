@@ -169,11 +169,11 @@
         
         <el-table-column label="状态" width="80">
           <template #default="{ row }">
-            <el-tag 
-              :type="row.status === 'healthy' ? 'success' : 'danger'"
+            <el-tag
+              :type="getStatusType(row.status)"
               size="small"
             >
-              {{ row.status === 'healthy' ? '健康' : '异常' }}
+              {{ getStatusText(row.status) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -335,6 +335,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import BatchUpdateDialog from './BatchUpdateDialog.vue'
 import ErrorState from '@/components/common/ErrorState.vue'
+import { SERVICE_STATUS_COLORS, SERVICE_STATUS_MAP } from '@/utils/constants'
 import {
   Plus, Refresh, Search, Delete, Connection, FolderOpened,
   Link, Tools, View, ArrowDown, RefreshLeft, Setting, Operation, Edit
@@ -413,6 +414,25 @@ const envTableData = computed(() => {
       ? '***' : value
   }))
 })
+
+// 状态处理函数
+const getStatusType = (status) => {
+  switch (status) {
+    case 'healthy': return 'success'
+    case 'warning': return 'warning'
+    case 'slow': return 'warning'
+    case 'unhealthy': return 'danger'
+    case 'disconnected': return 'info'
+    case 'reconnecting': return 'primary'
+    case 'failed': return 'danger'
+    case 'unknown': return 'info'
+    default: return 'warning'
+  }
+}
+
+const getStatusText = (status) => {
+  return SERVICE_STATUS_MAP[status] || '未知'
+}
 
 // 方法
 const refreshServices = async () => {

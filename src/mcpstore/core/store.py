@@ -1,22 +1,21 @@
-from mcpstore.core.orchestrator import MCPOrchestrator
-from mcpstore.core.registry import ServiceRegistry
+import logging
+from typing import Optional, List, Dict, Any
+
 from mcpstore.config.json_config import MCPConfig
-from mcpstore.core.client_manager import ClientManager
-from mcpstore.core.session_manager import SessionManager
-from mcpstore.core.unified_config import UnifiedConfigManager
-from mcpstore.core.models.service import (
-    RegisterRequestUnion, JsonUpdateRequest,
-    ServiceInfo, ServicesResponse, TransportType, ServiceInfoResponse
-)
-from mcpstore.core.models.client import ClientRegistrationRequest
-from mcpstore.core.models.tool import (
-    ToolInfo, ToolsResponse, ToolExecutionRequest
-)
 from mcpstore.core.models.common import (
     RegistrationResponse, ConfigResponse, ExecutionResponse
 )
-import logging
-from typing import Optional, List, Dict, Any, Union
+from mcpstore.core.models.service import (
+    RegisterRequestUnion, JsonUpdateRequest,
+    ServiceInfo, TransportType, ServiceInfoResponse
+)
+from mcpstore.core.models.tool import (
+    ToolInfo, ToolExecutionRequest
+)
+from mcpstore.core.orchestrator import MCPOrchestrator
+from mcpstore.core.registry import ServiceRegistry
+from mcpstore.core.unified_config import UnifiedConfigManager
+
 from .context import MCPStoreContext
 
 logger = logging.getLogger(__name__)
@@ -57,7 +56,8 @@ class MCPStore:
 
     @staticmethod
     def setup_store(mcp_config_file: str = None, debug: bool = False, standalone_config=None,
-                   tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7):
+                   tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7,
+                   monitoring: dict = None):
         """
         初始化MCPStore实例
 
@@ -68,6 +68,14 @@ class MCPStore:
             standalone_config: 独立配置对象，如果提供则不依赖环境变量
             tool_record_max_file_size: 工具记录JSON文件最大大小(MB)，默认30MB，设置为-1表示不限制
             tool_record_retention_days: 工具记录保留天数，默认7天，设置为-1表示不删除
+            monitoring: 监控配置字典，可选参数：
+                - health_check_seconds: 健康检查间隔（默认30秒）
+                - tools_update_hours: 工具更新间隔（默认2小时）
+                - reconnection_seconds: 重连间隔（默认60秒）
+                - cleanup_hours: 清理间隔（默认24小时）
+                - enable_tools_update: 是否启用工具更新（默认True）
+                - enable_reconnection: 是否启用重连（默认True）
+                - update_tools_on_reconnection: 重连时是否更新工具（默认True）
 
         Returns:
             MCPStore实例
@@ -75,25 +83,53 @@ class MCPStore:
         # 🔧 新增：支持独立配置
         if standalone_config is not None:
             return MCPStore._setup_with_standalone_config(standalone_config, debug,
-                                                        tool_record_max_file_size, tool_record_retention_days)
+                                                        tool_record_max_file_size, tool_record_retention_days,
+                                                        monitoring)
 
         # 🔧 新增：数据空间管理
         if mcp_config_file is not None:
             return MCPStore._setup_with_data_space(mcp_config_file, debug,
-                                                 tool_record_max_file_size, tool_record_retention_days)
+                                                 tool_record_max_file_size, tool_record_retention_days,
+                                                 monitoring)
 
         # 原有逻辑：使用默认配置
         from mcpstore.config.config import LoggingConfig
+        from mcpstore.core.monitoring_config import MonitoringConfigProcessor
+
         LoggingConfig.setup_logging(debug=debug)
+
+        # 处理监控配置
+        processed_monitoring = MonitoringConfigProcessor.process_config(monitoring)
+        orchestrator_config = MonitoringConfigProcessor.convert_to_orchestrator_config(processed_monitoring)
 
         config = MCPConfig()
         registry = ServiceRegistry()
-        orchestrator = MCPOrchestrator(config.load_config(), registry)
+
+        # 合并基础配置和监控配置
+        base_config = config.load_config()
+        base_config.update(orchestrator_config)
+
+        orchestrator = MCPOrchestrator(base_config, registry)
+
+        # 初始化orchestrator（包括工具更新监控器）
+        import asyncio
+        from mcpstore.core.async_sync_helper import AsyncSyncHelper
+
+        # 使用AsyncSyncHelper来正确管理异步操作
+        async_helper = AsyncSyncHelper()
+        try:
+            # 同步运行orchestrator.setup()，确保完成
+            async_helper.run_async(orchestrator.setup())
+        except Exception as e:
+            logger.error(f"Failed to setup orchestrator: {e}")
+            raise
+
         return MCPStore(orchestrator, config, tool_record_max_file_size, tool_record_retention_days)
 
     @staticmethod
     def _setup_with_data_space(mcp_config_file: str, debug: bool = False,
-                              tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7):
+                              tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7,
+                              monitoring: dict = None):
         """
         使用数据空间初始化MCPStore（支持独立数据目录）
 
@@ -102,12 +138,14 @@ class MCPStore:
             debug: 是否启用调试日志
             tool_record_max_file_size: 工具记录JSON文件最大大小(MB)
             tool_record_retention_days: 工具记录保留天数
+            monitoring: 监控配置字典
 
         Returns:
             MCPStore实例
         """
         from mcpstore.config.config import LoggingConfig
         from mcpstore.core.data_space_manager import DataSpaceManager
+        from mcpstore.core.monitoring_config import MonitoringConfigProcessor
 
         # 设置日志
         LoggingConfig.setup_logging(debug=debug)
@@ -120,6 +158,10 @@ class MCPStore:
 
             logger.info(f"Data space initialized: {data_space_manager.workspace_dir}")
 
+            # 处理监控配置
+            processed_monitoring = MonitoringConfigProcessor.process_config(monitoring)
+            orchestrator_config = MonitoringConfigProcessor.convert_to_orchestrator_config(processed_monitoring)
+
             # 使用指定的MCP JSON文件创建配置
             config = MCPConfig(json_path=mcp_config_file)
             registry = ServiceRegistry()
@@ -128,9 +170,13 @@ class MCPStore:
             client_services_path = str(data_space_manager.get_file_path("defaults/client_services.json"))
             agent_clients_path = str(data_space_manager.get_file_path("defaults/agent_clients.json"))
 
+            # 合并基础配置和监控配置
+            base_config = config.load_config()
+            base_config.update(orchestrator_config)
+
             # 创建支持数据空间的orchestrator，传入正确的mcp_config实例
             orchestrator = MCPOrchestrator(
-                config.load_config(),
+                base_config,
                 registry,
                 client_services_path=client_services_path,
                 mcp_config=config  # 传入数据空间的config实例
@@ -143,6 +189,18 @@ class MCPStore:
             store = MCPStore(orchestrator, config, tool_record_max_file_size, tool_record_retention_days)
             store._data_space_manager = data_space_manager
 
+            # 初始化orchestrator（包括工具更新监控器）
+            from mcpstore.core.async_sync_helper import AsyncSyncHelper
+
+            # 使用AsyncSyncHelper来正确管理异步操作
+            async_helper = AsyncSyncHelper()
+            try:
+                # 同步运行orchestrator.setup()，确保完成
+                async_helper.run_async(orchestrator.setup())
+            except Exception as e:
+                logger.error(f"Failed to setup orchestrator: {e}")
+                raise
+
             logger.info(f"MCPStore setup with data space completed: {mcp_config_file}")
             return store
 
@@ -152,7 +210,8 @@ class MCPStore:
 
     @staticmethod
     def _setup_with_standalone_config(standalone_config, debug: bool = False,
-                                     tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7):
+                                     tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7,
+                                     monitoring: dict = None):
         """
         使用独立配置初始化MCPStore（不依赖环境变量）
 
@@ -161,6 +220,7 @@ class MCPStore:
             debug: 是否启用调试日志
             tool_record_max_file_size: 工具记录JSON文件最大大小(MB)
             tool_record_retention_days: 工具记录保留天数
+            monitoring: 监控配置字典
 
         Returns:
             MCPStore实例
@@ -168,7 +228,7 @@ class MCPStore:
         from mcpstore.core.standalone_config import StandaloneConfigManager, StandaloneConfig
         from mcpstore.core.registry import ServiceRegistry
         from mcpstore.core.orchestrator import MCPOrchestrator
-        from mcpstore.config.json_config import MCPConfig
+        from mcpstore.core.monitoring_config import MonitoringConfigProcessor
         import logging
 
         # 处理配置类型
@@ -185,6 +245,10 @@ class MCPStore:
             level=log_level,
             format=config_manager.config.log_format
         )
+
+        # 处理监控配置
+        processed_monitoring = MonitoringConfigProcessor.process_config(monitoring)
+        monitoring_orchestrator_config = MonitoringConfigProcessor.convert_to_orchestrator_config(processed_monitoring)
 
         # 创建组件
         registry = ServiceRegistry()
@@ -208,13 +272,32 @@ class MCPStore:
 
         config = StandaloneMCPConfig(mcp_config_dict, config_manager)
 
-        # 创建orchestrator，传入timing配置
+        # 创建orchestrator，合并所有配置
         orchestrator_config = mcp_config_dict.copy()
         orchestrator_config["timing"] = timing_config
         orchestrator_config["network"] = config_manager.get_network_config()
         orchestrator_config["environment"] = config_manager.get_environment_config()
 
+        # 合并监控配置（监控配置优先级更高）
+        orchestrator_config.update(monitoring_orchestrator_config)
+
         orchestrator = MCPOrchestrator(orchestrator_config, registry, config_manager)
+
+        # 初始化orchestrator（包括工具更新监控器）
+        import asyncio
+        try:
+            # 尝试在当前事件循环中运行
+            loop = asyncio.get_running_loop()
+            # 如果已有事件循环，创建任务稍后执行
+            asyncio.create_task(orchestrator.setup())
+        except RuntimeError:
+            # 没有运行的事件循环，创建新的
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(orchestrator.setup())
+            finally:
+                loop.close()
 
         return MCPStore(orchestrator, config, tool_record_max_file_size, tool_record_retention_days)
   
@@ -579,6 +662,26 @@ class MCPStore:
 
             logger.debug(f"Processing tool request: {request.service_name}::{request.tool_name}")
 
+            # 检查服务生命周期状态
+            agent_id = request.agent_id or self.client_manager.main_client_id
+            service_state = self.orchestrator.lifecycle_manager.get_service_state(agent_id, request.service_name)
+
+            # 如果服务处于不可用状态，返回错误
+            from mcpstore.core.models.service import ServiceConnectionState
+            if service_state in [ServiceConnectionState.RECONNECTING, ServiceConnectionState.UNREACHABLE,
+                               ServiceConnectionState.DISCONNECTING, ServiceConnectionState.DISCONNECTED]:
+                error_msg = f"Service '{request.service_name}' is currently {service_state.value} and unavailable for tool execution"
+                logger.warning(error_msg)
+                return ExecutionResponse(
+                    success=False,
+                    result=None,
+                    error=error_msg,
+                    execution_time=time.time() - start_time,
+                    service_name=request.service_name,
+                    tool_name=request.tool_name,
+                    agent_id=agent_id
+                )
+
             # 执行工具（使用 FastMCP 标准）
             result = await self.orchestrator.execute_tool_fastmcp(
                 service_name=request.service_name,
@@ -676,15 +779,23 @@ class MCPStore:
                 service_names = self.registry.get_all_service_names(client_id)
                 for name in service_names:
                     config = self.config.get_service_config(name) or {}
-                    is_healthy = await self.orchestrator.is_service_healthy(name, client_id)
+
+                    # 获取生命周期状态
+                    service_state = self.orchestrator.lifecycle_manager.get_service_state(client_id, name)
+                    state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(client_id, name)
+
                     service_status = {
                         "name": name,
                         "url": config.get("url", ""),
                         "transport_type": config.get("transport", ""),
-                        "status": "healthy" if is_healthy else "unhealthy",
+                        "status": service_state.value,  # 使用新的7状态枚举
                         "command": config.get("command"),
                         "args": config.get("args"),
-                        "package_name": config.get("package_name")
+                        "package_name": config.get("package_name"),
+                        # 新增生命周期相关信息
+                        "response_time": state_metadata.response_time if state_metadata else None,
+                        "consecutive_failures": state_metadata.consecutive_failures if state_metadata else 0,
+                        "last_state_change": state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None
                     }
                     services.append(service_status)
             return {
@@ -703,15 +814,23 @@ class MCPStore:
             service_names = self.registry.get_all_service_names(id)
             for name in service_names:
                 config = self.config.get_service_config(name) or {}
-                is_healthy = await self.orchestrator.is_service_healthy(name, id)
+
+                # 获取生命周期状态
+                service_state = self.orchestrator.lifecycle_manager.get_service_state(id, name)
+                state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(id, name)
+
                 service_status = {
                     "name": name,
                     "url": config.get("url", ""),
                     "transport_type": config.get("transport", ""),
-                    "status": "healthy" if is_healthy else "unhealthy",
+                    "status": service_state.value,  # 使用新的7状态枚举
                     "command": config.get("command"),
                     "args": config.get("args"),
-                    "package_name": config.get("package_name")
+                    "package_name": config.get("package_name"),
+                    # 新增生命周期相关信息
+                    "response_time": state_metadata.response_time if state_metadata else None,
+                    "consecutive_failures": state_metadata.consecutive_failures if state_metadata else 0,
+                    "last_state_change": state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None
                 }
                 services.append(service_status)
             return {
@@ -727,15 +846,23 @@ class MCPStore:
                     service_names = self.registry.get_all_service_names(client_id)
                     for name in service_names:
                         config = self.config.get_service_config(name) or {}
-                        is_healthy = await self.orchestrator.is_service_healthy(name, client_id)
+
+                        # 获取生命周期状态
+                        service_state = self.orchestrator.lifecycle_manager.get_service_state(client_id, name)
+                        state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(client_id, name)
+
                         service_status = {
                             "name": name,
                             "url": config.get("url", ""),
                             "transport_type": config.get("transport", ""),
-                            "status": "healthy" if is_healthy else "unhealthy",
+                            "status": service_state.value,  # 使用新的7状态枚举
                             "command": config.get("command"),
                             "args": config.get("args"),
-                            "package_name": config.get("package_name")
+                            "package_name": config.get("package_name"),
+                            # 新增生命周期相关信息
+                            "response_time": state_metadata.response_time if state_metadata else None,
+                            "consecutive_failures": state_metadata.consecutive_failures if state_metadata else 0,
+                            "last_state_change": state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None
                         }
                         services.append(service_status)
                 return {
@@ -747,15 +874,23 @@ class MCPStore:
                 service_names = self.registry.get_all_service_names(id)
                 for name in service_names:
                     config = self.config.get_service_config(name) or {}
-                    is_healthy = await self.orchestrator.is_service_healthy(name, id)
+
+                    # 获取生命周期状态
+                    service_state = self.orchestrator.lifecycle_manager.get_service_state(id, name)
+                    state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(id, name)
+
                     service_status = {
                         "name": name,
                         "url": config.get("url", ""),
                         "transport_type": config.get("transport", ""),
-                        "status": "healthy" if is_healthy else "unhealthy",
+                        "status": service_state.value,  # 使用新的7状态枚举
                         "command": config.get("command"),
                         "args": config.get("args"),
-                        "package_name": config.get("package_name")
+                        "package_name": config.get("package_name"),
+                        # 新增生命周期相关信息
+                        "response_time": state_metadata.response_time if state_metadata else None,
+                        "consecutive_failures": state_metadata.consecutive_failures if state_metadata else 0,
+                        "last_state_change": state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None
                     }
                     services.append(service_status)
                 return {
@@ -888,28 +1023,51 @@ class MCPStore:
         services_info = []
         # 1. store未传id 或 id==main_client，聚合 main_client 下所有 client_id 的服务
         if not agent_mode and (not id or id == self.client_manager.main_client_id):
-            client_ids = client_manager.get_agent_clients(self.client_manager.main_client_id)
-            for client_id in client_ids:
-                service_names = self.registry.get_all_service_names(client_id)
-                for name in service_names:
-                    details = self.registry.get_service_details(client_id, name)
-                    config = self.config.get_service_config(name) or {}
-                    is_healthy = await self.orchestrator.is_service_healthy(name, client_id)
-                    service_info = ServiceInfo(
-                        url=config.get("url", ""),
-                        name=name,
-                        transport_type=self._infer_transport_type(config),
-                        status="healthy" if is_healthy else "unhealthy",
-                        tool_count=details.get("tool_count", 0),
-                        keep_alive=config.get("keep_alive", False),
-                        working_dir=config.get("working_dir"),
-                        env=config.get("env"),
-                        last_heartbeat=self.registry.get_last_heartbeat(client_id, name),
-                        command=config.get("command"),
-                        args=config.get("args"),
-                        package_name=config.get("package_name")
-                    )
-                    services_info.append(service_info)
+            # 修改：从配置文件获取所有服务，而不仅仅是已连接的服务
+            all_configured_services = self.config.get_all_services()
+
+            for service_config in all_configured_services:
+                name = service_config["name"]
+                config = {k: v for k, v in service_config.items() if k != "name"}
+
+                # 查找包含此服务的client_id
+                client_ids = client_manager.get_agent_clients(self.client_manager.main_client_id)
+                client_id = None
+                for cid in client_ids:
+                    if self.registry.has_service(cid, name):
+                        client_id = cid
+                        break
+
+                # 如果没有找到client_id，使用main_client_id作为默认值
+                if not client_id:
+                    client_id = self.client_manager.main_client_id
+
+                # 获取服务详情（可能为空，如果服务未连接）
+                details = self.registry.get_service_details(client_id, name) if client_id else {}
+
+                # 获取生命周期状态和元数据
+                service_state = self.orchestrator.lifecycle_manager.get_service_state(client_id, name)
+                state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(client_id, name)
+
+                service_info = ServiceInfo(
+                    url=config.get("url", ""),
+                    name=name,
+                    transport_type=self._infer_transport_type(config),
+                    status=service_state,  # 使用新的7状态枚举
+                    tool_count=details.get("tool_count", 0),
+                    keep_alive=config.get("keep_alive", False),
+                    working_dir=config.get("working_dir"),
+                    env=config.get("env"),
+                    last_heartbeat=state_metadata.last_ping_time if state_metadata else None,
+                    command=config.get("command"),
+                    args=config.get("args"),
+                    package_name=config.get("package_name"),
+                    # 新增生命周期相关字段
+                    state_metadata=state_metadata,
+                    last_state_change=state_metadata.state_entered_time if state_metadata else None,
+                    client_id=client_id  # 添加client_id字段
+                )
+                services_info.append(service_info)
             return services_info
         # 2. store传普通 client_id，只查该 client_id 下的服务
         if not agent_mode and id:
@@ -920,20 +1078,28 @@ class MCPStore:
             for name in service_names:
                 details = self.registry.get_service_details(id, name)
                 config = self.config.get_service_config(name) or {}
-                is_healthy = await self.orchestrator.is_service_healthy(name, id)
+
+                # 获取生命周期状态和元数据
+                service_state = self.orchestrator.lifecycle_manager.get_service_state(id, name)
+                state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(id, name)
+
                 service_info = ServiceInfo(
                     url=config.get("url", ""),
                     name=name,
                     transport_type=self._infer_transport_type(config),
-                    status="healthy" if is_healthy else "unhealthy",
+                    status=service_state,  # 使用新的7状态枚举
                     tool_count=details.get("tool_count", 0),
                     keep_alive=config.get("keep_alive", False),
                     working_dir=config.get("working_dir"),
                     env=config.get("env"),
-                    last_heartbeat=self.registry.get_last_heartbeat(id, name),
+                    last_heartbeat=state_metadata.last_ping_time if state_metadata else None,
                     command=config.get("command"),
                     args=config.get("args"),
-                    package_name=config.get("package_name")
+                    package_name=config.get("package_name"),
+                    # 新增生命周期相关字段
+                    state_metadata=state_metadata,
+                    last_state_change=state_metadata.state_entered_time if state_metadata else None,
+                    client_id=id  # 添加client_id字段
                 )
                 services_info.append(service_info)
             return services_info
@@ -946,20 +1112,28 @@ class MCPStore:
                     for name in service_names:
                         details = self.registry.get_service_details(client_id, name)
                         config = self.config.get_service_config(name) or {}
-                        is_healthy = await self.orchestrator.is_service_healthy(name, client_id)
+
+                        # 获取生命周期状态和元数据
+                        service_state = self.orchestrator.lifecycle_manager.get_service_state(client_id, name)
+                        state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(client_id, name)
+
                         service_info = ServiceInfo(
                             url=config.get("url", ""),
                             name=name,
                             transport_type=self._infer_transport_type(config),
-                            status="healthy" if is_healthy else "unhealthy",
+                            status=service_state,  # 使用新的7状态枚举
                             tool_count=details.get("tool_count", 0),
                             keep_alive=config.get("keep_alive", False),
                             working_dir=config.get("working_dir"),
                             env=config.get("env"),
-                            last_heartbeat=self.registry.get_last_heartbeat(client_id, name),
+                            last_heartbeat=state_metadata.last_ping_time if state_metadata else None,
                             command=config.get("command"),
                             args=config.get("args"),
-                            package_name=config.get("package_name")
+                            package_name=config.get("package_name"),
+                            # 新增生命周期相关字段
+                            state_metadata=state_metadata,
+                            last_state_change=state_metadata.state_entered_time if state_metadata else None,
+                            client_id=client_id  # 添加client_id字段
                         )
                         services_info.append(service_info)
                 return services_info
@@ -968,20 +1142,28 @@ class MCPStore:
                 for name in service_names:
                     details = self.registry.get_service_details(id, name)
                     config = self.config.get_service_config(name) or {}
-                    is_healthy = await self.orchestrator.is_service_healthy(name, id)
+
+                    # 获取生命周期状态和元数据
+                    service_state = self.orchestrator.lifecycle_manager.get_service_state(id, name)
+                    state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(id, name)
+
                     service_info = ServiceInfo(
                         url=config.get("url", ""),
                         name=name,
                         transport_type=self._infer_transport_type(config),
-                        status="healthy" if is_healthy else "unhealthy",
+                        status=service_state,  # 使用新的7状态枚举
                         tool_count=details.get("tool_count", 0),
                         keep_alive=config.get("keep_alive", False),
                         working_dir=config.get("working_dir"),
                         env=config.get("env"),
-                        last_heartbeat=self.registry.get_last_heartbeat(id, name),
+                        last_heartbeat=state_metadata.last_ping_time if state_metadata else None,
                         command=config.get("command"),
                         args=config.get("args"),
-                        package_name=config.get("package_name")
+                        package_name=config.get("package_name"),
+                        # 新增生命周期相关字段
+                        state_metadata=state_metadata,
+                        last_state_change=state_metadata.state_entered_time if state_metadata else None,
+                        client_id=id  # 添加client_id字段
                     )
                     services_info.append(service_info)
                 return services_info

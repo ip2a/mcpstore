@@ -2,8 +2,11 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { storeServiceAPI, agentServiceAPI } from '@/api/services'
 import { storeMonitoringAPI } from '@/api/monitoring'
+import { useAppStore } from './app'
 
 export const useSystemStore = defineStore('system', () => {
+  const appStore = useAppStore()
+
   // 状态
   const services = ref([])
   const tools = ref([])
@@ -12,7 +15,7 @@ export const useSystemStore = defineStore('system', () => {
   const healthStatus = ref({})
   const loading = ref(false)
   const lastUpdateTime = ref(null)
-  
+
   // 统计信息
   const stats = ref({
     totalServices: 0,
@@ -23,13 +26,51 @@ export const useSystemStore = defineStore('system', () => {
     localServices: 0,
     remoteServices: 0
   })
+
+  // 新增状态
+  const systemResources = ref({
+    memory: { total: 0, used: 0, percentage: 0 },
+    disk: { total: 0, used: 0, percentage: 0 },
+    cpu: { usage: 0, cores: 0 },
+    network: { in: 0, out: 0 }
+  })
+
+  const performanceMetrics = ref({
+    apiResponseTimes: [],
+    errorRates: [],
+    throughput: 0,
+    uptime: 0
+  })
+
+  const errors = ref([])
+  const lastError = ref(null)
+
+  // 详细加载状态
+  const loadingStates = ref({
+    services: false,
+    tools: false,
+    agents: false,
+    system: false,
+    health: false,
+    resources: false
+  })
+
+  // 系统配置
+  const systemConfig = ref({
+    autoRefresh: true,
+    refreshInterval: 30000,
+    healthCheckInterval: 60000,
+    maxRetries: 3
+  })
   
   // 计算属性
   const systemStatus = computed(() => ({
     isHealthy: stats.value.unhealthyServices === 0,
     healthyServices: stats.value.healthyServices,
     unhealthyServices: stats.value.unhealthyServices,
-    totalServices: stats.value.totalServices
+    totalServices: stats.value.totalServices,
+    // 从健康状态数据中获取orchestrator状态
+    running: healthStatus.value.orchestrator_status === 'running'
   }))
   
   const servicesByStatus = computed(() => {
@@ -55,12 +96,94 @@ export const useSystemStore = defineStore('system', () => {
     })
     return grouped
   })
+
+  // 新增计算属性
+  const isLoading = computed(() => {
+    return Object.values(loadingStates.value).some(Boolean) || loading.value
+  })
+
+  const hasErrors = computed(() => {
+    return errors.value.length > 0
+  })
+
+  const recentErrors = computed(() => {
+    return errors.value.slice(-5).reverse()
+  })
+
+  const systemHealthScore = computed(() => {
+    const total = stats.value.totalServices
+    const healthy = stats.value.healthyServices
+    const memoryScore = 100 - systemResources.value.memory.percentage
+    const diskScore = 100 - systemResources.value.disk.percentage
+
+    if (total === 0) return 100
+
+    const serviceScore = (healthy / total) * 100
+    return Math.round((serviceScore + memoryScore + diskScore) / 3)
+  })
+
+  const resourceUsage = computed(() => {
+    return {
+      memory: systemResources.value.memory,
+      disk: systemResources.value.disk,
+      cpu: systemResources.value.cpu,
+      network: systemResources.value.network
+    }
+  })
+
+  const criticalServices = computed(() => {
+    return services.value.filter(s => s.status === 'error' || s.status === 'unhealthy')
+  })
+
+  const availableTools = computed(() => {
+    return tools.value.filter(t => t.available !== false)
+  })
   
+  // 新增方法
+  const setLoadingState = (type, status) => {
+    if (type in loadingStates.value) {
+      loadingStates.value[type] = status
+    }
+  }
+
+  const addError = (error) => {
+    const errorObj = {
+      id: Date.now(),
+      message: error.message || error,
+      timestamp: new Date().toISOString(),
+      type: error.type || 'system-error',
+      source: error.source || 'system-store'
+    }
+
+    errors.value.push(errorObj)
+    lastError.value = errorObj
+
+    // 限制错误数量
+    if (errors.value.length > 50) {
+      errors.value = errors.value.slice(-50)
+    }
+
+    // 同时添加到应用级错误
+    if (appStore) {
+      appStore.addError(errorObj)
+    }
+  }
+
+  const clearErrors = () => {
+    errors.value = []
+    lastError.value = null
+  }
+
   // 方法
-  const fetchServices = async () => {
+  const fetchServices = async (force = false) => {
+    if ((loading.value || loadingStates.value.services) && !force) return
+
     try {
       console.log('🔍 [STORE] 开始获取服务列表...')
       loading.value = true
+      setLoadingState('services', true)
+      appStore?.setLoadingState('services', true)
+
       const response = await storeServiceAPI.getServices()
       console.log('🔍 [STORE] 服务列表响应:', response)
       // 修复：正确提取服务数组
@@ -68,29 +191,52 @@ export const useSystemStore = defineStore('system', () => {
       console.log('🔍 [STORE] 解析后的服务数据:', services.value)
       updateStats()
       lastUpdateTime.value = new Date()
+
+      console.log(`📋 Loaded ${services.value.length} services`)
       return services.value
     } catch (error) {
       console.error('❌ [STORE] 获取服务列表失败:', error)
+      addError({
+        message: `获取服务列表失败: ${error.message}`,
+        type: 'fetch-error',
+        source: 'fetchServices'
+      })
       throw error
     } finally {
       loading.value = false
+      setLoadingState('services', false)
+      appStore?.setLoadingState('services', false)
     }
   }
   
-  const fetchTools = async () => {
+  const fetchTools = async (force = false) => {
+    if ((loading.value || loadingStates.value.tools) && !force) return
+
     try {
       loading.value = true
+      setLoadingState('tools', true)
+      appStore?.setLoadingState('tools', true)
+
       const response = await storeServiceAPI.getTools()
       // 修复：正确提取工具数组
       tools.value = response.data?.data || []
       updateStats()
       lastUpdateTime.value = new Date()
+
+      console.log(`🛠️ Loaded ${tools.value.length} tools`)
       return tools.value
     } catch (error) {
       console.error('Failed to fetch tools:', error)
+      addError({
+        message: `获取工具列表失败: ${error.message}`,
+        type: 'fetch-error',
+        source: 'fetchTools'
+      })
       throw error
     } finally {
       loading.value = false
+      setLoadingState('tools', false)
+      appStore?.setLoadingState('tools', false)
     }
   }
   
@@ -339,14 +485,19 @@ export const useSystemStore = defineStore('system', () => {
     }
   }
 
-  const fetchToolRecords = async (limit = 50) => {
+  const fetchToolRecords = async (limit = 50, force = false) => {
+    if (loadingStates.value.resources && !force) return
+
     try {
+      setLoadingState('resources', true)
+
       const response = await storeMonitoringAPI.getToolRecords(limit)
       console.log('API响应:', response) // 调试日志
 
       // API返回格式: { data: { success: true, data: { executions: [...], summary: {...} }, message: "..." } }
       const apiData = response.data
       if (apiData && apiData.success && apiData.data) {
+        console.log(`📊 Loaded ${apiData.data.executions.length} tool execution records`)
         return apiData.data
       } else {
         console.warn('API响应格式异常:', response)
@@ -354,23 +505,98 @@ export const useSystemStore = defineStore('system', () => {
       }
     } catch (error) {
       console.error('获取工具执行记录失败:', error)
+      addError({
+        message: `获取工具执行记录失败: ${error.message}`,
+        type: 'fetch-error',
+        source: 'fetchToolRecords'
+      })
       return { executions: [], summary: { total_executions: 0, by_tool: {}, by_service: {} } }
+    } finally {
+      setLoadingState('resources', false)
+    }
+  }
+
+  // 获取系统资源信息
+  const fetchSystemResources = async () => {
+    try {
+      setLoadingState('resources', true)
+
+      const response = await storeMonitoringAPI.getSystemResources()
+
+      if (response.success && response.data) {
+        systemResources.value = {
+          memory: {
+            total: response.data.memory_total || 0,
+            used: response.data.memory_used || 0,
+            percentage: response.data.memory_percentage || 0
+          },
+          disk: {
+            total: response.data.disk_total || 0,
+            used: response.data.disk_used || 0,
+            percentage: response.data.disk_usage_percentage || 0
+          },
+          cpu: {
+            usage: response.data.cpu_usage || 0,
+            cores: response.data.cpu_cores || 0
+          },
+          network: {
+            in: response.data.network_traffic_in || 0,
+            out: response.data.network_traffic_out || 0
+          }
+        }
+
+        console.log('📊 System resources updated')
+        return systemResources.value
+      } else {
+        throw new Error(response.message || 'Failed to fetch system resources')
+      }
+
+    } catch (error) {
+      console.error('Failed to fetch system resources:', error)
+      addError({
+        message: `获取系统资源失败: ${error.message}`,
+        type: 'fetch-error',
+        source: 'fetchSystemResources'
+      })
+      return null
+    } finally {
+      setLoadingState('resources', false)
     }
   }
   
   const refreshAllData = async () => {
     try {
       loading.value = true
+      setLoadingState('system', true)
+
       await Promise.all([
-        fetchServices(),
-        fetchTools(),
-        fetchSystemStatus()
+        fetchServices(true),
+        fetchTools(true),
+        fetchSystemStatus(),
+        fetchSystemResources(),
+        fetchToolRecords(50, true)
       ])
+
+      lastUpdateTime.value = new Date()
+
+      appStore?.addNotification({
+        title: '数据刷新完成',
+        message: '所有系统数据已更新',
+        type: 'success'
+      })
+
+      console.log('🔄 All system data refreshed')
     } catch (error) {
       console.error('Failed to refresh data:', error)
+      addError({
+        message: `刷新系统数据失败: ${error.message}`,
+        type: 'refresh-error',
+        source: 'refreshAllData'
+      })
       throw error
     } finally {
       loading.value = false
+      setLoadingState('system', false)
     }
   }
   
@@ -423,7 +649,7 @@ export const useSystemStore = defineStore('system', () => {
   }
   
   return {
-    // 状态
+    // 原有状态
     services,
     tools,
     agents,
@@ -432,12 +658,29 @@ export const useSystemStore = defineStore('system', () => {
     loading,
     lastUpdateTime,
     stats,
-    
-    // 计算属性
+
+    // 新增状态
+    systemResources,
+    performanceMetrics,
+    errors,
+    lastError,
+    loadingStates,
+    systemConfig,
+
+    // 原有计算属性
     systemStatus,
     servicesByStatus,
     servicesByType,
     toolsByService,
+
+    // 新增计算属性
+    isLoading,
+    hasErrors,
+    recentErrors,
+    systemHealthScore,
+    resourceUsage,
+    criticalServices,
+    availableTools,
     
     // 方法
     fetchServices,
@@ -461,6 +704,55 @@ export const useSystemStore = defineStore('system', () => {
     searchTools,
     getServiceByName,
     getToolsByService,
-    clearData
+    clearData,
+
+    // 重置Store状态
+    resetStore: () => {
+      services.value = []
+      tools.value = []
+      agents.value = []
+      systemInfo.value = {}
+      healthStatus.value = {}
+      stats.value = {
+        totalServices: 0,
+        healthyServices: 0,
+        unhealthyServices: 0,
+        totalTools: 0,
+        totalAgents: 0,
+        localServices: 0,
+        remoteServices: 0
+      }
+
+      // 重置新增状态
+      systemResources.value = {
+        memory: { total: 0, used: 0, percentage: 0 },
+        disk: { total: 0, used: 0, percentage: 0 },
+        cpu: { usage: 0, cores: 0 },
+        network: { in: 0, out: 0 }
+      }
+      performanceMetrics.value = {
+        apiResponseTimes: [],
+        errorRates: [],
+        throughput: 0,
+        uptime: 0
+      }
+      errors.value = []
+      lastError.value = null
+
+      // 重置加载状态
+      Object.keys(loadingStates.value).forEach(key => {
+        loadingStates.value[key] = false
+      })
+      loading.value = false
+      lastUpdateTime.value = null
+
+      console.log('🔄 System store reset')
+    },
+
+    // 新增方法
+    setLoadingState,
+    addError,
+    clearErrors,
+    fetchSystemResources
   }
 })

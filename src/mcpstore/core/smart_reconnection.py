@@ -3,12 +3,11 @@
 实现指数退避重连策略，支持重连优先级和失败计数
 """
 
-import asyncio
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, Set, Optional, Tuple
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from enum import Enum
+from typing import Dict, Set, Optional
 
 logger = logging.getLogger(__name__)
 

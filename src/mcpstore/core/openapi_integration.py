@@ -6,12 +6,11 @@ OpenAPI 深度集成
 
 import logging
 import re
-import httpx
-from typing import Dict, List, Any, Optional, Union, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
-from urllib.parse import urlparse
-import json
+from typing import Dict, List, Any, Optional, Tuple
+
+import httpx
 
 logger = logging.getLogger(__name__)
 

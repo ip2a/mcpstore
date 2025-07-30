@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcpstore"
-version = "0.2.1"
+version = "1.4.16"
 description = "A composable, ready-to-use MCP toolkit for agents and rapid integration."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -14,6 +14,7 @@ dependencies = [
     "httpx>=0.28.1",
     "pydantic>=2.11.5",
     "uvicorn>=0.30.0",
+    "typer>=0.9.0",
 ]
 authors = [
     {name = "ooooofish", email = "ooooofish@126.com"}
@@ -37,12 +38,10 @@ classifiers = [
 mcpstore = "mcpstore.cli.main:main"
 
 [project.optional-dependencies]
-cli = [
-    "typer>=0.9.0",
-    "rich>=13.0.0",
-]
+# 注意：typer已移到主依赖，因为CLI是核心功能
+# rich由fastmcp提供，无需重复声明
 test = [
-    "httpx>=0.28.1",
+    # httpx已在主依赖中
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
 ]
@@ -54,7 +53,10 @@ langchain = [
 
 [tool.setuptools]
 include-package-data = true
-license-files = ["LICENSE*"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["tests*", "*test*", "web*", "mcpservice*"]
+
+[tool.setuptools.package-data]
+mcpstore = ["data/*.json", "data/**/*.json"]

@@ -5,11 +5,11 @@
 """
 
 import asyncio
-import threading
 import functools
-from typing import Any, Coroutine, TypeVar
-from concurrent.futures import ThreadPoolExecutor
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Coroutine, TypeVar
 
 # 确保logger始终可用
 try:
@@ -220,8 +220,7 @@ atexit.register(cleanup_global_helper)
 
 if __name__ == "__main__":
     # 测试代码
-    import time
-    
+
     async def test_async_func(delay: float, message: str):
         """测试异步函数"""
         await asyncio.sleep(delay)

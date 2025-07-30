@@ -4,10 +4,10 @@
 提供用户友好的工具名称输入，内部转换为 FastMCP 标准格式
 """
 
-import re
 import logging
-from typing import Tuple, Optional, List, Dict, Any
+import re
 from dataclasses import dataclass
+from typing import Optional, List, Dict, Any
 
 logger = logging.getLogger(__name__)
 

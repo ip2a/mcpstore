@@ -1,6 +1,7 @@
+from typing import Optional, List
+
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
-from .common import RegistrationResponse
+
 
 class ClientRegistrationRequest(BaseModel):
     client_id: Optional[str] = Field(None, description="客户端ID")

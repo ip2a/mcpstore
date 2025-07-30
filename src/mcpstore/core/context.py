@@ -3,27 +3,29 @@ MCPStore Context Module
 提供 MCPStore 的上下文管理功能
 """
 
-from typing import Dict, List, Optional, Any, Union, TYPE_CHECKING
+import logging
 from enum import Enum
 from pathlib import Path
-from mcpstore.core.models.tool import ToolExecutionRequest, ToolInfo
-from mcpstore.core.models.common import ExecutionResponse
-from mcpstore.core.models.service import (
-    ServiceInfo, AddServiceRequest, ServiceConfigUnion,
-    URLServiceConfig, CommandServiceConfig, MCPServerConfig
-)
-import logging
-from .exceptions import ServiceNotFoundError, InvalidConfigError, DeleteServiceError
-from .async_sync_helper import get_global_helper
+from typing import Dict, List, Optional, Any, Union, TYPE_CHECKING
 
-# 导入新功能模块
-from .tool_transformation import get_transformation_manager
-from .component_control import get_component_manager
-from .openapi_integration import get_openapi_manager
+from mcpstore.core.models.agent import (
+    AgentsSummary, AgentStatistics, AgentServiceSummary
+)
+from mcpstore.core.models.service import (
+    ServiceInfo, ServiceConfigUnion
+)
+from mcpstore.core.models.tool import ToolExecutionRequest, ToolInfo
+
+from .async_sync_helper import get_global_helper
 from .auth_security import get_auth_manager
 from .cache_performance import get_performance_optimizer
+from .component_control import get_component_manager
+from .exceptions import ServiceNotFoundError, InvalidConfigError, DeleteServiceError
+from .monitoring import MonitoringManager, NetworkEndpoint, SystemResourceInfo
 from .monitoring_analytics import get_monitoring_manager
-from .monitoring import MonitoringManager, ToolUsageStats, NetworkEndpoint, SystemResourceInfo
+from .openapi_integration import get_openapi_manager
+# 导入新功能模块
+from .tool_transformation import get_transformation_manager
 
 # 创建logger实例
 logger = logging.getLogger(__name__)
@@ -80,7 +82,7 @@ class MCPStoreContext:
 
     def for_langchain(self) -> 'LangChainAdapter':
         """返回一个 LangChain 适配器实例，用于后续的 LangChain 相关操作。"""
-        from ..langchain_adapter import LangChainAdapter
+        from ..adapters.langchain_adapter import LangChainAdapter
         return LangChainAdapter(self)
 
     # === 核心服务接口 ===
@@ -135,10 +137,14 @@ class MCPStoreContext:
         Returns:
             Dict: 包含添加结果的详细信息
         """
+        logger.info(f"[add_service_with_details_async] 开始添加服务，配置: {config}")
+
         # 预处理配置
         try:
             processed_config = self._preprocess_service_config(config)
+            logger.info(f"[add_service_with_details_async] 预处理后的配置: {processed_config}")
         except ValueError as e:
+            logger.error(f"[add_service_with_details_async] 预处理配置失败: {e}")
             return {
                 "success": False,
                 "added_services": [],
@@ -151,8 +157,11 @@ class MCPStoreContext:
 
         # 添加服务
         try:
+            logger.info(f"[add_service_with_details_async] 调用 add_service_async")
             result = await self.add_service_async(processed_config)
+            logger.info(f"[add_service_with_details_async] add_service_async 结果: {result}")
         except Exception as e:
+            logger.error(f"[add_service_with_details_async] add_service_async 失败: {e}")
             return {
                 "success": False,
                 "added_services": [],
@@ -164,6 +173,7 @@ class MCPStoreContext:
             }
 
         if result is None:
+            logger.error(f"[add_service_with_details_async] add_service_async 返回 None")
             return {
                 "success": False,
                 "added_services": [],
@@ -175,16 +185,21 @@ class MCPStoreContext:
             }
 
         # 获取添加后的详情
+        logger.info(f"[add_service_with_details_async] 获取添加后的服务和工具列表")
         services = await self.list_services_async()
         tools = await self.list_tools_async()
+        logger.info(f"[add_service_with_details_async] 当前服务数量: {len(services)}, 工具数量: {len(tools)}")
+        logger.info(f"[add_service_with_details_async] 当前服务列表: {[getattr(s, 'name', 'unknown') for s in services]}")
 
         # 分析添加结果
         expected_service_names = self._extract_service_names(config)
+        logger.info(f"[add_service_with_details_async] 期望的服务名称: {expected_service_names}")
         added_services = []
         service_details = {}
 
         for service_name in expected_service_names:
             service_info = next((s for s in services if getattr(s, "name", None) == service_name), None)
+            logger.info(f"[add_service_with_details_async] 检查服务 {service_name}: {'找到' if service_info else '未找到'}")
             if service_info:
                 added_services.append(service_name)
                 service_tools = [t for t in tools if getattr(t, "service_name", None) == service_name]
@@ -192,10 +207,14 @@ class MCPStoreContext:
                     "tools_count": len(service_tools),
                     "status": getattr(service_info, "status", "unknown")
                 }
+                logger.info(f"[add_service_with_details_async] 服务 {service_name} 有 {len(service_tools)} 个工具")
 
         failed_services = [name for name in expected_service_names if name not in added_services]
         success = len(added_services) > 0
         total_tools = sum(details["tools_count"] for details in service_details.values())
+
+        logger.info(f"[add_service_with_details_async] 添加成功的服务: {added_services}")
+        logger.info(f"[add_service_with_details_async] 添加失败的服务: {failed_services}")
 
         message = (
             f"Successfully added {len(added_services)} service(s) with {total_tools} tools"
@@ -735,28 +754,7 @@ class MCPStoreContext:
         """
         return self._sync_helper.run_async(self.use_tool_async(tool_name, args, **kwargs))
 
-    def to_langchain_tools(self):
-        """
-        将 MCPStore 工具转换为 LangChain 工具（同步版本）
 
-        Returns:
-            List[Tool]: LangChain 工具列表
-        """
-        return self._sync_helper.run_async(self.to_langchain_tools_async())
-
-    async def to_langchain_tools_async(self):
-        """
-        将 MCPStore 工具转换为 LangChain 工具（异步版本）
-
-        Returns:
-            List[Tool]: LangChain 工具列表
-        """
-        try:
-            from mcpstore.adapters.langchain_adapter import LangChainAdapter
-            adapter = LangChainAdapter(self)
-            return await adapter.list_tools_async()
-        except ImportError:
-            raise ImportError("需要安装 langchain 依赖: pip install langchain langchain-core")
 
     async def use_tool_async(self, tool_name: str, args: Dict[str, Any] = None, **kwargs) -> Any:
         """
@@ -869,25 +867,105 @@ class MCPStoreContext:
         return self._agent_id 
 
     def show_mcpconfig(self) -> Dict[str, Any]:
-        # TODO：检查重复
         """
         根据当前上下文（store/agent）获取对应的配置信息
-        
+
         Returns:
-            Dict[str, Any]: 包含所有相关client配置的字典
+            Dict[str, Any]: Store上下文返回MCP JSON格式，Agent上下文返回client配置字典
         """
-        # 获取所有相关的client_ids
-        agent_id = self._agent_id if self._context_type == ContextType.AGENT else self._store.orchestrator.client_manager.main_client_id
-        client_ids = self._store.orchestrator.client_manager.get_agent_clients(agent_id)
-        
-        # 获取每个client的配置
-        result = {}
-        for client_id in client_ids:
-            client_config = self._store.orchestrator.client_manager.get_client_config(client_id)
-            if client_config:
-                result[client_id] = client_config
-                
-        return result 
+        if self._context_type == ContextType.STORE:
+            # Store上下文：返回MCP JSON格式的配置
+            try:
+                config = self._store.config.load_config()
+                # 确保返回格式正确
+                if isinstance(config, dict) and 'mcpServers' in config:
+                    return config
+                else:
+                    logging.warning("Invalid MCP config format")
+                    return {"mcpServers": {}}
+            except Exception as e:
+                logging.error(f"Failed to show MCP config: {e}")
+                return {"mcpServers": {}}
+        else:
+            # Agent上下文：返回所有相关client配置的字典
+            agent_id = self._agent_id
+            client_ids = self._store.orchestrator.client_manager.get_agent_clients(agent_id)
+
+            # 获取每个client的配置
+            result = {}
+            for client_id in client_ids:
+                client_config = self._store.orchestrator.client_manager.get_client_config(client_id)
+                if client_config:
+                    result[client_id] = client_config
+
+            return result
+
+    # === 两步操作方法（推荐使用） ===
+
+    async def update_config_two_step(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        两步操作：更新MCP JSON文件 + 重新注册服务
+
+        Args:
+            config: 新的配置内容
+
+        Returns:
+            Dict包含两步操作的结果：
+            {
+                "step1_json_update": bool,  # JSON文件更新是否成功
+                "step2_service_registration": bool,  # 服务注册是否成功
+                "step1_error": str,  # JSON更新错误信息（如果有）
+                "step2_error": str,  # 服务注册错误信息（如果有）
+                "overall_success": bool  # 整体是否成功
+            }
+        """
+        result = {
+            "step1_json_update": False,
+            "step2_service_registration": False,
+            "step1_error": None,
+            "step2_error": None,
+            "overall_success": False
+        }
+
+        # 第一步：更新JSON文件（必须成功）
+        try:
+            if self._context_type == ContextType.STORE:
+                result["step1_json_update"] = self._store.config.save_config(config)
+            else:
+                # Agent级别暂时不支持直接更新JSON文件
+                result["step1_error"] = "Agent level JSON update not supported"
+                return result
+
+            if not result["step1_json_update"]:
+                result["step1_error"] = "Failed to update MCP JSON file"
+                return result
+        except Exception as e:
+            result["step1_error"] = f"JSON update failed: {str(e)}"
+            logging.error(f"Step 1 (JSON update) failed: {e}")
+            return result
+
+        # 第二步：重新注册服务（失败不影响第一步）
+        try:
+            if self._context_type == ContextType.STORE:
+                # Store级别：重新注册所有服务
+                registration_result = await self._store.register_all_services_for_store()
+                result["step2_service_registration"] = registration_result.success
+                if not result["step2_service_registration"]:
+                    result["step2_error"] = registration_result.message
+            else:
+                # Agent级别：重新注册该Agent的服务
+                service_names = list(config.get("mcpServers", {}).keys())
+                registration_result = await self._store.register_services_for_agent(self._agent_id, service_names)
+                result["step2_service_registration"] = registration_result.success
+                if not result["step2_service_registration"]:
+                    result["step2_error"] = registration_result.message
+
+        except Exception as e:
+            result["step2_error"] = f"Service registration failed: {str(e)}"
+            logging.warning(f"Step 2 (service registration) failed: {e}, but JSON file was updated successfully")
+
+        result["overall_success"] = result["step1_json_update"] and result["step2_service_registration"]
+        return result
 
     def update_service(self, name: str, config: Dict[str, Any]) -> bool:
         """
@@ -1053,15 +1131,105 @@ class MCPStoreContext:
                         self._store.orchestrator.client_manager.save_client_config(client_id, client_config)
             
             return True
-            
+
         except Exception as e:
             logging.error(f"Failed to delete service {name}: {str(e)}")
             raise
 
-    def for_langchain(self) -> 'LangChainAdapter':
-        """返回LangChain适配器实例"""
-        from mcpstore.adapters.langchain_adapter import LangChainAdapter
-        return LangChainAdapter(self)
+    async def delete_service_two_step(self, service_name: str) -> Dict[str, Any]:
+        """
+        两步操作：从MCP JSON文件删除服务 + 注销服务
+
+        Args:
+            service_name: 要删除的服务名称
+
+        Returns:
+            Dict包含两步操作的结果：
+            {
+                "step1_json_delete": bool,  # JSON文件删除是否成功
+                "step2_service_unregistration": bool,  # 服务注销是否成功
+                "step1_error": str,  # JSON删除错误信息（如果有）
+                "step2_error": str,  # 服务注销错误信息（如果有）
+                "overall_success": bool  # 整体是否成功
+            }
+        """
+        result = {
+            "step1_json_delete": False,
+            "step2_service_unregistration": False,
+            "step1_error": None,
+            "step2_error": None,
+            "overall_success": False
+        }
+
+        # 第一步：从JSON文件删除服务（必须成功）
+        try:
+            if self._context_type == ContextType.STORE:
+                # 验证服务是否存在
+                if not self._store.config.get_service_config(service_name):
+                    result["step1_error"] = f"Service {service_name} not found in JSON file"
+                    return result
+
+                result["step1_json_delete"] = self._store.config.remove_service(service_name)
+            else:
+                # Agent级别暂时不支持直接删除JSON文件
+                result["step1_error"] = "Agent level JSON delete not supported"
+                return result
+
+            if not result["step1_json_delete"]:
+                result["step1_error"] = f"Failed to delete service {service_name} from MCP JSON file"
+                return result
+        except Exception as e:
+            result["step1_error"] = f"JSON delete failed: {str(e)}"
+            logging.error(f"Step 1 (JSON delete) failed: {e}")
+            return result
+
+        # 第二步：注销服务（失败不影响第一步）
+        try:
+            if self._context_type == ContextType.STORE:
+                # Store级别：从所有client中注销服务
+                client_ids = self._store.orchestrator.client_manager.get_main_client_ids()
+
+                unregistration_success = True
+                for client_id in client_ids:
+                    try:
+                        client_config = self._store.orchestrator.client_manager.get_client_config(client_id)
+                        if client_config and service_name in client_config.get("mcpServers", {}):
+                            del client_config["mcpServers"][service_name]
+                            self._store.orchestrator.client_manager.save_client_config(client_id, client_config)
+                    except Exception as e:
+                        unregistration_success = False
+                        logging.warning(f"Failed to unregister service {service_name} from client {client_id}: {e}")
+
+                result["step2_service_unregistration"] = unregistration_success
+                if not unregistration_success:
+                    result["step2_error"] = f"Failed to unregister service {service_name} from some clients"
+            else:
+                # Agent级别：从该Agent的client中注销服务
+                client_ids = self._store.orchestrator.client_manager.get_agent_clients(self._agent_id)
+
+                unregistration_success = True
+                for client_id in client_ids:
+                    try:
+                        client_config = self._store.orchestrator.client_manager.get_client_config(client_id)
+                        if client_config and service_name in client_config.get("mcpServers", {}):
+                            del client_config["mcpServers"][service_name]
+                            self._store.orchestrator.client_manager.save_client_config(client_id, client_config)
+                    except Exception as e:
+                        unregistration_success = False
+                        logging.warning(f"Failed to unregister service {service_name} from agent client {client_id}: {e}")
+
+                result["step2_service_unregistration"] = unregistration_success
+                if not unregistration_success:
+                    result["step2_error"] = f"Failed to unregister service {service_name} from agent clients"
+
+        except Exception as e:
+            result["step2_error"] = f"Service unregistration failed: {str(e)}"
+            logging.warning(f"Step 2 (service unregistration) failed: {e}, but JSON file was updated successfully")
+
+        result["overall_success"] = result["step1_json_delete"] and result["step2_service_unregistration"]
+        return result
+
+
 
     def reset_config(self) -> bool:
         """重置配置（同步版本）"""
@@ -1154,19 +1322,7 @@ class MCPStoreContext:
         except Exception as e:
             logging.warning(f"Failed to cleanup reconnection queue for client {client_id}: {e}")
 
-    def show_mcpconfig(self) -> dict:
-        """显示MCP配置"""
-        try:
-            config = self._store.config.load_config()
-            # 确保返回格式正确
-            if isinstance(config, dict) and 'mcpServers' in config:
-                return config
-            else:
-                logging.warning("Invalid MCP config format")
-                return {"mcpServers": {}}
-        except Exception as e:
-            logging.error(f"Failed to show MCP config: {e}")
-            return {"mcpServers": {}}
+
 
     def get_service_status(self, name: str) -> dict:
         """获取单个服务的状态信息（同步版本）"""
@@ -1657,5 +1813,239 @@ class MCPStoreContext:
     async def get_tool_records_async(self, limit: int = 50) -> Dict[str, Any]:
         """异步获取工具执行记录"""
         return self.get_tool_records(limit)
+
+    # === Agent统计功能 ===
+    def get_agents_summary(self) -> AgentsSummary:
+        """
+        获取所有Agent的统计摘要信息（同步版本）
+
+        Returns:
+            AgentsSummary: 包含所有Agent统计信息的汇总对象
+        """
+        return self._sync_helper.run_async(self.get_agents_summary_async())
+
+    async def get_agents_summary_async(self) -> AgentsSummary:
+        """
+        获取所有Agent的统计摘要信息（异步版本）
+
+        Returns:
+            AgentsSummary: 包含所有Agent统计信息的汇总对象
+        """
+        try:
+            # 1. 获取所有Agent ID
+            all_agent_data = self._store.client_manager.load_all_agent_clients()
+            agent_ids = list(all_agent_data.keys())
+
+            # 2. 获取Store级别的统计信息
+            store_services = await self._store.for_store().list_services_async()
+            store_tools = await self._store.for_store().list_tools_async()
+
+            # 3. 统计每个Agent的信息
+            agent_statistics = []
+            total_services = len(store_services)
+            total_tools = len(store_tools)
+            active_agents = 0
+
+            for agent_id in agent_ids:
+                try:
+                    agent_stats = await self._get_agent_statistics(agent_id)
+                    if agent_stats.service_count > 0:
+                        active_agents += 1
+                    agent_statistics.append(agent_stats)
+                    total_services += agent_stats.service_count
+                    total_tools += agent_stats.tool_count
+                except Exception as e:
+                    logger.warning(f"Failed to get statistics for agent {agent_id}: {e}")
+                    # 创建空的统计信息
+                    agent_statistics.append(AgentStatistics(
+                        agent_id=agent_id,
+                        service_count=0,
+                        tool_count=0,
+                        healthy_services=0,
+                        unhealthy_services=0,
+                        total_tool_executions=0,
+                        services=[]
+                    ))
+
+            # 4. 构建汇总信息
+            summary = AgentsSummary(
+                total_agents=len(agent_ids),
+                active_agents=active_agents,
+                total_services=total_services,
+                total_tools=total_tools,
+                store_services=len(store_services),
+                store_tools=len(store_tools),
+                agents=agent_statistics
+            )
+
+            logger.info(f"Generated agents summary: {len(agent_ids)} agents, {active_agents} active")
+            return summary
+
+        except Exception as e:
+            logger.error(f"Failed to get agents summary: {e}")
+            # 返回空的汇总信息
+            return AgentsSummary(
+                total_agents=0,
+                active_agents=0,
+                total_services=0,
+                total_tools=0,
+                store_services=0,
+                store_tools=0,
+                agents=[]
+            )
+
+    async def _get_agent_statistics(self, agent_id: str) -> AgentStatistics:
+        """
+        获取单个Agent的统计信息
+
+        Args:
+            agent_id: Agent ID
+
+        Returns:
+            AgentStatistics: Agent统计信息
+        """
+        try:
+            # 获取Agent的服务和工具
+            agent_context = self._store.for_agent(agent_id)
+            services = await agent_context.list_services_async()
+            tools = await agent_context.list_tools_async()
+
+            # 获取服务健康状态
+            health_status = await agent_context.check_services_async()
+            healthy_count = 0
+            unhealthy_count = 0
+
+            # 构建服务摘要
+            service_summaries = []
+            for service in services:
+                # 获取服务配置以确定类型和状态
+                service_config = self._store.config.get_service_config(service.name) or {}
+
+                # 确定服务类型
+                service_type = "unknown"
+                if service_config.get('url'):
+                    service_type = "remote"
+                elif service_config.get('command'):
+                    service_type = "local"
+                elif hasattr(service, 'transport') and service.transport:
+                    service_type = service.transport
+                elif hasattr(service, 'config') and service.config:
+                    if 'url' in service.config:
+                        service_type = "remote"
+                    elif 'command' in service.config:
+                        service_type = "local"
+
+                # 确定服务状态 - 修复数据结构访问
+                service_status = "unknown"
+                if isinstance(health_status, dict) and 'services' in health_status:
+                    # health_status 是字典格式: {"orchestrator_status": "running", "services": [...]}
+                    for health_item in health_status['services']:
+                        if isinstance(health_item, dict) and health_item.get('name') == service.name:
+                            service_status = health_item.get('status', 'unknown')
+                            break
+                elif isinstance(health_status, list):
+                    # health_status 是列表格式
+                    for health_item in health_status:
+                        if isinstance(health_item, dict) and health_item.get('name') == service.name:
+                            service_status = health_item.get('status', 'unknown')
+                            break
+
+                # 如果还是unknown，直接调用健康检查
+                if service_status == "unknown":
+                    try:
+                        is_healthy = await self._store.orchestrator.is_service_healthy(service.name, agent_id)
+                        service_status = "healthy" if is_healthy else "unhealthy"
+                    except Exception as e:
+                        logger.debug(f"Health check failed for service {service.name}: {e}")
+                        service_status = "unhealthy"
+
+                if service_status == "healthy":
+                    healthy_count += 1
+                elif service_status == "unhealthy":
+                    unhealthy_count += 1
+
+                # 统计该服务的工具数量
+                service_tool_count = len([t for t in tools if t.service_name == service.name])
+
+                # 获取client_id - 从多个来源尝试获取
+                client_id = None
+                if hasattr(service, 'client_id'):
+                    client_id = service.client_id
+                else:
+                    # 尝试从client_manager获取
+                    try:
+                        client_ids = self._store.client_manager.get_agent_clients(agent_id)
+                        if client_ids:
+                            client_id = client_ids[0]  # 使用第一个client_id
+                    except Exception:
+                        pass
+
+                # 获取生命周期状态和元数据
+                service_state = self._store.orchestrator.lifecycle_manager.get_service_state(agent_id, service.name)
+                state_metadata = self._store.orchestrator.lifecycle_manager.get_service_metadata(agent_id, service.name)
+
+                service_summaries.append(AgentServiceSummary(
+                    service_name=service.name,
+                    service_type=service_type,
+                    status=service_state,  # 使用新的7状态枚举
+                    tool_count=service_tool_count,
+                    client_id=client_id,
+                    response_time=state_metadata.response_time if state_metadata else None,
+                    health_details=state_metadata
+                ))
+
+            # 统计健康和不健康的服务（基于新的7状态）
+            from mcpstore.core.models.service import ServiceConnectionState
+            healthy_count = 0
+            unhealthy_count = 0
+            for service_summary in service_summaries:
+                if service_summary.status == ServiceConnectionState.HEALTHY:
+                    healthy_count += 1
+                elif service_summary.status in [ServiceConnectionState.WARNING, ServiceConnectionState.RECONNECTING]:
+                    # WARNING和RECONNECTING状态算作部分健康，不计入unhealthy
+                    pass
+                elif service_summary.status in [ServiceConnectionState.UNREACHABLE, ServiceConnectionState.DISCONNECTED]:
+                    unhealthy_count += 1
+                # INITIALIZING和DISCONNECTING状态不计入统计
+
+            # 获取工具执行统计（如果有监控数据）
+            total_executions = 0
+            last_activity = None
+            try:
+                tool_records = agent_context.get_tool_records(limit=1000)
+                if isinstance(tool_records, dict) and 'records' in tool_records:
+                    total_executions = len(tool_records['records'])
+                    if tool_records['records']:
+                        # 获取最近的活动时间
+                        latest_record = max(tool_records['records'],
+                                          key=lambda x: x.get('timestamp', ''))
+                        if latest_record.get('timestamp'):
+                            from datetime import datetime
+                            last_activity = datetime.fromisoformat(latest_record['timestamp'].replace('Z', '+00:00'))
+            except Exception as e:
+                logger.debug(f"Could not get tool execution stats for agent {agent_id}: {e}")
+
+            return AgentStatistics(
+                agent_id=agent_id,
+                service_count=len(services),
+                tool_count=len(tools),
+                healthy_services=healthy_count,
+                unhealthy_services=unhealthy_count,
+                total_tool_executions=total_executions,
+                last_activity=last_activity,
+                services=service_summaries
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to get statistics for agent {agent_id}: {e}")
+            return AgentStatistics(
+                agent_id=agent_id,
+                service_count=0,
+                tool_count=0,
+                healthy_services=0,
+                unhealthy_services=0,
+                total_tool_executions=0,
+                services=[]
+            )
 
 

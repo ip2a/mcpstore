@@ -9,10 +9,16 @@ const LocalServices = () => import('@/views/services/LocalServices.vue')
 const ToolList = () => import('@/views/tools/ToolList.vue')
 const ToolExecute = () => import('@/views/tools/ToolExecute.vue')
 const AgentList = () => import('@/views/agents/AgentList.vue')
-const AgentCreate = () => import('@/views/agents/AgentCreate.vue')
+const AgentDetail = () => import('@/views/agents/AgentDetail.vue')
+const AgentServiceAdd = () => import('@/views/agents/ServiceAdd.vue')
 const Monitoring = () => import('@/views/Monitoring.vue')
+const ServiceMonitoring = () => import('@/views/ServiceMonitoring.vue')
 const Settings = () => import('@/views/Settings.vue')
 const ResetManager = () => import('@/views/system/ResetManager.vue')
+const TestPage = () => import('@/views/TestPage.vue')
+const DashboardSimple = () => import('@/views/DashboardSimple.vue')
+const ApiDebugPage = () => import('@/views/ApiDebugPage.vue')
+const McpConfigManager = () => import('@/views/config/McpConfigManager.vue')
 
 const routes = [
   {
@@ -125,11 +131,20 @@ const routes = [
         }
       },
       {
-        path: 'create',
-        name: 'AgentCreate',
-        component: AgentCreate,
+        path: ':id/detail',
+        name: 'AgentDetail',
+        component: AgentDetail,
         meta: {
-          title: '创建Agent',
+          title: 'Agent详情',
+          icon: 'View'
+        }
+      },
+      {
+        path: 'service-add',
+        name: 'AgentServiceAdd',
+        component: AgentServiceAdd,
+        meta: {
+          title: '添加服务',
           icon: 'Plus'
         }
       }
@@ -138,12 +153,34 @@ const routes = [
   {
     path: '/monitoring',
     name: 'Monitoring',
-    component: Monitoring,
     meta: {
       title: '系统监控',
-      icon: 'DataAnalysis',
-      keepAlive: true
-    }
+      icon: 'DataAnalysis'
+    },
+    children: [
+      {
+        path: '',
+        redirect: '/monitoring/overview'
+      },
+      {
+        path: 'overview',
+        name: 'MonitoringOverview',
+        component: Monitoring,
+        meta: {
+          title: '监控概览',
+          keepAlive: true
+        }
+      },
+      {
+        path: 'services',
+        name: 'ServiceMonitoring',
+        component: ServiceMonitoring,
+        meta: {
+          title: '服务生命周期',
+          keepAlive: true
+        }
+      }
+    ]
   },
   {
     path: '/settings',
@@ -171,6 +208,46 @@ const routes = [
           icon: 'RefreshLeft',
           keepAlive: false
         }
+      },
+      {
+        path: '/system/test',
+        name: 'TestPage',
+        component: TestPage,
+        meta: {
+          title: '环境测试',
+          icon: 'Monitor',
+          keepAlive: false
+        }
+      },
+      {
+        path: '/system/dashboard-simple',
+        name: 'DashboardSimple',
+        component: DashboardSimple,
+        meta: {
+          title: '简化仪表板',
+          icon: 'DataBoard',
+          keepAlive: false
+        }
+      },
+      {
+        path: '/system/api-debug',
+        name: 'ApiDebugPage',
+        component: ApiDebugPage,
+        meta: {
+          title: 'API调试',
+          icon: 'Tools',
+          keepAlive: false
+        }
+      },
+      {
+        path: '/system/mcp-config',
+        name: 'McpConfigManager',
+        component: McpConfigManager,
+        meta: {
+          title: 'MCP配置管理',
+          icon: 'Document',
+          keepAlive: false
+        }
       }
     ]
   },
@@ -185,7 +262,7 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
+  history: createWebHistory(import.meta.env.BASE_URL || '/'),
   routes,
   scrollBehavior(to, from, savedPosition) {
     if (savedPosition) {

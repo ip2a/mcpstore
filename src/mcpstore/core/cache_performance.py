@@ -4,17 +4,15 @@
 工具结果缓存、服务发现缓存、智能预取、连接池管理
 """
 
-import logging
 import asyncio
 import hashlib
+import logging
 import pickle
-import time
-from typing import Dict, List, Any, Optional, Union, Callable, Tuple
-from dataclasses import dataclass, field
-from enum import Enum
-from datetime import datetime, timedelta
-import weakref
 from collections import OrderedDict, defaultdict
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from typing import Dict, List, Any, Optional
 
 logger = logging.getLogger(__name__)
 

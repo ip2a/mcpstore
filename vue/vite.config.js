@@ -38,15 +38,19 @@ export default defineConfig(({ mode }) => {
     base,
     server: {
       port: 5177,
-      host: isDomain ? '0.0.0.0' : 'localhost',
+      host: '0.0.0.0',  // 服务器监听所有接口，但客户端连接地址由HMR配置决定
       open: !isDomain,
       cors: true,
+
+      // 根据环境配置HMR
+      hmr: isDomain ? false : {  // 域名环境禁用HMR，避免复杂的代理问题
+        port: 5177,
+        host: 'localhost'
+      },
+
+      // 域名环境的额外配置
       ...(isDomain && {
-        allowedHosts: ['mcpstore.wiki', 'localhost', '127.0.0.1', '0.0.0.0'],
-        hmr: {
-          port: 5177,
-          host: 'localhost'  // HMR通过localhost连接，避免域名问题
-        }
+        allowedHosts: ['mcpstore.wiki', 'localhost', '127.0.0.1', '0.0.0.0']
       })
     },
     build: {

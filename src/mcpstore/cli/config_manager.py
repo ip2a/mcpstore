@@ -4,9 +4,11 @@ MCPStore Configuration Manager - 配置文件管理工具
 """
 import json
 import os
-import typer
 from pathlib import Path
 from typing import Dict, Any, Optional
+
+import typer
+
 
 def get_default_config_path() -> Path:
     """获取默认配置文件路径"""

@@ -1,8 +1,9 @@
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any, Literal, Union
-from enum import Enum
 from datetime import datetime
-from .common import BaseResponse, ListResponse, DataResponse, RegistrationResponse, ConfigResponse
+from enum import Enum
+from typing import Optional, List, Dict, Any, Literal, Union
+
+from pydantic import BaseModel, Field
+
 
 class TransportType(str, Enum):
     STREAMABLE_HTTP = "streamable_http"
@@ -11,11 +12,37 @@ class TransportType(str, Enum):
     STDIO_NODE = "stdio_node"
     STDIO_SHELL = "stdio_shell"
 
+
+class ServiceConnectionState(str, Enum):
+    """服务连接生命周期状态枚举"""
+    INITIALIZING = "initializing"     # 初始化中：配置验证通过，正在进行首次连接
+    HEALTHY = "healthy"               # 健康：连接正常，心跳成功
+    WARNING = "warning"               # 警告：偶尔心跳失败，但未达重连阈值
+    RECONNECTING = "reconnecting"     # 重连中：连续失败达阈值，正在重连
+    UNREACHABLE = "unreachable"       # 无法访问：重连失败，进入长周期重试
+    DISCONNECTING = "disconnecting"   # 断连中：正在执行优雅关闭
+    DISCONNECTED = "disconnected"     # 已断连：服务已终止，等待手动删除
+
+class ServiceStateMetadata(BaseModel):
+    """服务状态元数据"""
+    consecutive_failures: int = 0
+    consecutive_successes: int = 0
+    last_ping_time: Optional[datetime] = None
+    last_success_time: Optional[datetime] = None
+    last_failure_time: Optional[datetime] = None
+    response_time: Optional[float] = None
+    error_message: Optional[str] = None
+    reconnect_attempts: int = 0
+    next_retry_time: Optional[datetime] = None
+    state_entered_time: Optional[datetime] = None
+    disconnect_reason: Optional[str] = None
+
+
 class ServiceInfo(BaseModel):
     url: str = ""
     name: str
     transport_type: TransportType
-    status: Literal["healthy", "unhealthy"]
+    status: ServiceConnectionState  # 使用新的7状态枚举
     tool_count: int
     keep_alive: bool
     working_dir: Optional[str] = None
@@ -24,6 +51,10 @@ class ServiceInfo(BaseModel):
     command: Optional[str] = None
     args: Optional[List[str]] = None
     package_name: Optional[str] = None
+    # 新增生命周期相关字段
+    state_metadata: Optional[ServiceStateMetadata] = None
+    last_state_change: Optional[datetime] = None
+    client_id: Optional[str] = None  # 添加client_id字段
 
 class ServiceInfoResponse(BaseModel):
     """单个服务的详细信息响应模型"""

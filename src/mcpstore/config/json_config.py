@@ -1,13 +1,14 @@
-import os
 import json
 import logging
-from typing import List, Dict, Any, Optional
+import os
 from datetime import datetime
-from pydantic import BaseModel, ValidationError, model_validator, ConfigDict
+from typing import List, Dict, Any, Optional
+
+from pydantic import BaseModel, model_validator, ConfigDict
 
 logger = logging.getLogger(__name__)
 
-BACKUP_COUNT = 3
+# 备份策略：每个文件最多保留1个备份，使用.bak后缀
 
 class MCPServerModel(BaseModel):
     """
@@ -87,22 +88,13 @@ class MCPConfig:
         """Create a backup of the current configuration file"""
         if not os.path.exists(self.json_path):
             return
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_path = f"{self.json_path}.{ts}.bak"
+
+        # 统一使用.bak后缀，每个文件最多保留1个备份
+        backup_path = f"{self.json_path}.bak"
         try:
             with open(self.json_path, 'rb') as src, open(backup_path, 'wb') as dst:
                 dst.write(src.read())
             logger.info(f"Backup created: {backup_path}")
-            
-            # Maintain backup rotation
-            backups = sorted([f for f in os.listdir(os.path.dirname(self.json_path)) 
-                            if f.startswith(os.path.basename(self.json_path)) and f.endswith('.bak')])
-            if len(backups) > BACKUP_COUNT:
-                for old in backups[:-BACKUP_COUNT]:
-                    try:
-                        os.remove(os.path.join(os.path.dirname(self.json_path), old))
-                    except Exception as e:
-                        logger.warning(f"Failed to remove old backup: {old}, {e}")
         except Exception as e:
             logger.error(f"Backup failed: {e}")
             raise ConfigIOError(f"Failed to create backup: {e}")
@@ -302,7 +294,7 @@ class MCPConfig:
             from datetime import datetime
 
             # 创建备份
-            backup_path = f"{self.json_path}.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            backup_path = f"{self.json_path}.bak"
             shutil.copy2(self.json_path, backup_path)
             logger.info(f"Created backup at {backup_path}")
 

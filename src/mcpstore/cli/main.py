@@ -2,13 +2,12 @@
 """
 MCPStore CLI - Command Line Interface for MCPStore
 """
-import uvicorn
-import typer
-import asyncio
 import sys
-import os
-from typing_extensions import Annotated
 from typing import Optional
+
+import typer
+import uvicorn
+from typing_extensions import Annotated
 
 # 创建主CLI应用
 app = typer.Typer(

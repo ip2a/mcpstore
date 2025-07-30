@@ -1,10 +1,10 @@
-import os
 import json
+import logging
+import os
 import random
 import string
 from datetime import datetime
 from typing import Dict, Any, Optional, List
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -446,8 +446,8 @@ class ClientManager:
             import shutil
             from datetime import datetime
 
-            # 创建备份
-            backup_path = f"{self.services_path}.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            # 创建备份 - 统一使用.bak后缀
+            backup_path = f"{self.services_path}.bak"
             if os.path.exists(self.services_path):
                 shutil.copy2(self.services_path, backup_path)
                 logger.info(f"Created backup of client_services.json at {backup_path}")
@@ -475,8 +475,8 @@ class ClientManager:
             import shutil
             from datetime import datetime
 
-            # 创建备份
-            backup_path = f"{self.agent_clients_path}.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            # 创建备份 - 统一使用.bak后缀
+            backup_path = f"{self.agent_clients_path}.bak"
             if os.path.exists(self.agent_clients_path):
                 shutil.copy2(self.agent_clients_path, backup_path)
                 logger.info(f"Created backup of agent_clients.json at {backup_path}")
