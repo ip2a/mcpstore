@@ -15,20 +15,32 @@ AGENT_CLIENTS_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'd
 class ClientManager:
     """管理客户端配置的类"""
     
-    def __init__(self, services_path: Optional[str] = None, agent_clients_path: Optional[str] = None):
+    def __init__(self, services_path: Optional[str] = None, agent_clients_path: Optional[str] = None, global_agent_store_id: Optional[str] = None):
         """
         初始化客户端管理器
 
         Args:
             services_path: 客户端服务配置文件路径
             agent_clients_path: Agent客户端映射文件路径
+            global_agent_store_id: 全局代理存储ID（可选，用于数据空间）
         """
         self.services_path = services_path or CLIENT_SERVICES_PATH
         self.agent_clients_path = agent_clients_path or AGENT_CLIENTS_PATH
         self._ensure_file()
         self.client_services = self.load_all_clients()
-        self.main_client_id = "main_client"  # 主客户端ID
+        # 🔧 修复：支持数据空间的global_agent_store_id
+        self.global_agent_store_id = global_agent_store_id or self._generate_data_space_client_id()
         self._ensure_agent_clients_file()
+
+    def _generate_data_space_client_id(self) -> str:
+        """
+        生成global_agent_store_id
+
+        Returns:
+            str: 固定返回"global_agent_store"
+        """
+        # Store级别的Agent固定为global_agent_store
+        return "global_agent_store"
 
     def _ensure_file(self):
         """确保客户端服务配置文件存在"""
@@ -178,8 +190,8 @@ class ClientManager:
             self.save_all_agent_clients(data)
             logger.info(f"Removed mapping agent_id={agent_id} to client_id={client_id}")
 
-    def get_main_client_ids(self) -> List[str]:
-        """获取 main_client 下的所有 client_id"""
+    def get_global_agent_store_ids(self) -> List[str]:
+        """获取 global_agent_store 下的所有 client_id"""
         return list(self.get_all_clients().keys())
 
     def is_valid_client(self, client_id: str) -> bool:
@@ -215,7 +227,7 @@ class ClientManager:
         Agent级别：只替换包含该服务的client
 
         Args:
-            agent_id: Agent ID (main_client for Store level)
+            agent_id: Agent ID (global_agent_store for Store level)
             service_name: 服务名称
             new_service_config: 新的服务配置
 
@@ -232,7 +244,7 @@ class ClientManager:
                 return self._create_new_service_client(agent_id, service_name, new_service_config)
 
             # 2. Store级别：完全替换策略
-            if agent_id == self.main_client_id:
+            if agent_id == self.global_agent_store_id:
                 logger.info(f"Store level: Replacing service '{service_name}' in {len(matching_clients)} clients")
 
                 # 删除所有包含该服务的旧client
@@ -530,38 +542,38 @@ class ClientManager:
             logger.error(f"Failed to remove agent {agent_id} from files: {e}")
             return False
 
-    def remove_store_from_files(self, main_client_id: str) -> bool:
+    def remove_store_from_files(self, global_agent_store_id: str) -> bool:
         """
-        从文件中删除Store(main_client)的相关配置
-        1. 从client_services.json中删除main_client的配置
-        2. 从agent_clients.json中删除main_client的映射
+        从文件中删除Store(global_agent_store)的相关配置
+        1. 从client_services.json中删除global_agent_store的配置
+        2. 从agent_clients.json中删除global_agent_store的映射
 
         Args:
-            main_client_id: Store的main_client ID
+            global_agent_store_id: Store的global_agent_store ID
 
         Returns:
             是否成功删除
         """
         try:
-            # 从client_services.json中删除main_client配置
+            # 从client_services.json中删除global_agent_store配置
             all_clients = self.load_all_clients()
-            if main_client_id in all_clients:
-                del all_clients[main_client_id]
+            if global_agent_store_id in all_clients:
+                del all_clients[global_agent_store_id]
                 self.save_all_clients(all_clients)
-                logger.info(f"Removed main_client {main_client_id} from client_services.json")
+                logger.info(f"Removed global_agent_store {global_agent_store_id} from client_services.json")
 
-            # 从agent_clients.json中删除main_client映射
+            # 从agent_clients.json中删除global_agent_store映射
             agent_data = self.load_all_agent_clients()
-            if main_client_id in agent_data:
-                del agent_data[main_client_id]
+            if global_agent_store_id in agent_data:
+                del agent_data[global_agent_store_id]
                 self.save_all_agent_clients(agent_data)
-                logger.info(f"Removed main_client {main_client_id} from agent_clients.json")
+                logger.info(f"Removed global_agent_store {global_agent_store_id} from agent_clients.json")
 
-            logger.info(f"Successfully removed store main_client {main_client_id} from all files")
+            logger.info(f"Successfully removed store global_agent_store {global_agent_store_id} from all files")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to remove store main_client {main_client_id} from files: {e}")
+            logger.error(f"Failed to remove store global_agent_store {global_agent_store_id} from files: {e}")
             return False
 
 

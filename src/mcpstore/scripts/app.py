@@ -68,7 +68,7 @@ async def lifespan(app: FastAPI):
         # 清理资源
         orch = app_state.get("orchestrator")
         if orch:
-            await orch.stop_main_client()
+            await orch.stop_global_agent_store()
             await orch.cleanup()
         app_state.clear()
         logger.info("MCPStore API service shutdown complete")

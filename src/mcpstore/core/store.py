@@ -179,11 +179,9 @@ class MCPStore:
                 base_config,
                 registry,
                 client_services_path=client_services_path,
+                agent_clients_path=agent_clients_path,
                 mcp_config=config  # 传入数据空间的config实例
             )
-
-            # 设置agent_clients_path
-            orchestrator.client_manager.agent_clients_path = agent_clients_path
 
             # 创建store实例并设置数据空间管理器
             store = MCPStore(orchestrator, config, tool_record_max_file_size, tool_record_retention_days)
@@ -307,7 +305,7 @@ class MCPStore:
 
     def for_store(self) -> MCPStoreContext:
         """获取商店级别的上下文"""
-        # main_client 作为 store agent_id
+        # global_agent_store 作为 store agent_id
         return self._store_context
 
     def for_agent(self, agent_id: str) -> MCPStoreContext:
@@ -330,7 +328,7 @@ class MCPStore:
         if not service_names:
             raise ValueError("payload 必须包含 service_names 字段")
         results = {}
-        agent_key = agent_id or self.client_manager.main_client_id
+        agent_key = agent_id or self.client_manager.global_agent_store_id
         for name in service_names:
             success, msg = await self.orchestrator.connect_service(name)
             if not success:
@@ -354,16 +352,28 @@ class MCPStore:
 
     async def register_all_services_for_store(self) -> RegistrationResponse:
         """
+        @deprecated 此方法已废弃，请使用统一同步机制
+
         Store级别：注册所有配置文件中的服务
 
-        这是最常用的场景，注册mcp.json中的所有服务到Store的main_client
+        ⚠️ 警告：此方法已被统一同步机制取代，建议使用：
+        - store.for_store().add_service_async() - 无参数全量注册
+        - orchestrator.sync_manager.sync_global_agent_store_from_mcp_json() - 直接同步
+
+        为了向后兼容暂时保留，但建议迁移到新机制
 
         Returns:
             RegistrationResponse: 注册结果
         """
+        import warnings
+        warnings.warn(
+            "register_all_services_for_store() 已废弃，请使用统一同步机制",
+            DeprecationWarning,
+            stacklevel=2
+        )
         try:
             all_services = self.config.load_config().get("mcpServers", {})
-            agent_id = self.client_manager.main_client_id
+            agent_id = self.client_manager.global_agent_store_id
             registered_client_ids = []
             registered_services = []
 
@@ -407,7 +417,7 @@ class MCPStore:
             return RegistrationResponse(
                 success=False,
                 message=str(e),
-                client_id=self.client_manager.main_client_id,
+                client_id=self.client_manager.global_agent_store_id,
                 service_names=[],
                 config={}
             )
@@ -522,7 +532,7 @@ class MCPStore:
         """
         try:
             all_services = self.config.load_config().get("mcpServers", {})
-            agent_id = self.client_manager.main_client_id
+            agent_id = self.client_manager.global_agent_store_id
             registered_client_ids = []
             registered_services = []
 
@@ -570,7 +580,7 @@ class MCPStore:
             return RegistrationResponse(
                 success=False,
                 message=str(e),
-                client_id=self.client_manager.main_client_id,
+                client_id=self.client_manager.global_agent_store_id,
                 service_names=[],
                 config={}
             )
@@ -595,15 +605,35 @@ class MCPStore:
         )
 
         # 根据参数组合调用新方法
-        if client_id and client_id == self.client_manager.main_client_id and not service_names:
-            # Store 全量注册
-            return await self.register_all_services_for_store()
+        if client_id and client_id == self.client_manager.global_agent_store_id and not service_names:
+            # Store 全量注册：使用统一同步机制
+            if hasattr(self.orchestrator, 'sync_manager') and self.orchestrator.sync_manager:
+                sync_results = await self.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
+                return RegistrationResponse(
+                    success=bool(sync_results.get("added") or sync_results.get("updated")),
+                    client_id=self.client_manager.global_agent_store_id,
+                    service_names=sync_results.get("added", []) + sync_results.get("updated", []),
+                    config=sync_results
+                )
+            else:
+                # 回退到旧方法（带警告）
+                return await self.register_all_services_for_store()
         elif not client_id and service_names:
             # 临时注册
             return await self.register_services_temporarily(service_names)
         elif not client_id and not service_names:
-            # 默认全量注册
-            return await self.register_all_services_for_store()
+            # 默认全量注册：使用统一同步机制
+            if hasattr(self.orchestrator, 'sync_manager') and self.orchestrator.sync_manager:
+                sync_results = await self.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
+                return RegistrationResponse(
+                    success=bool(sync_results.get("added") or sync_results.get("updated")),
+                    client_id=self.client_manager.global_agent_store_id,
+                    service_names=sync_results.get("added", []) + sync_results.get("updated", []),
+                    config=sync_results
+                )
+            else:
+                # 回退到旧方法（带警告）
+                return await self.register_all_services_for_store()
         else:
             # Agent 指定服务注册
             return await self.register_services_for_agent(client_id, service_names or [])
@@ -616,18 +646,18 @@ class MCPStore:
         )
         return RegistrationResponse(
             success=True,
-            client_id=results.get("client_id", payload.client_id or "main_client"),
+            client_id=results.get("client_id", payload.client_id or "global_agent_store"),
             service_names=list(results.get("services", {}).keys()),
             config=payload.config
         )
 
     def get_json_config(self, client_id: Optional[str] = None) -> ConfigResponse:
         """查询服务配置，等价于 GET /register/json"""
-        if not client_id or client_id == self.client_manager.main_client_id:
+        if not client_id or client_id == self.client_manager.global_agent_store_id:
             config = self.config.load_config()
             return ConfigResponse(
                 success=True,
-                client_id=self.client_manager.main_client_id,
+                client_id=self.client_manager.global_agent_store_id,
                 config=config
             )
         else:
@@ -663,7 +693,7 @@ class MCPStore:
             logger.debug(f"Processing tool request: {request.service_name}::{request.tool_name}")
 
             # 检查服务生命周期状态
-            agent_id = request.agent_id or self.client_manager.main_client_id
+            agent_id = request.agent_id or self.client_manager.global_agent_store_id
             service_state = self.orchestrator.lifecycle_manager.get_service_state(agent_id, request.service_name)
 
             # 如果服务处于不可用状态，返回错误
@@ -765,16 +795,16 @@ class MCPStore:
         # TODO:该方法带完善 这个方法有一定的混乱 要分离面向用户的直观方法名 和面向业务的独立函数功能
         """
         获取服务健康状态：
-        - store未传id 或 id==main_client：聚合 main_client 下所有 client_id 的服务健康状态
+        - store未传id 或 id==global_agent_store：聚合 global_agent_store 下所有 client_id 的服务健康状态
         - store传普通 client_id：只查该 client_id 下的服务健康状态
         - agent级别：聚合 agent_id 下所有 client_id 的服务健康状态；如果 id 不是 agent_id，尝试作为 client_id 查
         """
         from mcpstore.core.client_manager import ClientManager
         client_manager: ClientManager = self.client_manager
         services = []
-        # 1. store未传id 或 id==main_client，聚合 main_client 下所有 client_id 的服务健康状态
-        if not agent_mode and (not id or id == self.client_manager.main_client_id):
-            client_ids = client_manager.get_agent_clients(self.client_manager.main_client_id)
+        # 1. store未传id 或 id==global_agent_store，聚合 global_agent_store 下所有 client_id 的服务健康状态
+        if not agent_mode and (not id or id == self.client_manager.global_agent_store_id):
+            client_ids = client_manager.get_agent_clients(self.client_manager.global_agent_store_id)
             for client_id in client_ids:
                 service_names = self.registry.get_all_service_names(client_id)
                 for name in service_names:
@@ -805,7 +835,7 @@ class MCPStore:
             }
         # 2. store传普通 client_id，只查该 client_id 下的服务健康状态
         if not agent_mode and id:
-            if id == self.client_manager.main_client_id:
+            if id == self.client_manager.global_agent_store_id:
                 return {
                     "orchestrator_status": "running",
                     "active_services": 0,
@@ -907,7 +937,7 @@ class MCPStore:
     async def get_service_info(self, name: str, agent_id: Optional[str] = None) -> ServiceInfoResponse:
         """
         获取服务详细信息（严格按上下文隔离）：
-        - 未传 agent_id：仅在 main_client 下所有 client_id 中查找服务
+        - 未传 agent_id：仅在 global_agent_store 下所有 client_id 中查找服务
         - 传 agent_id：仅在该 agent_id 下所有 client_id 中查找服务
 
         优先级：按client_id顺序返回第一个匹配的服务
@@ -917,8 +947,8 @@ class MCPStore:
 
         # 严格按上下文获取要查找的 client_ids
         if not agent_id:
-            # Store上下文：只查找main_client下的服务
-            client_ids = client_manager.get_agent_clients(self.client_manager.main_client_id)
+            # Store上下文：只查找global_agent_store下的服务
+            client_ids = client_manager.get_agent_clients(self.client_manager.global_agent_store_id)
             context_type = "store"
         else:
             # Agent上下文：只查找指定agent下的服务
@@ -955,7 +985,7 @@ class MCPStore:
                     url=config.get("url", ""),
                     name=name,
                     transport_type=self._infer_transport_type(config),
-                    status="healthy" if is_healthy else "unhealthy",
+                    status="healthy" if is_healthy else "unreachable",
                     tool_count=len(service_tools),
                     keep_alive=config.get("keep_alive", False),
                     working_dir=config.get("working_dir"),
@@ -1014,15 +1044,15 @@ class MCPStore:
     async def list_services(self, id: Optional[str] = None, agent_mode: bool = False) -> List[ServiceInfo]:
         """
         获取服务列表：
-        - store未传id 或 id==main_client：聚合 main_client 下所有 client_id 的服务
+        - store未传id 或 id==global_agent_store：聚合 global_agent_store 下所有 client_id 的服务
         - store传普通 client_id：只查该 client_id 下的服务
         - agent级别：聚合 agent_id 下所有 client_id 的服务；如果 id 不是 agent_id，尝试作为 client_id 查
         """
         from mcpstore.core.client_manager import ClientManager
         client_manager: ClientManager = self.client_manager
         services_info = []
-        # 1. store未传id 或 id==main_client，聚合 main_client 下所有 client_id 的服务
-        if not agent_mode and (not id or id == self.client_manager.main_client_id):
+        # 1. store未传id 或 id==global_agent_store，聚合 global_agent_store 下所有 client_id 的服务
+        if not agent_mode and (not id or id == self.client_manager.global_agent_store_id):
             # 修改：从配置文件获取所有服务，而不仅仅是已连接的服务
             all_configured_services = self.config.get_all_services()
 
@@ -1030,24 +1060,47 @@ class MCPStore:
                 name = service_config["name"]
                 config = {k: v for k, v in service_config.items() if k != "name"}
 
-                # 查找包含此服务的client_id
-                client_ids = client_manager.get_agent_clients(self.client_manager.main_client_id)
-                client_id = None
-                for cid in client_ids:
-                    if self.registry.has_service(cid, name):
-                        client_id = cid
-                        break
+                # 🔧 修复：优先通过client_manager查找（基于配置文件），因为它能找到刚添加但还未连接的服务
+                found_client_ids = client_manager.find_clients_with_service(self.client_manager.global_agent_store_id, name)
+                if found_client_ids:
+                    client_id = found_client_ids[0]  # 使用第一个找到的client_id
+                else:
+                    # 备用方案：通过registry查找（基于注册状态）
+                    client_ids = client_manager.get_agent_clients(self.client_manager.global_agent_store_id)
+                    client_id = None
+                    for cid in client_ids:
+                        if self.registry.has_service(cid, name):
+                            client_id = cid
+                            break
 
-                # 如果没有找到client_id，使用main_client_id作为默认值
-                if not client_id:
-                    client_id = self.client_manager.main_client_id
+                    # 最后的默认值：使用global_agent_store_id
+                    if not client_id:
+                        client_id = self.client_manager.global_agent_store_id
 
                 # 获取服务详情（可能为空，如果服务未连接）
                 details = self.registry.get_service_details(client_id, name) if client_id else {}
 
-                # 获取生命周期状态和元数据
-                service_state = self.orchestrator.lifecycle_manager.get_service_state(client_id, name)
-                state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(client_id, name)
+                # 🔧 修复：获取生命周期状态和元数据 - 需要查找实际存储状态的agent_id
+                service_state = None
+                state_metadata = None
+
+                # 如果找到了具体的client_id，使用它查询状态
+                if client_id and client_id != self.client_manager.global_agent_store_id:
+                    service_state = self.orchestrator.lifecycle_manager.get_service_state(client_id, name)
+                    state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(client_id, name)
+
+                # 如果没有找到状态，尝试在所有agent中查找
+                if service_state is None:
+                    for agent_id in self.orchestrator.lifecycle_manager.service_states:
+                        if name in self.orchestrator.lifecycle_manager.service_states[agent_id]:
+                            service_state = self.orchestrator.lifecycle_manager.get_service_state(agent_id, name)
+                            state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(agent_id, name)
+                            break
+
+                # 如果仍然没有找到，说明服务只在配置中存在，但未被激活
+                if service_state is None:
+                    from mcpstore.core.models.service import ServiceConnectionState
+                    service_state = ServiceConnectionState.INITIALIZING  # 配置中的服务，但未激活
 
                 service_info = ServiceInfo(
                     url=config.get("url", ""),
@@ -1071,7 +1124,7 @@ class MCPStore:
             return services_info
         # 2. store传普通 client_id，只查该 client_id 下的服务
         if not agent_mode and id:
-            if id == self.client_manager.main_client_id:
+            if id == self.client_manager.global_agent_store_id:
                 # 已在上面聚合分支处理，这里直接返回空
                 return services_info
             service_names = self.registry.get_all_service_names(id)
@@ -1079,9 +1132,20 @@ class MCPStore:
                 details = self.registry.get_service_details(id, name)
                 config = self.config.get_service_config(name) or {}
 
-                # 获取生命周期状态和元数据
+                # 🔧 修复：获取生命周期状态和元数据 - 使用正确的agent_id
                 service_state = self.orchestrator.lifecycle_manager.get_service_state(id, name)
                 state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(id, name)
+
+                # 如果没有找到状态，尝试在所有agent中查找
+                if service_state is None:
+                    from mcpstore.core.models.service import ServiceConnectionState
+                    for agent_id in self.orchestrator.lifecycle_manager.service_states:
+                        if name in self.orchestrator.lifecycle_manager.service_states[agent_id]:
+                            service_state = self.orchestrator.lifecycle_manager.get_service_state(agent_id, name)
+                            state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(agent_id, name)
+                            break
+                    if service_state is None:
+                        service_state = ServiceConnectionState.INITIALIZING
 
                 service_info = ServiceInfo(
                     url=config.get("url", ""),
@@ -1108,14 +1172,44 @@ class MCPStore:
             client_ids = client_manager.get_agent_clients(id)
             if client_ids:
                 for client_id in client_ids:
-                    service_names = self.registry.get_all_service_names(client_id)
-                    for name in service_names:
-                        details = self.registry.get_service_details(client_id, name)
-                        config = self.config.get_service_config(name) or {}
+                    # 🔧 修复：优先从client配置文件获取服务，因为registry可能还没有注册
+                    client_config = client_manager.get_client_config(client_id)
+                    if client_config and "mcpServers" in client_config:
+                        service_names = list(client_config["mcpServers"].keys())
+                    else:
+                        # 备用方案：从registry获取
+                        service_names = self.registry.get_all_service_names(client_id)
 
-                        # 获取生命周期状态和元数据
+                    for name in service_names:
+                        # 🔧 修复：优先从配置文件获取服务详情，registry作为补充
+                        config = self.config.get_service_config(name) or {}
+                        if client_config and name in client_config.get("mcpServers", {}):
+                            # 从client配置获取详情
+                            service_config = client_config["mcpServers"][name]
+                            details = {
+                                "url": service_config.get("url", ""),
+                                "command": service_config.get("command", ""),
+                                "args": service_config.get("args", []),
+                                "transport_type": service_config.get("transport", "streamable-http")
+                            }
+                        else:
+                            # 备用方案：从registry获取
+                            details = self.registry.get_service_details(client_id, name)
+
+                        # 🔧 修复：获取生命周期状态和元数据 - 使用正确的client_id
                         service_state = self.orchestrator.lifecycle_manager.get_service_state(client_id, name)
                         state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(client_id, name)
+
+                        # 如果没有找到状态，尝试在所有agent中查找
+                        if service_state is None:
+                            from mcpstore.core.models.service import ServiceConnectionState
+                            for agent_id in self.orchestrator.lifecycle_manager.service_states:
+                                if name in self.orchestrator.lifecycle_manager.service_states[agent_id]:
+                                    service_state = self.orchestrator.lifecycle_manager.get_service_state(agent_id, name)
+                                    state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(agent_id, name)
+                                    break
+                            if service_state is None:
+                                service_state = ServiceConnectionState.INITIALIZING
 
                         service_info = ServiceInfo(
                             url=config.get("url", ""),
@@ -1143,9 +1237,20 @@ class MCPStore:
                     details = self.registry.get_service_details(id, name)
                     config = self.config.get_service_config(name) or {}
 
-                    # 获取生命周期状态和元数据
+                    # 🔧 修复：获取生命周期状态和元数据 - 使用正确的agent_id
                     service_state = self.orchestrator.lifecycle_manager.get_service_state(id, name)
                     state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(id, name)
+
+                    # 如果没有找到状态，尝试在所有agent中查找
+                    if service_state is None:
+                        from mcpstore.core.models.service import ServiceConnectionState
+                        for agent_id in self.orchestrator.lifecycle_manager.service_states:
+                            if name in self.orchestrator.lifecycle_manager.service_states[agent_id]:
+                                service_state = self.orchestrator.lifecycle_manager.get_service_state(agent_id, name)
+                                state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(agent_id, name)
+                                break
+                        if service_state is None:
+                            service_state = ServiceConnectionState.INITIALIZING
 
                     service_info = ServiceInfo(
                         url=config.get("url", ""),
@@ -1172,16 +1277,16 @@ class MCPStore:
     async def list_tools(self, id: Optional[str] = None, agent_mode: bool = False) -> List[ToolInfo]:
         """
         列出工具列表：
-        - store未传id 或 id==main_client：聚合 main_client 下所有 client_id 的工具
+        - store未传id 或 id==global_agent_store：聚合 global_agent_store 下所有 client_id 的工具
         - store传普通 client_id：只查该 client_id 下的工具
         - agent级别：聚合 agent_id 下所有 client_id 的工具；如果 id 不是 agent_id，尝试作为 client_id 查
         """
         from mcpstore.core.client_manager import ClientManager
         client_manager: ClientManager = self.client_manager
         tools = []
-        # 1. store未传id 或 id==main_client，聚合 main_client 下所有 client_id 的工具
-        if not agent_mode and (not id or id == self.client_manager.main_client_id):
-            client_ids = client_manager.get_agent_clients(self.client_manager.main_client_id)
+        # 1. store未传id 或 id==global_agent_store，聚合 global_agent_store 下所有 client_id 的工具
+        if not agent_mode and (not id or id == self.client_manager.global_agent_store_id):
+            client_ids = client_manager.get_agent_clients(self.client_manager.global_agent_store_id)
             for client_id in client_ids:
                 tool_dicts = self.registry.get_all_tool_info(client_id)
                 for tool in tool_dicts:
@@ -1197,7 +1302,7 @@ class MCPStore:
             return tools
         # 2. store传普通 client_id，只查该 client_id 下的工具
         if not agent_mode and id:
-            if id == self.client_manager.main_client_id:
+            if id == self.client_manager.global_agent_store_id:
                 return tools
             tool_dicts = self.registry.get_all_tool_info(id)
             for tool in tool_dicts:
@@ -1270,9 +1375,14 @@ class MCPStore:
         # store级别
         if agent_id is None:
             if not service_names:
-                # 全量注册
-                resp = await self.register_all_services_for_store()
-                return bool(resp and resp.service_names)
+                # 全量注册：使用统一同步机制
+                if hasattr(self.orchestrator, 'sync_manager') and self.orchestrator.sync_manager:
+                    sync_results = await self.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
+                    return bool(sync_results.get("added") or sync_results.get("updated"))
+                else:
+                    # 回退到旧方法（带警告）
+                    resp = await self.register_all_services_for_store()
+                    return bool(resp and resp.service_names)
             else:
                 # 支持单独添加服务
                 resp = await self.register_selected_services_for_store(service_names)

@@ -27,13 +27,12 @@ class ServiceRegistry:
     - self.tool_cache: Dict[agent_id, Dict[tool_name, tool_def]]
     - self.tool_to_session_map: Dict[agent_id, Dict[tool_name, session]]
     - self.service_health: Dict[agent_id, Dict[service_name, last_heartbeat]]
-    所有操作都必须带 agent_id，store 级别用 main_client，agent 级别用实际 agent_id。
+    所有操作都必须带 agent_id，store 级别用 global_agent_store，agent 级别用实际 agent_id。
     """
     def __init__(self):
         # agent_id -> {service_name: session}
         self.sessions: Dict[str, Dict[str, Any]] = {}
-        # 旧的服务健康状态已被ServiceLifecycleManager替代
-        # self.service_health: Dict[str, Dict[str, datetime]] = {}  # 已废弃
+        # 服务健康状态管理已移至ServiceLifecycleManager
         # agent_id -> {tool_name: tool_definition}
         self.tool_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}
         # agent_id -> {tool_name: session}
@@ -55,7 +54,7 @@ class ServiceRegistry:
         只影响该 agent_id 下的服务、工具、会话，不影响其它 agent。
         """
         self.sessions.pop(agent_id, None)
-        # self.service_health.pop(agent_id, None)  # 已废弃
+        # 健康状态由ServiceLifecycleManager管理
         self.tool_cache.pop(agent_id, None)
         self.tool_to_session_map.pop(agent_id, None)
 

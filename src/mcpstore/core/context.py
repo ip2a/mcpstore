@@ -12,7 +12,7 @@ from mcpstore.core.models.agent import (
     AgentsSummary, AgentStatistics, AgentServiceSummary
 )
 from mcpstore.core.models.service import (
-    ServiceInfo, ServiceConfigUnion
+    ServiceInfo, ServiceConfigUnion, ServiceConnectionState
 )
 from mcpstore.core.models.tool import ToolExecutionRequest, ToolInfo
 
@@ -26,6 +26,7 @@ from .monitoring_analytics import get_monitoring_manager
 from .openapi_integration import get_openapi_manager
 # 导入新功能模块
 from .tool_transformation import get_transformation_manager
+from .agent_service_mapper import AgentServiceMapper
 
 # 创建logger实例
 logger = logging.getLogger(__name__)
@@ -75,6 +76,9 @@ class MCPStoreContext:
             self._store.tool_record_retention_days
         )
 
+        # Agent服务名称映射器
+        self._service_mapper = AgentServiceMapper(agent_id) if agent_id else None
+
         # 扩展预留
         self._metadata: Dict[str, Any] = {}
         self._config: Dict[str, Any] = {}
@@ -89,7 +93,7 @@ class MCPStoreContext:
     def list_services(self) -> List[ServiceInfo]:
         """
         列出服务列表（同步版本）
-        - store上下文：聚合 main_client 下所有 client_id 的服务
+        - store上下文：聚合 global_agent_store 下所有 client_id 的服务
         - agent上下文：聚合 agent_id 下所有 client_id 的服务
         """
         return self._sync_helper.run_async(self.list_services_async())
@@ -97,13 +101,21 @@ class MCPStoreContext:
     async def list_services_async(self) -> List[ServiceInfo]:
         """
         列出服务列表（异步版本）
-        - store上下文：聚合 main_client 下所有 client_id 的服务
-        - agent上下文：聚合 agent_id 下所有 client_id 的服务
+        - store上下文：聚合 global_agent_store 下所有 client_id 的服务
+        - agent上下文：聚合 agent_id 下所有 client_id 的服务（显示原始名称）
         """
         if self._context_type == ContextType.STORE:
             return await self._store.list_services()
         else:
-            return await self._store.list_services(self._agent_id, agent_mode=True)
+            # Agent模式：获取全局服务列表，然后转换为本地名称
+            global_services = await self._store.list_services(self._agent_id, agent_mode=True)
+
+            # 使用映射器转换为本地名称
+            if self._service_mapper:
+                local_services = self._service_mapper.convert_service_list_to_local(global_services)
+                return local_services
+            else:
+                return global_services
 
     def add_service(self, config: Union[ServiceConfigUnion, List[str], None] = None, json_file: str = None) -> 'MCPStoreContext':
         """
@@ -364,20 +376,23 @@ class MCPStoreContext:
             raise
 
         try:
-            # 获取正确的 agent_id（Store级别使用main_client作为agent_id）
-            agent_id = self._agent_id if self._context_type == ContextType.AGENT else self._store.orchestrator.client_manager.main_client_id
+            # 获取正确的 agent_id（Store级别使用global_agent_store作为agent_id）
+            agent_id = self._agent_id if self._context_type == ContextType.AGENT else self._store.orchestrator.client_manager.global_agent_store_id
             logger.info(f"当前模式: {self._context_type.name}, agent_id: {agent_id}")
             
             # 处理不同的输入格式
             if config is None:
                 # Store模式下的全量注册
                 if self._context_type == ContextType.STORE:
-                    logger.info("STORE模式-全量注册所有服务")
-                    resp = await self._store.register_all_services_for_store()
-                    logger.info(f"注册结果: {resp}")
-                    if not (resp and resp.service_names):
-                        raise Exception("服务注册失败")
-                    # 无参数注册完成，直接返回
+                    logger.info("STORE模式-使用统一同步机制注册所有服务")
+                    # 🔧 修改：使用统一同步机制，不再手动注册
+                    if hasattr(self._store.orchestrator, 'sync_manager') and self._store.orchestrator.sync_manager:
+                        results = await self._store.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
+                        logger.info(f"同步结果: {results}")
+                        if not (results.get("added") or results.get("updated")):
+                            logger.warning("没有服务被同步，可能mcp.json为空或所有服务已是最新")
+                    else:
+                        logger.warning("统一同步管理器不可用，跳过同步")
                     return self
                 else:
                     logger.warning("AGENT模式-未指定服务配置")
@@ -445,8 +460,33 @@ class MCPStoreContext:
                     # 1. 加载现有配置
                     current_config = self._store.config.load_config()
 
+                    # 🔧 新增：Agent模式下为服务名添加后缀
+                    if self._context_type == ContextType.AGENT:
+                        # 为Agent添加的服务名添加后缀：{原服务名}by{agent_id}
+                        suffixed_services = {}
+                        for original_name, service_config in mcp_config["mcpServers"].items():
+                            suffixed_name = f"{original_name}by{self._agent_id}"
+                            suffixed_services[suffixed_name] = service_config
+                            logger.info(f"Agent服务名转换: {original_name} -> {suffixed_name}")
+
+                        # 检查转换后是否还有冲突（极少数情况）
+                        existing_services = set(current_config.get("mcpServers", {}).keys())
+                        new_suffixed_services = set(suffixed_services.keys())
+                        conflicts = new_suffixed_services & existing_services
+
+                        if conflicts:
+                            conflict_list = list(conflicts)
+                            logger.error(f"Agent {self._agent_id} 添加的服务在后缀转换后仍有冲突: {conflict_list}")
+                            raise Exception(f"服务名冲突（即使添加Agent后缀）: {conflict_list}。请使用不同的服务名。")
+
+                        # 使用转换后的服务名
+                        services_to_add = suffixed_services
+                    else:
+                        # Store模式：保持原服务名
+                        services_to_add = mcp_config["mcpServers"]
+
                     # 2. 合并新配置到mcp.json
-                    for name, service_config in mcp_config["mcpServers"].items():
+                    for name, service_config in services_to_add.items():
                         current_config["mcpServers"][name] = service_config
 
                     # 3. 保存更新后的配置
@@ -455,38 +495,52 @@ class MCPStoreContext:
                     # 4. 重新加载配置以确保同步
                     self._store.config.load_config()
 
-                    # 5. 处理同名服务替换（新增逻辑）
-                    created_client_ids = []
-                    for name, service_config in mcp_config["mcpServers"].items():
-                        # 使用新的同名服务处理逻辑
-                        success = self._store.client_manager.replace_service_in_agent(
-                            agent_id=agent_id,
-                            service_name=name,
-                            new_service_config=service_config
-                        )
-                        if not success:
-                            raise Exception(f"替换服务 {name} 失败")
-                        logger.info(f"成功处理同名服务: {name}")
+                    # 🔧 修改：Store模式使用统一同步机制，Agent模式保持原有逻辑
+                    if self._context_type == ContextType.STORE:
+                        # Store模式：主动触发同步，确保服务立即生效
+                        logger.info("Store模式：mcp.json已更新，主动触发同步机制处理global_agent_store")
 
-                        # 获取刚创建的client_id用于Registry注册
-                        client_ids = self._store.client_manager.get_agent_clients(agent_id)
-                        for client_id in client_ids:
-                            client_config = self._store.client_manager.get_client_config(client_id)
-                            if client_config and name in client_config.get("mcpServers", {}):
-                                if client_id not in created_client_ids:
-                                    created_client_ids.append(client_id)
-                                break
-
-                    # 6. 注册服务到Registry（使用已创建的client配置）
-                    logger.info(f"注册服务到Registry，使用client_ids: {created_client_ids}")
-                    for client_id in created_client_ids:
-                        client_config = self._store.client_manager.get_client_config(client_id)
-                        if client_config:
+                        # 🔧 修复：主动触发同步而不是等待文件监听器
+                        if hasattr(self._store.orchestrator, 'sync_manager') and self._store.orchestrator.sync_manager:
                             try:
-                                await self._store.orchestrator.register_json_services(client_config, client_id=client_id)
-                                logger.info(f"成功注册client {client_id} 到Registry")
+                                sync_result = await self._store.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
+                                logger.info(f"Store模式同步完成: {sync_result}")
                             except Exception as e:
-                                logger.warning(f"注册client {client_id} 到Registry失败: {e}")
+                                logger.error(f"Store模式同步失败: {e}")
+                                # 如果同步失败，仍然继续执行，让文件监听器作为备用机制
+                    else:
+                        # Agent模式：保持原有的手动注册逻辑，但使用转换后的服务名
+                        created_client_ids = []
+                        for suffixed_name, service_config in services_to_add.items():
+                            # 使用转换后的服务名进行注册
+                            success = self._store.client_manager.replace_service_in_agent(
+                                agent_id=agent_id,
+                                service_name=suffixed_name,
+                                new_service_config=service_config
+                            )
+                            if not success:
+                                raise Exception(f"替换服务 {suffixed_name} 失败")
+                            logger.info(f"成功处理Agent服务: {suffixed_name}")
+
+                            # 获取刚创建的client_id用于Registry注册
+                            client_ids = self._store.client_manager.get_agent_clients(agent_id)
+                            for client_id in client_ids:
+                                client_config = self._store.client_manager.get_client_config(client_id)
+                                if client_config and suffixed_name in client_config.get("mcpServers", {}):
+                                    if client_id not in created_client_ids:
+                                        created_client_ids.append(client_id)
+                                    break
+
+                        # 注册服务到Registry（使用已创建的client配置）
+                        logger.info(f"注册服务到Registry，使用client_ids: {created_client_ids}")
+                        for client_id in created_client_ids:
+                            client_config = self._store.client_manager.get_client_config(client_id)
+                            if client_config:
+                                try:
+                                    await self._store.orchestrator.register_json_services(client_config, client_id=client_id)
+                                    logger.info(f"成功注册client {client_id} 到Registry")
+                                except Exception as e:
+                                    logger.warning(f"注册client {client_id} 到Registry失败: {e}")
 
                     logger.info(f"服务配置更新和Registry注册完成")
 
@@ -505,7 +559,7 @@ class MCPStoreContext:
     def list_tools(self) -> List[ToolInfo]:
         """
         列出工具列表（同步版本）
-        - store上下文：聚合 main_client 下所有 client_id 的工具
+        - store上下文：聚合 global_agent_store 下所有 client_id 的工具
         - agent上下文：聚合 agent_id 下所有 client_id 的工具
         """
         return self._sync_helper.run_async(self.list_tools_async())
@@ -513,13 +567,45 @@ class MCPStoreContext:
     async def list_tools_async(self) -> List[ToolInfo]:
         """
         列出工具列表（异步版本）
-        - store上下文：聚合 main_client 下所有 client_id 的工具
-        - agent上下文：聚合 agent_id 下所有 client_id 的工具
+        - store上下文：聚合 global_agent_store 下所有 client_id 的工具
+        - agent上下文：聚合 agent_id 下所有 client_id 的工具（显示本地名称）
         """
         if self._context_type == ContextType.STORE:
             return await self._store.list_tools()
         else:
-            return await self._store.list_tools(self._agent_id, agent_mode=True)
+            # Agent模式：获取全局工具列表，然后转换为本地名称
+            global_tools = await self._store.list_tools(self._agent_id, agent_mode=True)
+
+            # 使用映射器转换工具名称为本地名称
+            if self._service_mapper:
+                local_tools = []
+                for tool in global_tools:
+                    # 检查工具是否属于当前Agent
+                    if self._service_mapper.is_agent_service(tool.service_name):
+                        # 转换服务名为本地名称
+                        local_service_name = self._service_mapper.to_local_name(tool.service_name)
+
+                        # 转换工具名为本地名称
+                        if tool.name.startswith(f"{tool.service_name}_"):
+                            tool_suffix = tool.name[len(tool.service_name) + 1:]
+                            local_tool_name = f"{local_service_name}_{tool_suffix}"
+                        else:
+                            # 🔧 修复：如果工具名不符合预期格式，保持原名但记录警告
+                            local_tool_name = tool.name
+                            logger.debug(f"Tool name '{tool.name}' doesn't follow expected format for service '{tool.service_name}'")
+
+                        # 创建新的ToolInfo对象，使用本地名称
+                        local_tool = ToolInfo(
+                            name=local_tool_name,
+                            description=tool.description,
+                            service_name=local_service_name,
+                            inputSchema=tool.inputSchema
+                        )
+                        local_tools.append(local_tool)
+
+                return local_tools
+            else:
+                return global_tools
 
     def get_tools_with_stats(self) -> Dict[str, Any]:
         """
@@ -687,7 +773,7 @@ class MCPStoreContext:
     def check_services(self) -> dict:
         """
         健康检查（同步版本），store/agent上下文自动判断
-        - store上下文：聚合 main_client 下所有 client_id 的服务健康状态
+        - store上下文：聚合 global_agent_store 下所有 client_id 的服务健康状态
         - agent上下文：聚合 agent_id 下所有 client_id 的服务健康状态
         """
         return self._sync_helper.run_async(self.check_services_async())
@@ -695,7 +781,7 @@ class MCPStoreContext:
     async def check_services_async(self) -> dict:
         """
         异步健康检查，store/agent上下文自动判断
-        - store上下文：聚合 main_client 下所有 client_id 的服务健康状态
+        - store上下文：聚合 global_agent_store 下所有 client_id 的服务健康状态
         - agent上下文：聚合 agent_id 下所有 client_id 的服务健康状态
         """
         if self._context_type.name == 'STORE':
@@ -709,7 +795,7 @@ class MCPStoreContext:
     def get_service_info(self, name: str) -> Any:
         """
         获取服务详情（同步版本），支持 store/agent 上下文
-        - store上下文：在 main_client 下的所有 client 中查找服务
+        - store上下文：在 global_agent_store 下的所有 client 中查找服务
         - agent上下文：在指定 agent_id 下的所有 client 中查找服务
         """
         return self._sync_helper.run_async(self.get_service_info_async(name))
@@ -717,18 +803,23 @@ class MCPStoreContext:
     async def get_service_info_async(self, name: str) -> Any:
         """
         获取服务详情（异步版本），支持 store/agent 上下文
-        - store上下文：在 main_client 下的所有 client 中查找服务
-        - agent上下文：在指定 agent_id 下的所有 client 中查找服务
+        - store上下文：在 global_agent_store 下的所有 client 中查找服务
+        - agent上下文：在指定 agent_id 下的所有 client 中查找服务（支持本地名称）
         """
         if not name:
             return {}
 
         if self._context_type == ContextType.STORE:
-            print(f"[INFO][get_service_info] STORE模式-在main_client中查找服务: {name}")
+            print(f"[INFO][get_service_info] STORE模式-在global_agent_store中查找服务: {name}")
             return await self._store.get_service_info(name)
         elif self._context_type == ContextType.AGENT:
-            print(f"[INFO][get_service_info] AGENT模式-在agent({self._agent_id})中查找服务: {name}")
-            return await self._store.get_service_info(name, self._agent_id)
+            # Agent模式：将本地名称转换为全局名称进行查找
+            global_name = name
+            if self._service_mapper:
+                global_name = self._service_mapper.to_global_name(name)
+
+            print(f"[INFO][get_service_info] AGENT模式-在agent({self._agent_id})中查找服务: {name} (global: {global_name})")
+            return await self._store.get_service_info(global_name, self._agent_id)
         else:
             print(f"[ERROR][get_service_info] 未知上下文类型: {self._context_type}")
             return {}
@@ -780,14 +871,31 @@ class MCPStoreContext:
 
             # 构建工具信息，包含显示名称和原始名称
             for tool in tools:
-                # 现在 tool.name 就是显示名称
-                display_name = tool.name
-                original_name = self._extract_original_tool_name(display_name, tool.service_name)
+                # Agent模式：需要转换服务名称为本地名称
+                if self._context_type == ContextType.AGENT and self._service_mapper:
+                    # 转换服务名为本地名称
+                    local_service_name = self._service_mapper.to_local_name(tool.service_name)
+                    # 构建本地工具名称
+                    if tool.name.startswith(f"{tool.service_name}_"):
+                        tool_suffix = tool.name[len(tool.service_name) + 1:]
+                        local_tool_name = f"{local_service_name}_{tool_suffix}"
+                    else:
+                        local_tool_name = tool.name
+
+                    display_name = local_tool_name
+                    service_name = local_service_name
+                else:
+                    display_name = tool.name
+                    service_name = tool.service_name
+
+                original_name = self._extract_original_tool_name(display_name, service_name)
 
                 available_tools.append({
-                    "name": display_name,           # 显示名称（如：mcpstore-demo-weather_get_current_weather）
-                    "original_name": original_name, # 原始名称（如：get_current_weather）
-                    "service_name": tool.service_name
+                    "name": display_name,           # 显示名称（Agent模式下使用本地名称）
+                    "original_name": original_name, # 原始名称
+                    "service_name": service_name,   # 服务名称（Agent模式下使用本地名称）
+                    "global_tool_name": tool.name,  # 保存全局工具名称用于实际调用
+                    "global_service_name": tool.service_name  # 保存全局服务名称
                 })
 
             logger.debug(f"Available tools for resolution: {len(available_tools)}")
@@ -815,10 +923,23 @@ class MCPStoreContext:
                 **kwargs
             )
         else:
-            logger.info(f"[AGENT:{self._agent_id}] Executing tool: {resolution.original_tool_name} from service: {resolution.service_name}")
+            # Agent模式：需要使用全局服务名称进行实际调用
+            # 但在日志中显示本地名称以便用户理解
+            global_service_name = resolution.service_name
+            if self._service_mapper:
+                # 检查resolution.service_name是否是本地名称，如果是则转换为全局名称
+                # 通过检查是否以agent_id结尾来判断是否已经是全局名称
+                if not resolution.service_name.endswith(f"by{self._agent_id}"):
+                    # 是本地名称，需要转换为全局名称
+                    global_service_name = self._service_mapper.to_global_name(resolution.service_name)
+                else:
+                    # 已经是全局名称，直接使用
+                    global_service_name = resolution.service_name
+
+            logger.info(f"[AGENT:{self._agent_id}] Executing tool: {resolution.original_tool_name} from service: {resolution.service_name} (global: {global_service_name})")
             request = ToolExecutionRequest(
                 tool_name=resolution.original_tool_name,
-                service_name=resolution.service_name,
+                service_name=global_service_name,  # 使用全局服务名称
                 args=args,
                 agent_id=self._agent_id,
                 **kwargs
@@ -947,11 +1068,15 @@ class MCPStoreContext:
         # 第二步：重新注册服务（失败不影响第一步）
         try:
             if self._context_type == ContextType.STORE:
-                # Store级别：重新注册所有服务
-                registration_result = await self._store.register_all_services_for_store()
-                result["step2_service_registration"] = registration_result.success
-                if not result["step2_service_registration"]:
-                    result["step2_error"] = registration_result.message
+                # Store级别：使用统一同步机制重新注册所有服务
+                if hasattr(self._store.orchestrator, 'sync_manager') and self._store.orchestrator.sync_manager:
+                    sync_results = await self._store.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
+                    result["step2_service_registration"] = bool(sync_results.get("added") or sync_results.get("updated"))
+                    if not result["step2_service_registration"]:
+                        result["step2_error"] = f"同步失败: {sync_results.get('failed', [])}"
+                else:
+                    result["step2_service_registration"] = False
+                    result["step2_error"] = "统一同步管理器不可用"
             else:
                 # Agent级别：重新注册该Agent的服务
                 service_names = list(config.get("mcpServers", {}).keys())
@@ -1023,10 +1148,10 @@ class MCPStoreContext:
             # 3. 获取需要更新的 client_ids
             if self._context_type == ContextType.STORE:
                 # store 级别：更新所有 client
-                client_ids = self._store.orchestrator.client_manager.get_main_client_ids()
+                client_ids = self._store.orchestrator.client_manager.get_global_agent_store_ids()
             else:
                 # agent 级别：同样更新所有配置
-                client_ids = self._store.orchestrator.client_manager.get_main_client_ids()
+                client_ids = self._store.orchestrator.client_manager.get_global_agent_store_ids()
             
             # 4. 更新每个 client 的配置
             for client_id in client_ids:
@@ -1106,7 +1231,7 @@ class MCPStoreContext:
             # 2. 根据上下文确定删除范围
             if self._context_type == ContextType.STORE:
                 # store 级别：删除所有 client 中的服务并更新 mcp.json
-                client_ids = self._store.orchestrator.client_manager.get_main_client_ids()
+                client_ids = self._store.orchestrator.client_manager.get_global_agent_store_ids()
                 
                 # 从 mcp.json 中删除
                 if not self._store.config.remove_service(name):
@@ -1187,7 +1312,7 @@ class MCPStoreContext:
         try:
             if self._context_type == ContextType.STORE:
                 # Store级别：从所有client中注销服务
-                client_ids = self._store.orchestrator.client_manager.get_main_client_ids()
+                client_ids = self._store.orchestrator.client_manager.get_global_agent_store_ids()
 
                 unregistration_success = True
                 for client_id in client_ids:
@@ -1238,7 +1363,7 @@ class MCPStoreContext:
     async def reset_config_async(self) -> bool:
         """
         重置配置（链式操作）
-        - Store级别：重置main_client的配置，并从文件中删除相关配置
+        - Store级别：重置global_agent_store的配置，并从文件中删除相关配置
         - Agent级别：重置指定Agent的配置，并从文件中删除相关配置
 
         Returns:
@@ -1247,23 +1372,23 @@ class MCPStoreContext:
         try:
             if self._agent_id is None:
                 # Store级别重置
-                main_client_id = self._store.orchestrator.client_manager.main_client_id
+                global_agent_store_id = self._store.orchestrator.client_manager.global_agent_store_id
 
                 # 1. 清理registry中的store级别数据
-                if main_client_id in self._store.orchestrator.registry.sessions:
-                    del self._store.orchestrator.registry.sessions[main_client_id]
-                if main_client_id in self._store.orchestrator.registry.service_health:
-                    del self._store.orchestrator.registry.service_health[main_client_id]
-                if main_client_id in self._store.orchestrator.registry.tool_cache:
-                    del self._store.orchestrator.registry.tool_cache[main_client_id]
-                if main_client_id in self._store.orchestrator.registry.tool_to_session_map:
-                    del self._store.orchestrator.registry.tool_to_session_map[main_client_id]
+                if global_agent_store_id in self._store.orchestrator.registry.sessions:
+                    del self._store.orchestrator.registry.sessions[global_agent_store_id]
+                if global_agent_store_id in self._store.orchestrator.registry.service_health:
+                    del self._store.orchestrator.registry.service_health[global_agent_store_id]
+                if global_agent_store_id in self._store.orchestrator.registry.tool_cache:
+                    del self._store.orchestrator.registry.tool_cache[global_agent_store_id]
+                if global_agent_store_id in self._store.orchestrator.registry.tool_to_session_map:
+                    del self._store.orchestrator.registry.tool_to_session_map[global_agent_store_id]
 
                 # 2. 清理重连队列
-                self._cleanup_reconnection_queue_for_client(main_client_id)
+                self._cleanup_reconnection_queue_for_client(global_agent_store_id)
 
                 # 3. 从文件中删除Store相关配置
-                file_success = self._store.orchestrator.client_manager.remove_store_from_files(main_client_id)
+                file_success = self._store.orchestrator.client_manager.remove_store_from_files(global_agent_store_id)
 
                 if file_success:
                     logging.info("Successfully reset store config, registry and files")
@@ -1381,7 +1506,7 @@ class MCPStoreContext:
                 # 简单的重连尝试
                 try:
                     # 获取当前上下文的client_id
-                    agent_id = self._agent_id if self._context_type == ContextType.AGENT else self._store.orchestrator.client_manager.main_client_id
+                    agent_id = self._agent_id if self._context_type == ContextType.AGENT else self._store.orchestrator.client_manager.global_agent_store_id
                     client_ids = self._store.orchestrator.client_manager.get_agent_clients(agent_id)
 
                     for client_id in client_ids:
@@ -1905,13 +2030,18 @@ class MCPStoreContext:
             AgentStatistics: Agent统计信息
         """
         try:
-            # 获取Agent的服务和工具
-            agent_context = self._store.for_agent(agent_id)
-            services = await agent_context.list_services_async()
-            tools = await agent_context.list_tools_async()
-
-            # 获取服务健康状态
-            health_status = await agent_context.check_services_async()
+            # 🔧 修复：global_agent_store 使用Store模式，其他Agent使用Agent模式
+            if agent_id == self._store.client_manager.global_agent_store_id:
+                # global_agent_store 使用Store模式的服务、工具列表和健康检查
+                services = await self._store.list_services()
+                tools = await self._store.list_tools()
+                health_status = await self.check_services_async()
+            else:
+                # 普通Agent使用Agent模式
+                agent_context = self._store.for_agent(agent_id)
+                services = await agent_context.list_services_async()
+                tools = await agent_context.list_tools_async()
+                health_status = await agent_context.check_services_async()
             healthy_count = 0
             unhealthy_count = 0
 
@@ -1984,6 +2114,16 @@ class MCPStoreContext:
                 service_state = self._store.orchestrator.lifecycle_manager.get_service_state(agent_id, service.name)
                 state_metadata = self._store.orchestrator.lifecycle_manager.get_service_metadata(agent_id, service.name)
 
+                # 🔧 修复：确保service_state不为None，提供默认值
+                if service_state is None:
+                    # 如果没有状态记录，根据服务健康状况设置默认状态
+                    if service_status == "healthy":
+                        service_state = ServiceConnectionState.HEALTHY
+                    elif service_status == "unhealthy":
+                        service_state = ServiceConnectionState.UNREACHABLE
+                    else:
+                        service_state = ServiceConnectionState.INITIALIZING
+
                 service_summaries.append(AgentServiceSummary(
                     service_name=service.name,
                     service_type=service_type,
@@ -1995,7 +2135,6 @@ class MCPStoreContext:
                 ))
 
             # 统计健康和不健康的服务（基于新的7状态）
-            from mcpstore.core.models.service import ServiceConnectionState
             healthy_count = 0
             unhealthy_count = 0
             for service_summary in service_summaries:

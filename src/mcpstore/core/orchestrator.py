@@ -23,7 +23,7 @@ from mcpstore.core.local_service_manager import get_local_service_manager
 from fastmcp import Client
 from mcpstore.config.json_config import MCPConfig
 from mcpstore.core.session_manager import SessionManager
-# from mcpstore.core.smart_reconnection import SmartReconnectionManager  # 已废弃
+# 已移除：SmartReconnectionManager已被ServiceLifecycleManager完全替代
 from mcpstore.core.health_manager import get_health_manager, HealthStatus, HealthCheckResult
 from mcpstore.core.service_lifecycle_manager import ServiceLifecycleManager
 from mcpstore.core.service_content_manager import ServiceContentManager
@@ -38,7 +38,7 @@ class MCPOrchestrator:
     负责管理服务连接、工具调用和查询处理。
     """
 
-    def __init__(self, config: Dict[str, Any], registry: ServiceRegistry, standalone_config_manager=None, client_services_path=None, mcp_config=None):
+    def __init__(self, config: Dict[str, Any], registry: ServiceRegistry, standalone_config_manager=None, client_services_path=None, agent_clients_path=None, mcp_config=None):
         """
         初始化MCP编排器
 
@@ -47,31 +47,31 @@ class MCPOrchestrator:
             registry: 服务注册表实例
             standalone_config_manager: 独立配置管理器（可选）
             client_services_path: 客户端服务配置文件路径（可选，用于数据空间）
+            agent_clients_path: Agent客户端映射文件路径（可选，用于数据空间）
             mcp_config: MCPConfig实例（可选，用于数据空间）
         """
         self.config = config
         self.registry = registry
         self.clients: Dict[str, Client] = {}  # key为mcpServers的服务名
-        self.main_client: Optional[Client] = None
-        self.main_client_ctx = None  # async context manager for main_client
-        self.main_config = {"mcpServers": {}}  # 中央配置
+        self.global_agent_store: Optional[Client] = None
+        self.global_agent_store_ctx = None  # async context manager for global_agent_store
+        self.global_agent_store_config = {"mcpServers": {}}  # 中央配置
         self.agent_clients: Dict[str, Client] = {}  # agent_id -> client映射
-        # 旧的智能重连管理器已被ServiceLifecycleManager替代
-        # self.smart_reconnection = SmartReconnectionManager()  # 已废弃
+        # 智能重连功能已集成到ServiceLifecycleManager中
         self.react_agent = None
 
         # 🔧 新增：独立配置管理器
         self.standalone_config_manager = standalone_config_manager
+
+        # 🔧 新增：统一同步管理器
+        self.sync_manager = None
 
         # 旧的心跳和重连配置已被ServiceLifecycleManager替代
         timing_config = config.get("timing", {})
         # 保留http_timeout，其他配置已废弃
         self.http_timeout = int(timing_config.get("http_timeout_seconds", 10))
 
-        # 旧的监控任务已被ServiceLifecycleManager替代
-        # self.heartbeat_task = None      # 已废弃
-        # self.reconnection_task = None   # 已废弃
-        # self.cleanup_task = None        # 已废弃
+        # 监控任务已集成到ServiceLifecycleManager和ServiceContentManager中
 
         # 🔧 修改：根据是否有独立配置管理器或传入的mcp_config决定如何初始化MCPConfig
         if standalone_config_manager:
@@ -88,7 +88,11 @@ class MCPOrchestrator:
         # 保留一些配置以避免错误，但实际不再使用
 
         # 客户端管理器 - 支持数据空间
-        self.client_manager = ClientManager(services_path=client_services_path)
+        self.client_manager = ClientManager(
+            services_path=client_services_path,
+            agent_clients_path=agent_clients_path,
+            global_agent_store_id=None  # 使用默认的"global_agent_store"
+        )
 
         # 会话管理器
         self.session_manager = SessionManager()
@@ -110,6 +114,13 @@ class MCPOrchestrator:
 
     async def setup(self):
         """初始化编排器资源（不再做服务注册）"""
+        # 检查是否已经初始化
+        if (hasattr(self, 'lifecycle_manager') and
+            self.lifecycle_manager and
+            self.lifecycle_manager.is_running):
+            logger.info("MCP Orchestrator already set up, skipping...")
+            return
+
         logger.info("Setting up MCP Orchestrator...")
 
         # 初始化健康管理器配置
@@ -124,18 +135,92 @@ class MCPOrchestrator:
         # 启动内容管理器
         await self.content_manager.start()
 
+        # 🔧 新增：启动统一同步管理器
+        try:
+            logger.info("About to call _setup_sync_manager()...")
+            await self._setup_sync_manager()
+            logger.info("_setup_sync_manager() completed successfully")
+        except Exception as e:
+            logger.error(f"Exception in _setup_sync_manager(): {e}")
+            import traceback
+            logger.error(f"_setup_sync_manager() traceback: {traceback.format_exc()}")
+
         # 只做必要的资源初始化
-        logger.info("MCP Orchestrator setup completed with lifecycle and content management")
+        logger.info("MCP Orchestrator setup completed with lifecycle, content management and unified sync")
+
+    async def _setup_sync_manager(self):
+        """设置统一同步管理器"""
+        try:
+            logger.info(f"Setting up sync manager... standalone_config_manager={self.standalone_config_manager}")
+
+            # 检查是否已经启动
+            if hasattr(self, 'sync_manager') and self.sync_manager and self.sync_manager.is_running:
+                logger.info("Unified sync manager already running, skipping...")
+                return
+
+            # 只有在非独立配置模式下才启用文件监听同步
+            if not self.standalone_config_manager:
+                logger.info("Creating unified sync manager...")
+                from .unified_sync_manager import UnifiedMCPSyncManager
+                if not hasattr(self, 'sync_manager') or not self.sync_manager:
+                    logger.info("Initializing UnifiedMCPSyncManager...")
+                    self.sync_manager = UnifiedMCPSyncManager(self)
+                    logger.info("UnifiedMCPSyncManager created successfully")
+
+                logger.info("Starting sync manager...")
+                await self.sync_manager.start()
+                logger.info("Unified sync manager started successfully")
+            else:
+                logger.info("Standalone mode: sync manager disabled (no file watching)")
+        except Exception as e:
+            logger.error(f"Failed to setup sync manager: {e}")
+            import traceback
+            logger.error(f"Sync manager setup traceback: {traceback.format_exc()}")
+            # 不抛出异常，允许系统继续运行
+
+    async def cleanup(self):
+        """清理orchestrator资源"""
+        try:
+            logger.info("Cleaning up MCP Orchestrator...")
+
+            # 停止同步管理器
+            if self.sync_manager:
+                await self.sync_manager.stop()
+                self.sync_manager = None
+
+            # 停止生命周期管理器
+            if hasattr(self, 'lifecycle_manager') and self.lifecycle_manager:
+                await self.lifecycle_manager.stop()
+
+            # 停止内容管理器
+            if hasattr(self, 'content_manager') and self.content_manager:
+                await self.content_manager.stop()
+
+            logger.info("MCP Orchestrator cleanup completed")
+
+        except Exception as e:
+            logger.error(f"Error during orchestrator cleanup: {e}")
 
     async def shutdown(self):
         """关闭编排器并清理资源"""
         logger.info("Shutting down MCP Orchestrator...")
 
-        # 停止生命周期管理器
-        await self.lifecycle_manager.stop()
+        # 🔧 修复：按正确顺序停止管理器，并添加错误处理
+        try:
+            # 先停止生命周期管理器（停止状态转换）
+            logger.debug("Stopping lifecycle manager...")
+            await self.lifecycle_manager.stop()
+            logger.debug("Lifecycle manager stopped")
+        except Exception as e:
+            logger.error(f"Error stopping lifecycle manager: {e}")
 
-        # 停止内容管理器
-        await self.content_manager.stop()
+        try:
+            # 再停止内容管理器（停止内容更新）
+            logger.debug("Stopping content manager...")
+            await self.content_manager.stop()
+            logger.debug("Content manager stopped")
+        except Exception as e:
+            logger.error(f"Error stopping content manager: {e}")
 
         # 旧的后台任务已被废弃，无需停止
         logger.info("Legacy monitoring tasks were already disabled")
@@ -340,14 +425,14 @@ class MCPOrchestrator:
         Args:
             name: 服务名称
             url: 服务URL（可选，如果不提供则从配置中获取）
-            agent_id: Agent ID（可选，如果不提供则使用main_client_id）
+            agent_id: Agent ID（可选，如果不提供则使用global_agent_store_id）
 
         Returns:
             Tuple[bool, str]: (是否成功, 消息)
         """
         try:
             # 确定Agent ID
-            agent_key = agent_id or self.client_manager.main_client_id
+            agent_key = agent_id or self.client_manager.global_agent_store_id
 
             # 获取服务配置
             service_config = self.mcp_config.get_service_config(name)
@@ -407,17 +492,48 @@ class MCPOrchestrator:
                     # 更新客户端缓存（保持向后兼容）
                     self.clients[name] = client
 
+                    # 🔧 修复：通知生命周期管理器连接成功
+                    await self.lifecycle_manager.handle_health_check_result(
+                        agent_id=agent_id,
+                        service_name=name,
+                        success=True,
+                        response_time=0.0,
+                        error_message=None
+                    )
+
                     logger.info(f"Local service {name} connected successfully with {len(tools)} tools for agent {agent_id}")
                     return True, f"Local service connected successfully with {len(tools)} tools"
             except Exception as e:
-                logger.error(f"Failed to connect to local service {name}: {e}")
+                error_msg = str(e)
+                logger.error(f"Failed to connect to local service {name}: {error_msg}")
+
+                # 🔧 修复：通知生命周期管理器连接失败
+                await self.lifecycle_manager.handle_health_check_result(
+                    agent_id=agent_id,
+                    service_name=name,
+                    success=False,
+                    response_time=0.0,
+                    error_message=error_msg
+                )
+
                 # 如果连接失败，停止本地服务
                 await self.local_service_manager.stop_local_service(name)
-                return False, f"Failed to connect to local service: {str(e)}"
+                return False, f"Failed to connect to local service: {error_msg}"
 
         except Exception as e:
-            logger.error(f"Error connecting local service {name}: {e}")
-            return False, str(e)
+            error_msg = str(e)
+            logger.error(f"Error connecting local service {name}: {error_msg}")
+
+            # 🔧 修复：通知生命周期管理器连接失败
+            await self.lifecycle_manager.handle_health_check_result(
+                agent_id=agent_id,
+                service_name=name,
+                success=False,
+                response_time=0.0,
+                error_message=error_msg
+            )
+
+            return False, error_msg
 
     async def _connect_remote_service(self, name: str, service_config: Dict[str, Any], agent_id: str) -> Tuple[bool, str]:
         """连接远程服务并更新缓存"""
@@ -436,15 +552,46 @@ class MCPOrchestrator:
                     # 更新客户端缓存（保持向后兼容）
                     self.clients[name] = client
 
+                    # 🔧 修复：通知生命周期管理器连接成功
+                    await self.lifecycle_manager.handle_health_check_result(
+                        agent_id=agent_id,
+                        service_name=name,
+                        success=True,
+                        response_time=0.0,
+                        error_message=None
+                    )
+
                     logger.info(f"Remote service {name} connected successfully with {len(tools)} tools for agent {agent_id}")
                     return True, f"Remote service connected successfully with {len(tools)} tools"
             except Exception as e:
-                logger.error(f"Failed to connect to remote service {name}: {e}")
-                return False, str(e)
+                error_msg = str(e)
+                logger.error(f"Failed to connect to remote service {name}: {error_msg}")
+
+                # 🔧 修复：通知生命周期管理器连接失败
+                await self.lifecycle_manager.handle_health_check_result(
+                    agent_id=agent_id,
+                    service_name=name,
+                    success=False,
+                    response_time=0.0,
+                    error_message=error_msg
+                )
+
+                return False, error_msg
 
         except Exception as e:
-            logger.error(f"Error connecting remote service {name}: {e}")
-            return False, str(e)
+            error_msg = str(e)
+            logger.error(f"Error connecting remote service {name}: {error_msg}")
+
+            # 🔧 修复：通知生命周期管理器连接失败
+            await self.lifecycle_manager.handle_health_check_result(
+                agent_id=agent_id,
+                service_name=name,
+                success=False,
+                response_time=0.0,
+                error_message=error_msg
+            )
+
+            return False, error_msg
 
     async def _update_service_cache(self, agent_id: str, service_name: str, client: Client, tools: List[Any], service_config: Dict[str, Any]):
         """
@@ -556,20 +703,20 @@ class MCPOrchestrator:
             return f"{service_name}_{original_tool_name}"
 
     async def disconnect_service(self, url_or_name: str) -> bool:
-        """从配置中移除服务并更新main_client"""
+        """从配置中移除服务并更新global_agent_store"""
         logger.info(f"Removing service: {url_or_name}")
 
         # 查找要移除的服务名
         name_to_remove = None
-        for name, server in self.main_config.get("mcpServers", {}).items():
+        for name, server in self.global_agent_store_config.get("mcpServers", {}).items():
             if name == url_or_name or server.get("url") == url_or_name:
                 name_to_remove = name
                 break
 
         if name_to_remove:
-            # 从main_config中移除
-            if name_to_remove in self.main_config["mcpServers"]:
-                del self.main_config["mcpServers"][name_to_remove]
+            # 从global_agent_store_config中移除
+            if name_to_remove in self.global_agent_store_config["mcpServers"]:
+                del self.global_agent_store_config["mcpServers"][name_to_remove]
 
             # 从配置文件中移除
             ok = self.mcp_config.remove_service(name_to_remove)
@@ -579,18 +726,18 @@ class MCPOrchestrator:
             # 从registry中移除
             self.registry.remove_service(name_to_remove)
 
-            # 重新创建main_client
-            if self.main_config.get("mcpServers"):
-                self.main_client = Client(self.main_config)
+            # 重新创建global_agent_store
+            if self.global_agent_store_config.get("mcpServers"):
+                self.global_agent_store = Client(self.global_agent_store_config)
 
                 # 更新所有agent_clients
                 for agent_id in list(self.agent_clients.keys()):
-                    self.agent_clients[agent_id] = Client(self.main_config)
+                    self.agent_clients[agent_id] = Client(self.global_agent_store_config)
                     logger.info(f"Updated client for agent {agent_id} after removing service")
 
             else:
-                # 如果没有服务了，清除main_client
-                self.main_client = None
+                # 如果没有服务了，清除global_agent_store
+                self.global_agent_store = None
                 # 清除所有agent_clients
                 self.agent_clients.clear()
 
@@ -601,11 +748,15 @@ class MCPOrchestrator:
 
     async def refresh_services(self):
         """手动刷新所有服务连接（重新加载mcp.json）"""
-        await self.load_from_config()
+        # 🔧 修复：使用统一同步管理器进行同步
+        if hasattr(self, 'sync_manager') and self.sync_manager:
+            await self.sync_manager.sync_global_agent_store_from_mcp_json()
+        else:
+            logger.warning("Sync manager not available, cannot refresh services")
 
     async def refresh_service_content(self, service_name: str, agent_id: str = None) -> bool:
         """手动刷新指定服务的内容（工具、资源、提示词）"""
-        agent_key = agent_id or self.client_manager.main_client_id
+        agent_key = agent_id or self.client_manager.global_agent_store_id
         return await self.content_manager.force_update_service_content(agent_key, service_name)
 
     async def is_service_healthy(self, name: str, client_id: Optional[str] = None) -> bool:
@@ -741,7 +892,7 @@ class MCPOrchestrator:
         from mcpstore.core.monitoring_config import ServiceStatus
 
         if client_id is None:
-            client_id = self.client_manager.main_client_id
+            client_id = self.client_manager.global_agent_store_id
 
         service_key = f"{client_id}:{service_name}"
 
@@ -949,10 +1100,10 @@ class MCPOrchestrator:
                 if not client_ids:
                     raise Exception(f"No clients found for agent {agent_id}")
             else:
-                # Store 模式：在 main_client 的客户端中查找服务
-                client_ids = self.client_manager.get_agent_clients(self.client_manager.main_client_id)
+                # Store 模式：在 global_agent_store 的客户端中查找服务
+                client_ids = self.client_manager.get_agent_clients(self.client_manager.global_agent_store_id)
                 if not client_ids:
-                    raise Exception("No clients found in main_client")
+                    raise Exception("No clients found in global_agent_store")
 
             # 遍历客户端查找服务
             for client_id in client_ids:
@@ -1068,10 +1219,10 @@ class MCPOrchestrator:
                                 
                 raise Exception(f"Service {service_name} not found in any client for agent {agent_id}")
             else:
-                # store模式：在main_client的所有client中查找服务
-                client_ids = self.client_manager.get_agent_clients(self.client_manager.main_client_id)
+                # store模式：在global_agent_store的所有client中查找服务
+                client_ids = self.client_manager.get_agent_clients(self.client_manager.global_agent_store_id)
                 if not client_ids:
-                    raise Exception("No clients found in main_client")
+                    raise Exception("No clients found in global_agent_store")
                     
                 # 在所有client中查找服务
                 for client_id in client_ids:
@@ -1260,25 +1411,30 @@ class MCPOrchestrator:
             List[str]: 健康的服务名列表
         """
         healthy_services = []
-        agent_id = client_id or self.client_manager.main_client_id
+        agent_id = client_id or self.client_manager.global_agent_store_id
 
         for name in services:
             try:
                 # 使用生命周期管理器获取服务状态
                 service_state = self.lifecycle_manager.get_service_state(agent_id, name)
 
-                # 健康状态和初始化状态的服务都被认为是可处理的
-                from mcpstore.core.models.service import ServiceConnectionState
-                processable_states = [
-                    ServiceConnectionState.HEALTHY,
-                    ServiceConnectionState.WARNING,
-                    ServiceConnectionState.INITIALIZING  # 新增：初始化状态也需要处理
-                ]
-                if service_state in processable_states:
+                # 🔧 修复：新服务（状态为None）也应该被处理
+                if service_state is None:
                     healthy_services.append(name)
-                    logger.debug(f"Service {name} is {service_state.value}, included in processable list")
+                    logger.debug(f"Service {name} has no state (new service), included in processable list")
                 else:
-                    logger.debug(f"Service {name} is {service_state.value}, excluded from processable list")
+                    # 健康状态和初始化状态的服务都被认为是可处理的
+                    from mcpstore.core.models.service import ServiceConnectionState
+                    processable_states = [
+                        ServiceConnectionState.HEALTHY,
+                        ServiceConnectionState.WARNING,
+                        ServiceConnectionState.INITIALIZING  # 新增：初始化状态也需要处理
+                    ]
+                    if service_state in processable_states:
+                        healthy_services.append(name)
+                        logger.debug(f"Service {name} is {service_state.value}, included in processable list")
+                    else:
+                        logger.debug(f"Service {name} is {service_state.value}, excluded from processable list")
 
             except Exception as e:
                 logger.warning(f"Failed to check service state for {name}: {e}")
@@ -1287,8 +1443,8 @@ class MCPOrchestrator:
         logger.info(f"Filtered {len(healthy_services)} healthy services from {len(services)} total services")
         return healthy_services
 
-    async def start_main_client(self, config: Dict[str, Any]):
-        """启动 main_client 的 async with 生命周期，注册服务和工具（仅健康服务）"""
+    async def start_global_agent_store(self, config: Dict[str, Any]):
+        """启动 global_agent_store 的 async with 生命周期，注册服务和工具（仅健康服务）"""
         # 获取健康的服务列表
         healthy_services = await self.filter_healthy_services(list(config.get("mcpServers", {}).keys()))
         
@@ -1301,13 +1457,13 @@ class MCPOrchestrator:
         }
         
         # 使用健康的配置注册服务
-        await self.register_json_services(healthy_config, client_id="main_client")
-        # main_client专属管理逻辑可在这里补充（如缓存、生命周期等）
+        await self.register_json_services(healthy_config, client_id="global_agent_store")
+        # global_agent_store专属管理逻辑可在这里补充（如缓存、生命周期等）
 
     async def register_json_services(self, config: Dict[str, Any], client_id: str = None, agent_id: str = None):
-        """注册JSON配置中的服务（可用于main_client或普通client）"""
+        """注册JSON配置中的服务（可用于global_agent_store或普通client）"""
         # agent_id 兼容
-        agent_key = agent_id or client_id or self.client_manager.main_client_id
+        agent_key = agent_id or client_id or self.client_manager.global_agent_store_id
         try:
             # 获取健康的服务列表
             healthy_services = await self.filter_healthy_services(list(config.get("mcpServers", {}).keys()), client_id)
@@ -1315,7 +1471,7 @@ class MCPOrchestrator:
             if not healthy_services:
                 logger.warning("No healthy services found")
                 return {
-                    "client_id": client_id or "main_client",
+                    "client_id": client_id or "global_agent_store",
                     "services": {},
                     "total_success": 0,
                     "total_failed": 0
@@ -1344,7 +1500,7 @@ class MCPOrchestrator:
                     if not tool_list:
                         logger.warning("No tools found")
                         return {
-                            "client_id": client_id or "main_client",
+                            "client_id": client_id or "global_agent_store",
                             "services": {},
                             "total_success": 0,
                             "total_failed": 0
@@ -1411,11 +1567,20 @@ class MCPOrchestrator:
                         service_config = config["mcpServers"].get(service_name, {})
                         self.lifecycle_manager.initialize_service(agent_key, service_name, service_config)
 
+                        # 🔧 修复：通知生命周期管理器连接成功
+                        await self.lifecycle_manager.handle_health_check_result(
+                            agent_id=agent_key,
+                            service_name=service_name,
+                            success=True,
+                            response_time=0.0,
+                            error_message=None
+                        )
+
                         # 添加到内容监控
                         self.content_manager.add_service_for_monitoring(agent_key, service_name)
 
                     return {
-                        "client_id": client_id or "main_client",
+                        "client_id": client_id or "global_agent_store",
                         "services": {
                             name: {"status": "success", "message": "Service registered successfully"}
                             for name in healthy_services
@@ -1424,18 +1589,34 @@ class MCPOrchestrator:
                         "total_failed": 0
                     }
             except Exception as e:
-                logger.error(f"Error retrieving tools: {e}", exc_info=True)
+                error_msg = str(e)
+                logger.error(f"Error retrieving tools: {error_msg}", exc_info=True)
+
+                # 🔧 修复：通知生命周期管理器连接失败
+                for service_name in healthy_services:
+                    service_config = config["mcpServers"].get(service_name, {})
+                    # 先初始化服务状态
+                    self.lifecycle_manager.initialize_service(agent_key, service_name, service_config)
+                    # 然后通知连接失败
+                    await self.lifecycle_manager.handle_health_check_result(
+                        agent_id=agent_key,
+                        service_name=service_name,
+                        success=False,
+                        response_time=0.0,
+                        error_message=error_msg
+                    )
+
                 return {
-                    "client_id": client_id or "main_client",
+                    "client_id": client_id or "global_agent_store",
                     "services": {},
                     "total_success": 0,
                     "total_failed": 1,
-                    "error": str(e)
+                    "error": error_msg
                 }
         except Exception as e:
             logger.error(f"Error registering services: {e}", exc_info=True)
             return {
-                "client_id": client_id or "main_client",
+                "client_id": client_id or "global_agent_store",
                 "services": {},
                 "total_success": 0,
                 "total_failed": 1,
@@ -1452,40 +1633,86 @@ class MCPOrchestrator:
 
     async def remove_service(self, service_name: str, agent_id: str = None):
         """移除服务并处理生命周期状态"""
-        agent_key = agent_id or self.client_manager.main_client_id
+        try:
+            # 🔧 修复：更安全的agent_id处理
+            if agent_id is None:
+                if not hasattr(self.client_manager, 'global_agent_store_id'):
+                    logger.error("No agent_id provided and global_agent_store_id not available")
+                    raise ValueError("Agent ID is required for service removal")
+                agent_key = self.client_manager.global_agent_store_id
+                logger.debug(f"Using global_agent_store_id: {agent_key}")
+            else:
+                agent_key = agent_id
+                logger.debug(f"Using provided agent_id: {agent_key}")
 
-        # 通知生命周期管理器开始优雅断连
-        await self.lifecycle_manager.graceful_disconnect(agent_key, service_name, "user_requested")
+            # 🔧 修复：检查服务是否存在于生命周期管理器中
+            current_state = self.lifecycle_manager.get_service_state(agent_key, service_name)
+            if current_state is None:
+                logger.warning(f"Service {service_name} not found in lifecycle manager for agent {agent_key}")
+                # 检查是否存在于注册表中
+                if agent_key not in self.registry.sessions or service_name not in self.registry.sessions[agent_key]:
+                    logger.warning(f"Service {service_name} not found in registry for agent {agent_key}, skipping removal")
+                    return
+                else:
+                    logger.info(f"Service {service_name} found in registry but not in lifecycle manager, proceeding with cleanup")
 
-        # 从内容监控中移除
-        self.content_manager.remove_service_from_monitoring(agent_key, service_name)
+            if current_state:
+                logger.info(f"Removing service {service_name} from agent {agent_key} (current state: {current_state.value})")
+            else:
+                logger.info(f"Removing service {service_name} from agent {agent_key} (no lifecycle state)")
 
-        # 从注册表中移除服务
-        self.registry.remove_service(agent_key, service_name)
+            # 🔧 修复：安全地调用各个组件的移除方法
+            try:
+                # 通知生命周期管理器开始优雅断连（如果服务存在于生命周期管理器中）
+                if current_state:
+                    await self.lifecycle_manager.graceful_disconnect(agent_key, service_name, "user_requested")
+            except Exception as e:
+                logger.warning(f"Error during graceful disconnect: {e}")
 
-        # 移除生命周期数据
-        self.lifecycle_manager.remove_service(agent_key, service_name)
+            try:
+                # 从内容监控中移除
+                self.content_manager.remove_service_from_monitoring(agent_key, service_name)
+            except Exception as e:
+                logger.warning(f"Error removing from content monitoring: {e}")
 
-        logger.info(f"Service {service_name} removed from agent {agent_key}")
+            try:
+                # 从注册表中移除服务
+                self.registry.remove_service(agent_key, service_name)
+            except Exception as e:
+                logger.warning(f"Error removing from registry: {e}")
+
+            try:
+                # 移除生命周期数据
+                self.lifecycle_manager.remove_service(agent_key, service_name)
+            except Exception as e:
+                logger.warning(f"Error removing lifecycle data: {e}")
+
+            logger.info(f"Service {service_name} removal completed for agent {agent_key}")
+
+        except Exception as e:
+            logger.error(f"Error removing service {service_name}: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise
 
     def get_session(self, service_name: str, agent_id: str = None):
-        agent_key = agent_id or self.client_manager.main_client_id
+        agent_key = agent_id or self.client_manager.global_agent_store_id
         return self.registry.get_session(agent_key, service_name)
 
     def get_tools_for_service(self, service_name: str, agent_id: str = None):
-        agent_key = agent_id or self.client_manager.main_client_id
+        agent_key = agent_id or self.client_manager.global_agent_store_id
         return self.registry.get_tools_for_service(agent_key, service_name)
 
     def get_all_service_names(self, agent_id: str = None):
-        agent_key = agent_id or self.client_manager.main_client_id
+        agent_key = agent_id or self.client_manager.global_agent_store_id
         return self.registry.get_all_service_names(agent_key)
 
     def get_all_tool_info(self, agent_id: str = None):
-        agent_key = agent_id or self.client_manager.main_client_id
+        agent_key = agent_id or self.client_manager.global_agent_store_id
         return self.registry.get_all_tool_info(agent_key)
 
     def get_service_details(self, service_name: str, agent_id: str = None):
-        agent_key = agent_id or self.client_manager.main_client_id
+        agent_key = agent_id or self.client_manager.global_agent_store_id
         return self.registry.get_service_details(agent_key, service_name)
 
     def update_service_health(self, service_name: str, agent_id: str = None):
@@ -1503,7 +1730,7 @@ class MCPOrchestrator:
         return None
 
     def has_service(self, service_name: str, agent_id: str = None):
-        agent_key = agent_id or self.client_manager.main_client_id
+        agent_key = agent_id or self.client_manager.global_agent_store_id
         return self.registry.has_service(agent_key, service_name)
 
     def _create_standalone_mcp_config(self, config_manager):

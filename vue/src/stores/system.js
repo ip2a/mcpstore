@@ -186,9 +186,24 @@ export const useSystemStore = defineStore('system', () => {
 
       const response = await storeServiceAPI.getServices()
       console.log('🔍 [STORE] 服务列表响应:', response)
-      // 修复：正确提取服务数组
-      services.value = response.data?.data || []
+
+      // 🔧 修复：正确提取服务数组，支持新的API响应格式
+      if (response.data && response.data.success && response.data.data && response.data.data.services) {
+        // 新格式：{ success: true, data: { services: [...], total_services: 2 } }
+        services.value = response.data.data.services
+        console.log('✅ [STORE] 使用新格式提取服务数据')
+      } else if (response.data && Array.isArray(response.data.data)) {
+        // 兼容旧格式：data直接是数组
+        services.value = response.data.data
+        console.log('✅ [STORE] 使用旧格式提取服务数据')
+      } else {
+        console.warn('⚠️ [STORE] 无法识别的API响应格式，使用空数组')
+        console.warn('响应结构:', response.data)
+        services.value = []
+      }
+
       console.log('🔍 [STORE] 解析后的服务数据:', services.value)
+      console.log('🔍 [STORE] 服务数量:', services.value.length)
       updateStats()
       lastUpdateTime.value = new Date()
 

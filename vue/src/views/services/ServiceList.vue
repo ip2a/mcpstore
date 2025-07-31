@@ -66,15 +66,20 @@
           />
         </el-col>
         <el-col :xs="24" :sm="12" :md="6">
-          <el-select 
-            v-model="statusFilter" 
+          <el-select
+            v-model="statusFilter"
             placeholder="状态筛选"
             clearable
             @change="handleFilter"
           >
             <el-option label="全部状态" value="" />
+            <el-option label="已激活服务" value="active" />
+            <el-option label="仅配置服务" value="config-only" />
             <el-option label="健康" value="healthy" />
-            <el-option label="异常" value="unhealthy" />
+            <el-option label="初始化中" value="initializing" />
+            <el-option label="重连中" value="reconnecting" />
+            <el-option label="不可达" value="unreachable" />
+            <el-option label="已断开" value="disconnected" />
           </el-select>
         </el-col>
         <el-col :xs="24" :sm="12" :md="6">
@@ -128,16 +133,34 @@
       >
         <el-table-column type="selection" width="50" />
         
-        <el-table-column prop="name" label="服务名称" width="180">
+        <el-table-column prop="name" label="服务名称" width="200">
           <template #default="{ row }">
             <div class="service-name clickable" @click="viewServiceTools(row)">
-              <el-icon v-if="row.command" class="service-icon local">
-                <FolderOpened />
-              </el-icon>
-              <el-icon v-else class="service-icon remote">
-                <Link />
-              </el-icon>
-              <span class="service-name-text">{{ row.name }}</span>
+              <!-- 🔧 改进：添加激活状态指示 -->
+              <div class="service-status-indicator">
+                <el-icon v-if="row.command" class="service-icon local">
+                  <FolderOpened />
+                </el-icon>
+                <el-icon v-else class="service-icon remote">
+                  <Link />
+                </el-icon>
+                <el-badge
+                  v-if="row.is_active"
+                  is-dot
+                  class="active-badge"
+                  type="success"
+                />
+                <el-badge
+                  v-else
+                  is-dot
+                  class="config-badge"
+                  type="info"
+                />
+              </div>
+              <div class="service-name-content">
+                <span class="service-name-text">{{ row.name }}</span>
+                <span v-if="!row.is_active" class="config-only-hint">仅配置</span>
+              </div>
               <el-icon class="view-tools-icon"><View /></el-icon>
             </div>
           </template>
@@ -158,7 +181,7 @@
           <template #default="{ row }">
             <div v-if="row.url" class="connection-info">
               <div class="url">{{ row.url }}</div>
-              <div class="transport">{{ row.transport_type || 'http' }}</div>
+              <div class="transport">{{ row.transport || 'http' }}</div>
             </div>
             <div v-else-if="row.command" class="connection-info">
               <div class="command">{{ row.command }} {{ (row.args || []).join(' ') }}</div>
@@ -192,12 +215,39 @@
           </template>
         </el-table-column>
         
-        <el-table-column label="最后心跳" width="140">
+        <!-- 🔧 新增：生命周期状态详情 -->
+        <el-table-column label="生命周期详情" width="200">
           <template #default="{ row }">
-            <div v-if="row.last_heartbeat" class="heartbeat-time">
-              {{ formatTime(row.last_heartbeat) }}
+            <div v-if="row.is_active" class="lifecycle-details">
+              <div class="lifecycle-stats">
+                <el-tag size="small" type="success">
+                  成功: {{ row.consecutive_successes || 0 }}
+                </el-tag>
+                <el-tag size="small" type="danger" v-if="row.consecutive_failures > 0">
+                  失败: {{ row.consecutive_failures }}
+                </el-tag>
+              </div>
+              <div v-if="row.last_ping_time" class="last-ping">
+                最后检查: {{ formatTime(row.last_ping_time) }}
+              </div>
+              <div v-if="row.error_message" class="error-message">
+                <el-tooltip :content="row.error_message" placement="top">
+                  <el-tag size="small" type="danger">有错误</el-tag>
+                </el-tooltip>
+              </div>
             </div>
-            <span v-else class="text-placeholder">-</span>
+            <div v-else class="config-only-info">
+              <el-tag size="small" type="info">未激活</el-tag>
+              <el-button
+                size="small"
+                type="primary"
+                link
+                @click="activateService(row)"
+                :loading="row.activating"
+              >
+                激活服务
+              </el-button>
+            </div>
           </template>
         </el-table-column>
         
@@ -379,15 +429,17 @@ const filteredServices = computed(() => {
     )
   }
   
-  // 状态过滤
+  // 🔧 改进：状态过滤支持激活状态和7状态系统
   if (statusFilter.value) {
     services = services.filter(service => {
-      if (statusFilter.value === 'healthy') {
-        return service.status === 'healthy'
-      } else if (statusFilter.value === 'unhealthy') {
-        return service.status !== 'healthy'
+      if (statusFilter.value === 'active') {
+        return service.is_active === true
+      } else if (statusFilter.value === 'config-only') {
+        return service.is_active === false
+      } else {
+        // 具体状态过滤
+        return service.status === statusFilter.value
       }
-      return true
     })
   }
   
@@ -415,18 +467,17 @@ const envTableData = computed(() => {
   }))
 })
 
-// 状态处理函数
+// 🔧 改进：状态处理函数支持7状态系统
 const getStatusType = (status) => {
   switch (status) {
+    case 'initializing': return 'primary'
     case 'healthy': return 'success'
     case 'warning': return 'warning'
-    case 'slow': return 'warning'
-    case 'unhealthy': return 'danger'
-    case 'disconnected': return 'info'
     case 'reconnecting': return 'primary'
-    case 'failed': return 'danger'
-    case 'unknown': return 'info'
-    default: return 'warning'
+    case 'unreachable': return 'danger'
+    case 'disconnecting': return 'warning'
+    case 'disconnected': return 'info'
+    default: return 'info'
   }
 }
 
@@ -611,6 +662,28 @@ const formatTime = (time) => {
   return dayjs(time).format('YYYY-MM-DD HH:mm:ss')
 }
 
+// 🔧 新增：服务激活功能
+const activateService = async (service) => {
+  try {
+    service.activating = true
+
+    const { storeServiceAPI } = await import('@/api/services')
+    const response = await storeServiceAPI.activateService(service.name)
+
+    if (response.data.success) {
+      ElMessage.success(`服务 ${service.name} 激活成功`)
+      await refreshServices()
+    } else {
+      ElMessage.error(response.data.message || `服务 ${service.name} 激活失败`)
+    }
+  } catch (error) {
+    console.error('激活服务失败:', error)
+    ElMessage.error(`服务 ${service.name} 激活失败`)
+  } finally {
+    service.activating = false
+  }
+}
+
 // 快速操作处理
 const handleQuickAction = async (command) => {
   switch (command) {
@@ -765,9 +838,41 @@ onMounted(async () => {
         }
       }
 
-      .service-name-text {
+      // 🔧 新增：服务状态指示器样式
+      .service-status-indicator {
+        position: relative;
+        display: flex;
+        align-items: center;
+
+        .active-badge {
+          position: absolute;
+          top: -2px;
+          right: -2px;
+        }
+
+        .config-badge {
+          position: absolute;
+          top: -2px;
+          right: -2px;
+        }
+      }
+
+      .service-name-content {
         flex: 1;
-        transition: color 0.2s ease;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+
+        .service-name-text {
+          transition: color 0.2s ease;
+          font-weight: 500;
+        }
+
+        .config-only-hint {
+          font-size: 11px;
+          color: var(--el-color-info);
+          opacity: 0.8;
+        }
       }
 
       .view-tools-icon {
@@ -780,13 +885,43 @@ onMounted(async () => {
 
       .service-icon {
         &.local {
-          color: var(--success-color);
+          color: var(--el-color-success);
         }
 
         &.remote {
-          color: var(--info-color);
+          color: var(--el-color-info);
         }
       }
+    }
+
+    // 🔧 新增：生命周期详情样式
+    .lifecycle-details {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12px;
+
+      .lifecycle-stats {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+      }
+
+      .last-ping {
+        color: var(--el-color-info);
+        font-size: 11px;
+      }
+
+      .error-message {
+        margin-top: 2px;
+      }
+    }
+
+    .config-only-info {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      align-items: flex-start;
     }
     
     .connection-info {
