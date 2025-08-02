@@ -9,7 +9,7 @@ import typer
 import uvicorn
 from typing_extensions import Annotated
 
-# 创建主CLI应用
+# Create main CLI application
 app = typer.Typer(
     name="mcpstore",
     help="MCPStore - A composable, ready-to-use MCP toolkit for agents and rapid integration.",
@@ -48,7 +48,7 @@ def run_command(
         raise typer.Exit(1)
 
 def run_api(host: str, port: int, reload: bool, log_level: str):
-    """启动 MCPStore API 服务"""
+    """Start MCPStore API service"""
     try:
         typer.echo("🚀 Starting MCPStore API Server...")
         typer.echo(f"   Host: {host}:{port}")
@@ -57,7 +57,7 @@ def run_api(host: str, port: int, reload: bool, log_level: str):
         typer.echo("   Press Ctrl+C to stop")
         typer.echo()
 
-        # 启动API服务
+        # Start API service
         uvicorn.run(
             "mcpstore.scripts.app:app",
             host=host,
@@ -73,7 +73,7 @@ def run_api(host: str, port: int, reload: bool, log_level: str):
 
 @app.command("version")
 def version():
-    """显示版本信息"""
+    """Show version information"""
     try:
         from mcpstore import __version__
         version_str = __version__
@@ -111,7 +111,7 @@ def test_command(
         import asyncio
         from mcpstore.cli.test_runner import run_tests
 
-        # 对于comprehensive测试，使用特殊处理
+        # For comprehensive testing, use special handling
         if suite == "comprehensive":
             from mcpstore.cli.comprehensive_test import run_comprehensive_tests
             base_url = f"http://{host}:{port}"
@@ -157,7 +157,7 @@ def config_command(
         raise typer.Exit(1)
 
 def main():
-    """CLI入口点"""
+    """CLI entry point"""
     try:
         app()
     except KeyboardInterrupt:

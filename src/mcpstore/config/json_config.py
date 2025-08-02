@@ -8,47 +8,47 @@ from pydantic import BaseModel, model_validator, ConfigDict
 
 logger = logging.getLogger(__name__)
 
-# 备份策略：每个文件最多保留1个备份，使用.bak后缀
+# Backup strategy: Keep at most 1 backup per file, using .bak suffix
 
 class MCPServerModel(BaseModel):
     """
-    宽容的MCP服务配置模型，支持FastMCP Client的所有配置格式
-    参考: https://docs.fastmcp.com/clients/transports
+    Tolerant MCP service configuration model, supports all configuration formats of FastMCP Client
+    Reference: https://docs.fastmcp.com/clients/transports
     """
-    # 远程服务配置
+    # Remote service configuration
     url: Optional[str] = None
-    transport: Optional[str] = None  # 可选，Client会自动推断
+    transport: Optional[str] = None  # Optional, Client will auto-infer
     headers: Optional[Dict[str, str]] = None
 
-    # 本地服务配置
+    # Local service configuration
     command: Optional[str] = None
     args: Optional[List[str]] = None
     env: Optional[Dict[str, str]] = None
 
-    # 通用配置
+    # General configuration
     name: Optional[str] = None
     description: Optional[str] = None
     keep_alive: Optional[bool] = None
     timeout: Optional[int] = None
 
-    # 允许额外字段，保持最大兼容性
+    # Allow extra fields, maintain maximum compatibility
     model_config = ConfigDict(extra="allow")
 
     @model_validator(mode='before')
     @classmethod
     def validate_basic_config(cls, values):
-        """基本配置验证：至少要有url或command之一"""
+        """Basic configuration validation: must have at least url or command"""
         if not (values.get("url") or values.get("command")):
             raise ValueError("MCP server must have either 'url' or 'command' field")
         return values
 
 class MCPConfigModel(BaseModel):
     """
-    宽容的MCP配置模型，支持FastMCP的配置格式
+    Tolerant MCP configuration model, supports FastMCP's configuration format
     """
-    mcpServers: Dict[str, Dict[str, Any]]  # 使用Dict而不是严格的MCPServerModel
+    mcpServers: Dict[str, Dict[str, Any]]  # Use Dict instead of strict MCPServerModel
 
-    # 允许额外字段
+    # Allow extra fields
     model_config = ConfigDict(extra="allow")
 
     @model_validator(mode='before')
@@ -89,7 +89,7 @@ class MCPConfig:
         if not os.path.exists(self.json_path):
             return
 
-        # 统一使用.bak后缀，每个文件最多保留1个备份
+        # Uniformly use .bak suffix, keep at most 1 backup per file
         backup_path = f"{self.json_path}.bak"
         try:
             with open(self.json_path, 'rb') as src, open(backup_path, 'wb') as dst:
@@ -118,14 +118,14 @@ class MCPConfig:
             with open(self.json_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
-            # 基本格式检查，但不进行严格验证
+            # Basic format check, but no strict validation
             if not isinstance(data, dict):
                 raise ConfigValidationError("Configuration must be a dictionary")
 
             if "mcpServers" in data and not isinstance(data["mcpServers"], dict):
                 raise ConfigValidationError("mcpServers must be a dictionary")
 
-            # 不再进行严格的Pydantic验证，让FastMCP Client自己处理
+            # No longer perform strict Pydantic validation, let FastMCP Client handle it
             return data
 
         except json.JSONDecodeError as e:
@@ -146,14 +146,14 @@ class MCPConfig:
             ConfigValidationError: If configuration is invalid
             ConfigIOError: If file operations fail
         """
-        # 基本格式检查，但不进行严格验证
+        # Basic format check, but no strict validation
         if not isinstance(config, dict):
             raise ConfigValidationError("Configuration must be a dictionary")
 
         if "mcpServers" in config and not isinstance(config["mcpServers"], dict):
             raise ConfigValidationError("mcpServers must be a dictionary")
 
-        # 不再进行严格的Pydantic验证，让FastMCP Client自己处理
+        # No longer perform strict Pydantic validation, let FastMCP Client handle it
             
         self._backup()
         tmp_path = f"{self.json_path}.tmp"
@@ -208,11 +208,11 @@ class MCPConfig:
         Raises:
             ConfigValidationError: If service configuration is invalid
         """
-        # 基本格式检查，但不进行严格验证
+        # Basic format check, but no strict validation
         if not isinstance(config, dict):
             raise ConfigValidationError("Service configuration must be a dictionary")
 
-        # 检查基本要求：至少要有url或command
+        # Check basic requirements: must have at least url or command
         if not (config.get("url") or config.get("command")):
             available_fields = list(config.keys())
             raise ConfigValidationError(
@@ -221,7 +221,7 @@ class MCPConfig:
                 f"Tip: For incremental updates, use patch_service() instead of update_service()."
             )
 
-        # 不再进行严格的Pydantic验证，让FastMCP Client自己处理
+        # No longer perform strict Pydantic validation, let FastMCP Client handle it
             
         current_config = self.load_config()
         current_config["mcpServers"][name] = config
@@ -282,23 +282,23 @@ class MCPConfig:
 
     def reset_mcp_json_file(self) -> bool:
         """
-        直接重置MCP JSON配置文件
-        1. 备份当前配置文件
-        2. 将配置重置为空字典 {"mcpServers": {}}
+        Directly reset MCP JSON configuration file
+        1. Backup current configuration file
+        2. Reset configuration to empty dictionary {"mcpServers": {}}
 
         Returns:
-            是否成功重置
+            Whether reset was successful
         """
         try:
             import shutil
             from datetime import datetime
 
-            # 创建备份
+            # Create backup
             backup_path = f"{self.json_path}.bak"
             shutil.copy2(self.json_path, backup_path)
             logger.info(f"Created backup at {backup_path}")
 
-            # 重置为空配置
+            # Reset to empty configuration
             empty_config = {"mcpServers": {}}
             self.save_config(empty_config)
 

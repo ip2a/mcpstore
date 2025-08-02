@@ -8,7 +8,7 @@ from typing import Dict, Any
 logger = logging.getLogger(__name__)
 
 class LoggingConfig:
-    """日志配置管理器"""
+    """Logging configuration manager"""
 
     _debug_enabled = False
     _configured = False
@@ -16,46 +16,46 @@ class LoggingConfig:
     @classmethod
     def setup_logging(cls, debug: bool = False, force_reconfigure: bool = False):
         """
-        设置日志配置
+        Setup logging configuration
 
         Args:
-            debug: 是否启用调试日志
-            force_reconfigure: 是否强制重新配置
+            debug: Whether to enable debug logging
+            force_reconfigure: Whether to force reconfiguration
         """
         if cls._configured and not force_reconfigure:
-            # 如果已经配置过且不强制重新配置，只更新日志级别
+            # If already configured and not forcing reconfiguration, only update log level
             if debug != cls._debug_enabled:
                 cls._set_log_level(debug)
             return
 
-        # 配置日志格式
+        # Configure log format
         if debug:
             log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
             log_level = logging.DEBUG
         else:
             log_format = '%(levelname)s - %(message)s'
-            log_level = logging.ERROR  # 非调试模式只显示错误
+            log_level = logging.ERROR  # Non-debug mode only shows errors
 
-        # 获取根日志器
+        # Get root logger
         root_logger = logging.getLogger()
 
-        # 清除现有的处理器
+        # Clear existing handlers
         for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
 
-        # 创建新的处理器
+        # Create new handler
         handler = logging.StreamHandler()
         formatter = logging.Formatter(log_format)
         handler.setFormatter(formatter)
 
-        # 设置日志级别
+        # Set log level
         root_logger.setLevel(log_level)
         handler.setLevel(log_level)
 
-        # 添加处理器
+        # Add handler
         root_logger.addHandler(handler)
 
-        # 设置特定模块的日志级别
+        # Set specific module log levels
         cls._configure_module_loggers(debug)
 
         cls._debug_enabled = debug
@@ -63,30 +63,30 @@ class LoggingConfig:
 
     @classmethod
     def _set_log_level(cls, debug: bool):
-        """设置日志级别"""
+        """Set log level"""
         if debug:
             log_level = logging.DEBUG
         else:
-            log_level = logging.ERROR  # 非调试模式只显示错误
+            log_level = logging.ERROR  # Non-debug mode only shows errors
 
-        # 更新根日志器级别
+        # Update root logger level
         root_logger = logging.getLogger()
         root_logger.setLevel(log_level)
 
-        # 更新所有处理器级别
+        # Update all handler levels
         for handler in root_logger.handlers:
             handler.setLevel(log_level)
 
-        # 更新特定模块的日志级别
+        # Update specific module log levels
         cls._configure_module_loggers(debug)
 
         cls._debug_enabled = debug
 
     @classmethod
     def _configure_module_loggers(cls, debug: bool):
-        """配置特定模块的日志器"""
+        """Configure specific module loggers"""
         if debug:
-            # 调试模式：显示所有 MCPStore 相关日志
+            # Debug mode: Show all MCPStore related logs
             mcpstore_loggers = [
                 'mcpstore',
                 'mcpstore.core',
@@ -105,7 +105,7 @@ class LoggingConfig:
                 module_logger = logging.getLogger(logger_name)
                 module_logger.setLevel(logging.DEBUG)
         else:
-            # 非调试模式：只显示警告和错误
+            # Non-debug mode: Only show warnings and errors
             mcpstore_loggers = [
                 'mcpstore',
                 'mcpstore.core',
@@ -122,30 +122,30 @@ class LoggingConfig:
 
             for logger_name in mcpstore_loggers:
                 module_logger = logging.getLogger(logger_name)
-                module_logger.setLevel(logging.ERROR)  # 非调试模式只显示错误
+                module_logger.setLevel(logging.ERROR)  # Non-debug mode only shows errors
 
     @classmethod
     def is_debug_enabled(cls) -> bool:
-        """检查是否启用了调试模式"""
+        """Check if debug mode is enabled"""
         return cls._debug_enabled
 
     @classmethod
     def enable_debug(cls):
-        """启用调试模式"""
+        """Enable debug mode"""
         cls.setup_logging(debug=True, force_reconfigure=True)
 
     @classmethod
     def disable_debug(cls):
-        """禁用调试模式"""
+        """Disable debug mode"""
         cls.setup_logging(debug=False, force_reconfigure=True)
 
 # --- Configuration Constants (default values) ---
-# 核心监控配置
-HEARTBEAT_INTERVAL_SECONDS = 60  # 心跳检查间隔（秒）
-HTTP_TIMEOUT_SECONDS = 10        # HTTP请求超时（秒）
-RECONNECTION_INTERVAL_SECONDS = 60  # 重连尝试间隔（秒）
+# Core monitoring configuration
+HEARTBEAT_INTERVAL_SECONDS = 60  # Heartbeat check interval (seconds)
+HTTP_TIMEOUT_SECONDS = 10        # HTTP request timeout (seconds)
+RECONNECTION_INTERVAL_SECONDS = 60  # Reconnection attempt interval (seconds)
 
-# HTTP端点配置
+# HTTP endpoint configuration
 STREAMABLE_HTTP_ENDPOINT = "/mcp"  # 流式HTTP端点路径
 
 # @dataclass
@@ -156,7 +156,7 @@ STREAMABLE_HTTP_ENDPOINT = "/mcp"  # 流式HTTP端点路径
 #     base_url: Optional[str] = None
 
 # def load_llm_config() -> LLMConfig:
-#     """从环境变量加载LLM配置（仅支持openai兼容接口）"""
+#     """Load LLM configuration from environment variables (only supports openai compatible interfaces)"""
 #     api_key = os.environ.get("OPENAI_API_KEY", "")
 #     model = os.environ.get("OPENAI_MODEL", "")
 #     base_url = os.environ.get("OPENAI_BASE_URL")
@@ -171,7 +171,7 @@ def _get_env_int(var: str, default: int) -> int:
     try:
         return int(os.environ.get(var, default))
     except Exception:
-        logger.warning(f"环境变量{var}格式错误，使用默认值{default}")
+        logger.warning(f"Environment variable {var} format error, using default value {default}")
         return default
 
 def _get_env_bool(var: str, default: bool) -> bool:
@@ -181,17 +181,17 @@ def _get_env_bool(var: str, default: bool) -> bool:
     return val.lower() in ("1", "true", "yes", "on")
 
 def load_app_config() -> Dict[str, Any]:
-    """从环境变量加载全局配置"""
+    """Load global configuration from environment variables"""
     config_data = {
-        # 核心监控配置
+        # Core monitoring configuration
         "heartbeat_interval": _get_env_int("HEARTBEAT_INTERVAL_SECONDS", HEARTBEAT_INTERVAL_SECONDS),
         "http_timeout": _get_env_int("HTTP_TIMEOUT_SECONDS", HTTP_TIMEOUT_SECONDS),
         "reconnection_interval": _get_env_int("RECONNECTION_INTERVAL_SECONDS", RECONNECTION_INTERVAL_SECONDS),
 
-        # HTTP端点配置
+        # HTTP endpoint configuration
         "streamable_http_endpoint": os.environ.get("STREAMABLE_HTTP_ENDPOINT", STREAMABLE_HTTP_ENDPOINT),
     }
-    # 加载LLM配置
+    # Load LLM configuration
     # config_data["llm_config"] = load_llm_config()
     # logger.info(f"Loaded configuration from environment: {config_data}")
     return config_data

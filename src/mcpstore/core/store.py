@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 
 class MCPStore:
     """
-    MCPStore - 智能体工具服务商店
-    提供上下文切换的入口和通用操作
+    MCPStore - Intelligent Agent Tool Service Store
+    Provides context switching entry points and common operations
     """
     def __init__(self, orchestrator: MCPOrchestrator, config: MCPConfig,
                  tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7):
@@ -34,11 +34,11 @@ class MCPStore:
         self.session_manager = orchestrator.session_manager
         self.logger = logging.getLogger(__name__)
 
-        # 工具记录配置
+        # Tool recording configuration
         self.tool_record_max_file_size = tool_record_max_file_size
         self.tool_record_retention_days = tool_record_retention_days
 
-        # 统一配置管理器
+        # Unified configuration manager
         self._unified_config = UnifiedConfigManager(
             mcp_config_path=config.json_path,
             client_services_path=self.client_manager.services_path
@@ -47,79 +47,81 @@ class MCPStore:
         self._context_cache: Dict[str, MCPStoreContext] = {}
         self._store_context = self._create_store_context()
 
-        # 数据空间管理器（可选，仅在使用数据空间时设置）
+        # Data space manager (optional, only set when using data spaces)
         self._data_space_manager = None
 
     def _create_store_context(self) -> MCPStoreContext:
-        """创建商店级别的上下文"""
+        """Create store-level context"""
         return MCPStoreContext(self)
 
     @staticmethod
     def setup_store(mcp_config_file: str = None, debug: bool = False, standalone_config=None,
                    tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7,
-                   monitoring: dict = None):
+                   monitoring: dict = None, auto_register: bool = True):
         """
-        初始化MCPStore实例
+        Initialize MCPStore instance
 
         Args:
-            mcp_config_file: 自定义mcp.json配置文件路径，如果不指定则使用默认路径
-                           🔧 新增：此参数现在支持数据空间隔离，每个JSON文件路径对应独立的数据空间
-            debug: 是否启用调试日志，默认为False（不显示调试信息）
-            standalone_config: 独立配置对象，如果提供则不依赖环境变量
-            tool_record_max_file_size: 工具记录JSON文件最大大小(MB)，默认30MB，设置为-1表示不限制
-            tool_record_retention_days: 工具记录保留天数，默认7天，设置为-1表示不删除
-            monitoring: 监控配置字典，可选参数：
-                - health_check_seconds: 健康检查间隔（默认30秒）
-                - tools_update_hours: 工具更新间隔（默认2小时）
-                - reconnection_seconds: 重连间隔（默认60秒）
-                - cleanup_hours: 清理间隔（默认24小时）
-                - enable_tools_update: 是否启用工具更新（默认True）
-                - enable_reconnection: 是否启用重连（默认True）
-                - update_tools_on_reconnection: 重连时是否更新工具（默认True）
+            mcp_config_file: Custom mcp.json configuration file path, uses default path if not specified
+                           🔧 New: This parameter now supports data space isolation, each JSON file path corresponds to an independent data space
+            debug: Whether to enable debug logging, default is False (no debug info displayed)
+            standalone_config: Standalone configuration object, if provided, does not depend on environment variables
+            tool_record_max_file_size: Maximum size of tool record JSON file (MB), default 30MB, set to -1 for no limit
+            tool_record_retention_days: Tool record retention days, default 7 days, set to -1 for no deletion
+            monitoring: Monitoring configuration dictionary, optional parameters:
+                - health_check_seconds: Health check interval (default 30 seconds)
+                - tools_update_hours: Tool update interval (default 2 hours)
+                - reconnection_seconds: Reconnection interval (default 60 seconds)
+                - cleanup_hours: Cleanup interval (default 24 hours)
+                - enable_tools_update: Whether to enable tool updates (default True)
+                - enable_reconnection: Whether to enable reconnection (default True)
+                - update_tools_on_reconnection: Whether to update tools on reconnection (default True)
+            auto_register: Whether to automatically register services in mcp.json, default is True (auto register)
+                         When set to False, need to manually call add_service method to add services
 
         Returns:
-            MCPStore实例
+            MCPStore instance
         """
-        # 🔧 新增：支持独立配置
+        # 🔧 New: Support standalone configuration
         if standalone_config is not None:
             return MCPStore._setup_with_standalone_config(standalone_config, debug,
                                                         tool_record_max_file_size, tool_record_retention_days,
-                                                        monitoring)
+                                                        monitoring, auto_register)
 
-        # 🔧 新增：数据空间管理
+        # 🔧 New: Data space management
         if mcp_config_file is not None:
             return MCPStore._setup_with_data_space(mcp_config_file, debug,
                                                  tool_record_max_file_size, tool_record_retention_days,
-                                                 monitoring)
+                                                 monitoring, auto_register)
 
-        # 原有逻辑：使用默认配置
+        # Original logic: Use default configuration
         from mcpstore.config.config import LoggingConfig
-        from mcpstore.core.monitoring_config import MonitoringConfigProcessor
+        from mcpstore.core.monitoring.config import MonitoringConfigProcessor
 
         LoggingConfig.setup_logging(debug=debug)
 
-        # 处理监控配置
+        # Process monitoring configuration
         processed_monitoring = MonitoringConfigProcessor.process_config(monitoring)
         orchestrator_config = MonitoringConfigProcessor.convert_to_orchestrator_config(processed_monitoring)
 
         config = MCPConfig()
         registry = ServiceRegistry()
 
-        # 合并基础配置和监控配置
+        # Merge base configuration and monitoring configuration
         base_config = config.load_config()
         base_config.update(orchestrator_config)
 
         orchestrator = MCPOrchestrator(base_config, registry)
 
-        # 初始化orchestrator（包括工具更新监控器）
+        # Initialize orchestrator (including tool update monitor)
         import asyncio
         from mcpstore.core.async_sync_helper import AsyncSyncHelper
 
-        # 使用AsyncSyncHelper来正确管理异步操作
+        # Use AsyncSyncHelper to properly manage async operations
         async_helper = AsyncSyncHelper()
         try:
-            # 同步运行orchestrator.setup()，确保完成
-            async_helper.run_async(orchestrator.setup())
+            # Synchronously run orchestrator.setup(), ensure completion
+            async_helper.run_async(orchestrator.setup(auto_register=auto_register))
         except Exception as e:
             logger.error(f"Failed to setup orchestrator: {e}")
             raise
@@ -129,52 +131,52 @@ class MCPStore:
     @staticmethod
     def _setup_with_data_space(mcp_config_file: str, debug: bool = False,
                               tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7,
-                              monitoring: dict = None):
+                              monitoring: dict = None, auto_register: bool = True):
         """
-        使用数据空间初始化MCPStore（支持独立数据目录）
+        Initialize MCPStore with data space (supports independent data directory)
 
         Args:
-            mcp_config_file: MCP JSON配置文件路径（数据空间根目录）
-            debug: 是否启用调试日志
-            tool_record_max_file_size: 工具记录JSON文件最大大小(MB)
-            tool_record_retention_days: 工具记录保留天数
-            monitoring: 监控配置字典
+            mcp_config_file: MCP JSON configuration file path (data space root directory)
+            debug: Whether to enable debug logging
+            tool_record_max_file_size: Maximum size of tool record JSON file (MB)
+            tool_record_retention_days: Tool record retention days
+            monitoring: Monitoring configuration dictionary
 
         Returns:
-            MCPStore实例
+            MCPStore instance
         """
         from mcpstore.config.config import LoggingConfig
         from mcpstore.core.data_space_manager import DataSpaceManager
-        from mcpstore.core.monitoring_config import MonitoringConfigProcessor
+        from mcpstore.core.monitoring.config import MonitoringConfigProcessor
 
-        # 设置日志
+        # Setup logging
         LoggingConfig.setup_logging(debug=debug)
 
         try:
-            # 初始化数据空间
+            # Initialize data space
             data_space_manager = DataSpaceManager(mcp_config_file)
             if not data_space_manager.initialize_workspace():
                 raise RuntimeError(f"Failed to initialize workspace for: {mcp_config_file}")
 
             logger.info(f"Data space initialized: {data_space_manager.workspace_dir}")
 
-            # 处理监控配置
+            # Process monitoring configuration
             processed_monitoring = MonitoringConfigProcessor.process_config(monitoring)
             orchestrator_config = MonitoringConfigProcessor.convert_to_orchestrator_config(processed_monitoring)
 
-            # 使用指定的MCP JSON文件创建配置
+            # Create configuration using specified MCP JSON file
             config = MCPConfig(json_path=mcp_config_file)
             registry = ServiceRegistry()
 
-            # 获取数据空间中的文件路径（使用defaults子目录）
+            # Get file paths in data space (using defaults subdirectory)
             client_services_path = str(data_space_manager.get_file_path("defaults/client_services.json"))
             agent_clients_path = str(data_space_manager.get_file_path("defaults/agent_clients.json"))
 
-            # 合并基础配置和监控配置
+            # Merge base configuration and monitoring configuration
             base_config = config.load_config()
             base_config.update(orchestrator_config)
 
-            # 创建支持数据空间的orchestrator，传入正确的mcp_config实例
+            # Create orchestrator with data space support, pass correct mcp_config instance
             orchestrator = MCPOrchestrator(
                 base_config,
                 registry,
@@ -194,7 +196,7 @@ class MCPStore:
             async_helper = AsyncSyncHelper()
             try:
                 # 同步运行orchestrator.setup()，确保完成
-                async_helper.run_async(orchestrator.setup())
+                async_helper.run_async(orchestrator.setup(auto_register=auto_register))
             except Exception as e:
                 logger.error(f"Failed to setup orchestrator: {e}")
                 raise
@@ -209,7 +211,7 @@ class MCPStore:
     @staticmethod
     def _setup_with_standalone_config(standalone_config, debug: bool = False,
                                      tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7,
-                                     monitoring: dict = None):
+                                     monitoring: dict = None, auto_register: bool = True):
         """
         使用独立配置初始化MCPStore（不依赖环境变量）
 
@@ -226,7 +228,7 @@ class MCPStore:
         from mcpstore.core.standalone_config import StandaloneConfigManager, StandaloneConfig
         from mcpstore.core.registry import ServiceRegistry
         from mcpstore.core.orchestrator import MCPOrchestrator
-        from mcpstore.core.monitoring_config import MonitoringConfigProcessor
+        from mcpstore.core.monitoring.config import MonitoringConfigProcessor
         import logging
 
         # 处理配置类型
@@ -287,87 +289,87 @@ class MCPStore:
             # 尝试在当前事件循环中运行
             loop = asyncio.get_running_loop()
             # 如果已有事件循环，创建任务稍后执行
-            asyncio.create_task(orchestrator.setup())
+            asyncio.create_task(orchestrator.setup(auto_register=auto_register))
         except RuntimeError:
             # 没有运行的事件循环，创建新的
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                loop.run_until_complete(orchestrator.setup())
+                loop.run_until_complete(orchestrator.setup(auto_register=auto_register))
             finally:
                 loop.close()
 
         return MCPStore(orchestrator, config, tool_record_max_file_size, tool_record_retention_days)
   
     def _create_agent_context(self, agent_id: str) -> MCPStoreContext:
-        """创建agent级别的上下文"""
+        """Create agent-level context"""
         return MCPStoreContext(self, agent_id)
 
     def for_store(self) -> MCPStoreContext:
-        """获取商店级别的上下文"""
-        # global_agent_store 作为 store agent_id
+        """Get store-level context"""
+        # global_agent_store as store agent_id
         return self._store_context
 
     def for_agent(self, agent_id: str) -> MCPStoreContext:
-        """获取agent级别的上下文（带缓存）"""
+        """Get agent-level context (with caching)"""
         if agent_id not in self._context_cache:
             self._context_cache[agent_id] = self._create_agent_context(agent_id)
         return self._context_cache[agent_id]
 
     def get_unified_config(self) -> UnifiedConfigManager:
-        """获取统一配置管理器
+        """Get unified configuration manager
 
         Returns:
-            UnifiedConfigManager: 统一配置管理器实例
+            UnifiedConfigManager: Unified configuration manager instance
         """
         return self._unified_config
 
     async def register_service(self, payload: RegisterRequestUnion, agent_id: Optional[str] = None) -> Dict[str, str]:
-        """重构：注册服务，支持批量 service_names 注册"""
+        """Refactored: Register service, supports batch service_names registration"""
         service_names = getattr(payload, 'service_names', None)
         if not service_names:
-            raise ValueError("payload 必须包含 service_names 字段")
+            raise ValueError("payload must contain service_names field")
         results = {}
         agent_key = agent_id or self.client_manager.global_agent_store_id
         for name in service_names:
             success, msg = await self.orchestrator.connect_service(name)
             if not success:
-                results[name] = f"连接失败: {msg}"
+                results[name] = f"Connection failed: {msg}"
                 continue
             session = self.registry.get_session(agent_key, name)
             if not session:
-                results[name] = "未能获取 session"
+                results[name] = "Failed to get session"
                 continue
             tools = []
             try:
                 tools = await session.list_tools() if hasattr(session, 'list_tools') else []
             except Exception as e:
-                results[name] = f"获取工具失败: {e}"
+                results[name] = f"Failed to get tools: {e}"
                 continue
             added_tools = self.registry.add_service(agent_key, name, session, [(tool['name'], tool) for tool in tools])
-            results[name] = f"注册成功，工具数: {len(added_tools)}"
+            results[name] = f"Registration successful, tool count: {len(added_tools)}"
         return results
 
-    # === 重构后的服务注册方法 ===
+    # === Refactored service registration methods ===
 
     async def register_all_services_for_store(self) -> RegistrationResponse:
         """
-        @deprecated 此方法已废弃，请使用统一同步机制
+        @deprecated This method is deprecated, please use unified synchronization mechanism
 
-        Store级别：注册所有配置文件中的服务
+        Store level: Register all services in configuration file
 
-        ⚠️ 警告：此方法已被统一同步机制取代，建议使用：
-        - store.for_store().add_service_async() - 无参数全量注册
-        - orchestrator.sync_manager.sync_global_agent_store_from_mcp_json() - 直接同步
+        ⚠️ Warning: This method has been replaced by unified synchronization mechanism, recommended to use:
+        - store.for_store().add_service_async() - No parameter full registration
+        - orchestrator.sync_manager.sync_global_agent_store_from_mcp_json() - Direct synchronization
 
-        为了向后兼容暂时保留，但建议迁移到新机制
+        Temporarily retained for backward compatibility, but migration to new mechanism is recommended
 
         Returns:
-            RegistrationResponse: 注册结果
+            RegistrationResponse: Registration result
         """
         import warnings
         warnings.warn(
-            "register_all_services_for_store() 已废弃，请使用统一同步机制",
+            "register_all_services_for_store() is deprecated, please use unified synchronization mechanism",
             DeprecationWarning,
             stacklevel=2
         )
@@ -377,21 +379,21 @@ class MCPStore:
             registered_client_ids = []
             registered_services = []
 
-            logger.info(f"Store级别全量注册，共 {len(all_services)} 个服务")
+            logger.info(f"Store level full registration, total {len(all_services)} services")
 
             for name in all_services.keys():
                 try:
-                    # 使用同名服务处理逻辑
+                    # Use same-name service processing logic
                     success = self.client_manager.replace_service_in_agent(
                         agent_id=agent_id,
                         service_name=name,
                         new_service_config=all_services[name]
                     )
                     if not success:
-                        logger.error(f"替换服务 {name} 失败")
+                        logger.error(f"Failed to replace service {name}")
                         continue
 
-                    # 获取刚创建/更新的client_id用于Registry注册
+                    # Get newly created/updated client_id for Registry registration
                     client_ids = self.client_manager.get_agent_clients(agent_id)
                     for client_id_check in client_ids:
                         client_config = self.client_manager.get_client_config(client_id_check)
@@ -399,10 +401,10 @@ class MCPStore:
                             await self.orchestrator.register_json_services(client_config, client_id=client_id_check)
                             registered_client_ids.append(client_id_check)
                             registered_services.append(name)
-                            logger.info(f"成功注册服务: {name}")
+                            logger.info(f"Successfully registered service: {name}")
                             break
                 except Exception as e:
-                    logger.error(f"注册服务 {name} 失败: {e}")
+                    logger.error(f"Failed to register service {name}: {e}")
                     continue
 
             return RegistrationResponse(

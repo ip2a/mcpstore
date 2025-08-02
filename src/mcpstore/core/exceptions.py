@@ -1,19 +1,19 @@
 """
-MCP Store 异常类定义
+MCP Store exception class definitions
 """
 
 class MCPStoreError(Exception):
-    """MCP Store 基础异常类"""
+    """MCP Store base exception class"""
     pass
 
 class ServiceNotFoundError(MCPStoreError):
-    """服务不存在"""
+    """Service does not exist"""
     pass
 
 class InvalidConfigError(MCPStoreError):
-    """配置无效"""
+    """Invalid configuration"""
     pass
 
 class DeleteServiceError(MCPStoreError):
-    """删除服务失败"""
+    """Failed to delete service"""
     pass 

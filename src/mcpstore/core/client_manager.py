@@ -8,21 +8,21 @@ from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger(__name__)
 
-# 将所有配置文件统一放在 data/defaults 目录下
+# Put all configuration files in the data/defaults directory
 CLIENT_SERVICES_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'defaults', 'client_services.json')
 AGENT_CLIENTS_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'defaults', 'agent_clients.json')
 
 class ClientManager:
-    """管理客户端配置的类"""
+    """Class for managing client configurations"""
     
     def __init__(self, services_path: Optional[str] = None, agent_clients_path: Optional[str] = None, global_agent_store_id: Optional[str] = None):
         """
-        初始化客户端管理器
+        Initialize client manager
 
         Args:
-            services_path: 客户端服务配置文件路径
-            agent_clients_path: Agent客户端映射文件路径
-            global_agent_store_id: 全局代理存储ID（可选，用于数据空间）
+            services_path: Client service configuration file path
+            agent_clients_path: Agent client mapping file path
+            global_agent_store_id: Global agent store ID (optional, for data space)
         """
         self.services_path = services_path or CLIENT_SERVICES_PATH
         self.agent_clients_path = agent_clients_path or AGENT_CLIENTS_PATH

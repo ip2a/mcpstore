@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-异步/同步兼容助手
-提供在同步环境中运行异步函数的能力
+Async/Sync Compatibility Helper
+Provides the ability to run async functions in synchronous environments
 """
 
 import asyncio
@@ -11,11 +11,11 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Coroutine, TypeVar
 
-# 确保logger始终可用
+# Ensure logger is always available
 try:
     logger = logging.getLogger(__name__)
 except Exception:
-    # 如果出现任何问题，创建一个基本的logger
+    # If any issues occur, create a basic logger
     import sys
     logger = logging.getLogger(__name__)
     if not logger.handlers:
@@ -27,7 +27,7 @@ except Exception:
 T = TypeVar('T')
 
 class AsyncSyncHelper:
-    """异步/同步兼容助手类"""
+    """Async/sync compatibility helper class"""
     
     def __init__(self):
         self._executor = ThreadPoolExecutor(
@@ -39,10 +39,10 @@ class AsyncSyncHelper:
         self._lock = threading.Lock()
     
     def _ensure_loop(self):
-        """确保事件循环存在并运行"""
+        """Ensure event loop exists and is running"""
         if self._loop is None or self._loop.is_closed():
             with self._lock:
-                # 双重检查锁定
+                # Double-checked locking
                 if self._loop is None or self._loop.is_closed():
                     self._create_background_loop()
         return self._loop

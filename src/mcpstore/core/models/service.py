@@ -14,17 +14,17 @@ class TransportType(str, Enum):
 
 
 class ServiceConnectionState(str, Enum):
-    """服务连接生命周期状态枚举"""
-    INITIALIZING = "initializing"     # 初始化中：配置验证通过，正在进行首次连接
-    HEALTHY = "healthy"               # 健康：连接正常，心跳成功
-    WARNING = "warning"               # 警告：偶尔心跳失败，但未达重连阈值
-    RECONNECTING = "reconnecting"     # 重连中：连续失败达阈值，正在重连
-    UNREACHABLE = "unreachable"       # 无法访问：重连失败，进入长周期重试
-    DISCONNECTING = "disconnecting"   # 断连中：正在执行优雅关闭
-    DISCONNECTED = "disconnected"     # 已断连：服务已终止，等待手动删除
+    """Service connection lifecycle state enumeration"""
+    INITIALIZING = "initializing"     # Initializing: configuration validated, performing first connection
+    HEALTHY = "healthy"               # Healthy: connection normal, heartbeat successful
+    WARNING = "warning"               # Warning: occasional heartbeat failures, but not reaching reconnection threshold
+    RECONNECTING = "reconnecting"     # Reconnecting: consecutive failures reached threshold, reconnecting
+    UNREACHABLE = "unreachable"       # Unreachable: reconnection failed, entering long-cycle retry
+    DISCONNECTING = "disconnecting"   # Disconnecting: performing graceful shutdown
+    DISCONNECTED = "disconnected"     # Disconnected: service terminated, waiting for manual deletion
 
 class ServiceStateMetadata(BaseModel):
-    """服务状态元数据"""
+    """Service state metadata"""
     consecutive_failures: int = 0
     consecutive_successes: int = 0
     last_ping_time: Optional[datetime] = None
@@ -42,7 +42,7 @@ class ServiceInfo(BaseModel):
     url: str = ""
     name: str
     transport_type: TransportType
-    status: ServiceConnectionState  # 使用新的7状态枚举
+    status: ServiceConnectionState  # Use new 7-state enumeration
     tool_count: int
     keep_alive: bool
     working_dir: Optional[str] = None

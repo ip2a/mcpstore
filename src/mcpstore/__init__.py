@@ -1,6 +1,6 @@
 """
-MCPStore - 智能体工具服务商店
-提供简单易用的MCP工具管理和调用功能
+MCPStore - Intelligent Agent Tool Service Store
+Provides simple and easy-to-use MCP tool management and invocation functionality
 """
 
 from mcpstore.config.config import LoggingConfig

@@ -1,4 +1,7 @@
 {
   "mcpServers": {
+    "mcpstore-wiki": {
+      "url": "http://mcpstore.wiki/mcp"
+    }
   }
 }
