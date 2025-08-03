@@ -63,18 +63,16 @@ class StreamableHTTPTransport:
         server_method = self.METHOD_MAPPING.get(method, method)
         
         payload = {
-            "jsonrpc": "2.0", 
-            "method": server_method, 
+            "jsonrpc": "2.0",
+            "method": server_method,
             "params": {
                 "clientInfo": {
                     "name": "mcp-client",
                     "version": "1.0.0"
                 },
-                "protocolVersion": "2025-03-26",  # 添加协议版本
-                "capabilities": {                 # 添加客户端能力
-                    "streaming": True,
-                    "json": True,
-                    "binary": False
+                "protocolVersion": "2024-11-05",  # 🔧 修复：使用标准MCP协议版本
+                "capabilities": {                 # 🔧 修复：使用标准MCP能力格式
+                    "tools": {}
                 }
             },
             "id": request_id

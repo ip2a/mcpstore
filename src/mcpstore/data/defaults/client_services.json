@@ -1,2 +1,32 @@
 {
+  "global_agent_store": {
+    "mcpServers": {
+      "howtocook": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250804004927_tppfpd": {
+    "mcpServers": {
+      "howtocook": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "howtocook-mcp"
+        ]
+      }
+    }
+  },
+  "client_20250804004927_wawt3g": {
+    "mcpServers": {
+      "mcpstore-demo-weather": {
+        "url": "https://mcpstore.wiki/mcp",
+        "transport": "streamable-http"
+      }
+    }
+  }
 }

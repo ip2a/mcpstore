@@ -7,7 +7,7 @@ from mcpstore.core.models.common import (
 )
 from mcpstore.core.models.service import (
     RegisterRequestUnion, JsonUpdateRequest,
-    ServiceInfo, TransportType, ServiceInfoResponse
+    ServiceInfo, TransportType, ServiceInfoResponse, ServiceConnectionState
 )
 from mcpstore.core.models.tool import (
     ToolInfo, ToolExecutionRequest
@@ -31,6 +31,8 @@ class MCPStore:
         self.config = config
         self.registry = orchestrator.registry
         self.client_manager = orchestrator.client_manager
+        # 🔧 修复：添加LocalServiceManager访问属性
+        self.local_service_manager = orchestrator.local_service_manager
         self.session_manager = orchestrator.session_manager
         self.logger = logging.getLogger(__name__)
 
@@ -50,14 +52,27 @@ class MCPStore:
         # Data space manager (optional, only set when using data spaces)
         self._data_space_manager = None
 
+        # 🔧 新增：缓存管理器
+        from mcpstore.core.registry.cache_manager import ServiceCacheManager, CacheTransactionManager
+        self.cache_manager = ServiceCacheManager(self.registry, self.orchestrator.lifecycle_manager)
+        self.transaction_manager = CacheTransactionManager(self.registry)
+
+        # 🔧 新增：智能查询接口
+        from mcpstore.core.registry.smart_query import SmartCacheQuery
+        self.query = SmartCacheQuery(self.registry)
+
     def _create_store_context(self) -> MCPStoreContext:
         """Create store-level context"""
         return MCPStoreContext(self)
 
+    def get_store_context(self) -> MCPStoreContext:
+        """Get store-level context"""
+        return self._store_context
+
     @staticmethod
     def setup_store(mcp_config_file: str = None, debug: bool = False, standalone_config=None,
                    tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7,
-                   monitoring: dict = None, auto_register: bool = True):
+                   monitoring: dict = None, auto_register_on_startup: bool = True):
         """
         Initialize MCPStore instance
 
@@ -76,8 +91,9 @@ class MCPStore:
                 - enable_tools_update: Whether to enable tool updates (default True)
                 - enable_reconnection: Whether to enable reconnection (default True)
                 - update_tools_on_reconnection: Whether to update tools on reconnection (default True)
-            auto_register: Whether to automatically register services in mcp.json, default is True (auto register)
-                         When set to False, need to manually call add_service method to add services
+            auto_register_on_startup: Whether to automatically register services in mcp.json on startup, default is True
+                                 When set to False, services will not be registered on startup but file watching remains active
+                                 You can still manually call add_service method to add services
 
         Returns:
             MCPStore instance
@@ -86,13 +102,13 @@ class MCPStore:
         if standalone_config is not None:
             return MCPStore._setup_with_standalone_config(standalone_config, debug,
                                                         tool_record_max_file_size, tool_record_retention_days,
-                                                        monitoring, auto_register)
+                                                        monitoring, auto_register_on_startup)
 
         # 🔧 New: Data space management
         if mcp_config_file is not None:
             return MCPStore._setup_with_data_space(mcp_config_file, debug,
                                                  tool_record_max_file_size, tool_record_retention_days,
-                                                 monitoring, auto_register)
+                                                 monitoring, auto_register_on_startup)
 
         # Original logic: Use default configuration
         from mcpstore.config.config import LoggingConfig
@@ -121,17 +137,26 @@ class MCPStore:
         async_helper = AsyncSyncHelper()
         try:
             # Synchronously run orchestrator.setup(), ensure completion
-            async_helper.run_async(orchestrator.setup(auto_register=auto_register))
+            async_helper.run_async(orchestrator.setup(auto_register_on_startup=auto_register_on_startup))
         except Exception as e:
             logger.error(f"Failed to setup orchestrator: {e}")
             raise
 
-        return MCPStore(orchestrator, config, tool_record_max_file_size, tool_record_retention_days)
+        store = MCPStore(orchestrator, config, tool_record_max_file_size, tool_record_retention_days)
+
+        # 🔧 新增：初始化缓存
+        try:
+            async_helper.run_async(store.initialize_cache_from_files())
+        except Exception as e:
+            logger.warning(f"Failed to initialize cache from files: {e}")
+            # 缓存初始化失败不应该阻止系统启动
+
+        return store
 
     @staticmethod
     def _setup_with_data_space(mcp_config_file: str, debug: bool = False,
                               tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7,
-                              monitoring: dict = None, auto_register: bool = True):
+                              monitoring: dict = None, auto_register_on_startup: bool = True):
         """
         Initialize MCPStore with data space (supports independent data directory)
 
@@ -141,6 +166,7 @@ class MCPStore:
             tool_record_max_file_size: Maximum size of tool record JSON file (MB)
             tool_record_retention_days: Tool record retention days
             monitoring: Monitoring configuration dictionary
+            auto_register_on_startup: Whether to automatically register services in mcp.json on startup
 
         Returns:
             MCPStore instance
@@ -185,6 +211,10 @@ class MCPStore:
                 mcp_config=config  # Pass in the config instance of data space
             )
 
+            # 🔧 重构：为数据空间模式设置FastMCP适配器的工作目录
+            from mcpstore.core.local_service_manager import set_local_service_manager_work_dir
+            set_local_service_manager_work_dir(str(data_space_manager.workspace_dir))
+
             # Create store instance and set data space manager
             store = MCPStore(orchestrator, config, tool_record_max_file_size, tool_record_retention_days)
             store._data_space_manager = data_space_manager
@@ -196,10 +226,17 @@ class MCPStore:
             async_helper = AsyncSyncHelper()
             try:
                 # Run orchestrator.setup() synchronously, ensure completion
-                async_helper.run_async(orchestrator.setup(auto_register=auto_register))
+                async_helper.run_async(orchestrator.setup(auto_register_on_startup=auto_register_on_startup))
             except Exception as e:
                 logger.error(f"Failed to setup orchestrator: {e}")
                 raise
+
+            # 🔧 新增：初始化缓存
+            try:
+                async_helper.run_async(store.initialize_cache_from_files())
+            except Exception as e:
+                logger.warning(f"Failed to initialize cache from files: {e}")
+                # 缓存初始化失败不应该阻止系统启动
 
             logger.info(f"MCPStore setup with data space completed: {mcp_config_file}")
             return store
@@ -211,7 +248,7 @@ class MCPStore:
     @staticmethod
     def _setup_with_standalone_config(standalone_config, debug: bool = False,
                                      tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7,
-                                     monitoring: dict = None, auto_register: bool = True):
+                                     monitoring: dict = None, auto_register_on_startup: bool = True):
         """
         使用独立配置初始化MCPStore（不依赖环境变量）
 
@@ -289,13 +326,13 @@ class MCPStore:
             # 尝试在当前事件循环中运行
             loop = asyncio.get_running_loop()
             # 如果已有事件循环，创建任务稍后执行
-            asyncio.create_task(orchestrator.setup(auto_register=auto_register))
+            asyncio.create_task(orchestrator.setup(auto_register_on_startup=auto_register_on_startup))
         except RuntimeError:
             # 没有运行的事件循环，创建新的
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                loop.run_until_complete(orchestrator.setup(auto_register=auto_register))
+                loop.run_until_complete(orchestrator.setup(auto_register_on_startup=auto_register_on_startup))
             finally:
                 loop.close()
 
@@ -1045,236 +1082,142 @@ class MCPStore:
 
     async def list_services(self, id: Optional[str] = None, agent_mode: bool = False) -> List[ServiceInfo]:
         """
-        获取服务列表：
-        - store未传id 或 id==global_agent_store：聚合 global_agent_store 下所有 client_id 的服务
-        - store传普通 client_id：只查该 client_id 下的服务
-        - agent级别：聚合 agent_id 下所有 client_id 的服务；如果 id 不是 agent_id，尝试作为 client_id 查
+        纯缓存模式的服务列表获取
+
+        🔧 新特点：
+        - 完全从缓存获取数据
+        - 包含完整的 Agent-Client 信息
+        - 高性能，无文件IO
         """
-        from mcpstore.core.client_manager import ClientManager
-        client_manager: ClientManager = self.client_manager
         services_info = []
-        # 1. store未传id 或 id==global_agent_store，聚合 global_agent_store 下所有 client_id 的服务
+
+        # 1. Store模式：从缓存获取所有服务
         if not agent_mode and (not id or id == self.client_manager.global_agent_store_id):
-            # 修改：从配置文件获取所有服务，而不仅仅是已连接的服务
-            all_configured_services = self.config.get_all_services()
+            agent_id = self.client_manager.global_agent_store_id
 
-            for service_config in all_configured_services:
-                name = service_config["name"]
-                config = {k: v for k, v in service_config.items() if k != "name"}
+            # 🔧 关键：纯缓存获取
+            service_names = self.registry.get_all_service_names(agent_id)
 
-                # 🔧 修复：优先通过client_manager查找（基于配置文件），因为它能找到刚添加但还未连接的服务
-                found_client_ids = client_manager.find_clients_with_service(self.client_manager.global_agent_store_id, name)
-                if found_client_ids:
-                    client_id = found_client_ids[0]  # 使用第一个找到的client_id
-                else:
-                    # 备用方案：通过registry查找（基于注册状态）
-                    client_ids = client_manager.get_agent_clients(self.client_manager.global_agent_store_id)
-                    client_id = None
-                    for cid in client_ids:
-                        if self.registry.has_service(cid, name):
-                            client_id = cid
-                            break
+            if not service_names:
+                # 缓存为空，可能需要初始化
+                logger.info("Cache is empty, you may need to add services first")
+                return []
 
-                    # 最后的默认值：使用global_agent_store_id
-                    if not client_id:
-                        client_id = self.client_manager.global_agent_store_id
+            for service_name in service_names:
+                # 从缓存获取完整信息
+                complete_info = self.registry.get_complete_service_info(agent_id, service_name)
 
-                # 获取服务详情（可能为空，如果服务未连接）
-                details = self.registry.get_service_details(client_id, name) if client_id else {}
-
-                # 🔧 修复：获取生命周期状态和元数据 - 需要查找实际存储状态的agent_id
-                service_state = None
-                state_metadata = None
-
-                # 如果找到了具体的client_id，使用它查询状态
-                if client_id and client_id != self.client_manager.global_agent_store_id:
-                    service_state = self.orchestrator.lifecycle_manager.get_service_state(client_id, name)
-                    state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(client_id, name)
-
-                # 如果没有找到状态，尝试在所有agent中查找
-                if service_state is None:
-                    for agent_id in self.orchestrator.lifecycle_manager.service_states:
-                        if name in self.orchestrator.lifecycle_manager.service_states[agent_id]:
-                            service_state = self.orchestrator.lifecycle_manager.get_service_state(agent_id, name)
-                            state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(agent_id, name)
-                            break
-
-                # 如果仍然没有找到，说明服务只在配置中存在，但未被激活
-                if service_state is None:
-                    from mcpstore.core.models.service import ServiceConnectionState
-                    service_state = ServiceConnectionState.INITIALIZING  # 配置中的服务，但未激活
+                # 构建 ServiceInfo
+                state = complete_info.get("state", "disconnected")
+                # 确保状态是ServiceConnectionState枚举
+                if isinstance(state, str):
+                    try:
+                        state = ServiceConnectionState(state)
+                    except ValueError:
+                        state = ServiceConnectionState.DISCONNECTED
 
                 service_info = ServiceInfo(
-                    url=config.get("url", ""),
-                    name=name,
-                    transport_type=self._infer_transport_type(config),
-                    status=service_state,  # 使用新的7状态枚举
-                    tool_count=details.get("tool_count", 0),
-                    keep_alive=config.get("keep_alive", False),
-                    working_dir=config.get("working_dir"),
-                    env=config.get("env"),
-                    last_heartbeat=state_metadata.last_ping_time if state_metadata else None,
-                    command=config.get("command"),
-                    args=config.get("args"),
-                    package_name=config.get("package_name"),
-                    # 新增生命周期相关字段
-                    state_metadata=state_metadata,
-                    last_state_change=state_metadata.state_entered_time if state_metadata else None,
-                    client_id=client_id  # 添加client_id字段
+                    url=complete_info.get("config", {}).get("url", ""),
+                    name=service_name,
+                    transport_type=self._infer_transport_type(complete_info.get("config", {})),
+                    status=state,
+                    tool_count=complete_info.get("tool_count", 0),
+                    keep_alive=complete_info.get("config", {}).get("keep_alive", False),
+                    working_dir=complete_info.get("config", {}).get("working_dir"),
+                    env=complete_info.get("config", {}).get("env"),
+                    last_heartbeat=complete_info.get("last_heartbeat"),
+                    command=complete_info.get("config", {}).get("command"),
+                    args=complete_info.get("config", {}).get("args"),
+                    package_name=complete_info.get("config", {}).get("package_name"),
+                    state_metadata=complete_info.get("state_metadata"),
+                    last_state_change=complete_info.get("state_entered_time"),
+                    client_id=complete_info.get("client_id")  # 🔧 新增：Client ID 信息
                 )
                 services_info.append(service_info)
-            return services_info
-        # 2. store传普通 client_id，只查该 client_id 下的服务
-        if not agent_mode and id:
-            if id == self.client_manager.global_agent_store_id:
-                # 已在上面聚合分支处理，这里直接返回空
-                return services_info
+
+        # 2. Agent模式：从缓存获取 Agent 的服务
+        elif agent_mode and id:
             service_names = self.registry.get_all_service_names(id)
-            for name in service_names:
-                details = self.registry.get_service_details(id, name)
-                config = self.config.get_service_config(name) or {}
 
-                # 🔧 修复：获取生命周期状态和元数据 - 使用正确的agent_id
-                service_state = self.orchestrator.lifecycle_manager.get_service_state(id, name)
-                state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(id, name)
+            for service_name in service_names:
+                complete_info = self.registry.get_complete_service_info(id, service_name)
 
-                # 如果没有找到状态，尝试在所有agent中查找
-                if service_state is None:
-                    from mcpstore.core.models.service import ServiceConnectionState
-                    for agent_id in self.orchestrator.lifecycle_manager.service_states:
-                        if name in self.orchestrator.lifecycle_manager.service_states[agent_id]:
-                            service_state = self.orchestrator.lifecycle_manager.get_service_state(agent_id, name)
-                            state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(agent_id, name)
-                            break
-                    if service_state is None:
-                        service_state = ServiceConnectionState.INITIALIZING
+                # Agent模式可能需要名称映射
+                display_name = service_name
+                if hasattr(self, '_service_mapper') and self._service_mapper:
+                    display_name = self._service_mapper.to_local_name(service_name)
+
+                # 确保状态是ServiceConnectionState枚举
+                state = complete_info.get("state", "disconnected")
+                if isinstance(state, str):
+                    try:
+                        state = ServiceConnectionState(state)
+                    except ValueError:
+                        state = ServiceConnectionState.DISCONNECTED
 
                 service_info = ServiceInfo(
-                    url=config.get("url", ""),
-                    name=name,
-                    transport_type=self._infer_transport_type(config),
-                    status=service_state,  # 使用新的7状态枚举
-                    tool_count=details.get("tool_count", 0),
-                    keep_alive=config.get("keep_alive", False),
-                    working_dir=config.get("working_dir"),
-                    env=config.get("env"),
-                    last_heartbeat=state_metadata.last_ping_time if state_metadata else None,
-                    command=config.get("command"),
-                    args=config.get("args"),
-                    package_name=config.get("package_name"),
-                    # 新增生命周期相关字段
-                    state_metadata=state_metadata,
-                    last_state_change=state_metadata.state_entered_time if state_metadata else None,
-                    client_id=id  # 添加client_id字段
+                    url=complete_info.get("config", {}).get("url", ""),
+                    name=display_name,  # 显示本地名称
+                    transport_type=self._infer_transport_type(complete_info.get("config", {})),
+                    status=state,
+                    tool_count=complete_info.get("tool_count", 0),
+                    keep_alive=complete_info.get("config", {}).get("keep_alive", False),
+                    working_dir=complete_info.get("config", {}).get("working_dir"),
+                    env=complete_info.get("config", {}).get("env"),
+                    last_heartbeat=complete_info.get("last_heartbeat"),
+                    command=complete_info.get("config", {}).get("command"),
+                    args=complete_info.get("config", {}).get("args"),
+                    package_name=complete_info.get("config", {}).get("package_name"),
+                    state_metadata=complete_info.get("state_metadata"),
+                    last_state_change=complete_info.get("state_entered_time"),
+                    client_id=complete_info.get("client_id")
                 )
                 services_info.append(service_info)
-            return services_info
-        # 3. agent级别，聚合 agent_id 下所有 client_id 的服务；如果 id 不是 agent_id，尝试作为 client_id 查
-        if agent_mode and id:
-            client_ids = client_manager.get_agent_clients(id)
-            if client_ids:
-                for client_id in client_ids:
-                    # 🔧 修复：优先从client配置文件获取服务，因为registry可能还没有注册
-                    client_config = client_manager.get_client_config(client_id)
-                    if client_config and "mcpServers" in client_config:
-                        service_names = list(client_config["mcpServers"].keys())
-                    else:
-                        # 备用方案：从registry获取
-                        service_names = self.registry.get_all_service_names(client_id)
 
-                    for name in service_names:
-                        # 🔧 修复：优先从配置文件获取服务详情，registry作为补充
-                        config = self.config.get_service_config(name) or {}
-                        if client_config and name in client_config.get("mcpServers", {}):
-                            # 从client配置获取详情
-                            service_config = client_config["mcpServers"][name]
-                            details = {
-                                "url": service_config.get("url", ""),
-                                "command": service_config.get("command", ""),
-                                "args": service_config.get("args", []),
-                                "transport_type": service_config.get("transport", "streamable-http")
-                            }
-                        else:
-                            # 备用方案：从registry获取
-                            details = self.registry.get_service_details(client_id, name)
-
-                        # 🔧 修复：获取生命周期状态和元数据 - 使用正确的client_id
-                        service_state = self.orchestrator.lifecycle_manager.get_service_state(client_id, name)
-                        state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(client_id, name)
-
-                        # 如果没有找到状态，尝试在所有agent中查找
-                        if service_state is None:
-                            from mcpstore.core.models.service import ServiceConnectionState
-                            for agent_id in self.orchestrator.lifecycle_manager.service_states:
-                                if name in self.orchestrator.lifecycle_manager.service_states[agent_id]:
-                                    service_state = self.orchestrator.lifecycle_manager.get_service_state(agent_id, name)
-                                    state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(agent_id, name)
-                                    break
-                            if service_state is None:
-                                service_state = ServiceConnectionState.INITIALIZING
-
-                        service_info = ServiceInfo(
-                            url=config.get("url", ""),
-                            name=name,
-                            transport_type=self._infer_transport_type(config),
-                            status=service_state,  # 使用新的7状态枚举
-                            tool_count=details.get("tool_count", 0),
-                            keep_alive=config.get("keep_alive", False),
-                            working_dir=config.get("working_dir"),
-                            env=config.get("env"),
-                            last_heartbeat=state_metadata.last_ping_time if state_metadata else None,
-                            command=config.get("command"),
-                            args=config.get("args"),
-                            package_name=config.get("package_name"),
-                            # 新增生命周期相关字段
-                            state_metadata=state_metadata,
-                            last_state_change=state_metadata.state_entered_time if state_metadata else None,
-                            client_id=client_id  # 添加client_id字段
-                        )
-                        services_info.append(service_info)
-                return services_info
-            else:
-                service_names = self.registry.get_all_service_names(id)
-                for name in service_names:
-                    details = self.registry.get_service_details(id, name)
-                    config = self.config.get_service_config(name) or {}
-
-                    # 🔧 修复：获取生命周期状态和元数据 - 使用正确的agent_id
-                    service_state = self.orchestrator.lifecycle_manager.get_service_state(id, name)
-                    state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(id, name)
-
-                    # 如果没有找到状态，尝试在所有agent中查找
-                    if service_state is None:
-                        from mcpstore.core.models.service import ServiceConnectionState
-                        for agent_id in self.orchestrator.lifecycle_manager.service_states:
-                            if name in self.orchestrator.lifecycle_manager.service_states[agent_id]:
-                                service_state = self.orchestrator.lifecycle_manager.get_service_state(agent_id, name)
-                                state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(agent_id, name)
-                                break
-                        if service_state is None:
-                            service_state = ServiceConnectionState.INITIALIZING
-
-                    service_info = ServiceInfo(
-                        url=config.get("url", ""),
-                        name=name,
-                        transport_type=self._infer_transport_type(config),
-                        status=service_state,  # 使用新的7状态枚举
-                        tool_count=details.get("tool_count", 0),
-                        keep_alive=config.get("keep_alive", False),
-                        working_dir=config.get("working_dir"),
-                        env=config.get("env"),
-                        last_heartbeat=state_metadata.last_ping_time if state_metadata else None,
-                        command=config.get("command"),
-                        args=config.get("args"),
-                        package_name=config.get("package_name"),
-                        # 新增生命周期相关字段
-                        state_metadata=state_metadata,
-                        last_state_change=state_metadata.state_entered_time if state_metadata else None,
-                        client_id=id  # 添加client_id字段
-                    )
-                    services_info.append(service_info)
-                return services_info
         return services_info
+
+    async def initialize_cache_from_files(self):
+        """启动时从文件初始化缓存"""
+        try:
+            logger.info("🔄 Initializing cache from persistent files...")
+
+            # 1. 从 ClientManager 同步基础数据
+            self.cache_manager.sync_from_client_manager(self.client_manager)
+
+            # 2. 从配置文件同步 Store 级别的服务
+            import os
+            config_path = getattr(self.config, 'config_path', None) or getattr(self.config, 'json_path', None)
+            if config_path and os.path.exists(config_path):
+                store_config = self.config.load_config()
+                for service_name, service_config in store_config.get("mcpServers", {}).items():
+                    # 添加到缓存但不连接
+                    from mcpstore.core.models.service import ServiceConnectionState
+                    self.registry.add_service(
+                        agent_id=self.client_manager.global_agent_store_id,
+                        name=service_name,
+                        session=None,
+                        tools=[],
+                        service_config=service_config,
+                        state=ServiceConnectionState.INITIALIZING
+                    )
+
+            # 3. 标记缓存已初始化
+            from datetime import datetime
+            self.registry.cache_sync_status["initialized"] = datetime.now()
+
+            logger.info("✅ Cache initialization completed")
+
+        except Exception as e:
+            logger.error(f"❌ Cache initialization failed: {e}")
+            # 初始化失败不应该阻止系统启动
+
+    def _setup_api_store_instance(self):
+        """设置API使用的store实例"""
+        # 将当前store实例设置为全局实例，供API使用
+        import mcpstore.scripts.api_app as api_app
+        api_app._global_store_instance = self
+        logger.info(f"Set global store instance: data_space={self.is_using_data_space()}, workspace={self.get_workspace_dir()}")
+        logger.info(f"Global instance id: {id(self)}, api module instance id: {id(api_app._global_store_instance)}")
 
     async def list_tools(self, id: Optional[str] = None, agent_mode: bool = False) -> List[ToolInfo]:
         """

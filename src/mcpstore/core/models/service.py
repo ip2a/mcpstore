@@ -36,6 +36,13 @@ class ServiceStateMetadata(BaseModel):
     next_retry_time: Optional[datetime] = None
     state_entered_time: Optional[datetime] = None
     disconnect_reason: Optional[str] = None
+    # 🔧 新增：服务配置信息
+    service_config: Dict[str, Any] = Field(default_factory=dict)
+    service_name: Optional[str] = None
+    agent_id: Optional[str] = None
+    # 🔧 修复：添加缺失的字段
+    last_health_check: Optional[datetime] = None
+    last_response_time: Optional[float] = None
 
 
 class ServiceInfo(BaseModel):
