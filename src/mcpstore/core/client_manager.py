@@ -28,22 +28,22 @@ class ClientManager:
         self.agent_clients_path = agent_clients_path or AGENT_CLIENTS_PATH
         self._ensure_file()
         self.client_services = self.load_all_clients()
-        # 🔧 修复：支持数据空间的global_agent_store_id
+        # 🔧 Fix: Support data space global_agent_store_id
         self.global_agent_store_id = global_agent_store_id or self._generate_data_space_client_id()
         self._ensure_agent_clients_file()
 
     def _generate_data_space_client_id(self) -> str:
         """
-        生成global_agent_store_id
+        Generate global_agent_store_id
 
         Returns:
-            str: 固定返回"global_agent_store"
+            str: Fixed return "global_agent_store"
         """
-        # Store级别的Agent固定为global_agent_store
+        # Store-level Agent is fixed as global_agent_store
         return "global_agent_store"
 
     def _ensure_file(self):
-        """确保客户端服务配置文件存在"""
+        """Ensure client service configuration file exists"""
         os.makedirs(os.path.dirname(self.services_path), exist_ok=True)
         if not os.path.exists(self.services_path):
             with open(self.services_path, 'w', encoding='utf-8') as f:

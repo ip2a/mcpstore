@@ -182,20 +182,20 @@ class MCPStore:
                 registry,
                 client_services_path=client_services_path,
                 agent_clients_path=agent_clients_path,
-                mcp_config=config  # 传入数据空间的config实例
+                mcp_config=config  # Pass in the config instance of data space
             )
 
-            # 创建store实例并设置数据空间管理器
+            # Create store instance and set data space manager
             store = MCPStore(orchestrator, config, tool_record_max_file_size, tool_record_retention_days)
             store._data_space_manager = data_space_manager
 
-            # 初始化orchestrator（包括工具更新监控器）
+            # Initialize orchestrator (including tool update monitor)
             from mcpstore.core.async_sync_helper import AsyncSyncHelper
 
-            # 使用AsyncSyncHelper来正确管理异步操作
+            # Use AsyncSyncHelper to properly manage async operations
             async_helper = AsyncSyncHelper()
             try:
-                # 同步运行orchestrator.setup()，确保完成
+                # Run orchestrator.setup() synchronously, ensure completion
                 async_helper.run_async(orchestrator.setup(auto_register=auto_register))
             except Exception as e:
                 logger.error(f"Failed to setup orchestrator: {e}")

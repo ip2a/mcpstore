@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-OpenAPI 深度集成
-自动化 API 转换，自定义路由映射，智能生成 MCP 组件名称
+OpenAPI Deep Integration
+Automated API conversion, custom route mapping, intelligent MCP component name generation
 """
 
 import logging
@@ -15,13 +15,13 @@ import httpx
 logger = logging.getLogger(__name__)
 
 class MCPComponentType(Enum):
-    """MCP 组件类型"""
+    """MCP component types"""
     TOOL = "tool"
     RESOURCE = "resource"
     RESOURCE_TEMPLATE = "resource_template"
 
 class HTTPMethod(Enum):
-    """HTTP 方法"""
+    """HTTP methods"""
     GET = "GET"
     POST = "POST"
     PUT = "PUT"
@@ -32,17 +32,17 @@ class HTTPMethod(Enum):
 
 @dataclass
 class RouteMapping:
-    """路由映射配置"""
-    path_pattern: str                    # 路径模式，支持正则表达式
-    method: Optional[HTTPMethod] = None  # HTTP 方法，None 表示匹配所有方法
-    mcp_type: MCPComponentType = MCPComponentType.TOOL  # 映射到的 MCP 组件类型
-    name_template: Optional[str] = None  # 名称模板
-    description_template: Optional[str] = None  # 描述模板
-    tags: List[str] = field(default_factory=list)  # 标签
+    """Route mapping configuration"""
+    path_pattern: str                    # Path pattern, supports regular expressions
+    method: Optional[HTTPMethod] = None  # HTTP method, None means match all methods
+    mcp_type: MCPComponentType = MCPComponentType.TOOL  # MCP component type to map to
+    name_template: Optional[str] = None  # Name template
+    description_template: Optional[str] = None  # Description template
+    tags: List[str] = field(default_factory=list)  # Tags
 
 @dataclass
 class OpenAPIServiceConfig:
-    """OpenAPI 服务配置"""
+    """OpenAPI service configuration"""
     name: str
     spec_url: str
     base_url: Optional[str] = None

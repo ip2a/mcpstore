@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-组件控制与过滤 (Component Control)
-基于标签的动态过滤，支持启用/禁用组件，创建环境配置文件
+Component Control and Filtering
+Tag-based dynamic filtering, supports enabling/disabling components, creating environment configuration files
 """
 
 import json
@@ -14,14 +14,14 @@ from typing import Dict, List, Set, Any, Optional
 logger = logging.getLogger(__name__)
 
 class ComponentType(Enum):
-    """组件类型"""
+    """Component types"""
     TOOL = "tool"
     RESOURCE = "resource"
     PROMPT = "prompt"
     SERVICE = "service"
 
 class EnvironmentType(Enum):
-    """环境类型"""
+    """Environment types"""
     DEVELOPMENT = "development"
     TESTING = "testing"
     STAGING = "staging"
@@ -30,7 +30,7 @@ class EnvironmentType(Enum):
 
 @dataclass
 class ComponentInfo:
-    """组件信息"""
+    """Component information"""
     name: str
     component_type: ComponentType
     tags: Set[str] = field(default_factory=set)
@@ -41,7 +41,7 @@ class ComponentInfo:
 
 @dataclass
 class EnvironmentProfile:
-    """环境配置文件"""
+    """Environment configuration file"""
     name: str
     environment_type: EnvironmentType
     allowed_tags: Set[str] = field(default_factory=set)

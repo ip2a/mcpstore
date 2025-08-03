@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-认证与安全功能
-Bearer token 认证、OAuth 2.1 集成、API 密钥管理、基于角色的访问控制
+Authentication and Security Features
+Bearer token authentication, OAuth 2.1 integration, API key management, role-based access control
 """
 
 import hashlib
@@ -15,7 +15,7 @@ from typing import Dict, List, Set, Any, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 class AuthType(Enum):
-    """认证类型"""
+    """Authentication types"""
     BEARER_TOKEN = "bearer_token"
     API_KEY = "api_key"
     OAUTH2 = "oauth2"
@@ -23,7 +23,7 @@ class AuthType(Enum):
     CUSTOM = "custom"
 
 class Permission(Enum):
-    """权限类型"""
+    """Permission types"""
     READ = "read"
     WRITE = "write"
     EXECUTE = "execute"
@@ -32,18 +32,18 @@ class Permission(Enum):
 
 @dataclass
 class Role:
-    """角色定义"""
+    """Role definition"""
     name: str
     permissions: Set[Permission] = field(default_factory=set)
-    allowed_services: Set[str] = field(default_factory=set)  # 允许访问的服务
-    allowed_tools: Set[str] = field(default_factory=set)     # 允许使用的工具
-    blocked_tools: Set[str] = field(default_factory=set)     # 禁止使用的工具
+    allowed_services: Set[str] = field(default_factory=set)  # Services allowed to access
+    allowed_tools: Set[str] = field(default_factory=set)     # Tools allowed to use
+    blocked_tools: Set[str] = field(default_factory=set)     # Tools prohibited to use
     description: Optional[str] = None
     expires_at: Optional[datetime] = None
 
 @dataclass
 class User:
-    """用户定义"""
+    """User definition"""
     username: str
     user_id: str
     roles: Set[str] = field(default_factory=set)
@@ -56,20 +56,20 @@ class User:
 
 @dataclass
 class AuthConfig:
-    """认证配置"""
+    """Authentication configuration"""
     auth_type: AuthType
     config: Dict[str, Any] = field(default_factory=dict)
     enabled: bool = True
 
 class TokenManager:
-    """令牌管理器"""
+    """Token manager"""
     
     def __init__(self):
         self._tokens: Dict[str, Dict[str, Any]] = {}  # token -> token_info
         self._token_expiry: Dict[str, datetime] = {}
     
     def generate_bearer_token(self, user_id: str, expires_in: int = 3600) -> str:
-        """生成 Bearer Token"""
+        """Generate Bearer Token"""
         token = secrets.token_urlsafe(32)
         expires_at = datetime.now() + timedelta(seconds=expires_in)
         
@@ -86,14 +86,14 @@ class TokenManager:
         return token
     
     def generate_api_key(self, user_id: str, key_name: str) -> Tuple[str, str]:
-        """生成 API Key"""
-        # 生成原始密钥
+        """Generate API Key"""
+        # Generate raw key
         raw_key = f"mcp_{secrets.token_urlsafe(32)}"
-        
-        # 生成哈希
+
+        # Generate hash
         key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
-        
-        # 存储
+
+        # Store
         token_id = f"api_{secrets.token_urlsafe(16)}"
         self._tokens[token_id] = {
             "user_id": user_id,
@@ -108,12 +108,12 @@ class TokenManager:
         return raw_key, token_id
     
     def validate_token(self, token: str) -> Optional[Dict[str, Any]]:
-        """验证令牌"""
-        # 检查是否是 Bearer Token
+        """Validate token"""
+        # Check if it's a Bearer Token
         if token in self._tokens:
             token_info = self._tokens[token]
             
-            # 检查过期时间
+            # Check expiration time
             if token in self._token_expiry:
                 if datetime.now() > self._token_expiry[token]:
                     self.revoke_token(token)
@@ -121,19 +121,19 @@ class TokenManager:
             
             return token_info
         
-        # 检查是否是 API Key
+        # Check if it's an API Key
         for token_id, token_info in self._tokens.items():
             if token_info.get("type") == "api_key":
                 key_hash = hashlib.sha256(token.encode()).hexdigest()
                 if key_hash == token_info.get("key_hash"):
-                    # 更新最后使用时间
+                    # Update last used time
                     token_info["last_used"] = datetime.now()
                     return token_info
         
         return None
     
     def revoke_token(self, token: str):
-        """撤销令牌"""
+        """Revoke token"""
         if token in self._tokens:
             del self._tokens[token]
         if token in self._token_expiry:
@@ -141,7 +141,7 @@ class TokenManager:
         logger.info(f"Revoked token: {token[:8]}...")
     
     def cleanup_expired_tokens(self):
-        """清理过期令牌"""
+        """Clean up expired tokens"""
         now = datetime.now()
         expired_tokens = [
             token for token, expires_at in self._token_expiry.items()
@@ -155,15 +155,15 @@ class TokenManager:
             logger.info(f"Cleaned up {len(expired_tokens)} expired tokens")
 
 class RoleManager:
-    """角色管理器"""
+    """Role manager"""
     
     def __init__(self):
         self._roles: Dict[str, Role] = {}
         self._create_default_roles()
     
     def _create_default_roles(self):
-        """创建默认角色"""
-        # 管理员角色
+        """Create default roles"""
+        # Administrator role
         admin_role = Role(
             name="admin",
             permissions={Permission.READ, Permission.WRITE, Permission.EXECUTE, Permission.ADMIN, Permission.DELETE},
@@ -171,7 +171,7 @@ class RoleManager:
         )
         self._roles["admin"] = admin_role
         
-        # 用户角色
+        # User role
         user_role = Role(
             name="user",
             permissions={Permission.READ, Permission.EXECUTE},
@@ -179,7 +179,7 @@ class RoleManager:
         )
         self._roles["user"] = user_role
         
-        # 只读角色
+        # Read-only role
         readonly_role = Role(
             name="readonly",
             permissions={Permission.READ},
@@ -187,7 +187,7 @@ class RoleManager:
         )
         self._roles["readonly"] = readonly_role
         
-        # 开发者角色
+        # Developer role
         developer_role = Role(
             name="developer",
             permissions={Permission.READ, Permission.WRITE, Permission.EXECUTE},
@@ -196,20 +196,20 @@ class RoleManager:
         self._roles["developer"] = developer_role
     
     def create_role(self, role: Role):
-        """创建角色"""
+        """Create role"""
         self._roles[role.name] = role
         logger.info(f"Created role: {role.name}")
     
     def get_role(self, role_name: str) -> Optional[Role]:
-        """获取角色"""
+        """Get role"""
         return self._roles.get(role_name)
     
     def list_roles(self) -> List[str]:
-        """列出所有角色"""
+        """List all roles"""
         return list(self._roles.keys())
     
     def check_permission(self, role_names: Set[str], permission: Permission) -> bool:
-        """检查权限"""
+        """Check permission"""
         for role_name in role_names:
             role = self._roles.get(role_name)
             if role and permission in role.permissions:
@@ -217,21 +217,21 @@ class RoleManager:
         return False
     
     def check_tool_access(self, role_names: Set[str], tool_name: str, service_name: str) -> bool:
-        """检查工具访问权限"""
+        """Check tool access permission"""
         for role_name in role_names:
             role = self._roles.get(role_name)
             if not role:
                 continue
             
-            # 检查是否在禁止列表中
+            # Check if in blocked list
             if tool_name in role.blocked_tools:
                 return False
             
-            # 检查是否在允许列表中（如果列表不为空）
+            # Check if in allowed list (if list is not empty)
             if role.allowed_tools and tool_name not in role.allowed_tools:
                 continue
             
-            # 检查服务访问权限
+            # Check service access permission
             if role.allowed_services and service_name not in role.allowed_services:
                 continue
             
@@ -240,14 +240,14 @@ class RoleManager:
         return False
 
 class UserManager:
-    """用户管理器"""
+    """User manager"""
     
     def __init__(self):
         self._users: Dict[str, User] = {}
         self._username_to_id: Dict[str, str] = {}
     
     def create_user(self, username: str, roles: List[str] = None) -> str:
-        """创建用户"""
+        """Create user"""
         user_id = f"user_{secrets.token_urlsafe(16)}"
         user = User(
             username=username,
@@ -262,32 +262,32 @@ class UserManager:
         return user_id
     
     def get_user(self, user_id: str) -> Optional[User]:
-        """获取用户"""
+        """Get user"""
         return self._users.get(user_id)
     
     def get_user_by_username(self, username: str) -> Optional[User]:
-        """通过用户名获取用户"""
+        """Get user by username"""
         user_id = self._username_to_id.get(username)
         if user_id:
             return self._users.get(user_id)
         return None
     
     def update_user_roles(self, user_id: str, roles: List[str]):
-        """更新用户角色"""
+        """Update user roles"""
         user = self._users.get(user_id)
         if user:
             user.roles = set(roles)
             logger.info(f"Updated roles for user {user_id}: {roles}")
     
     def deactivate_user(self, user_id: str):
-        """停用用户"""
+        """Deactivate user"""
         user = self._users.get(user_id)
         if user:
             user.active = False
             logger.info(f"Deactivated user: {user_id}")
 
 class AuthenticationManager:
-    """认证管理器"""
+    """Authentication manager"""
     
     def __init__(self):
         self.token_manager = TokenManager()
@@ -296,7 +296,7 @@ class AuthenticationManager:
         self._auth_configs: Dict[str, AuthConfig] = {}
     
     def setup_bearer_auth(self, enabled: bool = True):
-        """设置 Bearer Token 认证"""
+        """Setup Bearer Token authentication"""
         config = AuthConfig(
             auth_type=AuthType.BEARER_TOKEN,
             enabled=enabled
@@ -305,7 +305,7 @@ class AuthenticationManager:
         logger.info(f"Bearer token authentication {'enabled' if enabled else 'disabled'}")
     
     def setup_api_key_auth(self, enabled: bool = True):
-        """设置 API Key 认证"""
+        """Setup API Key authentication"""
         config = AuthConfig(
             auth_type=AuthType.API_KEY,
             enabled=enabled
@@ -314,7 +314,7 @@ class AuthenticationManager:
         logger.info(f"API key authentication {'enabled' if enabled else 'disabled'}")
     
     def authenticate_request(self, auth_header: str) -> Optional[Dict[str, Any]]:
-        """认证请求"""
+        """Authenticate request"""
         if not auth_header:
             return None
         
@@ -347,27 +347,27 @@ class AuthenticationManager:
         return None
     
     def check_tool_permission(self, auth_info: Dict[str, Any], tool_name: str, service_name: str) -> bool:
-        """检查工具使用权限"""
+        """Check tool usage permission"""
         if not auth_info:
             return False
         
         user = auth_info["user"]
         
-        # 检查用户是否激活
+        # Check if user is active
         if not user.active:
             return False
         
-        # 检查角色权限
+        # Check role permissions
         return self.role_manager.check_tool_access(user.roles, tool_name, service_name)
     
     def create_user_with_api_key(self, username: str, key_name: str, roles: List[str] = None) -> Tuple[str, str]:
-        """创建用户并生成 API Key"""
+        """Create user and generate API Key"""
         user_id = self.user_manager.create_user(username, roles)
         api_key, key_id = self.token_manager.generate_api_key(user_id, key_name)
         return api_key, user_id
     
     def get_auth_summary(self) -> Dict[str, Any]:
-        """获取认证摘要"""
+        """Get authentication summary"""
         return {
             "enabled_auth_types": [
                 config.auth_type.value for config in self._auth_configs.values()
@@ -379,11 +379,11 @@ class AuthenticationManager:
             "active_tokens": len(self.token_manager._tokens)
         }
 
-# 全局实例
+# Global instance
 _global_auth_manager = None
 
 def get_auth_manager() -> AuthenticationManager:
-    """获取全局认证管理器"""
+    """Get global authentication manager"""
     global _global_auth_manager
     if _global_auth_manager is None:
         _global_auth_manager = AuthenticationManager()

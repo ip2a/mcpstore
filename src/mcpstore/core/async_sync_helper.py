@@ -100,7 +100,7 @@ class AsyncSyncHelper:
                 future = asyncio.run_coroutine_threadsafe(coro, loop)
                 return future.result(timeout=timeout)
             except RuntimeError:
-                # 没有运行中的事件循环，使用 asyncio.run
+                # No running event loop, use asyncio.run
                 logger.debug("Running coroutine with asyncio.run")
                 return asyncio.run(coro)
 
@@ -110,13 +110,13 @@ class AsyncSyncHelper:
     
     def sync_wrapper(self, async_func):
         """
-        将异步函数包装为同步函数的装饰器
-        
+        Decorator to wrap async function as sync function
+
         Args:
-            async_func: 异步函数
-            
+            async_func: Async function
+
         Returns:
-            同步版本的函数
+            Sync version of the function
         """
         @functools.wraps(async_func)
         def wrapper(*args, **kwargs):
@@ -126,22 +126,22 @@ class AsyncSyncHelper:
         return wrapper
     
     def cleanup(self):
-        """清理资源"""
+        """Clean up resources"""
         try:
             if self._loop and not self._loop.is_closed():
-                # 停止事件循环
+                # Stop event loop
                 self._loop.call_soon_threadsafe(self._loop.stop)
                 
             if self._loop_thread and self._loop_thread.is_alive():
-                # 等待线程结束
+                # Wait for thread to end
                 self._loop_thread.join(timeout=2)
                 
             if self._executor:
-                # 关闭线程池（Python 3.9+才支持timeout参数）
+                # Close thread pool (timeout parameter only supported in Python 3.9+)
                 try:
                     self._executor.shutdown(wait=True, timeout=2)
                 except TypeError:
-                    # 兼容旧版本Python
+                    # Compatible with older Python versions
                     self._executor.shutdown(wait=True)
                 
             logger.debug("AsyncSyncHelper cleanup completed")
@@ -150,19 +150,19 @@ class AsyncSyncHelper:
             logger.error(f"Error during cleanup: {e}")
     
     def __del__(self):
-        """析构函数，确保资源清理"""
+        """Destructor, ensure resource cleanup"""
         try:
             self.cleanup()
         except:
-            pass  # 忽略析构时的错误
+            pass  # Ignore errors during destruction
 
 
-# 全局实例，用于整个MCPStore
+# Global instance for entire MCPStore
 _global_helper = None
 _helper_lock = threading.Lock()
 
 def get_global_helper() -> AsyncSyncHelper:
-    """获取全局的AsyncSyncHelper实例"""
+    """Get global AsyncSyncHelper instance"""
     global _global_helper
     
     if _global_helper is None:
@@ -174,28 +174,28 @@ def get_global_helper() -> AsyncSyncHelper:
 
 def run_async_sync(coro: Coroutine[Any, Any, T], timeout: float = 30.0) -> T:
     """
-    便捷函数：在同步环境中运行异步函数
-    
+    Convenience function: run async function in sync environment
+
     Args:
-        coro: 协程对象
-        timeout: 超时时间（秒）
-        
+        coro: Coroutine object
+        timeout: Timeout in seconds
+
     Returns:
-        协程的执行结果
+        Execution result of coroutine
     """
     helper = get_global_helper()
     return helper.run_async(coro, timeout)
 
 def async_to_sync(async_func):
     """
-    装饰器：将异步函数转换为同步函数
+    Decorator: convert async function to sync function
     
     Usage:
         @async_to_sync
         async def my_async_func():
             return await some_async_operation()
         
-        # 现在可以同步调用
+        # Now can call synchronously
         result = my_async_func()
     """
     @functools.wraps(async_func)

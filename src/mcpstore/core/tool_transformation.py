@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-工具转换功能 (Tool Transformation)
-基于 FastMCP 2.8 的工具转换能力，提供 LLM 友好的工具接口
+Tool Transformation Functionality
+Based on FastMCP 2.8 tool transformation capabilities, providing LLM-friendly tool interfaces
 """
 
 import logging
@@ -12,28 +12,28 @@ from typing import Dict, List, Any, Optional, Callable
 logger = logging.getLogger(__name__)
 
 class TransformationType(Enum):
-    """转换类型"""
-    RENAME_ARGS = "rename_args"           # 重命名参数
-    HIDE_ARGS = "hide_args"               # 隐藏参数
-    MODIFY_DESCRIPTION = "modify_description"  # 修改描述
-    ADD_VALIDATION = "add_validation"     # 添加验证
-    SIMPLIFY_INTERFACE = "simplify_interface"  # 简化接口
-    ENHANCE_SAFETY = "enhance_safety"     # 增强安全性
+    """Transformation types"""
+    RENAME_ARGS = "rename_args"           # Rename parameters
+    HIDE_ARGS = "hide_args"               # Hide parameters
+    MODIFY_DESCRIPTION = "modify_description"  # Modify description
+    ADD_VALIDATION = "add_validation"     # Add validation
+    SIMPLIFY_INTERFACE = "simplify_interface"  # Simplify interface
+    ENHANCE_SAFETY = "enhance_safety"     # Enhance safety
 
 @dataclass
 class ArgumentTransform:
-    """参数转换配置"""
+    """Argument transformation configuration"""
     original_name: str
-    new_name: Optional[str] = None        # 新参数名
-    hidden: bool = False                  # 是否隐藏
-    default_value: Any = None             # 默认值
-    description: Optional[str] = None     # 新描述
-    validation_fn: Optional[Callable] = None  # 验证函数
-    transform_fn: Optional[Callable] = None   # 转换函数
+    new_name: Optional[str] = None        # New parameter name
+    hidden: bool = False                  # Whether to hide
+    default_value: Any = None             # Default value
+    description: Optional[str] = None     # New description
+    validation_fn: Optional[Callable] = None  # Validation function
+    transform_fn: Optional[Callable] = None   # Transformation function
 
 @dataclass
 class ToolTransformConfig:
-    """工具转换配置"""
+    """Tool transformation configuration"""
     original_tool_name: str
     new_tool_name: Optional[str] = None
     new_description: Optional[str] = None
@@ -44,7 +44,7 @@ class ToolTransformConfig:
     enabled: bool = True
 
 class ToolTransformer:
-    """工具转换器"""
+    """Tool transformer"""
     
     def __init__(self):
         self._transformations: Dict[str, ToolTransformConfig] = {}

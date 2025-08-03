@@ -1,7 +1,7 @@
 """
-全局应用状态和依赖项
+Global application state and dependencies
 """
 from typing import Dict, Any
 
-# 全局应用状态
+# Global application state
 app_state: Dict[str, Any] = {} 

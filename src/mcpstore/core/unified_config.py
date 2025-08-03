@@ -1,7 +1,7 @@
 """
-MCPStore 统一配置管理器
+MCPStore Unified Configuration Manager
 
-整合所有配置功能，提供统一的配置管理接口。
+Integrates all configuration functions, providing a unified configuration management interface.
 """
 
 import logging
@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, Any, Optional, List
 
-# 导入现有的配置组件
+# Import existing configuration components
 from mcpstore.config.config import load_app_config
 from mcpstore.config.json_config import MCPConfig, ConfigError
 from mcpstore.core.client_manager import ClientManager
@@ -17,7 +17,7 @@ from mcpstore.core.client_manager import ClientManager
 logger = logging.getLogger(__name__)
 
 class ConfigType(Enum):
-    """配置类型枚举"""
+    """Configuration type enumeration"""
     ENVIRONMENT = "environment"  # 环境变量配置
     MCP_SERVICES = "mcp_services"  # MCP服务配置
     CLIENT_SERVICES = "client_services"  # 客户端服务配置
@@ -25,28 +25,28 @@ class ConfigType(Enum):
 
 @dataclass
 class ConfigInfo:
-    """配置信息"""
+    """Configuration information"""
     config_type: ConfigType
-    source: str  # 配置来源（文件路径或环境变量）
+    source: str  # Configuration source (file path or environment variable)
     last_modified: Optional[str] = None
     is_valid: bool = True
     error_message: Optional[str] = None
 
 class UnifiedConfigManager:
-    """统一配置管理器
-    
-    整合环境变量配置、MCP服务配置、客户端配置等所有配置功能。
-    提供统一的配置访问、更新、验证接口。
+    """Unified configuration manager
+
+    Integrates all configuration functions including environment variables, MCP service configuration, client configuration, etc.
+    Provides unified configuration access, update, and validation interfaces.
     """
     
     def __init__(self, 
                  mcp_config_path: Optional[str] = None,
                  client_services_path: Optional[str] = None):
-        """初始化统一配置管理器
-        
+        """Initialize unified configuration manager
+
         Args:
-            mcp_config_path: MCP配置文件路径
-            client_services_path: 客户端服务配置文件路径
+            mcp_config_path: MCP configuration file path
+            client_services_path: Client service configuration file path
         """
         self.logger = logger
         

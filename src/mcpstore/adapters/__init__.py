@@ -1,7 +1,7 @@
 """
-MCPStore 适配器模块
+MCPStore Adapters Module
 
-提供与各种框架的集成适配器。
+Provides integration adapters for various frameworks.
 """
 
 from .langchain_adapter import LangChainAdapter

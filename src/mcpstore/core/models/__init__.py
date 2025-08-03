@@ -1,14 +1,14 @@
 """
-MCPStore 数据模型统一导入模块
+MCPStore Data Models Unified Import Module
 
-提供所有数据模型的统一导入接口，避免重复定义和导入混乱。
+Provides unified import interface for all data models, avoiding duplicate definitions and import confusion.
 """
 
-# 客户端相关模型
+# Client-related models
 from .client import (
     ClientRegistrationRequest
 )
-# 通用响应模型
+# Common response models
 from .common import (
     BaseResponse,
     APIResponse,
@@ -19,7 +19,7 @@ from .common import (
     ConfigResponse,
     HealthResponse
 )
-# 服务相关模型
+# Service-related models
 from .service import (
     ServiceInfo,
     ServiceInfoResponse,
@@ -36,23 +36,23 @@ from .service import (
     ServiceConnectionState,
     ServiceStateMetadata
 )
-# 工具相关模型
+# Tool-related models
 from .tool import (
     ToolInfo,
     ToolsResponse,
     ToolExecutionRequest
 )
 
-# 配置管理相关
+# Configuration management related
 try:
     from ..unified_config import UnifiedConfigManager, ConfigType, ConfigInfo
 except ImportError:
-    # 避免循环导入问题
+    # Avoid circular import issues
     pass
 
-# 导出所有模型，方便外部导入
+# Export all models for convenient external import
 __all__ = [
-    # 服务模型
+    # Service models
     'ServiceInfo',
     'ServiceInfoResponse',
     'ServicesResponse',
@@ -68,15 +68,15 @@ __all__ = [
     'ServiceConnectionState',
     'ServiceStateMetadata',
 
-    # 工具模型
+    # Tool models
     'ToolInfo',
     'ToolsResponse',
     'ToolExecutionRequest',
 
-    # 客户端模型
+    # Client models
     'ClientRegistrationRequest',
 
-    # 通用响应模型
+    # Common response models
     'BaseResponse',
     'APIResponse',
     'ListResponse',

@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class StreamableHTTPConfig:
-    """Streamable HTTP传输配置"""
+    """Streamable HTTP transport configuration"""
     base_url: str
     timeout: int = 30
     session_id: Optional[str] = None
@@ -24,19 +24,19 @@ class StreamableHTTPConfig:
     session_id_header: str = "Mcp-Session-Id"
 
 class StreamableHTTPTransport:
-    """实现MCP Streamable HTTP传输协议
-    
-    基于MCP 2025-03-26版本规范，提供统一的双向通信能力。
-    支持会话管理、连接恢复和向后兼容。
+    """Implements MCP Streamable HTTP transport protocol
+
+    Based on MCP 2025-03-26 version specification, providing unified bidirectional communication capabilities.
+    Supports session management, connection recovery and backward compatibility.
     """
     
-    # 方法名映射，将简化名称映射到服务器期望的格式
+    # Method name mapping, mapping simplified names to server-expected format
     METHOD_MAPPING = {
         "list_tools": "tools/list",
         "call_tool": "tools/call",
         "initialize": "initialize",
         "ping": "ping"
-        # 可以根据需要添加更多映射
+        # More mappings can be added as needed
     }
     
     def __init__(self, config: StreamableHTTPConfig):
@@ -45,9 +45,9 @@ class StreamableHTTPTransport:
         self.last_event_id: Optional[str] = None
         
     async def initialize(self) -> Dict[str, Any]:
-        """初始化连接并获取会话ID
-        
-        发送初始化请求，建立会话，并返回服务器响应。
+        """Initialize connection and get session ID
+
+        Send initialization request, establish session, and return server response.
         
         Returns:
             Dict[str, Any]: 服务器的初始化响应

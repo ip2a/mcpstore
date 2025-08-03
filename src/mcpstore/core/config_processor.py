@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-配置处理器 - 处理用户配置和FastMCP配置之间的转换
-对用户宽松，对FastMCP严格
+Configuration Processor - handles conversion between user configuration and FastMCP configuration
+Lenient to users, strict to FastMCP
 """
 
 import logging
@@ -12,15 +12,15 @@ logger = logging.getLogger(__name__)
 
 class ConfigProcessor:
     """
-    配置处理器：处理用户配置和FastMCP配置之间的转换
-    
-    设计理念：
-    1. 对用户宽松：允许额外字段，transport可选
-    2. 对FastMCP严格：确保格式完全符合要求
-    3. 智能推断：自动处理transport字段
+    Configuration Processor: handles conversion between user configuration and FastMCP configuration
+
+    Design philosophy:
+    1. Lenient to users: allow extra fields, transport optional
+    2. Strict to FastMCP: ensure format fully complies with requirements
+    3. Intelligent inference: automatically handle transport field
     """
     
-    # FastMCP支持的标准字段
+    # Standard fields supported by FastMCP
     FASTMCP_REMOTE_FIELDS = {
         "url", "transport", "headers", "timeout", "keep_alive"
     }
@@ -29,7 +29,7 @@ class ConfigProcessor:
         "command", "args", "env", "working_dir", "timeout"
     }
     
-    # 支持的transport类型
+    # Supported transport types
     VALID_TRANSPORTS = {
         "streamable-http", "sse", "stdio"
     }
@@ -37,13 +37,13 @@ class ConfigProcessor:
     @classmethod
     def process_user_config_for_fastmcp(cls, user_config: Dict[str, Any]) -> Dict[str, Any]:
         """
-        将用户配置转换为FastMCP兼容的配置
+        Convert user configuration to FastMCP-compatible configuration
 
         Args:
-            user_config: 用户原始配置
+            user_config: User's original configuration
 
         Returns:
-            FastMCP兼容的配置
+            FastMCP-compatible configuration
         """
         if not isinstance(user_config, dict) or "mcpServers" not in user_config:
             logger.warning("Invalid config format, returning as-is")

@@ -11,22 +11,22 @@ class ToolInfo(BaseModel):
     inputSchema: Optional[Dict[str, Any]] = None
 
 class ToolsResponse(BaseModel):
-    """工具列表响应模型"""
-    tools: List[ToolInfo] = Field(..., description="工具列表")
-    total_tools: int = Field(..., description="工具总数")
-    success: bool = Field(True, description="操作是否成功")
-    message: Optional[str] = Field(None, description="响应消息")
+    """Tool list response model"""
+    tools: List[ToolInfo] = Field(..., description="Tool list")
+    total_tools: int = Field(..., description="Total number of tools")
+    success: bool = Field(True, description="Whether operation was successful")
+    message: Optional[str] = Field(None, description="Response message")
 
 class ToolExecutionRequest(BaseModel):
-    tool_name: str = Field(..., description="工具名称（FastMCP 原始名称）")
-    service_name: str = Field(..., description="服务名称")
-    args: Dict[str, Any] = Field(default_factory=dict, description="工具参数")
+    tool_name: str = Field(..., description="Tool name (FastMCP original name)")
+    service_name: str = Field(..., description="Service name")
+    args: Dict[str, Any] = Field(default_factory=dict, description="Tool parameters")
     agent_id: Optional[str] = Field(None, description="Agent ID")
-    client_id: Optional[str] = Field(None, description="客户端ID")
+    client_id: Optional[str] = Field(None, description="Client ID")
 
-    # FastMCP 标准参数
-    timeout: Optional[float] = Field(None, description="超时时间（秒）")
-    progress_handler: Optional[Any] = Field(None, description="进度处理器")
-    raise_on_error: bool = Field(True, description="是否在错误时抛出异常")
+    # FastMCP standard parameters
+    timeout: Optional[float] = Field(None, description="Timeout (seconds)")
+    progress_handler: Optional[Any] = Field(None, description="Progress handler")
+    raise_on_error: bool = Field(True, description="Whether to raise exception on error")
 
-# ToolExecutionResponse 已移动到 common.py 中，请直接从 common.py 导入
+# ToolExecutionResponse has been moved to common.py, please import directly from common.py

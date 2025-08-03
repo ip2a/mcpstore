@@ -51,13 +51,13 @@ class ServiceInfo(BaseModel):
     command: Optional[str] = None
     args: Optional[List[str]] = None
     package_name: Optional[str] = None
-    # 新增生命周期相关字段
+    # New lifecycle-related fields
     state_metadata: Optional[ServiceStateMetadata] = None
     last_state_change: Optional[datetime] = None
-    client_id: Optional[str] = None  # 添加client_id字段
+    client_id: Optional[str] = None  # Add client_id field
 
 class ServiceInfoResponse(BaseModel):
-    """单个服务的详细信息响应模型"""
+    """Detailed information response model for a single service"""
     service: Optional[ServiceInfo] = Field(None, description="服务信息")
     tools: List[Dict[str, Any]] = Field(..., description="服务提供的工具列表")
     connected: bool = Field(..., description="服务连接状态")
@@ -65,7 +65,7 @@ class ServiceInfoResponse(BaseModel):
     message: Optional[str] = Field(None, description="响应消息")
 
 class ServicesResponse(BaseModel):
-    """服务列表响应模型"""
+    """Service list response model"""
     services: List[ServiceInfo] = Field(..., description="服务列表")
     total_services: int = Field(..., description="服务总数")
     total_tools: int = Field(..., description="工具总数")
@@ -88,33 +88,33 @@ class JsonUpdateRequest(BaseModel):
     service_names: Optional[List[str]] = None
     config: Dict[str, Any]
 
-# 这些响应模型已移动到 common.py 中，请直接从 common.py 导入
+# These response models have been moved to common.py, please import directly from common.py
 
 class ServiceConfig(BaseModel):
-    """服务配置基类"""
+    """Service configuration base class"""
     name: str = Field(..., description="服务名称")
 
 class URLServiceConfig(ServiceConfig):
-    """URL方式的服务配置"""
-    url: str = Field(..., description="服务URL")
-    transport: Optional[str] = Field("streamable-http", description="传输类型: streamable-http 或 sse")
-    headers: Optional[Dict[str, str]] = Field(default=None, description="请求头")
+    """URL-based service configuration"""
+    url: str = Field(..., description="Service URL")
+    transport: Optional[str] = Field("streamable-http", description="Transport type: streamable-http or sse")
+    headers: Optional[Dict[str, str]] = Field(default=None, description="Request headers")
 
 class CommandServiceConfig(ServiceConfig):
-    """本地命令方式的服务配置"""
-    command: str = Field(..., description="执行命令")
-    args: Optional[List[str]] = Field(default=None, description="命令参数")
-    env: Optional[Dict[str, str]] = Field(default=None, description="环境变量")
-    working_dir: Optional[str] = Field(default=None, description="工作目录")
+    """Local command-based service configuration"""
+    command: str = Field(..., description="Command to execute")
+    args: Optional[List[str]] = Field(default=None, description="Command arguments")
+    env: Optional[Dict[str, str]] = Field(default=None, description="Environment variables")
+    working_dir: Optional[str] = Field(default=None, description="Working directory")
 
 class MCPServerConfig(BaseModel):
-    """完整的MCP服务配置"""
-    mcpServers: Dict[str, Dict[str, Any]] = Field(..., description="MCP服务配置字典")
+    """Complete MCP service configuration"""
+    mcpServers: Dict[str, Dict[str, Any]] = Field(..., description="MCP service configuration dictionary")
 
-# 支持多种配置格式
+# Support multiple configuration formats
 ServiceConfigUnion = Union[URLServiceConfig, CommandServiceConfig, MCPServerConfig, Dict[str, Any]]
 
 class AddServiceRequest(BaseModel):
-    """添加服务请求"""
-    config: ServiceConfigUnion = Field(..., description="服务配置，支持多种格式")
-    update_config: bool = Field(default=True, description="是否更新配置文件") 
+    """Add service request"""
+    config: ServiceConfigUnion = Field(..., description="Service configuration, supports multiple formats")
+    update_config: bool = Field(default=True, description="Whether to update configuration file")

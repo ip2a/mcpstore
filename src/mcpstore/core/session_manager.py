@@ -8,7 +8,7 @@ from fastmcp import Client
 logger = logging.getLogger(__name__)
 
 class AgentSession:
-    """Agent 会话类"""
+    """Agent session class"""
     def __init__(self, agent_id: str):
         self.agent_id = agent_id
         self.services: Dict[str, Client] = {}  # service_name -> Client
@@ -17,36 +17,36 @@ class AgentSession:
         self.created_at = datetime.now()
         
     def update_activity(self):
-        """更新最后活动时间"""
+        """Update last activity time"""
         self.last_active = datetime.now()
         
     def add_service(self, service_name: str, client: Client):
-        """添加服务"""
+        """Add service"""
         self.services[service_name] = client
         
     def add_tool(self, tool_name: str, tool_info: Dict[str, Any], service_name: str):
-        """添加工具"""
+        """Add tool"""
         self.tools[tool_name] = {
             **tool_info,
             "service_name": service_name
         }
         
     def get_service_for_tool(self, tool_name: str) -> Optional[str]:
-        """获取工具对应的服务名"""
+        """Get service name corresponding to tool"""
         return self.tools.get(tool_name, {}).get("service_name")
         
     def get_all_tools(self) -> Dict[str, Dict[str, Any]]:
-        """获取所有工具信息"""
+        """Get all tool information"""
         return self.tools
 
 class SessionManager:
-    """会话管理器"""
+    """Session manager"""
     def __init__(self, session_timeout: int = 3600):
         self.sessions: Dict[str, AgentSession] = {}
         self.session_timeout = timedelta(seconds=session_timeout)
         
     def create_session(self, agent_id: Optional[str] = None) -> AgentSession:
-        """创建新会话"""
+        """Create new session"""
         if not agent_id:
             agent_id = str(uuid.uuid4())
             

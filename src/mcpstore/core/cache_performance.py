@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-智能缓存与性能优化
-工具结果缓存、服务发现缓存、智能预取、连接池管理
+Intelligent Caching and Performance Optimization
+Tool result caching, service discovery caching, intelligent prefetching, connection pool management
 """
 
 import asyncio
@@ -17,26 +17,26 @@ from typing import Dict, List, Any, Optional
 logger = logging.getLogger(__name__)
 
 class CacheStrategy(Enum):
-    """缓存策略"""
-    LRU = "lru"           # 最近最少使用
-    LFU = "lfu"           # 最少使用频率
-    TTL = "ttl"           # 时间过期
-    ADAPTIVE = "adaptive"  # 自适应
+    """Cache strategies"""
+    LRU = "lru"           # Least Recently Used
+    LFU = "lfu"           # Least Frequently Used
+    TTL = "ttl"           # Time To Live
+    ADAPTIVE = "adaptive"  # Adaptive
 
 @dataclass
 class CacheEntry:
-    """缓存条目"""
+    """Cache entry"""
     key: str
     value: Any
     created_at: datetime
     last_accessed: datetime
     access_count: int = 0
-    ttl: Optional[int] = None  # 生存时间（秒）
-    size: int = 0  # 数据大小（字节）
+    ttl: Optional[int] = None  # Time to live (seconds)
+    size: int = 0  # Data size (bytes)
 
 @dataclass
 class CacheStats:
-    """缓存统计"""
+    """Cache statistics"""
     hits: int = 0
     misses: int = 0
     evictions: int = 0
@@ -103,7 +103,7 @@ class LRUCache:
             size=size
         )
         
-        # 如果键已存在，更新统计
+        # If key already exists, update statistics
         if key in self._cache:
             old_entry = self._cache[key]
             self._stats.total_size -= old_entry.size
@@ -113,7 +113,7 @@ class LRUCache:
         self._stats.entry_count = len(self._cache)
     
     def _evict_lru(self):
-        """驱逐最近最少使用的条目"""
+        """Evict least recently used entry"""
         if self._cache:
             key, entry = self._cache.popitem(last=False)
             self._stats.total_size -= entry.size
@@ -121,31 +121,31 @@ class LRUCache:
             logger.debug(f"Evicted LRU cache entry: {key}")
     
     def _evict(self, key: str):
-        """驱逐指定条目"""
+        """Evict specified entry"""
         if key in self._cache:
             entry = self._cache.pop(key)
             self._stats.total_size -= entry.size
             self._stats.evictions += 1
     
     def _calculate_size(self, value: Any) -> int:
-        """计算值的大小"""
+        """Calculate size of value"""
         try:
             return len(pickle.dumps(value))
         except:
             return len(str(value).encode('utf-8'))
     
     def clear(self):
-        """清空缓存"""
+        """Clear cache"""
         self._cache.clear()
         self._stats = CacheStats()
     
     def get_stats(self) -> CacheStats:
-        """获取缓存统计"""
+        """Get cache statistics"""
         self._stats.entry_count = len(self._cache)
         return self._stats
 
 class ToolResultCache:
-    """工具结果缓存"""
+    """Tool result cache"""
     
     def __init__(self, max_size: int = 500, default_ttl: int = 3600):
         self.cache = LRUCache(max_size)
@@ -153,14 +153,14 @@ class ToolResultCache:
         self._cache_patterns: Dict[str, int] = {}  # tool_pattern -> ttl
     
     def get_cache_key(self, tool_name: str, args: Dict[str, Any]) -> str:
-        """生成缓存键"""
-        # 创建参数的哈希
+        """Generate cache key"""
+        # Create hash of parameters
         args_str = str(sorted(args.items()))
         args_hash = hashlib.md5(args_str.encode()).hexdigest()
         return f"tool:{tool_name}:{args_hash}"
     
     def get_result(self, tool_name: str, args: Dict[str, Any]) -> Optional[Any]:
-        """获取缓存的工具结果"""
+        """Get cached tool result"""
         cache_key = self.get_cache_key(tool_name, args)
         result = self.cache.get(cache_key)
         
@@ -170,7 +170,7 @@ class ToolResultCache:
         return result
     
     def cache_result(self, tool_name: str, args: Dict[str, Any], result: Any):
-        """缓存工具结果"""
+        """Cache tool result"""
         cache_key = self.get_cache_key(tool_name, args)
         ttl = self._get_ttl_for_tool(tool_name)
         
@@ -178,25 +178,25 @@ class ToolResultCache:
         logger.debug(f"Cached result for tool {tool_name} (TTL: {ttl}s)")
     
     def set_tool_cache_pattern(self, tool_pattern: str, ttl: int):
-        """设置工具缓存模式"""
+        """Set tool cache pattern"""
         self._cache_patterns[tool_pattern] = ttl
     
     def _get_ttl_for_tool(self, tool_name: str) -> int:
-        """获取工具的 TTL"""
+        """Get tool's TTL"""
         for pattern, ttl in self._cache_patterns.items():
             if pattern in tool_name:
                 return ttl
         return self.default_ttl
 
 class ServiceDiscoveryCache:
-    """服务发现缓存"""
-    
-    def __init__(self, ttl: int = 300):  # 5分钟
+    """Service discovery cache"""
+
+    def __init__(self, ttl: int = 300):  # 5 minutes
         self.cache = LRUCache(max_size=100)
         self.ttl = ttl
     
     def get_service_info(self, service_name: str) -> Optional[Dict[str, Any]]:
-        """获取服务信息"""
+        """Get service information"""
         return self.cache.get(f"service:{service_name}")
     
     def cache_service_info(self, service_name: str, service_info: Dict[str, Any]):

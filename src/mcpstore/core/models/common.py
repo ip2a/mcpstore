@@ -1,51 +1,51 @@
 """
-MCPStore 通用响应模型
+MCPStore Common Response Models
 
-提供统一的响应格式，减少重复的响应模型定义。
+Provides unified response format, reducing duplicate response model definitions.
 """
 
 from typing import Optional, Any, List, Dict, Generic, TypeVar
 
 from pydantic import BaseModel, Field
 
-# 泛型类型变量
+# Generic type variable
 T = TypeVar('T')
 
 class BaseResponse(BaseModel):
-    """统一的基础响应模型"""
-    success: bool = Field(..., description="操作是否成功")
-    message: Optional[str] = Field(None, description="响应消息")
+    """Unified base response model"""
+    success: bool = Field(..., description="Whether operation was successful")
+    message: Optional[str] = Field(None, description="Response message")
 
 class APIResponse(BaseResponse):
-    """通用API响应模型"""
-    data: Optional[Any] = Field(None, description="响应数据")
-    metadata: Optional[Dict[str, Any]] = Field(None, description="元数据信息")
-    execution_info: Optional[Dict[str, Any]] = Field(None, description="执行信息")
+    """Common API response model"""
+    data: Optional[Any] = Field(None, description="Response data")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Metadata information")
+    execution_info: Optional[Dict[str, Any]] = Field(None, description="Execution information")
 
 class ListResponse(BaseResponse, Generic[T]):
-    """列表响应模型"""
-    items: List[T] = Field(..., description="数据项列表")
-    total: int = Field(..., description="总数量")
+    """List response model"""
+    items: List[T] = Field(..., description="Data item list")
+    total: int = Field(..., description="Total count")
 
 class DataResponse(BaseResponse, Generic[T]):
-    """单个数据项响应模型"""
-    data: T = Field(..., description="数据项")
+    """Single data item response model"""
+    data: T = Field(..., description="Data item")
 
 class RegistrationResponse(BaseResponse):
-    """注册操作响应模型"""
-    client_id: str = Field(..., description="客户端ID")
-    service_names: List[str] = Field(..., description="服务名列表")
-    config: Dict[str, Any] = Field(..., description="配置信息")
+    """Registration operation response model"""
+    client_id: str = Field(..., description="Client ID")
+    service_names: List[str] = Field(..., description="Service name list")
+    config: Dict[str, Any] = Field(..., description="Configuration information")
 
 class ExecutionResponse(BaseResponse):
-    """执行操作响应模型"""
-    result: Optional[Any] = Field(None, description="执行结果")
-    error: Optional[str] = Field(None, description="错误信息")
+    """Execution operation response model"""
+    result: Optional[Any] = Field(None, description="Execution result")
+    error: Optional[str] = Field(None, description="Error information")
 
 class ConfigResponse(BaseResponse):
-    """配置响应模型"""
-    client_id: str = Field(..., description="客户端ID")
-    config: Dict[str, Any] = Field(..., description="配置信息")
+    """Configuration response model"""
+    client_id: str = Field(..., description="Client ID")
+    config: Dict[str, Any] = Field(..., description="Configuration information")
 
 class HealthResponse(BaseResponse):
     """健康检查响应模型"""
