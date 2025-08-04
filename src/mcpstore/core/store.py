@@ -144,6 +144,9 @@ class MCPStore:
 
         store = MCPStore(orchestrator, config, tool_record_max_file_size, tool_record_retention_days)
 
+        # 🔧 新增：设置orchestrator的store引用（用于统一注册架构）
+        orchestrator.store = store
+
         # 🔧 新增：初始化缓存
         try:
             async_helper.run_async(store.initialize_cache_from_files())
@@ -218,6 +221,9 @@ class MCPStore:
             # Create store instance and set data space manager
             store = MCPStore(orchestrator, config, tool_record_max_file_size, tool_record_retention_days)
             store._data_space_manager = data_space_manager
+
+            # 🔧 新增：设置orchestrator的store引用（用于统一注册架构）
+            orchestrator.store = store
 
             # Initialize orchestrator (including tool update monitor)
             from mcpstore.core.async_sync_helper import AsyncSyncHelper
@@ -495,15 +501,16 @@ class MCPStore:
                         logger.error(f"替换服务 {name} 失败")
                         continue
 
-                    # 获取刚创建/更新的client_id用于Registry注册
+                    # 🔧 重构：使用统一的add_service方法
                     client_ids = self.client_manager.get_agent_clients(agent_id)
                     for client_id_check in client_ids:
                         client_config = self.client_manager.get_client_config(client_id_check)
                         if client_config and name in client_config.get("mcpServers", {}):
-                            await self.orchestrator.register_json_services(client_config, client_id=client_id_check)
+                            # 使用统一注册架构
+                            await self.for_agent(agent_id).add_service_async(client_config, source="agent_register")
                             registered_client_ids.append(client_id_check)
                             registered_services.append(name)
-                            logger.info(f"成功注册服务: {name}")
+                            logger.info(f"成功注册服务: {name} (via unified add_service)")
                             break
                 except Exception as e:
                     logger.error(f"注册服务 {name} 失败: {e}")
@@ -593,15 +600,16 @@ class MCPStore:
                         logger.error(f"替换服务 {name} 失败")
                         continue
 
-                    # 获取刚创建/更新的client_id用于Registry注册
+                    # 🔧 重构：使用统一的add_service方法
                     client_ids = self.client_manager.get_agent_clients(agent_id)
                     for client_id_check in client_ids:
                         client_config = self.client_manager.get_client_config(client_id_check)
                         if client_config and name in client_config.get("mcpServers", {}):
-                            await self.orchestrator.register_json_services(client_config, client_id=client_id_check)
+                            # 使用统一注册架构
+                            await self.for_store().add_service_async(client_config, source="store_selected")
                             registered_client_ids.append(client_id_check)
                             registered_services.append(name)
-                            logger.info(f"成功注册服务: {name}")
+                            logger.info(f"成功注册服务: {name} (via unified add_service)")
                             break
                 except Exception as e:
                     logger.error(f"注册服务 {name} 失败: {e}")
@@ -679,16 +687,32 @@ class MCPStore:
 
     async def update_json_service(self, payload: JsonUpdateRequest) -> RegistrationResponse:
         """更新服务配置，等价于 PUT /register/json"""
-        results = await self.orchestrator.register_json_services(
-            config=payload.config,
-            client_id=payload.client_id
-        )
-        return RegistrationResponse(
-            success=True,
-            client_id=results.get("client_id", payload.client_id or "global_agent_store"),
-            service_names=list(results.get("services", {}).keys()),
-            config=payload.config
-        )
+        # 🔧 重构：使用统一的add_service方法
+        try:
+            if payload.client_id and payload.client_id != self.client_manager.global_agent_store_id:
+                # Agent级别更新
+                context = self.for_agent(payload.client_id)
+            else:
+                # Store级别更新
+                context = self.for_store()
+
+            await context.add_service_async(payload.config, source="api_update")
+
+            return RegistrationResponse(
+                success=True,
+                client_id=payload.client_id or self.client_manager.global_agent_store_id,
+                service_names=list(payload.config.get("mcpServers", {}).keys()),
+                config=payload.config
+            )
+        except Exception as e:
+            logger.error(f"Failed to update service via unified add_service: {e}")
+            return RegistrationResponse(
+                success=False,
+                message=str(e),
+                client_id=payload.client_id or self.client_manager.global_agent_store_id,
+                service_names=[],
+                config={}
+            )
 
     def get_json_config(self, client_id: Optional[str] = None) -> ConfigResponse:
         """查询服务配置，等价于 GET /register/json"""
@@ -1201,6 +1225,12 @@ class MCPStore:
                         state=ServiceConnectionState.INITIALIZING
                     )
 
+                    # 🔧 关键修复：同时添加到生命周期管理器
+                    if hasattr(self, 'orchestrator') and self.orchestrator and hasattr(self.orchestrator, 'lifecycle_manager'):
+                        self.orchestrator.lifecycle_manager.initialize_service(
+                            self.client_manager.global_agent_store_id, service_name, service_config
+                        )
+
             # 3. 标记缓存已初始化
             from datetime import datetime
             self.registry.cache_sync_status["initialized"] = datetime.now()
@@ -1231,19 +1261,49 @@ class MCPStore:
         tools = []
         # 1. store未传id 或 id==global_agent_store，聚合 global_agent_store 下所有 client_id 的工具
         if not agent_mode and (not id or id == self.client_manager.global_agent_store_id):
-            client_ids = client_manager.get_agent_clients(self.client_manager.global_agent_store_id)
-            for client_id in client_ids:
-                tool_dicts = self.registry.get_all_tool_info(client_id)
-                for tool in tool_dicts:
-                    # 使用存储的键名作为显示名称（现在键名就是显示名称）
-                    display_name = tool.get("name", "")
+            # 🔧 修复：直接从Registry缓存获取工具，而不是通过ClientManager
+            agent_id = self.client_manager.global_agent_store_id
+            self.logger.debug(f"🔧 [STORE.LIST_TOOLS] 直接从Registry缓存获取工具，agent_id={agent_id}")
+
+            # 直接从tool_cache获取所有工具
+            tool_cache = self.registry.tool_cache.get(agent_id, {})
+            self.logger.debug(f"🔧 [STORE.LIST_TOOLS] Registry中的工具数量: {len(tool_cache)}")
+
+            for tool_name, tool_def in tool_cache.items():
+                # 获取工具对应的session来确定service_name
+                session = self.registry.tool_to_session_map.get(agent_id, {}).get(tool_name)
+                service_name = None
+
+                # 通过session找到service_name
+                for svc_name, svc_session in self.registry.sessions.get(agent_id, {}).items():
+                    if svc_session is session:
+                        service_name = svc_name
+                        break
+
+                # 🔧 获取该服务对应的client_id
+                service_client_id = self._get_client_id_for_service(agent_id, service_name)
+
+                # 构造ToolInfo对象
+                if isinstance(tool_def, dict) and "function" in tool_def:
+                    function_data = tool_def["function"]
                     tools.append(ToolInfo(
-                        name=display_name,
-                        description=tool.get("description", ""),
-                        service_name=tool.get("service_name", ""),
-                        client_id=tool.get("client_id", ""),
-                        inputSchema=tool.get("inputSchema", {})
+                        name=tool_name,
+                        description=function_data.get("description", ""),
+                        service_name=service_name or "unknown",
+                        client_id=service_client_id,  # 🎯 使用正确的client_id
+                        inputSchema=function_data.get("parameters", {})
                     ))
+                else:
+                    # 兼容其他格式
+                    tools.append(ToolInfo(
+                        name=tool_name,
+                        description=tool_def.get("description", ""),
+                        service_name=service_name or "unknown",
+                        client_id=service_client_id,  # 🎯 使用正确的client_id
+                        inputSchema=tool_def.get("inputSchema", {})
+                    ))
+
+            self.logger.debug(f"🔧 [STORE.LIST_TOOLS] 最终工具数量: {len(tools)}")
             return tools
         # 2. store传普通 client_id，只查该 client_id 下的工具
         if not agent_mode and id:
@@ -1263,57 +1323,81 @@ class MCPStore:
             return tools
         # 3. agent级别，聚合 agent_id 下所有 client_id 的工具；如果 id 不是 agent_id，尝试作为 client_id 查
         if agent_mode and id:
-            client_ids = client_manager.get_agent_clients(id)
-            if client_ids:
-                for client_id in client_ids:
-                    tool_dicts = self.registry.get_all_tool_info(client_id)
-                    for tool in tool_dicts:
-                        # 使用存储的键名作为显示名称（现在键名就是显示名称）
-                        display_name = tool.get("name", "")
-                        tools.append(ToolInfo(
-                            name=display_name,
-                            description=tool.get("description", ""),
-                            service_name=tool.get("service_name", ""),
-                            client_id=tool.get("client_id", ""),
-                            inputSchema=tool.get("inputSchema", {})
-                        ))
-                return tools
-            else:
-                tool_dicts = self.registry.get_all_tool_info(id)
-                for tool in tool_dicts:
-                    # 使用存储的键名作为显示名称（现在键名就是显示名称）
-                    display_name = tool.get("name", "")
+            # 🔧 修复：Agent模式也直接从Registry缓存获取工具
+            self.logger.debug(f"🔧 [STORE.LIST_TOOLS] Agent模式，直接从Registry缓存获取工具，agent_id={id}")
+
+            # 直接从tool_cache获取所有工具
+            tool_cache = self.registry.tool_cache.get(id, {})
+            self.logger.debug(f"🔧 [STORE.LIST_TOOLS] Agent模式Registry中的工具数量: {len(tool_cache)}")
+
+            for tool_name, tool_def in tool_cache.items():
+                # 获取工具对应的session来确定service_name
+                session = self.registry.tool_to_session_map.get(id, {}).get(tool_name)
+                service_name = None
+
+                # 通过session找到service_name
+                for svc_name, svc_session in self.registry.sessions.get(id, {}).items():
+                    if svc_session is session:
+                        service_name = svc_name
+                        break
+
+                # 🔧 获取该服务对应的client_id（Agent模式使用global_agent_store）
+                service_client_id = self._get_client_id_for_service(self.client_manager.global_agent_store_id, service_name)
+
+                # 构造ToolInfo对象
+                if isinstance(tool_def, dict) and "function" in tool_def:
+                    function_data = tool_def["function"]
                     tools.append(ToolInfo(
-                        name=display_name,
-                        description=tool.get("description", ""),
-                        service_name=tool.get("service_name", ""),
-                        client_id=tool.get("client_id", ""),
-                        inputSchema=tool.get("inputSchema", {})
+                        name=tool_name,
+                        description=function_data.get("description", ""),
+                        service_name=service_name or "unknown",
+                        client_id=service_client_id,  # 🎯 使用正确的client_id
+                        inputSchema=function_data.get("parameters", {})
                     ))
-                return tools
+                else:
+                    # 兼容其他格式
+                    tools.append(ToolInfo(
+                        name=tool_name,
+                        description=tool_def.get("description", ""),
+                        service_name=service_name or "unknown",
+                        client_id=service_client_id,  # 🎯 使用正确的client_id
+                        inputSchema=tool_def.get("inputSchema", {})
+                    ))
+
+            self.logger.debug(f"🔧 [STORE.LIST_TOOLS] Agent模式最终工具数量: {len(tools)}")
+            return tools
         return tools
 
-    async def use_tool(self, tool_name: str, args: Dict[str, Any]) -> Any:
+    async def call_tool(self, tool_name: str, args: Dict[str, Any]) -> Any:
         """
-        使用工具（通用接口）
-        
+        调用工具（通用接口）
+
         Args:
             tool_name: 工具名称，格式为 service_toolname
             args: 工具参数
-            
+
         Returns:
             Any: 工具执行结果
         """
         from mcpstore.core.models.tool import ToolExecutionRequest
-        
+
         # 构造请求
         request = ToolExecutionRequest(
             tool_name=tool_name,
             args=args
         )
-        
+
         # 处理工具请求
         return await self.process_tool_request(request)
+
+    async def use_tool(self, tool_name: str, args: Dict[str, Any]) -> Any:
+        """
+        使用工具（通用接口）- 向后兼容别名
+
+        注意：此方法是 call_tool 的别名，保持向后兼容性。
+        推荐使用 call_tool 方法，与 FastMCP 命名保持一致。
+        """
+        return await self.call_tool(tool_name, args)
 
     async def _add_service(self, service_names: List[str], agent_id: Optional[str]) -> bool:
         """内部方法：批量添加服务，store级别支持全量注册，agent级别支持指定服务注册"""
@@ -1508,3 +1592,28 @@ class MCPStore:
         api_app._global_store_instance = self
         logger.info(f"Set global store instance: data_space={self.is_using_data_space()}, workspace={self.get_workspace_dir()}")
         logger.info(f"Global instance id: {id(self)}, api module instance id: {id(api_app._global_store_instance)}")
+
+    def _get_client_id_for_service(self, agent_id: str, service_name: str) -> str:
+        """获取服务对应的client_id"""
+        try:
+            # 1. 从agent_clients映射中查找
+            client_ids = self.registry.get_agent_clients_from_cache(agent_id)
+            if not client_ids:
+                self.logger.warning(f"No client_ids found for agent {agent_id}")
+                return ""
+
+            # 2. 遍历每个client_id，查找包含该服务的client
+            for client_id in client_ids:
+                client_config = self.registry.client_configs.get(client_id, {})
+                if service_name in client_config.get("mcpServers", {}):
+                    return client_id
+
+            # 3. 如果没找到，返回第一个client_id作为默认值
+            if client_ids:
+                self.logger.warning(f"Service {service_name} not found in any client config, using first client_id: {client_ids[0]}")
+                return client_ids[0]
+
+            return ""
+        except Exception as e:
+            self.logger.error(f"Error getting client_id for service {service_name}: {e}")
+            return ""

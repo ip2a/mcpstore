@@ -144,49 +144,7 @@ class LRUCache:
         self._stats.entry_count = len(self._cache)
         return self._stats
 
-class ToolResultCache:
-    """Tool result cache"""
-    
-    def __init__(self, max_size: int = 500, default_ttl: int = 3600):
-        self.cache = LRUCache(max_size)
-        self.default_ttl = default_ttl
-        self._cache_patterns: Dict[str, int] = {}  # tool_pattern -> ttl
-    
-    def get_cache_key(self, tool_name: str, args: Dict[str, Any]) -> str:
-        """Generate cache key"""
-        # Create hash of parameters
-        args_str = str(sorted(args.items()))
-        args_hash = hashlib.md5(args_str.encode()).hexdigest()
-        return f"tool:{tool_name}:{args_hash}"
-    
-    def get_result(self, tool_name: str, args: Dict[str, Any]) -> Optional[Any]:
-        """Get cached tool result"""
-        cache_key = self.get_cache_key(tool_name, args)
-        result = self.cache.get(cache_key)
-        
-        if result is not None:
-            logger.debug(f"Cache hit for tool {tool_name}")
-        
-        return result
-    
-    def cache_result(self, tool_name: str, args: Dict[str, Any], result: Any):
-        """Cache tool result"""
-        cache_key = self.get_cache_key(tool_name, args)
-        ttl = self._get_ttl_for_tool(tool_name)
-        
-        self.cache.put(cache_key, result, ttl)
-        logger.debug(f"Cached result for tool {tool_name} (TTL: {ttl}s)")
-    
-    def set_tool_cache_pattern(self, tool_pattern: str, ttl: int):
-        """Set tool cache pattern"""
-        self._cache_patterns[tool_pattern] = ttl
-    
-    def _get_ttl_for_tool(self, tool_name: str) -> int:
-        """Get tool's TTL"""
-        for pattern, ttl in self._cache_patterns.items():
-            if pattern in tool_name:
-                return ttl
-        return self.default_ttl
+# ToolResultCache 类已移除 - 不再支持工具结果缓存功能
 
 class ServiceDiscoveryCache:
     """Service discovery cache"""
@@ -212,37 +170,21 @@ class ServiceDiscoveryCache:
         self.cache.put(f"tools:{service_name}", tools, self.ttl)
 
 class PrefetchManager:
-    """智能预取管理器"""
-    
+    """智能预取管理器（简化版，移除工具使用模式记录）"""
+
     def __init__(self):
-        self._usage_patterns: Dict[str, List[str]] = defaultdict(list)  # tool -> frequently_used_after
         self._prefetch_queue: asyncio.Queue = asyncio.Queue()
         self._running = False
-    
+
     def record_tool_usage(self, tool_name: str, next_tool: Optional[str] = None):
-        """记录工具使用模式"""
-        if next_tool:
-            patterns = self._usage_patterns[tool_name]
-            patterns.append(next_tool)
-            
-            # 保持最近的100个模式
-            if len(patterns) > 100:
-                patterns.pop(0)
-    
+        """记录工具使用模式（已废弃）"""
+        # 工具使用模式记录功能已移除
+        pass
+
     def get_prefetch_suggestions(self, tool_name: str) -> List[str]:
-        """获取预取建议"""
-        patterns = self._usage_patterns.get(tool_name, [])
-        if not patterns:
-            return []
-        
-        # 统计频率
-        frequency = defaultdict(int)
-        for next_tool in patterns:
-            frequency[next_tool] += 1
-        
-        # 返回最频繁的工具
-        sorted_tools = sorted(frequency.items(), key=lambda x: x[1], reverse=True)
-        return [tool for tool, freq in sorted_tools[:3] if freq > 1]
+        """获取预取建议（已废弃）"""
+        # 预取建议功能已移除
+        return []
     
     async def start_prefetch_worker(self):
         """启动预取工作器"""
@@ -324,28 +266,18 @@ class ConnectionPoolManager:
 
 class PerformanceOptimizer:
     """性能优化器"""
-    
+
     def __init__(self):
-        self.tool_cache = ToolResultCache()
+        # 移除工具结果缓存功能
         self.service_cache = ServiceDiscoveryCache()
         self.prefetch_manager = PrefetchManager()
         self.connection_pool = ConnectionPoolManager()
         self._metrics: Dict[str, Any] = defaultdict(list)
-    
-    def setup_tool_caching(self, patterns: Dict[str, int] = None):
-        """设置工具缓存"""
-        default_patterns = {
-            "weather": 300,      # 天气数据缓存5分钟
-            "news": 600,         # 新闻缓存10分钟
-            "search": 1800,      # 搜索结果缓存30分钟
-            "translate": 86400,  # 翻译结果缓存1天
-        }
-        
-        patterns = patterns or default_patterns
-        for pattern, ttl in patterns.items():
-            self.tool_cache.set_tool_cache_pattern(pattern, ttl)
-        
-        logger.info(f"Configured tool caching with {len(patterns)} patterns")
+
+    def enable_caching(self, patterns: Dict[str, int] = None):
+        """启用缓存（工具结果缓存已移除，仅保留服务发现缓存）"""
+        logger.info("Tool result caching has been removed. Only service discovery caching is available.")
+        return True
     
     def record_tool_execution(self, tool_name: str, execution_time: float, success: bool):
         """记录工具执行指标"""
@@ -360,16 +292,10 @@ class PerformanceOptimizer:
             self._metrics[tool_name].pop(0)
     
     def get_performance_summary(self) -> Dict[str, Any]:
-        """获取性能摘要"""
-        tool_cache_stats = self.tool_cache.cache.get_stats()
+        """获取性能摘要（已移除工具结果缓存统计）"""
         service_cache_stats = self.service_cache.cache.get_stats()
-        
+
         return {
-            "tool_cache": {
-                "hit_rate": tool_cache_stats.hit_rate,
-                "entries": tool_cache_stats.entry_count,
-                "memory_usage": tool_cache_stats.total_size
-            },
             "service_cache": {
                 "hit_rate": service_cache_stats.hit_rate,
                 "entries": service_cache_stats.entry_count

@@ -52,7 +52,7 @@ from langchain_openai import ChatOpenAI
 from mcpstore import MCPStore
 store = MCPStore.setup_store()
 store.for_store().add_service({"name":"mcpstore-wiki","url":"http://mcpstore.wiki/mcp"})
-tools = store.for_store().to_langchain_tools()
+tools = store.for_store().for_langchain().list_tools()
 llm = ChatOpenAI(
     temperature=0, model="deepseek-chat",
     openai_api_key="sk-****",

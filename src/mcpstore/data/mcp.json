@@ -1,14 +1,4 @@
 {
   "mcpServers": {
-    "mcpstore-demo-weather": {
-      "url": "https://mcpstore.wiki/mcp"
-    },
-    "howtocook": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "howtocook-mcp"
-      ]
-    }
   }
 }

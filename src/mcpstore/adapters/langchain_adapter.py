@@ -145,7 +145,7 @@ class LangChainAdapter:
                     validated_args = args_schema(**filtered_input)
 
                 # Call mcpstore's core method
-                result = self._context.use_tool(tool_name, validated_args.model_dump())
+                result = self._context.call_tool(tool_name, validated_args.model_dump())
 
                 # Extract actual result
                 if hasattr(result, 'result') and result.result is not None:
@@ -216,7 +216,7 @@ class LangChainAdapter:
                     validated_args = args_schema(**filtered_input)
 
                 # 调用 mcpstore 的核心方法（异步版本）
-                result = await self._context.use_tool_async(tool_name, validated_args.model_dump())
+                result = await self._context.call_tool_async(tool_name, validated_args.model_dump())
 
                 # 提取实际结果
                 if hasattr(result, 'result') and result.result is not None:

@@ -75,17 +75,18 @@ class AsyncSyncHelper:
         if not loop_ready.wait(timeout=5):
             raise RuntimeError("Failed to start background event loop")
     
-    def run_async(self, coro: Coroutine[Any, Any, T], timeout: float = 30.0) -> T:
+    def run_async(self, coro: Coroutine[Any, Any, T], timeout: float = 30.0, force_background: bool = False) -> T:
         """
         在同步环境中运行异步函数
-        
+
         Args:
             coro: 协程对象
             timeout: 超时时间（秒）
-            
+            force_background: 强制使用后台循环（用于需要后台任务的场景）
+
         Returns:
             协程的执行结果
-            
+
         Raises:
             TimeoutError: 执行超时
             RuntimeError: 执行失败
@@ -100,9 +101,20 @@ class AsyncSyncHelper:
                 future = asyncio.run_coroutine_threadsafe(coro, loop)
                 return future.result(timeout=timeout)
             except RuntimeError:
-                # No running event loop, use asyncio.run
-                logger.debug("Running coroutine with asyncio.run")
-                return asyncio.run(coro)
+                # 没有运行中的事件循环
+                if force_background:
+                    # 🔧 新增：强制使用后台循环（用于需要后台任务的场景）
+                    logger.debug("🔧 [ASYNC_HELPER] Running coroutine in background loop (forced)")
+                    loop = self._ensure_loop()
+                    logger.debug(f"🔧 [ASYNC_HELPER] 后台循环状态: running={loop.is_running()}")
+                    future = asyncio.run_coroutine_threadsafe(coro, loop)
+                    result = future.result(timeout=timeout)
+                    logger.debug(f"🔧 [ASYNC_HELPER] 后台循环执行完成，结果类型: {type(result)}")
+                    return result
+                else:
+                    # 使用临时循环
+                    logger.debug("Running coroutine with asyncio.run")
+                    return asyncio.run(coro)
 
         except Exception as e:
             logger.error(f"Error running async function: {e}")
