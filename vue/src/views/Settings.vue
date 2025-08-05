@@ -28,20 +28,15 @@
       <el-tab-pane label="基础设置" name="basic">
         <el-card class="settings-card">
           <el-form :model="basicSettings" label-width="150px">
-            <el-form-item label="系统名称">
-              <el-input 
-                v-model="basicSettings.systemName" 
-                placeholder="MCPStore 管理面板"
-              />
-            </el-form-item>
-            
             <el-form-item label="API地址">
-              <el-input 
-                v-model="basicSettings.apiUrl" 
+              <el-input
+                v-model="basicSettings.apiUrl"
                 placeholder="http://localhost:18200"
+                readonly
               />
+              <div class="form-tip">当前API地址（只读）</div>
             </el-form-item>
-            
+
             <el-form-item label="请求超时">
               <el-input-number
                 v-model="basicSettings.timeout"
@@ -52,23 +47,25 @@
               />
               <span class="unit">毫秒</span>
             </el-form-item>
-            
-            <el-form-item label="自动刷新间隔">
+
+            <el-form-item label="自动刷新">
+              <el-switch
+                v-model="basicSettings.autoRefresh"
+                active-text="启用"
+                inactive-text="禁用"
+              />
+              <div class="form-tip">控制页面数据自动刷新</div>
+            </el-form-item>
+
+            <el-form-item label="刷新间隔" v-if="basicSettings.autoRefresh">
               <el-input-number
                 v-model="basicSettings.refreshInterval"
-                :min="10"
+                :min="30"
                 :max="300"
-                :step="10"
+                :step="30"
                 style="width: 200px"
               />
               <span class="unit">秒</span>
-            </el-form-item>
-            
-            <el-form-item label="语言设置">
-              <el-select v-model="basicSettings.language" style="width: 200px">
-                <el-option label="简体中文" value="zh-CN" />
-                <el-option label="English" value="en-US" />
-              </el-select>
             </el-form-item>
           </el-form>
         </el-card>
@@ -82,36 +79,20 @@
               <el-radio-group v-model="uiSettings.theme">
                 <el-radio label="light">亮色主题</el-radio>
                 <el-radio label="dark">暗色主题</el-radio>
-                <el-radio label="auto">跟随系统</el-radio>
               </el-radio-group>
+              <div class="form-tip">切换界面主题色调</div>
             </el-form-item>
-            
-            <el-form-item label="主色调">
-              <el-color-picker 
-                v-model="uiSettings.primaryColor"
-                show-alpha
-                :predefine="predefineColors"
-              />
-            </el-form-item>
-            
+
             <el-form-item label="侧边栏">
               <el-checkbox v-model="uiSettings.sidebarCollapsed">默认收起侧边栏</el-checkbox>
             </el-form-item>
-            
+
             <el-form-item label="面包屑导航">
               <el-checkbox v-model="uiSettings.showBreadcrumb">显示面包屑导航</el-checkbox>
             </el-form-item>
-            
+
             <el-form-item label="页面动画">
               <el-checkbox v-model="uiSettings.enableAnimation">启用页面切换动画</el-checkbox>
-            </el-form-item>
-            
-            <el-form-item label="表格密度">
-              <el-radio-group v-model="uiSettings.tableDensity">
-                <el-radio label="large">宽松</el-radio>
-                <el-radio label="default">默认</el-radio>
-                <el-radio label="small">紧凑</el-radio>
-              </el-radio-group>
             </el-form-item>
           </el-form>
         </el-card>
@@ -121,30 +102,20 @@
       <el-tab-pane label="通知设置" name="notification">
         <el-card class="settings-card">
           <el-form :model="notificationSettings" label-width="150px">
-            <el-form-item label="桌面通知">
-              <el-checkbox v-model="notificationSettings.desktop">启用桌面通知</el-checkbox>
+            <el-form-item label="消息通知">
+              <el-checkbox v-model="notificationSettings.showNotifications">显示系统消息</el-checkbox>
+              <div class="form-tip">控制页面右上角的消息提示</div>
             </el-form-item>
-            
+
             <el-form-item label="声音提示">
               <el-checkbox v-model="notificationSettings.sound">启用声音提示</el-checkbox>
+              <div class="form-tip">操作完成时播放提示音</div>
             </el-form-item>
-            
-            <el-form-item label="服务异常通知">
-              <el-checkbox v-model="notificationSettings.serviceError">服务异常时通知</el-checkbox>
-            </el-form-item>
-            
-            <el-form-item label="工具执行通知">
-              <el-checkbox v-model="notificationSettings.toolExecution">工具执行完成时通知</el-checkbox>
-            </el-form-item>
-            
-            <el-form-item label="系统更新通知">
-              <el-checkbox v-model="notificationSettings.systemUpdate">系统更新时通知</el-checkbox>
-            </el-form-item>
-            
+
             <el-form-item label="通知持续时间">
               <el-input-number
                 v-model="notificationSettings.duration"
-                :min="1000"
+                :min="2000"
                 :max="10000"
                 :step="1000"
                 style="width: 200px"
@@ -154,79 +125,22 @@
           </el-form>
         </el-card>
       </el-tab-pane>
-      
-      <!-- 安全设置 -->
-      <el-tab-pane label="安全设置" name="security">
-        <el-card class="settings-card">
-          <el-form :model="securitySettings" label-width="150px">
-            <el-form-item label="会话超时">
-              <el-input-number
-                v-model="securitySettings.sessionTimeout"
-                :min="30"
-                :max="1440"
-                :step="30"
-                style="width: 200px"
-              />
-              <span class="unit">分钟</span>
-            </el-form-item>
-            
-            <el-form-item label="自动登出">
-              <el-checkbox v-model="securitySettings.autoLogout">长时间无操作自动登出</el-checkbox>
-            </el-form-item>
-            
-            <el-form-item label="操作确认">
-              <el-checkbox v-model="securitySettings.confirmDangerous">危险操作需要确认</el-checkbox>
-            </el-form-item>
-            
-            <el-form-item label="日志记录">
-              <el-checkbox v-model="securitySettings.enableLogging">记录用户操作日志</el-checkbox>
-            </el-form-item>
-            
-            <el-form-item label="IP白名单">
-              <el-input 
-                v-model="securitySettings.ipWhitelist" 
-                type="textarea"
-                :rows="3"
-                placeholder="每行一个IP地址或IP段，留空表示不限制"
-              />
-            </el-form-item>
-          </el-form>
-        </el-card>
-      </el-tab-pane>
-      
+
+
       <!-- 高级设置 -->
       <el-tab-pane label="高级设置" name="advanced">
         <el-card class="settings-card">
           <el-form :model="advancedSettings" label-width="150px">
             <el-form-item label="调试模式">
               <el-checkbox v-model="advancedSettings.debugMode">启用调试模式</el-checkbox>
+              <div class="form-tip">显示详细的调试信息和错误日志</div>
             </el-form-item>
-            
+
             <el-form-item label="控制台日志">
               <el-checkbox v-model="advancedSettings.consoleLog">显示控制台日志</el-checkbox>
+              <div class="form-tip">在浏览器控制台显示详细日志</div>
             </el-form-item>
-            
-            <el-form-item label="性能监控">
-              <el-checkbox v-model="advancedSettings.performanceMonitor">启用性能监控</el-checkbox>
-            </el-form-item>
-            
-            <el-form-item label="缓存策略">
-              <el-radio-group v-model="advancedSettings.cacheStrategy">
-                <el-radio label="aggressive">激进缓存</el-radio>
-                <el-radio label="normal">正常缓存</el-radio>
-                <el-radio label="minimal">最小缓存</el-radio>
-              </el-radio-group>
-            </el-form-item>
-            
-            <el-form-item label="并发请求数">
-              <el-input-number
-                v-model="advancedSettings.maxConcurrentRequests"
-                :min="1"
-                :max="20"
-                style="width: 200px"
-              />
-            </el-form-item>
-            
+
             <el-form-item label="重试次数">
               <el-input-number
                 v-model="advancedSettings.retryCount"
@@ -234,14 +148,20 @@
                 :max="5"
                 style="width: 200px"
               />
+              <span class="unit">次</span>
+              <div class="form-tip">API请求失败时的重试次数</div>
             </el-form-item>
-            
-            <el-form-item label="实验性功能">
-              <el-checkbox-group v-model="advancedSettings.experimentalFeatures">
-                <el-checkbox label="webgl">WebGL加速</el-checkbox>
-                <el-checkbox label="worker">Web Worker</el-checkbox>
-                <el-checkbox label="pwa">PWA支持</el-checkbox>
-              </el-checkbox-group>
+
+            <el-form-item label="页面大小">
+              <el-input-number
+                v-model="advancedSettings.pageSize"
+                :min="10"
+                :max="100"
+                :step="10"
+                style="width: 200px"
+              />
+              <span class="unit">条/页</span>
+              <div class="form-tip">列表页面每页显示的数据条数</div>
             </el-form-item>
           </el-form>
         </el-card>
@@ -253,12 +173,12 @@
       <template #header>
         <span>系统信息</span>
       </template>
-      
+
       <el-descriptions :column="2" border>
-        <el-descriptions-item label="版本">v0.5.0</el-descriptions-item>
-        <el-descriptions-item label="构建时间">2025-07-11</el-descriptions-item>
-        <el-descriptions-item label="前端框架">Vue 3.4 + Element Plus</el-descriptions-item>
-        <el-descriptions-item label="后端API">MCPStore API v0.5.0</el-descriptions-item>
+        <el-descriptions-item label="前端版本">{{ appStore.config.version }}</el-descriptions-item>
+        <el-descriptions-item label="运行环境">{{ appStore.config.environment }}</el-descriptions-item>
+        <el-descriptions-item label="前端框架">Vue 3.4 + Element Plus 2.4</el-descriptions-item>
+        <el-descriptions-item label="API地址">{{ appStore.config.apiBaseUrl }}</el-descriptions-item>
         <el-descriptions-item label="浏览器">{{ browserInfo }}</el-descriptions-item>
         <el-descriptions-item label="屏幕分辨率">{{ screenResolution }}</el-descriptions-item>
       </el-descriptions>
@@ -277,61 +197,32 @@ const appStore = useAppStore()
 const activeTab = ref('basic')
 const saving = ref(false)
 
-// 预定义颜色
-const predefineColors = [
-  '#409EFF',
-  '#67C23A',
-  '#E6A23C',
-  '#F56C6C',
-  '#909399',
-  '#c71585',
-  '#ff8c00',
-  '#ffd700'
-]
-
 // 设置数据
 const basicSettings = ref({
-  systemName: 'MCPStore 管理面板',
-  apiUrl: 'http://localhost:18200',
-  timeout: 30000,
-  refreshInterval: 30,
-  language: 'zh-CN'
+  apiUrl: appStore.config.apiBaseUrl,
+  timeout: appStore.config.apiTimeout,
+  autoRefresh: appStore.userPreferences.autoRefresh,
+  refreshInterval: appStore.userPreferences.refreshInterval / 1000 // 转换为秒
 })
 
 const uiSettings = ref({
-  theme: 'light',
-  primaryColor: '#409EFF',
-  sidebarCollapsed: false,
-  showBreadcrumb: true,
-  enableAnimation: true,
-  tableDensity: 'default'
+  theme: appStore.currentTheme,
+  sidebarCollapsed: appStore.isCollapse,
+  showBreadcrumb: appStore.layoutConfig.showBreadcrumb,
+  enableAnimation: appStore.userPreferences.animationEnabled
 })
 
 const notificationSettings = ref({
-  desktop: true,
-  sound: false,
-  serviceError: true,
-  toolExecution: false,
-  systemUpdate: true,
+  showNotifications: appStore.userPreferences.showNotifications,
+  sound: appStore.userPreferences.soundEnabled,
   duration: 4500
 })
 
-const securitySettings = ref({
-  sessionTimeout: 480,
-  autoLogout: true,
-  confirmDangerous: true,
-  enableLogging: true,
-  ipWhitelist: ''
-})
-
 const advancedSettings = ref({
-  debugMode: false,
-  consoleLog: false,
-  performanceMonitor: true,
-  cacheStrategy: 'normal',
-  maxConcurrentRequests: 6,
-  retryCount: 3,
-  experimentalFeatures: []
+  debugMode: appStore.config.environment === 'development',
+  consoleLog: appStore.config.environment === 'development',
+  retryCount: 2,
+  pageSize: appStore.userPreferences.pageSize
 })
 
 // 计算属性
@@ -352,26 +243,29 @@ const screenResolution = computed(() => {
 const saveSettings = async () => {
   saving.value = true
   try {
-    // 保存到localStorage
-    const allSettings = {
-      basic: basicSettings.value,
-      ui: uiSettings.value,
-      notification: notificationSettings.value,
-      security: securitySettings.value,
-      advanced: advancedSettings.value
-    }
-    
-    localStorage.setItem('mcpstore-settings', JSON.stringify(allSettings))
-    
+    // 应用基础设置
+    appStore.userPreferences.autoRefresh = basicSettings.value.autoRefresh
+    appStore.userPreferences.refreshInterval = basicSettings.value.refreshInterval * 1000 // 转换为毫秒
+
     // 应用UI设置
     appStore.setTheme(uiSettings.value.theme)
     appStore.setCollapse(uiSettings.value.sidebarCollapsed)
-    
-    // 模拟保存延迟
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    
+    appStore.layoutConfig.showBreadcrumb = uiSettings.value.showBreadcrumb
+    appStore.userPreferences.animationEnabled = uiSettings.value.enableAnimation
+
+    // 应用通知设置
+    appStore.userPreferences.showNotifications = notificationSettings.value.showNotifications
+    appStore.userPreferences.soundEnabled = notificationSettings.value.sound
+
+    // 应用高级设置
+    appStore.userPreferences.pageSize = advancedSettings.value.pageSize
+
+    // 保存到localStorage
+    appStore.saveSettings()
+
     ElMessage.success('设置保存成功')
   } catch (error) {
+    console.error('保存设置失败:', error)
     ElMessage.error('设置保存失败')
   } finally {
     saving.value = false
@@ -381,62 +275,66 @@ const saveSettings = async () => {
 const resetSettings = () => {
   // 重置为默认值
   basicSettings.value = {
-    systemName: 'MCPStore 管理面板',
-    apiUrl: 'http://localhost:18200',
-    timeout: 30000,
-    refreshInterval: 30,
-    language: 'zh-CN'
+    apiUrl: appStore.config.apiBaseUrl,
+    timeout: 15000,
+    autoRefresh: false,
+    refreshInterval: 60
   }
-  
+
   uiSettings.value = {
     theme: 'light',
-    primaryColor: '#409EFF',
     sidebarCollapsed: false,
     showBreadcrumb: true,
-    enableAnimation: true,
-    tableDensity: 'default'
+    enableAnimation: true
   }
-  
+
   notificationSettings.value = {
-    desktop: true,
+    showNotifications: true,
     sound: false,
-    serviceError: true,
-    toolExecution: false,
-    systemUpdate: true,
     duration: 4500
   }
-  
-  securitySettings.value = {
-    sessionTimeout: 480,
-    autoLogout: true,
-    confirmDangerous: true,
-    enableLogging: true,
-    ipWhitelist: ''
-  }
-  
+
   advancedSettings.value = {
     debugMode: false,
     consoleLog: false,
-    performanceMonitor: true,
-    cacheStrategy: 'normal',
-    maxConcurrentRequests: 6,
-    retryCount: 3,
-    experimentalFeatures: []
+    retryCount: 2,
+    pageSize: 20
   }
-  
+
+  // 应用重置的设置
+  appStore.resetSettings()
+
   ElMessage.success('设置已重置为默认值')
 }
 
 const loadSettings = () => {
   try {
-    const saved = localStorage.getItem('mcpstore-settings')
-    if (saved) {
-      const settings = JSON.parse(saved)
-      if (settings.basic) basicSettings.value = { ...basicSettings.value, ...settings.basic }
-      if (settings.ui) uiSettings.value = { ...uiSettings.value, ...settings.ui }
-      if (settings.notification) notificationSettings.value = { ...notificationSettings.value, ...settings.notification }
-      if (settings.security) securitySettings.value = { ...securitySettings.value, ...settings.security }
-      if (settings.advanced) advancedSettings.value = { ...advancedSettings.value, ...settings.advanced }
+    // 从store中加载当前设置
+    basicSettings.value = {
+      apiUrl: appStore.config.apiBaseUrl,
+      timeout: appStore.config.apiTimeout,
+      autoRefresh: appStore.userPreferences.autoRefresh,
+      refreshInterval: appStore.userPreferences.refreshInterval / 1000
+    }
+
+    uiSettings.value = {
+      theme: appStore.currentTheme,
+      sidebarCollapsed: appStore.isCollapse,
+      showBreadcrumb: appStore.layoutConfig.showBreadcrumb,
+      enableAnimation: appStore.userPreferences.animationEnabled
+    }
+
+    notificationSettings.value = {
+      showNotifications: appStore.userPreferences.showNotifications,
+      sound: appStore.userPreferences.soundEnabled,
+      duration: 4500
+    }
+
+    advancedSettings.value = {
+      debugMode: appStore.config.environment === 'development',
+      consoleLog: appStore.config.environment === 'development',
+      retryCount: 2,
+      pageSize: appStore.userPreferences.pageSize
     }
   } catch (error) {
     console.warn('Failed to load settings:', error)
@@ -484,6 +382,13 @@ onMounted(() => {
         margin-left: 8px;
         color: var(--text-secondary);
         font-size: var(--font-size-sm);
+      }
+
+      .form-tip {
+        margin-top: 4px;
+        font-size: 12px;
+        color: var(--el-text-color-secondary);
+        line-height: 1.4;
       }
     }
   }

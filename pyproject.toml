@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcpstore"
-version = "1.4.16"
+version = "1.4.26"
 description = "A composable, ready-to-use MCP toolkit for agents and rapid integration."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -15,6 +15,7 @@ dependencies = [
     "pydantic>=2.11.5",
     "uvicorn>=0.30.0",
     "typer>=0.9.0",
+    "watchdog>=3.0.0",
 ]
 authors = [
     {name = "ooooofish", email = "ooooofish@126.com"}

@@ -5,14 +5,14 @@ const Dashboard = () => import('@/views/Dashboard.vue')
 const ServiceList = () => import('@/views/services/ServiceList.vue')
 const ServiceAdd = () => import('@/views/services/ServiceAdd.vue')
 const ServiceEdit = () => import('@/views/services/ServiceEdit.vue')
-const LocalServices = () => import('@/views/services/LocalServices.vue')
+const ServiceDetail = () => import('@/views/services/ServiceDetail.vue')
+
 const ToolList = () => import('@/views/tools/ToolList.vue')
 const ToolExecute = () => import('@/views/tools/ToolExecute.vue')
 const AgentList = () => import('@/views/agents/AgentList.vue')
 const AgentDetail = () => import('@/views/agents/AgentDetail.vue')
 const AgentServiceAdd = () => import('@/views/agents/ServiceAdd.vue')
-const Monitoring = () => import('@/views/Monitoring.vue')
-const ServiceMonitoring = () => import('@/views/ServiceMonitoring.vue')
+
 const Settings = () => import('@/views/Settings.vue')
 const ResetManager = () => import('@/views/system/ResetManager.vue')
 const TestPage = () => import('@/views/TestPage.vue')
@@ -72,15 +72,15 @@ const routes = [
         }
       },
       {
-        path: 'local',
-        name: 'LocalServices',
-        component: LocalServices,
+        path: 'detail/:serviceName',
+        name: 'ServiceDetail',
+        component: ServiceDetail,
         meta: {
-          title: '本地服务',
-          icon: 'FolderOpened',
-          keepAlive: true
+          title: '服务详情',
+          icon: 'View'
         }
-      }
+      },
+
     ]
   },
   {
@@ -146,38 +146,6 @@ const routes = [
         meta: {
           title: '添加服务',
           icon: 'Plus'
-        }
-      }
-    ]
-  },
-  {
-    path: '/monitoring',
-    name: 'Monitoring',
-    meta: {
-      title: '系统监控',
-      icon: 'DataAnalysis'
-    },
-    children: [
-      {
-        path: '',
-        redirect: '/monitoring/overview'
-      },
-      {
-        path: 'overview',
-        name: 'MonitoringOverview',
-        component: Monitoring,
-        meta: {
-          title: '监控概览',
-          keepAlive: true
-        }
-      },
-      {
-        path: 'services',
-        name: 'ServiceMonitoring',
-        component: ServiceMonitoring,
-        meta: {
-          title: '服务生命周期',
-          keepAlive: true
         }
       }
     ]

@@ -62,6 +62,7 @@ class ServiceInfo(BaseModel):
     state_metadata: Optional[ServiceStateMetadata] = None
     last_state_change: Optional[datetime] = None
     client_id: Optional[str] = None  # Add client_id field
+    config: Dict[str, Any] = Field(default_factory=dict)  # 🔧 [REFACTOR] 添加完整的config字段
 
 class ServiceInfoResponse(BaseModel):
     """Detailed information response model for a single service"""

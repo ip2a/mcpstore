@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { storeServiceAPI, agentServiceAPI } from '@/api/services'
-import { storeMonitoringAPI } from '@/api/monitoring'
+import { storeMonitoringAPI } from '@/api/services'
 import { useAppStore } from './app'
 
 export const useSystemStore = defineStore('system', () => {
@@ -57,10 +57,10 @@ export const useSystemStore = defineStore('system', () => {
 
   // 系统配置
   const systemConfig = ref({
-    autoRefresh: true,
-    refreshInterval: 30000,
-    healthCheckInterval: 60000,
-    maxRetries: 3
+    autoRefresh: false, // 暂时禁用自动刷新
+    refreshInterval: 60000, // 增加到60秒
+    healthCheckInterval: 120000, // 增加到2分钟
+    maxRetries: 2 // 减少重试次数
   })
   
   // 计算属性

@@ -190,6 +190,13 @@ class ClientManager:
             self.save_all_agent_clients(data)
             logger.info(f"Removed mapping agent_id={agent_id} to client_id={client_id}")
 
+    def get_all_agent_ids(self) -> List[str]:
+        """🔧 [REFACTOR] 获取所有Agent ID列表 - 从文件读取"""
+        agent_data = self.load_all_agent_clients()
+        agent_ids = list(agent_data.keys())
+        logger.debug(f"🔧 [CLIENT_MANAGER] Getting all agent IDs from file: {agent_ids}")
+        return agent_ids
+
     def get_global_agent_store_ids(self) -> List[str]:
         """获取 global_agent_store 下的所有 client_id"""
         return list(self.get_all_clients().keys())

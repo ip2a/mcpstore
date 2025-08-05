@@ -13,295 +13,330 @@
       </div>
     </div>
     
-    <!-- 服务类型选择 -->
-    <el-card class="type-selection-card">
-      <template #header>
-        <span>选择服务类型</span>
-      </template>
-      
-      <el-radio-group v-model="serviceType" @change="handleTypeChange">
-        <el-radio-button label="remote">远程服务</el-radio-button>
-        <el-radio-button label="local">本地服务</el-radio-button>
-        <el-radio-button label="mcpServers">mcpServers格式</el-radio-button>
-      </el-radio-group>
-      
-      <div class="type-description">
-        <div v-if="serviceType === 'remote'" class="description-item">
-          <el-icon><Link /></el-icon>
-          <span>通过HTTP/SSE连接的远程MCP服务</span>
-        </div>
-        <div v-else-if="serviceType === 'local'" class="description-item">
-          <el-icon><FolderOpened /></el-icon>
-          <span>本地命令启动的MCP服务，支持进程管理</span>
-        </div>
-        <div v-else-if="serviceType === 'mcpServers'" class="description-item">
-          <el-icon><DocumentCopy /></el-icon>
-          <span>标准mcpServers配置格式</span>
-        </div>
-      </div>
-    </el-card>
-    
-    <!-- 服务配置表单 -->
-    <el-card class="form-card">
-      <template #header>
-        <span>服务配置</span>
-      </template>
-      
-      <!-- 远程服务表单 -->
-      <el-form
-        v-if="serviceType === 'remote'"
-        ref="remoteFormRef"
-        :model="remoteForm"
-        :rules="remoteRules"
-        label-width="120px"
-      >
-        <el-form-item label="服务名称" prop="name">
-          <el-input 
-            v-model="remoteForm.name" 
-            placeholder="请输入服务名称"
-            clearable
-          />
-        </el-form-item>
-        
-        <el-form-item label="服务URL" prop="url">
-          <el-input
-            v-model="remoteForm.url"
-            placeholder="http://mcpstore.wiki/mcp"
-            clearable
-          />
-        </el-form-item>
-        
-        <el-form-item label="传输类型" prop="transport">
-          <el-select v-model="remoteForm.transport" placeholder="自动检测">
-            <el-option label="自动检测" value="" />
-            <el-option label="HTTP流式" value="streamable-http" />
-            <el-option label="SSE" value="sse" />
-          </el-select>
-        </el-form-item>
-        
-        <el-form-item label="请求头">
-          <div class="headers-input">
-            <div 
-              v-for="(header, index) in remoteForm.headers" 
-              :key="index"
-              class="header-item"
-            >
-              <el-input 
-                v-model="header.key" 
-                placeholder="Header名称"
-                style="width: 40%"
-              />
-              <el-input 
-                v-model="header.value" 
-                placeholder="Header值"
-                style="width: 40%"
-              />
-              <el-button 
-                :icon="Delete" 
-                @click="removeHeader(index)"
-                type="danger"
-                text
-              />
-            </div>
-            <el-button 
-              :icon="Plus" 
-              @click="addHeader"
-              type="primary"
-              text
-            >
-              添加请求头
-            </el-button>
+    <!-- 主要内容区域 -->
+    <div class="main-content">
+      <!-- 服务类型选择卡片 -->
+      <el-card class="type-selection-card">
+        <template #header>
+          <div class="card-header">
+            <el-icon><Setting /></el-icon>
+            <span>服务类型</span>
           </div>
-        </el-form-item>
-        
-        <el-form-item label="环境变量">
-          <div class="env-input">
-            <div 
-              v-for="(env, index) in remoteForm.env" 
-              :key="index"
-              class="env-item"
-            >
-              <el-input 
-                v-model="env.key" 
-                placeholder="变量名"
-                style="width: 40%"
-              />
-              <el-input 
-                v-model="env.value" 
-                placeholder="变量值"
-                style="width: 40%"
-                :type="env.key.toLowerCase().includes('password') ? 'password' : 'text'"
-              />
-              <el-button 
-                :icon="Delete" 
-                @click="removeEnv(index)"
-                type="danger"
-                text
-              />
-            </div>
-            <el-button 
-              :icon="Plus" 
-              @click="addEnv"
-              type="primary"
-              text
-            >
-              添加环境变量
-            </el-button>
-          </div>
-        </el-form-item>
-      </el-form>
-      
-      <!-- 本地服务表单 -->
-      <el-form
-        v-else-if="serviceType === 'local'"
-        ref="localFormRef"
-        :model="localForm"
-        :rules="localRules"
-        label-width="120px"
-      >
-        <el-form-item label="服务名称" prop="name">
-          <el-input 
-            v-model="localForm.name" 
-            placeholder="请输入服务名称"
-            clearable
-          />
-        </el-form-item>
-        
-        <el-form-item label="启动命令" prop="command">
-          <el-input 
-            v-model="localForm.command" 
-            placeholder="python, node, ./executable"
-            clearable
-          />
-        </el-form-item>
-        
-        <el-form-item label="命令参数">
-          <div class="args-input">
-            <div 
-              v-for="(arg, index) in localForm.args" 
-              :key="index"
-              class="arg-item"
-            >
-              <el-input 
-                v-model="localForm.args[index]" 
-                placeholder="参数"
-                style="width: 80%"
-              />
-              <el-button 
-                :icon="Delete" 
-                @click="removeArg(index)"
-                type="danger"
-                text
-              />
-            </div>
-            <el-button 
-              :icon="Plus" 
-              @click="addArg"
-              type="primary"
-              text
-            >
-              添加参数
-            </el-button>
-          </div>
-        </el-form-item>
-        
-        <el-form-item label="工作目录">
-          <el-input 
-            v-model="localForm.working_dir" 
-            placeholder="留空使用当前目录"
-            clearable
-          />
-        </el-form-item>
-        
-        <el-form-item label="环境变量">
-          <div class="env-input">
-            <div 
-              v-for="(env, index) in localForm.env" 
-              :key="index"
-              class="env-item"
-            >
-              <el-input 
-                v-model="env.key" 
-                placeholder="变量名"
-                style="width: 40%"
-              />
-              <el-input 
-                v-model="env.value" 
-                placeholder="变量值"
-                style="width: 40%"
-                :type="env.key.toLowerCase().includes('password') ? 'password' : 'text'"
-              />
-              <el-button 
-                :icon="Delete" 
-                @click="removeLocalEnv(index)"
-                type="danger"
-                text
-              />
-            </div>
-            <el-button 
-              :icon="Plus" 
-              @click="addLocalEnv"
-              type="primary"
-              text
-            >
-              添加环境变量
-            </el-button>
-          </div>
-        </el-form-item>
-      </el-form>
-      
-      <!-- mcpServers格式表单 -->
-      <div v-else-if="serviceType === 'mcpServers'" class="mcpservers-form">
-        <el-form-item label="配置内容">
-          <el-input
-            v-model="mcpServersForm.content"
-            type="textarea"
-            :rows="15"
-            placeholder="请输入mcpServers格式的JSON配置"
-          />
-        </el-form-item>
-        
-        <div class="json-actions">
-          <el-button @click="formatJson">格式化JSON</el-button>
-          <el-button @click="validateJson">验证JSON</el-button>
-          <el-button @click="loadExample">加载示例</el-button>
+        </template>
+
+        <el-radio-group v-model="serviceType" @change="handleTypeChange" size="large">
+          <el-radio-button label="remote">远程服务</el-radio-button>
+          <el-radio-button label="local">本地服务</el-radio-button>
+          <el-radio-button label="mcpServers">主流JSON文件格式</el-radio-button>
+        </el-radio-group>
+
+        <div class="type-hint">
+          <el-icon v-if="serviceType === 'remote'"><Link /></el-icon>
+          <el-icon v-else-if="serviceType === 'local'"><FolderOpened /></el-icon>
+          <el-icon v-else-if="serviceType === 'mcpServers'"><DocumentCopy /></el-icon>
+          <span v-if="serviceType === 'remote'">通过HTTP/SSE连接的远程MCP服务</span>
+          <span v-else-if="serviceType === 'local'">本地命令启动的MCP服务</span>
+          <span v-else-if="serviceType === 'mcpServers'">标准JSON配置文件格式</span>
         </div>
-      </div>
-    </el-card>
-    
-    <!-- 预览和提交 -->
-    <el-card class="preview-card">
-      <template #header>
-        <span>配置预览</span>
-      </template>
+      </el-card>
+
+      <!-- 服务配置表单卡片 -->
+      <el-card class="form-card">
+        <template #header>
+          <div class="card-header">
+            <el-icon><Edit /></el-icon>
+            <span>服务配置</span>
+          </div>
+        </template>
+        <div class="section-title">
+          <el-icon><Edit /></el-icon>
+          <span>服务配置</span>
+        </div>
       
-      <el-alert
-        v-if="configPreview"
-        title="配置预览"
-        type="info"
-        :closable="false"
-        style="margin-bottom: 16px"
-      >
-        <pre>{{ configPreview }}</pre>
-      </el-alert>
-      
-      <div class="submit-actions">
-        <el-button 
-          type="primary" 
-          @click="submitForm"
-          :loading="submitting"
-          size="large"
+        <!-- 远程服务表单 -->
+        <el-form
+          v-if="serviceType === 'remote'"
+          ref="remoteFormRef"
+          :model="remoteForm"
+          :rules="remoteRules"
+          label-position="top"
+          class="service-form"
         >
-          添加服务
-        </el-button>
-        <el-button 
-          @click="resetForm"
-          size="large"
+          <div class="form-grid">
+            <el-form-item label="服务名称" prop="name">
+              <el-input
+                v-model="remoteForm.name"
+                placeholder="请输入服务名称"
+                size="large"
+                clearable
+              />
+            </el-form-item>
+
+            <el-form-item label="传输类型" prop="transport">
+              <el-select v-model="remoteForm.transport" placeholder="自动检测" size="large">
+                <el-option label="自动检测" value="" />
+                <el-option label="HTTP流式" value="streamable-http" />
+                <el-option label="SSE" value="sse" />
+              </el-select>
+            </el-form-item>
+          </div>
+
+          <el-form-item label="服务URL" prop="url">
+            <el-input
+              v-model="remoteForm.url"
+              placeholder="https://mcpstore.wiki/mcp"
+              size="large"
+              clearable
+            />
+          </el-form-item>
+
+          <!-- 可选配置 -->
+          <el-collapse v-model="activeCollapse" class="optional-config">
+            <el-collapse-item title="请求头配置" name="headers">
+              <div class="config-section">
+                <div
+                  v-for="(header, index) in remoteForm.headers"
+                  :key="index"
+                  class="config-item"
+                >
+                  <el-input
+                    v-model="header.key"
+                    placeholder="Header名称"
+                    size="large"
+                  />
+                  <el-input
+                    v-model="header.value"
+                    placeholder="Header值"
+                    size="large"
+                  />
+                  <el-button
+                    :icon="Delete"
+                    @click="removeHeader(index)"
+                    type="danger"
+                    text
+                    size="large"
+                  />
+                </div>
+                <el-button
+                  :icon="Plus"
+                  @click="addHeader"
+                  type="primary"
+                  text
+                  size="large"
+                >
+                  添加请求头
+                </el-button>
+              </div>
+            </el-collapse-item>
+
+            <el-collapse-item title="环境变量" name="env">
+              <div class="config-section">
+                <div
+                  v-for="(env, index) in remoteForm.env"
+                  :key="index"
+                  class="config-item"
+                >
+                  <el-input
+                    v-model="env.key"
+                    placeholder="变量名"
+                    size="large"
+                  />
+                  <el-input
+                    v-model="env.value"
+                    placeholder="变量值"
+                    size="large"
+                    :type="env.key.toLowerCase().includes('password') ? 'password' : 'text'"
+                  />
+                  <el-button
+                    :icon="Delete"
+                    @click="removeEnv(index)"
+                    type="danger"
+                    text
+                    size="large"
+                  />
+                </div>
+                <el-button
+                  :icon="Plus"
+                  @click="addEnv"
+                  type="primary"
+                  text
+                  size="large"
+                >
+                  添加环境变量
+                </el-button>
+              </div>
+            </el-collapse-item>
+          </el-collapse>
+        </el-form>
+
+        <!-- 本地服务表单 -->
+        <el-form
+          v-else-if="serviceType === 'local'"
+          ref="localFormRef"
+          :model="localForm"
+          :rules="localRules"
+          label-position="top"
+          class="service-form"
         >
-          重置表单
-        </el-button>
-      </div>
-    </el-card>
+          <div class="form-grid">
+            <el-form-item label="服务名称" prop="name">
+              <el-input
+                v-model="localForm.name"
+                placeholder="请输入服务名称"
+                size="large"
+                clearable
+              />
+            </el-form-item>
+
+            <el-form-item label="启动命令" prop="command">
+              <el-input
+                v-model="localForm.command"
+                placeholder="python, node, ./executable"
+                size="large"
+                clearable
+              />
+            </el-form-item>
+          </div>
+
+          <el-form-item label="工作目录">
+            <el-input
+              v-model="localForm.working_dir"
+              placeholder="留空使用当前目录"
+              size="large"
+              clearable
+            />
+          </el-form-item>
+
+          <!-- 可选配置 -->
+          <el-collapse v-model="activeCollapse" class="optional-config">
+            <el-collapse-item title="命令参数" name="args">
+              <div class="config-section">
+                <div
+                  v-for="(arg, index) in localForm.args"
+                  :key="index"
+                  class="config-item single"
+                >
+                  <el-input
+                    v-model="localForm.args[index]"
+                    placeholder="参数"
+                    size="large"
+                  />
+                  <el-button
+                    :icon="Delete"
+                    @click="removeArg(index)"
+                    type="danger"
+                    text
+                    size="large"
+                  />
+                </div>
+                <el-button
+                  :icon="Plus"
+                  @click="addArg"
+                  type="primary"
+                  text
+                  size="large"
+                >
+                  添加参数
+                </el-button>
+              </div>
+            </el-collapse-item>
+
+            <el-collapse-item title="环境变量" name="env">
+              <div class="config-section">
+                <div
+                  v-for="(env, index) in localForm.env"
+                  :key="index"
+                  class="config-item"
+                >
+                  <el-input
+                    v-model="env.key"
+                    placeholder="变量名"
+                    size="large"
+                  />
+                  <el-input
+                    v-model="env.value"
+                    placeholder="变量值"
+                    size="large"
+                    :type="env.key.toLowerCase().includes('password') ? 'password' : 'text'"
+                  />
+                  <el-button
+                    :icon="Delete"
+                    @click="removeLocalEnv(index)"
+                    type="danger"
+                    text
+                    size="large"
+                  />
+                </div>
+                <el-button
+                  :icon="Plus"
+                  @click="addLocalEnv"
+                  type="primary"
+                  text
+                  size="large"
+                >
+                  添加环境变量
+                </el-button>
+              </div>
+            </el-collapse-item>
+          </el-collapse>
+        </el-form>
+      
+        <!-- mcpServers格式表单 -->
+        <el-form
+          v-else-if="serviceType === 'mcpServers'"
+          ref="mcpServersFormRef"
+          :model="mcpServersForm"
+          label-position="top"
+          class="service-form"
+        >
+          <el-form-item label="配置内容">
+            <el-input
+              v-model="mcpServersForm.content"
+              type="textarea"
+              :rows="8"
+              placeholder="请输入标准JSON配置文件内容"
+              size="large"
+            />
+          </el-form-item>
+
+          <div class="json-actions">
+            <el-button @click="formatJson" size="large">
+              <el-icon><Star /></el-icon>
+              格式化
+            </el-button>
+            <el-button @click="validateJson" size="large">
+              <el-icon><Check /></el-icon>
+              验证
+            </el-button>
+            <el-button @click="loadExample" size="large">
+              <el-icon><Document /></el-icon>
+              示例
+            </el-button>
+          </div>
+        </el-form>
+
+        <!-- 提交按钮 -->
+        <div class="submit-section">
+          <el-button
+            type="primary"
+            @click="submitForm"
+            :loading="submitting"
+            size="large"
+            class="submit-btn"
+          >
+            <el-icon><Plus /></el-icon>
+            {{ submitting ? '添加中...' : '添加服务' }}
+          </el-button>
+          <el-button
+            @click="resetForm"
+            size="large"
+          >
+            <el-icon><RefreshLeft /></el-icon>
+            重置表单
+          </el-button>
+        </div>
+      </el-card>
+    </div>
   </div>
 </template>
 
@@ -311,7 +346,8 @@ import { useRouter } from 'vue-router'
 import { useSystemStore } from '@/stores/system'
 import { ElMessage } from 'element-plus'
 import {
-  Link, FolderOpened, DocumentCopy, Plus, Delete
+  Link, FolderOpened, DocumentCopy, Plus, Delete, Setting, Edit,
+  Star, Check, RefreshLeft, Document
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -320,10 +356,12 @@ const systemStore = useSystemStore()
 // 响应式数据
 const serviceType = ref('remote')
 const submitting = ref(false)
+const activeCollapse = ref([])
 
 // 表单引用
 const remoteFormRef = ref()
 const localFormRef = ref()
+const mcpServersFormRef = ref()
 
 // 远程服务表单
 const remoteForm = reactive({
@@ -472,7 +510,7 @@ const loadExample = () => {
   const example = {
     mcpServers: {
       "mcpstore-wiki": {
-        "url": "http://mcpstore.wiki/mcp"
+        "url": "https://mcpstore.wiki/mcp"
       },
       "howtocook": {
         "command": "npx",
@@ -580,105 +618,154 @@ const submitForm = async () => {
 .service-add {
   .page-header {
     @include flex-between;
-    margin-bottom: 20px;
-    
+    margin-bottom: 24px;
+
     .header-left {
       .page-title {
-        margin: 0 0 4px 0;
-        font-size: 24px;
-        font-weight: var(--font-weight-medium);
+        margin: 0 0 8px 0;
+        font-size: 28px;
+        font-weight: 600;
       }
-      
+
       .page-description {
         margin: 0;
-        color: var(--text-secondary);
+        color: var(--el-text-color-secondary);
+        font-size: 16px;
       }
     }
   }
-  
+
+  .main-content {
+    max-width: 800px;
+    margin: 0 auto;
+  }
+
+  // 卡片样式
   .type-selection-card,
-  .form-card,
-  .preview-card {
-    margin-bottom: 20px;
-  }
-  
-  .type-description {
-    margin-top: 16px;
-    
-    .description-item {
+  .form-card {
+    margin-bottom: 24px;
+
+    .card-header {
       display: flex;
       align-items: center;
       gap: 8px;
-      color: var(--text-secondary);
-      font-size: var(--font-size-sm);
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--el-text-color-primary);
     }
   }
-  
-  .headers-input,
-  .env-input,
-  .args-input {
-    .header-item,
-    .env-item,
-    .arg-item {
+
+  .type-selection-card {
+    .type-hint {
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-bottom: 8px;
-    }
-  }
-  
-  .mcpservers-form {
-    .json-actions {
       margin-top: 12px;
-      display: flex;
-      gap: 8px;
+      padding: 12px 16px;
+      background: var(--el-fill-color-lighter);
+      border-radius: 8px;
+      color: var(--el-text-color-secondary);
+      font-size: 14px;
     }
   }
-  
-  .preview-card {
-    pre {
-      background: var(--bg-color-page);
-      padding: 12px;
-      border-radius: var(--border-radius-base);
-      font-size: var(--font-size-sm);
-      max-height: 300px;
-      overflow-y: auto;
+
+  .service-form {
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 20px;
     }
-    
-    .submit-actions {
+
+    .optional-config {
+      margin-top: 20px;
+
+      .config-section {
+        .config-item {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 12px;
+
+          &.single {
+            .el-input {
+              flex: 1;
+            }
+          }
+
+          .el-input:first-child {
+            flex: 1;
+          }
+
+          .el-input:nth-child(2) {
+            flex: 1;
+          }
+        }
+      }
+    }
+
+    // JSON操作按钮样式
+    .json-actions {
+      margin-top: 16px;
       display: flex;
       gap: 12px;
       justify-content: center;
-      margin-top: 20px;
+    }
+  }
+
+  .submit-section {
+    margin-top: 32px;
+    padding: 20px 0;
+    border-top: 1px solid var(--el-border-color-lighter);
+    text-align: center;
+
+    .submit-btn {
+      min-width: 160px;
+      height: 48px;
+      font-size: 16px;
+      font-weight: 500;
+      margin-right: 16px;
     }
   }
 }
 
 // 响应式适配
-@include respond-to(xs) {
+@include respond-to(md) {
+  .service-add {
+    .service-form .form-grid {
+      grid-template-columns: 1fr;
+      gap: 16px;
+    }
+  }
+}
+
+@include respond-to(sm) {
   .service-add {
     .page-header {
       flex-direction: column;
       align-items: flex-start;
       gap: 16px;
     }
-    
-    .header-item,
-    .env-item {
+
+    .main-content {
+      max-width: none;
+    }
+
+    .config-item {
       flex-direction: column;
       align-items: stretch;
-      
+      gap: 8px;
+
       .el-input {
         width: 100% !important;
-        margin-bottom: 8px;
       }
     }
-    
-    .submit-actions {
-      flex-direction: column;
-      
-      .el-button {
+
+    .submit-section {
+      .submit-btn {
         width: 100%;
+        margin-right: 0;
+        margin-bottom: 12px;
       }
     }
   }

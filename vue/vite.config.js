@@ -72,7 +72,8 @@ export default defineConfig(({ mode }) => {
     css: {
       preprocessorOptions: {
         scss: {
-          additionalData: `@use "@/styles/variables.scss" as *;`
+          additionalData: `@use "@/styles/variables.scss" as *;`,
+          api: 'modern-compiler' // 使用现代编译器API
         }
       }
     }

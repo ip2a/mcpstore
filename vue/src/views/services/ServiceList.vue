@@ -52,7 +52,37 @@
         </el-dropdown>
       </div>
     </div>
-    
+
+    <!-- 🔧 新增：服务统计概览 -->
+    <el-card class="stats-card" v-if="servicesData">
+      <el-row :gutter="20">
+        <el-col :xs="12" :sm="6">
+          <div class="stat-item">
+            <div class="stat-value">{{ servicesData.total_services || 0 }}</div>
+            <div class="stat-label">总服务数</div>
+          </div>
+        </el-col>
+        <el-col :xs="12" :sm="6">
+          <div class="stat-item">
+            <div class="stat-value success">{{ servicesData.active_services || 0 }}</div>
+            <div class="stat-label">活跃服务</div>
+          </div>
+        </el-col>
+        <el-col :xs="12" :sm="6">
+          <div class="stat-item">
+            <div class="stat-value info">{{ servicesData.config_only_services || 0 }}</div>
+            <div class="stat-label">仅配置</div>
+          </div>
+        </el-col>
+        <el-col :xs="12" :sm="6">
+          <div class="stat-item">
+            <div class="stat-value warning">{{ healthyServicesCount }}</div>
+            <div class="stat-label">健康服务</div>
+          </div>
+        </el-col>
+      </el-row>
+    </el-card>
+
     <!-- 筛选和搜索 -->
     <el-card class="filter-card">
       <el-row :gutter="20">
@@ -215,25 +245,39 @@
           </template>
         </el-table-column>
         
-        <!-- 🔧 新增：生命周期状态详情 -->
-        <el-table-column label="生命周期详情" width="200">
+        <!-- 🔧 增强：连接状态和健康度 -->
+        <el-table-column label="连接状态" width="180">
           <template #default="{ row }">
-            <div v-if="row.is_active" class="lifecycle-details">
-              <div class="lifecycle-stats">
-                <el-tag size="small" type="success">
-                  成功: {{ row.consecutive_successes || 0 }}
-                </el-tag>
-                <el-tag size="small" type="danger" v-if="row.consecutive_failures > 0">
-                  失败: {{ row.consecutive_failures }}
+            <div v-if="row.is_active" class="connection-status">
+              <!-- 客户端ID -->
+              <div class="client-id">
+                <el-tag size="small" type="info">
+                  {{ row.client_id ? row.client_id.split('_').pop() : 'N/A' }}
                 </el-tag>
               </div>
-              <div v-if="row.last_ping_time" class="last-ping">
-                最后检查: {{ formatTime(row.last_ping_time) }}
-              </div>
-              <div v-if="row.error_message" class="error-message">
-                <el-tooltip :content="row.error_message" placement="top">
-                  <el-tag size="small" type="danger">有错误</el-tag>
+
+              <!-- 连接统计 -->
+              <div class="connection-stats">
+                <el-tooltip content="连续成功次数" placement="top">
+                  <el-tag size="small" type="success" v-if="row.consecutive_successes > 0">
+                    ✓{{ row.consecutive_successes }}
+                  </el-tag>
                 </el-tooltip>
+                <el-tooltip content="连续失败次数" placement="top">
+                  <el-tag size="small" type="danger" v-if="row.consecutive_failures > 0">
+                    ✗{{ row.consecutive_failures }}
+                  </el-tag>
+                </el-tooltip>
+                <el-tooltip content="重连尝试次数" placement="top">
+                  <el-tag size="small" type="warning" v-if="row.reconnect_attempts > 0">
+                    🔄{{ row.reconnect_attempts }}
+                  </el-tag>
+                </el-tooltip>
+              </div>
+
+              <!-- 状态进入时间 -->
+              <div class="state-time" v-if="row.state_entered_time">
+                <small>{{ formatRelativeTime(row.state_entered_time) }}</small>
               </div>
             </div>
             <div v-else class="config-only-info">
@@ -247,6 +291,29 @@
               >
                 激活服务
               </el-button>
+            </div>
+          </template>
+        </el-table-column>
+
+        <!-- 🔧 新增：错误信息列 -->
+        <el-table-column label="错误信息" width="200">
+          <template #default="{ row }">
+            <div v-if="row.error_message" class="error-info">
+              <el-tooltip :content="row.error_message" placement="top" :show-after="500">
+                <el-tag size="small" type="danger" class="error-tag">
+                  <el-icon><Warning /></el-icon>
+                  错误详情
+                </el-tag>
+              </el-tooltip>
+            </div>
+            <div v-else-if="row.is_active" class="no-error">
+              <el-tag size="small" type="success">
+                <el-icon><Check /></el-icon>
+                正常
+              </el-tag>
+            </div>
+            <div v-else class="not-active">
+              <span class="text-muted">-</span>
             </div>
           </template>
         </el-table-column>
@@ -316,63 +383,157 @@
       @updated="handleBatchUpdateSuccess"
     />
 
-    <!-- 服务详情对话框 -->
+    <!-- 编辑服务弹窗 -->
     <el-dialog
-      v-model="detailDialogVisible"
-      :title="`服务详情 - ${selectedService?.name}`"
-      width="600px"
+      v-model="editDialogVisible"
+      :title="`编辑服务 - ${editingService?.name}`"
+      width="800px"
+      :close-on-click-modal="false"
     >
-      <div v-if="selectedService" class="service-details">
-        <el-descriptions :column="1" border>
-          <el-descriptions-item label="服务名称">
-            {{ selectedService.name }}
-          </el-descriptions-item>
-          <el-descriptions-item label="服务类型">
-            <el-tag :type="selectedService.command ? 'success' : 'info'">
-              {{ selectedService.command ? '本地服务' : '远程服务' }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="状态">
-            <el-tag :type="selectedService.status === 'healthy' ? 'success' : 'danger'">
-              {{ selectedService.status === 'healthy' ? '健康' : '异常' }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item v-if="selectedService.url" label="URL">
-            {{ selectedService.url }}
-          </el-descriptions-item>
-          <el-descriptions-item v-if="selectedService.command" label="命令">
-            {{ selectedService.command }} {{ (selectedService.args || []).join(' ') }}
-          </el-descriptions-item>
-          <el-descriptions-item v-if="selectedService.working_dir" label="工作目录">
-            {{ selectedService.working_dir }}
-          </el-descriptions-item>
-          <el-descriptions-item label="传输类型">
-            {{ selectedService.transport_type || 'http' }}
-          </el-descriptions-item>
-          <el-descriptions-item label="工具数量">
-            {{ selectedService.tool_count || 0 }}
-          </el-descriptions-item>
-          <el-descriptions-item v-if="selectedService.last_heartbeat" label="最后心跳">
-            {{ formatTime(selectedService.last_heartbeat) }}
-          </el-descriptions-item>
-        </el-descriptions>
-        
-        <!-- 环境变量 -->
-        <div v-if="selectedService.env && Object.keys(selectedService.env).length > 0" class="env-section">
-          <h4>环境变量</h4>
-          <el-table :data="envTableData" size="small">
-            <el-table-column prop="key" label="变量名" />
-            <el-table-column prop="value" label="值" />
-          </el-table>
+      <div v-if="editingService" class="edit-service-content">
+        <!-- 编辑模式选择 -->
+        <div class="edit-mode-selector">
+          <el-radio-group v-model="editMode" size="large">
+            <el-radio-button label="fields">字段编辑</el-radio-button>
+            <el-radio-button label="json">JSON编辑</el-radio-button>
+          </el-radio-group>
+        </div>
+
+        <!-- 字段编辑模式 -->
+        <div v-if="editMode === 'fields'" class="fields-edit-mode">
+          <!-- Client ID 展示 -->
+          <div v-if="editingServiceClientId" class="client-id-display">
+            <el-form-item label="client_id">
+              <el-input
+                :value="editingServiceClientId"
+                readonly
+                size="large"
+                class="readonly-field"
+              >
+                <template #suffix>
+                  <el-icon class="readonly-icon"><View /></el-icon>
+                </template>
+              </el-input>
+            </el-form-item>
+          </div>
+
+          <el-form
+            ref="editFormRef"
+            :model="editForm"
+            label-position="top"
+            class="edit-form"
+          >
+            <!-- 远程服务字段 -->
+            <template v-if="isRemoteService">
+              <el-form-item label="url" prop="url">
+                <el-input
+                  v-model="editForm.url"
+                  placeholder="Enter service URL, e.g.: https://example.com/mcp"
+                  size="large"
+                />
+              </el-form-item>
+
+              <el-form-item label="transport" prop="transport" v-if="editForm.transport !== undefined">
+                <el-input
+                  v-model="editForm.transport"
+                  placeholder="Enter transport type, e.g.: streamable-http"
+                  size="large"
+                />
+              </el-form-item>
+
+              <el-form-item label="timeout" prop="timeout" v-if="editForm.timeout !== undefined">
+                <el-input-number
+                  v-model="editForm.timeout"
+                  :min="1"
+                  :max="300"
+                  placeholder="Timeout in seconds"
+                  size="large"
+                  style="width: 100%"
+                />
+              </el-form-item>
+            </template>
+
+            <!-- 本地服务字段 -->
+            <template v-else>
+              <el-form-item label="command" prop="command">
+                <el-input
+                  v-model="editForm.command"
+                  placeholder="Enter command, e.g.: npx, python"
+                  size="large"
+                />
+              </el-form-item>
+
+              <el-form-item label="args" prop="args" v-if="editForm.args !== undefined">
+                <el-input
+                  v-model="editFormArgsString"
+                  placeholder="Enter arguments separated by spaces"
+                  size="large"
+                />
+                <div class="field-hint">Arguments will be split by spaces into an array</div>
+              </el-form-item>
+
+              <el-form-item label="working_dir" prop="working_dir" v-if="editForm.working_dir !== undefined">
+                <el-input
+                  v-model="editForm.working_dir"
+                  placeholder="Enter working directory path (optional)"
+                  size="large"
+                />
+              </el-form-item>
+            </template>
+
+            <!-- 通用字段 -->
+            <el-form-item label="env" prop="env" v-if="editForm.env !== undefined">
+              <el-input
+                v-model="editFormEnvString"
+                type="textarea"
+                :rows="3"
+                placeholder="Enter environment variables, format: KEY1=value1&#10;KEY2=value2"
+                size="large"
+              />
+              <div class="field-hint">One environment variable per line, format: KEY=value</div>
+            </el-form-item>
+          </el-form>
+        </div>
+
+        <!-- JSON编辑模式 -->
+        <div v-else class="json-edit-mode">
+          <el-form-item label="配置内容">
+            <el-input
+              v-model="editJsonContent"
+              type="textarea"
+              :rows="12"
+              placeholder="请输入JSON配置内容"
+              size="large"
+            />
+          </el-form-item>
+
+          <div class="json-actions">
+            <el-button @click="formatEditJson" size="large">
+              <el-icon><Setting /></el-icon>
+              格式化
+            </el-button>
+            <el-button @click="validateEditJson" size="large">
+              <el-icon><Check /></el-icon>
+              验证
+            </el-button>
+          </div>
         </div>
       </div>
-      
+
       <template #footer>
-        <el-button @click="detailDialogVisible = false">关闭</el-button>
-        <el-button type="success" @click="editService(selectedService)">编辑服务</el-button>
-        <el-button type="warning" @click="restartService(selectedService)">重启服务</el-button>
+        <div class="dialog-footer">
+          <el-button @click="editDialogVisible = false">取消</el-button>
+          <el-button
+            type="primary"
+            @click="saveServiceEdit"
+            :loading="editSaving"
+          >
+            保存
+          </el-button>
+        </div>
       </template>
     </el-dialog>
+
     </div>
   </div>
 </template>
@@ -388,7 +549,8 @@ import ErrorState from '@/components/common/ErrorState.vue'
 import { SERVICE_STATUS_COLORS, SERVICE_STATUS_MAP } from '@/utils/constants'
 import {
   Plus, Refresh, Search, Delete, Connection, FolderOpened,
-  Link, Tools, View, ArrowDown, RefreshLeft, Setting, Operation, Edit
+  Link, Tools, View, ArrowDown, RefreshLeft, Setting, Operation, Edit,
+  Warning, Check
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -403,9 +565,25 @@ const searchQuery = ref('')
 const statusFilter = ref('')
 const typeFilter = ref('')
 const selectedServices = ref([])
-const detailDialogVisible = ref(false)
-const selectedService = ref(null)
 const batchUpdateDialogVisible = ref(false)
+const servicesData = ref(null) // 存储API返回的完整数据
+
+// 编辑服务相关数据
+const editDialogVisible = ref(false)
+const editingService = ref(null)
+const editingServiceClientId = ref('')
+const editMode = ref('fields') // 'fields' | 'json'
+const editForm = ref({})
+const editJsonContent = ref('')
+const editSaving = ref(false)
+const editFormRef = ref()
+const editFormArgsString = ref('')
+const editFormEnvString = ref('')
+
+// 计算属性：判断是否为远程服务
+const isRemoteService = computed(() => {
+  return editForm.value.url && !editForm.value.command
+})
 
 // 错误状态
 const hasError = ref(false)
@@ -458,13 +636,11 @@ const filteredServices = computed(() => {
   return services
 })
 
-const envTableData = computed(() => {
-  if (!selectedService.value?.env) return []
-  return Object.entries(selectedService.value.env).map(([key, value]) => ({
-    key,
-    value: key.toLowerCase().includes('password') || key.toLowerCase().includes('key') 
-      ? '***' : value
-  }))
+
+
+// 健康服务数量计算
+const healthyServicesCount = computed(() => {
+  return systemStore.services.filter(service => service.status === 'healthy').length
 })
 
 // 🔧 改进：状态处理函数支持7状态系统
@@ -489,7 +665,16 @@ const getStatusText = (status) => {
 const refreshServices = async () => {
   refreshLoading.value = true
   try {
+    // 直接调用API获取完整数据
+    const { storeServiceAPI } = await import('@/api/services')
+    const response = await storeServiceAPI.getServices()
+
+    // 保存完整的API响应数据
+    servicesData.value = response.data.data
+
+    // 同时更新systemStore中的服务数据
     await systemStore.fetchServices()
+
     ElMessage.success('服务列表刷新成功')
   } catch (error) {
     console.error('刷新服务列表失败:', error)
@@ -613,8 +798,10 @@ const viewServiceTools = (service) => {
 }
 
 const viewServiceDetails = (service) => {
-  selectedService.value = service
-  detailDialogVisible.value = true
+  router.push({
+    path: `/services/detail/${service.name}`,
+    query: route.query.agent ? { agent: route.query.agent } : {}
+  })
 }
 
 const restartService = async (service) => {
@@ -640,26 +827,175 @@ const deleteService = async (service) => {
         type: 'warning'
       }
     )
-    
-    await systemStore.deleteService(service.name)
-    ElMessage.success(`服务 ${service.name} 删除成功`)
+
+    const { storeServiceAPI, agentServiceAPI } = await import('@/api/services')
+
+    // 根据是否有agent参数决定使用哪个API
+    const agentId = route.query.agent
+    let response
+
+    if (agentId) {
+      // Agent级别删除
+      response = await agentServiceAPI.deleteConfig(agentId, service.name)
+    } else {
+      // Store级别删除
+      response = await storeServiceAPI.deleteConfig(service.name)
+    }
+
+    if (response.data.success) {
+      ElMessage.success(`服务 ${service.name} 删除成功`)
+      await refreshServices()
+    } else {
+      ElMessage.error(response.data.message || `服务 ${service.name} 删除失败`)
+    }
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(`服务 ${service.name} 删除失败`)
+      ElMessage.error(`服务 ${service.name} 删除失败: ${error.message}`)
     }
   }
 }
 
-const editService = (service) => {
-  // 跳转到编辑页面
-  router.push({
-    path: `/services/edit/${service.name}`,
-    query: route.query.agent ? { agent: route.query.agent } : {}
-  })
+const editService = async (service) => {
+  try {
+    editingService.value = service
+    editMode.value = 'fields'
+
+    // 获取服务配置
+    const { storeServiceAPI, agentServiceAPI } = await import('@/api/services')
+    const agentId = route.query.agent
+    let response
+
+    if (agentId) {
+      // Agent级别获取配置
+      response = await agentServiceAPI.showConfig(agentId)
+    } else {
+      // Store级别获取配置
+      response = await storeServiceAPI.showConfig('global_agent_store')
+    }
+
+    if (response.data.success) {
+      // 从配置中找到当前服务的配置和client_id
+      let serviceConfig = null
+      let clientId = ''
+
+      console.log('🔍 [DEBUG] API响应数据:', response.data.data)
+
+      if (agentId && response.data.data.services) {
+        // Agent级别的配置
+        const serviceInfo = response.data.data.services[service.name]
+        serviceConfig = serviceInfo?.config
+        clientId = serviceInfo?.client_id || ''
+        console.log('🔍 [DEBUG] Agent级别配置:', serviceConfig, 'Client ID:', clientId)
+      } else if (response.data.data.services) {
+        // Store级别的配置（直接在services中）
+        const serviceInfo = response.data.data.services[service.name]
+        serviceConfig = serviceInfo?.config
+        clientId = serviceInfo?.client_id || ''
+        console.log('🔍 [DEBUG] Store级别配置:', serviceConfig, 'Client ID:', clientId)
+      } else if (response.data.data.agents?.global_agent_store?.services) {
+        // 嵌套在agents中的配置
+        const serviceInfo = response.data.data.agents.global_agent_store.services[service.name]
+        serviceConfig = serviceInfo?.config
+        clientId = serviceInfo?.client_id || ''
+        console.log('🔍 [DEBUG] 嵌套配置:', serviceConfig, 'Client ID:', clientId)
+      }
+
+      // 设置client_id
+      editingServiceClientId.value = clientId
+
+      if (serviceConfig) {
+        // 初始化编辑表单
+        editForm.value = { ...serviceConfig }
+
+        // 初始化args字符串字段
+        if (serviceConfig.args && Array.isArray(serviceConfig.args)) {
+          editFormArgsString.value = serviceConfig.args.join(' ')
+        } else {
+          editFormArgsString.value = ''
+        }
+
+        // 初始化env字符串字段
+        if (serviceConfig.env && typeof serviceConfig.env === 'object') {
+          editFormEnvString.value = Object.entries(serviceConfig.env)
+            .map(([key, value]) => `${key}=${value}`)
+            .join('\n')
+        } else {
+          editFormEnvString.value = ''
+        }
+
+        editJsonContent.value = JSON.stringify({ [service.name]: serviceConfig }, null, 2)
+
+        console.log('🔍 [DEBUG] 服务配置加载:', {
+          serviceName: service.name,
+          serviceConfig,
+          editForm: editForm.value,
+          argsString: editFormArgsString.value,
+          envString: editFormEnvString.value
+        })
+      } else {
+        // 如果没有找到配置，根据服务类型使用默认配置
+        if (service.url) {
+          // 远程服务
+          editForm.value = {
+            url: service.url || '',
+            transport: service.transport || 'streamable-http',
+            timeout: service.timeout || 30
+          }
+        } else {
+          // 本地服务
+          editForm.value = {
+            command: service.command || '',
+            args: service.args || [],
+            working_dir: service.working_dir || '',
+            env: service.env || {}
+          }
+
+          if (Array.isArray(service.args)) {
+            editFormArgsString.value = service.args.join(' ')
+          }
+        }
+
+        // 初始化环境变量字符串
+        if (service.env && typeof service.env === 'object') {
+          editFormEnvString.value = Object.entries(service.env)
+            .map(([key, value]) => `${key}=${value}`)
+            .join('\n')
+        } else {
+          editFormEnvString.value = ''
+        }
+
+        editJsonContent.value = JSON.stringify({ [service.name]: editForm.value }, null, 2)
+      }
+
+      editDialogVisible.value = true
+    } else {
+      ElMessage.error('获取服务配置失败')
+    }
+  } catch (error) {
+    ElMessage.error(`获取服务配置失败: ${error.message}`)
+  }
 }
 
 const formatTime = (time) => {
   return dayjs(time).format('YYYY-MM-DD HH:mm:ss')
+}
+
+const formatRelativeTime = (time) => {
+  const now = dayjs()
+  const target = dayjs(time)
+  const diffMinutes = now.diff(target, 'minute')
+
+  if (diffMinutes < 1) {
+    return '刚刚'
+  } else if (diffMinutes < 60) {
+    return `${diffMinutes}分钟前`
+  } else if (diffMinutes < 1440) {
+    const hours = Math.floor(diffMinutes / 60)
+    return `${hours}小时前`
+  } else {
+    const days = Math.floor(diffMinutes / 1440)
+    return `${days}天前`
+  }
 }
 
 // 🔧 新增：服务激活功能
@@ -769,10 +1105,121 @@ const handleRetry = async () => {
   }
 }
 
+// 编辑服务相关方法
+const formatEditJson = () => {
+  try {
+    const parsed = JSON.parse(editJsonContent.value)
+    editJsonContent.value = JSON.stringify(parsed, null, 2)
+    ElMessage.success('JSON格式化成功')
+  } catch (error) {
+    ElMessage.error('JSON格式错误')
+  }
+}
+
+const validateEditJson = () => {
+  try {
+    JSON.parse(editJsonContent.value)
+    ElMessage.success('JSON格式正确')
+  } catch (error) {
+    ElMessage.error('JSON格式错误: ' + error.message)
+  }
+}
+
+const saveServiceEdit = async () => {
+  if (!editingService.value) return
+
+  try {
+    editSaving.value = true
+
+    const { storeServiceAPI, agentServiceAPI } = await import('@/api/services')
+    const agentId = route.query.agent
+    let config
+
+    if (editMode.value === 'fields') {
+      // 字段编辑模式 - 处理不同类型的服务
+      config = { ...editForm.value }
+
+      // 处理args字段（从字符串转换为数组）
+      if (editFormArgsString.value.trim()) {
+        config.args = editFormArgsString.value.trim().split(/\s+/)
+      } else if (config.args !== undefined) {
+        config.args = []
+      }
+
+      // 处理env字段（从字符串转换为对象）
+      if (editFormEnvString.value.trim()) {
+        config.env = {}
+        editFormEnvString.value.split('\n').forEach(line => {
+          const trimmedLine = line.trim()
+          if (trimmedLine && trimmedLine.includes('=')) {
+            const [key, ...valueParts] = trimmedLine.split('=')
+            const value = valueParts.join('=')
+            if (key.trim()) {
+              config.env[key.trim()] = value
+            }
+          }
+        })
+      } else if (config.env !== undefined) {
+        config.env = {}
+      }
+
+      // 清理不相关的字段
+      if (isRemoteService.value) {
+        // 远程服务：删除本地服务字段
+        delete config.command
+        delete config.args
+        delete config.working_dir
+      } else {
+        // 本地服务：删除远程服务字段
+        delete config.url
+        delete config.transport
+      }
+    } else {
+      // JSON编辑模式
+      try {
+        const parsed = JSON.parse(editJsonContent.value)
+        // 提取服务配置
+        const serviceName = editingService.value.name
+        config = parsed[serviceName] || parsed
+      } catch (error) {
+        ElMessage.error('JSON格式错误')
+        return
+      }
+    }
+
+    let response
+    if (agentId) {
+      // Agent级别更新
+      response = await agentServiceAPI.updateConfigNew(agentId, editingService.value.name, config)
+    } else {
+      // Store级别更新
+      response = await storeServiceAPI.updateConfigNew(editingService.value.name, config)
+    }
+
+    if (response.data.success) {
+      ElMessage.success('服务配置更新成功')
+      editDialogVisible.value = false
+      await refreshServices()
+    } else {
+      ElMessage.error(response.data.message || '服务配置更新失败')
+    }
+  } catch (error) {
+    ElMessage.error(`服务配置更新失败: ${error.message}`)
+  } finally {
+    editSaving.value = false
+  }
+}
+
 // 生命周期
 onMounted(async () => {
   pageLoading.value = true
   try {
+    // 获取完整的服务数据
+    const { storeServiceAPI } = await import('@/api/services')
+    const response = await storeServiceAPI.getServices()
+    servicesData.value = response.data.data
+
+    // 同时更新systemStore
     await systemStore.fetchServices()
   } catch (error) {
     console.error('初始加载服务列表失败:', error)
@@ -808,6 +1255,43 @@ onMounted(async () => {
     }
   }
   
+  .stats-card {
+    margin-bottom: 20px;
+
+    .stat-item {
+      text-align: center;
+      padding: 16px 0;
+
+      .stat-value {
+        font-size: 28px;
+        font-weight: bold;
+        color: var(--el-color-primary);
+        margin-bottom: 4px;
+
+        &.success {
+          color: var(--el-color-success);
+        }
+
+        &.info {
+          color: var(--el-color-info);
+        }
+
+        &.warning {
+          color: var(--el-color-warning);
+        }
+
+        &.danger {
+          color: var(--el-color-danger);
+        }
+      }
+
+      .stat-label {
+        font-size: 14px;
+        color: var(--el-text-color-secondary);
+      }
+    }
+  }
+
   .filter-card {
     margin-bottom: 20px;
   }
@@ -1020,6 +1504,96 @@ onMounted(async () => {
       .action-btn {
         width: 100%;
         min-width: auto;
+      }
+    }
+
+    // 🔧 新增：连接状态样式
+    .connection-status {
+      .client-id {
+        margin-bottom: 4px;
+      }
+
+      .connection-stats {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 4px;
+        flex-wrap: wrap;
+      }
+
+      .state-time {
+        font-size: 12px;
+        color: var(--el-text-color-secondary);
+      }
+    }
+
+    // 🔧 新增：错误信息样式
+    .error-info {
+      .error-tag {
+        cursor: pointer;
+
+        &:hover {
+          opacity: 0.8;
+        }
+      }
+    }
+
+    .no-error, .not-active {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .text-muted {
+      color: var(--el-text-color-disabled);
+    }
+  }
+
+  // 编辑服务弹窗样式
+  .edit-service-content {
+    .edit-mode-selector {
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    .fields-edit-mode {
+      .client-id-display {
+        margin-bottom: 20px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid var(--el-border-color-lighter);
+
+        .readonly-field {
+          :deep(.el-input__inner) {
+            background-color: var(--el-fill-color-lighter);
+            color: var(--el-text-color-secondary);
+            cursor: not-allowed;
+          }
+
+          .readonly-icon {
+            color: var(--el-text-color-placeholder);
+          }
+        }
+      }
+
+      .edit-form {
+        .form-field {
+          margin-bottom: 16px;
+        }
+
+        .field-hint {
+          font-size: 12px;
+          color: var(--el-text-color-secondary);
+          margin-top: 4px;
+          line-height: 1.4;
+        }
+      }
+    }
+
+    .json-edit-mode {
+      .json-actions {
+        margin-top: 16px;
+        display: flex;
+        gap: 12px;
+        justify-content: center;
       }
     }
   }

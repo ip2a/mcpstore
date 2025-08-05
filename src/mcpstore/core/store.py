@@ -148,10 +148,14 @@ class MCPStore:
         orchestrator.store = store
 
         # 🔧 新增：初始化缓存
+        logger.info("🔄 [SETUP_STORE] 开始初始化缓存...")
         try:
             async_helper.run_async(store.initialize_cache_from_files())
+            logger.info("✅ [SETUP_STORE] 缓存初始化完成")
         except Exception as e:
-            logger.warning(f"Failed to initialize cache from files: {e}")
+            logger.error(f"❌ [SETUP_STORE] 缓存初始化失败: {e}")
+            import traceback
+            logger.error(f"❌ [SETUP_STORE] 缓存初始化失败详情: {traceback.format_exc()}")
             # 缓存初始化失败不应该阻止系统启动
 
         return store
@@ -1024,45 +1028,63 @@ class MCPStore:
 
         self.logger.debug(f"Searching for service '{name}' in {context_type} context, clients: {client_ids}")
 
-        # 按优先级在相关的 client 中查找服务（返回第一个匹配的）
-        for client_id in client_ids:
-            if self.registry.has_service(client_id, name):
-                self.logger.debug(f"Found service '{name}' in client '{client_id}' for {context_type}")
+        # 🔧 [REFACTOR] 修复查找逻辑：Registry按agent_id存储服务，不是client_id
+        # 确定要查找的agent_id
+        search_agent_id = agent_id if agent_id else self.client_manager.global_agent_store_id
 
-                # 获取服务配置
-                config = self.config.get_service_config(name) or {}
-                service_tools = self.registry.get_tools_for_service(client_id, name)
+        # 检查服务是否存在于指定的agent下
+        if self.registry.has_service(search_agent_id, name):
+            self.logger.debug(f"Found service '{name}' in agent '{search_agent_id}' for {context_type}")
 
-                # 获取工具详细信息
-                detailed_tools = []
-                for tool_name in service_tools:
-                    tool_info = self.registry._get_detailed_tool_info(client_id, tool_name)
-                    if tool_info:
-                        detailed_tools.append(tool_info)
+            # 获取服务配置
+            config = self.config.get_service_config(name) or {}
+            service_tools = self.registry.get_tools_for_service(search_agent_id, name)
 
+            # 获取工具详细信息
+            detailed_tools = []
+            for tool_name in service_tools:
+                tool_info = self.registry._get_detailed_tool_info(search_agent_id, tool_name)
+                if tool_info:
+                    detailed_tools.append(tool_info)
+
+            # 🔧 [REFACTOR] 使用Registry的get_service_info方法获取完整的ServiceInfo
+            service_info = self.registry.get_service_info(search_agent_id, name)
+
+            if service_info:
                 # 获取服务健康状态
-                is_healthy = await self.orchestrator.is_service_healthy(name, client_id)
+                is_healthy = await self.orchestrator.is_service_healthy(name, search_agent_id)
 
-                # 构建服务信息（包含client_id用于调试）
-                service_info = ServiceInfo(
-                    url=config.get("url", ""),
-                    name=name,
-                    transport_type=self._infer_transport_type(config),
-                    status="healthy" if is_healthy else "unreachable",
-                    tool_count=len(service_tools),
-                    keep_alive=config.get("keep_alive", False),
-                    working_dir=config.get("working_dir"),
-                    env=config.get("env"),
-                    last_heartbeat=self.registry.get_last_heartbeat(client_id, name),
-                    command=config.get("command"),
-                    args=config.get("args"),
-                    package_name=config.get("package_name")
-                )
+                # 更新状态信息
+                if hasattr(service_info, 'status'):
+                    # 保持原有状态，只在需要时更新健康状态
+                    pass
 
                 return ServiceInfoResponse(
                     service=service_info,
                     tools=detailed_tools,
                     connected=True
+                )
+            else:
+                # 如果Registry没有返回ServiceInfo，构建一个基本的
+                service_info = ServiceInfo(
+                    url=config.get("url", ""),
+                    name=name,
+                    transport_type=self._infer_transport_type(config),
+                    status=ServiceConnectionState.DISCONNECTED,
+                    tool_count=len(service_tools),
+                    keep_alive=config.get("keep_alive", False),
+                    working_dir=config.get("working_dir"),
+                    env=config.get("env"),
+                    command=config.get("command"),
+                    args=config.get("args"),
+                    package_name=config.get("package_name"),
+                    config=config  # 🔧 [REFACTOR] 添加config字段
+                )
+
+                return ServiceInfoResponse(
+                    service=service_info,
+                    tools=detailed_tools,
+                    connected=False
                 )
 
         self.logger.debug(f"Service '{name}' not found in any client for {context_type}")
@@ -1155,7 +1177,8 @@ class MCPStore:
                     package_name=complete_info.get("config", {}).get("package_name"),
                     state_metadata=complete_info.get("state_metadata"),
                     last_state_change=complete_info.get("state_entered_time"),
-                    client_id=complete_info.get("client_id")  # 🔧 新增：Client ID 信息
+                    client_id=complete_info.get("client_id"),  # 🔧 新增：Client ID 信息
+                    config=complete_info.get("config", {})  # 🔧 [REFACTOR] 添加完整的config字段
                 )
                 services_info.append(service_info)
 
@@ -1194,7 +1217,8 @@ class MCPStore:
                     package_name=complete_info.get("config", {}).get("package_name"),
                     state_metadata=complete_info.get("state_metadata"),
                     last_state_change=complete_info.get("state_entered_time"),
-                    client_id=complete_info.get("client_id")
+                    client_id=complete_info.get("client_id"),
+                    config=complete_info.get("config", {})  # 🔧 [REFACTOR] 添加完整的config字段
                 )
                 services_info.append(service_info)
 
@@ -1203,10 +1227,12 @@ class MCPStore:
     async def initialize_cache_from_files(self):
         """启动时从文件初始化缓存"""
         try:
-            logger.info("🔄 Initializing cache from persistent files...")
+            logger.info("🔄 [INIT_CACHE] 开始从持久化文件初始化缓存...")
 
             # 1. 从 ClientManager 同步基础数据
+            logger.info("🔄 [INIT_CACHE] 步骤1: 从ClientManager同步基础数据...")
             self.cache_manager.sync_from_client_manager(self.client_manager)
+            logger.info("✅ [INIT_CACHE] 步骤1完成: ClientManager数据同步完成")
 
             # 2. 从配置文件同步 Store 级别的服务
             import os

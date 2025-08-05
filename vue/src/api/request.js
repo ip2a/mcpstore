@@ -11,7 +11,7 @@ console.log('  - 所有环境变量:', import.meta.env)
 
 // 确定最终的API配置
 const apiBaseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:18200'
-const apiTimeout = parseInt(import.meta.env.VITE_API_TIMEOUT) || 5000
+const apiTimeout = parseInt(import.meta.env.VITE_API_TIMEOUT) || 15000 // 增加到15秒
 
 console.log('🚀 [DEBUG] 最终API配置:')
 console.log('  - baseURL:', apiBaseURL)
