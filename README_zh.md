@@ -24,6 +24,7 @@ prod_store.start_api_server(
 快速启动后端，clone项目之后npm run dev即可运行vue的前端
 
 你也可以通过  http://mcpstore.wiki/web_demo/dashboard 来快速体验
+    通过 https://doc.mcpstore.wiki/ 可以查看详细的文档
 
 ## 三行代码实现将 MCP 的工具即拿即用 ⚡
 
