@@ -184,4 +184,4 @@ MCPStore 是一个 `开源项目`，我们欢迎社区的 `任何形式的贡献
 
 **MCPStore是一个还在频繁的更新的项目，恳求大家给小星并来指点**
 
-![image-20250722000133533](http://www.text2mcp.com/img/image-20250722000133533.png)
+![image-20250810191737450](http://www.text2mcp.com/img/image-20250810191737450.png)
