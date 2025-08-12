@@ -72,7 +72,7 @@ class MCPStore:
     @staticmethod
     def setup_store(mcp_config_file: str = None, debug: bool = False, standalone_config=None,
                    tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7,
-                   monitoring: dict = None, auto_register_on_startup: bool = True):
+                   monitoring: dict = None):
         """
         Initialize MCPStore instance
 
@@ -91,8 +91,7 @@ class MCPStore:
                 - enable_tools_update: Whether to enable tool updates (default True)
                 - enable_reconnection: Whether to enable reconnection (default True)
                 - update_tools_on_reconnection: Whether to update tools on reconnection (default True)
-            auto_register_on_startup: Whether to automatically register services in mcp.json on startup, default is True
-                                 When set to False, services will not be registered on startup but file watching remains active
+
                                  You can still manually call add_service method to add services
 
         Returns:
@@ -102,13 +101,13 @@ class MCPStore:
         if standalone_config is not None:
             return MCPStore._setup_with_standalone_config(standalone_config, debug,
                                                         tool_record_max_file_size, tool_record_retention_days,
-                                                        monitoring, auto_register_on_startup)
+                                                        monitoring)
 
         # 🔧 New: Data space management
         if mcp_config_file is not None:
             return MCPStore._setup_with_data_space(mcp_config_file, debug,
                                                  tool_record_max_file_size, tool_record_retention_days,
-                                                 monitoring, auto_register_on_startup)
+                                                 monitoring)
 
         # Original logic: Use default configuration
         from mcpstore.config.config import LoggingConfig
@@ -137,7 +136,7 @@ class MCPStore:
         async_helper = AsyncSyncHelper()
         try:
             # Synchronously run orchestrator.setup(), ensure completion
-            async_helper.run_async(orchestrator.setup(auto_register_on_startup=auto_register_on_startup))
+            async_helper.run_async(orchestrator.setup())
         except Exception as e:
             logger.error(f"Failed to setup orchestrator: {e}")
             raise
@@ -163,7 +162,7 @@ class MCPStore:
     @staticmethod
     def _setup_with_data_space(mcp_config_file: str, debug: bool = False,
                               tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7,
-                              monitoring: dict = None, auto_register_on_startup: bool = True):
+                              monitoring: dict = None):
         """
         Initialize MCPStore with data space (supports independent data directory)
 
@@ -173,7 +172,7 @@ class MCPStore:
             tool_record_max_file_size: Maximum size of tool record JSON file (MB)
             tool_record_retention_days: Tool record retention days
             monitoring: Monitoring configuration dictionary
-            auto_register_on_startup: Whether to automatically register services in mcp.json on startup
+
 
         Returns:
             MCPStore instance
@@ -236,7 +235,7 @@ class MCPStore:
             async_helper = AsyncSyncHelper()
             try:
                 # Run orchestrator.setup() synchronously, ensure completion
-                async_helper.run_async(orchestrator.setup(auto_register_on_startup=auto_register_on_startup))
+                async_helper.run_async(orchestrator.setup())
             except Exception as e:
                 logger.error(f"Failed to setup orchestrator: {e}")
                 raise
@@ -258,7 +257,7 @@ class MCPStore:
     @staticmethod
     def _setup_with_standalone_config(standalone_config, debug: bool = False,
                                      tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7,
-                                     monitoring: dict = None, auto_register_on_startup: bool = True):
+                                     monitoring: dict = None):
         """
         使用独立配置初始化MCPStore（不依赖环境变量）
 
@@ -336,13 +335,13 @@ class MCPStore:
             # 尝试在当前事件循环中运行
             loop = asyncio.get_running_loop()
             # 如果已有事件循环，创建任务稍后执行
-            asyncio.create_task(orchestrator.setup(auto_register_on_startup=auto_register_on_startup))
+            asyncio.create_task(orchestrator.setup())
         except RuntimeError:
             # 没有运行的事件循环，创建新的
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                loop.run_until_complete(orchestrator.setup(auto_register_on_startup=auto_register_on_startup))
+                loop.run_until_complete(orchestrator.setup())
             finally:
                 loop.close()
 

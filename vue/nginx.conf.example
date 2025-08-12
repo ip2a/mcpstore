@@ -1,5 +1,5 @@
 # MCPStore Vue Frontend - Nginx配置示例
-# 用于部署到 http://mcpstore.wiki/web_demo
+# 用于部署到 https://mcpstore.wiki/web_demo
 
 server {
     listen 80;
