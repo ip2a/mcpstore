@@ -1,0 +1,404 @@
+// MCPStore Vue Frontend - 全局样式
+@use './variables.scss' as *;
+
+// 重置样式
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  height: 100%;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
+  background-color: var(--bg-color-page);
+  transition: var(--transition-base);
+}
+
+#app {
+  height: 100%;
+}
+
+// 滚动条样式
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--border-extra-light);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-base);
+  border-radius: 3px;
+  
+  &:hover {
+    background: var(--text-secondary);
+  }
+}
+
+// 暗色模式滚动条
+.dark {
+  ::-webkit-scrollbar-track {
+    background: var(--border-extra-light);
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-base);
+    
+    &:hover {
+      background: var(--text-secondary);
+    }
+  }
+}
+
+// 通用工具类
+.flex {
+  display: flex;
+}
+
+.flex-center {
+  @include flex-center;
+}
+
+.flex-between {
+  @include flex-between;
+}
+
+.flex-column {
+  display: flex;
+  flex-direction: column;
+}
+
+.flex-wrap {
+  flex-wrap: wrap;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.text-left {
+  text-align: left;
+}
+
+.text-right {
+  text-align: right;
+}
+
+.text-ellipsis {
+  @include text-ellipsis;
+}
+
+.clearfix {
+  @include clearfix;
+}
+
+// 间距工具类
+@each $size in (xs, sm, md, lg, xl, xxl) {
+  .m-#{$size} {
+    margin: var(--spacing-#{$size});
+  }
+  
+  .mt-#{$size} {
+    margin-top: var(--spacing-#{$size});
+  }
+  
+  .mr-#{$size} {
+    margin-right: var(--spacing-#{$size});
+  }
+  
+  .mb-#{$size} {
+    margin-bottom: var(--spacing-#{$size});
+  }
+  
+  .ml-#{$size} {
+    margin-left: var(--spacing-#{$size});
+  }
+  
+  .mx-#{$size} {
+    margin-left: var(--spacing-#{$size});
+    margin-right: var(--spacing-#{$size});
+  }
+  
+  .my-#{$size} {
+    margin-top: var(--spacing-#{$size});
+    margin-bottom: var(--spacing-#{$size});
+  }
+  
+  .p-#{$size} {
+    padding: var(--spacing-#{$size});
+  }
+  
+  .pt-#{$size} {
+    padding-top: var(--spacing-#{$size});
+  }
+  
+  .pr-#{$size} {
+    padding-right: var(--spacing-#{$size});
+  }
+  
+  .pb-#{$size} {
+    padding-bottom: var(--spacing-#{$size});
+  }
+  
+  .pl-#{$size} {
+    padding-left: var(--spacing-#{$size});
+  }
+  
+  .px-#{$size} {
+    padding-left: var(--spacing-#{$size});
+    padding-right: var(--spacing-#{$size});
+  }
+  
+  .py-#{$size} {
+    padding-top: var(--spacing-#{$size});
+    padding-bottom: var(--spacing-#{$size});
+  }
+}
+
+// 文字颜色工具类
+.text-primary {
+  color: var(--text-primary);
+}
+
+.text-regular {
+  color: var(--text-regular);
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.text-placeholder {
+  color: var(--text-placeholder);
+}
+
+.text-success {
+  color: var(--success-color);
+}
+
+.text-warning {
+  color: var(--warning-color);
+}
+
+.text-danger {
+  color: var(--danger-color);
+}
+
+.text-info {
+  color: var(--info-color);
+}
+
+// 背景色工具类
+.bg-primary {
+  background-color: var(--primary-color);
+}
+
+.bg-success {
+  background-color: var(--success-color);
+}
+
+.bg-warning {
+  background-color: var(--warning-color);
+}
+
+.bg-danger {
+  background-color: var(--danger-color);
+}
+
+.bg-info {
+  background-color: var(--info-color);
+}
+
+// 卡片样式
+.card {
+  @include card-shadow;
+  padding: var(--spacing-lg);
+  margin-bottom: var(--spacing-md);
+  
+  &.hover-shadow {
+    @include hover-shadow;
+  }
+  
+  .card-header {
+    @include flex-between;
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-sm);
+    border-bottom: 1px solid var(--border-lighter);
+    
+    .card-title {
+      font-size: var(--font-size-lg);
+      font-weight: var(--font-weight-medium);
+      color: var(--text-primary);
+    }
+  }
+  
+  .card-body {
+    flex: 1;
+  }
+  
+  .card-footer {
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-sm);
+    border-top: 1px solid var(--border-lighter);
+  }
+}
+
+// 状态指示器
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-sm);
+  
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--border-radius-circle);
+    
+    &.success {
+      background-color: var(--success-color);
+    }
+    
+    &.warning {
+      background-color: var(--warning-color);
+    }
+    
+    &.danger {
+      background-color: var(--danger-color);
+    }
+    
+    &.info {
+      background-color: var(--info-color);
+    }
+  }
+}
+
+// 加载状态
+.loading-container {
+  @include flex-center;
+  min-height: 200px;
+  color: var(--text-secondary);
+}
+
+// 空状态
+.empty-container {
+  @include flex-center;
+  flex-direction: column;
+  min-height: 200px;
+  color: var(--text-secondary);
+  
+  .empty-icon {
+    font-size: 48px;
+    margin-bottom: var(--spacing-md);
+    opacity: 0.5;
+  }
+  
+  .empty-text {
+    font-size: var(--font-size-lg);
+    margin-bottom: var(--spacing-sm);
+  }
+  
+  .empty-description {
+    font-size: var(--font-size-sm);
+    color: var(--text-placeholder);
+  }
+}
+
+// 响应式隐藏
+@include respond-to(xs) {
+  .hidden-xs {
+    display: none !important;
+  }
+}
+
+@include respond-to(sm) {
+  .hidden-sm-and-up {
+    display: none !important;
+  }
+}
+
+@include respond-to(md) {
+  .hidden-md-and-up {
+    display: none !important;
+  }
+}
+
+@include respond-to(lg) {
+  .hidden-lg-and-up {
+    display: none !important;
+  }
+}
+
+// Element Plus 样式覆盖
+.el-button {
+  transition: var(--transition-base);
+}
+
+.el-card {
+  border: 1px solid var(--border-lighter);
+  box-shadow: var(--shadow-base);
+  
+  &:hover {
+    box-shadow: var(--shadow-light);
+  }
+}
+
+.el-table {
+  .el-table__header {
+    background-color: var(--bg-color-page);
+  }
+}
+
+.el-menu {
+  border-right: none;
+}
+
+// 自定义动画
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.slide-in-right {
+  animation: slideInRight 0.3s ease-out;
+}
