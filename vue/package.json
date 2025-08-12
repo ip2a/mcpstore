@@ -1,0 +1,66 @@
+{
+  "name": "mcpstore-vue-frontend",
+  "version": "0.6.0",
+  "description": "MCPStore Vue.js Frontend - 数据空间隔离版前端管理界面",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5177 --host localhost --mode development",
+    "dev:local": "vite --port 5177 --host localhost --mode local",
+    "dev:domain": "vite --port 5177 --host 0.0.0.0 --mode domain",
+    "build": "vite build --mode production",
+    "build:prod": "vite build --mode production",
+    "build:domain": "vite build --mode domain",
+    "preview": "vite preview --port 5177 --host 0.0.0.0 --mode production",
+    "serve:prod": "vite preview --port 5177 --host 0.0.0.0 --mode production",
+    "deploy": "chmod +x deploy.sh && ./deploy.sh",
+    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs --fix --ignore-path .gitignore",
+    "format": "prettier --write src/",
+    "analyze": "vite build --mode analyze"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "axios": "^1.6.0",
+    "dayjs": "^1.11.10",
+    "echarts": "^5.6.0",
+    "element-plus": "^2.4.4",
+    "lodash-es": "^4.17.21",
+    "nprogress": "^0.2.0",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.0",
+    "vue-echarts": "^6.6.1",
+    "vue-router": "^4.2.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^4.5.2",
+    "eslint": "^8.56.0",
+    "eslint-plugin-vue": "^9.19.2",
+    "prettier": "^3.1.1",
+    "sass": "^1.69.5",
+    "unplugin-auto-import": "^0.17.2",
+    "unplugin-vue-components": "^0.26.0",
+    "vite": "^5.0.8"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "keywords": [
+    "vue",
+    "mcp",
+    "mcpstore",
+    "frontend",
+    "management",
+    "dashboard"
+  ],
+  "author": "MCPStore Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-repo/mcpstore"
+  },
+  "bugs": {
+    "url": "https://github.com/your-repo/mcpstore/issues"
+  },
+  "homepage": "https://github.com/your-repo/mcpstore#readme"
+}
