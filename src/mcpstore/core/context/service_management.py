@@ -3,9 +3,12 @@ MCPStore Service Management Module
 服务管理相关操作的实现
 """
 
+import asyncio
 import logging
+import time
 from typing import Dict, List, Optional, Any, Union, Tuple
 
+from mcpstore.core.models.service import ServiceConnectionState
 from .types import ContextType
 
 logger = logging.getLogger(__name__)
@@ -1134,5 +1137,127 @@ class ServiceManagementMixin:
                     result[client_id] = client_config
 
             return result
+
+    def wait_service(self, client_id_or_service_name: str,
+                    status: Union[str, List[str]] = 'healthy',
+                    timeout: float = 10.0,
+                    raise_on_timeout: bool = False) -> bool:
+        """
+        等待服务达到指定状态（同步版本）
+
+        Args:
+            client_id_or_service_name: client_id或服务名（智能识别）
+            status: 目标状态，可以是单个状态字符串或状态列表
+            timeout: 超时时间（秒），默认10秒
+            raise_on_timeout: 超时时是否抛出异常，默认False
+
+        Returns:
+            bool: 成功达到目标状态返回True，超时返回False
+
+        Raises:
+            TimeoutError: 当raise_on_timeout=True且超时时抛出
+            ValueError: 当参数无法解析时抛出
+        """
+        return self._sync_helper.run_async(
+            self.wait_service_async(client_id_or_service_name, status, timeout, raise_on_timeout),
+            timeout=timeout + 1.0  # 给异步版本额外1秒缓冲
+        )
+
+    async def wait_service_async(self, client_id_or_service_name: str,
+                               status: Union[str, List[str]] = 'healthy',
+                               timeout: float = 10.0,
+                               raise_on_timeout: bool = False) -> bool:
+        """
+        等待服务达到指定状态（异步版本）
+
+        Args:
+            client_id_or_service_name: client_id或服务名（智能识别）
+            status: 目标状态，可以是单个状态字符串或状态列表
+            timeout: 超时时间（秒），默认10秒
+            raise_on_timeout: 超时时是否抛出异常，默认False
+
+        Returns:
+            bool: 成功达到目标状态返回True，超时返回False
+
+        Raises:
+            TimeoutError: 当raise_on_timeout=True且超时时抛出
+            ValueError: 当参数无法解析时抛出
+        """
+        try:
+            # 解析参数
+            agent_id = self._agent_id if self._context_type == ContextType.AGENT else self._store.client_manager.global_agent_store_id
+            client_id, service_name = self._resolve_client_id(client_id_or_service_name, agent_id)
+
+            # 规范化目标状态
+            target_statuses = self._normalize_target_statuses(status)
+
+            logger.info(f"🕐 [WAIT_SERVICE] Waiting for service '{service_name}' (client_id: {client_id}) to reach status {target_statuses}, timeout: {timeout}s")
+
+            start_time = time.time()
+            poll_interval = 0.2  # 200ms轮询间隔
+
+            while True:
+                # 检查超时
+                elapsed = time.time() - start_time
+                if elapsed >= timeout:
+                    logger.warning(f"⏰ [WAIT_SERVICE] Timeout waiting for service '{service_name}' to reach status {target_statuses}")
+                    if raise_on_timeout:
+                        raise TimeoutError(f"Service '{service_name}' did not reach target status {target_statuses} within {timeout} seconds")
+                    return False
+
+                # 获取当前状态
+                try:
+                    current_status = self._store.orchestrator.get_service_comprehensive_status(service_name, agent_id)
+                    logger.debug(f"🔍 [WAIT_SERVICE] Current status of '{service_name}': {current_status}")
+
+                    # 检查是否达到目标状态
+                    if current_status in target_statuses:
+                        logger.info(f"✅ [WAIT_SERVICE] Service '{service_name}' reached target status '{current_status}' after {elapsed:.2f}s")
+                        return True
+                except Exception as e:
+                    logger.warning(f"⚠️ [WAIT_SERVICE] Error getting status for '{service_name}': {e}")
+                    # 继续轮询，不因为单次查询失败而退出
+
+                # 等待下次轮询
+                await asyncio.sleep(poll_interval)
+
+        except ValueError as e:
+            logger.error(f"❌ [WAIT_SERVICE] Parameter resolution failed: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"❌ [WAIT_SERVICE] Unexpected error: {e}")
+            if raise_on_timeout:
+                raise
+            return False
+
+    def _normalize_target_statuses(self, status: Union[str, List[str]]) -> List[str]:
+        """
+        规范化目标状态参数
+
+        Args:
+            status: 状态参数，可以是字符串或列表
+
+        Returns:
+            List[str]: 规范化的状态列表
+
+        Raises:
+            ValueError: 当状态值无效时抛出
+        """
+        # 获取有效的状态值
+        valid_statuses = {state.value for state in ServiceConnectionState}
+
+        if isinstance(status, str):
+            target_statuses = [status]
+        elif isinstance(status, list):
+            target_statuses = status
+        else:
+            raise ValueError(f"Status must be string or list, got {type(status)}")
+
+        # 验证状态值
+        for s in target_statuses:
+            if s not in valid_statuses:
+                raise ValueError(f"Invalid status '{s}'. Valid statuses are: {sorted(valid_statuses)}")
+
+        return target_statuses
 
 

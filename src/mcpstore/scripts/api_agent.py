@@ -3,6 +3,7 @@ MCPStore API - Agent-level routes
 Contains all Agent-level API endpoints
 """
 
+import logging
 from typing import Dict, Any, Union, List
 
 from fastapi import APIRouter, HTTPException, Depends, Request
@@ -17,6 +18,8 @@ from .api_models import (
 
 # Create Agent-level router
 agent_router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 # === Agent-level operations ===
 @agent_router.post("/for_agent/{agent_id}/add_service", response_model=APIResponse)
@@ -623,3 +626,140 @@ async def agent_use_tool(agent_id: str, request: SimpleToolExecutionRequest):
     推荐使用 /for_agent/{agent_id}/call_tool 接口，与 FastMCP 命名保持一致。
     """
     return await agent_call_tool(agent_id, request)
+
+@agent_router.post("/for_agent/{agent_id}/wait_service", response_model=APIResponse)
+@handle_exceptions
+async def agent_wait_service(agent_id: str, request: Request):
+    """
+    Agent 级别等待服务达到指定状态
+
+    Args:
+        agent_id: Agent ID
+
+    请求体格式：
+    {
+        "client_id_or_service_name": "service_name_or_client_id",
+        "status": "healthy" | ["healthy", "warning"],  // 可选，默认"healthy"
+        "timeout": 10.0,                               // 可选，默认10秒
+        "raise_on_timeout": false                      // 可选，默认false
+    }
+
+    Returns:
+        APIResponse: 等待结果
+    """
+    try:
+        body = await request.json()
+
+        # 提取参数
+        client_id_or_service_name = body.get("client_id_or_service_name")
+        if not client_id_or_service_name:
+            return APIResponse(
+                success=False,
+                message="Missing required parameter: client_id_or_service_name",
+                data={"error": "client_id_or_service_name is required"}
+            )
+
+        status = body.get("status", "healthy")
+        timeout = body.get("timeout", 10.0)
+        raise_on_timeout = body.get("raise_on_timeout", False)
+
+        # 调用 SDK
+        store = get_store()
+        context = store.for_agent(agent_id)
+
+        result = await context.wait_service_async(
+            client_id_or_service_name=client_id_or_service_name,
+            status=status,
+            timeout=timeout,
+            raise_on_timeout=raise_on_timeout
+        )
+
+        return APIResponse(
+            success=result,
+            message=f"Service wait completed: {'success' if result else 'timeout'}",
+            data={
+                "agent_id": agent_id,
+                "client_id_or_service_name": client_id_or_service_name,
+                "target_status": status,
+                "timeout": timeout,
+                "result": result,
+                "context": "agent"
+            }
+        )
+
+    except TimeoutError as e:
+        return APIResponse(
+            success=False,
+            message=f"Service wait timeout: {str(e)}",
+            data={"error": "timeout", "details": str(e)}
+        )
+    except ValueError as e:
+        return APIResponse(
+            success=False,
+            message=f"Invalid parameter: {str(e)}",
+            data={"error": "invalid_parameter", "details": str(e)}
+        )
+    except Exception as e:
+        logger.error(f"Agent wait service error: {e}")
+        return APIResponse(
+            success=False,
+            message=f"Failed to wait for service: {str(e)}",
+            data={"error": str(e)}
+        )
+
+@agent_router.post("/for_agent/{agent_id}/restart_service", response_model=APIResponse)
+@handle_exceptions
+async def agent_restart_service(agent_id: str, request: Request):
+    """
+    Agent 级别重启服务
+
+    请求体格式：
+    {
+        "service_name": "local_service_name"  // 必需，要重启的服务名（Agent本地名称）
+    }
+
+    Returns:
+        APIResponse: 重启结果
+    """
+    try:
+        body = await request.json()
+
+        # 提取参数
+        service_name = body.get("service_name")
+        if not service_name:
+            return APIResponse(
+                success=False,
+                message="Missing required parameter: service_name",
+                data={"error": "service_name is required"}
+            )
+
+        # 调用 SDK
+        store = get_store()
+        context = store.for_agent(agent_id)
+
+        result = await context.restart_service_async(service_name)
+
+        return APIResponse(
+            success=result,
+            message=f"Agent service restart {'completed successfully' if result else 'failed'}",
+            data={
+                "agent_id": agent_id,
+                "service_name": service_name,
+                "result": result,
+                "context": "agent"
+            }
+        )
+
+    except ValueError as e:
+        return APIResponse(
+            success=False,
+            message=f"Invalid parameter: {str(e)}",
+            data={"error": "invalid_parameter", "details": str(e)}
+        )
+    except Exception as e:
+        logger.error(f"Agent restart service error: {e}")
+        return APIResponse(
+            success=False,
+            message=f"Failed to restart agent service: {str(e)}",
+            data={"error": str(e)}
+        )

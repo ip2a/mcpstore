@@ -52,21 +52,21 @@ class MonitoringTasksMixin:
 
         return True
 
-    async def _heartbeat_loop(self):
-        """
-        后台循环，用于定期健康检查
-        ⚠️ 已废弃：此方法已被ServiceLifecycleManager替代
-        """
-        logger.warning("_heartbeat_loop is deprecated and replaced by ServiceLifecycleManager")
-        return
+    # async def _heartbeat_loop(self):
+    #     """
+    #     后台循环，用于定期健康检查
+    #     ⚠️ 已废弃：此方法已被ServiceLifecycleManager替代
+    #     """
+    #     logger.warning("_heartbeat_loop is deprecated and replaced by ServiceLifecycleManager")
+    #     return
 
-    async def _check_services_health(self):
-        """
-        并发检查所有服务的健康状态
-        ⚠️ 已废弃：此方法已被ServiceLifecycleManager替代
-        """
-        logger.warning("_check_services_health is deprecated and replaced by ServiceLifecycleManager")
-        return
+    # async def _check_services_health(self):
+    #     """
+    #     并发检查所有服务的健康状态
+    #     ⚠️ 已废弃：此方法已被ServiceLifecycleManager替代
+    #     """
+    #     logger.warning("_check_services_health is deprecated and replaced by ServiceLifecycleManager")
+    #     return
 
     async def _check_single_service_health(self, name: str, client_id: str) -> bool:
         """检查单个服务的健康状态并更新生命周期状态"""

@@ -996,3 +996,135 @@ async def store_use_tool(request: SimpleToolExecutionRequest):
     推荐使用 /for_store/call_tool 接口，与 FastMCP 命名保持一致。
     """
     return await store_call_tool(request)
+
+@store_router.post("/for_store/restart_service", response_model=APIResponse)
+@handle_exceptions
+async def store_restart_service(request: Request):
+    """
+    Store 级别重启服务
+
+    请求体格式：
+    {
+        "service_name": "service_name"  // 必需，要重启的服务名
+    }
+
+    Returns:
+        APIResponse: 重启结果
+    """
+    try:
+        body = await request.json()
+
+        # 提取参数
+        service_name = body.get("service_name")
+        if not service_name:
+            return APIResponse(
+                success=False,
+                message="Missing required parameter: service_name",
+                data={"error": "service_name is required"}
+            )
+
+        # 调用 SDK
+        store = get_store()
+        context = store.for_store()
+
+        result = await context.restart_service_async(service_name)
+
+        return APIResponse(
+            success=result,
+            message=f"Service restart {'completed successfully' if result else 'failed'}",
+            data={
+                "service_name": service_name,
+                "result": result,
+                "context": "store"
+            }
+        )
+
+    except ValueError as e:
+        return APIResponse(
+            success=False,
+            message=f"Invalid parameter: {str(e)}",
+            data={"error": "invalid_parameter", "details": str(e)}
+        )
+    except Exception as e:
+        logger.error(f"Store restart service error: {e}")
+        return APIResponse(
+            success=False,
+            message=f"Failed to restart service: {str(e)}",
+            data={"error": str(e)}
+        )
+
+@store_router.post("/for_store/wait_service", response_model=APIResponse)
+@handle_exceptions
+async def store_wait_service(request: Request):
+    """
+    Store 级别等待服务达到指定状态
+
+    请求体格式：
+    {
+        "client_id_or_service_name": "service_name_or_client_id",
+        "status": "healthy" | ["healthy", "warning"],  // 可选，默认"healthy"
+        "timeout": 10.0,                               // 可选，默认10秒
+        "raise_on_timeout": false                      // 可选，默认false
+    }
+
+    Returns:
+        APIResponse: 等待结果
+    """
+    try:
+        body = await request.json()
+
+        # 提取参数
+        client_id_or_service_name = body.get("client_id_or_service_name")
+        if not client_id_or_service_name:
+            return APIResponse(
+                success=False,
+                message="Missing required parameter: client_id_or_service_name",
+                data={"error": "client_id_or_service_name is required"}
+            )
+
+        status = body.get("status", "healthy")
+        timeout = body.get("timeout", 10.0)
+        raise_on_timeout = body.get("raise_on_timeout", False)
+
+        # 调用 SDK
+        store = get_store()
+        context = store.for_store()
+
+        result = await context.wait_service_async(
+            client_id_or_service_name=client_id_or_service_name,
+            status=status,
+            timeout=timeout,
+            raise_on_timeout=raise_on_timeout
+        )
+
+        return APIResponse(
+            success=result,
+            message=f"Service wait completed: {'success' if result else 'timeout'}",
+            data={
+                "client_id_or_service_name": client_id_or_service_name,
+                "target_status": status,
+                "timeout": timeout,
+                "result": result,
+                "context": "store"
+            }
+        )
+
+    except TimeoutError as e:
+        return APIResponse(
+            success=False,
+            message=f"Service wait timeout: {str(e)}",
+            data={"error": "timeout", "details": str(e)}
+        )
+    except ValueError as e:
+        return APIResponse(
+            success=False,
+            message=f"Invalid parameter: {str(e)}",
+            data={"error": "invalid_parameter", "details": str(e)}
+        )
+    except Exception as e:
+        logger.error(f"Store wait service error: {e}")
+        return APIResponse(
+            success=False,
+            message=f"Failed to wait for service: {str(e)}",
+            data={"error": str(e)}
+        )

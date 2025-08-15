@@ -648,11 +648,11 @@ class MCPStore:
         为了向后兼容暂时保留，但建议迁移到新方法
         """
         import warnings
-        warnings.warn(
-            "register_json_service() 已废弃，请使用更明确的方法",
-            DeprecationWarning,
-            stacklevel=2
-        )
+        # warnings.warn(
+        #     "register_json_service() 已废弃，请使用更明确的方法",
+        #     DeprecationWarning,
+        #     stacklevel=2
+        # )
 
         # 根据参数组合调用新方法
         if client_id and client_id == self.client_manager.global_agent_store_id and not service_names:

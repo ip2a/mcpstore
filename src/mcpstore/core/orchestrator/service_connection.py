@@ -112,7 +112,26 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
                 error_msg = str(e)
                 logger.error(f"Failed to connect to local service {name}: {error_msg}")
 
-                # 🔧 修复：通知生命周期管理器连接失败
+                # 🔧 修复：清理资源，避免僵尸进程
+                try:
+                    # 停止本地服务进程
+                    await self.local_service_manager.stop_local_service(name)
+                    logger.debug(f"Cleaned up local service process for {name}")
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to cleanup local service {name}: {cleanup_error}")
+
+                # 清理客户端缓存
+                if name in self.clients:
+                    try:
+                        client = self.clients[name]
+                        if hasattr(client, 'close'):
+                            await client.close()
+                        del self.clients[name]
+                        logger.debug(f"Cleaned up client cache for {name}")
+                    except Exception as cleanup_error:
+                        logger.error(f"Failed to cleanup client cache for {name}: {cleanup_error}")
+
+                # 通知生命周期管理器连接失败
                 await self.lifecycle_manager.handle_health_check_result(
                     agent_id=agent_id,
                     service_name=name,
@@ -121,15 +140,32 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
                     error_message=error_msg
                 )
 
-                # 如果连接失败，停止本地服务
-                await self.local_service_manager.stop_local_service(name)
                 return False, f"Failed to connect to local service: {error_msg}"
 
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Error connecting local service {name}: {error_msg}")
 
-            # 🔧 修复：通知生命周期管理器连接失败
+            # 🔧 修复：清理资源，避免僵尸进程
+            try:
+                # 停止本地服务进程
+                await self.local_service_manager.stop_local_service(name)
+                logger.debug(f"Cleaned up local service process for {name} after outer exception")
+            except Exception as cleanup_error:
+                logger.error(f"Failed to cleanup local service {name} after outer exception: {cleanup_error}")
+
+            # 清理客户端缓存
+            if name in self.clients:
+                try:
+                    client = self.clients[name]
+                    if hasattr(client, 'close'):
+                        await client.close()
+                    del self.clients[name]
+                    logger.debug(f"Cleaned up client cache for {name} after outer exception")
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to cleanup client cache for {name} after outer exception: {cleanup_error}")
+
+            # 通知生命周期管理器连接失败
             await self.lifecycle_manager.handle_health_check_result(
                 agent_id=agent_id,
                 service_name=name,
@@ -189,7 +225,27 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
                 error_msg = str(e)
                 logger.error(f"Failed to connect to remote service {name}: {error_msg}")
 
-                # 🔧 修复：通知生命周期管理器连接失败
+                # 🔧 修复：清理资源，避免资源泄漏
+                # 清理客户端缓存
+                if name in self.clients:
+                    try:
+                        cached_client = self.clients[name]
+                        if hasattr(cached_client, 'close'):
+                            await cached_client.close()
+                        del self.clients[name]
+                        logger.debug(f"Cleaned up client cache for remote service {name}")
+                    except Exception as cleanup_error:
+                        logger.error(f"Failed to cleanup client cache for remote service {name}: {cleanup_error}")
+
+                # 确保当前客户端也被正确关闭
+                try:
+                    if hasattr(client, 'close'):
+                        await client.close()
+                    logger.debug(f"Closed current client for remote service {name}")
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to close current client for remote service {name}: {cleanup_error}")
+
+                # 通知生命周期管理器连接失败
                 await self.lifecycle_manager.handle_health_check_result(
                     agent_id=agent_id,
                     service_name=name,
@@ -204,7 +260,19 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
             error_msg = str(e)
             logger.error(f"Error connecting remote service {name}: {error_msg}")
 
-            # 🔧 修复：通知生命周期管理器连接失败
+            # 🔧 修复：清理资源，避免资源泄漏
+            # 清理客户端缓存
+            if name in self.clients:
+                try:
+                    cached_client = self.clients[name]
+                    if hasattr(cached_client, 'close'):
+                        await cached_client.close()
+                    del self.clients[name]
+                    logger.debug(f"Cleaned up client cache for remote service {name} after outer exception")
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to cleanup client cache for remote service {name} after outer exception: {cleanup_error}")
+
+            # 通知生命周期管理器连接失败
             await self.lifecycle_manager.handle_health_check_result(
                 agent_id=agent_id,
                 service_name=name,

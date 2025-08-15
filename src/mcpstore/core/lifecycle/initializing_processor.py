@@ -107,7 +107,14 @@ class InitializingStateProcessor:
                         
                         # 并发执行，不等待结果（让任务在后台运行）
                         if tasks:
-                            asyncio.create_task(asyncio.gather(*tasks, return_exceptions=True))
+                            # 创建一个包装函数来处理 gather 的结果
+                            async def _handle_tasks():
+                                try:
+                                    await asyncio.gather(*tasks, return_exceptions=True)
+                                except Exception as e:
+                                    logger.error(f"❌ [FAST_INIT] 批量任务处理异常: {e}")
+
+                            asyncio.create_task(_handle_tasks())
                 
                 await asyncio.sleep(self.check_interval)
                 

@@ -343,6 +343,62 @@ class ServiceManagementMixin:
         agent_key = agent_id or self.client_manager.global_agent_store_id
         return self.registry.has_service(agent_key, service_name)
 
+    async def restart_service(self, service_name: str, agent_id: str = None) -> bool:
+        """
+        重启服务 - 重置为初始化状态，让生命周期管理器重新处理
+
+        Args:
+            service_name: 服务名称
+            agent_id: Agent ID，如果为None则使用global_agent_store_id
+
+        Returns:
+            bool: 重启是否成功
+        """
+        try:
+            agent_key = agent_id or self.client_manager.global_agent_store_id
+
+            logger.info(f"🔄 [RESTART_SERVICE] Starting restart for service '{service_name}' (agent: {agent_key})")
+
+            # 检查服务是否存在
+            if not self.registry.has_service(agent_key, service_name):
+                logger.warning(f"⚠️ [RESTART_SERVICE] Service '{service_name}' not found in registry")
+                return False
+
+            # 获取服务元数据
+            metadata = self.registry.get_service_metadata(agent_key, service_name)
+            if not metadata:
+                logger.error(f"❌ [RESTART_SERVICE] No metadata found for service '{service_name}'")
+                return False
+
+            # 重置服务状态为 INITIALIZING
+            self.registry.set_service_state(agent_key, service_name, ServiceConnectionState.INITIALIZING)
+            logger.debug(f"🔄 [RESTART_SERVICE] Set state to INITIALIZING for '{service_name}'")
+
+            # 重置元数据
+            from datetime import datetime
+            metadata.consecutive_failures = 0
+            metadata.consecutive_successes = 0
+            metadata.reconnect_attempts = 0
+            metadata.error_message = None
+            metadata.state_entered_time = datetime.now()
+            metadata.next_retry_time = None
+
+            # 更新元数据到注册表
+            self.registry.set_service_metadata(agent_key, service_name, metadata)
+            logger.debug(f"🔄 [RESTART_SERVICE] Reset metadata for '{service_name}'")
+
+            # 如果有生命周期管理器，触发初始化
+            if hasattr(self, 'lifecycle_manager') and self.lifecycle_manager:
+                init_success = self.lifecycle_manager.initialize_service(agent_key, service_name, metadata.service_config)
+                logger.debug(f"🔄 [RESTART_SERVICE] Triggered lifecycle initialization for '{service_name}': {init_success}")
+
+            logger.info(f"✅ [RESTART_SERVICE] Successfully restarted service '{service_name}'")
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ [RESTART_SERVICE] Failed to restart service '{service_name}': {e}")
+            return False
+
     def _generate_display_name(self, original_tool_name: str, service_name: str) -> str:
         """
         生成用户友好的工具显示名称
