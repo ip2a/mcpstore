@@ -511,17 +511,20 @@ class ServiceLifecycleManager:
         logger.debug(f"🔍 [PROCESS_SERVICE] Completed processing {service_name}")
 
     async def _attempt_initial_connection(self, agent_id: str, service_name: str):
-        """尝试初始连接"""
+        """尝试初始连接（支持 Agent 透明代理）"""
         metadata = self.get_service_metadata(agent_id, service_name)
         if not metadata:
             return
 
         try:
+            # 🔧 Agent 透明代理支持：检查共享 Client ID 的连接状态
+            actual_agent_id, actual_service_name = self._resolve_actual_service_location(agent_id, service_name)
+
             # 检查服务是否已经连接成功（通过检查工具数量）
-            session = self.registry.sessions.get(agent_id, {}).get(service_name)
+            session = self.registry.sessions.get(actual_agent_id, {}).get(actual_service_name)
             if session:
                 # 检查是否有工具
-                service_tools = [name for name, sess in self.registry.tool_to_session_map.get(agent_id, {}).items()
+                service_tools = [name for name, sess in self.registry.tool_to_session_map.get(actual_agent_id, {}).items()
                                if sess == session]
 
                 if service_tools:
@@ -532,7 +535,18 @@ class ServiceLifecycleManager:
                         success=True,
                         response_time=0.0
                     )
-                    logger.info(f"Service {service_name} initial connection successful with {len(service_tools)} tools")
+                    logger.info(f"Service {service_name} (agent {agent_id}) initial connection successful with {len(service_tools)} tools")
+
+                    # 🔧 如果是 Agent 服务，同步状态到全局服务
+                    if actual_agent_id != agent_id or actual_service_name != service_name:
+                        await self.handle_health_check_result(
+                            agent_id=actual_agent_id,
+                            service_name=actual_service_name,
+                            success=True,
+                            response_time=0.0
+                        )
+                        logger.debug(f"🔧 [SHARED_STATE] 同步状态: {agent_id}:{service_name} → {actual_agent_id}:{actual_service_name}")
+
                     return
                 else:
                     # 有会话但没有工具，可能是连接失败了
@@ -540,7 +554,7 @@ class ServiceLifecycleManager:
                     await asyncio.sleep(3)
 
                     # 再次检查工具
-                    service_tools = [name for name, sess in self.registry.tool_to_session_map.get(agent_id, {}).items()
+                    service_tools = [name for name, sess in self.registry.tool_to_session_map.get(actual_agent_id, {}).items()
                                    if sess == session]
 
                     if service_tools:
@@ -551,7 +565,18 @@ class ServiceLifecycleManager:
                             success=True,
                             response_time=0.0
                         )
-                        logger.info(f"Service {service_name} initial connection successful with {len(service_tools)} tools")
+                        logger.info(f"Service {service_name} (agent {agent_id}) initial connection successful with {len(service_tools)} tools")
+
+                        # 🔧 如果是 Agent 服务，同步状态到全局服务
+                        if actual_agent_id != agent_id or actual_service_name != service_name:
+                            await self.handle_health_check_result(
+                                agent_id=actual_agent_id,
+                                service_name=actual_service_name,
+                                success=True,
+                                response_time=0.0
+                            )
+                            logger.debug(f"🔧 [SHARED_STATE] 同步状态: {agent_id}:{service_name} → {actual_agent_id}:{actual_service_name}")
+
                         return
                     else:
                         # 仍然没有工具，认为连接失败
@@ -782,3 +807,39 @@ class ServiceLifecycleManager:
         # 🔧 注意：Registry状态由Registry自己管理，不在这里清理
 
         logger.info("ServiceLifecycleManager cleanup completed")
+
+    def _resolve_actual_service_location(self, agent_id: str, service_name: str) -> tuple[str, str]:
+        """
+        解析实际的服务位置（支持 Agent 透明代理）
+
+        对于 Agent 服务，返回实际存储连接和工具的位置
+        对于 Store 服务，返回原始位置
+
+        Args:
+            agent_id: 请求的 Agent ID
+            service_name: 请求的服务名
+
+        Returns:
+            tuple[str, str]: (实际的 agent_id, 实际的 service_name)
+        """
+        try:
+            # 检查是否为 Agent 透明代理服务
+            if hasattr(self.registry, 'client_manager') and hasattr(self.registry.client_manager, 'global_agent_store_id'):
+                global_agent_store_id = self.registry.client_manager.global_agent_store_id
+
+                # 如果不是全局 Store，检查是否有映射关系
+                if agent_id != global_agent_store_id:
+                    # 尝试获取全局服务名
+                    global_service_name = self.registry.get_global_name_from_agent_service(agent_id, service_name)
+                    if global_service_name:
+                        # 找到映射关系，返回全局位置
+                        logger.debug(f"🔧 [SERVICE_LOCATION] 映射: {agent_id}:{service_name} → {global_agent_store_id}:{global_service_name}")
+                        return global_agent_store_id, global_service_name
+
+            # 没有映射关系，返回原始位置
+            return agent_id, service_name
+
+        except Exception as e:
+            logger.error(f"❌ [SERVICE_LOCATION] 解析失败 {agent_id}:{service_name}: {e}")
+            # 出错时返回原始位置
+            return agent_id, service_name

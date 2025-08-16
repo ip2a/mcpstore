@@ -1128,3 +1128,198 @@ async def store_wait_service(request: Request):
             message=f"Failed to wait for service: {str(e)}",
             data={"error": str(e)}
         )
+
+# === 🔧 新增：Agent 相关端点 ===
+
+@store_router.get("/for_store/list_services_by_agent", response_model=APIResponse)
+@handle_exceptions
+async def store_list_services_by_agent(agent_id: Optional[str] = None):
+    """按 Agent 筛选服务列表"""
+    try:
+        store = get_store()
+        context = store.for_store()
+
+        # 获取所有服务
+        all_services = context.list_services()
+
+        if agent_id is None:
+            # 返回所有服务
+            services_data = []
+            for service in all_services:
+                service_data = {
+                    "name": service.name,
+                    "transport": service.transport_type.value if service.transport_type else "unknown",
+                    "status": service.status.value if service.status else "unknown",
+                    "client_id": service.client_id,
+                    "tool_count": service.tool_count,
+                    "is_agent_service": "_byagent_" in service.name,
+                    "agent_id": None,
+                    "local_name": None
+                }
+
+                # 如果是 Agent 服务，解析 Agent 信息
+                if service_data["is_agent_service"]:
+                    try:
+                        from mcpstore.core.parsers.agent_service_parser import AgentServiceParser
+                        parser = AgentServiceParser()
+                        info = parser.parse_agent_service_name(service.name)
+                        if info.is_valid:
+                            service_data["agent_id"] = info.agent_id
+                            service_data["local_name"] = info.local_name
+                    except Exception as e:
+                        logger.warning(f"Failed to parse agent service {service.name}: {e}")
+
+                services_data.append(service_data)
+
+            return APIResponse(
+                success=True,
+                message="All services retrieved successfully",
+                data={
+                    "services": services_data,
+                    "total_count": len(services_data),
+                    "agent_filter": None
+                }
+            )
+
+        else:
+            # 筛选指定 Agent 的服务
+            agent_services = []
+            store_services = []
+
+            for service in all_services:
+                if "_byagent_" in service.name:
+                    # Agent 服务
+                    try:
+                        from mcpstore.core.parsers.agent_service_parser import AgentServiceParser
+                        parser = AgentServiceParser()
+                        info = parser.parse_agent_service_name(service.name)
+                        if info.is_valid and info.agent_id == agent_id:
+                            service_data = {
+                                "name": service.name,
+                                "transport": service.transport_type.value if service.transport_type else "unknown",
+                                "status": service.status.value if service.status else "unknown",
+                                "client_id": service.client_id,
+                                "tool_count": service.tool_count,
+                                "is_agent_service": True,
+                                "agent_id": info.agent_id,
+                                "local_name": info.local_name
+                            }
+                            agent_services.append(service_data)
+                    except Exception as e:
+                        logger.warning(f"Failed to parse agent service {service.name}: {e}")
+                else:
+                    # Store 原生服务
+                    if agent_id == "global_agent_store":
+                        service_data = {
+                            "name": service.name,
+                            "transport": service.transport_type.value if service.transport_type else "unknown",
+                            "status": service.status.value if service.status else "unknown",
+                            "client_id": service.client_id,
+                            "tool_count": service.tool_count,
+                            "is_agent_service": False,
+                            "agent_id": "global_agent_store",
+                            "local_name": service.name
+                        }
+                        store_services.append(service_data)
+
+            # 合并结果
+            filtered_services = agent_services + store_services
+
+            return APIResponse(
+                success=True,
+                message=f"Services for agent '{agent_id}' retrieved successfully",
+                data={
+                    "services": filtered_services,
+                    "total_count": len(filtered_services),
+                    "agent_filter": agent_id,
+                    "agent_services_count": len(agent_services),
+                    "store_services_count": len(store_services)
+                }
+            )
+
+    except Exception as e:
+        logger.error(f"Store list services by agent error: {e}")
+        return APIResponse(
+            success=False,
+            message=f"Failed to list services by agent: {str(e)}",
+            data={"error": str(e)}
+        )
+
+@store_router.get("/for_store/list_all_agents", response_model=APIResponse)
+@handle_exceptions
+async def store_list_all_agents():
+    """列出所有 Agent"""
+    try:
+        store = get_store()
+        context = store.for_store()
+
+        # 获取所有服务
+        all_services = context.list_services()
+
+        # 解析 Agent 信息
+        agents_info = {}
+        store_services_count = 0
+
+        from mcpstore.core.parsers.agent_service_parser import AgentServiceParser
+        parser = AgentServiceParser()
+
+        for service in all_services:
+            if "_byagent_" in service.name:
+                # Agent 服务
+                try:
+                    info = parser.parse_agent_service_name(service.name)
+                    if info.is_valid:
+                        if info.agent_id not in agents_info:
+                            agents_info[info.agent_id] = {
+                                "agent_id": info.agent_id,
+                                "services": [],
+                                "service_count": 0,
+                                "status_summary": {"healthy": 0, "warning": 0, "error": 0, "unknown": 0}
+                            }
+
+                        # 添加服务信息
+                        service_data = {
+                            "global_name": service.name,
+                            "local_name": info.local_name,
+                            "status": service.status.value if service.status else "unknown",
+                            "client_id": service.client_id,
+                            "tool_count": service.tool_count
+                        }
+
+                        agents_info[info.agent_id]["services"].append(service_data)
+                        agents_info[info.agent_id]["service_count"] += 1
+
+                        # 统计状态
+                        status = service.status.value if service.status else "unknown"
+                        if status in agents_info[info.agent_id]["status_summary"]:
+                            agents_info[info.agent_id]["status_summary"][status] += 1
+                        else:
+                            agents_info[info.agent_id]["status_summary"]["unknown"] += 1
+
+                except Exception as e:
+                    logger.warning(f"Failed to parse agent service {service.name}: {e}")
+            else:
+                # Store 原生服务
+                store_services_count += 1
+
+        # 转换为列表格式
+        agents_list = list(agents_info.values())
+
+        return APIResponse(
+            success=True,
+            message="All agents retrieved successfully",
+            data={
+                "agents": agents_list,
+                "total_agents": len(agents_list),
+                "store_services_count": store_services_count,
+                "total_services": len(all_services)
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Store list all agents error: {e}")
+        return APIResponse(
+            success=False,
+            message=f"Failed to list all agents: {str(e)}",
+            data={"error": str(e)}
+        )

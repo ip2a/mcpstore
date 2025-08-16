@@ -101,13 +101,11 @@ export const storeServiceAPI = {
   
   // 重启服务
   restartService: (serviceName) => apiRequest.post('/for_store/restart_service', {
-    name: serviceName
+    service_name: serviceName
   }),
   
   // 删除服务
-  deleteService: (serviceName) => apiRequest.post('/for_store/delete_service', {
-    name: serviceName
-  }),
+  deleteService: (serviceName) => apiRequest.delete(`/for_store/delete_service/${serviceName}`),
   
   // 批量添加服务
   batchAddServices: (services) => apiRequest.post('/for_store/batch_add_services', {
@@ -220,13 +218,11 @@ export const agentServiceAPI = {
   
   // 重启Agent服务
   restartService: (agentId, serviceName) => apiRequest.post(`/for_agent/${agentId}/restart_service`, {
-    name: serviceName
+    service_name: serviceName
   }),
   
   // 删除Agent服务
-  deleteService: (agentId, serviceName) => apiRequest.post(`/for_agent/${agentId}/delete_service`, {
-    name: serviceName
-  }),
+  deleteService: (agentId, serviceName) => apiRequest.delete(`/for_agent/${agentId}/delete_service/${serviceName}`),
 
   // 更新Agent服务配置（完全替换）
   updateService: (agentId, serviceName, config) => apiRequest.post(`/for_agent/${agentId}/update_service`, {
