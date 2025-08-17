@@ -59,23 +59,7 @@ class ServiceRegistry:
         from datetime import datetime
         self.cache_sync_status: Dict[str, datetime] = {}
 
-        # 🔧 新增：Agent 服务映射关系
-        # agent_id -> {local_name: global_name}
-        self.agent_to_global_mappings: Dict[str, Dict[str, str]] = {}
-        # global_name -> (agent_id, local_name)
-        self.global_to_agent_mappings: Dict[str, Tuple[str, str]] = {}
-
-        # 🔧 新增：状态同步管理器（延迟初始化）
-        self._state_sync_manager = None
-
         logger.info("ServiceRegistry initialized (multi-context isolation with lifecycle support).")
-
-    def _ensure_state_sync_manager(self):
-        """确保状态同步管理器已初始化"""
-        if self._state_sync_manager is None:
-            from mcpstore.core.sync.shared_client_state_sync import SharedClientStateSyncManager
-            self._state_sync_manager = SharedClientStateSyncManager(self)
-            logger.debug("🔧 [REGISTRY] State sync manager initialized")
 
     def clear(self, agent_id: str):
         """
@@ -456,44 +440,6 @@ class ServiceRegistry:
 
         return "未知"
 
-    def get_tool_info(self, agent_id: str, tool_name: str) -> Dict[str, Any]:
-        """
-        获取指定 agent_id 下某工具的详细信息，返回格式化的工具信息。
-        """
-        tool_def = self.tool_cache.get(agent_id, {}).get(tool_name)
-        if not tool_def:
-            return None
-
-        session = self.tool_to_session_map.get(agent_id, {}).get(tool_name)
-        service_name = None
-        if session:
-            for name, sess in self.sessions.get(agent_id, {}).items():
-                if sess is session:
-                    service_name = name
-                    break
-
-        # 获取 Client ID
-        client_id = self.get_service_client_id(agent_id, service_name) if service_name else None
-
-        # 处理不同的工具定义格式
-        if "function" in tool_def:
-            function_data = tool_def["function"]
-            return {
-                'name': tool_name,
-                'description': function_data.get('description', ''),
-                'inputSchema': function_data.get('parameters', {}),
-                'service_name': service_name,
-                'client_id': client_id
-            }
-        else:
-            return {
-                'name': tool_name,
-                'description': tool_def.get('description', ''),
-                'inputSchema': tool_def.get('parameters', {}),
-                'service_name': service_name,
-                'client_id': client_id
-            }
-
     def _get_detailed_tool_info(self, agent_id: str, tool_name: str) -> Dict[str, Any]:
         """
         获取指定 agent_id 下某工具的详细信息。
@@ -712,12 +658,7 @@ class ServiceRegistry:
     # === 生命周期状态管理方法 ===
 
     def set_service_state(self, agent_id: str, service_name: str, state: Optional[ServiceConnectionState]):
-        """🔧 [ENHANCED] 设置服务生命周期状态，自动同步共享 Client ID 的服务"""
-
-        # 记录旧状态
-        old_state = self.service_states.get(agent_id, {}).get(service_name)
-
-        # 设置新状态（现有逻辑）
+        """🔧 [REFACTOR] 设置服务生命周期状态，支持删除操作"""
         if agent_id not in self.service_states:
             self.service_states[agent_id] = {}
 
@@ -730,11 +671,6 @@ class ServiceRegistry:
             # 设置状态
             self.service_states[agent_id][service_name] = state
             logger.debug(f"Service {service_name} (agent {agent_id}) state set to {state.value}")
-
-        # 🔧 新增：自动同步共享服务状态
-        if state is not None and old_state != state:
-            self._ensure_state_sync_manager()
-            self._state_sync_manager.sync_state_for_shared_client(agent_id, service_name, state)
 
     def get_service_state(self, agent_id: str, service_name: str) -> ServiceConnectionState:
         """获取服务生命周期状态"""
@@ -865,51 +801,6 @@ class ServiceRegistry:
         """移除 Service-Client 映射"""
         if agent_id in self.service_to_client:
             self.service_to_client[agent_id].pop(service_name, None)
-
-    # === 🔧 新增：Agent 服务映射管理 ===
-
-    def add_agent_service_mapping(self, agent_id: str, local_name: str, global_name: str):
-        """
-        建立 Agent 服务映射关系
-
-        Args:
-            agent_id: Agent ID
-            local_name: Agent 中的本地服务名
-            global_name: Store 中的全局服务名（带后缀）
-        """
-        # 建立 agent -> global 映射
-        if agent_id not in self.agent_to_global_mappings:
-            self.agent_to_global_mappings[agent_id] = {}
-        self.agent_to_global_mappings[agent_id][local_name] = global_name
-
-        # 建立 global -> agent 映射
-        self.global_to_agent_mappings[global_name] = (agent_id, local_name)
-
-        logger.debug(f"🔧 [AGENT_MAPPING] Added mapping: {agent_id}:{local_name} ↔ {global_name}")
-
-    def get_global_name_from_agent_service(self, agent_id: str, local_name: str) -> Optional[str]:
-        """获取 Agent 服务对应的全局名称"""
-        return self.agent_to_global_mappings.get(agent_id, {}).get(local_name)
-
-    def get_agent_service_from_global_name(self, global_name: str) -> Optional[Tuple[str, str]]:
-        """获取全局服务名对应的 Agent 服务信息"""
-        return self.global_to_agent_mappings.get(global_name)
-
-    def get_agent_services(self, agent_id: str) -> List[str]:
-        """获取 Agent 的所有服务（全局名称）"""
-        return list(self.agent_to_global_mappings.get(agent_id, {}).values())
-
-    def is_agent_service(self, global_name: str) -> bool:
-        """判断是否为 Agent 服务"""
-        return global_name in self.global_to_agent_mappings
-
-    def remove_agent_service_mapping(self, agent_id: str, local_name: str):
-        """移除 Agent 服务映射"""
-        if agent_id in self.agent_to_global_mappings:
-            global_name = self.agent_to_global_mappings[agent_id].pop(local_name, None)
-            if global_name:
-                self.global_to_agent_mappings.pop(global_name, None)
-                logger.debug(f"🔧 [AGENT_MAPPING] Removed mapping: {agent_id}:{local_name} ↔ {global_name}")
 
     # === 🔧 新增：完整的服务信息获取 ===
 

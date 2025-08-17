@@ -67,7 +67,10 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
             if not success:
                 return False, f"Failed to start local service: {message}"
 
-            #创建客户端连接
+            # 2. 等待服务启动
+            await asyncio.sleep(2)
+
+            # 3. 创建客户端连接
             # 本地服务通常使用 stdio 传输
             local_config = service_config.copy()
 
@@ -347,14 +350,6 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
             # 标记长连接服务
             if self._is_long_lived_service(service_config):
                 self.registry.mark_as_long_lived(agent_id, service_name)
-
-            # 🔧 重要：注册客户端到 Agent 客户端缓存
-            client_id = self.registry.get_service_client_id(agent_id, service_name)
-            if client_id:
-                self.registry.add_agent_client_mapping(agent_id, client_id)
-                logger.debug(f"🔧 [CLIENT_REGISTER] 注册客户端 {client_id} 到 Agent {agent_id}")
-            else:
-                logger.warning(f"🔧 [CLIENT_REGISTER] 无法获取服务 {service_name} 的 Client ID")
 
             # 通知生命周期管理器连接成功
             await self.lifecycle_manager.handle_health_check_result(

@@ -176,7 +176,15 @@ class PrefetchManager:
         self._prefetch_queue: asyncio.Queue = asyncio.Queue()
         self._running = False
 
+    def record_tool_usage(self, tool_name: str, next_tool: Optional[str] = None):
+        """记录工具使用模式（已废弃）"""
+        # 工具使用模式记录功能已移除
+        pass
 
+    def get_prefetch_suggestions(self, tool_name: str) -> List[str]:
+        """获取预取建议（已废弃）"""
+        # 预取建议功能已移除
+        return []
     
     async def start_prefetch_worker(self):
         """启动预取工作器"""

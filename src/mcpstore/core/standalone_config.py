@@ -186,6 +186,11 @@ class StandaloneConfigBuilder:
         self._config.known_services[name] = config
         return self
     
+    def with_environment(self, isolated: bool = None, base_env: Dict[str, str] = None) -> 'StandaloneConfigBuilder':
+        """设置环境配置（已废弃 - 环境配置现在由FastMCP处理）"""
+        # 环境配置已移除，此方法保留用于兼容性但不执行任何操作
+        logger.warning("with_environment is deprecated - environment configuration now handled by FastMCP")
+        return self
     
     def with_logging(self, level: str = None, debug: bool = None) -> 'StandaloneConfigBuilder':
         """设置日志配置"""

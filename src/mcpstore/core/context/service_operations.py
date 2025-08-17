@@ -116,13 +116,20 @@ class ServiceOperationsMixin:
         """
         List services (asynchronous version)
         - store context: aggregate services from all client_ids under global_agent_store
-        - agent context: show only agent's services with local names (transparent proxy)
+        - agent context: aggregate services from all client_ids under agent_id (show original names)
         """
         if self._context_type == ContextType.STORE:
             return await self._store.list_services()
         else:
-            # Agent mode: 透明代理 - 只显示属于该 Agent 的服务，使用本地名称
-            return await self._get_agent_service_view()
+            # Agent mode: get global service list, then convert to local names
+            global_services = await self._store.list_services(self._agent_id, agent_mode=True)
+
+            # Use mapper to convert to local names
+            if self._service_mapper:
+                local_services = self._service_mapper.convert_service_list_to_local(global_services)
+                return local_services
+            else:
+                return global_services
 
     def add_service(self, config: Union[ServiceConfigUnion, List[str], None] = None, json_file: str = None, source: str = "manual", wait: Union[str, int, float] = "auto") -> 'MCPStoreContext':
         """
@@ -506,10 +513,14 @@ class ServiceOperationsMixin:
             cache_results = []
             logger.info(f"🔄 [ADD_SERVICE] 待添加服务数量: {len(services_to_add)}")
 
-            # 🔧 Agent模式下透明代理：添加到两个缓存空间并建立映射
+            # 🔧 Agent模式下为服务名添加后缀
             if self._context_type == ContextType.AGENT:
-                await self._add_agent_services_with_mapping(services_to_add, agent_id)
-                return self  # Agent 模式直接返回，不需要后续的 Store 逻辑
+                suffixed_services = {}
+                for original_name, service_config in services_to_add.items():
+                    suffixed_name = f"{original_name}by{self._agent_id}"
+                    suffixed_services[suffixed_name] = service_config
+                    logger.info(f"Agent服务名转换: {original_name} -> {suffixed_name}")
+                services_to_add = suffixed_services
 
             for service_name, service_config in services_to_add.items():
                 # 1.1 立即添加到缓存（初始化状态）
@@ -1060,215 +1071,3 @@ class ServiceOperationsMixin:
         except Exception as e:
             logger.error(f"❌ [CONFIG] 获取服务配置失败 {service_name}: {e}")
             return None
-
-    # === 🔧 新增：Agent 透明代理方法 ===
-
-    async def _add_agent_services_with_mapping(self, services_to_add: Dict[str, Any], agent_id: str):
-        """
-        Agent 服务添加的透明代理实现
-
-        实现逻辑：
-        1. 为每个服务生成全局名称（带后缀）
-        2. 添加到 global_agent_store 缓存（全局名称）
-        3. 添加到 Agent 缓存（本地名称）
-        4. 建立双向映射关系
-        5. 生成共享 Client ID
-        6. 同步到持久化文件
-        """
-        try:
-            logger.info(f"🔄 [AGENT_PROXY] 开始 Agent 透明代理添加服务，Agent: {agent_id}")
-
-            from mcpstore.core.agent_service_mapper import AgentServiceMapper
-            from mcpstore.core.models.service import ServiceConnectionState
-
-            mapper = AgentServiceMapper(agent_id)
-
-            for local_name, service_config in services_to_add.items():
-                logger.info(f"🔄 [AGENT_PROXY] 处理服务: {local_name}")
-
-                # 1. 生成全局名称
-                global_name = mapper.to_global_name(local_name)
-                logger.debug(f"🔧 [AGENT_PROXY] 服务名映射: {local_name} → {global_name}")
-
-                # 2. 检查是否已存在同名服务
-                existing_client_id = self._store.registry.get_service_client_id(agent_id, local_name)
-                existing_global_client_id = self._store.registry.get_service_client_id(
-                    self._store.client_manager.global_agent_store_id, global_name
-                )
-
-                if existing_client_id and existing_global_client_id:
-                    # 同名服务已存在，更新配置而不是重新创建
-                    logger.info(f"🔄 [AGENT_PROXY] 发现同名服务，更新配置: {local_name}")
-                    client_id = existing_client_id
-
-                    # 使用 preserve_mappings=True 来保留现有映射关系
-                    self._store.registry.add_service(
-                        agent_id=self._store.client_manager.global_agent_store_id,
-                        name=global_name,
-                        session=None,
-                        tools=[],
-                        service_config=service_config,
-                        state=ServiceConnectionState.INITIALIZING,
-                        preserve_mappings=True
-                    )
-
-                    self._store.registry.add_service(
-                        agent_id=agent_id,
-                        name=local_name,
-                        session=None,
-                        tools=[],
-                        service_config=service_config,
-                        state=ServiceConnectionState.INITIALIZING,
-                        preserve_mappings=True
-                    )
-
-                    logger.info(f"✅ [AGENT_PROXY] 同名服务配置更新完成: {local_name} (Client ID: {client_id})")
-                else:
-                    # 新服务，正常创建
-                    logger.info(f"🔄 [AGENT_PROXY] 创建新服务: {local_name}")
-
-                    # 2. 生成共享 Client ID
-                    client_id = self._store.client_manager.generate_client_id()
-                    logger.debug(f"🔧 [AGENT_PROXY] 生成共享 Client ID: {client_id}")
-
-                    # 3. 添加到 global_agent_store 缓存（全局名称）
-                    self._store.registry.add_service(
-                        agent_id=self._store.client_manager.global_agent_store_id,
-                        name=global_name,
-                        session=None,
-                        tools=[],
-                        service_config=service_config,
-                        state=ServiceConnectionState.INITIALIZING
-                    )
-                    logger.debug(f"✅ [AGENT_PROXY] 添加到 global_agent_store: {global_name}")
-
-                    # 4. 添加到 Agent 缓存（本地名称）
-                    self._store.registry.add_service(
-                        agent_id=agent_id,
-                        name=local_name,
-                        session=None,
-                        tools=[],
-                        service_config=service_config,
-                        state=ServiceConnectionState.INITIALIZING
-                    )
-                    logger.debug(f"✅ [AGENT_PROXY] 添加到 Agent 缓存: {agent_id}:{local_name}")
-
-                    # 5. 建立双向映射关系（新服务）
-                    self._store.registry.add_agent_service_mapping(agent_id, local_name, global_name)
-                    logger.debug(f"✅ [AGENT_PROXY] 建立映射关系: {agent_id}:{local_name} ↔ {global_name}")
-
-                # 6. 设置共享 Client ID 映射（新服务和同名服务都需要）
-                self._store.registry.add_service_client_mapping(
-                    self._store.client_manager.global_agent_store_id, global_name, client_id
-                )
-                self._store.registry.add_service_client_mapping(agent_id, local_name, client_id)
-                logger.debug(f"✅ [AGENT_PROXY] 设置共享 Client ID 映射: {client_id}")
-
-                # 7. 添加到生命周期管理器（新服务和同名服务都需要）
-                if (hasattr(self._store, 'orchestrator') and self._store.orchestrator and
-                    hasattr(self._store.orchestrator, 'lifecycle_manager') and
-                    self._store.orchestrator.lifecycle_manager):
-                    # 为两个缓存空间都初始化生命周期
-                    self._store.orchestrator.lifecycle_manager.initialize_service(
-                        self._store.client_manager.global_agent_store_id, global_name, service_config
-                    )
-                    self._store.orchestrator.lifecycle_manager.initialize_service(
-                        agent_id, local_name, service_config
-                    )
-                    logger.debug(f"✅ [AGENT_PROXY] 初始化生命周期管理: {global_name}, {local_name}")
-
-                logger.info(f"✅ [AGENT_PROXY] Agent 服务添加完成: {local_name} → {global_name}")
-
-            # 8. 同步到持久化文件
-            await self._sync_agent_services_to_files(agent_id, services_to_add)
-
-            logger.info(f"✅ [AGENT_PROXY] Agent 透明代理添加完成，共处理 {len(services_to_add)} 个服务")
-
-        except Exception as e:
-            logger.error(f"❌ [AGENT_PROXY] Agent 透明代理添加失败: {e}")
-            raise
-
-    async def _sync_agent_services_to_files(self, agent_id: str, services_to_add: Dict[str, Any]):
-        """同步 Agent 服务到持久化文件"""
-        try:
-            logger.info(f"🔄 [AGENT_SYNC] 开始同步 Agent 服务到文件: {agent_id}")
-
-            # 更新 mcp.json（添加带后缀的服务）
-            current_mcp_config = self._store.config.load_config()
-            if "mcpServers" not in current_mcp_config:
-                current_mcp_config["mcpServers"] = {}
-
-            from mcpstore.core.agent_service_mapper import AgentServiceMapper
-            mapper = AgentServiceMapper(agent_id)
-
-            for local_name, service_config in services_to_add.items():
-                global_name = mapper.to_global_name(local_name)
-                current_mcp_config["mcpServers"][global_name] = service_config
-                logger.debug(f"🔧 [AGENT_SYNC] 添加到 mcp.json: {global_name}")
-
-            # 保存 mcp.json
-            success = self._store.config.save_config(current_mcp_config)
-            if success:
-                logger.info(f"✅ [AGENT_SYNC] mcp.json 更新成功")
-            else:
-                logger.error(f"❌ [AGENT_SYNC] mcp.json 更新失败")
-
-            # 同步缓存到两个 JSON 文件
-            if hasattr(self._store, 'cache_manager'):
-                self._store.cache_manager.sync_to_client_manager(self._store.client_manager)
-                logger.info(f"✅ [AGENT_SYNC] 缓存同步到文件完成")
-
-        except Exception as e:
-            logger.error(f"❌ [AGENT_SYNC] 同步 Agent 服务到文件失败: {e}")
-            raise
-
-    async def _get_agent_service_view(self) -> List[ServiceInfo]:
-        """
-        获取 Agent 的服务视图（本地名称）
-
-        从 Agent 缓存中获取服务，转换为 ServiceInfo 对象，使用本地名称
-        """
-        try:
-            from mcpstore.core.models.service import ServiceInfo, TransportType
-
-            agent_services = []
-
-            # 获取 Agent 缓存中的所有服务
-            if self._agent_id in self._store.registry.sessions:
-                agent_session_dict = self._store.registry.sessions[self._agent_id]
-
-                for local_name in agent_session_dict.keys():
-                    # 获取服务状态
-                    state = self._store.registry.get_service_state(self._agent_id, local_name)
-
-                    # 获取 Client ID
-                    client_id = self._store.registry.get_service_client_id(self._agent_id, local_name)
-
-                    # 获取服务配置
-                    service_config = {}
-                    if client_id and client_id in self._store.registry.client_configs:
-                        client_config = self._store.registry.client_configs[client_id]
-                        # 从 client 配置中提取对应的服务配置
-                        global_name = self._store.registry.get_global_name_from_agent_service(self._agent_id, local_name)
-                        if global_name and "mcpServers" in client_config:
-                            service_config = client_config["mcpServers"].get(global_name, {})
-
-                    # 构造 ServiceInfo 对象
-                    service_info = ServiceInfo(
-                        name=local_name,  # 使用本地名称
-                        status=state.value if state else "unknown",
-                        transport_type=TransportType.STDIO,  # 默认传输类型
-                        client_id=client_id or "",
-                        config=service_config,
-                        tool_count=0,  # 暂时设为 0，后续可以实现工具计数
-                        keep_alive=False  # 默认值
-                    )
-                    agent_services.append(service_info)
-                    logger.debug(f"🔧 [AGENT_VIEW] 添加服务到视图: {local_name}")
-
-            logger.info(f"✅ [AGENT_VIEW] Agent {self._agent_id} 服务视图: {len(agent_services)} 个服务")
-            return agent_services
-
-        except Exception as e:
-            logger.error(f"❌ [AGENT_VIEW] 获取 Agent 服务视图失败: {e}")
-            return []

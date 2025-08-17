@@ -52,6 +52,22 @@ class MonitoringTasksMixin:
 
         return True
 
+    # async def _heartbeat_loop(self):
+    #     """
+    #     后台循环，用于定期健康检查
+    #     ⚠️ 已废弃：此方法已被ServiceLifecycleManager替代
+    #     """
+    #     logger.warning("_heartbeat_loop is deprecated and replaced by ServiceLifecycleManager")
+    #     return
+
+    # async def _check_services_health(self):
+    #     """
+    #     并发检查所有服务的健康状态
+    #     ⚠️ 已废弃：此方法已被ServiceLifecycleManager替代
+    #     """
+    #     logger.warning("_check_services_health is deprecated and replaced by ServiceLifecycleManager")
+    #     return
+
     async def _check_single_service_health(self, name: str, client_id: str) -> bool:
         """检查单个服务的健康状态并更新生命周期状态"""
         try:
@@ -89,8 +105,37 @@ class MonitoringTasksMixin:
             )
             return False
 
+    async def _reconnection_loop(self):
+        """
+        定期尝试重新连接服务的后台循环
+        ⚠️ 已废弃：此方法已被ServiceLifecycleManager替代
+        """
+        logger.warning("_reconnection_loop is deprecated and replaced by ServiceLifecycleManager")
+        return
 
+    async def _attempt_reconnections(self):
+        """
+        尝试重新连接所有待重连的服务（智能重连策略）
+        ⚠️ 已废弃：此方法已被ServiceLifecycleManager替代
+        """
+        logger.warning("_attempt_reconnections is deprecated and replaced by ServiceLifecycleManager")
+        return
 
+    async def _cleanup_loop(self):
+        """
+        定期资源清理循环
+        ⚠️ 已废弃：此方法已被ServiceLifecycleManager替代
+        """
+        logger.warning("_cleanup_loop is deprecated and replaced by ServiceLifecycleManager")
+        return
+
+    async def _perform_cleanup(self):
+        """
+        执行资源清理
+        ⚠️ 已废弃：此方法已被ServiceLifecycleManager替代
+        """
+        logger.warning("_perform_cleanup is deprecated and replaced by ServiceLifecycleManager")
+        return
 
     async def _restart_monitoring_tasks(self):
         """重启监控任务"""
@@ -118,3 +163,26 @@ class MonitoringTasksMixin:
             logger.error(f"Failed to restart monitoring tasks: {e}")
             raise
 
+    async def _heartbeat_loop_with_error_handling(self):
+        """
+        带错误处理的心跳循环
+        ⚠️ 已废弃：此方法已被ServiceLifecycleManager替代
+        """
+        logger.warning("_heartbeat_loop_with_error_handling is deprecated and replaced by ServiceLifecycleManager")
+        return
+
+    async def _reconnection_loop_with_error_handling(self):
+        """
+        带错误处理的重连循环
+        ⚠️ 已废弃：此方法已被ServiceLifecycleManager替代
+        """
+        logger.warning("_reconnection_loop_with_error_handling is deprecated and replaced by ServiceLifecycleManager")
+        return
+
+    async def _cleanup_loop_with_error_handling(self):
+        """
+        带错误处理的清理循环
+        ⚠️ 已废弃：此方法已被ServiceLifecycleManager替代
+        """
+        logger.warning("_cleanup_loop_with_error_handling is deprecated and replaced by ServiceLifecycleManager")
+        return

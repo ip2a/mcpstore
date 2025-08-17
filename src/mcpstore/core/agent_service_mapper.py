@@ -28,7 +28,7 @@ class AgentServiceMapper:
             agent_id: Agent ID
         """
         self.agent_id = agent_id
-        self.suffix = f"_byagent_{agent_id}"
+        self.suffix = f"by{agent_id}"
         
     def to_global_name(self, local_name: str) -> str:
         """
@@ -38,7 +38,7 @@ class AgentServiceMapper:
             local_name: Original service name seen by Agent
 
         Returns:
-            Global storage service name with suffix (format: service_byagent_agentid)
+            Global storage service name with suffix
         """
         return f"{local_name}{self.suffix}"
     
@@ -67,51 +67,7 @@ class AgentServiceMapper:
             Whether it belongs to current Agent
         """
         return global_name.endswith(self.suffix)
-
-    @staticmethod
-    def is_any_agent_service(service_name: str) -> bool:
-        """
-        Determine if service belongs to any Agent (static method)
-
-        Args:
-            service_name: Service name to check
-
-        Returns:
-            Whether it's an Agent service (contains _byagent_ pattern)
-        """
-        return "_byagent_" in service_name
-
-    @staticmethod
-    def parse_agent_service_name(global_name: str) -> tuple[str, str]:
-        """
-        Parse Agent service name to extract agent_id and local_name
-
-        Args:
-            global_name: Global service name (format: service_byagent_agentid)
-
-        Returns:
-            Tuple of (agent_id, local_name)
-
-        Raises:
-            ValueError: If the service name format is invalid
-        """
-        if not AgentServiceMapper.is_any_agent_service(global_name):
-            raise ValueError(f"Not an Agent service: {global_name}")
-
-        parts = global_name.split("_byagent_")
-        if len(parts) != 2:
-            raise ValueError(f"Invalid Agent service name format: {global_name}")
-
-        local_name, agent_id = parts
-        if not local_name or not agent_id:
-            raise ValueError(f"Invalid Agent service name format: {global_name}")
-
-        # 验证 agent_id 不包含额外的下划线（更严格的验证）
-        if "_" in agent_id:
-            raise ValueError(f"Invalid Agent service name format: {global_name}")
-
-        return agent_id, local_name
-
+    
     def filter_agent_services(self, global_services: Dict[str, Any]) -> Dict[str, Any]:
         """
         从全局服务中过滤出属于当前Agent的服务，并转换为本地名称
