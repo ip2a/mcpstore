@@ -206,42 +206,23 @@ class ServiceManagementMixin:
 
     async def delete_service_async(self, name: str) -> bool:
         """
-        删除服务（异步版本）
-        
+        删除服务（异步版本，透明代理）
+
         Args:
-            name: 服务名称
-            
+            name: 服务名称（Agent 模式下使用本地名称）
+
         Returns:
             bool: 删除是否成功
         """
         try:
             if self._context_type == ContextType.STORE:
-                # Store级别：从mcp.json中删除服务
-                current_config = self._store.config.load_config()
-                if name not in current_config.get("mcpServers", {}):
-                    logger.warning(f"Service {name} not found in store configuration")
-                    return True  # 已经不存在，视为成功
-                
-                # 删除服务配置
-                del current_config["mcpServers"][name]
-                success = self._store.config.save_config(current_config)
-                
-                if success:
-                    # 触发重新注册
-                    if hasattr(self._store.orchestrator, 'sync_manager') and self._store.orchestrator.sync_manager:
-                        await self._store.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
-                
-                return success
+                # Store级别：删除服务并触发双向同步
+                await self._delete_store_service_with_sync(name)
+                return True
             else:
-                # Agent级别：从agent配置中删除服务
-                global_name = name
-                if self._service_mapper:
-                    global_name = self._service_mapper.to_global_name(name)
-                
-                return self._store.client_manager.remove_service_from_agent(
-                    agent_id=self._agent_id,
-                    service_name=global_name
-                )
+                # Agent级别：透明代理删除
+                await self._delete_agent_service_with_sync(name)
+                return True
         except Exception as e:
             logger.error(f"Failed to delete service {name}: {e}")
             return False
@@ -709,26 +690,58 @@ class ServiceManagementMixin:
 
         # 2. 作为服务名查找对应的client_id
         try:
-            # Agent级别需要处理服务名映射
+            # 🔧 Agent 透明代理：处理服务名映射和查找
             search_service_name = client_id_or_service_name
-            if self._context_type == ContextType.AGENT:
-                # 支持两种格式：原始名称和完整名称
-                if not search_service_name.endswith(f"by{agent_id}"):
-                    # 原始名称，添加后缀
-                    search_service_name = f"{client_id_or_service_name}by{agent_id}"
-                # 如果已经是完整格式，直接使用
 
-            # 在指定agent范围内查找服务
-            service_names = self._store.registry.get_all_service_names(agent_id)
-            if search_service_name in service_names:
-                # 找到服务，获取对应的client_id
-                client_id = self._store.registry.get_service_client_id(agent_id, search_service_name)
-                if client_id:
-                    return client_id, search_service_name
+            if self._context_type == ContextType.AGENT and agent_id != self._store.client_manager.global_agent_store_id:
+                # Agent 模式：支持多种查找方式（宽松匹配）
+                # 1. 直接使用本地名称在 Agent 缓存中查找
+                # 2. 如果是全局名称，转换为本地名称
+                # 3. 如果是 client_id，通过映射查找
+
+                from mcpstore.core.agent_service_mapper import AgentServiceMapper
+
+                # 检查是否为全局服务名（带后缀）
+                if AgentServiceMapper.is_any_agent_service(client_id_or_service_name):
+                    try:
+                        parsed_agent_id, local_name = AgentServiceMapper.parse_agent_service_name(client_id_or_service_name)
+                        if parsed_agent_id == agent_id:
+                            # 是当前 Agent 的全局服务名，转换为本地名称
+                            search_service_name = local_name
+                        else:
+                            raise ValueError(f"Service '{client_id_or_service_name}' belongs to agent '{parsed_agent_id}', not '{agent_id}'")
+                    except ValueError as e:
+                        raise ValueError(f"Invalid agent service name '{client_id_or_service_name}': {e}")
                 else:
-                    raise ValueError(f"Service '{search_service_name}' found but no client_id mapping")
+                    # 假设是本地服务名，直接使用
+                    search_service_name = client_id_or_service_name
+
+            # 🔧 Agent 透明代理：在指定agent范围内查找服务
+            service_names = self._store.registry.get_all_service_names(agent_id)
+
+            # 对于 Agent 上下文，需要检查服务是否存在（使用本地名称）
+            if self._context_type == ContextType.AGENT and agent_id != self._store.client_manager.global_agent_store_id:
+                # Agent 模式：查找本地名称的服务
+                if search_service_name in service_names:
+                    # 找到服务，获取对应的client_id
+                    client_id = self._store.registry.get_service_client_id(agent_id, search_service_name)
+                    if client_id:
+                        return client_id, search_service_name
+                    else:
+                        raise ValueError(f"Service '{search_service_name}' found but no client_id mapping")
+                else:
+                    raise ValueError(f"Service '{client_id_or_service_name}' not found in agent '{agent_id}'")
             else:
-                raise ValueError(f"Service '{client_id_or_service_name}' not found in agent '{agent_id}'")
+                # Store 模式：直接查找
+                if search_service_name in service_names:
+                    # 找到服务，获取对应的client_id
+                    client_id = self._store.registry.get_service_client_id(agent_id, search_service_name)
+                    if client_id:
+                        return client_id, search_service_name
+                    else:
+                        raise ValueError(f"Service '{search_service_name}' found but no client_id mapping")
+                else:
+                    raise ValueError(f"Service '{client_id_or_service_name}' not found in agent '{agent_id}'")
 
         except Exception as e:
             if "not found" in str(e):
@@ -1090,19 +1103,116 @@ class ServiceManagementMixin:
         return self._sync_helper.run_async(self.restart_service_async(name))
 
     async def restart_service_async(self, name: str) -> bool:
-        """重启指定服务"""
+        """重启指定服务（透明代理）"""
         try:
             if self._context_type == ContextType.STORE:
                 return await self._store.orchestrator.restart_service(name)
             else:
-                # Agent模式：转换服务名称
-                global_name = name
-                if self._service_mapper:
-                    global_name = self._service_mapper.to_global_name(name)
+                # Agent模式：透明代理 - 将本地服务名映射到全局服务名
+                global_name = await self._map_agent_service_to_global(name)
                 return await self._store.orchestrator.restart_service(global_name, self._agent_id)
         except Exception as e:
             logger.error(f"Failed to restart service {name}: {e}")
             return False
+
+    # === 🔧 新增：Agent 透明代理辅助方法 ===
+
+    async def _map_agent_service_to_global(self, local_name: str) -> str:
+        """
+        将 Agent 的本地服务名映射到全局服务名
+
+        Args:
+            local_name: Agent 中的本地服务名
+
+        Returns:
+            str: 全局服务名
+        """
+        try:
+            if self._agent_id:
+                # 尝试从映射关系中获取全局名称
+                global_name = self._store.registry.get_global_name_from_agent_service(self._agent_id, local_name)
+                if global_name:
+                    logger.debug(f"🔧 [SERVICE_PROXY] 服务名映射: {local_name} → {global_name}")
+                    return global_name
+
+            # 如果映射失败，可能是 Store 原生服务，直接返回
+            logger.debug(f"🔧 [SERVICE_PROXY] 无映射，使用原名: {local_name}")
+            return local_name
+
+        except Exception as e:
+            logger.error(f"❌ [SERVICE_PROXY] 服务名映射失败: {e}")
+            return local_name
+
+    async def _delete_store_service_with_sync(self, service_name: str):
+        """Store 服务删除（带双向同步）"""
+        try:
+            # 1. 从 Registry 中删除
+            self._store.registry.remove_service(
+                self._store.client_manager.global_agent_store_id,
+                service_name
+            )
+
+            # 2. 从 mcp.json 中删除
+            current_config = self._store.config.load_config()
+            if "mcpServers" in current_config and service_name in current_config["mcpServers"]:
+                del current_config["mcpServers"][service_name]
+                success = self._store.config.save_config(current_config)
+
+                if success:
+                    logger.info(f"✅ [SERVICE_DELETE] Store 服务删除成功: {service_name}")
+                else:
+                    logger.error(f"❌ [SERVICE_DELETE] Store 服务删除失败: {service_name}")
+
+            # 3. 触发双向同步（如果是 Agent 服务）
+            if hasattr(self._store, 'bidirectional_sync_manager'):
+                await self._store.bidirectional_sync_manager.handle_service_deletion_with_sync(
+                    self._store.client_manager.global_agent_store_id,
+                    service_name
+                )
+
+        except Exception as e:
+            logger.error(f"❌ [SERVICE_DELETE] Store 服务删除失败 {service_name}: {e}")
+            raise
+
+    async def _delete_agent_service_with_sync(self, local_name: str):
+        """Agent 服务删除（带双向同步）"""
+        try:
+            # 1. 获取全局名称
+            global_name = self._store.registry.get_global_name_from_agent_service(self._agent_id, local_name)
+            if not global_name:
+                logger.warning(f"🔧 [SERVICE_DELETE] 未找到映射关系: {self._agent_id}:{local_name}")
+                return
+
+            # 2. 从 Agent 缓存中删除
+            self._store.registry.remove_service(self._agent_id, local_name)
+
+            # 3. 从 Store 缓存中删除
+            self._store.registry.remove_service(
+                self._store.client_manager.global_agent_store_id,
+                global_name
+            )
+
+            # 4. 移除映射关系
+            self._store.registry.remove_agent_service_mapping(self._agent_id, local_name)
+
+            # 5. 从 mcp.json 中删除
+            current_config = self._store.config.load_config()
+            if "mcpServers" in current_config and global_name in current_config["mcpServers"]:
+                del current_config["mcpServers"][global_name]
+                success = self._store.config.save_config(current_config)
+
+                if success:
+                    logger.info(f"✅ [SERVICE_DELETE] Agent 服务删除成功: {local_name} → {global_name}")
+                else:
+                    logger.error(f"❌ [SERVICE_DELETE] Agent 服务删除失败: {local_name} → {global_name}")
+
+            # 6. 同步缓存到文件
+            if hasattr(self._store, 'cache_manager'):
+                self._store.cache_manager.sync_to_client_manager(self._store.client_manager)
+
+        except Exception as e:
+            logger.error(f"❌ [SERVICE_DELETE] Agent 服务删除失败 {self._agent_id}:{local_name}: {e}")
+            raise
 
     def show_mcpconfig(self) -> Dict[str, Any]:
         """

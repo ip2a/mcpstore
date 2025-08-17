@@ -62,39 +62,8 @@ class ToolOperationsMixin:
         if self._context_type == ContextType.STORE:
             return await self._store.list_tools()
         else:
-            # Agent模式：获取全局工具列表，然后转换为本地名称
-            global_tools = await self._store.list_tools(self._agent_id, agent_mode=True)
-
-            # 使用映射器转换工具名称为本地名称
-            if self._service_mapper:
-                local_tools = []
-                for tool in global_tools:
-                    # 检查工具是否属于当前Agent
-                    if self._service_mapper.is_agent_service(tool.service_name):
-                        # 转换服务名为本地名称
-                        local_service_name = self._service_mapper.to_local_name(tool.service_name)
-
-                        # 转换工具名为本地名称
-                        if tool.name.startswith(f"{tool.service_name}_"):
-                            tool_suffix = tool.name[len(tool.service_name) + 1:]
-                            local_tool_name = f"{local_service_name}_{tool_suffix}"
-                        else:
-                            # 🔧 修复：如果工具名不符合预期格式，保持原名但记录警告
-                            local_tool_name = tool.name
-                            logger.debug(f"Tool name '{tool.name}' doesn't follow expected format for service '{tool.service_name}'")
-
-                        # 创建新的ToolInfo对象，使用本地名称
-                        local_tool = ToolInfo(
-                            name=local_tool_name,
-                            description=tool.description,
-                            service_name=local_service_name,
-                            inputSchema=tool.inputSchema
-                        )
-                        local_tools.append(local_tool)
-
-                return local_tools
-            else:
-                return global_tools
+            # Agent模式：透明代理 - 获取 Agent 的工具并转换为本地名称
+            return await self._get_agent_tools_view()
 
     def get_tools_with_stats(self) -> Dict[str, Any]:
         """
@@ -331,18 +300,18 @@ class ToolOperationsMixin:
             # 构建工具信息，包含显示名称和原始名称
             for tool in tools:
                 # Agent模式：需要转换服务名称为本地名称
-                if self._context_type == ContextType.AGENT and self._service_mapper:
-                    # 转换服务名为本地名称
-                    local_service_name = self._service_mapper.to_local_name(tool.service_name)
-                    # 构建本地工具名称
-                    if tool.name.startswith(f"{tool.service_name}_"):
-                        tool_suffix = tool.name[len(tool.service_name) + 1:]
-                        local_tool_name = f"{local_service_name}_{tool_suffix}"
+                if self._context_type == ContextType.AGENT and self._agent_id:
+                    # 🔧 透明代理：将全局服务名转换为本地服务名
+                    local_service_name = self._get_local_service_name_from_global(tool.service_name)
+                    if local_service_name:
+                        # 构建本地工具名称
+                        local_tool_name = self._convert_tool_name_to_local(tool.name, tool.service_name, local_service_name)
+                        display_name = local_tool_name
+                        service_name = local_service_name
                     else:
-                        local_tool_name = tool.name
-
-                    display_name = local_tool_name
-                    service_name = local_service_name
+                        # 如果无法映射，使用原始名称
+                        display_name = tool.name
+                        service_name = tool.service_name
                 else:
                     display_name = tool.name
                     service_name = tool.service_name
@@ -395,25 +364,15 @@ class ToolOperationsMixin:
                 **kwargs
             )
         else:
-            # Agent模式：需要使用全局服务名称进行实际调用
-            # 但在日志中显示本地名称以便用户理解
-            global_service_name = resolution.service_name
-            if self._service_mapper:
-                # 检查resolution.service_name是否是本地名称，如果是则转换为全局名称
-                # 通过检查是否以agent_id结尾来判断是否已经是全局名称
-                if not resolution.service_name.endswith(f"by{self._agent_id}"):
-                    # 是本地名称，需要转换为全局名称
-                    global_service_name = self._service_mapper.to_global_name(resolution.service_name)
-                else:
-                    # 已经是全局名称，直接使用
-                    global_service_name = resolution.service_name
+            # Agent模式：透明代理 - 将本地服务名映射到全局服务名
+            global_service_name = await self._map_agent_tool_to_global_service(resolution.service_name, fastmcp_tool_name)
 
             logger.info(f"🎯 [AGENT:{self._agent_id}] 执行工具: {tool_name} → {fastmcp_tool_name} (服务: {resolution.service_name} → {global_service_name})")
             request = ToolExecutionRequest(
                 tool_name=fastmcp_tool_name,  # 🚀 使用FastMCP标准格式
                 service_name=global_service_name,  # 使用全局服务名称
                 args=args,
-                agent_id=self._agent_id,
+                agent_id=self._store.client_manager.global_agent_store_id,  # 🔧 使用全局 Agent ID
                 **kwargs
             )
 
@@ -427,3 +386,160 @@ class ToolOperationsMixin:
         推荐使用 call_tool_async 方法，与 FastMCP 命名保持一致。
         """
         return await self.call_tool_async(tool_name, args, **kwargs)
+
+    # === 🔧 新增：Agent 工具调用透明代理方法 ===
+
+    async def _map_agent_tool_to_global_service(self, local_service_name: str, tool_name: str) -> str:
+        """
+        将 Agent 的本地服务名映射到全局服务名
+
+        Args:
+            local_service_name: Agent 中的本地服务名
+            tool_name: 工具名称
+
+        Returns:
+            str: 全局服务名
+        """
+        try:
+            # 1. 检查是否为 Agent 服务
+            if self._agent_id and local_service_name:
+                # 尝试从映射关系中获取全局名称
+                global_name = self._store.registry.get_global_name_from_agent_service(self._agent_id, local_service_name)
+                if global_name:
+                    logger.debug(f"🔧 [TOOL_PROXY] 服务名映射: {local_service_name} → {global_name}")
+                    return global_name
+
+            # 2. 如果映射失败，检查是否已经是全局名称
+            from mcpstore.core.agent_service_mapper import AgentServiceMapper
+            if AgentServiceMapper.is_any_agent_service(local_service_name):
+                logger.debug(f"🔧 [TOOL_PROXY] 已是全局服务名: {local_service_name}")
+                return local_service_name
+
+            # 3. 如果都不是，可能是 Store 原生服务，直接返回
+            logger.debug(f"🔧 [TOOL_PROXY] Store 原生服务: {local_service_name}")
+            return local_service_name
+
+        except Exception as e:
+            logger.error(f"❌ [TOOL_PROXY] 服务名映射失败: {e}")
+            # 出错时返回原始名称
+            return local_service_name
+
+    async def _get_agent_tools_view(self) -> List[ToolInfo]:
+        """
+        获取 Agent 的工具视图（本地名称）
+
+        从 Agent 缓存中获取工具，转换为本地名称显示
+        """
+        try:
+            agent_tools = []
+
+            # 获取 Agent 的所有服务
+            if self._agent_id in self._store.registry.sessions:
+                agent_session_dict = self._store.registry.sessions[self._agent_id]
+
+                for local_service_name in agent_session_dict.keys():
+                    # 获取该服务的工具
+                    try:
+                        # 获取全局服务名
+                        global_service_name = self._store.registry.get_global_name_from_agent_service(self._agent_id, local_service_name)
+                        if not global_service_name:
+                            logger.warning(f"🔧 [AGENT_TOOLS] 未找到映射: {self._agent_id}:{local_service_name}")
+                            continue
+
+                        # 🔧 直接从 Registry 获取该服务的工具名列表
+                        service_tool_names = self._store.registry.get_tools_for_service(
+                            self._store.client_manager.global_agent_store_id,
+                            global_service_name
+                        )
+
+                        # 获取工具的详细信息并转换为本地名称
+                        for tool_name in service_tool_names:
+                            try:
+                                # 从 Registry 获取工具的详细信息
+                                tool_info = self._store.registry.get_tool_info(
+                                    self._store.client_manager.global_agent_store_id,
+                                    tool_name
+                                )
+
+                                if tool_info:
+                                    # 转换工具名为本地名称
+                                    local_tool_name = self._convert_tool_name_to_local(tool_name, global_service_name, local_service_name)
+
+                                    # 创建本地工具视图
+                                    local_tool = ToolInfo(
+                                        name=local_tool_name,
+                                        description=tool_info.get('description', ''),
+                                        service_name=local_service_name,  # 使用本地服务名
+                                        inputSchema=tool_info.get('inputSchema', {}),
+                                        client_id=tool_info.get('client_id', '')
+                                    )
+                                    agent_tools.append(local_tool)
+                                    logger.debug(f"🔧 [AGENT_TOOLS] 添加工具: {local_tool_name} (服务: {local_service_name})")
+                                else:
+                                    logger.warning(f"🔧 [AGENT_TOOLS] 无法获取工具信息: {tool_name}")
+
+                            except Exception as e:
+                                logger.error(f"❌ [AGENT_TOOLS] 处理工具失败 {tool_name}: {e}")
+                                continue
+
+                    except Exception as e:
+                        logger.error(f"❌ [AGENT_TOOLS] 获取服务工具失败 {local_service_name}: {e}")
+                        continue
+
+            logger.info(f"✅ [AGENT_TOOLS] Agent {self._agent_id} 工具视图: {len(agent_tools)} 个工具")
+            return agent_tools
+
+        except Exception as e:
+            logger.error(f"❌ [AGENT_TOOLS] 获取 Agent 工具视图失败: {e}")
+            return []
+
+    def _convert_tool_name_to_local(self, global_tool_name: str, global_service_name: str, local_service_name: str) -> str:
+        """
+        将全局工具名转换为本地工具名
+
+        Args:
+            global_tool_name: 全局工具名
+            global_service_name: 全局服务名
+            local_service_name: 本地服务名
+
+        Returns:
+            str: 本地工具名
+        """
+        try:
+            # 如果工具名以全局服务名开头，替换为本地服务名
+            if global_tool_name.startswith(f"{global_service_name}_"):
+                tool_suffix = global_tool_name[len(global_service_name) + 1:]
+                return f"{local_service_name}_{tool_suffix}"
+            else:
+                # 如果不符合预期格式，直接返回原工具名
+                return global_tool_name
+
+        except Exception as e:
+            logger.error(f"❌ [TOOL_NAME_CONVERT] 工具名转换失败: {e}")
+            return global_tool_name
+
+    def _get_local_service_name_from_global(self, global_service_name: str) -> Optional[str]:
+        """
+        从全局服务名获取本地服务名
+
+        Args:
+            global_service_name: 全局服务名
+
+        Returns:
+            Optional[str]: 本地服务名，如果不是当前 Agent 的服务则返回 None
+        """
+        try:
+            if not self._agent_id:
+                return None
+
+            # 检查映射关系
+            agent_mappings = self._store.registry.agent_to_global_mappings.get(self._agent_id, {})
+            for local_name, global_name in agent_mappings.items():
+                if global_name == global_service_name:
+                    return local_name
+
+            return None
+
+        except Exception as e:
+            logger.error(f"❌ [SERVICE_NAME_CONVERT] 服务名转换失败: {e}")
+            return None
