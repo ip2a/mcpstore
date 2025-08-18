@@ -656,9 +656,111 @@ class ServiceManagementMixin:
                 "new_config": None
             }
 
+    def _is_deterministic_client_id(self, identifier: str) -> bool:
+        """
+        判断是否为新的确定性client_id格式
+
+        支持的格式:
+        - client_store_servicename_hash (Store服务)
+        - client_agentid_servicename_hash (Agent服务)
+
+        Args:
+            identifier: 待检查的标识符
+
+        Returns:
+            bool: 是否为确定性格式
+        """
+        if not identifier.startswith('client_'):
+            return False
+
+        parts = identifier.split('_')
+        if len(parts) < 3:
+            return False
+
+        # client_store_xxx_hash 或 client_agentid_xxx_hash
+        return (identifier.startswith('client_store_') and len(parts) >= 4) or \
+               (identifier.startswith('client_') and len(parts) >= 4)
+
+    def _parse_deterministic_client_id(self, client_id: str, agent_id: str) -> Tuple[str, str]:
+        """
+        从确定性client_id中解析出服务名
+
+        Args:
+            client_id: 确定性格式的client_id
+            agent_id: 期望的agent_id（用于验证）
+
+        Returns:
+            Tuple[client_id, service_name]: 解析后的结果
+
+        Raises:
+            ValueError: 解析失败或agent_id不匹配
+        """
+        if not client_id.startswith('client_'):
+            raise ValueError(f"Invalid client_id format: {client_id}")
+
+        parts = client_id.split('_')
+
+        if client_id.startswith('client_store_'):
+            # client_store_servicename_hash
+            if len(parts) < 4:
+                raise ValueError(f"Invalid store client_id format: {client_id}")
+
+            # 验证是否为Store级别的请求
+            global_agent_store_id = self._store.client_manager.global_agent_store_id
+            if agent_id != global_agent_store_id:
+                raise ValueError(f"Store client_id '{client_id}' cannot be used with agent '{agent_id}'")
+
+            # 提取服务名（支持服务名包含下划线）
+            service_name = '_'.join(parts[2:-1])  # 去掉 client_store_ 前缀和 _hash 后缀
+            return client_id, service_name
+
+        elif len(parts) >= 4:
+            # client_agentid_servicename_hash
+            extracted_agent = parts[1]
+
+            # 验证agent_id匹配
+            if extracted_agent != agent_id:
+                raise ValueError(f"Client_id '{client_id}' belongs to agent '{extracted_agent}', not '{agent_id}'")
+
+            # 提取服务名（支持服务名包含下划线）
+            service_name = '_'.join(parts[2:-1])  # 去掉 client_agentid_ 前缀和 _hash 后缀
+            return client_id, service_name
+
+        raise ValueError(f"Cannot parse client_id format: {client_id}")
+
+    def _validate_resolved_mapping(self, client_id: str, service_name: str, agent_id: str) -> bool:
+        """
+        验证解析后的client_id和service_name映射是否有效
+
+        Args:
+            client_id: 解析出的client_id
+            service_name: 解析出的service_name
+            agent_id: Agent ID
+
+        Returns:
+            bool: 映射是否有效
+        """
+        try:
+            # 检查client_id是否存在于agent的映射中
+            agent_clients = self._store.registry.get_agent_clients_from_cache(agent_id)
+            if client_id not in agent_clients:
+                logger.debug(f"🔍 [VALIDATE_MAPPING] client_id '{client_id}' not found in agent '{agent_id}' clients")
+                return False
+
+            # 检查service_name是否存在于Registry中
+            existing_client_id = self._store.registry.get_service_client_id(agent_id, service_name)
+            if existing_client_id != client_id:
+                logger.debug(f"🔍 [VALIDATE_MAPPING] service '{service_name}' maps to different client_id: expected={client_id}, actual={existing_client_id}")
+                return False
+
+            return True
+        except Exception as e:
+            logger.debug(f"🔍 [VALIDATE_MAPPING] 验证失败: {e}")
+            return False
+
     def _resolve_client_id(self, client_id_or_service_name: str, agent_id: str) -> Tuple[str, str]:
         """
-        智能解析client_id或服务名
+        智能解析client_id或服务名（使用最新的确定性算法）
 
         Args:
             client_id_or_service_name: 用户输入的参数
@@ -670,9 +772,23 @@ class ServiceManagementMixin:
         Raises:
             ValueError: 当参数无法解析或不存在时
         """
-        # 方案B: 先尝试作为client_id查找，失败后再作为服务名查找
+        logger.debug(f"🔍 [RESOLVE_CLIENT_ID] 开始解析: '{client_id_or_service_name}' for agent '{agent_id}'")
 
-        # 1. 先尝试作为client_id查找
+        # 🆕 优先级1: 智能格式识别（确定性client_id格式）
+        if self._is_deterministic_client_id(client_id_or_service_name):
+            try:
+                client_id, service_name = self._parse_deterministic_client_id(client_id_or_service_name, agent_id)
+                logger.debug(f"✅ [RESOLVE_CLIENT_ID] 确定性格式解析成功: client_id={client_id}, service_name={service_name}")
+
+                # 验证解析结果的有效性
+                if self._validate_resolved_mapping(client_id, service_name, agent_id):
+                    return client_id, service_name
+                else:
+                    logger.warning(f"⚠️ [RESOLVE_CLIENT_ID] 确定性解析结果验证失败，尝试其他方法")
+            except ValueError as e:
+                logger.debug(f"🔄 [RESOLVE_CLIENT_ID] 确定性格式解析失败: {e}")
+
+        # 🔄 优先级2: 作为client_id查找（支持所有格式）
         try:
             client_config = self._store.registry.get_client_config_from_cache(client_id_or_service_name)
             if client_config and "mcpServers" in client_config:
@@ -682,22 +798,24 @@ class ServiceManagementMixin:
                     # 找到对应的服务名
                     service_names = list(client_config["mcpServers"].keys())
                     if len(service_names) == 1:
+                        logger.debug(f"✅ [RESOLVE_CLIENT_ID] client_id查找成功: {client_id_or_service_name} -> {service_names[0]}")
                         return client_id_or_service_name, service_names[0]
                     else:
                         raise ValueError(f"Client {client_id_or_service_name} contains multiple services, which should not happen")
-        except Exception:
+        except Exception as e:
+            logger.debug(f"🔄 [RESOLVE_CLIENT_ID] client_id查找失败: {e}")
             pass  # 作为client_id查找失败，继续尝试作为服务名
 
-        # 2. 作为服务名查找对应的client_id
+        # 🔄 优先级3: 作为服务名查找对应的client_id
         try:
+            logger.debug(f"🔍 [RESOLVE_CLIENT_ID] 尝试作为服务名解析: '{client_id_or_service_name}'")
+
             # 🔧 Agent 透明代理：处理服务名映射和查找
             search_service_name = client_id_or_service_name
 
             if self._context_type == ContextType.AGENT and agent_id != self._store.client_manager.global_agent_store_id:
                 # Agent 模式：支持多种查找方式（宽松匹配）
-                # 1. 直接使用本地名称在 Agent 缓存中查找
-                # 2. 如果是全局名称，转换为本地名称
-                # 3. 如果是 client_id，通过映射查找
+                logger.debug(f"🔍 [RESOLVE_CLIENT_ID] Agent模式处理: agent_id={agent_id}")
 
                 from mcpstore.core.agent_service_mapper import AgentServiceMapper
 
@@ -708,6 +826,7 @@ class ServiceManagementMixin:
                         if parsed_agent_id == agent_id:
                             # 是当前 Agent 的全局服务名，转换为本地名称
                             search_service_name = local_name
+                            logger.debug(f"🔄 [RESOLVE_CLIENT_ID] 全局名转本地名: {client_id_or_service_name} -> {local_name}")
                         else:
                             raise ValueError(f"Service '{client_id_or_service_name}' belongs to agent '{parsed_agent_id}', not '{agent_id}'")
                     except ValueError as e:
@@ -715,36 +834,41 @@ class ServiceManagementMixin:
                 else:
                     # 假设是本地服务名，直接使用
                     search_service_name = client_id_or_service_name
+                    logger.debug(f"🔍 [RESOLVE_CLIENT_ID] 使用本地服务名: {search_service_name}")
 
-            # 🔧 Agent 透明代理：在指定agent范围内查找服务
+            # 🔧 在指定agent范围内查找服务
             service_names = self._store.registry.get_all_service_names(agent_id)
+            logger.debug(f"🔍 [RESOLVE_CLIENT_ID] agent '{agent_id}' 的所有服务: {service_names}")
 
-            # 对于 Agent 上下文，需要检查服务是否存在（使用本地名称）
+            # 🔍 查找服务并获取对应的client_id
             if self._context_type == ContextType.AGENT and agent_id != self._store.client_manager.global_agent_store_id:
                 # Agent 模式：查找本地名称的服务
                 if search_service_name in service_names:
-                    # 找到服务，获取对应的client_id
                     client_id = self._store.registry.get_service_client_id(agent_id, search_service_name)
                     if client_id:
+                        logger.debug(f"✅ [RESOLVE_CLIENT_ID] Agent模式服务名查找成功: {search_service_name} -> {client_id}")
                         return client_id, search_service_name
                     else:
                         raise ValueError(f"Service '{search_service_name}' found but no client_id mapping")
                 else:
-                    raise ValueError(f"Service '{client_id_or_service_name}' not found in agent '{agent_id}'")
+                    available_services = ', '.join(service_names) if service_names else 'None'
+                    raise ValueError(f"Service '{client_id_or_service_name}' not found in agent '{agent_id}'. Available services: {available_services}")
             else:
                 # Store 模式：直接查找
                 if search_service_name in service_names:
-                    # 找到服务，获取对应的client_id
                     client_id = self._store.registry.get_service_client_id(agent_id, search_service_name)
                     if client_id:
+                        logger.debug(f"✅ [RESOLVE_CLIENT_ID] Store模式服务名查找成功: {search_service_name} -> {client_id}")
                         return client_id, search_service_name
                     else:
                         raise ValueError(f"Service '{search_service_name}' found but no client_id mapping")
                 else:
-                    raise ValueError(f"Service '{client_id_or_service_name}' not found in agent '{agent_id}'")
+                    available_services = ', '.join(service_names) if service_names else 'None'
+                    raise ValueError(f"Service '{client_id_or_service_name}' not found in store. Available services: {available_services}")
 
         except Exception as e:
-            if "not found" in str(e):
+            logger.error(f"❌ [RESOLVE_CLIENT_ID] 解析失败: '{client_id_or_service_name}' for agent '{agent_id}': {e}")
+            if "not found" in str(e) or "belongs to agent" in str(e) or "Invalid" in str(e):
                 raise e
             else:
                 raise ValueError(f"Failed to resolve '{client_id_or_service_name}': {str(e)}")
@@ -1087,13 +1211,13 @@ class ServiceManagementMixin:
         """获取单个服务的状态信息"""
         try:
             if self._context_type == ContextType.STORE:
-                return await self._store.orchestrator.get_service_status(name)
+                return self._store.orchestrator.get_service_status(name)
             else:
                 # Agent模式：转换服务名称
                 global_name = name
                 if self._service_mapper:
                     global_name = self._service_mapper.to_global_name(name)
-                return await self._store.orchestrator.get_service_status(global_name, self._agent_id)
+                return self._store.orchestrator.get_service_status(global_name, self._agent_id)
         except Exception as e:
             logger.error(f"Failed to get service status for {name}: {e}")
             return {"status": "error", "error": str(e)}

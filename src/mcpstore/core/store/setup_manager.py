@@ -79,15 +79,6 @@ class StoreSetupManager:
         import asyncio
         from mcpstore.core.async_sync_helper import AsyncSyncHelper
 
-        # Use AsyncSyncHelper to properly manage async operations
-        async_helper = AsyncSyncHelper()
-        try:
-            # Synchronously run orchestrator.setup(), ensure completion
-            async_helper.run_async(orchestrator.setup())
-        except Exception as e:
-            logger.error(f"Failed to setup orchestrator: {e}")
-            raise
-
         # Import MCPStore from store module to avoid circular import
         from mcpstore.core.store.base_store import BaseMCPStore
         from mcpstore.core.store.service_query import ServiceQueryMixin
@@ -113,13 +104,23 @@ class StoreSetupManager:
 
         store = MCPStore(orchestrator, config, tool_record_max_file_size, tool_record_retention_days)
 
-        # 🔧 新增：设置orchestrator的store引用（用于统一注册架构）
+        # 🔧 修复：在orchestrator.setup()之前设置store引用，避免UnifiedMCPSyncManager启动时store为None
         orchestrator.store = store
 
-        # 🔧 新增：初始化缓存
+        # 🔧 修复：使用force_background=True避免生命周期管理器被意外停止
+        async_helper = AsyncSyncHelper()
+        try:
+            # Synchronously run orchestrator.setup(), ensure completion
+            # 使用后台循环避免干扰生命周期管理器
+            async_helper.run_async(orchestrator.setup(), force_background=True)
+        except Exception as e:
+            logger.error(f"Failed to setup orchestrator: {e}")
+            raise
+
+        # 🔧 修复：初始化缓存也使用后台循环
         logger.info("🔄 [SETUP_STORE] 开始初始化缓存...")
         try:
-            async_helper.run_async(store.initialize_cache_from_files())
+            async_helper.run_async(store.initialize_cache_from_files(), force_background=True)
             logger.info("✅ [SETUP_STORE] 缓存初始化完成")
         except Exception as e:
             logger.error(f"❌ [SETUP_STORE] 缓存初始化失败: {e}")
@@ -227,18 +228,19 @@ class StoreSetupManager:
             # Initialize orchestrator (including tool update monitor)
             from mcpstore.core.async_sync_helper import AsyncSyncHelper
 
-            # Use AsyncSyncHelper to properly manage async operations
+            # 🔧 修复：使用force_background=True避免生命周期管理器被意外停止
             async_helper = AsyncSyncHelper()
             try:
                 # Run orchestrator.setup() synchronously, ensure completion
-                async_helper.run_async(orchestrator.setup())
+                # 使用后台循环避免干扰生命周期管理器
+                async_helper.run_async(orchestrator.setup(), force_background=True)
             except Exception as e:
                 logger.error(f"Failed to setup orchestrator: {e}")
                 raise
 
-            # 🔧 新增：初始化缓存
+            # 🔧 修复：初始化缓存也使用后台循环
             try:
-                async_helper.run_async(store.initialize_cache_from_files())
+                async_helper.run_async(store.initialize_cache_from_files(), force_background=True)
             except Exception as e:
                 logger.warning(f"Failed to initialize cache from files: {e}")
                 # 缓存初始化失败不应该阻止系统启动

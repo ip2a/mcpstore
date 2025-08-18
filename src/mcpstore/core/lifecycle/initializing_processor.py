@@ -149,13 +149,19 @@ class InitializingStateProcessor:
         async with semaphore:
             try:
                 logger.debug(f"🔧 [FAST_INIT] 开始处理INITIALIZING服务: {service_name}")
-                
+
+                # 🔧 修复：检查服务是否已经在连接中，避免重复连接
+                current_state = self.lifecycle_manager.registry.get_service_state(agent_id, service_name)
+                if current_state and current_state not in [ServiceConnectionState.INITIALIZING, ServiceConnectionState.DISCONNECTED]:
+                    logger.debug(f"🔄 [FAST_INIT] 服务{service_name}已在连接中(状态:{current_state})，跳过重复连接")
+                    return  # 跳过当前服务的处理
+
                 # 使用现有的初始连接逻辑，但加上超时
                 await asyncio.wait_for(
                     self.lifecycle_manager._attempt_initial_connection(agent_id, service_name),
                     timeout=self.timeout_per_service
                 )
-                
+
                 logger.debug(f"✅ [FAST_INIT] 服务{service_name}处理完成")
                 
             except asyncio.TimeoutError:

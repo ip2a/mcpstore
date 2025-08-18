@@ -74,6 +74,8 @@ class UnifiedMCPSyncManager:
         self.debounce_delay = 1.0  # 防抖延迟（秒）
         self.sync_task = None
         self.last_change_time = None
+        self.last_sync_time = None  # 🔧 新增：记录上次同步时间
+        self.min_sync_interval = 5.0  # 🔧 新增：最小同步间隔（秒）
         self.is_running = False
         
         logger.info(f"UnifiedMCPSyncManager initialized for: {self.mcp_json_path}")
@@ -184,6 +186,14 @@ class UnifiedMCPSyncManager:
         """从mcp.json同步global_agent_store（核心方法）"""
         async with self.sync_lock:
             try:
+                # 🔧 新增：检查同步频率，避免过度同步
+                import time
+                current_time = time.time()
+
+                if self.last_sync_time and (current_time - self.last_sync_time) < self.min_sync_interval:
+                    logger.debug(f"Sync skipped due to frequency limit (last sync {current_time - self.last_sync_time:.1f}s ago)")
+                    return {"skipped": True, "reason": "frequency_limit"}
+
                 logger.info("Starting global_agent_store sync from mcp.json")
 
                 # 读取最新配置
@@ -194,6 +204,9 @@ class UnifiedMCPSyncManager:
 
                 # 执行同步
                 results = await self._sync_global_agent_store_services(services)
+
+                # 🔧 新增：记录同步时间
+                self.last_sync_time = current_time
 
                 logger.info(f"Global agent store sync completed: {results}")
                 return results
@@ -241,11 +254,12 @@ class UnifiedMCPSyncManager:
                     logger.error(f"Failed to remove service {service_name}: {e}")
                     results["failed"].append(f"remove:{service_name}:{e}")
             
-            # 2. 添加/更新服务（新逻辑：操作缓存映射，然后异步持久化）
+            # 2. 添加/更新服务（改进逻辑：只处理真正需要变更的服务）
             services_to_register = {}
-            for service_name in (to_add | to_update):
+
+            # 处理新增服务
+            for service_name in to_add:
                 try:
-                    # 🔧 新逻辑：直接操作缓存映射而不是直接操作文件
                     success = await self._add_service_to_cache_mapping(
                         agent_id=global_agent_store_id,
                         service_name=service_name,
@@ -254,24 +268,48 @@ class UnifiedMCPSyncManager:
 
                     if success:
                         services_to_register[service_name] = target_services[service_name]
-                        if service_name in to_add:
-                            results["added"].append(service_name)
-                            logger.debug(f"Added service to cache: {service_name}")
-                        else:
-                            results["updated"].append(service_name)
-                            logger.debug(f"Updated service in cache: {service_name}")
+                        results["added"].append(service_name)
+                        logger.debug(f"Added new service to cache: {service_name}")
                     else:
-                        action = "add" if service_name in to_add else "update"
-                        results["failed"].append(f"{action}:{service_name}")
+                        results["failed"].append(f"add:{service_name}")
 
                 except Exception as e:
-                    action = "add" if service_name in to_add else "update"
-                    logger.error(f"Failed to {action} service {service_name}: {e}")
-                    results["failed"].append(f"{action}:{service_name}:{e}")
+                    logger.error(f"Failed to add service {service_name}: {e}")
+                    results["failed"].append(f"add:{service_name}:{e}")
 
-            # 3. 批量注册到Registry
+            # 处理更新服务（只有配置真正变化时才更新）
+            for service_name in to_update:
+                try:
+                    # 检查配置是否真的有变化
+                    current_config = current_services.get(service_name, {})
+                    target_config = target_services[service_name]
+
+                    if self._service_config_changed(current_config, target_config):
+                        success = await self._add_service_to_cache_mapping(
+                            agent_id=global_agent_store_id,
+                            service_name=service_name,
+                            service_config=target_config
+                        )
+
+                        if success:
+                            services_to_register[service_name] = target_config
+                            results["updated"].append(service_name)
+                            logger.debug(f"Updated service in cache: {service_name}")
+                        else:
+                            results["failed"].append(f"update:{service_name}")
+                    else:
+                        logger.debug(f"Service {service_name} config unchanged, skipping update")
+
+                except Exception as e:
+                    logger.error(f"Failed to update service {service_name}: {e}")
+                    results["failed"].append(f"update:{service_name}:{e}")
+
+            # 3. 批量注册到Registry（只注册真正需要注册的服务）
             if services_to_register:
+                logger.info(f"Registering {len(services_to_register)} services to Registry: {list(services_to_register.keys())}")
                 await self._batch_register_to_registry(global_agent_store_id, services_to_register)
+            else:
+                logger.debug("No services need to be registered to Registry")
 
             # 4. 🔧 新增：触发缓存到文件的异步持久化
             if services_to_register:
@@ -327,7 +365,7 @@ class UnifiedMCPSyncManager:
             return False
 
     async def _batch_register_to_registry(self, agent_id: str, services_to_register: Dict[str, Any]):
-        """批量注册服务到Registry"""
+        """批量注册服务到Registry（改进版：避免重复注册）"""
         try:
             if not services_to_register:
                 return
@@ -336,6 +374,9 @@ class UnifiedMCPSyncManager:
 
             # 获取对应的client_ids
             client_ids = self.orchestrator.client_manager.get_agent_clients(agent_id)
+
+            registered_count = 0
+            skipped_count = 0
 
             for client_id in client_ids:
                 client_config = self.orchestrator.client_manager.get_client_config(client_id)
@@ -347,19 +388,38 @@ class UnifiedMCPSyncManager:
                 services_in_client = set(client_services.keys()) & set(services_to_register.keys())
 
                 if services_in_client:
-                    try:
-                        # 🔧 重构：使用统一的add_service方法而不是register_json_services
-                        if hasattr(self.orchestrator, 'store') and self.orchestrator.store:
-                            # 使用统一注册架构
-                            await self.orchestrator.store.for_store().add_service_async(client_config, source="auto_startup")
-                            logger.debug(f"Registered client {client_id} with services: {list(services_in_client)} via unified add_service")
+                    # 🔧 新增：检查服务是否已经在Registry中注册
+                    already_registered = []
+                    need_registration = []
+
+                    for service_name in services_in_client:
+                        if self.orchestrator.registry.has_service(agent_id, service_name):
+                            already_registered.append(service_name)
+                            skipped_count += 1
                         else:
-                            # 回退到原有方法（带警告）
-                            logger.warning("Store reference not available, falling back to register_json_services")
-                            await self.orchestrator.register_json_services(client_config, client_id=client_id)
-                            logger.debug(f"Registered client {client_id} with services: {list(services_in_client)}")
-                    except Exception as e:
-                        logger.error(f"Failed to register client {client_id}: {e}")
+                            need_registration.append(service_name)
+
+                    if already_registered:
+                        logger.debug(f"Services already registered, skipping: {already_registered}")
+
+                    if need_registration:
+                        try:
+                            # 🔧 重构：使用统一的add_service方法而不是register_json_services
+                            if hasattr(self.orchestrator, 'store') and self.orchestrator.store:
+                                # 使用统一注册架构
+                                await self.orchestrator.store.for_store().add_service_async(client_config, source="auto_startup")
+                                logger.debug(f"Registered client {client_id} with services: {need_registration} via unified add_service")
+                                registered_count += len(need_registration)
+                            else:
+                                # 回退到原有方法（带警告）
+                                logger.warning("Store reference not available, falling back to register_json_services")
+                                await self.orchestrator.register_json_services(client_config, client_id=client_id)
+                                logger.debug(f"Registered client {client_id} with services: {need_registration}")
+                                registered_count += len(need_registration)
+                        except Exception as e:
+                            logger.error(f"Failed to register client {client_id}: {e}")
+
+            logger.info(f"Batch registration completed: {registered_count} registered, {skipped_count} skipped")
 
         except Exception as e:
             logger.error(f"Error in batch register to registry: {e}")
@@ -381,14 +441,25 @@ class UnifiedMCPSyncManager:
             是否成功添加到缓存映射
         """
         try:
-            # 生成或获取client_id
-            client_id = self.orchestrator.client_manager.generate_client_id()
-
             # 获取Registry实例
             registry = getattr(self.orchestrator, 'registry', None)
             if not registry:
                 logger.error("Registry not available")
                 return False
+
+            # 🔧 修复：检查是否已存在该服务的client_id，避免重复生成
+            existing_client_id = self._find_existing_client_id_for_service(agent_id, service_name)
+
+            if existing_client_id:
+                # 使用现有的client_id，只更新配置
+                client_id = existing_client_id
+                logger.debug(f"🔄 使用现有client_id: {service_name} -> {client_id}")
+            else:
+                # 🔧 修复：使用与SetupMixin相同的确定性client_id生成算法
+                import hashlib
+                config_hash = hashlib.md5(str(service_config).encode()).hexdigest()[:8]
+                client_id = f"client_store_{service_name}_{config_hash}"
+                logger.debug(f"🆕 生成新client_id: {service_name} -> {client_id}")
 
             # 更新缓存映射1：Agent-Client映射
             if agent_id not in registry.agent_clients:
@@ -409,6 +480,66 @@ class UnifiedMCPSyncManager:
         except Exception as e:
             logger.error(f"Failed to add service to cache mapping: {e}")
             return False
+
+    def _find_existing_client_id_for_service(self, agent_id: str, service_name: str) -> str:
+        """
+        查找指定服务是否已有对应的client_id
+
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+
+        Returns:
+            现有的client_id，如果不存在则返回None
+        """
+        try:
+            registry = getattr(self.orchestrator, 'registry', None)
+            if not registry:
+                return None
+
+            # 获取该agent的所有client_id
+            client_ids = registry.agent_clients.get(agent_id, [])
+
+            # 遍历每个client_id，检查是否包含目标服务
+            for client_id in client_ids:
+                client_config = registry.client_configs.get(client_id, {})
+                if service_name in client_config.get("mcpServers", {}):
+                    logger.debug(f"🔍 找到现有client_id: {service_name} -> {client_id}")
+                    return client_id
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error finding existing client_id for service {service_name}: {e}")
+            return None
+
+    def _service_config_changed(self, current_config: Dict[str, Any], target_config: Dict[str, Any]) -> bool:
+        """
+        检查服务配置是否发生变化
+
+        Args:
+            current_config: 当前配置
+            target_config: 目标配置
+
+        Returns:
+            配置是否发生变化
+        """
+        try:
+            # 简单的字典比较，可以根据需要扩展
+            import json
+            current_str = json.dumps(current_config, sort_keys=True)
+            target_str = json.dumps(target_config, sort_keys=True)
+            changed = current_str != target_str
+
+            if changed:
+                logger.debug(f"Service config changed: {current_str} -> {target_str}")
+
+            return changed
+
+        except Exception as e:
+            logger.error(f"Error comparing service configs: {e}")
+            # 出错时保守处理，认为有变化
+            return True
 
     async def _trigger_cache_persistence(self):
         """

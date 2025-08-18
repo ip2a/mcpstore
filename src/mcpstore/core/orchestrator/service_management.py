@@ -118,12 +118,7 @@ class ServiceManagementMixin:
 
         注册JSON配置中的服务（可用于global_agent_store或普通client）
         """
-        import warnings
-        warnings.warn(
-            "register_json_services已废弃，请使用统一的add_service方法",
-            DeprecationWarning,
-            stacklevel=2
-        )
+
 
         # agent_id 兼容
         agent_key = agent_id or client_id or self.client_manager.global_agent_store_id
@@ -438,3 +433,78 @@ class ServiceManagementMixin:
             return True
 
         return False
+
+    def get_service_status(self, service_name: str, client_id: str = None) -> dict:
+        """
+        获取服务状态信息 - 纯缓存查询，不执行任何业务逻辑
+
+        Args:
+            service_name: 服务名称
+            client_id: 客户端ID（可选，默认使用global_agent_store_id）
+
+        Returns:
+            dict: 包含状态信息的字典
+            {
+                "service_name": str,
+                "status": str,  # "healthy", "warning", "disconnected", "unknown", etc.
+                "healthy": bool,
+                "last_check": float,  # timestamp
+                "response_time": float,
+                "error": str (可选),
+                "client_id": str
+            }
+        """
+        try:
+            agent_key = client_id or self.client_manager.global_agent_store_id
+
+            # 从缓存获取服务状态
+            state = self.registry.get_service_state(agent_key, service_name)
+            metadata = self.registry.get_service_metadata(agent_key, service_name)
+
+            # 构建状态响应
+            status_response = {
+                "service_name": service_name,
+                "client_id": agent_key
+            }
+
+            if state:
+                status_response["status"] = state.value
+                # 判断是否健康：HEALTHY 和 WARNING 都算健康
+                from mcpstore.core.models.service import ServiceConnectionState
+                status_response["healthy"] = state in [
+                    ServiceConnectionState.HEALTHY,
+                    ServiceConnectionState.WARNING
+                ]
+            else:
+                status_response["status"] = "unknown"
+                status_response["healthy"] = False
+
+            if metadata:
+                status_response["last_check"] = metadata.last_health_check.timestamp() if metadata.last_health_check else None
+                status_response["response_time"] = metadata.last_response_time
+                status_response["error"] = metadata.error_message
+                status_response["consecutive_failures"] = metadata.consecutive_failures
+                status_response["state_entered_time"] = metadata.state_entered_time.timestamp() if metadata.state_entered_time else None
+            else:
+                status_response["last_check"] = None
+                status_response["response_time"] = None
+                status_response["error"] = None
+                status_response["consecutive_failures"] = 0
+                status_response["state_entered_time"] = None
+
+            logger.debug(f"Retrieved cached status for service {service_name}: {status_response['status']}")
+            return status_response
+
+        except Exception as e:
+            logger.error(f"Failed to get service status from cache for {service_name}: {e}")
+            return {
+                "service_name": service_name,
+                "status": "error",
+                "healthy": False,
+                "last_check": None,
+                "response_time": None,
+                "error": f"Cache query failed: {str(e)}",
+                "client_id": client_id or (self.client_manager.global_agent_store_id if hasattr(self, 'client_manager') else "unknown"),
+                "consecutive_failures": 0,
+                "state_entered_time": None
+            }

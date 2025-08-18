@@ -82,9 +82,28 @@ class ClientManager:
         logger.info(f"Saved config for client_id={client_id}")
 
     def generate_client_id(self) -> str:
-        """生成唯一的客户端ID"""
+        """
+        生成唯一的客户端ID（已废弃）
+
+        ⚠️ 警告: 此方法已废弃，请使用确定性client_id生成算法
+        新的确定性算法在以下位置：
+        - UnifiedMCPSyncManager._add_service_to_cache_mapping()
+        - SetupMixin._initialize_services_from_mcp_config()
+        - ServiceOperations._get_or_create_client_id()
+
+        Returns:
+            str: 随机格式的client_id（不推荐使用）
+        """
+        import warnings
+        warnings.warn(
+            "generate_client_id() is deprecated. Use deterministic client_id generation instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+
         ts = datetime.now().strftime("%Y%m%d%H%M%S")
         rand = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+        logger.warning(f"⚠️ [DEPRECATED] 使用已废弃的随机client_id生成: client_{ts}_{rand}")
         return f"client_{ts}_{rand}"
 
     def create_client_config_from_names(self, service_names: List[str], mcp_config: Dict[str, Any]) -> Dict[str, Any]:

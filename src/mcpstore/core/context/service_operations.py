@@ -662,7 +662,7 @@ class ServiceOperationsMixin:
         """立即添加服务到缓存"""
         try:
             # 1. 生成或获取 client_id
-            client_id = self._get_or_create_client_id(agent_id, service_name)
+            client_id = self._get_or_create_client_id(agent_id, service_name, service_config)
 
             # 2. 立即添加到所有相关缓存
             # 2.1 添加到服务缓存（初始化状态）
@@ -704,15 +704,30 @@ class ServiceOperationsMixin:
             logger.error(f"Failed to add {service_name} to cache immediately: {e}")
             raise
 
-    def _get_or_create_client_id(self, agent_id: str, service_name: str) -> str:
-        """生成或获取 client_id"""
+    def _get_or_create_client_id(self, agent_id: str, service_name: str, service_config: Dict[str, Any] = None) -> str:
+        """生成或获取 client_id（使用确定性算法）"""
         # 检查是否已有client_id
         existing_client_id = self._store.registry.get_service_client_id(agent_id, service_name)
         if existing_client_id:
+            logger.debug(f"🔄 [CLIENT_ID] 使用现有client_id: {service_name} -> {existing_client_id}")
             return existing_client_id
 
-        # 生成新的client_id
-        return self._store.client_manager.generate_client_id()
+        # 🔧 修复：使用确定性算法生成client_id，与SetupMixin和UnifiedMCPSyncManager保持一致
+        import hashlib
+        service_config = service_config or {}
+        config_hash = hashlib.md5(str(service_config).encode()).hexdigest()[:8]
+
+        # 根据agent类型生成不同格式的client_id
+        global_agent_store_id = self._store.client_manager.global_agent_store_id
+        if agent_id == global_agent_store_id:
+            # Store服务
+            client_id = f"client_store_{service_name}_{config_hash}"
+        else:
+            # Agent服务
+            client_id = f"client_{agent_id}_{service_name}_{config_hash}"
+
+        logger.debug(f"🆕 [CLIENT_ID] 生成新client_id: {service_name} -> {client_id}")
+        return client_id
 
     async def _connect_and_update_cache(self, agent_id: str, service_name: str, service_config: Dict[str, Any]):
         """异步连接服务并更新缓存状态"""
@@ -865,7 +880,7 @@ class ServiceOperationsMixin:
             # 1. 增量更新缓存映射（而不是全量同步）
             for service_name, service_config in services_to_add.items():
                 # 获取或创建client_id
-                client_id = self._get_or_create_client_id(agent_id, service_name)
+                client_id = self._get_or_create_client_id(agent_id, service_name, service_config)
 
                 # 更新Agent-Client映射缓存
                 if agent_id not in self._store.registry.agent_clients:
@@ -1127,9 +1142,11 @@ class ServiceOperationsMixin:
                     # 新服务，正常创建
                     logger.info(f"🔄 [AGENT_PROXY] 创建新服务: {local_name}")
 
-                    # 2. 生成共享 Client ID
-                    client_id = self._store.client_manager.generate_client_id()
-                    logger.debug(f"🔧 [AGENT_PROXY] 生成共享 Client ID: {client_id}")
+                    # 🔧 修复：使用确定性算法生成共享 Client ID
+                    import hashlib
+                    config_hash = hashlib.md5(str(service_config).encode()).hexdigest()[:8]
+                    client_id = f"client_{agent_id}_{local_name}_{config_hash}"
+                    logger.debug(f"🔧 [AGENT_PROXY] 生成确定性共享 Client ID: {client_id}")
 
                     # 3. 添加到 global_agent_store 缓存（全局名称）
                     self._store.registry.add_service(

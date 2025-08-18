@@ -37,6 +37,71 @@ class SetupMixin:
             logger.error(f"❌ Cache initialization failed: {e}")
             raise
 
+    def _find_existing_client_id_for_agent_service(self, agent_id: str, service_name: str) -> str:
+        """
+        查找Agent服务是否已有对应的client_id
+
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+
+        Returns:
+            现有的client_id，如果不存在则返回None
+        """
+        try:
+            # 检查service_to_client映射
+            if agent_id in self.registry.service_to_client:
+                agent_service_name = f"{service_name}_byagent_{agent_id}"
+                if agent_service_name in self.registry.service_to_client[agent_id]:
+                    existing_client_id = self.registry.service_to_client[agent_id][agent_service_name]
+                    logger.debug(f"🔍 [INIT_MCP] 找到现有Agent client_id: {agent_service_name} -> {existing_client_id}")
+                    return existing_client_id
+
+            # 检查agent_clients中是否有匹配的client_id
+            client_ids = self.registry.agent_clients.get(agent_id, [])
+            for client_id in client_ids:
+                if f"_{agent_id}_{service_name}_" in client_id:
+                    logger.debug(f"🔍 [INIT_MCP] 通过模式匹配找到Agent client_id: {client_id}")
+                    return client_id
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error finding existing Agent client_id for service {service_name}: {e}")
+            return None
+
+    def _find_existing_client_id_for_store_service(self, agent_id: str, service_name: str) -> str:
+        """
+        查找Store服务是否已有对应的client_id
+
+        Args:
+            agent_id: Agent ID (通常是global_agent_store)
+            service_name: 服务名称
+
+        Returns:
+            现有的client_id，如果不存在则返回None
+        """
+        try:
+            # 检查service_to_client映射
+            if agent_id in self.registry.service_to_client:
+                if service_name in self.registry.service_to_client[agent_id]:
+                    existing_client_id = self.registry.service_to_client[agent_id][service_name]
+                    logger.debug(f"🔍 [INIT_MCP] 找到现有Store client_id: {service_name} -> {existing_client_id}")
+                    return existing_client_id
+
+            # 检查agent_clients中是否有匹配的client_id
+            client_ids = self.registry.agent_clients.get(agent_id, [])
+            for client_id in client_ids:
+                if f"client_store_{service_name}_" in client_id:
+                    logger.debug(f"🔍 [INIT_MCP] 通过模式匹配找到Store client_id: {client_id}")
+                    return client_id
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error finding existing Store client_id for service {service_name}: {e}")
+            return None
+
     async def _initialize_services_from_mcp_config(self):
         """
         从 mcp.json 初始化服务，解析 Agent 服务并建立映射关系
@@ -74,42 +139,66 @@ class SetupMixin:
                         agent_service_name = f"{service_name}_byagent_{agent_id}"
                         self.registry.add_agent_service_mapping(agent_id, agent_service_name, service_name)
                         
-                        # 为 Agent 创建 Client 配置
-                        client_id = f"client_{agent_id}_{service_name}_{hash(str(service_config)) % 10000}"
+                        # 🔧 修复：检查是否已存在该服务的client_id，避免重复生成
+                        existing_client_id = self._find_existing_client_id_for_agent_service(agent_id, service_name)
+
+                        if existing_client_id:
+                            # 使用现有的client_id
+                            client_id = existing_client_id
+                            logger.debug(f"🔄 [INIT_MCP] 使用现有Agent client_id: {agent_service_name} -> {client_id}")
+                        else:
+                            # 生成新的client_id（使用确定性算法避免冲突）
+                            import hashlib
+                            config_hash = hashlib.md5(str(service_config).encode()).hexdigest()[:8]
+                            client_id = f"client_{agent_id}_{service_name}_{config_hash}"
+                            logger.debug(f"🆕 [INIT_MCP] 生成新Agent client_id: {agent_service_name} -> {client_id}")
+
                         client_config = {"mcpServers": {service_name: service_config}}
-                        
+
                         # 保存 Client 配置到缓存
                         self.registry.client_configs[client_id] = client_config
-                        
+
                         # 建立 Agent -> Client 映射
                         self.registry.add_agent_client_mapping(agent_id, client_id)
-                        
+
                         # 建立服务 -> Client 映射
                         if agent_id not in self.registry.service_to_client:
                             self.registry.service_to_client[agent_id] = {}
                         self.registry.service_to_client[agent_id][agent_service_name] = client_id
-                        
+
                         logger.debug(f"✅ [INIT_MCP] Agent 服务映射完成: {agent_service_name} -> {client_id}")
                     
                     else:
                         # Store 服务：添加到 global_agent_store
                         logger.debug(f"🔄 [INIT_MCP] 发现 Store 服务: {service_name}")
                         
-                        # 为 Store 服务创建 Client 配置
-                        client_id = f"client_store_{service_name}_{hash(str(service_config)) % 10000}"
+                        # 🔧 修复：检查是否已存在该服务的client_id，避免重复生成
+                        existing_client_id = self._find_existing_client_id_for_store_service(global_agent_store_id, service_name)
+
+                        if existing_client_id:
+                            # 使用现有的client_id
+                            client_id = existing_client_id
+                            logger.debug(f"🔄 [INIT_MCP] 使用现有Store client_id: {service_name} -> {client_id}")
+                        else:
+                            # 生成新的client_id（使用确定性算法避免冲突）
+                            import hashlib
+                            config_hash = hashlib.md5(str(service_config).encode()).hexdigest()[:8]
+                            client_id = f"client_store_{service_name}_{config_hash}"
+                            logger.debug(f"🆕 [INIT_MCP] 生成新Store client_id: {service_name} -> {client_id}")
+
                         client_config = {"mcpServers": {service_name: service_config}}
-                        
+
                         # 保存 Client 配置到缓存
                         self.registry.client_configs[client_id] = client_config
-                        
+
                         # 建立 global_agent_store -> Client 映射
                         self.registry.add_agent_client_mapping(global_agent_store_id, client_id)
-                        
+
                         # 建立服务 -> Client 映射
                         if global_agent_store_id not in self.registry.service_to_client:
                             self.registry.service_to_client[global_agent_store_id] = {}
                         self.registry.service_to_client[global_agent_store_id][service_name] = client_id
-                        
+
                         logger.debug(f"✅ [INIT_MCP] Store 服务映射完成: {service_name} -> {client_id}")
 
                 except Exception as e:
