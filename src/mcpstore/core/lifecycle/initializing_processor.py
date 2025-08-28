@@ -5,6 +5,7 @@ INITIALIZING状态快速处理器
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import Set, Tuple, Optional, List
 from mcpstore.core.models.service import ServiceConnectionState
@@ -27,10 +28,14 @@ class InitializingStateProcessor:
         # 配置参数
         self.check_interval = 0.2  # 200ms检查一次
         self.max_concurrent = 15   # 最大并发处理数
-        self.timeout_per_service = 3.0  # 每个服务3秒超时
+        # 初始连接窗口：默认取生命周期配置的 initialization_timeout；若不存在则回退到3秒
+        try:
+            self.timeout_per_service = float(getattr(self.lifecycle_manager.config, 'initialization_timeout', 3.0))
+        except Exception:
+            self.timeout_per_service = 3.0
         self.max_processing_time = 30.0  # 单个服务最大处理时间
-        
-        logger.info("InitializingStateProcessor initialized")
+
+        logger.info(f"[INIT_PROCESSOR] Initialized (timeout_per_service={self.timeout_per_service}s)")
     
     async def start(self):
         """启动INITIALIZING状态快速处理器"""
@@ -43,7 +48,7 @@ class InitializingStateProcessor:
             loop = asyncio.get_running_loop()
             self.processor_task = loop.create_task(self._fast_processing_loop())
             self.processor_task.add_done_callback(self._task_done_callback)
-            logger.info("InitializingStateProcessor started")
+            logger.info("[INIT_PROCESSOR] Started")
         except Exception as e:
             self.is_running = False
             logger.error(f"Failed to start InitializingStateProcessor: {e}")
@@ -64,7 +69,7 @@ class InitializingStateProcessor:
                 logger.error(f"Error during processor task cancellation: {e}")
         
         self.processing_services.clear()
-        logger.info("InitializingStateProcessor stopped")
+        logger.info("[INIT_PROCESSOR] Stopped")
     
     def _task_done_callback(self, task):
         """任务完成回调"""
@@ -73,7 +78,7 @@ class InitializingStateProcessor:
     
     async def _fast_processing_loop(self):
         """INITIALIZING状态快速处理主循环"""
-        logger.info("Starting INITIALIZING fast processing loop")
+        logger.info("[FAST_INIT] Loop started")
         
         while self.is_running:
             try:
@@ -81,8 +86,17 @@ class InitializingStateProcessor:
                 initializing_services = self._get_initializing_services()
                 
                 if initializing_services:
-                    logger.debug(f"🚀 [FAST_INIT] 发现{len(initializing_services)}个INITIALIZING服务")
-                    
+                    # 节流：仅在数量变化或间隔>2s时打印一次
+                    now = time.time()
+                    count = len(initializing_services)
+                    if not hasattr(self, "_last_fastinit_count"):
+                        self._last_fastinit_count = None
+                        self._last_fastinit_log = 0.0
+                    if (self._last_fastinit_count != count) or (now - self._last_fastinit_log) > 2.0:
+                        logger.debug(f"[FAST_INIT] initializing={count}")
+                        self._last_fastinit_count = count
+                        self._last_fastinit_log = now
+
                     # 过滤掉正在处理的服务
                     new_services = [
                         (agent_id, service_name) for agent_id, service_name in initializing_services
@@ -90,7 +104,7 @@ class InitializingStateProcessor:
                     ]
                     
                     if new_services:
-                        logger.debug(f"🚀 [FAST_INIT] 开始处理{len(new_services)}个新的INITIALIZING服务")
+                        logger.debug(f"[FAST_INIT] processing_new={len(new_services)}")
                         
                         # 创建处理任务（使用信号量控制并发）
                         semaphore = asyncio.Semaphore(self.max_concurrent)
@@ -112,27 +126,27 @@ class InitializingStateProcessor:
                                 try:
                                     await asyncio.gather(*tasks, return_exceptions=True)
                                 except Exception as e:
-                                    logger.error(f"❌ [FAST_INIT] 批量任务处理异常: {e}")
+                                    logger.error(f"[FAST_INIT] batch_error={e}")
 
                             asyncio.create_task(_handle_tasks())
                 
                 await asyncio.sleep(self.check_interval)
                 
             except asyncio.CancelledError:
-                logger.info("INITIALIZING fast processing loop was cancelled")
+                logger.info("[FAST_INIT] Loop cancelled")
                 break
             except Exception as e:
-                logger.error(f"❌ [FAST_INIT] 快速处理器循环异常: {e}")
+                logger.error(f"[FAST_INIT] Loop error: {e}")
                 await asyncio.sleep(1.0)
         
-        logger.info("INITIALIZING fast processing loop ended")
+        logger.info("[FAST_INIT] Loop ended")
     
     def _get_initializing_services(self) -> List[Tuple[str, str]]:
-        """🔧 [REFACTOR] 从Registry获取所有INITIALIZING状态的服务"""
+        """ [REFACTOR] 从Registry获取所有INITIALIZING状态的服务"""
         initializing_services = []
 
         try:
-            # 🔧 [REFACTOR] 从Registry获取所有agent的服务状态
+            #  [REFACTOR] 从Registry获取所有agent的服务状态
             for agent_id in self.lifecycle_manager.registry.service_states.keys():
                 service_names = self.lifecycle_manager.registry.get_all_service_names(agent_id)
                 for service_name in service_names:
@@ -140,7 +154,7 @@ class InitializingStateProcessor:
                     if state == ServiceConnectionState.INITIALIZING:
                         initializing_services.append((agent_id, service_name))
         except Exception as e:
-            logger.error(f"❌ [FAST_INIT] 获取INITIALIZING服务列表失败: {e}")
+            logger.error(f"[FAST_INIT] get_initializing_list_error={e}")
 
         return initializing_services
     
@@ -148,12 +162,12 @@ class InitializingStateProcessor:
         """带信号量的服务处理"""
         async with semaphore:
             try:
-                logger.debug(f"🔧 [FAST_INIT] 开始处理INITIALIZING服务: {service_name}")
+                logger.debug(f"[FAST_INIT] processing_service={service_name}")
 
-                # 🔧 修复：检查服务是否已经在连接中，避免重复连接
+                #  修复：检查服务是否已经在连接中，避免重复连接
                 current_state = self.lifecycle_manager.registry.get_service_state(agent_id, service_name)
                 if current_state and current_state not in [ServiceConnectionState.INITIALIZING, ServiceConnectionState.DISCONNECTED]:
-                    logger.debug(f"🔄 [FAST_INIT] 服务{service_name}已在连接中(状态:{current_state})，跳过重复连接")
+                    logger.debug(f" [FAST_INIT] 服务{service_name}已在连接中(状态:{current_state})，跳过重复连接")
                     return  # 跳过当前服务的处理
 
                 # 使用现有的初始连接逻辑，但加上超时
@@ -165,24 +179,24 @@ class InitializingStateProcessor:
                 logger.debug(f"✅ [FAST_INIT] 服务{service_name}处理完成")
                 
             except asyncio.TimeoutError:
-                logger.warning(f"⏰ [FAST_INIT] 服务{service_name}初始化超时，标记为DISCONNECTED")
+                logger.warning(f"[FAST_INIT] timeout_initialize service={service_name} -> RECONNECTING")
                 await self.lifecycle_manager._transition_to_state(
-                    agent_id, service_name, ServiceConnectionState.DISCONNECTED
+                    agent_id, service_name, ServiceConnectionState.RECONNECTING
                 )
             except Exception as e:
-                logger.error(f"❌ [FAST_INIT] 处理服务{service_name}失败: {e}")
+                logger.error(f"[FAST_INIT] process_error service={service_name} error={e}")
                 await self.lifecycle_manager._transition_to_state(
-                    agent_id, service_name, ServiceConnectionState.DISCONNECTED
+                    agent_id, service_name, ServiceConnectionState.RECONNECTING
                 )
             finally:
                 # 从处理集合中移除
                 self.processing_services.discard((agent_id, service_name))
-                logger.debug(f"🔧 [FAST_INIT] 服务{service_name}处理完毕，从处理队列移除")
+                logger.debug(f"[FAST_INIT] processed service={service_name} (removed from queue)")
 
     async def trigger_immediate_processing(self, agent_id: str, service_name: str):
         """触发立即处理（供add_service调用）"""
         if (agent_id, service_name) not in self.processing_services:
-            logger.debug(f"🚀 [FAST_INIT] 触发立即处理: {service_name}")
+            logger.debug(f"[FAST_INIT] trigger_immediate service={service_name}")
             self.processing_services.add((agent_id, service_name))
             
             # 创建立即处理任务

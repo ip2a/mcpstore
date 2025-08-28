@@ -148,10 +148,8 @@ export const storeServiceAPI = {
     return apiRequest.post(url)
   },
 
-  // 文件直接重置
+  // 文件直接重置（单一数据源模式：仅支持mcp.json）
   resetMcpJsonFile: () => apiRequest.post('/for_store/reset_mcp_json_file'),
-  resetClientServicesFile: () => apiRequest.post('/for_store/reset_client_services_file'),
-  resetAgentClientsFile: () => apiRequest.post('/for_store/reset_agent_clients_file'),
 
   // 获取统计信息
   getStats: () => apiRequest.get('/for_store/get_stats'),

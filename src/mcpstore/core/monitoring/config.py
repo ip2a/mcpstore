@@ -4,22 +4,9 @@
 """
 
 import logging
-from enum import Enum
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
-
-
-class ServiceStatus(Enum):
-    """完整的服务状态枚举"""
-    UNKNOWN = "unknown"           # 未知状态
-    HEALTHY = "healthy"           # 健康运行
-    WARNING = "warning"           # 响应慢但可用
-    SLOW = "slow"                # 响应很慢
-    UNHEALTHY = "unhealthy"       # 不健康
-    DISCONNECTED = "disconnected" # 已断开连接
-    RECONNECTING = "reconnecting" # 重连中
-    FAILED = "failed"            # 重连失败，已放弃
 
 
 class MonitoringConfigProcessor:

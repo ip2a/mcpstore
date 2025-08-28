@@ -43,17 +43,19 @@ class UnifiedConfigManager:
                  mcp_config_path: Optional[str] = None,
                  client_services_path: Optional[str] = None):
         """Initialize unified configuration manager
+        
+        🔧 单一数据源架构：client_services_path已废弃，仅保留向后兼容
 
         Args:
             mcp_config_path: MCP configuration file path
-            client_services_path: Client service configuration file path
+            client_services_path: 废弃参数，仅保留向后兼容
         """
         self.logger = logger
         
         # 初始化各个配置组件
         self.env_config = None
         self.mcp_config = MCPConfig(json_path=mcp_config_path)
-        self.client_manager = ClientManager(services_path=client_services_path)
+        self.client_manager = ClientManager()  # 🔧 单一数据源架构：简化初始化
         
         # 配置缓存
         self._config_cache: Dict[ConfigType, Dict[str, Any]] = {}
@@ -72,7 +74,7 @@ class UnifiedConfigManager:
             self._config_cache[ConfigType.ENVIRONMENT] = self.env_config
             self._cache_valid[ConfigType.ENVIRONMENT] = True
             
-            # 预加载其他配置到缓存
+            # 预加载配置到缓存（单一数据源：仅加载 MCP_SERVICES；其余返回空映射）
             self._refresh_cache(ConfigType.MCP_SERVICES)
             self._refresh_cache(ConfigType.CLIENT_SERVICES)
             self._refresh_cache(ConfigType.AGENT_CLIENTS)
@@ -86,12 +88,13 @@ class UnifiedConfigManager:
         try:
             if config_type == ConfigType.MCP_SERVICES:
                 self._config_cache[config_type] = self.mcp_config.load_config()
-            elif config_type == ConfigType.CLIENT_SERVICES:
-                self._config_cache[config_type] = self.client_manager.load_all_clients()
-            elif config_type == ConfigType.AGENT_CLIENTS:
-                self._config_cache[config_type] = self.client_manager.load_all_agent_clients()
-            
-            self._cache_valid[config_type] = True
+                self._cache_valid[config_type] = True
+            elif config_type in (ConfigType.CLIENT_SERVICES, ConfigType.AGENT_CLIENTS):
+                # 单一数据源架构：分片文件已废弃，统一返回空映射并标记为有效，避免异常
+                self._config_cache[config_type] = {}
+                self._cache_valid[config_type] = True
+            else:
+                self._cache_valid[config_type] = False
             
         except Exception as e:
             logger.error(f"Failed to refresh cache for {config_type}: {e}")
@@ -198,22 +201,15 @@ class UnifiedConfigManager:
             return False
     
     def add_client(self, config: Dict[str, Any], client_id: Optional[str] = None) -> str:
-        """添加新的客户端配置
-        
-        Args:
-            config: 客户端配置
-            client_id: 可选的客户端ID
-            
-        Returns:
-            使用的客户端ID
         """
-        try:
-            client_id = self.client_manager.add_client(config, client_id)
-            self._refresh_cache(ConfigType.CLIENT_SERVICES)
-            return client_id
-        except Exception as e:
-            logger.error(f"Failed to add client: {e}")
-            raise
+        🔧 单一数据源架构：废弃方法，现已不支持
+        
+        新架构下，客户端配置通过mcp.json和缓存管理，不再单独管理
+        """
+        raise NotImplementedError(
+            "add_client已废弃。单一数据源架构下，请使用MCPStore.add_service()方法添加服务，"
+            "客户端配置将自动通过mcp.json和缓存管理。"
+        )
     
     def get_all_configs(self) -> Dict[str, Dict[str, Any]]:
         """获取所有配置
@@ -250,19 +246,19 @@ class UnifiedConfigManager:
             is_valid=self._cache_valid.get(ConfigType.MCP_SERVICES, False)
         ))
         
-        # 客户端服务配置信息
+        # 🔧 单一数据源架构：分片文件配置已废弃
         configs.append(ConfigInfo(
             config_type=ConfigType.CLIENT_SERVICES,
-            source=self.client_manager.services_path,
-            is_valid=self._cache_valid.get(ConfigType.CLIENT_SERVICES, False)
+            source="[已废弃] 单一数据源架构下不再使用分片文件",
+            is_valid=False,
+            error_message="单一数据源架构：client_services.json已废弃"
         ))
         
-        # Agent-Client映射配置信息
-        agent_clients_path = getattr(self.client_manager, 'agent_clients_path', 'Unknown')
         configs.append(ConfigInfo(
             config_type=ConfigType.AGENT_CLIENTS,
-            source=agent_clients_path,
-            is_valid=self._cache_valid.get(ConfigType.AGENT_CLIENTS, False)
+            source="[已废弃] 单一数据源架构下不再使用分片文件",
+            is_valid=False,
+            error_message="单一数据源架构：agent_clients.json已废弃"
         ))
         
         return configs
@@ -329,7 +325,9 @@ def get_global_config_manager() -> UnifiedConfigManager:
         _global_config_manager = UnifiedConfigManager()
     return _global_config_manager
 
+
 def set_global_config_manager(manager: UnifiedConfigManager):
     """设置全局统一配置管理器实例"""
     global _global_config_manager
     _global_config_manager = manager
+

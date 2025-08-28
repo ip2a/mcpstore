@@ -162,33 +162,53 @@ class ServiceQueryMixin:
         # 严格按上下文获取要查找的 client_ids
         if not agent_id:
             # Store上下文：只查找global_agent_store下的服务
-            client_ids = client_manager.get_agent_clients(self.client_manager.global_agent_store_id)
+            client_ids = self.registry.get_agent_clients_from_cache(self.client_manager.global_agent_store_id)
             context_type = "store"
         else:
             # Agent上下文：只查找指定agent下的服务
-            client_ids = client_manager.get_agent_clients(agent_id)
+            client_ids = self.registry.get_agent_clients_from_cache(agent_id)
             context_type = f"agent({agent_id})"
 
         if not client_ids:
             return ServiceInfoResponse(
                 success=False,
                 message=f"No client_ids found for {context_type} context",
-                service_info=None
+                service=None,
+                tools=[],
+                connected=False
             )
 
         # 按client_id顺序查找服务
-        for client_id in client_ids:
-            service_names = self.registry.get_all_service_names(client_id)
-            if name in service_names:
+        # 🔧 修复：服务存储在agent_id级别，而不是client_id级别
+        agent_id_for_query = self.client_manager.global_agent_store_id if not agent_id else agent_id
+        service_names = self.registry.get_all_service_names(agent_id_for_query)
+        
+        if name in service_names:
+            # 找到服务，需要确定它属于哪个client_id
+            service_client_id = self.registry.get_service_client_id(agent_id_for_query, name)
+            if service_client_id and service_client_id in client_ids:
                 # 找到服务，获取详细信息
                 config = self.config.get_service_config(name) or {}
 
                 # 获取生命周期状态
-                service_state = self.orchestrator.lifecycle_manager.get_service_state(client_id, name)
+                service_state = self.orchestrator.lifecycle_manager.get_service_state(agent_id_for_query, name)
 
-                # 获取工具数量
-                tool_count = len(self.registry.get_all_tool_info(client_id, name))
+                # 获取工具信息
+                # 🔧 修复：使用正确的方法获取特定服务的工具信息
+                tool_names = self.registry.get_tools_for_service(agent_id_for_query, name)
+                tools_info = []
+                for tool_name in tool_names:
+                    tool_info = self.registry.get_tool_info(agent_id_for_query, tool_name)
+                    if tool_info:
+                        tools_info.append(tool_info)
+                tool_count = len(tools_info)
 
+                # 获取连接状态
+                connected = service_state in [ServiceConnectionState.HEALTHY, ServiceConnectionState.WARNING]
+
+                # 🔧 修复：获取真实的生命周期数据
+                service_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(agent_id_for_query, name)
+                
                 # 构建ServiceInfo
                 service_info = ServiceInfo(
                     url=config.get("url", ""),
@@ -199,27 +219,31 @@ class ServiceQueryMixin:
                     keep_alive=config.get("keep_alive", False),
                     working_dir=config.get("working_dir"),
                     env=config.get("env"),
-                    last_heartbeat=None,  # TODO: 从生命周期管理器获取
+                    last_heartbeat=service_metadata.last_ping_time if service_metadata else None,  # 🔧 真实数据
                     command=config.get("command"),
                     args=config.get("args"),
                     package_name=config.get("package_name"),
-                    state_metadata=None,  # TODO: 从生命周期管理器获取
-                    last_state_change=None,  # TODO: 从生命周期管理器获取
-                    client_id=client_id,
+                    state_metadata=service_metadata,  # 🔧 真实数据
+                    last_state_change=service_metadata.state_entered_time if service_metadata else None,  # 🔧 真实数据
+                    client_id=service_client_id,
                     config=config
                 )
 
                 return ServiceInfoResponse(
                     success=True,
-                    message=f"Service found in {context_type} context (client_id: {client_id})",
-                    service_info=service_info
+                    message=f"Service found in {context_type} context (client_id: {service_client_id})",
+                    service=service_info,
+                    tools=tools_info,
+                    connected=connected
                 )
 
         # 未找到服务
         return ServiceInfoResponse(
             success=False,
             message=f"Service '{name}' not found in {context_type} context (searched {len(client_ids)} clients)",
-            service_info=None
+            service=None,
+            tools=[],
+            connected=False
         )
 
     async def get_health_status(self, id: Optional[str] = None, agent_mode: bool = False) -> Dict[str, Any]:
@@ -235,7 +259,7 @@ class ServiceQueryMixin:
         services = []
         # 1. store未传id 或 id==global_agent_store，聚合 global_agent_store 下所有 client_id 的服务健康状态
         if not agent_mode and (not id or id == self.client_manager.global_agent_store_id):
-            client_ids = client_manager.get_agent_clients(self.client_manager.global_agent_store_id)
+            client_ids = self.registry.get_agent_clients_from_cache(self.client_manager.global_agent_store_id)
             for client_id in client_ids:
                 service_names = self.registry.get_all_service_names(client_id)
                 for name in service_names:
@@ -301,7 +325,7 @@ class ServiceQueryMixin:
             }
         # 3. agent级别，聚合 agent_id 下所有 client_id 的服务健康状态；如果 id 不是 agent_id，尝试作为 client_id 查
         if agent_mode and id:
-            client_ids = client_manager.get_agent_clients(id)
+            client_ids = self.registry.get_agent_clients_from_cache(id)
             if client_ids:
                 for client_id in client_ids:
                     service_names = self.registry.get_all_service_names(client_id)

@@ -32,7 +32,7 @@ class AgentStatisticsMixin:
         """
         try:
             # 🔧 [REFACTOR] Get all Agent IDs from Registry cache
-            logger.info("🔄 [AGENT_STATS] 开始获取Agent统计信息...")
+            logger.info(" [AGENT_STATS] 开始获取Agent统计信息...")
             all_agent_ids = self._store.registry.get_all_agent_ids()
             logger.info(f"🔧 [AGENT_STATS] 从Registry缓存获取到的Agent IDs: {all_agent_ids}")
 
@@ -47,7 +47,7 @@ class AgentStatisticsMixin:
             for agent_id in all_agent_ids:
                 try:
                     # Get Agent statistics information
-                    logger.info(f"🔄 [AGENT_STATS] 开始获取Agent {agent_id} 的详细统计信息...")
+                    logger.info(f" [AGENT_STATS] 开始获取Agent {agent_id} 的详细统计信息...")
                     agent_stats = await self._get_agent_statistics(agent_id)
                     logger.info(f"✅ [AGENT_STATS] Agent {agent_id} 统计完成: {agent_stats.service_count}个服务, {agent_stats.tool_count}个工具")
                     
@@ -113,8 +113,8 @@ class AgentStatisticsMixin:
         """
         try:
             # 获取Agent的所有client
-            logger.info(f"🔄 [AGENT_STATS] 获取Agent {agent_id} 的所有client...")
-            client_ids = self._store.orchestrator.client_manager.get_agent_clients(agent_id)
+            logger.info(f" [AGENT_STATS] 获取Agent {agent_id} 的所有client...")
+            client_ids = self._store.registry.get_agent_clients_from_cache(agent_id)
             logger.info(f"🔧 [AGENT_STATS] Agent {agent_id} 的client列表: {client_ids}")
 
             # 统计服务和工具

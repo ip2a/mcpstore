@@ -75,7 +75,7 @@ class ServiceRegistry:
         if self._state_sync_manager is None:
             from mcpstore.core.sync.shared_client_state_sync import SharedClientStateSyncManager
             self._state_sync_manager = SharedClientStateSyncManager(self)
-            logger.debug("🔧 [REGISTRY] State sync manager initialized")
+            logger.debug("[REGISTRY] state_sync_manager initialized")
 
     def clear(self, agent_id: str):
         """
@@ -148,7 +148,7 @@ class ServiceRegistry:
         if name in self.sessions[agent_id]:
             if preserve_mappings:
                 # 保留映射关系，只清理工具缓存
-                logger.debug(f"🔧 [ADD_SERVICE] 服务 {name} 已存在，保留映射关系，只清理工具缓存")
+                logger.debug(f"[ADD_SERVICE] exists keep_mappings=True clear_tools_only name={name}")
                 self.clear_service_tools_only(agent_id, name)
             else:
                 # 传统逻辑：完全移除服务
@@ -159,7 +159,7 @@ class ServiceRegistry:
         self.sessions[agent_id][name] = session  # 失败的服务session为None
         self.service_states[agent_id][name] = state
 
-        # 🔧 关键：存储完整的服务配置和元数据
+        # 关键：存储完整的服务配置和元数据
         if name not in self.service_metadata[agent_id]:
             from mcpstore.core.models.service import ServiceStateMetadata
             from datetime import datetime
@@ -264,7 +264,7 @@ class ServiceRegistry:
             # 获取现有会话
             existing_session = self.sessions.get(agent_id, {}).get(service_name)
             if not existing_session:
-                logger.debug(f"🔧 [CLEAR_TOOLS] 服务 {service_name} 没有现有会话，跳过清理")
+                logger.debug(f"[CLEAR_TOOLS] no_session service={service_name} skip=True")
                 return
 
             # 只清理工具相关的缓存
@@ -286,7 +286,7 @@ class ServiceRegistry:
             if agent_id in self.sessions and service_name in self.sessions[agent_id]:
                 del self.sessions[agent_id][service_name]
 
-            logger.debug(f"🔧 [CLEAR_TOOLS] 已清理服务 {service_name} 的 {len(tools_to_remove)} 个工具，保留映射关系")
+            logger.debug(f"[CLEAR_TOOLS] cleared_tools service={service_name} count={len(tools_to_remove)} keep_mappings=True")
 
         except Exception as e:
             logger.error(f"Failed to clear service tools for {service_name}: {e}")
@@ -391,28 +391,36 @@ class ServiceRegistry:
     def get_tools_for_service(self, agent_id: str, name: str) -> List[str]:
         """
         获取指定 agent_id 下某服务的所有工具名。
+        🔧 修复：改为从service_to_client映射和tool_cache获取，而不是依赖sessions
         """
-        session = self.sessions.get(agent_id, {}).get(name)
-        logger.info(f"🔧 [REGISTRY] Getting tools for service: {name} (agent_id={agent_id})")
+        logger.info(f"[REGISTRY] get_tools service={name} agent_id={agent_id}")
 
-        # 只在调试特定问题时打印详细日志
-        if logger.getEffectiveLevel() <= logging.DEBUG:
-            print(f"[DEBUG][get_tools_for_service] agent_id={agent_id}, name={name}, id(session)={id(session) if session else None}")
-
-        if not session:
-            logger.warning(f"🔧 [REGISTRY] No session found for service {name}")
+        # 🔧 修复：首先检查服务是否存在
+        if not self.has_service(agent_id, name):
+            logger.warning(f"[REGISTRY] service_not_exists service={name}")
             return []
 
-        # 🆕 使用新的工具过滤逻辑：根据 session 匹配
+        # 🔧 修复：从tool_cache中查找属于该服务的工具
         tools = []
+        tool_cache = self.tool_cache.get(agent_id, {})
         tool_to_session = self.tool_to_session_map.get(agent_id, {})
-        logger.debug(f"🔧 [REGISTRY] tool_to_session_map has {len(tool_to_session)} entries")
+        
+        # 获取该服务的session（如果存在）
+        service_session = self.sessions.get(agent_id, {}).get(name)
+        
+        logger.debug(f"[REGISTRY] tool_cache_size={len(tool_cache)} tool_to_session_size={len(tool_to_session)}")
 
-        for tool_name, tool_session in tool_to_session.items():
-            if tool_session is session:
+        for tool_name in tool_cache.keys():
+            tool_session = tool_to_session.get(tool_name)
+            # 如果有session，使用session匹配；如果没有session，通过其他方式识别
+            if service_session and tool_session is service_session:
                 tools.append(tool_name)
+            elif not service_session:
+                # 🔧 当sessions为空时，通过工具名前缀匹配（备用方案）
+                if tool_name.startswith(f"{name}_") or tool_name.startswith(f"{name}-"):
+                    tools.append(tool_name)
 
-        logger.debug(f"🔧 [REGISTRY] Found {len(tools)} tools for service {name}: {tools}")
+        logger.debug(f"[REGISTRY] found_tools service={name} count={len(tools)} list={tools}")
         return tools
 
     def _extract_description_from_schema(self, prop_info):
@@ -480,6 +488,8 @@ class ServiceRegistry:
             function_data = tool_def["function"]
             return {
                 'name': tool_name,
+                'display_name': function_data.get('display_name', tool_name),
+                'original_name': function_data.get('name', tool_name),
                 'description': function_data.get('description', ''),
                 'inputSchema': function_data.get('parameters', {}),
                 'service_name': service_name,
@@ -488,6 +498,8 @@ class ServiceRegistry:
         else:
             return {
                 'name': tool_name,
+                'display_name': tool_def.get('display_name', tool_name),
+                'original_name': tool_def.get('name', tool_name),
                 'description': tool_def.get('description', ''),
                 'inputSchema': tool_def.get('parameters', {}),
                 'service_name': service_name,
@@ -582,8 +594,9 @@ class ServiceRegistry:
     def get_all_service_names(self, agent_id: str) -> List[str]:
         """
         获取指定 agent_id 下所有已注册服务名。
+        🔧 修复：从service_states获取服务列表，而不是sessions（sessions可能为空）
         """
-        return list(self.sessions.get(agent_id, {}).keys())
+        return list(self.service_states.get(agent_id, {}).keys())
 
     def get_services_for_agent(self, agent_id: str) -> List[str]:
         """
@@ -674,8 +687,9 @@ class ServiceRegistry:
     def has_service(self, agent_id: str, name: str) -> bool:
         """
         判断指定 agent_id 下是否存在某服务。
+        🔧 修复：从service_states判断服务是否存在，而不是sessions（sessions可能为空）
         """
-        return name in self.sessions.get(agent_id, {})
+        return name in self.service_states.get(agent_id, {})
 
     def get_service_config(self, agent_id: str, name: str) -> Optional[Dict[str, Any]]:
         """获取服务配置"""
@@ -793,23 +807,23 @@ class ServiceRegistry:
 
         if client_id not in self.agent_clients[agent_id]:
             self.agent_clients[agent_id].append(client_id)
-            logger.debug(f"🔧 [REGISTRY] Added client {client_id} to agent {agent_id} in cache")
-            logger.debug(f"🔧 [REGISTRY] Current agent_clients: {dict(self.agent_clients)}")
+            logger.debug(f"[REGISTRY] agent_client_added client_id={client_id} agent_id={agent_id}")
+            logger.debug(f"[REGISTRY] agent_clients={dict(self.agent_clients)}")
         else:
-            logger.debug(f"🔧 [REGISTRY] Client {client_id} already exists for agent {agent_id}")
+            logger.debug(f"[REGISTRY] agent_client_exists client_id={client_id} agent_id={agent_id}")
 
     def get_all_agent_ids(self) -> List[str]:
         """🔧 [REFACTOR] 从缓存获取所有Agent ID列表"""
         agent_ids = list(self.agent_clients.keys())
-        logger.info(f"🔧 [REGISTRY] Getting all agent IDs from cache: {agent_ids}")
-        logger.info(f"🔧 [REGISTRY] Full agent_clients cache content: {dict(self.agent_clients)}")
+        logger.info(f"[REGISTRY] get_all_agent_ids ids={agent_ids}")
+        logger.info(f"[REGISTRY] agent_clients_full={dict(self.agent_clients)}")
         return agent_ids
 
     def get_agent_clients_from_cache(self, agent_id: str) -> List[str]:
         """从缓存获取 Agent 的所有 Client ID"""
         result = self.agent_clients.get(agent_id, [])
-        logger.debug(f"🔧 [REGISTRY] Getting clients for agent {agent_id}: {result}")
-        logger.debug(f"🔧 [REGISTRY] Full agent_clients cache: {dict(self.agent_clients)}")
+        logger.debug(f"[REGISTRY] get_clients agent_id={agent_id} result={result}")
+        logger.debug(f"[REGISTRY] agent_clients_full={dict(self.agent_clients)}")
         return result
 
     def remove_agent_client_mapping(self, agent_id: str, client_id: str):
@@ -855,10 +869,10 @@ class ServiceRegistry:
         """获取服务对应的 Client ID"""
         result = self.service_to_client.get(agent_id, {}).get(service_name)
         # 🔧 调试：记录映射查询结果
-        logger.debug(f"🔍 [CLIENT_ID_LOOKUP] agent_id={agent_id}, service_name={service_name}, result={result}")
-        logger.debug(f"🔍 [CLIENT_ID_LOOKUP] service_to_client keys: {list(self.service_to_client.keys())}")
+        logger.debug(f"[CLIENT_ID_LOOKUP] agent_id={agent_id} service_name={service_name} result={result}")
+        logger.debug(f"[CLIENT_ID_LOOKUP] keys={list(self.service_to_client.keys())}")
         if agent_id in self.service_to_client:
-            logger.debug(f"🔍 [CLIENT_ID_LOOKUP] services for {agent_id}: {list(self.service_to_client[agent_id].keys())}")
+            logger.debug(f"[CLIENT_ID_LOOKUP] services_for_agent={list(self.service_to_client[agent_id].keys())}")
         return result
 
     def remove_service_client_mapping(self, agent_id: str, service_name: str):
@@ -959,7 +973,7 @@ class ServiceRegistry:
             "config": metadata.service_config if metadata else {},
             "consecutive_failures": metadata.consecutive_failures if metadata else 0,
             "state_entered_time": safe_isoformat(metadata.state_entered_time if metadata else None),
-            # 🔧 修复：添加state_metadata字段，用于判断服务是否激活
+            # 修复：添加state_metadata字段，用于判断服务是否激活
             "state_metadata": metadata
         }
 
@@ -1040,7 +1054,7 @@ class ServiceRegistry:
         try:
             # 这里可以实现具体的同步逻辑
             # 目前作为占位符，实际同步由cache_manager处理
-            logger.debug("Registry sync_to_client_manager called")
+            logger.debug("[REGISTRY] sync_to_client_manager called")
 
         except Exception as e:
             logger.error(f"Failed to sync registry to ClientManager: {e}")

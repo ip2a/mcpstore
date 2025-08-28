@@ -11,6 +11,8 @@ from .content_manager import ServiceContentManager
 from .health_manager import get_health_manager, HealthStatus, HealthCheckResult
 from .smart_reconnection import SmartReconnectionManager
 from .config import ServiceLifecycleConfig
+from .health_bridge import HealthStatusBridge
+from .unified_state_manager import UnifiedServiceStateManager
 
 __all__ = [
     'ServiceLifecycleManager',
@@ -19,7 +21,9 @@ __all__ = [
     'HealthStatus',
     'HealthCheckResult',
     'SmartReconnectionManager',
-    'ServiceLifecycleConfig'
+    'ServiceLifecycleConfig',
+    'HealthStatusBridge',
+    'UnifiedServiceStateManager'
 ]
 
 # For backward compatibility, also export some commonly used types

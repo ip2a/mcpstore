@@ -73,7 +73,7 @@ class ToolsUpdateMonitor:
             Dict: 更新结果
         """
         if not self.enable_notifications:
-            logger.debug("Notifications disabled, ignoring notification trigger")
+            logger.debug("[TOOLS_MONITOR] notification disabled ignore")
             return {"changed": False, "trigger": "notification", "reason": "disabled"}
 
         # 防抖处理
@@ -86,7 +86,7 @@ class ToolsUpdateMonitor:
 
         self.last_notification_times[notification_type] = current_time
 
-        logger.info(f"🔔 Processing {notification_type} notification trigger")
+        logger.info(f"[TOOLS_MONITOR] notification trigger type='{notification_type}'")
 
         try:
             # 执行立即更新
@@ -94,11 +94,11 @@ class ToolsUpdateMonitor:
             result["trigger"] = "notification"
             result["notification_type"] = notification_type
             
-            logger.info(f"✅ Notification-triggered update completed: {result}")
+            logger.info(f"[TOOLS_MONITOR] notification update_completed result={result}")
             return result
 
         except Exception as e:
-            logger.error(f"❌ Error processing notification trigger: {e}")
+            logger.error(f"[TOOLS_MONITOR] notification error={e}")
             return {
                 "changed": False,
                 "trigger": "notification",
@@ -182,16 +182,16 @@ class ToolsUpdateMonitor:
         if not self.enable_tools_update:
             return
 
-        logger.debug("🔄 Performing scheduled tools update")
+        logger.debug("[TOOLS_MONITOR] scheduled_update start")
         
         try:
             result = await self.trigger_immediate_update()
             result["trigger"] = "scheduled"
             
             if result.get("changed", False):
-                logger.info(f"✅ Scheduled update found changes: {result}")
+                logger.info(f"[TOOLS_MONITOR] scheduled_update changes result={result}")
             else:
-                logger.debug(f"⏸️ Scheduled update found no changes: {result}")
+                logger.debug(f"[TOOLS_MONITOR] scheduled_update no_changes result={result}")
                 
         except Exception as e:
             logger.error(f"❌ Error during scheduled update: {e}")
@@ -206,7 +206,7 @@ class ToolsUpdateMonitor:
         if not self.enable_tools_update:
             return {"changed": False, "reason": "disabled"}
 
-        logger.debug("🔄 Starting immediate tools update")
+        logger.debug("[TOOLS_MONITOR] immediate_update start")
         start_time = time.time()
         
         # 获取所有活跃的服务
@@ -216,7 +216,7 @@ class ToolsUpdateMonitor:
                 all_services.append((client_id, service_name))
         
         if not all_services:
-            logger.debug("No active services found for tools update")
+            logger.debug("[TOOLS_MONITOR] no_active_services")
             return {
                 "changed": False,
                 "reason": "no_services",
@@ -249,18 +249,18 @@ class ToolsUpdateMonitor:
             
             if isinstance(result, Exception):
                 failed_updates += 1
-                logger.error(f"❌ Failed to update tools for {service_name} (client {client_id}): {result}")
+                logger.error(f"[TOOLS_MONITOR] update_failed service='{service_name}' client='{client_id}' error={result}")
             elif isinstance(result, dict):
                 successful_updates += 1
                 if result.get("changed", False):
                     services_with_changes += 1
                     total_changes += result.get("changes_count", 0)
-                    logger.info(f"✅ Tools updated for {service_name} (client {client_id}): {result.get('changes_count', 0)} changes")
+                    logger.info(f"[TOOLS_MONITOR] updated service='{service_name}' client='{client_id}' changes={result.get('changes_count', 0)}")
                 else:
-                    logger.debug(f"⏸️ No changes for {service_name} (client {client_id})")
+                    logger.debug(f"[TOOLS_MONITOR] no_changes service='{service_name}' client='{client_id}'")
             else:
                 failed_updates += 1
-                logger.error(f"❌ Unexpected result type for {service_name} (client {client_id}): {type(result)}")
+                logger.error(f"[TOOLS_MONITOR] unexpected_result_type service='{service_name}' client='{client_id}' type={type(result)}")
         
         duration = time.time() - start_time
         
@@ -275,7 +275,7 @@ class ToolsUpdateMonitor:
             "timestamp": datetime.now().isoformat()
         }
         
-        logger.info(f"🔄 Immediate update completed: {summary}")
+        logger.info(f"[TOOLS_MONITOR] immediate_update done summary={summary}")
         return summary
 
     async def _update_service_tools(self, client_id: str, service_name: str) -> Dict[str, Any]:
@@ -290,14 +290,14 @@ class ToolsUpdateMonitor:
             Dict: 更新结果
         """
         try:
-            logger.debug(f"🔄 Updating tools for service {service_name} (client {client_id})")
+            logger.debug(f"[TOOLS_MONITOR] updating service='{service_name}' client='{client_id}'")
 
-            # 获取客户端
-            client = self.orchestrator.client_manager.get_client(client_id, service_name)
+            # 获取客户端会话（统一从Registry缓存获取）
+            client = self.registry.get_session(client_id, service_name)
             if not client:
                 return {
                     "changed": False,
-                    "error": f"No client found for {service_name}",
+                    "error": f"No active session found for {service_name}",
                     "service_name": service_name,
                     "client_id": client_id
                 }
@@ -310,7 +310,7 @@ class ToolsUpdateMonitor:
                 tools_response = await client.list_tools()
                 new_tools = {tool.name for tool in tools_response}
             except Exception as e:
-                logger.error(f"❌ Failed to list tools from {service_name}: {e}")
+                logger.error(f"[TOOLS_MONITOR] list_tools_failed service='{service_name}' error={e}")
                 return {
                     "changed": False,
                     "error": f"Failed to list tools: {str(e)}",
@@ -326,22 +326,28 @@ class ToolsUpdateMonitor:
 
             if changes_count > 0:
                 # 有变化，更新注册表
-                logger.info(f"🔄 Tools changed for {service_name}: +{len(added_tools)} -{len(removed_tools)}")
+                logger.info(f" Tools changed for {service_name}: +{len(added_tools)} -{len(removed_tools)}")
 
                 # 更新工具注册
                 session = self.registry.sessions.get(client_id, {}).get(service_name)
                 if session:
-                    # 移除旧工具
+                    # 移除旧工具（映射）
                     for tool_name in removed_tools:
                         if client_id in self.registry.tool_to_session_map and tool_name in self.registry.tool_to_session_map[client_id]:
                             del self.registry.tool_to_session_map[client_id][tool_name]
 
-                    # 添加新工具
+                    # 添加新工具（映射）
                     if client_id not in self.registry.tool_to_session_map:
                         self.registry.tool_to_session_map[client_id] = {}
 
                     for tool_name in added_tools:
                         self.registry.tool_to_session_map[client_id][tool_name] = session
+
+                    # 触发全量工具定义刷新，确保缓存定义同步
+                    try:
+                        await self.orchestrator.content_manager.force_update_service_content(client_id, service_name)
+                    except Exception as refresh_err:
+                        logger.warning(f"[TOOLS_MONITOR] content_refresh_failed service='{service_name}' error={refresh_err}")
 
                 # 更新时间戳
                 self._update_service_timestamp(service_name, client_id)
@@ -357,7 +363,7 @@ class ToolsUpdateMonitor:
                 }
             else:
                 # 无变化
-                logger.debug(f"⏸️ No tool changes for {service_name}")
+                logger.debug(f"[TOOLS_MONITOR] no_tool_changes service='{service_name}'")
                 return {
                     "changed": False,
                     "changes_count": 0,
@@ -366,7 +372,7 @@ class ToolsUpdateMonitor:
                 }
 
         except Exception as e:
-            logger.error(f"❌ Error updating tools for {service_name}: {e}")
+            logger.error(f"[TOOLS_MONITOR] update_error service='{service_name}' error={e}")
             return {
                 "changed": False,
                 "error": str(e),
@@ -386,24 +392,24 @@ class ToolsUpdateMonitor:
             Dict: 更新结果
         """
         if not self.update_tools_on_reconnection:
-            logger.debug(f"Tools update on reconnection disabled for {service_name}")
+            logger.debug(f"[TOOLS_MONITOR] reconnection_update_disabled service='{service_name}'")
             return {"changed": False, "reason": "disabled"}
 
-        logger.info(f"🔄 Updating tools for {service_name} after reconnection")
+        logger.info(f"[TOOLS_MONITOR] reconnection_update service='{service_name}'")
 
         try:
             result = await self._update_service_tools(client_id, service_name)
             result["trigger"] = "reconnection"
 
             if result.get("changed", False):
-                logger.info(f"✅ Reconnection update found changes for {service_name}: {result}")
+                logger.info(f"[TOOLS_MONITOR] reconnection_update changes result={result}")
             else:
-                logger.debug(f"⏸️ Reconnection update found no changes for {service_name}")
+                logger.debug(f"[TOOLS_MONITOR] reconnection_update no_changes service='{service_name}'")
 
             return result
 
         except Exception as e:
-            logger.error(f"❌ Error during reconnection update for {service_name}: {e}")
+            logger.error(f"[TOOLS_MONITOR] reconnection_update_error service='{service_name}' error={e}")
             return {
                 "changed": False,
                 "error": str(e),
@@ -481,11 +487,11 @@ class ToolsUpdateMonitor:
         if "fallback_to_polling" in notification_config:
             self.fallback_to_polling = notification_config["fallback_to_polling"]
 
-        logger.info(f"ToolsUpdateMonitor configuration updated")
+        logger.info(f"[TOOLS_MONITOR] config_updated")
 
     def cleanup(self):
         """清理资源"""
-        logger.debug("Cleaning up ToolsUpdateMonitor")
+        logger.debug("[TOOLS_MONITOR] cleanup start")
 
         # 清理状态数据
         self.last_update_times.clear()
@@ -495,4 +501,4 @@ class ToolsUpdateMonitor:
         if self.message_handler:
             self.message_handler.clear_notification_history()
 
-        logger.info("ToolsUpdateMonitor cleanup completed")
+        logger.info("[TOOLS_MONITOR] cleanup completed")

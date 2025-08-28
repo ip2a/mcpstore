@@ -13,8 +13,8 @@ from datetime import datetime, timedelta
 
 from mcpstore.core.registry import ServiceRegistry
 from mcpstore.core.client_manager import ClientManager
-from mcpstore.core.config_processor import ConfigProcessor
-from mcpstore.core.local_service_manager import get_local_service_manager
+from mcpstore.core.configuration.config_processor import ConfigProcessor
+from mcpstore.core.integration.local_service_adapter import get_local_service_manager
 from fastmcp import Client
 from mcpstore.config.json_config import MCPConfig
 from mcpstore.core.session_manager import SessionManager
@@ -79,7 +79,7 @@ class MCPOrchestrator(
         self.store = None
 
         # 🔧 新增：异步同步助手（用于Resources和Prompts的同步方法）
-        from mcpstore.core.async_sync_helper import AsyncSyncHelper
+        from mcpstore.core.utils.async_sync_helper import AsyncSyncHelper
         self._sync_helper = AsyncSyncHelper()
 
         # 旧的心跳和重连配置已被ServiceLifecycleManager替代
@@ -103,12 +103,11 @@ class MCPOrchestrator(
         # 旧的资源管理配置已被ServiceLifecycleManager替代
         # 保留一些配置以避免错误，但实际不再使用
 
-        # 客户端管理器 - 支持数据空间
+        # 🔧 单一数据源架构：简化客户端管理器初始化
         self.client_manager = ClientManager(
-            services_path=client_services_path,
-            agent_clients_path=agent_clients_path,
             global_agent_store_id=None  # 使用默认的"global_agent_store"
         )
+        # 注意：client_services_path和agent_clients_path参数已废弃，保留在__init__参数中只为向后兼容
 
         # 会话管理器
         self.session_manager = SessionManager()
@@ -199,6 +198,12 @@ class MCPOrchestrator(
         # 启动内容管理器
         await self.content_manager.start()
 
+        # 启动监控任务（仅启动保留的工具更新监控器）
+        try:
+            await self.start_monitoring()
+        except Exception as e:
+            logger.warning(f"Failed to start monitoring tasks: {e}")
+
         # 🔧 新增：启动统一同步管理器
         try:
             logger.info("About to call _setup_sync_manager()...")
@@ -225,7 +230,7 @@ class MCPOrchestrator(
             # 只有在非独立配置模式下才启用文件监听同步
             if not self.standalone_config_manager:
                 logger.info("Creating unified sync manager...")
-                from mcpstore.core.unified_sync_manager import UnifiedMCPSyncManager
+                from mcpstore.core.sync.unified_sync_manager import UnifiedMCPSyncManager
                 if not hasattr(self, 'sync_manager') or not self.sync_manager:
                     logger.info("Initializing UnifiedMCPSyncManager...")
                     self.sync_manager = UnifiedMCPSyncManager(self)

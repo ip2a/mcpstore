@@ -9,7 +9,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, Union
 
-from .registry.schema_manager import get_schema_manager
+from ..registry.schema_manager import get_schema_manager
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +30,9 @@ class StandaloneConfig:
     # === File path configuration ===
     config_dir: Optional[str] = None  # If None, use in-memory configuration
     mcp_config_file: Optional[str] = None
-    client_services_file: Optional[str] = None
-    agent_clients_file: Optional[str] = None
+    # 🔧 单一数据源架构：分片文件配置已废弃
+    # client_services_file: Optional[str] = None  # 已废弃
+    # agent_clients_file: Optional[str] = None    # 已废弃
     
     # === Service configuration ===
     known_services: Dict[str, Dict[str, Any]] = field(default_factory=lambda: {})
@@ -238,3 +239,4 @@ def reset_global_config():
     global _global_config_manager
     _global_config_manager = None
     logger.info("Global standalone config reset")
+

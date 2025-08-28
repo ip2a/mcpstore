@@ -133,11 +133,24 @@ class LoggingConfig:
     def enable_debug(cls):
         """Enable debug mode"""
         cls.setup_logging(debug=True, force_reconfigure=True)
+        # 降噪第三方logger
+        import logging as _logging
+        for _name in ("asyncio", "watchfiles", "uvicorn"):
+            try:
+                _logging.getLogger(_name).setLevel(_logging.WARNING)
+            except Exception:
+                pass
 
     @classmethod
     def disable_debug(cls):
         """Disable debug mode"""
         cls.setup_logging(debug=False, force_reconfigure=True)
+        import logging as _logging
+        for _name in ("asyncio", "watchfiles", "uvicorn"):
+            try:
+                _logging.getLogger(_name).setLevel(_logging.WARNING)
+            except Exception:
+                pass
 
 # --- Configuration Constants (default values) ---
 # Core monitoring configuration

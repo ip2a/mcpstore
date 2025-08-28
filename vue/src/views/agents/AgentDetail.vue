@@ -3,8 +3,8 @@
     <!-- 页面头部 -->
     <div class="page-header">
       <div class="header-left">
-        <el-button 
-          :icon="ArrowLeft" 
+        <el-button
+          :icon="ArrowLeft"
           @click="$router.back()"
           class="back-btn"
         >
@@ -16,15 +16,15 @@
         </div>
       </div>
       <div class="header-right">
-        <el-button 
-          type="primary" 
-          :icon="Plus" 
+        <el-button
+          type="primary"
+          :icon="Plus"
           @click="addService"
         >
           添加服务
         </el-button>
-        <el-button 
-          :icon="Refresh" 
+        <el-button
+          :icon="Refresh"
           @click="refreshData"
           :loading="loading"
         >
@@ -74,8 +74,8 @@
       <template #header>
         <div class="card-header">
           <span>服务列表</span>
-          <el-button 
-            type="primary" 
+          <el-button
+            type="primary"
             size="small"
             @click="addService"
           >
@@ -169,7 +169,7 @@
         <el-table-column label="客户端ID" width="150">
           <template #default="{ row }">
             <el-tag size="small" type="info" v-if="row.client_id">
-              {{ row.client_id.split('_').pop() }}
+              {{ parseClientIdShort(row.client_id) }}
             </el-tag>
             <span v-else class="text-muted">N/A</span>
           </template>
@@ -207,8 +207,8 @@
       </div>
 
       <div v-else class="tools-grid">
-        <div 
-          v-for="tool in tools" 
+        <div
+          v-for="tool in tools"
           :key="tool.name"
           class="tool-card"
           @click="executeTool(tool)"
@@ -389,6 +389,19 @@ const route = useRoute()
 const router = useRouter()
 const agentsStore = useAgentsStore()
 
+// 简短展示 client_id 的辅助方法（供模板使用）
+const parseClientIdShort = (clientId) => {
+  try {
+    const parts = clientId.split('_')
+    if (parts.length >= 4) {
+      return parts[parts.length - 1]
+    }
+    return clientId
+  } catch (e) {
+    return clientId
+  }
+}
+
 // 响应式数据
 const loading = ref(false)
 const services = ref([])
@@ -449,6 +462,7 @@ const loadServices = async () => {
     console.error('加载服务列表失败:', error)
     services.value = []
   }
+
 }
 
 const loadTools = async () => {
@@ -741,23 +755,23 @@ onMounted(async () => {
   .page-header {
     @include flex-between;
     margin-bottom: 20px;
-    
+
     .header-left {
       display: flex;
       align-items: center;
       gap: 16px;
-      
+
       .back-btn {
         padding: 8px 16px;
       }
-      
+
       .title-section {
         .page-title {
           margin: 0 0 4px 0;
           font-size: 24px;
           font-weight: var(--font-weight-medium);
         }
-        
+
         .page-description {
           margin: 0;
           color: var(--text-secondary);
@@ -765,27 +779,27 @@ onMounted(async () => {
         }
       }
     }
-    
+
     .header-right {
       display: flex;
       gap: 12px;
     }
   }
-  
+
   .stats-row {
     margin-bottom: 20px;
-    
+
     .stat-card {
       .stat-content {
         text-align: center;
-        
+
         .stat-value {
           font-size: 32px;
           font-weight: var(--font-weight-bold);
           color: var(--primary-color);
           margin-bottom: 8px;
         }
-        
+
         .stat-label {
           color: var(--text-secondary);
           font-size: var(--font-size-sm);
@@ -793,54 +807,54 @@ onMounted(async () => {
       }
     }
   }
-  
+
   .services-card, .tools-card {
     margin-bottom: 20px;
-    
+
     .card-header {
       @include flex-between;
       align-items: center;
     }
   }
-  
+
   .tools-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 16px;
-    
+
     .tool-card {
       @include card-shadow;
       padding: 16px;
       border-radius: var(--border-radius-base);
       cursor: pointer;
       transition: all 0.3s ease;
-      
+
       &:hover {
         transform: translateY(-2px);
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
       }
-      
+
       .tool-header {
         margin-bottom: 8px;
-        
+
         .tool-name {
           font-weight: var(--font-weight-medium);
           margin-bottom: 4px;
         }
-        
+
         .tool-service {
           font-size: var(--font-size-xs);
           color: var(--text-secondary);
         }
       }
-      
+
       .tool-description {
         color: var(--text-regular);
         font-size: var(--font-size-sm);
       }
     }
   }
-  
+
   .empty-container {
     text-align: center;
     padding: 40px 20px;

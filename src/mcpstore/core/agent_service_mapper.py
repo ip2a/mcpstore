@@ -98,19 +98,16 @@ class AgentServiceMapper:
         if not AgentServiceMapper.is_any_agent_service(global_name):
             raise ValueError(f"Not an Agent service: {global_name}")
 
-        parts = global_name.split("_byagent_")
-        if len(parts) != 2:
+        # 允许 agent_id 含有下划线等字符；只要包含分隔符即可
+        if "_byagent_" not in global_name:
             raise ValueError(f"Invalid Agent service name format: {global_name}")
 
-        local_name, agent_id = parts
+        local_name, agent_id = global_name.split("_byagent_", 1)
         if not local_name or not agent_id:
             raise ValueError(f"Invalid Agent service name format: {global_name}")
 
-        # 验证 agent_id 不包含额外的下划线（更严格的验证）
-        if "_" in agent_id:
-            raise ValueError(f"Invalid Agent service name format: {global_name}")
-
-        return agent_id, local_name
+        # 放宽校验：不再限制 agent_id 中的下划线，保持单一分隔符规则
+        return agent_id.strip(), local_name.strip()
 
     def filter_agent_services(self, global_services: Dict[str, Any]) -> Dict[str, Any]:
         """

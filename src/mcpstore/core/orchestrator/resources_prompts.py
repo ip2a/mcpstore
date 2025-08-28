@@ -133,11 +133,12 @@ class ResourcesPromptsMixin:
 
             if service_name:
                 # 获取特定服务的资源
-                client = self.client_manager.get_client(client_id, service_name)
+                # 从Registry获取当前活跃会话
+                client = self.registry.get_session(client_id, service_name)
                 if not client:
                     return {
                         "success": False,
-                        "error": f"Service '{service_name}' not found",
+                        "error": f"Service '{service_name}' not found or not connected",
                         "data": [],
                         "service_name": service_name,
                         "timestamp": self._get_timestamp()
@@ -434,11 +435,11 @@ class ResourcesPromptsMixin:
 
             if service_name:
                 # 获取特定服务的提示词
-                client = self.client_manager.get_client(client_id, service_name)
+                client = self.registry.get_session(client_id, service_name)
                 if not client:
                     return {
                         "success": False,
-                        "error": f"Service '{service_name}' not found",
+                        "error": f"Service '{service_name}' not found or not connected",
                         "data": [],
                         "service_name": service_name,
                         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
@@ -567,7 +568,7 @@ class ResourcesPromptsMixin:
 
                 for sname in services:
                     try:
-                        client = self.client_manager.get_client(client_id, sname)
+                        client = self.registry.get_session(client_id, sname)
                         if client:
                             result = await client.get_prompt(name, arguments)
                             return {

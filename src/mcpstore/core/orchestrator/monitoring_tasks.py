@@ -8,6 +8,7 @@ import logging
 from typing import Dict, List, Any, Optional, Tuple
 
 from mcpstore.core.lifecycle import HealthStatus
+from mcpstore.core.lifecycle.health_bridge import HealthStatusBridge
 
 logger = logging.getLogger(__name__)
 
@@ -59,27 +60,41 @@ class MonitoringTasksMixin:
             health_result = await self.check_service_health_detailed(name, client_id)
             is_healthy = health_result.status != HealthStatus.UNHEALTHY
 
-            # 旧的健康状态更新已废弃，现在完全由生命周期管理器处理
+            # 🆕 使用增强版健康检查处理，传递完整的状态信息
+            try:
+                suggested_state = HealthStatusBridge.map_health_to_lifecycle(health_result.status)
+                
+                # 使用增强版方法传递丰富的状态信息
+                await self.lifecycle_manager.handle_health_check_result_enhanced(
+                    agent_id=client_id,
+                    service_name=name,
+                    suggested_state=suggested_state,
+                    response_time=health_result.response_time,
+                    error_message=health_result.error_message
+                )
 
-            # 通知生命周期管理器处理健康检查结果
-            await self.lifecycle_manager.handle_health_check_result(
-                agent_id=client_id,
-                service_name=name,
-                success=is_healthy,
-                response_time=health_result.response_time,
-                error_message=health_result.error_message
-            )
-
-            if is_healthy:
-                logger.debug(f"Health check SUCCESS for: {name} (client_id={client_id})")
-                return True
-            else:
-                logger.debug(f"Health check FAILED for {name} (client_id={client_id}): {health_result.error_message}")
-                return False
+                if is_healthy:
+                    logger.debug(f"Health check SUCCESS for: {name} (client_id={client_id}), mapped to: {suggested_state.value}")
+                    return True
+                else:
+                    logger.debug(f"Health check FAILED for {name} (client_id={client_id}): {health_result.error_message}, mapped to: {suggested_state.value}")
+                    return False
+            
+            except ValueError as mapping_error:
+                # 状态映射失败，回退到原有方法
+                logger.warning(f"Health status mapping failed for {name}: {mapping_error}, falling back to legacy method")
+                await self.lifecycle_manager.handle_health_check_result(
+                    agent_id=client_id,
+                    service_name=name,
+                    success=is_healthy,
+                    response_time=health_result.response_time,
+                    error_message=health_result.error_message
+                )
+                return is_healthy
 
         except Exception as e:
             logger.warning(f"Health check error for {name} (client_id={client_id}): {e}")
-            # 通知生命周期管理器处理错误
+            # 对于异常情况，仍使用原有方法
             await self.lifecycle_manager.handle_health_check_result(
                 agent_id=client_id,
                 service_name=name,

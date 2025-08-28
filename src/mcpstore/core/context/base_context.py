@@ -16,14 +16,15 @@ from mcpstore.core.models.service import (
 )
 from mcpstore.core.models.tool import ToolExecutionRequest, ToolInfo
 
-from ..async_sync_helper import get_global_helper
-from ..auth_security import get_auth_manager
+from ..utils.async_sync_helper import get_global_helper
+# 旧的认证系统已被新的auth模块替代，保持向后兼容
+# from ..auth_security import get_auth_manager
 from ..cache_performance import get_performance_optimizer
 from ..component_control import get_component_manager
-from ..exceptions import ServiceNotFoundError, InvalidConfigError, DeleteServiceError
+from ..utils.exceptions import ServiceNotFoundError, InvalidConfigError, DeleteServiceError
 from ..monitoring import MonitoringManager, NetworkEndpoint, SystemResourceInfo
 from ..monitoring.analytics import get_monitoring_manager
-from ..openapi_integration import get_openapi_manager
+from ..integration.openapi_integration import get_openapi_manager
 from ..tool_transformation import get_transformation_manager
 from ..agent_service_mapper import AgentServiceMapper
 
@@ -34,7 +35,7 @@ from .types import ContextType
 
 if TYPE_CHECKING:
     from ...adapters.langchain_adapter import LangChainAdapter
-    from ..unified_config import UnifiedConfigManager
+    from ..configuration.unified_config import UnifiedConfigManager
 
 
 
@@ -45,6 +46,7 @@ from .service_management import ServiceManagementMixin
 from .advanced_features import AdvancedFeaturesMixin
 from .resources_prompts import ResourcesPromptsMixin
 from .agent_statistics import AgentStatisticsMixin
+from .service_proxy import ServiceProxy
 
 class MCPStoreContext(
     ServiceOperationsMixin,
@@ -74,7 +76,8 @@ class MCPStoreContext(
         self._transformation_manager = get_transformation_manager()
         self._component_manager = get_component_manager()
         self._openapi_manager = get_openapi_manager()
-        self._auth_manager = get_auth_manager()
+        # 旧认证管理器已被新的auth模块替代
+        # self._auth_manager = get_auth_manager()
         self._performance_optimizer = get_performance_optimizer()
         self._monitoring_manager = get_monitoring_manager()
 
@@ -110,6 +113,176 @@ class MCPStoreContext(
         """Return a LangChain adapter instance for subsequent LangChain-related operations."""
         from ...adapters.langchain_adapter import LangChainAdapter
         return LangChainAdapter(self)
+    
+    # === Hub 功能扩展 ===
+    
+    def hub_services(self) -> 'HubServicesBuilder':
+        """
+        创建Hub服务打包构建器
+        
+        将当前上下文中已缓存的服务打包为独立的Hub服务进程。
+        基于现有服务数据，不进行新的服务注册。
+        
+        Returns:
+            HubServicesBuilder: Hub服务构建器，支持链式调用
+            
+        Example:
+            # Store级别Hub
+            hub = store.for_store().hub_services()\\
+                .with_name("global-hub")\\
+                .with_description("全局服务Hub")\\
+                .build()
+            
+            # Agent级别Hub  
+            hub = store.for_agent("team1").hub_services()\\
+                .with_name("team-hub")\\
+                .filter_services(category="api")\\
+                .build()
+        """
+        from ..hub.builder import HubServicesBuilder
+        return HubServicesBuilder(self, self._context_type.value, self._agent_id)
+    
+    def hub_tools(self) -> 'HubToolsBuilder':
+        """
+        创建Hub工具打包构建器
+        
+        将工具级别打包为Hub服务。
+        注意：此功能在当前版本中为占位实现，后期版本将提供完整功能。
+        
+        Returns:
+            HubToolsBuilder: Hub工具构建器
+            
+        Raises:
+            NotImplementedError: 当前版本未实现此功能
+        """
+        from ..hub.builder import HubToolsBuilder
+        return HubToolsBuilder(self, self._context_type.value, self._agent_id)
+    
+    # === 认证功能扩展 ===
+    
+    def auth_jwt_payload(self, client_id: str) -> 'AuthTokenBuilder':
+        """
+        创建JWT Payload构建器
+        
+        用于生成FastMCP JWT token的payload配置。
+        FastMCP通过JWT token中的scopes和claims来管理用户权限。
+        
+        Args:
+            client_id: 客户端ID（用户ID）
+            
+        Returns:
+            AuthTokenBuilder: Token构建器，支持链式调用
+            
+        Example:
+            # 生成JWT payload
+            payload = store.for_store().auth_jwt_payload("user123")\\
+                .add_scopes("read", "write", "execute")\\
+                .add_claim("role", "admin")\\
+                .add_claim("tenant_id", "company_abc")\\
+                .generate_payload()
+        """
+        from ..auth.builder import AuthTokenBuilder
+        return AuthTokenBuilder(self, client_id)
+    
+    def auth_service(self, service_name: str) -> 'AuthServiceBuilder':
+        """
+        创建服务认证构建器
+        
+        配置服务的认证保护，生成FastMCP认证配置。
+        不实现实际认证逻辑，仅封装配置生成。
+        
+        Args:
+            service_name: 服务名称
+            
+        Returns:
+            AuthServiceBuilder: 服务认证构建器，支持链式调用
+            
+        Example:
+            # 保护服务
+            service_config = store.for_store().auth_service("payment-api")\\
+                .require_scopes("payment:read", "payment:write")\\
+                .set_access("admin")\\
+                .use_bearer_auth(
+                    jwks_uri="https://auth.company.com/.well-known/jwks.json",
+                    issuer="https://auth.company.com",
+                    audience="payment-service"
+                )\\
+                .protect()
+        """
+        from ..auth.builder import AuthServiceBuilder
+        return AuthServiceBuilder(self, service_name)
+    
+    def auth_provider(self, provider_type: str) -> 'AuthProviderBuilder':
+        """
+        创建认证提供者构建器
+        
+        配置认证提供者，生成FastMCP认证提供者配置。
+        支持bearer、oauth、google、github、workos等类型。
+        
+        Args:
+            provider_type: 认证提供者类型 (bearer, oauth, google, github, workos)
+            
+        Returns:
+            AuthProviderBuilder: 认证提供者构建器，支持链式调用
+            
+        Example:
+            # 配置Google OAuth
+            provider_config = store.for_store().auth_provider("google")\\
+                .set_client_credentials("google_client_id", "google_secret")\\
+                .set_base_url("https://myserver.com")\\
+                .setup()
+        """
+        from ..auth.builder import AuthProviderBuilder
+        return AuthProviderBuilder(self, provider_type)
+    
+    def auth_token(self, client_id: str) -> 'AuthTokenBuilder':
+        """
+        创建Token构建器（用于JWT payload生成）
+        
+        用于生成FastMCP JWT token的payload配置。
+        
+        Args:
+            client_id: 客户端ID
+            
+        Returns:
+            AuthTokenBuilder: Token构建器，支持链式调用
+            
+        Example:
+            # 生成JWT payload
+            payload = store.for_store().auth_token("user123")\\
+                .add_scopes("read", "write")\\
+                .add_claim("role", "admin")\\
+                .generate_payload()
+        """
+        from ..auth.builder import AuthTokenBuilder
+        return AuthTokenBuilder(self, client_id)
+
+    def find_service(self, service_name: str) -> 'ServiceProxy':
+        """
+        查找指定服务并返回服务代理对象
+        
+        进一步缩小作用域到具体服务，提供该服务的所有操作方法。
+        
+        Args:
+            service_name: 服务名称
+            
+        Returns:
+            ServiceProxy: 服务代理对象，包含该服务的所有操作方法
+            
+        Example:
+            # Store级别使用
+            weather_service = store.for_store().find_service('weather')
+            weather_service.service_info()      # 获取服务详情
+            weather_service.list_tools()       # 列出工具
+            weather_service.check_health()     # 检查健康状态
+            
+            # Agent级别使用
+            demo_service = store.for_agent('demo1').find_service('service1')
+            demo_service.service_info()        # 获取服务详情
+            demo_service.restart_service()     # 重启服务
+        """
+        from .service_proxy import ServiceProxy
+        return ServiceProxy(self, service_name)
 
     @property
     def context_type(self) -> ContextType:

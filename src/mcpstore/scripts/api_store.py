@@ -81,18 +81,37 @@ async def store_sync_status():
             data=None
         )
 
+@store_router.post("/market/refresh", response_model=APIResponse)
+@handle_exceptions
+async def market_refresh(payload: Optional[Dict[str, Any]] = None):
+    """Manually trigger market remote refresh (background-safe).
+    Body example: {"remote_url": "https://.../servers.json", "force": false}
+    """
+    store = get_store()
+    remote_url = None
+    force = False
+    if isinstance(payload, dict):
+        remote_url = payload.get("remote_url")
+        force = bool(payload.get("force", False))
+    if remote_url:
+        store._market_manager.add_remote_source(remote_url)
+    ok = await store._market_manager.refresh_from_remote_async(force=force)
+    return APIResponse(success=True, data={"refreshed": ok})
+
 @store_router.post("/for_store/add_service", response_model=APIResponse)
 @handle_exceptions
 async def store_add_service(
     payload: Optional[Dict[str, Any]] = None,
     wait: Union[str, int, float] = "auto"
 ):
-    """Store 级别注册服务
-    支持三种模式：
-    1. 空参数注册：注册所有 mcp.json 中的服务
+    """
+    Store 级别注册服务
+
+    支持三种模式:
+    1. 空参数注册: 注册所有 mcp.json 中的服务
        POST /for_store/add_service?wait=auto
 
-    2. URL方式添加服务：
+    2. URL方式添加服务:
        POST /for_store/add_service?wait=2000
        {
            "name": "weather",
@@ -100,7 +119,7 @@ async def store_add_service(
            "transport": "streamable-http"
        }
 
-    3. 命令方式添加服务（本地服务）：
+    3. 命令方式添加服务(本地服务):
        POST /for_store/add_service?wait=4000
        {
            "name": "assistant",
@@ -111,11 +130,11 @@ async def store_add_service(
        }
 
     等待参数 (wait):
-    - "auto": 自动根据服务类型判断（远程2s，本地4s）
-    - 数字: 等待时间（毫秒），如 2000 表示等待2秒
-    - 最小100ms，最大30秒
+    - "auto": 自动根据服务类型判断(远程2s, 本地4s)
+    - 数字: 等待时间(毫秒), 如 2000 表示等待2秒
+    - 最小100ms, 最大30秒
 
-    注意：本地服务需要确保：
+    注意: 本地服务需要确保:
     - 命令路径正确且可执行
     - 工作目录存在且有权限
     - 环境变量设置正确
@@ -412,14 +431,14 @@ async def store_get_service_info(request: Request):
     try:
         body = await request.json()
         service_name = body.get("name")
-        
+
         if not service_name:
             raise HTTPException(status_code=400, detail="Service name is required")
-        
+
         store = get_store()
         context = store.for_store()
         service_info = context.get_service_info(service_name)
-        
+
         return APIResponse(
             success=True,
             data=service_info,
@@ -438,11 +457,11 @@ async def store_update_service(service_name: str, request: Request):
     """Store 级别更新服务配置"""
     try:
         body = await request.json()
-        
+
         store = get_store()
         context = store.for_store()
         result = await context.update_service_async(service_name, body)
-        
+
         return APIResponse(
             success=bool(result),
             data=result,
@@ -463,7 +482,7 @@ async def store_delete_service(service_name: str):
         store = get_store()
         context = store.for_store()
         result = await context.delete_service_async(service_name)
-        
+
         return APIResponse(
             success=bool(result),
             data=result,
@@ -775,43 +794,7 @@ async def store_reset_mcp_json_file():
             message=f"Failed to reset MCP JSON file: {str(e)}"
         )
 
-@store_router.post("/for_store/reset_client_services_file", response_model=APIResponse)
-@handle_exceptions
-async def store_reset_client_services_file():
-    """Store 级别直接重置client_services.json文件"""
-    try:
-        store = get_store()
-        success = await store.for_store().reset_client_services_file_async()
-        return APIResponse(
-            success=success,
-            data=success,
-            message="client_services.json file reset successfully" if success else "Failed to reset client_services.json file"
-        )
-    except Exception as e:
-        return APIResponse(
-            success=False,
-            data=False,
-            message=f"Failed to reset client_services.json file: {str(e)}"
-        )
-
-@store_router.post("/for_store/reset_agent_clients_file", response_model=APIResponse)
-@handle_exceptions
-async def store_reset_agent_clients_file():
-    """Store 级别直接重置agent_clients.json文件"""
-    try:
-        store = get_store()
-        success = await store.for_store().reset_agent_clients_file_async()
-        return APIResponse(
-            success=success,
-            data=success,
-            message="agent_clients.json file reset successfully" if success else "Failed to reset agent_clients.json file"
-        )
-    except Exception as e:
-        return APIResponse(
-            success=False,
-            data=False,
-            message=f"Failed to reset agent_clients.json file: {str(e)}"
-        )
+# Removed shard-file reset APIs (client_services.json / agent_clients.json) in single-source mode
 
 # === Store 级别统计和监控 ===
 @store_router.get("/for_store/get_stats", response_model=APIResponse)

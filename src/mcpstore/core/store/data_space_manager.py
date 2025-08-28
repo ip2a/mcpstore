@@ -9,9 +9,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+from pathlib import Path
+import json
+
 class DataSpaceManagerMixin:
     """数据空间管理 Mixin"""
-    
+
     def get_data_space_info(self) -> Optional[Dict[str, Any]]:
         """
         获取数据空间信息
@@ -53,23 +56,105 @@ class DataSpaceManagerMixin:
                     sync_results = await self.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
                     return bool(sync_results.get("added") or sync_results.get("updated"))
                 else:
-                    # 回退到旧方法（带警告）
-                    resp = await self.register_all_services_for_store()
-                    return bool(resp and resp.service_names)
+                    logger.warning("统一同步管理器不可用，跳过全量注册")
+                    return False
             else:
-                # 支持单独添加服务
-                resp = await self.register_selected_services_for_store(service_names)
-                return bool(resp and resp.service_names)
+                # 从缓存读取服务配置并走统一缓存优先流程
+                try:
+                    mcp_config = {"mcpServers": {}}
+                    cache_agent_id = self.client_manager.global_agent_store_id
+                    missing = []
+                    for name in service_names:
+                        svc_cfg = self.registry.get_service_config_from_cache(cache_agent_id, name)
+                        if not svc_cfg:
+                            missing.append(name)
+                        else:
+                            mcp_config["mcpServers"][name] = svc_cfg
+                    if missing:
+                        logger.error(f"以下服务未在缓存中找到配置: {missing}")
+                        return False
+                    await self.for_store().add_service_async(mcp_config)
+                    return True
+                except Exception as e:
+                    logger.error(f"通过缓存添加服务失败: {e}")
+                    return False
         # agent级别
         else:
             if service_names:
-                resp = await self.register_services_for_agent(agent_id, service_names)
-                return bool(resp and resp.service_names)
+                try:
+                    mcp_config = {"mcpServers": {}}
+                    cache_agent_id = agent_id
+                    missing = []
+                    for name in service_names:
+                        svc_cfg = self.registry.get_service_config_from_cache(cache_agent_id, name)
+                        if not svc_cfg:
+                            missing.append(name)
+                        else:
+                            mcp_config["mcpServers"][name] = svc_cfg
+                    if missing:
+                        logger.error(f"Agent({agent_id}) 以下服务未在缓存中找到配置: {missing}")
+                        return False
+                    await self.for_agent(agent_id).add_service_async(mcp_config)
+                    return True
+                except Exception as e:
+                    logger.error(f"Agent通过缓存添加服务失败: {e}")
+                    return False
             else:
                 logger.warning(f"Agent {agent_id} 级别不支持全量注册")
                 return False
 
     async def add_service(self, service_names: List[str], agent_id: Optional[str] = None) -> bool:
-        """添加服务的统一入口"""
-        context = self.for_agent(agent_id) if agent_id else self.for_store()
-        return await context.add_service(service_names)
+        """异步版本的add_service方法"""
+        return await self._add_service(service_names, agent_id)
+
+
+class DataSpaceManager:
+    """最小实现：用于数据空间初始化与信息查询（单一数据源模式）"""
+
+    def __init__(self, mcp_json_path: str):
+        self.mcp_json_path = Path(mcp_json_path).resolve()
+        self.workspace_dir = self.mcp_json_path.parent
+        logger.info(f"DataSpaceManager initialized for workspace: {self.workspace_dir}")
+
+    def initialize_workspace(self) -> bool:
+        """确保工作目录存在，并保证 mcp.json 存在且格式基本正确"""
+        try:
+            # 创建目录
+            self.workspace_dir.mkdir(parents=True, exist_ok=True)
+
+            # 如果没有 mcp.json，创建基础结构
+            if not self.mcp_json_path.exists():
+                self.mcp_json_path.write_text(json.dumps({"mcpServers": {}}, indent=2, ensure_ascii=False), encoding="utf-8")
+                logger.info(f"Created new MCP JSON file: {self.mcp_json_path}")
+            else:
+                # 简单结构校验：必须是 dict 且包含 mcpServers 字段
+                try:
+                    data = json.loads(self.mcp_json_path.read_text(encoding="utf-8"))
+                    if not isinstance(data, dict) or "mcpServers" not in data or not isinstance(data["mcpServers"], dict):
+                        # 备份并重建
+                        backup = self.mcp_json_path.with_suffix(self.mcp_json_path.suffix + ".bak")
+                        backup.write_text(self.mcp_json_path.read_text(encoding="utf-8"), encoding="utf-8")
+                        self.mcp_json_path.write_text(json.dumps({"mcpServers": {}}, indent=2, ensure_ascii=False), encoding="utf-8")
+                        logger.warning(f"Invalid mcp.json structure fixed, backup saved: {backup}")
+                except Exception as e:
+                    # 读取失败则直接重建
+                    backup = self.mcp_json_path.with_suffix(self.mcp_json_path.suffix + ".bak")
+                    try:
+                        backup.write_text(self.mcp_json_path.read_text(encoding="utf-8"), encoding="utf-8")
+                    except Exception:
+                        pass
+                    self.mcp_json_path.write_text(json.dumps({"mcpServers": {}}, indent=2, ensure_ascii=False), encoding="utf-8")
+                    logger.warning(f"Recreated invalid mcp.json, reason: {e}")
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to initialize workspace: {e}")
+            return False
+
+    def get_workspace_info(self) -> Dict[str, Any]:
+        """返回工作区信息"""
+        return {
+            "workspace_dir": str(self.workspace_dir),
+            "mcp_json_path": str(self.mcp_json_path),
+            "mcp_json_exists": self.mcp_json_path.exists(),
+        }

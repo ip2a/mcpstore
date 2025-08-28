@@ -10,7 +10,7 @@ from typing import Dict, Set, Optional, List, Any, Tuple
 from dataclasses import dataclass
 from fastmcp import Client
 
-from mcpstore.core.config_processor import ConfigProcessor
+from mcpstore.core.configuration.config_processor import ConfigProcessor
 from mcpstore.core.models.service import ServiceConnectionState
 
 logger = logging.getLogger(__name__)
@@ -59,10 +59,20 @@ class ServiceContentManager:
         self.registry = orchestrator.registry
         self.lifecycle_manager = orchestrator.lifecycle_manager
         self.config = ContentUpdateConfig()
-        
+
+        # 对齐全局监控配置的工具更新时间间隔（如配置存在则覆盖默认值）
+        try:
+            timing_config = orchestrator.config.get("timing", {}) if isinstance(getattr(orchestrator, "config", None), dict) else {}
+            interval = timing_config.get("tools_update_interval_seconds")
+            if isinstance(interval, (int, float)) and interval > 0:
+                self.config.tools_update_interval = float(interval)
+                logger.info(f"ServiceContentManager tools_update_interval set to {self.config.tools_update_interval}s from orchestrator config")
+        except Exception as e:
+            logger.debug(f"Failed to read tools_update_interval from orchestrator config: {e}")
+
         # 内容快照缓存：agent_id -> service_name -> snapshot
         self.content_snapshots: Dict[str, Dict[str, ServiceContentSnapshot]] = {}
-        
+
         # 更新队列和状态
         self.update_queue: Set[Tuple[str, str]] = set()  # (agent_id, service_name)
         self.updating_services: Set[Tuple[str, str]] = set()  # 正在更新的服务

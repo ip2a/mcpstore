@@ -6,7 +6,7 @@
 from typing import Optional, Dict, Any
 import logging
 
-from mcpstore.core.unified_config import UnifiedConfigManager
+from mcpstore.core.configuration.unified_config import UnifiedConfigManager
 from mcpstore.core.models.common import ConfigResponse
 
 logger = logging.getLogger(__name__)
@@ -53,54 +53,16 @@ class ConfigManagementMixin:
         return self.config.load_config()
 
     async def _sync_discovered_agents_to_files(self, agents_discovered: set):
-        """将发现的 Agent 同步到持久化文件"""
+        """
+        🔧 单一数据源架构：不再同步到分片文件
+        
+        新架构下，Agent发现只需要更新缓存，所有持久化通过mcp.json完成
+        """
         try:
-            logger.info(f"🔄 [SYNC_AGENTS] 开始同步 {len(agents_discovered)} 个 Agent 到文件...")
-
-            # 更新 agent_clients.json
-            agent_clients_data = {}
-
-            # 包含 global_agent_store
-            global_client_ids = []
-            for agent_id, service_mappings in self.registry.service_to_client.items():
-                if agent_id == self.client_manager.global_agent_store_id:
-                    global_client_ids = list(set(service_mappings.values()))
-                    break
-
-            if global_client_ids:
-                agent_clients_data[self.client_manager.global_agent_store_id] = global_client_ids
-
-            # 包含发现的 Agent
-            for agent_id in agents_discovered:
-                client_ids = []
-                if agent_id in self.registry.service_to_client:
-                    client_ids = list(set(self.registry.service_to_client[agent_id].values()))
-                if client_ids:
-                    agent_clients_data[agent_id] = client_ids
-
-            self.client_manager.save_all_agent_clients(agent_clients_data)
-            logger.info(f"✅ [SYNC_AGENTS] agent_clients.json 更新完成")
-
-            # 更新 client_services.json
-            client_configs_data = {}
-            for client_id, config in self.registry.client_configs.items():
-                client_configs_data[client_id] = config
-
-            # 添加新发现的 client 配置
-            for agent_id in agents_discovered:
-                if agent_id in self.registry.service_to_client:
-                    for service_name, client_id in self.registry.service_to_client[agent_id].items():
-                        if client_id not in client_configs_data:
-                            # 从 mcp.json 获取配置
-                            store_config = self.config.load_config()
-                            global_name = self.registry.get_global_name_from_agent_service(agent_id, service_name)
-                            if global_name and global_name in store_config.get("mcpServers", {}):
-                                client_configs_data[client_id] = {
-                                    "mcpServers": {global_name: store_config["mcpServers"][global_name]}
-                                }
-
-            self.client_manager.save_all_clients(client_configs_data)
-            logger.info(f"✅ [SYNC_AGENTS] client_services.json 更新完成")
+            logger.info(f" [SYNC_AGENTS] 单一数据源模式：跳过分片文件同步，已发现 {len(agents_discovered)} 个 Agent")
+            
+            # 单一数据源模式：不再写入分片文件，仅维护缓存和mcp.json
+            logger.info("✅ [SYNC_AGENTS] 单一数据源模式：Agent发现完成，缓存已更新")
 
         except Exception as e:
             logger.error(f"❌ [SYNC_AGENTS] Agent 同步失败: {e}")

@@ -8,7 +8,7 @@ import logging
 from copy import deepcopy
 from typing import Dict, Any, Union, List
 
-from .registry.schema_manager import get_schema_manager
+from ..registry.schema_manager import get_schema_manager
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +281,7 @@ class ConfigProcessor:
         if "token" in config:
             if "headers" not in config:
                 config["headers"] = {}
-            config["headers"]["Authorization"] = f"Bearer {config['token']}"
+            config["headers"]["Authorization"] = f"Bearer {config['token'] }"
             del config["token"]
         
         # 处理API key
@@ -380,3 +380,4 @@ class ConfigProcessor:
             return "Permission denied. Please check if you have the necessary permissions to run the command."
         
         return error
+

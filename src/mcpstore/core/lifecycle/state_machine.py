@@ -23,7 +23,7 @@ class ServiceStateMachine:
                                        current_state: ServiceConnectionState,
                                        get_metadata_func, transition_func):
         """Handle state transitions on success"""
-        logger.debug(f"✅ [SUCCESS_TRANSITION] Processing for {service_name}, current_state={current_state}")
+        logger.debug(f"[SUCCESS_TRANSITION] processing service='{service_name}' current_state={current_state}")
 
         if current_state in [ServiceConnectionState.INITIALIZING,
                            ServiceConnectionState.WARNING,
@@ -36,73 +36,71 @@ class ServiceStateMachine:
                 metadata.reconnect_attempts = 0
                 metadata.next_retry_time = None
                 metadata.error_message = None
-                logger.debug(f"✅ [SUCCESS_TRANSITION] Reset failure counters for {service_name}")
+                logger.debug(f"[SUCCESS_TRANSITION] reset_counters service='{service_name}'")
             await transition_func(agent_id, service_name, ServiceConnectionState.HEALTHY)
         elif current_state == ServiceConnectionState.HEALTHY:
-            logger.debug(f"✅ [SUCCESS_TRANSITION] {service_name} already HEALTHY")
+            logger.debug(f"[SUCCESS_TRANSITION] already_healthy service='{service_name}'")
         elif current_state in [ServiceConnectionState.DISCONNECTING, ServiceConnectionState.DISCONNECTED]:
-            logger.debug(f"⏸️ [SUCCESS_TRANSITION] {service_name} is disconnecting/disconnected, no transition")
+            logger.debug(f"[SUCCESS_TRANSITION] no_transition service='{service_name}' reason='disconnecting/disconnected'")
         else:
-            logger.debug(f"⏸️ [SUCCESS_TRANSITION] No transition rules for state {current_state}")
+            logger.debug(f"[SUCCESS_TRANSITION] no_rules state={current_state}")
 
-        logger.debug(f"✅ [SUCCESS_TRANSITION] Completed for {service_name}")
+        logger.debug(f"[SUCCESS_TRANSITION] completed service='{service_name}'")
     
     async def handle_failure_transition(self, agent_id: str, service_name: str,
                                        current_state: ServiceConnectionState,
                                        get_metadata_func, transition_func):
         """处理失败时的状态转换"""
-        logger.debug(f"🔍 [FAILURE_TRANSITION] Starting for {service_name}, current_state={current_state}")
+        logger.debug(f"[FAILURE_TRANSITION] start service='{service_name}' current_state={current_state}")
 
         metadata = get_metadata_func(agent_id, service_name)
         if not metadata:
-            logger.error(f"❌ [FAILURE_TRANSITION] No metadata found for {service_name}")
+            logger.error(f"[FAILURE_TRANSITION] no_metadata service='{service_name}'")
             return
 
-        logger.debug(f"🔍 [FAILURE_TRANSITION] Metadata: consecutive_failures={metadata.consecutive_failures}, reconnect_attempts={metadata.reconnect_attempts}")
-        logger.debug(f"🔍 [FAILURE_TRANSITION] Config thresholds: warning={self.config.warning_failure_threshold}, reconnecting={self.config.reconnecting_failure_threshold}, max_reconnect={self.config.max_reconnect_attempts}")
+        logger.debug(f"[FAILURE_TRANSITION] metadata failures={metadata.consecutive_failures} reconnect_attempts={metadata.reconnect_attempts}")
+        logger.debug(f"[FAILURE_TRANSITION] thresholds warning={self.config.warning_failure_threshold} reconnecting={self.config.reconnecting_failure_threshold} max_reconnect={self.config.max_reconnect_attempts}")
 
         if current_state == ServiceConnectionState.HEALTHY:
-            logger.debug(f"🔍 [FAILURE_TRANSITION] HEALTHY state processing")
+            logger.debug(f"[FAILURE_TRANSITION] healthy_processing")
             if metadata.consecutive_failures >= self.config.warning_failure_threshold:
-                logger.debug(f"🔄 [FAILURE_TRANSITION] HEALTHY -> WARNING (failures: {metadata.consecutive_failures} >= {self.config.warning_failure_threshold})")
+                logger.debug(f"[FAILURE_TRANSITION] transition HEALTHY->WARNING failures={metadata.consecutive_failures} threshold={self.config.warning_failure_threshold}")
                 await transition_func(agent_id, service_name, ServiceConnectionState.WARNING)
             else:
-                logger.debug(f"⏸️ [FAILURE_TRANSITION] HEALTHY: Not enough failures yet ({metadata.consecutive_failures} < {self.config.warning_failure_threshold})")
+                logger.debug(f"[FAILURE_TRANSITION] not_enough_failures failures={metadata.consecutive_failures} threshold={self.config.warning_failure_threshold}")
 
         elif current_state == ServiceConnectionState.WARNING:
-            logger.debug(f"🔍 [FAILURE_TRANSITION] WARNING state processing")
+            logger.debug(f"[FAILURE_TRANSITION] warning_processing")
             if metadata.consecutive_failures >= self.config.reconnecting_failure_threshold:
-                logger.debug(f"🔄 [FAILURE_TRANSITION] WARNING -> RECONNECTING (failures: {metadata.consecutive_failures} >= {self.config.reconnecting_failure_threshold})")
+                logger.debug(f"[FAILURE_TRANSITION] transition WARNING->RECONNECTING failures={metadata.consecutive_failures} threshold={self.config.reconnecting_failure_threshold}")
                 await transition_func(agent_id, service_name, ServiceConnectionState.RECONNECTING)
             else:
-                logger.debug(f"⏸️ [FAILURE_TRANSITION] WARNING: Not enough failures yet ({metadata.consecutive_failures} < {self.config.reconnecting_failure_threshold})")
+                logger.debug(f"[FAILURE_TRANSITION] not_enough_failures failures={metadata.consecutive_failures} threshold={self.config.reconnecting_failure_threshold}")
 
         elif current_state == ServiceConnectionState.INITIALIZING:
-            logger.debug(f"🔍 [FAILURE_TRANSITION] INITIALIZING state processing")
-            if metadata.consecutive_failures >= self.config.reconnecting_failure_threshold:
-                logger.debug(f"🔄 [FAILURE_TRANSITION] INITIALIZING -> RECONNECTING (failures: {metadata.consecutive_failures} >= {self.config.reconnecting_failure_threshold})")
-                await transition_func(agent_id, service_name, ServiceConnectionState.RECONNECTING)
-            else:
-                logger.debug(f"⏸️ [FAILURE_TRANSITION] INITIALIZING: Not enough failures yet ({metadata.consecutive_failures} < {self.config.reconnecting_failure_threshold})")
+            logger.debug(f"[FAILURE_TRANSITION] initializing_processing")
+            # 初次连接失败应当直接进入 RECONNECTING，而不是等待阈值
+            logger.debug(f"[FAILURE_TRANSITION] transition INITIALIZING->RECONNECTING reason='first_failure'")
+            await transition_func(agent_id, service_name, ServiceConnectionState.RECONNECTING)
 
         elif current_state == ServiceConnectionState.RECONNECTING:
-            logger.debug(f"🔍 [FAILURE_TRANSITION] RECONNECTING state processing")
+            logger.debug(f"[FAILURE_TRANSITION] reconnecting_processing")
             if metadata.reconnect_attempts >= self.config.max_reconnect_attempts:
-                logger.debug(f"🔄 [FAILURE_TRANSITION] RECONNECTING -> UNREACHABLE (attempts: {metadata.reconnect_attempts} >= {self.config.max_reconnect_attempts})")
+                logger.debug(f"[FAILURE_TRANSITION] transition RECONNECTING->UNREACHABLE attempts={metadata.reconnect_attempts} threshold={self.config.max_reconnect_attempts}")
                 await transition_func(agent_id, service_name, ServiceConnectionState.UNREACHABLE)
             else:
-                logger.debug(f"⏸️ [FAILURE_TRANSITION] RECONNECTING: Not enough attempts yet ({metadata.reconnect_attempts} < {self.config.max_reconnect_attempts})")
+                logger.debug(f"[FAILURE_TRANSITION] not_enough_attempts attempts={metadata.reconnect_attempts} threshold={self.config.max_reconnect_attempts}")
 
         elif current_state == ServiceConnectionState.UNREACHABLE:
-            logger.debug(f"⏸️ [FAILURE_TRANSITION] UNREACHABLE: Already in final failure state")
+            logger.debug(f"[FAILURE_TRANSITION] unreachable_final_state=True")
 
         elif current_state in [ServiceConnectionState.DISCONNECTING, ServiceConnectionState.DISCONNECTED]:
-            logger.debug(f"⏸️ [FAILURE_TRANSITION] {service_name} is disconnecting/disconnected, no transition")
+            logger.debug(f"[FAILURE_TRANSITION] no_transition service='{service_name}' reason='disconnecting/disconnected'")
 
         else:
             logger.debug(f"⏸️ [FAILURE_TRANSITION] No transition rules for state {current_state}")
 
-        logger.debug(f"🔍 [FAILURE_TRANSITION] Completed for {service_name}")
+        logger.debug(f"[FAILURE_TRANSITION] completed service='{service_name}'")
     
     async def transition_to_state(self, agent_id: str, service_name: str,
                                  new_state: ServiceConnectionState,
@@ -110,27 +108,27 @@ class ServiceStateMachine:
                                  set_state_func, on_state_entered_func):
         """执行状态转换"""
         old_state = get_state_func(agent_id, service_name)
-        logger.debug(f"🔄 [STATE_TRANSITION] Attempting transition for {service_name}: {old_state} -> {new_state}")
+        logger.debug(f"[STATE_TRANSITION] attempting service='{service_name}' from={old_state} to={new_state}")
 
         if old_state == new_state:
             logger.debug(f"⏸️ [STATE_TRANSITION] No change needed for {service_name}: already in {new_state}")
             return
 
         # 更新状态
-        logger.debug(f"🔄 [STATE_TRANSITION] Updating state for {service_name}: {old_state} -> {new_state}")
+        logger.debug(f"[STATE_TRANSITION] updating service='{service_name}' from={old_state} to={new_state}")
         set_state_func(agent_id, service_name, new_state)
         metadata = get_metadata_func(agent_id, service_name)
         if metadata:
             metadata.state_entered_time = datetime.now()
-            logger.debug(f"🔄 [STATE_TRANSITION] Updated state_entered_time for {service_name}")
+            logger.debug(f"[STATE_TRANSITION] updated_state_entered_time service='{service_name}'")
         else:
-            logger.warning(f"⚠️ [STATE_TRANSITION] No metadata found for {service_name} during state transition")
+            logger.warning(f"[STATE_TRANSITION] no_metadata service='{service_name}' during_transition=True")
 
         # 执行状态进入处理
-        logger.debug(f"🔄 [STATE_TRANSITION] Calling _on_state_entered for {service_name}")
+        logger.debug(f"[STATE_TRANSITION] calling_on_state_entered service='{service_name}'")
         await on_state_entered_func(agent_id, service_name, new_state, old_state)
 
-        logger.info(f"✅ [STATE_TRANSITION] Service {service_name} (agent {agent_id}) transitioned from {old_state} to {new_state}")
+        logger.info(f"[STATE_TRANSITION] transitioned service='{service_name}' agent='{agent_id}' from={old_state} to={new_state}")
     
     async def on_state_entered(self, agent_id: str, service_name: str, 
                               new_state: ServiceConnectionState, old_state: ServiceConnectionState,

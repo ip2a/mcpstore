@@ -33,24 +33,24 @@ class ToolOperationsMixin:
             has_initializing = self._has_initializing_services(agent_id)
 
             if has_initializing:
-                logger.info(f"🔧 [LIST_TOOLS] 检测到INITIALIZING服务，启动智能等待...")
+                logger.info(f"[LIST_TOOLS] initializing_detected smart_wait start")
                 if hasattr(self, '_wait_for_initializing_services'):
                     self._sync_helper.run_async(self._wait_for_initializing_services(), force_background=True)
                 else:
-                    logger.warning("🔧 [LIST_TOOLS] _wait_for_initializing_services方法不可用")
+                    logger.warning("[LIST_TOOLS] _wait_for_initializing_services missing")
             else:
-                logger.debug("🔧 [LIST_TOOLS] 无INITIALIZING服务，跳过智能等待")
+                logger.debug("[LIST_TOOLS] no_initializing skip_smart_wait")
         else:
-            logger.debug("🔧 [LIST_TOOLS] 快速检查方法不可用，跳过智能等待")
+            logger.debug("[LIST_TOOLS] quick_check_unavailable skip_smart_wait")
 
         # 然后获取工具列表
-        logger.info(f"🔧 [LIST_TOOLS] 开始获取工具列表，使用后台循环")
+        logger.info(f"[LIST_TOOLS] start background_fetch=True")
         result = self._sync_helper.run_async(self.list_tools_async(), force_background=True)
-        logger.info(f"🔧 [LIST_TOOLS] 获取到工具数量: {len(result)}")
+        logger.info(f"[LIST_TOOLS] count={len(result)}")
         if result:
-            logger.info(f"🔧 [LIST_TOOLS] 工具名称: {[t.name for t in result]}")
+            logger.info(f"[LIST_TOOLS] names={[t.name for t in result]}")
         else:
-            logger.warning(f"🔧 [LIST_TOOLS] 工具列表为空！")
+            logger.warning(f"[LIST_TOOLS] empty=True")
         return result
 
     async def list_tools_async(self) -> List[ToolInfo]:
@@ -346,8 +346,7 @@ class ToolOperationsMixin:
             # 🎯 一站式解析：用户输入 → FastMCP标准格式
             fastmcp_tool_name, resolution = resolver.resolve_and_format_for_fastmcp(tool_name, available_tools)
 
-            logger.info(f"🎯 [SMART_RESOLVE] '{tool_name}' → '{fastmcp_tool_name}' "
-                       f"(服务: {resolution.service_name}, 方法: {resolution.resolution_method})")
+            logger.info(f"[SMART_RESOLVE] input='{tool_name}' fastmcp='{fastmcp_tool_name}' service='{resolution.service_name}' method='{resolution.resolution_method}'")
 
         except ValueError as e:
             raise ValueError(f"智能工具解析失败: {e}")
@@ -356,7 +355,7 @@ class ToolOperationsMixin:
         from mcpstore.core.models.tool import ToolExecutionRequest
 
         if self._context_type == ContextType.STORE:
-            logger.info(f"🎯 [STORE] 执行工具: {tool_name} → {fastmcp_tool_name} (服务: {resolution.service_name})")
+            logger.info(f"[STORE] call tool='{tool_name}' fastmcp='{fastmcp_tool_name}' service='{resolution.service_name}'")
             request = ToolExecutionRequest(
                 tool_name=fastmcp_tool_name,  # 🚀 使用FastMCP标准格式
                 service_name=resolution.service_name,
@@ -367,7 +366,7 @@ class ToolOperationsMixin:
             # Agent模式：透明代理 - 将本地服务名映射到全局服务名
             global_service_name = await self._map_agent_tool_to_global_service(resolution.service_name, fastmcp_tool_name)
 
-            logger.info(f"🎯 [AGENT:{self._agent_id}] 执行工具: {tool_name} → {fastmcp_tool_name} (服务: {resolution.service_name} → {global_service_name})")
+            logger.info(f"[AGENT:{self._agent_id}] call tool='{tool_name}' fastmcp='{fastmcp_tool_name}' service_local='{resolution.service_name}' service_global='{global_service_name}'")
             request = ToolExecutionRequest(
                 tool_name=fastmcp_tool_name,  # 🚀 使用FastMCP标准格式
                 service_name=global_service_name,  # 使用全局服务名称
@@ -406,21 +405,21 @@ class ToolOperationsMixin:
                 # 尝试从映射关系中获取全局名称
                 global_name = self._store.registry.get_global_name_from_agent_service(self._agent_id, local_service_name)
                 if global_name:
-                    logger.debug(f"🔧 [TOOL_PROXY] 服务名映射: {local_service_name} → {global_name}")
+                    logger.debug(f"[TOOL_PROXY] map local='{local_service_name}' -> global='{global_name}'")
                     return global_name
 
             # 2. 如果映射失败，检查是否已经是全局名称
             from mcpstore.core.agent_service_mapper import AgentServiceMapper
             if AgentServiceMapper.is_any_agent_service(local_service_name):
-                logger.debug(f"🔧 [TOOL_PROXY] 已是全局服务名: {local_service_name}")
+                logger.debug(f"[TOOL_PROXY] already_global name='{local_service_name}'")
                 return local_service_name
 
             # 3. 如果都不是，可能是 Store 原生服务，直接返回
-            logger.debug(f"🔧 [TOOL_PROXY] Store 原生服务: {local_service_name}")
+            logger.debug(f"[TOOL_PROXY] store_native name='{local_service_name}'")
             return local_service_name
 
         except Exception as e:
-            logger.error(f"❌ [TOOL_PROXY] 服务名映射失败: {e}")
+            logger.error(f"[TOOL_PROXY] map_error error={e}")
             # 出错时返回原始名称
             return local_service_name
 
@@ -443,7 +442,7 @@ class ToolOperationsMixin:
                         # 获取全局服务名
                         global_service_name = self._store.registry.get_global_name_from_agent_service(self._agent_id, local_service_name)
                         if not global_service_name:
-                            logger.warning(f"🔧 [AGENT_TOOLS] 未找到映射: {self._agent_id}:{local_service_name}")
+                            logger.warning(f"[AGENT_TOOLS] map_missing agent='{self._agent_id}' local='{local_service_name}'")
                             continue
 
                         # 🔧 直接从 Registry 获取该服务的工具名列表
@@ -474,23 +473,23 @@ class ToolOperationsMixin:
                                         client_id=tool_info.get('client_id', '')
                                     )
                                     agent_tools.append(local_tool)
-                                    logger.debug(f"🔧 [AGENT_TOOLS] 添加工具: {local_tool_name} (服务: {local_service_name})")
+                                    logger.debug(f"[AGENT_TOOLS] add name='{local_tool_name}' service='{local_service_name}'")
                                 else:
-                                    logger.warning(f"🔧 [AGENT_TOOLS] 无法获取工具信息: {tool_name}")
+                                    logger.warning(f"[AGENT_TOOLS] tool_info_missing name='{tool_name}'")
 
                             except Exception as e:
-                                logger.error(f"❌ [AGENT_TOOLS] 处理工具失败 {tool_name}: {e}")
+                                logger.error(f"[AGENT_TOOLS] tool_error name='{tool_name}' error={e}")
                                 continue
 
                     except Exception as e:
-                        logger.error(f"❌ [AGENT_TOOLS] 获取服务工具失败 {local_service_name}: {e}")
+                        logger.error(f"[AGENT_TOOLS] service_tools_error service='{local_service_name}' error={e}")
                         continue
 
-            logger.info(f"✅ [AGENT_TOOLS] Agent {self._agent_id} 工具视图: {len(agent_tools)} 个工具")
+            logger.info(f"[AGENT_TOOLS] view agent='{self._agent_id}' count={len(agent_tools)}")
             return agent_tools
 
         except Exception as e:
-            logger.error(f"❌ [AGENT_TOOLS] 获取 Agent 工具视图失败: {e}")
+            logger.error(f"[AGENT_TOOLS] view_error error={e}")
             return []
 
     def _convert_tool_name_to_local(self, global_tool_name: str, global_service_name: str, local_service_name: str) -> str:

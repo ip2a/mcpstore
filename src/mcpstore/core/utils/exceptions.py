@@ -16,4 +16,5 @@ class InvalidConfigError(MCPStoreError):
 
 class DeleteServiceError(MCPStoreError):
     """Failed to delete service"""
-    pass 
+    pass
+

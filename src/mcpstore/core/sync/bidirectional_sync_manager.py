@@ -44,7 +44,7 @@ class BidirectionalSyncManager:
         """
         sync_key = f"{agent_id}:{local_name}:{operation}"
         if sync_key in self._syncing_services:
-            logger.debug(f"🔄 [BIDIRECTIONAL_SYNC] Skipping recursive sync: {sync_key}")
+            logger.debug(f" [BIDIRECTIONAL_SYNC] Skipping recursive sync: {sync_key}")
             return
         
         try:
@@ -52,10 +52,10 @@ class BidirectionalSyncManager:
             
             global_name = self.store.registry.get_global_name_from_agent_service(agent_id, local_name)
             if not global_name:
-                logger.warning(f"🔄 [BIDIRECTIONAL_SYNC] No global mapping found for {agent_id}:{local_name}")
+                logger.warning(f" [BIDIRECTIONAL_SYNC] No global mapping found for {agent_id}:{local_name}")
                 return
             
-            logger.info(f"🔄 [BIDIRECTIONAL_SYNC] Agent → Store: {agent_id}:{local_name} → {global_name} ({operation})")
+            logger.info(f" [BIDIRECTIONAL_SYNC] Agent → Store: {agent_id}:{local_name} → {global_name} ({operation})")
             
             if operation == "add" or operation == "update":
                 # 更新 Store 中的服务配置
@@ -83,7 +83,7 @@ class BidirectionalSyncManager:
         """
         sync_key = f"store:{global_name}:{operation}"
         if sync_key in self._syncing_services:
-            logger.debug(f"🔄 [BIDIRECTIONAL_SYNC] Skipping recursive sync: {sync_key}")
+            logger.debug(f" [BIDIRECTIONAL_SYNC] Skipping recursive sync: {sync_key}")
             return
         
         try:
@@ -91,13 +91,13 @@ class BidirectionalSyncManager:
             
             # 检查是否为 Agent 服务
             if not AgentServiceMapper.is_any_agent_service(global_name):
-                logger.debug(f"🔄 [BIDIRECTIONAL_SYNC] Not an Agent service: {global_name}")
+                logger.debug(f" [BIDIRECTIONAL_SYNC] Not an Agent service: {global_name}")
                 return
             
             # 解析 Agent 信息
             agent_id, local_name = AgentServiceMapper.parse_agent_service_name(global_name)
             
-            logger.info(f"🔄 [BIDIRECTIONAL_SYNC] Store → Agent: {global_name} → {agent_id}:{local_name} ({operation})")
+            logger.info(f" [BIDIRECTIONAL_SYNC] Store → Agent: {global_name} → {agent_id}:{local_name} ({operation})")
             
             if operation == "add" or operation == "update":
                 # 更新 Agent 中的服务配置

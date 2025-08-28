@@ -47,14 +47,10 @@ class ToolExecutionMixin:
 
         try:
             if agent_id:
-                # Agent 模式：在指定 Agent 的客户端中查找服务
-                # 🔧 修复：优先从Registry缓存获取，回退到ClientManager持久化文件
+                # Agent 模式：在指定 Agent 的客户端中查找服务（单源：只依赖缓存）
                 client_ids = self.registry.get_agent_clients_from_cache(agent_id)
                 if not client_ids:
-                    # 回退到持久化文件
-                    client_ids = self.client_manager.get_agent_clients(agent_id)
-                    if not client_ids:
-                        raise Exception(f"No clients found for agent {agent_id}")
+                    raise Exception(f"No clients found in registry cache for agent {agent_id}")
             else:
                 # Store 模式：在 global_agent_store 的客户端中查找服务
                 # 🔧 修复：优先从Registry缓存获取，回退到ClientManager持久化文件
@@ -66,14 +62,9 @@ class ToolExecutionMixin:
                 logger.debug(f"🔧 [TOOL_EXECUTION] Registry完整agent_clients缓存: {dict(self.registry.agent_clients)}")
 
                 if not client_ids:
-                    # 回退到持久化文件
-                    logger.warning(f"🔧 [TOOL_EXECUTION] Registry缓存为空，回退到持久化文件")
-                    client_ids = self.client_manager.get_agent_clients(global_agent_id)
-                    logger.debug(f"🔧 [TOOL_EXECUTION] ClientManager文件中的client_ids: {client_ids}")
-                    if not client_ids:
-                        logger.error(f"🔧 [TOOL_EXECUTION] 持久化文件也为空！")
-                        logger.error(f"🔧 [TOOL_EXECUTION] 检查agent_clients.json文件内容")
-                        raise Exception("No clients found in global_agent_store")
+                    # 单源模式：不再回退到分片文件
+                    logger.warning("Single-source mode: no clients in registry cache for global_agent_store")
+                    raise Exception("No clients found in registry cache for global_agent_store")
 
             # 遍历客户端查找服务
             for client_id in client_ids:
@@ -95,15 +86,15 @@ class ToolExecutionMixin:
                             # 验证工具存在
                             tools = await client.list_tools()
 
-                            # 🔧 调试日志：验证工具存在
-                            logger.debug(f"🔍 [FASTMCP_DEBUG] 查找工具: {tool_name}")
-                            logger.debug(f"🔍 [FASTMCP_DEBUG] 服务 {service_name} 中的实际工具:")
+                            # 调试日志：验证工具存在
+                            logger.debug(f"[FASTMCP_DEBUG] lookup tool='{tool_name}'")
+                            logger.debug(f"[FASTMCP_DEBUG] service='{service_name}' tools:")
                             for i, tool in enumerate(tools):
                                 logger.debug(f"   {i+1}. {tool.name}")
 
                             if not any(t.name == tool_name for t in tools):
-                                logger.warning(f"🔍 [FASTMCP_DEBUG] 工具 {tool_name} 在服务 {service_name} 中未找到!")
-                                logger.warning(f"🔍 [FASTMCP_DEBUG] 可用工具: {[t.name for t in tools]}")
+                                logger.warning(f"[FASTMCP_DEBUG] not_found tool='{tool_name}' in service='{service_name}'")
+                                logger.warning(f"[FASTMCP_DEBUG] available={[t.name for t in tools]}")
                                 continue
 
                             # 使用 FastMCP 标准执行器执行工具
@@ -119,7 +110,7 @@ class ToolExecutionMixin:
                             # 提取结果数据（按照 FastMCP 标准）
                             extracted_data = executor.extract_result_data(result)
 
-                            logger.info(f"Tool {tool_name} executed successfully in service {service_name}")
+                            logger.info(f"[FASTMCP] call ok tool='{tool_name}' service='{service_name}'")
                             return extracted_data
 
                     except Exception as e:
@@ -131,7 +122,7 @@ class ToolExecutionMixin:
             raise Exception(f"Tool {tool_name} not found in service {service_name}")
 
         except Exception as e:
-            logger.error(f"FastMCP tool execution failed: {e}")
+            logger.error(f"[FASTMCP] call failed tool='{tool_name}' service='{service_name}' error={e}")
             raise Exception(f"Tool execution failed: {str(e)}")
 
 

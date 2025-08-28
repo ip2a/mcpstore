@@ -42,8 +42,45 @@ class ServiceLifecycleManager:
         # 🆕 新增处理器
         self.initializing_processor = InitializingStateProcessor(self)
         self.event_processor = StateChangeEventProcessor(self)
+        
+        # 📊 日志采样机制：避免频繁打印相同内容
+        self._log_cache: Dict[str, Tuple[str, float]] = {}  # key -> (last_content, last_time)
 
         logger.info("🔧 [REFACTOR] ServiceLifecycleManager initialized with unified Registry state management")
+    
+    def _should_log(self, log_key: str, content: str, interval_seconds: int = 10) -> bool:
+        """
+        📊 采样日志判断：如果内容相同且未超过时间间隔则不打印，如果内容变化则立即打印
+        
+        Args:
+            log_key: 日志唯一标识
+            content: 日志内容
+            interval_seconds: 相同内容的最小打印间隔（秒）
+            
+        Returns:
+            bool: 是否应该打印日志
+        """
+        current_time = time.time()
+        
+        if log_key not in self._log_cache:
+            # 首次打印
+            self._log_cache[log_key] = (content, current_time)
+            return True
+            
+        last_content, last_time = self._log_cache[log_key]
+        
+        if last_content != content:
+            # 内容变化，立即打印
+            self._log_cache[log_key] = (content, current_time)
+            return True
+            
+        if current_time - last_time >= interval_seconds:
+            # 内容相同但超过时间间隔，打印并更新时间
+            self._log_cache[log_key] = (content, current_time)
+            return True
+            
+        # 内容相同且未超过时间间隔，不打印
+        return False
     
     async def start(self):
         """Start lifecycle management"""
@@ -146,7 +183,7 @@ class ServiceLifecycleManager:
                     self.initializing_processor.trigger_immediate_processing(agent_id, service_name)
                 )
 
-            logger.info(f"✅ [INITIALIZE_SERVICE] Service {service_name} (agent {agent_id}) initialized in INITIALIZING state")
+            logger.info(f"[INITIALIZE_SERVICE] initialized service='{service_name}' agent='{agent_id}' state=INITIALIZING")
             return True
             
         except Exception as e:
@@ -156,10 +193,17 @@ class ServiceLifecycleManager:
     def get_service_state(self, agent_id: str, service_name: str) -> Optional[ServiceConnectionState]:
         """🔧 [REFACTOR] Get service state from unified Registry cache"""
         state = self.registry.get_service_state(agent_id, service_name)
+        
+        # 📊 使用采样日志，避免频繁打印相同内容
+        log_key = f"get_service_state_{agent_id}_{service_name}"
         if state is None:
-            logger.debug(f"🔍 [GET_SERVICE_STATE] No state found for {service_name} in agent {agent_id}")
+            content = f"🔍 [GET_SERVICE_STATE] No state found for {service_name} in agent {agent_id}"
         else:
-            logger.debug(f"🔍 [GET_SERVICE_STATE] Service {service_name} (agent {agent_id}) state: {state}")
+            content = f"🔍 [GET_SERVICE_STATE] Service {service_name} (agent {agent_id}) state: {state}"
+            
+        if self._should_log(log_key, content):
+            logger.debug(content)
+            
         return state
 
     def get_service_metadata(self, agent_id: str, service_name: str) -> Optional[ServiceStateMetadata]:
@@ -179,18 +223,18 @@ class ServiceLifecycleManager:
             response_time: Response time
             error_message: Error message (if failed)
         """
-        logger.debug(f"🔍 [HEALTH_CHECK_RESULT] Processing for {service_name} (agent {agent_id}): success={success}, response_time={response_time}")
+        logger.debug(f"[HEALTH_CHECK_RESULT] processing service='{service_name}' agent='{agent_id}' success={success} response_time={response_time}")
         
         # Get current state
         current_state = self.get_service_state(agent_id, service_name)
         if current_state is None:
-            logger.warning(f"⚠️ [HEALTH_CHECK_RESULT] No state found for {service_name} (agent {agent_id}), skipping")
+            logger.warning(f"[HEALTH_CHECK_RESULT] no_state service='{service_name}' agent='{agent_id}' skip=True")
             return
         
         # Get metadata
         metadata = self.get_service_metadata(agent_id, service_name)
         if not metadata:
-            logger.error(f"❌ [HEALTH_CHECK_RESULT] No metadata found for {service_name} (agent {agent_id})")
+            logger.error(f"[HEALTH_CHECK_RESULT] no_metadata service='{service_name}' agent='{agent_id}'")
             return
         
         # Update metadata
@@ -198,7 +242,7 @@ class ServiceLifecycleManager:
         metadata.last_response_time = response_time
         
         if success:
-            logger.debug(f"✅ [HEALTH_CHECK_RESULT] Success for {service_name}")
+            logger.debug(f"[HEALTH_CHECK_RESULT] success service='{service_name}'")
             metadata.consecutive_failures = 0
             metadata.error_message = None
             await self.state_machine.handle_success_transition(
@@ -206,7 +250,7 @@ class ServiceLifecycleManager:
                 self.get_service_metadata, self._transition_to_state
             )
         else:
-            logger.debug(f"❌ [HEALTH_CHECK_RESULT] Failure for {service_name}: {error_message}")
+            logger.debug(f"[HEALTH_CHECK_RESULT] failure service='{service_name}' error={error_message}")
             metadata.consecutive_failures += 1
             metadata.error_message = error_message
             await self.state_machine.handle_failure_transition(
@@ -217,7 +261,77 @@ class ServiceLifecycleManager:
         # 添加到处理队列
         self.state_change_queue.add((agent_id, service_name))
         
-        logger.debug(f"🔍 [HEALTH_CHECK_RESULT] Completed for {service_name}")
+        logger.debug(f"[HEALTH_CHECK_RESULT] completed service='{service_name}'")
+
+    async def handle_health_check_result_enhanced(self, agent_id: str, service_name: str,
+                                                suggested_state: Optional[ServiceConnectionState] = None,
+                                                response_time: float = 0.0,
+                                                error_message: Optional[str] = None):
+        """
+        🆕 增强版健康检查结果处理：支持丰富的健康状态信息
+        
+        Args:
+            agent_id: Agent ID
+            service_name: Service name
+            suggested_state: 建议的生命周期状态（由HealthStatusBridge提供）
+            response_time: Response time
+            error_message: Error message (if failed)
+        """
+        logger.debug(f"[HEALTH_CHECK_ENHANCED] processing service='{service_name}' agent='{agent_id}' suggested_state={suggested_state} response_time={response_time}")
+        
+        # Get current state
+        current_state = self.get_service_state(agent_id, service_name)
+        if current_state is None:
+            logger.warning(f"[HEALTH_CHECK_ENHANCED] no_state service='{service_name}' agent='{agent_id}' skip=True")
+            return
+        
+        # Get metadata
+        metadata = self.get_service_metadata(agent_id, service_name)
+        if not metadata:
+            logger.error(f"[HEALTH_CHECK_ENHANCED] no_metadata service='{service_name}' agent='{agent_id}'")
+            return
+        
+        # Update metadata
+        metadata.last_health_check = datetime.now()
+        metadata.last_response_time = response_time
+        metadata.error_message = error_message
+        
+        # 🆕 使用建议的状态进行智能转换
+        if suggested_state:
+            # 检查是否为成功状态
+            success_states = [ServiceConnectionState.HEALTHY, ServiceConnectionState.WARNING]
+            is_success = suggested_state in success_states
+            
+            if is_success:
+                logger.debug(f"[HEALTH_CHECK_ENHANCED] success service='{service_name}' state='{suggested_state.value}'")
+                metadata.consecutive_failures = 0
+                # 直接转换到建议的状态
+                await self._transition_to_state(agent_id, service_name, suggested_state)
+            else:
+                logger.debug(f"[HEALTH_CHECK_ENHANCED] failure service='{service_name}' state='{suggested_state.value}'")
+                metadata.consecutive_failures += 1
+                # 🔧 修复：直接转换到建议的失败状态，而不是让状态机重新决定
+                await self._transition_to_state(agent_id, service_name, suggested_state)
+        else:
+            # 向后兼容：如果没有建议状态，使用原有的布尔逻辑
+            success = error_message is None and response_time > 0
+            if success:
+                metadata.consecutive_failures = 0
+                await self.state_machine.handle_success_transition(
+                    agent_id, service_name, current_state,
+                    self.get_service_metadata, self._transition_to_state
+                )
+            else:
+                metadata.consecutive_failures += 1
+                await self.state_machine.handle_failure_transition(
+                    agent_id, service_name, current_state,
+                    self.get_service_metadata, self._transition_to_state
+                )
+        
+        # 添加到处理队列
+        self.state_change_queue.add((agent_id, service_name))
+        
+        logger.debug(f"[HEALTH_CHECK_ENHANCED] completed service='{service_name}'")
     
     async def _transition_to_state(self, agent_id: str, service_name: str,
                                  new_state: ServiceConnectionState):

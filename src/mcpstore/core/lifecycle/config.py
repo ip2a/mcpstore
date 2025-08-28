@@ -8,8 +8,8 @@ from dataclasses import dataclass
 class ServiceLifecycleConfig:
     """服务生命周期配置"""
     # 状态转换阈值
-    warning_failure_threshold: int = 2          # 进入WARNING状态的失败次数阈值
-    reconnecting_failure_threshold: int = 1     # 🔧 修复：降低阈值，首次失败即转到RECONNECTING
+    warning_failure_threshold: int = 1          # HEALTHY首次失败即进入WARNING
+    reconnecting_failure_threshold: int = 2     # WARNING下连续两次失败才进入RECONNECTING
     max_reconnect_attempts: int = 10            # 最大重连尝试次数
     
     # 重试间隔配置
@@ -22,5 +22,5 @@ class ServiceLifecycleConfig:
     warning_heartbeat_interval: float = 10.0    # 警告状态心跳间隔（秒）
     
     # 超时配置
-    initialization_timeout: float = 30.0        # 初始化超时（秒）
+    initialization_timeout: float = 10.0        # 初始化超时（秒）
     disconnection_timeout: float = 10.0         # 断连超时（秒）

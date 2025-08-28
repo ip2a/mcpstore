@@ -46,10 +46,8 @@ export const resetAPI = {
   // Agent配置重置
   resetAgentConfig: (agentId) => apiRequest.post(`/for_agent/${agentId}/reset_config`),
   
-  // 文件直接重置
+  // 文件直接重置（单一数据源模式：仅支持mcp.json）
   resetMcpJsonFile: () => apiRequest.post('/for_store/reset_mcp_json_file'),
-  resetClientServicesFile: () => apiRequest.post('/for_store/reset_client_services_file'),
-  resetAgentClientsFile: () => apiRequest.post('/for_store/reset_agent_clients_file'),
   
   // 批量重置
   resetAll: () => apiRequest.post('/system/reset/all'),

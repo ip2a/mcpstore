@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class ServiceManagementMixin:
     """服务管理混入类"""
-    
+
     def check_services(self) -> dict:
         """
         健康检查（同步版本），store/agent上下文自动判断
@@ -73,11 +73,11 @@ class ServiceManagementMixin:
     def update_service(self, name: str, config: Dict[str, Any]) -> bool:
         """
         更新服务配置（同步版本）- 完全替换配置
-        
+
         Args:
             name: 服务名称
             config: 新的服务配置
-            
+
         Returns:
             bool: 更新是否成功
         """
@@ -86,11 +86,11 @@ class ServiceManagementMixin:
     async def update_service_async(self, name: str, config: Dict[str, Any]) -> bool:
         """
         更新服务配置（异步版本）- 完全替换配置
-        
+
         Args:
             name: 服务名称
             config: 新的服务配置
-            
+
         Returns:
             bool: 更新是否成功
         """
@@ -101,28 +101,45 @@ class ServiceManagementMixin:
                 if name not in current_config.get("mcpServers", {}):
                     logger.error(f"Service {name} not found in store configuration")
                     return False
-                
+
                 # 完全替换配置
                 current_config["mcpServers"][name] = config
                 success = self._store.config.save_config(current_config)
-                
+
                 if success:
                     # 触发重新注册
                     if hasattr(self._store.orchestrator, 'sync_manager') and self._store.orchestrator.sync_manager:
                         await self._store.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
-                
+
                 return success
             else:
-                # Agent级别：更新agent的服务配置
+                # Agent级别：与单一数据源模式对齐——直接更新 mcp.json 并触发同步
                 global_name = name
                 if self._service_mapper:
                     global_name = self._service_mapper.to_global_name(name)
-                
-                return self._store.client_manager.replace_service_in_agent(
-                    agent_id=self._agent_id,
-                    service_name=global_name,
-                    new_service_config=config
-                )
+
+                current_config = self._store.config.load_config()
+                if global_name not in current_config.get("mcpServers", {}):
+                    logger.error(f"Service {global_name} not found in store configuration (agent mode)")
+                    return False
+
+                current_config["mcpServers"][global_name] = config
+                success = self._store.config.save_config(current_config)
+
+                if success and hasattr(self._store.orchestrator, 'sync_manager') and self._store.orchestrator.sync_manager:
+                    await self._store.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
+
+                # 更新缓存中的 metadata.service_config，确保一致性
+                try:
+                    agent_key = self._agent_id
+                    metadata = self._store.registry.get_service_metadata(agent_key, global_name)
+                    if metadata:
+                        metadata.service_config = config
+                        self._store.registry.set_service_metadata(agent_key, global_name, metadata)
+                except Exception as _:
+                    pass
+
+                return success
         except Exception as e:
             logger.error(f"Failed to update service {name}: {e}")
             return False
@@ -130,11 +147,11 @@ class ServiceManagementMixin:
     def patch_service(self, name: str, updates: Dict[str, Any]) -> bool:
         """
         增量更新服务配置（同步版本）- 推荐使用
-        
+
         Args:
             name: 服务名称
             updates: 要更新的配置项
-            
+
         Returns:
             bool: 更新是否成功
         """
@@ -143,11 +160,11 @@ class ServiceManagementMixin:
     async def patch_service_async(self, name: str, updates: Dict[str, Any]) -> bool:
         """
         增量更新服务配置（异步版本）- 推荐使用
-        
+
         Args:
             name: 服务名称
             updates: 要更新的配置项
-            
+
         Returns:
             bool: 更新是否成功
         """
@@ -158,36 +175,48 @@ class ServiceManagementMixin:
                 if name not in current_config.get("mcpServers", {}):
                     logger.error(f"Service {name} not found in store configuration")
                     return False
-                
+
                 # 增量更新配置
                 service_config = current_config["mcpServers"][name]
                 service_config.update(updates)
-                
+
                 success = self._store.config.save_config(current_config)
-                
+
                 if success:
                     # 触发重新注册
                     if hasattr(self._store.orchestrator, 'sync_manager') and self._store.orchestrator.sync_manager:
                         await self._store.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
-                
+
                 return success
             else:
-                # Agent级别：增量更新agent的服务配置
+                # Agent级别：与单一数据源模式对齐——直接增量更新 mcp.json 并触发同步
                 global_name = name
                 if self._service_mapper:
                     global_name = self._service_mapper.to_global_name(name)
-                
-                # 获取当前配置
-                client_ids = self._store.client_manager.get_agent_clients(self._agent_id)
-                for client_id in client_ids:
-                    client_config = self._store.client_manager.get_client_config(client_id)
-                    if client_config and global_name in client_config.get("mcpServers", {}):
-                        # 增量更新
-                        client_config["mcpServers"][global_name].update(updates)
-                        return self._store.client_manager.save_client_config(client_id, client_config)
-                
-                logger.error(f"Service {global_name} not found in agent {self._agent_id}")
-                return False
+
+                current_config = self._store.config.load_config()
+                if global_name not in current_config.get("mcpServers", {}):
+                    logger.error(f"Service {global_name} not found in store configuration (agent mode)")
+                    return False
+
+                # 增量更新配置
+                current_config["mcpServers"][global_name].update(updates)
+                success = self._store.config.save_config(current_config)
+
+                if success and hasattr(self._store.orchestrator, 'sync_manager') and self._store.orchestrator.sync_manager:
+                    await self._store.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
+
+                # 更新缓存中的 metadata.service_config，确保一致性
+                try:
+                    agent_key = self._agent_id
+                    metadata = self._store.registry.get_service_metadata(agent_key, global_name)
+                    if metadata:
+                        metadata.service_config.update(updates)
+                        self._store.registry.set_service_metadata(agent_key, global_name, metadata)
+                except Exception as _:
+                    pass
+
+                return success
         except Exception as e:
             logger.error(f"Failed to patch service {name}: {e}")
             return False
@@ -195,10 +224,10 @@ class ServiceManagementMixin:
     def delete_service(self, name: str) -> bool:
         """
         删除服务（同步版本）
-        
+
         Args:
             name: 服务名称
-            
+
         Returns:
             bool: 删除是否成功
         """
@@ -230,10 +259,10 @@ class ServiceManagementMixin:
     async def delete_service_two_step(self, service_name: str) -> Dict[str, Any]:
         """
         两步删除服务：从配置文件删除 + 从Registry注销
-        
+
         Args:
             service_name: 服务名称
-            
+
         Returns:
             Dict: 包含两步操作结果的字典
         """
@@ -244,7 +273,7 @@ class ServiceManagementMixin:
             "step2_error": None,
             "overall_success": False
         }
-        
+
         # 第一步：从配置文件删除
         try:
             result["step1_config_removal"] = await self.delete_service_async(service_name)
@@ -253,7 +282,7 @@ class ServiceManagementMixin:
         except Exception as e:
             result["step1_error"] = f"Configuration removal failed: {str(e)}"
             logger.error(f"Step 1 (config removal) failed: {e}")
-        
+
         # 第二步：从Registry清理（即使第一步失败也尝试）
         try:
             if self._context_type == ContextType.STORE:
@@ -265,14 +294,14 @@ class ServiceManagementMixin:
                 if self._service_mapper:
                     global_name = self._service_mapper.to_global_name(service_name)
                 cleanup_success = await self._store.orchestrator.registry.cleanup_service(global_name, self._agent_id)
-            
+
             result["step2_registry_cleanup"] = cleanup_success
             if not cleanup_success:
                 result["step2_error"] = "Failed to cleanup service from registry"
         except Exception as e:
             result["step2_error"] = f"Registry cleanup failed: {str(e)}"
             logger.warning(f"Step 2 (registry cleanup) failed: {e}")
-        
+
         result["overall_success"] = result["step1_config_removal"] and result["step2_registry_cleanup"]
         return result
 
@@ -331,11 +360,8 @@ class ServiceManagementMixin:
                 default_config = {"mcpServers": {}}
                 mcp_success = self._store.config.save_config(default_config)
 
-                # 3. 触发缓存同步到映射文件（会清空映射文件）
-                if hasattr(self._store, 'cache_manager'):
-                    self._store.cache_manager.sync_to_client_manager(self._store.client_manager)
-                else:
-                    self._store.registry.sync_to_client_manager(self._store.client_manager)
+                # 3. 单源模式：不再维护分片映射文件
+                logger.info("Single-source mode: skip shard mapping files (agent_clients/client_services)")
 
                 logger.info("✅ Store级别：所有配置重置完成")
                 return mcp_success
@@ -351,11 +377,8 @@ class ServiceManagementMixin:
                 default_config = {"mcpServers": {}}
                 mcp_success = self._store.config.save_config(default_config)
 
-                # 3. 同步到映射文件
-                if hasattr(self._store, 'cache_manager'):
-                    self._store.cache_manager.sync_to_client_manager(self._store.client_manager)
-                else:
-                    self._store.registry.sync_to_client_manager(self._store.client_manager)
+                # 3. 单源模式：不再维护分片映射文件
+                logger.info("Single-source mode: skip shard mapping files (agent_clients/client_services)")
 
                 logger.info("✅ Store级别：global_agent_store重置完成")
                 return mcp_success
@@ -376,11 +399,8 @@ class ServiceManagementMixin:
             # 1. 清空Agent在缓存中的数据
             self._store.registry.clear(self._agent_id)
 
-            # 2. 触发缓存同步到文件
-            if hasattr(self._store, 'cache_manager'):
-                self._store.cache_manager.sync_to_client_manager(self._store.client_manager)
-            else:
-                self._store.registry.sync_to_client_manager(self._store.client_manager)
+            # 2. 单源模式：不再同步到分片文件
+            logger.info("Single-source mode: skip shard mapping files sync")
 
             logger.info(f"✅ Agent级别：Agent {self._agent_id} 配置重置完成")
             return True
@@ -657,75 +677,26 @@ class ServiceManagementMixin:
             }
 
     def _is_deterministic_client_id(self, identifier: str) -> bool:
-        """
-        判断是否为新的确定性client_id格式
-
-        支持的格式:
-        - client_store_servicename_hash (Store服务)
-        - client_agentid_servicename_hash (Agent服务)
-
-        Args:
-            identifier: 待检查的标识符
-
-        Returns:
-            bool: 是否为确定性格式
-        """
-        if not identifier.startswith('client_'):
+        """使用 ClientIDGenerator 统一判断确定性client_id格式"""
+        try:
+            from mcpstore.core.id_generator import ClientIDGenerator
+            return ClientIDGenerator.is_deterministic_format(identifier)
+        except Exception:
             return False
-
-        parts = identifier.split('_')
-        if len(parts) < 3:
-            return False
-
-        # client_store_xxx_hash 或 client_agentid_xxx_hash
-        return (identifier.startswith('client_store_') and len(parts) >= 4) or \
-               (identifier.startswith('client_') and len(parts) >= 4)
 
     def _parse_deterministic_client_id(self, client_id: str, agent_id: str) -> Tuple[str, str]:
-        """
-        从确定性client_id中解析出服务名
-
-        Args:
-            client_id: 确定性格式的client_id
-            agent_id: 期望的agent_id（用于验证）
-
-        Returns:
-            Tuple[client_id, service_name]: 解析后的结果
-
-        Raises:
-            ValueError: 解析失败或agent_id不匹配
-        """
-        if not client_id.startswith('client_'):
-            raise ValueError(f"Invalid client_id format: {client_id}")
-
-        parts = client_id.split('_')
-
-        if client_id.startswith('client_store_'):
-            # client_store_servicename_hash
-            if len(parts) < 4:
-                raise ValueError(f"Invalid store client_id format: {client_id}")
-
-            # 验证是否为Store级别的请求
+        """使用 ClientIDGenerator 统一解析确定性client_id，并验证agent范围"""
+        from mcpstore.core.id_generator import ClientIDGenerator
+        parsed = ClientIDGenerator.parse_client_id(client_id)
+        if parsed.get("type") == "store":
             global_agent_store_id = self._store.client_manager.global_agent_store_id
             if agent_id != global_agent_store_id:
                 raise ValueError(f"Store client_id '{client_id}' cannot be used with agent '{agent_id}'")
-
-            # 提取服务名（支持服务名包含下划线）
-            service_name = '_'.join(parts[2:-1])  # 去掉 client_store_ 前缀和 _hash 后缀
-            return client_id, service_name
-
-        elif len(parts) >= 4:
-            # client_agentid_servicename_hash
-            extracted_agent = parts[1]
-
-            # 验证agent_id匹配
-            if extracted_agent != agent_id:
-                raise ValueError(f"Client_id '{client_id}' belongs to agent '{extracted_agent}', not '{agent_id}'")
-
-            # 提取服务名（支持服务名包含下划线）
-            service_name = '_'.join(parts[2:-1])  # 去掉 client_agentid_ 前缀和 _hash 后缀
-            return client_id, service_name
-
+            return client_id, parsed.get("service_name")
+        elif parsed.get("type") == "agent":
+            if parsed.get("agent_id") != agent_id:
+                raise ValueError(f"Client_id '{client_id}' belongs to agent '{parsed.get('agent_id')}', not '{agent_id}'")
+            return client_id, parsed.get("service_name")
         raise ValueError(f"Cannot parse client_id format: {client_id}")
 
     def _validate_resolved_mapping(self, client_id: str, service_name: str, agent_id: str) -> bool:
@@ -772,19 +743,19 @@ class ServiceManagementMixin:
         Raises:
             ValueError: 当参数无法解析或不存在时
         """
-        logger.debug(f"🔍 [RESOLVE_CLIENT_ID] 开始解析: '{client_id_or_service_name}' for agent '{agent_id}'")
+        logger.debug(f"[RESOLVE_CLIENT_ID] start value='{client_id_or_service_name}' agent='{agent_id}'")
 
         # 🆕 优先级1: 智能格式识别（确定性client_id格式）
         if self._is_deterministic_client_id(client_id_or_service_name):
             try:
                 client_id, service_name = self._parse_deterministic_client_id(client_id_or_service_name, agent_id)
-                logger.debug(f"✅ [RESOLVE_CLIENT_ID] 确定性格式解析成功: client_id={client_id}, service_name={service_name}")
+                logger.debug(f"[RESOLVE_CLIENT_ID] deterministic_ok client_id={client_id} service_name={service_name}")
 
                 # 验证解析结果的有效性
                 if self._validate_resolved_mapping(client_id, service_name, agent_id):
                     return client_id, service_name
                 else:
-                    logger.warning(f"⚠️ [RESOLVE_CLIENT_ID] 确定性解析结果验证失败，尝试其他方法")
+                    logger.warning(f"[RESOLVE_CLIENT_ID] deterministic_verify_failed")
             except ValueError as e:
                 logger.debug(f"🔄 [RESOLVE_CLIENT_ID] 确定性格式解析失败: {e}")
 
@@ -792,30 +763,37 @@ class ServiceManagementMixin:
         try:
             client_config = self._store.registry.get_client_config_from_cache(client_id_or_service_name)
             if client_config and "mcpServers" in client_config:
-                # 验证这个client_id是否属于指定的agent
-                agent_clients = self._store.registry.get_agent_clients_from_cache(agent_id)
-                if client_id_or_service_name in agent_clients:
+                # 验证这个client_id是否属于指定的agent（通过解析判断类型和agent范围）
+                from mcpstore.core.id_generator import ClientIDGenerator
+                parsed = ClientIDGenerator.parse_client_id(client_id_or_service_name)
+                if parsed.get("type") == "store":
+                    expected_agent = self._store.client_manager.global_agent_store_id
+                elif parsed.get("type") == "agent":
+                    expected_agent = parsed.get("agent_id")
+                else:
+                    expected_agent = None
+                if expected_agent == agent_id:
                     # 找到对应的服务名
                     service_names = list(client_config["mcpServers"].keys())
                     if len(service_names) == 1:
-                        logger.debug(f"✅ [RESOLVE_CLIENT_ID] client_id查找成功: {client_id_or_service_name} -> {service_names[0]}")
+                        logger.debug(f"[RESOLVE_CLIENT_ID] client_id_lookup_ok value={client_id_or_service_name} service={service_names[0]}")
                         return client_id_or_service_name, service_names[0]
                     else:
                         raise ValueError(f"Client {client_id_or_service_name} contains multiple services, which should not happen")
         except Exception as e:
-            logger.debug(f"🔄 [RESOLVE_CLIENT_ID] client_id查找失败: {e}")
+            logger.debug(f"[RESOLVE_CLIENT_ID] client_id_lookup_failed error={e}")
             pass  # 作为client_id查找失败，继续尝试作为服务名
 
-        # 🔄 优先级3: 作为服务名查找对应的client_id
+        # 优先级3: 作为服务名查找对应的client_id
         try:
-            logger.debug(f"🔍 [RESOLVE_CLIENT_ID] 尝试作为服务名解析: '{client_id_or_service_name}'")
+            logger.debug(f"[RESOLVE_CLIENT_ID] try_as_service value='{client_id_or_service_name}'")
 
             # 🔧 Agent 透明代理：处理服务名映射和查找
             search_service_name = client_id_or_service_name
 
             if self._context_type == ContextType.AGENT and agent_id != self._store.client_manager.global_agent_store_id:
                 # Agent 模式：支持多种查找方式（宽松匹配）
-                logger.debug(f"🔍 [RESOLVE_CLIENT_ID] Agent模式处理: agent_id={agent_id}")
+                logger.debug(f"[RESOLVE_CLIENT_ID] agent_mode agent_id={agent_id}")
 
                 from mcpstore.core.agent_service_mapper import AgentServiceMapper
 
@@ -826,7 +804,7 @@ class ServiceManagementMixin:
                         if parsed_agent_id == agent_id:
                             # 是当前 Agent 的全局服务名，转换为本地名称
                             search_service_name = local_name
-                            logger.debug(f"🔄 [RESOLVE_CLIENT_ID] 全局名转本地名: {client_id_or_service_name} -> {local_name}")
+                            logger.debug(f"[RESOLVE_CLIENT_ID] global_to_local {client_id_or_service_name} -> {local_name}")
                         else:
                             raise ValueError(f"Service '{client_id_or_service_name}' belongs to agent '{parsed_agent_id}', not '{agent_id}'")
                     except ValueError as e:
@@ -834,11 +812,11 @@ class ServiceManagementMixin:
                 else:
                     # 假设是本地服务名，直接使用
                     search_service_name = client_id_or_service_name
-                    logger.debug(f"🔍 [RESOLVE_CLIENT_ID] 使用本地服务名: {search_service_name}")
+                    logger.debug(f"[RESOLVE_CLIENT_ID] use_local_service_name value={search_service_name}")
 
             # 🔧 在指定agent范围内查找服务
             service_names = self._store.registry.get_all_service_names(agent_id)
-            logger.debug(f"🔍 [RESOLVE_CLIENT_ID] agent '{agent_id}' 的所有服务: {service_names}")
+            logger.debug(f"[RESOLVE_CLIENT_ID] agent_services agent='{agent_id}' services={service_names}")
 
             # 🔍 查找服务并获取对应的client_id
             if self._context_type == ContextType.AGENT and agent_id != self._store.client_manager.global_agent_store_id:
@@ -846,7 +824,7 @@ class ServiceManagementMixin:
                 if search_service_name in service_names:
                     client_id = self._store.registry.get_service_client_id(agent_id, search_service_name)
                     if client_id:
-                        logger.debug(f"✅ [RESOLVE_CLIENT_ID] Agent模式服务名查找成功: {search_service_name} -> {client_id}")
+                        logger.debug(f"[RESOLVE_CLIENT_ID] agent_lookup_ok service={search_service_name} client_id={client_id}")
                         return client_id, search_service_name
                     else:
                         raise ValueError(f"Service '{search_service_name}' found but no client_id mapping")
@@ -858,7 +836,7 @@ class ServiceManagementMixin:
                 if search_service_name in service_names:
                     client_id = self._store.registry.get_service_client_id(agent_id, search_service_name)
                     if client_id:
-                        logger.debug(f"✅ [RESOLVE_CLIENT_ID] Store模式服务名查找成功: {search_service_name} -> {client_id}")
+                        logger.debug(f"[RESOLVE_CLIENT_ID] store_lookup_ok service={search_service_name} client_id={client_id}")
                         return client_id, search_service_name
                     else:
                         raise ValueError(f"Service '{search_service_name}' found but no client_id mapping")
@@ -867,7 +845,7 @@ class ServiceManagementMixin:
                     raise ValueError(f"Service '{client_id_or_service_name}' not found in store. Available services: {available_services}")
 
         except Exception as e:
-            logger.error(f"❌ [RESOLVE_CLIENT_ID] 解析失败: '{client_id_or_service_name}' for agent '{agent_id}': {e}")
+            logger.error(f"[RESOLVE_CLIENT_ID] error value='{client_id_or_service_name}' agent='{agent_id}' error={e}")
             if "not found" in str(e) or "belongs to agent" in str(e) or "Invalid" in str(e):
                 raise e
             else:
@@ -909,11 +887,8 @@ class ServiceManagementMixin:
             # 5. 删除Agent-Client映射
             self._store.registry.remove_agent_client_mapping(global_agent_store_id, client_id)
 
-            # 6. 同步缓存到文件
-            if hasattr(self._store, 'cache_manager'):
-                self._store.cache_manager.sync_to_client_manager(self._store.client_manager)
-            else:
-                self._store.registry.sync_to_client_manager(self._store.client_manager)
+            # 6. 单源模式：不再同步到分片文件
+            logger.info("Single-source mode: skip shard mapping files sync")
 
             logger.info(f"✅ Store级别：配置删除完成 {service_name}")
 
@@ -960,11 +935,8 @@ class ServiceManagementMixin:
             # 4. 删除Agent-Client映射
             self._store.registry.remove_agent_client_mapping(self._agent_id, client_id)
 
-            # 5. 同步缓存到文件
-            if hasattr(self._store, 'cache_manager'):
-                self._store.cache_manager.sync_to_client_manager(self._store.client_manager)
-            else:
-                self._store.registry.sync_to_client_manager(self._store.client_manager)
+            # 5. 单源模式：不再同步到分片文件
+            logger.info("Single-source mode: skip shard mapping files sync")
 
             logger.info(f"✅ Agent级别：配置删除完成 {service_name}")
 
@@ -1093,11 +1065,8 @@ class ServiceManagementMixin:
             current_config["mcpServers"][service_name] = normalized_config
             self._store.config.save_config(current_config)
 
-            # 5. 同步缓存到文件
-            if hasattr(self._store, 'cache_manager'):
-                self._store.cache_manager.sync_to_client_manager(self._store.client_manager)
-            else:
-                self._store.registry.sync_to_client_manager(self._store.client_manager)
+            # 5. 单源模式：不再同步到分片文件
+            logger.info("Single-source mode: skip shard mapping files sync")
 
             # 6. 触发生命周期管理器重新初始化服务
             self._store.orchestrator.lifecycle_manager.initialize_service(
@@ -1170,11 +1139,8 @@ class ServiceManagementMixin:
                 metadata.state_entered_time = datetime.now()
                 self._store.registry.set_service_metadata(self._agent_id, service_name, metadata)
 
-            # 4. 同步缓存到文件（Agent级别不更新mcp.json）
-            if hasattr(self._store, 'cache_manager'):
-                self._store.cache_manager.sync_to_client_manager(self._store.client_manager)
-            else:
-                self._store.registry.sync_to_client_manager(self._store.client_manager)
+            # 4. 单源模式：不再同步到分片文件（Agent级别不更新mcp.json）
+            logger.info("Single-source mode: skip shard mapping files sync")
 
             # 5. 触发生命周期管理器重新初始化服务
             self._store.orchestrator.lifecycle_manager.initialize_service(
@@ -1330,9 +1296,8 @@ class ServiceManagementMixin:
                 else:
                     logger.error(f"❌ [SERVICE_DELETE] Agent 服务删除失败: {local_name} → {global_name}")
 
-            # 6. 同步缓存到文件
-            if hasattr(self._store, 'cache_manager'):
-                self._store.cache_manager.sync_to_client_manager(self._store.client_manager)
+            # 6. 单源模式：不再同步到分片文件
+            logger.info("Single-source mode: skip shard mapping files sync")
 
         except Exception as e:
             logger.error(f"❌ [SERVICE_DELETE] Agent 服务删除失败 {self._agent_id}:{local_name}: {e}")
@@ -1361,7 +1326,7 @@ class ServiceManagementMixin:
         else:
             # Agent上下文：返回所有相关client配置的字典
             agent_id = self._agent_id
-            client_ids = self._store.orchestrator.client_manager.get_agent_clients(agent_id)
+            client_ids = self._store.registry.get_agent_clients_from_cache(agent_id)
 
             # 获取每个client的配置
             result = {}
@@ -1422,44 +1387,67 @@ class ServiceManagementMixin:
             agent_id = self._agent_id if self._context_type == ContextType.AGENT else self._store.client_manager.global_agent_store_id
             client_id, service_name = self._resolve_client_id(client_id_or_service_name, agent_id)
 
-            # 规范化目标状态
-            target_statuses = self._normalize_target_statuses(status)
-
-            logger.info(f"🕐 [WAIT_SERVICE] Waiting for service '{service_name}' (client_id: {client_id}) to reach status {target_statuses}, timeout: {timeout}s")
+            # 解析等待模式
+            change_mode = False
+            if isinstance(status, str) and status.lower() == 'change':
+                change_mode = True
+                logger.info(f"[WAIT_SERVICE] start mode=change service='{service_name}' timeout={timeout}s")
+                initial_status = self._store.orchestrator.get_service_comprehensive_status(service_name, agent_id)
+            else:
+                # 规范化目标状态
+                target_statuses = self._normalize_target_statuses(status)
+                logger.info(f"[WAIT_SERVICE] start mode=target service='{service_name}' client_id='{client_id}' target={target_statuses} timeout={timeout}s")
 
             start_time = time.time()
             poll_interval = 0.2  # 200ms轮询间隔
+            prev_status = None
+            last_log = start_time
 
             while True:
                 # 检查超时
                 elapsed = time.time() - start_time
                 if elapsed >= timeout:
-                    logger.warning(f"⏰ [WAIT_SERVICE] Timeout waiting for service '{service_name}' to reach status {target_statuses}")
+                    if change_mode:
+                        msg = f"[WAIT_SERVICE] timeout mode=change service='{service_name}' from='{initial_status}' elapsed={elapsed:.2f}s"
+                    else:
+                        msg = f"[WAIT_SERVICE] timeout mode=target service='{service_name}' target={target_statuses} last='{prev_status}' elapsed={elapsed:.2f}s"
+                    logger.warning(msg)
                     if raise_on_timeout:
-                        raise TimeoutError(f"Service '{service_name}' did not reach target status {target_statuses} within {timeout} seconds")
+                        raise TimeoutError(msg)
                     return False
 
                 # 获取当前状态
                 try:
                     current_status = self._store.orchestrator.get_service_comprehensive_status(service_name, agent_id)
-                    logger.debug(f"🔍 [WAIT_SERVICE] Current status of '{service_name}': {current_status}")
 
-                    # 检查是否达到目标状态
-                    if current_status in target_statuses:
-                        logger.info(f"✅ [WAIT_SERVICE] Service '{service_name}' reached target status '{current_status}' after {elapsed:.2f}s")
-                        return True
+                    # 仅在状态变化或每2秒节流一次打印
+                    now = time.time()
+                    if current_status != prev_status or (now - last_log) > 2.0:
+                        logger.debug(f"[WAIT_SERVICE] status service='{service_name}' value='{current_status}'")
+                        prev_status, last_log = current_status, now
+
+                    if change_mode:
+                        if current_status != initial_status:
+                            logger.info(f"[WAIT_SERVICE] done mode=change service='{service_name}' from='{initial_status}' to='{current_status}' elapsed={elapsed:.2f}s")
+                            return True
+                    else:
+                        # 检查是否达到目标状态
+                        if current_status in target_statuses:
+                            logger.info(f"[WAIT_SERVICE] done mode=target service='{service_name}' reached='{current_status}' elapsed={elapsed:.2f}s")
+                            return True
                 except Exception as e:
-                    logger.warning(f"⚠️ [WAIT_SERVICE] Error getting status for '{service_name}': {e}")
-                    # 继续轮询，不因为单次查询失败而退出
+                    # 降级到 debug，避免无意义刷屏
+                    logger.debug(f"[WAIT_SERVICE] status_error service='{service_name}' error={e}")
+                    # 继续轮询
 
                 # 等待下次轮询
                 await asyncio.sleep(poll_interval)
 
         except ValueError as e:
-            logger.error(f"❌ [WAIT_SERVICE] Parameter resolution failed: {e}")
+            logger.error(f"[WAIT_SERVICE] param_error error={e}")
             raise
         except Exception as e:
-            logger.error(f"❌ [WAIT_SERVICE] Unexpected error: {e}")
+            logger.error(f"[WAIT_SERVICE] unexpected_error error={e}")
             if raise_on_timeout:
                 raise
             return False

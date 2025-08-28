@@ -9,8 +9,6 @@ Refactoring notes:
 
 Module structure:
 - core_registry.py: Core service registry (original registry.py)
-- enhanced_registry.py: Enhanced service registry (original registry_refactored.py)
-- schema_manager.py: Schema manager
 - tool_resolver.py: Tool name resolver
 - types.py: Registration-related type definitions
 """
@@ -20,12 +18,6 @@ __all__ = [
     'ServiceRegistry',
     'SessionProtocol',
     'SessionType',
-
-    # Enhanced registry
-    'EnhancedServiceRegistry',
-
-    # Schema management
-    'SchemaManager',
 
     # Tool resolution
     'ToolNameResolver',
@@ -41,8 +33,7 @@ __all__ = [
 
 # Main exports - maintain backward compatibility
 from .core_registry import ServiceRegistry, SessionProtocol, SessionType
-from .enhanced_registry import ServiceRegistry as EnhancedServiceRegistry
-from .schema_manager import SchemaManager
+# SchemaManager removed in single-source mode; no longer exported
 from .tool_resolver import ToolNameResolver, ToolResolution
 from .types import RegistryTypes
 

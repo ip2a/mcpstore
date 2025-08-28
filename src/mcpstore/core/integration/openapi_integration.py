@@ -118,108 +118,46 @@ class OpenAPIAnalyzer:
         return MCPComponentType.TOOL
     
     def generate_component_name(self, endpoint: Dict[str, Any], custom_names: Dict[str, str] = None) -> str:
-        """生成组件名称"""
+        """生成 MCP 组件名称"""
+        if custom_names and endpoint.get("operation_id") in custom_names:
+            return custom_names[endpoint["operation_id"]]
+        
+        # 优先使用 operationId
         operation_id = endpoint.get("operation_id")
-        
-        # 使用自定义名称
-        if custom_names and operation_id and operation_id in custom_names:
-            return custom_names[operation_id]
-        
-        # 使用 operation_id（截断到第一个双下划线）
         if operation_id:
-            name = operation_id.split("__")[0]
-            return self._slugify_name(name)
-        
-        # 根据路径和方法生成名称
-        method = endpoint["method"].lower()
-        path = endpoint["path"]
-        
-        # 清理路径
-        path_parts = [part for part in path.split("/") if part and not part.startswith("{")]
-        if path_parts:
-            resource = "_".join(path_parts)
+            name = operation_id
         else:
-            resource = "api"
+            # 否则使用 method + path 组合
+            method = endpoint.get("method", "GET").lower()
+            path = endpoint.get("path", "/")
+            name = f"{method}_{path.strip('/').replace('/', '_')}"
         
-        name = f"{method}_{resource}"
-        return self._slugify_name(name)
-    
-    def _slugify_name(self, name: str) -> str:
-        """将名称转换为合法的标识符"""
-        # 转换为小写
-        name = name.lower()
-        # 替换特殊字符为下划线
-        name = re.sub(r'[^a-z0-9_]', '_', name)
-        # 移除连续的下划线
-        name = re.sub(r'_+', '_', name)
-        # 移除开头和结尾的下划线
-        name = name.strip('_')
-        # 限制长度
-        if len(name) > 56:
-            name = name[:56].rstrip('_')
+        # 清理非法字符
+        name = re.sub(r"[^a-zA-Z0-9_]+", "_", name)
+        name = re.sub(r"_+", "_", name).strip("_")
         
-        return name or "unnamed"
+        return name
 
 class RouteMapper:
     """路由映射器"""
     
-    def __init__(self):
-        self._default_mappings = self._create_default_mappings()
-    
-    def _create_default_mappings(self) -> List[RouteMapping]:
-        """创建默认路由映射"""
-        return [
-            # GET 请求映射为 Resource
-            RouteMapping(
-                path_pattern=r".*",
-                method=HTTPMethod.GET,
-                mcp_type=MCPComponentType.RESOURCE,
-                tags=["read-only"]
-            ),
-            # POST/PUT/DELETE 映射为 Tool
-            RouteMapping(
-                path_pattern=r".*",
-                method=HTTPMethod.POST,
-                mcp_type=MCPComponentType.TOOL,
-                tags=["write"]
-            ),
-            RouteMapping(
-                path_pattern=r".*",
-                method=HTTPMethod.PUT,
-                mcp_type=MCPComponentType.TOOL,
-                tags=["write", "update"]
-            ),
-            RouteMapping(
-                path_pattern=r".*",
-                method=HTTPMethod.DELETE,
-                mcp_type=MCPComponentType.TOOL,
-                tags=["write", "delete", "destructive"]
-            )
-        ]
-    
-    def apply_mappings(self, endpoint: Dict[str, Any], custom_mappings: List[RouteMapping] = None) -> Tuple[MCPComponentType, List[str]]:
-        """应用路由映射"""
-        mappings = custom_mappings or self._default_mappings
-        path = endpoint["path"]
-        method = HTTPMethod(endpoint["method"])
+    def apply_mappings(self, endpoint: Dict[str, Any], mappings: List[RouteMapping] = None) -> Tuple[MCPComponentType, List[str]]:
+        """应用路由映射，返回 (MCP组件类型, 标签列表)"""
+        if not mappings:
+            # 未配置映射，使用默认建议
+            return OpenAPIAnalyzer().suggest_mcp_type(endpoint), endpoint.get("tags", [])
         
         for mapping in mappings:
-            # 检查路径模式
-            if not re.match(mapping.path_pattern, path):
-                continue
-            
-            # 检查方法
-            if mapping.method and mapping.method != method:
-                continue
-            
-            # 匹配成功
-            return mapping.mcp_type, mapping.tags
+            if self._match_endpoint(endpoint, mapping):
+                return mapping.mcp_type, mapping.tags + endpoint.get("tags", [])
         
-        # 默认映射
-        if method == HTTPMethod.GET:
-            return MCPComponentType.RESOURCE, ["read-only"]
-        else:
-            return MCPComponentType.TOOL, ["write"]
+        return OpenAPIAnalyzer().suggest_mcp_type(endpoint), endpoint.get("tags", [])
+    
+    def _match_endpoint(self, endpoint: Dict[str, Any], mapping: RouteMapping) -> bool:
+        """判断端点是否匹配映射规则"""
+        path_match = re.match(mapping.path_pattern, endpoint["path"]) is not None
+        method_match = (mapping.method is None) or (endpoint["method"] == mapping.method.value)
+        return path_match and method_match
 
 class OpenAPIIntegrationManager:
     """OpenAPI 集成管理器"""
@@ -309,46 +247,19 @@ class OpenAPIIntegrationManager:
         new_spec = await self.analyzer.fetch_spec(config.spec_url)
         new_endpoints = self.analyzer.analyze_endpoints(new_spec)
         
-        # 比较变更
-        # 这里可以实现更复杂的变更检测逻辑
-        
+        # 比较变更（简化）
         return {
             "service_name": service_name,
-            "changes_detected": True,  # 简化实现
+            "changes_detected": True,
             "new_endpoints_count": len(new_endpoints)
         }
     
-    def create_custom_route_mapping(
-        self,
-        service_name: str,
-        path_patterns: Dict[str, MCPComponentType]
-    ) -> List[RouteMapping]:
-        """创建自定义路由映射"""
-        mappings = []
-        for pattern, mcp_type in path_patterns.items():
-            mapping = RouteMapping(
-                path_pattern=pattern,
-                mcp_type=mcp_type,
-                tags=["custom-mapped"]
-            )
-            mappings.append(mapping)
-        
-        return mappings
-    
-    def get_service_info(self, service_name: str) -> Optional[OpenAPIServiceConfig]:
-        """获取服务信息"""
-        return self._services.get(service_name)
-    
-    def list_services(self) -> List[str]:
-        """列出所有服务"""
-        return list(self._services.keys())
-    
-    def _extract_base_url(self, spec: Dict[str, Any]) -> Optional[str]:
-        """从规范中提取基础 URL"""
+    def _extract_base_url(self, spec: Dict[str, Any]) -> str:
+        """从OpenAPI规范中提取基础URL"""
         servers = spec.get("servers", [])
-        if servers:
-            return servers[0].get("url")
-        return None
+        if servers and isinstance(servers, list) and servers[0].get("url"):
+            return servers[0]["url"]
+        return ""
 
 # 全局实例
 _global_openapi_manager = None
@@ -359,3 +270,4 @@ def get_openapi_manager() -> OpenAPIIntegrationManager:
     if _global_openapi_manager is None:
         _global_openapi_manager = OpenAPIIntegrationManager()
     return _global_openapi_manager
+

@@ -8,7 +8,7 @@ from typing import Optional, Dict
 
 from mcpstore.config.json_config import MCPConfig
 from mcpstore.core.orchestrator import MCPOrchestrator
-from mcpstore.core.unified_config import UnifiedConfigManager
+from mcpstore.core.configuration.unified_config import UnifiedConfigManager
 from mcpstore.core.context import MCPStoreContext
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ class BaseMCPStore:
         # Unified configuration manager
         self._unified_config = UnifiedConfigManager(
             mcp_config_path=config.json_path,
-            client_services_path=self.client_manager.services_path
+            client_services_path=None  # single-source mode: do not use shard files
         )
 
         self._context_cache: Dict[str, MCPStoreContext] = {}
@@ -48,6 +48,16 @@ class BaseMCPStore:
         self._data_space_manager = None
 
         # 🔧 新增：缓存管理器
+        
+        # 认证配置管理器
+        from mcpstore.core.auth.manager import AuthConfigManager
+        self._auth_config_manager = AuthConfigManager()
+        
+        # 市场管理器
+        from mcpstore.core.market.manager import MarketManager
+        self._market_manager = MarketManager()
+        
+        # 缓存管理器
         from mcpstore.core.registry.cache_manager import ServiceCacheManager, CacheTransactionManager
         self.cache_manager = ServiceCacheManager(self.registry, self.orchestrator.lifecycle_manager)
         self.transaction_manager = CacheTransactionManager(self.registry)

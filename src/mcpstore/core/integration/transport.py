@@ -233,7 +233,7 @@ class StreamableHTTPTransport:
                                             event_data = json.loads(value)
                                         except json.JSONDecodeError:
                                             logger.warning(f"Failed to parse SSE data: {value}")
-                                
+                            
                             if event_data:
                                 yield event_data
                 else:
@@ -342,7 +342,7 @@ class StreamableHTTPTransport:
                                         event_data = json.loads(value)
                                     except json.JSONDecodeError:
                                         logger.warning(f"Failed to parse SSE data: {value}")
-                            
+                        
                         if event_data:
                             yield event_data
                             
@@ -373,5 +373,5 @@ class StreamableHTTPTransport:
                 logger.warning(f"Failed to terminate session: {e}")
                 
         await self.client.aclose()
-        logger.info("Transport resources cleaned up") 
- 
+        logger.info("Transport resources cleaned up")
+

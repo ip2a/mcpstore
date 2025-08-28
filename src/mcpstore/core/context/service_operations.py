@@ -124,7 +124,14 @@ class ServiceOperationsMixin:
             # Agent mode: 透明代理 - 只显示属于该 Agent 的服务，使用本地名称
             return await self._get_agent_service_view()
 
-    def add_service(self, config: Union[ServiceConfigUnion, List[str], None] = None, json_file: str = None, source: str = "manual", wait: Union[str, int, float] = "auto") -> 'MCPStoreContext':
+    def add_service(self,
+                     config: Union[ServiceConfigUnion, List[str], None] = None,
+                     json_file: str = None,
+                     source: str = "manual",
+                     wait: Union[str, int, float] = "auto",
+                     # 市场安装（同步封装）
+                     from_market: str = None,
+                     market_env: Dict[str, str] = None) -> 'MCPStoreContext':
         """
         Enhanced service addition method (synchronous version), supports multiple configuration formats
 
@@ -135,10 +142,12 @@ class ServiceOperationsMixin:
             wait: 等待连接完成的时间
                 - "auto": 自动根据服务类型判断（远程2s，本地4s）
                 - 数字: 等待时间（毫秒）
+            from_market: 市场服务名（与 config/json_file 互斥）
+            market_env: 透传给市场配置的环境变量（不做本地校验）
         """
         # 🔧 修复：使用后台循环来支持后台任务
         return self._sync_helper.run_async(
-            self.add_service_async(config, json_file, source, wait),
+            self.add_service_async(config, json_file, source, wait, from_market=from_market, market_env=market_env),
             timeout=120.0,
             force_background=True  # 强制使用后台循环，确保后台任务不被取消
         )
@@ -291,9 +300,9 @@ class ServiceOperationsMixin:
                 if "url" in processed and "transport" not in processed:
                     url = processed["url"]
                     if "/sse" in url.lower():
-                        processed["transport"] = "sse"
+                        processed["transport"] = "streamable_http"
                     else:
-                        processed["transport"] = "streamable-http"
+                        processed["transport"] = "streamable_http"
 
                 # 验证args格式
                 if "command" in processed and not isinstance(processed.get("args", []), list):
@@ -318,14 +327,21 @@ class ServiceOperationsMixin:
 
         return []
 
-    async def add_service_async(self, config: Union[ServiceConfigUnion, List[str], None] = None, json_file: str = None, source: str = "manual", wait: Union[str, int, float] = "auto") -> 'MCPStoreContext':
+    async def add_service_async(self,
+                               config: Union[ServiceConfigUnion, List[str], None] = None,
+                               json_file: str = None,
+                               source: str = "manual",
+                               wait: Union[str, int, float] = "auto",
+                               # 新增市场功能参数
+                               from_market: str = None,
+                               market_env: Dict[str, str] = None) -> 'MCPStoreContext':
         """
         增强版的服务添加方法，支持多种配置格式：
         1. URL方式：
            await add_service({
                "name": "weather",
                "url": "https://weather-api.example.com/mcp",
-               "transport": "streamable-http"
+               "transport": "streamable_http"
            })
 
         2. 本地命令方式：
@@ -354,16 +370,89 @@ class ServiceOperationsMixin:
         6. JSON文件方式：
            await add_service(json_file="path/to/config.json")  # 读取JSON文件作为配置
 
+        7. 市场安装方式（新增）：
+           await add_service(
+               from_market="firecrawl",
+               market_env={"FIRECRAWL_API_KEY": "your_key"}
+           )
+
         所有新添加的服务都会同步到 mcp.json 配置文件中。
 
         Args:
             config: 服务配置，支持多种格式
             json_file: JSON文件路径，如果指定则读取该文件作为配置
+            source: 服务来源标识
+            wait: 等待时间配置
+            from_market: 市场服务名称，如果指定则从市场安装服务
+            market_env: 市场服务的环境变量配置
 
         Returns:
             MCPStoreContext: 返回自身实例以支持链式调用
         """
         try:
+            # === 新增：处理市场安装参数 ===
+            if from_market:
+                # 验证from_market参数
+                if not isinstance(from_market, str) or not from_market.strip():
+                    raise ValueError("from_market 参数必须是非空字符串")
+
+                from_market = from_market.strip()
+                logger.info(f"从市场安装服务: {from_market}")
+
+                # 验证参数冲突
+                if config is not None:
+                    raise ValueError("不能同时指定 config 和 from_market 参数")
+                if json_file is not None:
+                    raise ValueError("不能同时指定 json_file 和 from_market 参数")
+
+                # 验证market_env参数
+                if market_env is not None and not isinstance(market_env, dict):
+                    raise ValueError("market_env 参数必须是字典类型")
+
+                # 从市场获取服务配置
+                try:
+                    market_config = await self._store._market_manager.get_market_service_config_async(
+                        from_market,
+                        market_env
+                    )
+
+                    # 转换为标准config格式
+                    config = {
+                        "name": market_config.name,
+                        "command": market_config.command,
+                        "args": market_config.args,
+                    }
+
+                    if market_config.env:
+                        config["env"] = market_config.env
+                    if market_config.working_dir:
+                        config["working_dir"] = market_config.working_dir
+                    if market_config.transport:
+                        config["transport"] = market_config.transport
+                    if market_config.url:
+                        config["url"] = market_config.url
+
+                    # 标记为市场来源
+                    source = "market"
+
+                    logger.info(f"成功从市场获取服务配置: {config}")
+
+                except Exception as e:
+                    # 懒加载 Miss：若本地未找到该服务，可触发一次远程刷新（后台，不阻塞）
+                    try:
+                        # 如果 MarketManager 配置了远程源，触发一次后台刷新
+                        import asyncio
+                        mm = getattr(self._store, "_market_manager", None)
+                        if mm and hasattr(mm, "refresh_from_remote_async"):
+                            loop = asyncio.get_running_loop()
+                            loop.create_task(mm.refresh_from_remote_async(force=False))
+                            logger.info(f"🔄 [MARKET] Triggered background remote refresh for missing service: {from_market}")
+                    except Exception:
+                        pass
+
+                    logger.error(f"从市场安装服务失败: {e}")
+                    raise ValueError(f"从市场安装服务 '{from_market}' 失败: {e}")
+
             # 处理json_file参数
             if json_file is not None:
                 logger.info(f"从JSON文件读取配置: {json_file}")
@@ -401,9 +490,9 @@ class ServiceOperationsMixin:
             agent_id = self._agent_id if self._context_type == ContextType.AGENT else self._store.orchestrator.client_manager.global_agent_store_id
 
             # 🔄 新增：详细的注册开始日志
-            logger.info(f"🔄 [ADD_SERVICE] 开始注册服务 - 调用来源: {source}")
-            logger.info(f"🔄 [ADD_SERVICE] 配置类型: {type(config)}, 配置内容: {config}")
-            logger.info(f"🔄 [ADD_SERVICE] 上下文: {self._context_type.name}, Agent ID: {agent_id}")
+            logger.info(f"[ADD_SERVICE] start source={source}")
+            logger.info(f"[ADD_SERVICE] config type={type(config)} content={config}")
+            logger.info(f"[ADD_SERVICE] context={self._context_type.name} agent_id={agent_id}")
 
             # 处理不同的输入格式
             if config is None:
@@ -432,15 +521,28 @@ class ServiceOperationsMixin:
                 if all(isinstance(item, str) for item in config):
                     # 服务名称列表
                     logger.info(f"注册指定服务: {config}")
-                    if self._context_type == ContextType.STORE:
-                        resp = await self._store.register_selected_services_for_store(config)
-                    else:
-                        resp = await self._store.register_services_for_agent(agent_id, config)
-                    logger.info(f"注册结果: {resp}")
-                    if not (resp and resp.service_names):
-                        raise Exception("服务注册失败")
-                    # 服务名称列表注册完成，直接返回
-                    return self
+                    # 改为从缓存读取服务配置并走统一的缓存优先流程
+                    logger.info(f"注册指定服务(缓存优先): {config}")
+                    try:
+                        # 确定读取缓存的作用域agent
+                        cache_agent_id = (self._store.orchestrator.client_manager.global_agent_store_id
+                                          if self._context_type == ContextType.STORE else agent_id)
+                        # 组装 mcpServers 子配置
+                        mcp_config = {"mcpServers": {}}
+                        missing = []
+                        for name in config:
+                            svc_cfg = self._store.registry.get_service_config_from_cache(cache_agent_id, name)
+                            if not svc_cfg:
+                                missing.append(name)
+                            else:
+                                mcp_config["mcpServers"][name] = svc_cfg
+                        if missing:
+                            raise Exception(f"以下服务未在缓存中找到配置: {missing}")
+                        # 统一走缓存优先流程（Agent 上下文将触发透明代理）
+                        return await self._add_service_cache_first(mcp_config, agent_id, wait)
+                    except Exception as e:
+                        logger.error(f"服务名称列表注册失败: {e}")
+                        raise
 
                 elif all(isinstance(item, dict) for item in config):
                     # 批量服务配置列表
@@ -482,7 +584,7 @@ class ServiceOperationsMixin:
         """
         try:
             # 🔄 新增：缓存优先流程开始日志
-            logger.info(f"🔄 [ADD_SERVICE] 进入缓存优先流程")
+            logger.info(f"[ADD_SERVICE] cache_first start")
 
             # 转换为标准格式
             if "mcpServers" in config:
@@ -501,10 +603,10 @@ class ServiceOperationsMixin:
                 }
 
             # === 第1阶段：立即缓存操作（快速响应） ===
-            logger.info(f"🔄 [ADD_SERVICE] 第1阶段: 立即缓存操作开始")
+            logger.info(f"[ADD_SERVICE] phase1 cache_immediate start")
             services_to_add = mcp_config["mcpServers"]
             cache_results = []
-            logger.info(f"🔄 [ADD_SERVICE] 待添加服务数量: {len(services_to_add)}")
+            logger.info(f"[ADD_SERVICE] to_add_count={len(services_to_add)}")
 
             # 🔧 Agent模式下透明代理：添加到两个缓存空间并建立映射
             if self._context_type == ContextType.AGENT:
@@ -518,32 +620,14 @@ class ServiceOperationsMixin:
                 )
                 cache_results.append(cache_result)
 
-                logger.info(f"✅ Service '{service_name}' added to cache immediately")
+                logger.info(f"[ADD_SERVICE] cache_added service='{service_name}'")
 
-            # === 第2阶段：异步连接服务（更新缓存状态） ===
-            logger.info(f"🔄 [ADD_SERVICE] 第2阶段: 异步连接任务创建开始")
-            connection_tasks = []
-            for service_name, service_config in services_to_add.items():
-                logger.info(f"🔄 [ADD_SERVICE] 创建连接任务: {service_name}")
-                task = asyncio.create_task(
-                    self._connect_and_update_cache(agent_id, service_name, service_config)
-                )
-                connection_tasks.append(task)
-
-            logger.info(f"🔄 [ADD_SERVICE] 已创建 {len(connection_tasks)} 个连接任务")
-
-            # 🔧 修复：确保异步任务不被垃圾回收
-            if not hasattr(self._store, '_background_tasks'):
-                self._store._background_tasks = set()
-
-            for task in connection_tasks:
-                self._store._background_tasks.add(task)
-                # 任务完成后自动从集合中移除
-                task.add_done_callback(lambda t: self._store._background_tasks.discard(t))
-                logger.info(f"🔄 [ADD_SERVICE] 任务已添加到后台任务集合: {task}")
+            # === 第2阶段：连接交由生命周期管理器 ===
+            logger.info(f"[ADD_SERVICE] phase2 handoff to lifecycle")
+            # 不再手动创建连接任务，避免与 InitializingStateProcessor 重复并发
 
             # === 第3阶段：异步持久化（不阻塞） ===
-            logger.info(f"🔄 [ADD_SERVICE] 第3阶段: 异步持久化任务创建开始")
+            logger.info(f"[ADD_SERVICE] phase3 persist_task start")
             # 使用锁防止并发持久化冲突
             if not hasattr(self, '_persistence_lock'):
                 self._persistence_lock = asyncio.Lock()
@@ -558,26 +642,25 @@ class ServiceOperationsMixin:
             persistence_task.add_done_callback(self._persistence_tasks.discard)
 
             # === 第4阶段：可选的连接等待 ===
-            if wait != "auto" or wait == "auto":  # 总是处理等待逻辑
-                wait_timeout = self.wait_strategy.parse_wait_parameter(wait)
+            # wait == "auto": 根据服务类型推算最大等待时间；数值（ms）将被解析为秒
+            wait_timeout = self.wait_strategy.parse_wait_parameter(wait)
+            if wait_timeout is None:  # auto模式
+                wait_timeout = self.wait_strategy.get_max_wait_timeout(services_to_add)
 
-                if wait_timeout is None:  # auto模式
-                    wait_timeout = self.wait_strategy.get_max_wait_timeout(services_to_add)
+            if wait_timeout > 0:
+                logger.info(f"[ADD_SERVICE] phase4 wait timeout={wait_timeout}s")
 
-                if wait_timeout > 0:
-                    logger.info(f"🔄 [ADD_SERVICE] 第4阶段: 等待连接完成，超时时间: {wait_timeout}s")
+                # 并发等待所有服务连接完成（状态不再是 INITIALIZING 即视为确定）
+                service_names = list(services_to_add.keys())
+                final_states = await self._wait_for_services_ready(
+                    agent_id, service_names, wait_timeout
+                )
 
-                    # 并发等待所有服务连接完成
-                    service_names = list(services_to_add.keys())
-                    final_states = await self._wait_for_services_ready(
-                        agent_id, service_names, wait_timeout
-                    )
+                logger.info(f"[ADD_SERVICE] wait done final={final_states}")
+            else:
+                logger.info(f"[ADD_SERVICE] skip_wait return_immediately=True")
 
-                    logger.info(f"🔄 [ADD_SERVICE] 等待完成，最终状态: {final_states}")
-                else:
-                    logger.info(f"🔄 [ADD_SERVICE] 跳过等待，立即返回")
-
-            logger.info(f"Added {len(services_to_add)} services to cache immediately, connecting in background")
+            logger.info(f"[ADD_SERVICE] summary added={len(services_to_add)} background_connect=True")
             return self
 
         except Exception as e:
@@ -600,7 +683,7 @@ class ServiceOperationsMixin:
         async def wait_single_service(service_name: str) -> tuple[str, str]:
             """等待单个服务就绪"""
             start_time = time.time()
-            logger.debug(f"🔄 [WAIT_SERVICE] 开始等待服务: {service_name}")
+            logger.debug(f"[WAIT_SERVICE] start service='{service_name}'")
 
             while time.time() - start_time < timeout:
                 try:
@@ -609,15 +692,15 @@ class ServiceOperationsMixin:
                     # 如果状态已确定（不再是INITIALIZING），返回结果
                     if current_state and current_state != ServiceConnectionState.INITIALIZING:
                         elapsed = time.time() - start_time
-                        logger.debug(f"✅ [WAIT_SERVICE] 服务{service_name}状态确定: {current_state.value} (耗时: {elapsed:.2f}s)")
+                        logger.debug(f"[WAIT_SERVICE] done service='{service_name}' state='{current_state.value}' elapsed={elapsed:.2f}s")
                         return service_name, current_state.value
 
                     # 短暂等待后重试
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.2)
 
                 except Exception as e:
                     logger.debug(f"⚠️ [WAIT_SERVICE] 检查服务{service_name}状态时出错: {e}")
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.2)
 
             # 超时，返回当前状态或超时状态
             try:
@@ -626,11 +709,11 @@ class ServiceOperationsMixin:
             except Exception:
                 final_state = 'timeout'
 
-            logger.warning(f"⏰ [WAIT_SERVICE] 服务{service_name}等待超时: {final_state}")
+            logger.warning(f"[WAIT_SERVICE] timeout service='{service_name}' final='{final_state}'")
             return service_name, final_state
 
         # 并发等待所有服务
-        logger.info(f"🔄 [WAIT_SERVICES] 开始并发等待{len(service_names)}个服务，超时: {timeout}s")
+        logger.info(f"[WAIT_SERVICES] start count={len(service_names)} timeout={timeout}s")
         tasks = [wait_single_service(name) for name in service_names]
 
         try:
@@ -643,18 +726,18 @@ class ServiceOperationsMixin:
                     service_name, state = result
                     final_states[service_name] = state
                 elif isinstance(result, Exception):
-                    logger.error(f"❌ [WAIT_SERVICES] 等待服务时出现异常: {result}")
+                    logger.error(f"[WAIT_SERVICES] error exception={result}")
                     # 为异常的服务设置错误状态
                     for name in service_names:
                         if name not in final_states:
                             final_states[name] = 'error'
                             break
 
-            logger.info(f"🔄 [WAIT_SERVICES] 并发等待完成: {final_states}")
+            logger.info(f"[WAIT_SERVICES] done final={final_states}")
             return final_states
 
         except Exception as e:
-            logger.error(f"❌ [WAIT_SERVICES] 并发等待过程中出现异常: {e}")
+            logger.error(f"[WAIT_SERVICES] error during_waiting error={e}")
             # 返回所有服务的错误状态
             return {name: 'error' for name in service_names}
 
@@ -705,26 +788,25 @@ class ServiceOperationsMixin:
             raise
 
     def _get_or_create_client_id(self, agent_id: str, service_name: str, service_config: Dict[str, Any] = None) -> str:
-        """生成或获取 client_id（使用确定性算法）"""
+        """生成或获取 client_id（使用统一的ID生成器）"""
         # 检查是否已有client_id
         existing_client_id = self._store.registry.get_service_client_id(agent_id, service_name)
         if existing_client_id:
             logger.debug(f"🔄 [CLIENT_ID] 使用现有client_id: {service_name} -> {existing_client_id}")
             return existing_client_id
 
-        # 🔧 修复：使用确定性算法生成client_id，与SetupMixin和UnifiedMCPSyncManager保持一致
-        import hashlib
-        service_config = service_config or {}
-        config_hash = hashlib.md5(str(service_config).encode()).hexdigest()[:8]
+        # 🔧 使用统一的ClientIDGenerator生成确定性client_id
+        from mcpstore.core.utils.id_generator import ClientIDGenerator
 
-        # 根据agent类型生成不同格式的client_id
+        service_config = service_config or {}
         global_agent_store_id = self._store.client_manager.global_agent_store_id
-        if agent_id == global_agent_store_id:
-            # Store服务
-            client_id = f"client_store_{service_name}_{config_hash}"
-        else:
-            # Agent服务
-            client_id = f"client_{agent_id}_{service_name}_{config_hash}"
+
+        client_id = ClientIDGenerator.generate_deterministic_id(
+            agent_id=agent_id,
+            service_name=service_name,
+            service_config=service_config,
+            global_agent_store_id=global_agent_store_id
+        )
 
         logger.debug(f"🆕 [CLIENT_ID] 生成新client_id: {service_name} -> {client_id}")
         return client_id
@@ -765,7 +847,8 @@ class ServiceOperationsMixin:
                 logger.warning(f"❌ Service '{service_name}' connection failed: {message}")
                 # 更新缓存状态为失败（不重复添加服务，只更新状态）
                 from mcpstore.core.models.service import ServiceConnectionState
-                self._store.registry.set_service_state(agent_id, service_name, ServiceConnectionState.DISCONNECTED)
+                # 单源生命周期规则：初次失败进入 RECONNECTING，由生命周期器继续收敛
+                self._store.registry.set_service_state(agent_id, service_name, ServiceConnectionState.RECONNECTING)
 
                 # 更新错误信息
                 metadata = self._store.registry.get_service_metadata(agent_id, service_name)
@@ -780,7 +863,8 @@ class ServiceOperationsMixin:
 
             # 更新缓存状态为错误（不重复添加服务，只更新状态）
             from mcpstore.core.models.service import ServiceConnectionState
-            self._store.registry.set_service_state(agent_id, service_name, ServiceConnectionState.UNREACHABLE)
+            # 异常情况下先进入 RECONNECTING，由生命周期重试策略接管
+            self._store.registry.set_service_state(agent_id, service_name, ServiceConnectionState.RECONNECTING)
 
             # 更新错误信息
             metadata = self._store.registry.get_service_metadata(agent_id, service_name)
@@ -788,7 +872,7 @@ class ServiceOperationsMixin:
                 metadata.error_message = str(e)
                 metadata.consecutive_failures += 1
 
-            logger.error(f"🔗 [CONNECT_SERVICE] 服务状态已更新为UNREACHABLE: {service_name}")
+            logger.error(f"🔗 [CONNECT_SERVICE] 服务状态已更新为RECONNECTING: {service_name}")
 
     async def _persist_to_files_with_lock(self, mcp_config: Dict[str, Any], services_to_add: Dict[str, Dict[str, Any]]):
         """带锁的异步持久化到文件（防止并发冲突）"""
@@ -847,17 +931,8 @@ class ServiceOperationsMixin:
             agent_id = self._store.client_manager.global_agent_store_id
             logger.info(f"🔄 Store模式agent映射持久化开始，agent_id: {agent_id}, 服务数量: {len(services_to_add)}")
 
-            # 触发缓存到文件的同步
-            logger.info("🔄 触发agent_clients缓存到文件同步")
-            cache_manager = getattr(self._store, 'cache_manager', None)
-            if cache_manager:
-                cache_manager.sync_to_client_manager(self._store.client_manager)
-                logger.info("✅ 使用cache_manager同步完成")
-            else:
-                # 备用方案：直接调用registry的同步方法
-                logger.info("🔄 使用备用方案：registry直接同步")
-                self._store.registry.sync_to_client_manager(self._store.client_manager)
-                logger.info("✅ 使用registry直接同步完成")
+            # 单源模式：不再触发分片映射文件同步
+            logger.info("ℹ️ 单源模式：跳过 agent_clients 映射文件同步")
 
             logger.info("✅ Store模式agent映射持久化完成")
 
@@ -867,17 +942,17 @@ class ServiceOperationsMixin:
 
     async def _persist_to_agent_files(self, services_to_add: Dict[str, Dict[str, Any]]):
         """
-        持久化到 Agent 文件（新逻辑：增量操作缓存，然后缓存同步到文件）
+        🔧 单一数据源架构：更新缓存而不操作分片文件
 
-        新流程：
-        1. 增量更新缓存中的映射关系（使用services_to_add参数）
-        2. 触发缓存到文件的同步
+        新架构流程：
+        1. 更新缓存中的映射关系
+        2. 所有持久化通过mcp.json完成，不再写入分片文件
         """
         try:
             agent_id = self._agent_id
-            logger.info(f"🔄 Agent模式持久化开始，agent_id: {agent_id}, 服务数量: {len(services_to_add)}")
+            logger.info(f"🔄 [AGENT_PERSIST] Agent模式缓存更新开始，agent_id: {agent_id}, 服务数量: {len(services_to_add)}")
 
-            # 1. 增量更新缓存映射（而不是全量同步）
+            # 1. 更新缓存映射（单一数据源架构）
             for service_name, service_config in services_to_add.items():
                 # 获取或创建client_id
                 client_id = self._get_or_create_client_id(agent_id, service_name, service_config)
@@ -893,18 +968,11 @@ class ServiceOperationsMixin:
                     "mcpServers": {service_name: service_config}
                 }
 
-                logger.info(f"✅ 缓存更新完成: {service_name} -> {client_id}")
+                logger.debug(f"✅ [AGENT_PERSIST] 缓存更新完成: {service_name} -> {client_id}")
 
-            # 2. 触发缓存到文件的同步
-            logger.info("🔄 触发缓存到文件同步")
-            cache_manager = getattr(self._store, 'cache_manager', None)
-            if cache_manager:
-                cache_manager.sync_to_client_manager(self._store.client_manager)
-            else:
-                # 备用方案
-                self._store.registry.sync_to_client_manager(self._store.client_manager)
-
-            logger.info("✅ Agent模式：缓存增量更新并同步到文件完成")
+            # 2. 单一数据源模式：仅维护缓存，不写入分片文件
+            logger.info("🔧 [AGENT_PERSIST] 单一数据源模式：缓存更新完成，跳过分片文件写入")
+            logger.info("✅ [AGENT_PERSIST] Agent模式：缓存增量更新完成")
 
         except Exception as e:
             logger.error(f"Failed to persist to agent files with incremental cache update: {e}")
@@ -1142,10 +1210,14 @@ class ServiceOperationsMixin:
                     # 新服务，正常创建
                     logger.info(f"🔄 [AGENT_PROXY] 创建新服务: {local_name}")
 
-                    # 🔧 修复：使用确定性算法生成共享 Client ID
-                    import hashlib
-                    config_hash = hashlib.md5(str(service_config).encode()).hexdigest()[:8]
-                    client_id = f"client_{agent_id}_{local_name}_{config_hash}"
+                    # 🔧 修复：统一使用 ClientIDGenerator 生成共享 Client ID
+                    from mcpstore.core.id_generator import ClientIDGenerator
+                    client_id = ClientIDGenerator.generate_deterministic_id(
+                        agent_id=agent_id,
+                        service_name=local_name,
+                        service_config=service_config,
+                        global_agent_store_id=self._store.client_manager.global_agent_store_id
+                    )
                     logger.debug(f"🔧 [AGENT_PROXY] 生成确定性共享 Client ID: {client_id}")
 
                     # 3. 添加到 global_agent_store 缓存（全局名称）
@@ -1230,10 +1302,8 @@ class ServiceOperationsMixin:
             else:
                 logger.error(f"❌ [AGENT_SYNC] mcp.json 更新失败")
 
-            # 同步缓存到两个 JSON 文件
-            if hasattr(self._store, 'cache_manager'):
-                self._store.cache_manager.sync_to_client_manager(self._store.client_manager)
-                logger.info(f"✅ [AGENT_SYNC] 缓存同步到文件完成")
+            # 单源模式：不再写分片文件，仅维护 mcp.json
+            logger.info(f"ℹ️ [AGENT_SYNC] 单源模式下已禁用分片文件写入（agent_clients/client_services）")
 
         except Exception as e:
             logger.error(f"❌ [AGENT_SYNC] 同步 Agent 服务到文件失败: {e}")
@@ -1267,8 +1337,13 @@ class ServiceOperationsMixin:
                         client_config = self._store.registry.client_configs[client_id]
                         # 从 client 配置中提取对应的服务配置
                         global_name = self._store.registry.get_global_name_from_agent_service(self._agent_id, local_name)
-                        if global_name and "mcpServers" in client_config:
-                            service_config = client_config["mcpServers"].get(global_name, {})
+                        if "mcpServers" in client_config:
+                            # 单源一致性：优先按本地名取配置，兼容性回退到全局名
+                            service_config = (
+                                client_config["mcpServers"].get(local_name)
+                                or (client_config["mcpServers"].get(global_name) if global_name else {})
+                                or {}
+                            )
 
                     # 构造 ServiceInfo 对象
                     service_info = ServiceInfo(

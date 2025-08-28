@@ -30,7 +30,7 @@ class StateChangeEventProcessor:
                             old_state: ServiceConnectionState, 
                             new_state: ServiceConnectionState):
         """状态变化事件处理入口"""
-        logger.debug(f"🔄 [EVENT] 服务{service_name}状态变化: {old_state} → {new_state}")
+        logger.debug(f" [EVENT] 服务{service_name}状态变化: {old_state} → {new_state}")
         
         # 立即处理需要快速响应的状态
         if new_state in self.event_handlers:
@@ -57,14 +57,14 @@ class StateChangeEventProcessor:
     
     async def _handle_reconnecting_event(self, agent_id: str, service_name: str, old_state: ServiceConnectionState):
         """处理RECONNECTING状态事件"""
-        logger.debug(f"🔄 [EVENT_RECONNECT] 响应RECONNECTING状态变化: {service_name}")
+        logger.debug(f" [EVENT_RECONNECT] 响应RECONNECTING状态变化: {service_name}")
         
         # 添加到生命周期管理器的处理队列
         self.lifecycle_manager.state_change_queue.add((agent_id, service_name))
     
     async def _handle_unreachable_event(self, agent_id: str, service_name: str, old_state: ServiceConnectionState):
         """处理UNREACHABLE状态事件"""
-        logger.debug(f"🔄 [EVENT_UNREACHABLE] 响应UNREACHABLE状态变化: {service_name}")
+        logger.debug(f" [EVENT_UNREACHABLE] 响应UNREACHABLE状态变化: {service_name}")
         
         # 添加到生命周期管理器的处理队列
         self.lifecycle_manager.state_change_queue.add((agent_id, service_name))

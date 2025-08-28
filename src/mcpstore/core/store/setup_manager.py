@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 class StoreSetupManager:
     """设置管理器 - 包含所有静态设置方法"""
-    
+
     @staticmethod
     def setup_store(mcp_config_file: str = None, debug: bool = False, standalone_config=None,
                    tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7,
@@ -77,7 +77,7 @@ class StoreSetupManager:
 
         # Initialize orchestrator (including tool update monitor)
         import asyncio
-        from mcpstore.core.async_sync_helper import AsyncSyncHelper
+        from mcpstore.core.utils.async_sync_helper import AsyncSyncHelper
 
         # Import MCPStore from store module to avoid circular import
         from mcpstore.core.store.base_store import BaseMCPStore
@@ -118,7 +118,7 @@ class StoreSetupManager:
             raise
 
         # 🔧 修复：初始化缓存也使用后台循环
-        logger.info("🔄 [SETUP_STORE] 开始初始化缓存...")
+        logger.info(" [SETUP_STORE] 开始初始化缓存...")
         try:
             async_helper.run_async(store.initialize_cache_from_files(), force_background=True)
             logger.info("✅ [SETUP_STORE] 缓存初始化完成")
@@ -127,6 +127,32 @@ class StoreSetupManager:
             import traceback
             logger.error(f"❌ [SETUP_STORE] 缓存初始化失败详情: {traceback.format_exc()}")
             # 缓存初始化失败不应该阻止系统启动
+
+        #  [SETUP_STORE] 异步后台：市场远程刷新（可选）
+        try:
+            from mcpstore.core.market.manager import MarketManager
+            import asyncio
+            # 读取可能的远程源（暂时简单从 config.monitoring 或全局配置中读取，若无则跳过）
+            remote_url = None
+            try:
+                remote_cfg = base_config.get("market", {}) if isinstance(base_config, dict) else {}
+                remote_url = remote_cfg.get("remote_url")
+            except Exception:
+                pass
+            if remote_url:
+                store._market_manager.add_remote_source(remote_url)
+                # 后台刷新，不阻塞启动
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(store._market_manager.refresh_from_remote_async(force=False))
+                    logger.info(" [SETUP_STORE] 已触发市场远程后台刷新任务")
+                except RuntimeError:
+                    # 无运行中的loop，则启动一个短命循环运行一次后台刷新
+                    asyncio.run(store._market_manager.refresh_from_remote_async(force=False))
+                    logger.info(" [SETUP_STORE] 在独立事件循环中完成一次市场远程刷新")
+        except Exception as e:
+            logger.debug(f"[SETUP_STORE] 触发市场远程刷新失败（忽略）：{e}")
+
 
         return store
 
@@ -148,7 +174,7 @@ class StoreSetupManager:
             MCPStore instance
         """
         from mcpstore.config.config import LoggingConfig
-        from mcpstore.core.data_space_manager import DataSpaceManager
+        from mcpstore.core.store.data_space_manager import DataSpaceManager
         from mcpstore.core.monitoring.config import MonitoringConfigProcessor
 
         # Setup logging
@@ -174,25 +200,21 @@ class StoreSetupManager:
             config = MCPConfig(json_path=mcp_config_file)
             registry = ServiceRegistry()
 
-            # Get file paths in data space (using defaults subdirectory)
-            client_services_path = str(data_space_manager.get_file_path("defaults/client_services.json"))
-            agent_clients_path = str(data_space_manager.get_file_path("defaults/agent_clients.json"))
-
-            # Merge base configuration and monitoring configuration
+            # Merge base configuration and monitoring configuration (single-source mode)
             base_config = config.load_config()
             base_config.update(orchestrator_config)
 
-            # Create orchestrator with data space support, pass correct mcp_config instance
+            # Create orchestrator with data space support (no shard files in single-source mode)
             orchestrator = MCPOrchestrator(
                 base_config,
                 registry,
-                client_services_path=client_services_path,
-                agent_clients_path=agent_clients_path,
-                mcp_config=config  # Pass in the config instance of data space
+                client_services_path=None,
+                agent_clients_path=None,
+                mcp_config=config
             )
 
             # 🔧 重构：为数据空间模式设置FastMCP适配器的工作目录
-            from mcpstore.core.local_service_manager import set_local_service_manager_work_dir
+            from mcpstore.core.integration.local_service_adapter import set_local_service_manager_work_dir
             set_local_service_manager_work_dir(str(data_space_manager.workspace_dir))
 
             # Import MCPStore components to avoid circular import
@@ -226,7 +248,7 @@ class StoreSetupManager:
             orchestrator.store = store
 
             # Initialize orchestrator (including tool update monitor)
-            from mcpstore.core.async_sync_helper import AsyncSyncHelper
+            from mcpstore.core.utils.async_sync_helper import AsyncSyncHelper
 
             # 🔧 修复：使用force_background=True避免生命周期管理器被意外停止
             async_helper = AsyncSyncHelper()
@@ -269,7 +291,7 @@ class StoreSetupManager:
         Returns:
             MCPStore实例
         """
-        from mcpstore.core.standalone_config import StandaloneConfigManager, StandaloneConfig
+        from mcpstore.core.configuration.standalone_config import StandaloneConfigManager, StandaloneConfig
         from mcpstore.core.registry import ServiceRegistry
         from mcpstore.core.orchestrator import MCPOrchestrator
         from mcpstore.core.monitoring.config import MonitoringConfigProcessor

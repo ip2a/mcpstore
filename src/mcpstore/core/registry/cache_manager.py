@@ -64,123 +64,62 @@ class ServiceCacheManager:
                 "message": f"Service addition failed: {str(e)}"
             }
     
-    def sync_with_lifecycle_manager(self, agent_id: str) -> Dict[str, Any]:
-        """
-        🔧 [REFACTOR] 与生命周期管理器同步缓存状态 - 现在Registry为唯一状态源
 
-        Returns:
-            {
-                "synced_services": 0,  # 不再需要同步
-                "updated_states": 0,
-                "conflicts_resolved": 0
-            }
-        """
-        # 🔧 [REFACTOR] 由于Registry现在是唯一状态源，不再需要同步
-        # LifecycleManager直接操作Registry，状态始终一致
-
-        try:
-            # 🔧 [REFACTOR] Registry为唯一状态源，无需同步操作
-            # 所有状态变更都直接在Registry中进行，保证一致性
-
-            service_count = len(self.registry.get_all_service_names(agent_id))
-            logger.debug(f"🔧 [SYNC] Registry contains {service_count} services for agent {agent_id}")
-
-            return {
-                "synced_services": 0,  # 不再需要同步
-                "updated_states": 0,   # 状态始终一致
-                "conflicts_resolved": 0,  # 无冲突
-                "message": "Registry is single source of truth - no sync needed"
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to sync with lifecycle manager for agent {agent_id}: {e}")
-            return {
-                "synced_services": 0,
-                "updated_states": 0,
-                "conflicts_resolved": 0,
-                "error": str(e)
-            }
-    
     def sync_from_client_manager(self, client_manager):
         """
-        从 ClientManager 同步数据到缓存（初始化时覆盖策略）
-
-        新逻辑：初始化时直接覆盖空缓存，默认缓存为空
+        🔧 单一数据源架构：ClientManager不再管理分片文件
+        
+        新架构下，缓存不从ClientManager同步，而是从mcp.json通过UnifiedMCPSyncManager同步
         """
         try:
             # 检查缓存是否已初始化
             cache_initialized = getattr(self.registry, 'cache_initialized', False)
 
             if not cache_initialized:
-                # 初始化时：直接覆盖空缓存
-                logger.info("🔄 [CACHE_INIT] 初始化模式：文件数据覆盖空缓存")
+                # 单一数据源模式：缓存初始化为空，等待从mcp.json同步
+                logger.info(" [CACHE_INIT] 单一数据源模式：初始化空缓存，等待从mcp.json同步")
 
-                # 直接覆盖Agent-Client映射
-                agent_clients_data = client_manager.load_all_agent_clients()
-                logger.info(f"🔧 [CACHE_INIT] 从文件加载的agent_clients数据: {agent_clients_data}")
-                self.registry.agent_clients = agent_clients_data.copy()
-                logger.info(f"🔧 [CACHE_INIT] 覆盖后的agent_clients缓存: {dict(self.registry.agent_clients)}")
-
-                # 直接覆盖Client配置
-                client_services_data = client_manager.load_all_clients()
-                logger.info(f"🔧 [CACHE_INIT] 从文件加载的client_configs数据: {len(client_services_data)} clients")
-                self.registry.client_configs = client_services_data.copy()
-                logger.info(f"🔧 [CACHE_INIT] 覆盖后的client_configs缓存: {len(self.registry.client_configs)} clients")
+                # 初始化为空缓存
+                self.registry.agent_clients = {}
+                self.registry.client_configs = {}
+                logger.info("🔧 [CACHE_INIT] 空缓存初始化完成")
 
                 # 标记缓存已初始化
                 self.registry.cache_initialized = True
 
             else:
-                # 运行时：合并策略（保留现有逻辑作为备用）
-                logger.info("🔄 [CACHE_SYNC] 运行时模式：合并文件数据到缓存")
-
-                agent_clients_data = client_manager.load_all_agent_clients()
-                for agent_id, client_ids in agent_clients_data.items():
-                    if agent_id not in self.registry.agent_clients:
-                        self.registry.agent_clients[agent_id] = []
-                    for client_id in client_ids:
-                        if client_id not in self.registry.agent_clients[agent_id]:
-                            self.registry.agent_clients[agent_id].append(client_id)
-
-                client_services_data = client_manager.load_all_clients()
-                for client_id, config in client_services_data.items():
-                    if client_id not in self.registry.client_configs:
-                        self.registry.client_configs[client_id] = config
+                # 运行时：单一数据源模式下无需从ClientManager同步
+                logger.info("🔧 [CACHE_SYNC] 单一数据源模式：运行时跳过ClientManager同步")
+                logger.info("ℹ️ [CACHE_SYNC] 缓存数据由UnifiedMCPSyncManager从mcp.json同步")
             
-            # 重建 Service-Client 映射
-            self.registry.service_to_client = {}
-            for agent_id, client_ids in self.registry.agent_clients.items():
-                self.registry.service_to_client[agent_id] = {}
-                for client_id in client_ids:
-                    client_config = self.registry.client_configs.get(client_id, {})
-                    for service_name in client_config.get("mcpServers", {}):
-                        self.registry.service_to_client[agent_id][service_name] = client_id
-            
-            # 更新同步时间
+            # 更新同步时间（记录操作）
+            from datetime import datetime
             self.registry.cache_sync_status["client_manager"] = datetime.now()
+            self.registry.cache_sync_status["sync_mode"] = "single_source_mode"
             
-            logger.info("Successfully synced cache from ClientManager")
+            logger.info("✅ [CACHE_INIT] ClientManager同步完成（单一数据源模式）")
             
         except Exception as e:
             logger.error(f"Failed to sync cache from ClientManager: {e}")
             raise
     
     def sync_to_client_manager(self, client_manager):
-        """将缓存数据同步到 ClientManager"""
+        """
+        🔧 单一数据源架构：不再同步到ClientManager
+        
+        新架构下，缓存数据只同步到mcp.json，不再维护分片文件
+        """
         try:
-            # 同步 Agent-Client 映射
-            client_manager.save_all_agent_clients(self.registry.agent_clients)
+            # 单一数据源模式：跳过ClientManager同步
+            logger.info("🔧 [CACHE_SYNC] 单一数据源模式：跳过ClientManager同步，仅维护mcp.json")
             
-            # 同步 Client 配置
-            client_manager.save_all_clients(self.registry.client_configs)
-            
-            # 更新同步时间
+            # 更新同步时间（记录跳过的操作）
+            from datetime import datetime
             self.registry.cache_sync_status["to_client_manager"] = datetime.now()
-            
-            logger.info("Successfully synced cache to ClientManager")
+            self.registry.cache_sync_status["sync_skipped"] = "single_source_mode"
             
         except Exception as e:
-            logger.error(f"Failed to sync cache to ClientManager: {e}")
+            logger.error(f"Failed to update sync status: {e}")
             raise
 
 

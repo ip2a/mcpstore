@@ -7,9 +7,10 @@ import asyncio
 import logging
 from typing import Dict, List, Any, Optional, Tuple
 
-from mcpstore.core.config_processor import ConfigProcessor
+from mcpstore.core.configuration.config_processor import ConfigProcessor
 from fastmcp import Client
 from mcpstore.core.lifecycle import HealthStatus, HealthCheckResult
+from mcpstore.core.lifecycle.health_bridge import HealthStatusBridge
 from .health_monitoring import HealthMonitoringMixin
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
             local_config = service_config.copy()
 
             # 🔧 修复：使用 ConfigProcessor 处理配置（与remote service保持一致）
-            from mcpstore.core.config_processor import ConfigProcessor
+            from mcpstore.core.configuration.config_processor import ConfigProcessor
             processed_config = ConfigProcessor.process_user_config_for_fastmcp({
                 "mcpServers": {name: local_config}
             })
@@ -177,7 +178,7 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
         """连接远程服务并更新缓存"""
         try:
             # 🔧 修复：使用ConfigProcessor处理配置，确保transport字段正确
-            from mcpstore.core.config_processor import ConfigProcessor
+            from mcpstore.core.configuration.config_processor import ConfigProcessor
 
             # 构造配置格式
             user_config = {"mcpServers": {name: service_config}}
@@ -220,7 +221,7 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
                     return True, f"Remote service connected successfully with {len(tools)} tools"
             except Exception as e:
                 error_msg = str(e)
-                logger.error(f"Failed to connect to remote service {name}: {error_msg}")
+                logger.warning(f"Failed to connect to remote service {name}: {error_msg}")
 
                 # 🔧 修复：清理资源，避免资源泄漏
                 # 清理客户端缓存
@@ -365,6 +366,14 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
                 error_message=None
             )
 
+            # 将服务加入内容监控（用于运行期工具变化的兜底刷新）
+            try:
+                if hasattr(self, 'content_manager') and self.content_manager:
+                    self.content_manager.add_service_for_monitoring(agent_id, service_name)
+                    logger.debug(f"Added service '{service_name}' (agent '{agent_id}') to content monitoring")
+            except Exception as e:
+                logger.warning(f"Failed to add service '{service_name}' to content monitoring: {e}")
+
             logger.info(f"Updated cache for service '{service_name}' with {len(processed_tools)} tools for agent '{agent_id}'")
 
         except Exception as e:
@@ -479,8 +488,8 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
             bool: 服务是否健康（True表示healthy/warning/slow，False表示unhealthy）
         """
         result = await self.check_service_health_detailed(name, client_id)
-        # 只有unhealthy才返回False，其他状态都认为是"可用的"
-        return result.status != HealthStatus.UNHEALTHY
+        # 🆕 使用统一的健康状态判断逻辑
+        return HealthStatusBridge.is_health_status_positive(result.status)
 
     def _normalize_service_config(self, service_config: Dict[str, Any]) -> Dict[str, Any]:
         """规范化服务配置，确保包含必要的字段"""

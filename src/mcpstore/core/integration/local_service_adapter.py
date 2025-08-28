@@ -143,6 +143,7 @@ class LocalServiceManagerAdapter:
 # 全局实例（保持与原LocalServiceManager相同的接口）
 _local_service_manager_adapter: Optional[LocalServiceManagerAdapter] = None
 
+
 def get_local_service_manager() -> LocalServiceManagerAdapter:
     """
     获取全局本地服务管理器实例（适配器版本）
@@ -157,6 +158,7 @@ def get_local_service_manager() -> LocalServiceManagerAdapter:
     if _local_service_manager_adapter is None:
         _local_service_manager_adapter = LocalServiceManagerAdapter()
     return _local_service_manager_adapter
+
 
 def set_local_service_manager_work_dir(base_work_dir: str):
     """
@@ -187,3 +189,4 @@ class LocalServiceProcess:
     status: str = "running"
     restart_count: int = 0
     last_health_check: float = 0
+

@@ -45,7 +45,7 @@ from .tool import (
 
 # Configuration management related
 try:
-    from ..unified_config import UnifiedConfigManager, ConfigType, ConfigInfo
+    from ..configuration.unified_config import UnifiedConfigManager, ConfigType, ConfigInfo
 except ImportError:
     # Avoid circular import issues
     pass

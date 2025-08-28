@@ -6,7 +6,7 @@ from typing import Type, List, TYPE_CHECKING
 from langchain_core.tools import Tool, StructuredTool
 from pydantic import BaseModel, create_model, Field
 
-from ..core.async_sync_helper import get_global_helper
+from ..core.utils.async_sync_helper import get_global_helper
 
 # Use TYPE_CHECKING and string hints to avoid circular imports
 if TYPE_CHECKING:

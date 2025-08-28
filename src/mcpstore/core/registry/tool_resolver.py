@@ -55,7 +55,7 @@ class ToolNameResolver:
             self._service_name_mapping[normalized] = service
             self._service_name_mapping[service] = service
 
-        logger.debug(f"🔧 [RESOLVER] 初始化完成: 服务数={len(self.available_services)}, 多服务模式={self.is_multi_server}")
+        logger.debug(f"[RESOLVER] init services={len(self.available_services)} multi_server={self.is_multi_server}")
     
     def resolve_tool_name_smart(self, user_input: str, available_tools: List[Dict[str, Any]] = None) -> ToolResolution:
         """
@@ -80,7 +80,7 @@ class ToolNameResolver:
             raise ValueError("工具名称不能为空")
 
         user_input = user_input.strip()
-        logger.debug(f"🔍 [SMART_RESOLVE] 开始解析: '{user_input}' (多服务模式: {self.is_multi_server})")
+        logger.debug(f"[SMART_RESOLVE] start input='{user_input}' multi_server={self.is_multi_server}")
 
         # 构建工具映射表
         tool_mappings = self._build_smart_tool_mappings(available_tools or [])
@@ -91,25 +91,25 @@ class ToolNameResolver:
         # 1. 精确匹配（最高优先级）
         resolution = self._try_exact_match(user_input, tool_mappings)
         if resolution:
-            logger.debug(f"✅ [EXACT_MATCH] {user_input} → {resolution.service_name}::{resolution.original_tool_name}")
+            logger.debug(f"[EXACT_MATCH] {user_input} -> {resolution.service_name}::{resolution.original_tool_name}")
             return resolution
 
         # 2. 前缀智能匹配
         resolution = self._try_prefix_match(user_input, tool_mappings)
         if resolution:
-            logger.debug(f"✅ [PREFIX_MATCH] {user_input} → {resolution.service_name}::{resolution.original_tool_name}")
+            logger.debug(f"[PREFIX_MATCH] {user_input} -> {resolution.service_name}::{resolution.original_tool_name}")
             return resolution
 
         # 3. 无前缀智能匹配（单服务优化）
         resolution = self._try_no_prefix_match(user_input, tool_mappings)
         if resolution:
-            logger.debug(f"✅ [NO_PREFIX_MATCH] {user_input} → {resolution.service_name}::{resolution.original_tool_name}")
+            logger.debug(f"[NO_PREFIX_MATCH] {user_input} -> {resolution.service_name}::{resolution.original_tool_name}")
             return resolution
 
         # 4. 模糊智能匹配
         resolution = self._try_fuzzy_match(user_input, tool_mappings)
         if resolution:
-            logger.debug(f"✅ [FUZZY_MATCH] {user_input} → {resolution.service_name}::{resolution.original_tool_name}")
+            logger.debug(f"[FUZZY_MATCH] {user_input} -> {resolution.service_name}::{resolution.original_tool_name}")
             return resolution
 
         # 5. 失败处理：提供智能建议
@@ -350,8 +350,7 @@ class ToolNameResolver:
                 mappings["no_prefix_matches"][original_name] = []
             mappings["no_prefix_matches"][original_name].append((service_name, original_name, display_name))
 
-        logger.debug(f"🔧 [MAPPINGS] 构建完成: 精确={len(mappings['exact_matches'])}, "
-                    f"前缀={len(mappings['prefix_matches'])}, 无前缀={len(mappings['no_prefix_matches'])}")
+        logger.debug(f"[MAPPINGS] built exact={len(mappings['exact_matches'])} prefix={len(mappings['prefix_matches'])} no_prefix={len(mappings['no_prefix_matches'])}")
         return mappings
 
     def _try_exact_match(self, user_input: str, mappings: Dict[str, Any]) -> Optional[ToolResolution]:
@@ -411,7 +410,7 @@ class ToolNameResolver:
                     )
                 else:
                     # 多服务模式下有歧义，返回None让后续处理
-                    logger.debug(f"🔧 [NO_PREFIX] 多服务模式下工具名 '{user_input}' 有歧义: {len(candidates)} 个候选")
+                    logger.debug(f"[NO_PREFIX] ambiguous user_input='{user_input}' candidates={len(candidates)}")
         return None
 
     def _try_fuzzy_match(self, user_input: str, mappings: Dict[str, Any]) -> Optional[ToolResolution]:
@@ -434,7 +433,7 @@ class ToolNameResolver:
                 resolution_method="fuzzy_match"
             )
         elif len(fuzzy_matches) > 1:
-            logger.debug(f"🔧 [FUZZY] 工具名 '{user_input}' 有多个模糊匹配: {len(fuzzy_matches)} 个")
+            logger.debug(f"[FUZZY] multiple_matches input='{user_input}' count={len(fuzzy_matches)}")
 
         return None
 
@@ -514,8 +513,8 @@ class ToolNameResolver:
         Returns:
             FastMCP原生期望的工具名称（不带前缀的原始名称）
         """
-        # 🎯 关键修正：FastMCP执行时需要原始工具名称，不是MCPStore内部的带前缀名称
-        logger.debug(f"🔧 [FASTMCP] 返回FastMCP原生格式: {resolution.original_tool_name}")
+        # 关键修正：FastMCP执行时需要原始工具名称，不是MCPStore内部的带前缀名称
+        logger.debug(f"[FASTMCP] native_tool_name={resolution.original_tool_name}")
         return resolution.original_tool_name
 
     def resolve_and_format_for_fastmcp(self, user_input: str, available_tools: List[Dict[str, Any]] = None) -> tuple[str, ToolResolution]:
@@ -537,8 +536,7 @@ class ToolNameResolver:
         # 2. 转换为FastMCP标准格式（传入available_tools用于查找实际名称）
         fastmcp_name = self.to_fastmcp_format(resolution, available_tools)
 
-        logger.info(f"🎯 [RESOLVE_SUCCESS] '{user_input}' → '{fastmcp_name}' "
-                   f"(服务: {resolution.service_name}, 方法: {resolution.resolution_method})")
+        logger.info(f"[RESOLVE_SUCCESS] input='{user_input}' fastmcp='{fastmcp_name}' service='{resolution.service_name}' method='{resolution.resolution_method}'")
 
         return fastmcp_name, resolution
 

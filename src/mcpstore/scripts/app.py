@@ -30,22 +30,13 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     logger.info("Initializing MCPStore API service...")
 
-    # 初始化配置
+    # 初始化配置（统一使用 SDK 的 setup_store）
     config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "mcp.json")
-    mcp_config_handler = MCPConfig(config_path)
-    config = mcp_config_handler.load_config()
-
-    # 初始化核心组件
-    registry = ServiceRegistry()
-    orchestrator = MCPOrchestrator(config=config, registry=registry)
-    store = MCPStore(orchestrator=orchestrator, config=mcp_config_handler)
-
-    # 设置编排器
-    await orchestrator.setup()
+    store = MCPStore.setup_store(mcp_config_file=config_path, debug=False)
 
     # 存储到全局状态
     app_state["store"] = store
-    app_state["orchestrator"] = orchestrator
+    app_state["orchestrator"] = store.orchestrator
 
     logger.info("MCPStore API service initialized successfully")
 

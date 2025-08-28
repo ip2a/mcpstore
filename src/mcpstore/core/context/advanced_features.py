@@ -235,118 +235,98 @@ class AdvancedFeaturesMixin:
         """重置MCP JSON配置文件（同步版本）- 缓存优先模式"""
         return self._sync_helper.run_async(self.reset_mcp_json_file_async(), timeout=60.0)
 
-    async def reset_mcp_json_file_async(self) -> bool:
+    async def reset_mcp_json_file_async(self, scope: str = "all") -> bool:
         """
-        重置MCP JSON配置文件（异步版本）- 缓存优先模式
+        重置MCP JSON配置文件（异步版本）- 单一数据源架构
 
-        新逻辑：
-        1. 清空global_agent_store在缓存中的数据
-        2. 重置mcp.json文件
-        3. 触发缓存同步到映射文件
+        Args:
+            scope: 重置范围
+                - "all": 重置整个mcp.json（清空所有服务）
+                - "global_agent_store": 只清空Store级别的服务，保留Agent服务
+                - agent_id: 只清空指定Agent的服务
 
-        注意：这个方法只影响global_agent_store，不影响其他Agent
+        新架构逻辑：
+        1. 根据scope确定要清理的缓存范围
+        2. 同步更新mcp.json文件
+        3. 触发缓存重新同步（可选）
         """
         try:
-            logger.info("🔄 Starting MCP JSON file reset with cache-first logic")
+            logger.info(f" [MCP_RESET] Starting MCP JSON file reset with scope: {scope}")
 
-            # 1. 清空global_agent_store在缓存中的数据
-            logger.info("Step 1: Clearing global_agent_store cache")
-            global_agent_store_id = self._store.client_manager.global_agent_store_id
-            self._store.registry.clear(global_agent_store_id)
-
-            # 2. 重置mcp.json文件
-            logger.info("Step 2: Resetting mcp.json file")
-            default_config = {"mcpServers": {}}
-            mcp_success = self._store.config.save_config(default_config)
-
-            # 3. 触发缓存同步到映射文件
-            logger.info("Step 3: Syncing cache to mapping files")
-            if hasattr(self._store, 'cache_manager'):
-                self._store.cache_manager.sync_to_client_manager(self._store.client_manager)
+            current_config = self._store.config.load_config()
+            mcp_servers = current_config.get("mcpServers", {})
+            
+            if scope == "all":
+                # 重置整个mcp.json
+                logger.info(" [MCP_RESET] Clearing all services from mcp.json")
+                
+                # 1. 清空所有缓存
+                self._store.registry.agent_clients.clear()
+                self._store.registry.client_configs.clear()
+                self._store.registry.sessions.clear()
+                self._store.registry.tool_cache.clear()
+                self._store.registry.tool_to_session_map.clear()
+                self._store.registry.service_states.clear()
+                self._store.registry.service_metadata.clear()
+                self._store.registry.service_to_client.clear()
+                
+                # 2. 重置mcp.json为空
+                new_config = {"mcpServers": {}}
+                
+            elif scope == "global_agent_store":
+                # 只清空Store级别的服务，保留Agent服务
+                logger.info(" [MCP_RESET] Clearing Store services, preserving Agent services")
+                
+                # 1. 清空global_agent_store缓存
+                global_agent_store_id = self._store.client_manager.global_agent_store_id
+                self._store.registry.clear(global_agent_store_id)
+                
+                # 2. 从mcp.json中移除非Agent服务（不带@后缀的服务）
+                preserved_services = {}
+                for service_name, service_config in mcp_servers.items():
+                    if "@" in service_name:  # Agent服务（带@agent_id后缀）
+                        preserved_services[service_name] = service_config
+                
+                new_config = {"mcpServers": preserved_services}
+                logger.info(f" [MCP_RESET] Preserved {len(preserved_services)} Agent services")
+                
             else:
-                self._store.registry.sync_to_client_manager(self._store.client_manager)
+                # 清空指定Agent的服务
+                agent_id = scope
+                logger.info(f" [MCP_RESET] Clearing services for Agent: {agent_id}")
+                
+                # 1. 清空该Agent的缓存
+                self._store.registry.clear(agent_id)
+                
+                # 2. 从mcp.json中移除该Agent的服务
+                preserved_services = {}
+                agent_suffix = f"@{agent_id}"
+                
+                for service_name, service_config in mcp_servers.items():
+                    if not service_name.endswith(agent_suffix):
+                        preserved_services[service_name] = service_config
+                
+                new_config = {"mcpServers": preserved_services}
+                removed_count = len(mcp_servers) - len(preserved_services)
+                logger.info(f" [MCP_RESET] Removed {removed_count} services for Agent {agent_id}")
 
-            logger.info("✅ MCP JSON file reset completed with cache-first logic")
+            # 3. 保存更新后的mcp.json
+            mcp_success = self._store.config.save_config(new_config)
+            
+            if mcp_success:
+                logger.info(f"✅ [MCP_RESET] MCP JSON file reset completed for scope: {scope}")
+                
+                # 4. 触发重新同步（可选）
+                if hasattr(self._store.orchestrator, 'sync_manager') and self._store.orchestrator.sync_manager:
+                    logger.info(" [MCP_RESET] Triggering cache resync from mcp.json")
+                    await self._store.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
+            else:
+                logger.error(f"❌ [MCP_RESET] Failed to save mcp.json for scope: {scope}")
+            
             return mcp_success
 
         except Exception as e:
-            logger.error(f"Failed to reset MCP JSON file with cache-first logic: {e}")
+            logger.error(f"❌ [MCP_RESET] Failed to reset MCP JSON file with scope {scope}: {e}")
             return False
 
-    def reset_client_services_file(self) -> bool:
-        """直接重置client_services.json文件（同步版本）"""
-        return self._sync_helper.run_async(self.reset_client_services_file_async(), timeout=60.0)
 
-    async def reset_client_services_file_async(self) -> bool:
-        """
-        重置client_services.json文件（缓存优先逻辑）
-
-        新逻辑：
-        1. 先清空相关缓存
-        2. 缓存自动同步到文件（应该清空文件）
-        3. 保险起见，再直接清空文件
-        """
-        try:
-            logger.info("🔄 Starting client_services file reset with cache-first logic")
-
-            # 1. 清空相关缓存
-            logger.info("Step 1: Clearing client configs cache")
-            self._store.registry.client_configs.clear()
-
-            # 2. 触发缓存到文件的同步（应该会清空文件）
-            logger.info("Step 2: Syncing empty cache to file")
-            if hasattr(self._store, 'cache_manager'):
-                self._store.cache_manager.sync_to_client_manager(self._store.client_manager)
-            else:
-                # 备用方案
-                self._store.registry.sync_to_client_manager(self._store.client_manager)
-
-            # 3. 保险起见，直接清空文件
-            logger.info("Step 3: Direct file reset as safety measure")
-            file_success = self._store.client_manager.reset_client_services_file()
-
-            logger.info("✅ Client services file reset completed with cache-first logic")
-            return file_success
-
-        except Exception as e:
-            logger.error(f"Failed to reset client_services file with cache-first logic: {e}")
-            return False
-
-    def reset_agent_clients_file(self) -> bool:
-        """直接重置agent_clients.json文件（同步版本）"""
-        return self._sync_helper.run_async(self.reset_agent_clients_file_async(), timeout=60.0)
-
-    async def reset_agent_clients_file_async(self) -> bool:
-        """
-        重置agent_clients.json文件（缓存优先逻辑）
-
-        新逻辑：
-        1. 先清空相关缓存
-        2. 缓存自动同步到文件（应该清空文件）
-        3. 保险起见，再直接清空文件
-        """
-        try:
-            logger.info("🔄 Starting agent_clients file reset with cache-first logic")
-
-            # 1. 清空相关缓存
-            logger.info("Step 1: Clearing agent-client mappings cache")
-            self._store.registry.agent_clients.clear()
-
-            # 2. 触发缓存到文件的同步（应该会清空文件）
-            logger.info("Step 2: Syncing empty cache to file")
-            if hasattr(self._store, 'cache_manager'):
-                self._store.cache_manager.sync_to_client_manager(self._store.client_manager)
-            else:
-                # 备用方案
-                self._store.registry.sync_to_client_manager(self._store.client_manager)
-
-            # 3. 保险起见，直接清空文件
-            logger.info("Step 3: Direct file reset as safety measure")
-            file_success = self._store.client_manager.reset_agent_clients_file()
-
-            logger.info("✅ Agent clients file reset completed with cache-first logic")
-            return file_success
-
-        except Exception as e:
-            logger.error(f"Failed to reset agent_clients file with cache-first logic: {e}")
-            return False

@@ -10,7 +10,7 @@ from typing import Dict, List, Any, Optional, Tuple
 
 from fastmcp import Client
 from mcpstore.core.lifecycle import HealthStatus, HealthCheckResult
-from mcpstore.core.config_processor import ConfigProcessor
+from mcpstore.core.configuration.config_processor import ConfigProcessor
 
 logger = logging.getLogger(__name__)
 

@@ -171,11 +171,12 @@ class UnifiedMCPSyncManager:
         """防抖同步"""
         try:
             await asyncio.sleep(self.debounce_delay)
-            
+
             # 检查是否有新的变化
             if self.last_change_time and time.time() - self.last_change_time >= self.debounce_delay:
                 logger.info("Triggering auto-sync due to mcp.json changes")
-                await self.sync_main_client_from_mcp_json()
+                # 统一使用全局同步方法
+                await self.sync_global_agent_store_from_mcp_json()
                 
         except asyncio.CancelledError:
             logger.debug("Debounced sync cancelled")
@@ -324,14 +325,13 @@ class UnifiedMCPSyncManager:
     def _get_current_global_agent_store_services(self) -> Dict[str, Any]:
         """获取当前global_agent_store的服务配置"""
         try:
-            global_agent_store_id = self.orchestrator.client_manager.global_agent_store_id
-            client_ids = self.orchestrator.client_manager.get_agent_clients(global_agent_store_id)
-
+            # single-source: derive current services from registry cache only
+            agent_id = self.orchestrator.client_manager.global_agent_store_id
             current_services = {}
-            for client_id in client_ids:
-                client_config = self.orchestrator.client_manager.get_client_config(client_id)
-                if client_config and "mcpServers" in client_config:
-                    current_services.update(client_config["mcpServers"])
+            for service_name in self.orchestrator.registry.get_all_service_names(agent_id):
+                config = self.orchestrator.mcp_config.get_service_config(service_name) or {}
+                if config:
+                    current_services[service_name] = config
 
             return current_services
 
@@ -372,52 +372,31 @@ class UnifiedMCPSyncManager:
 
             logger.debug(f"Batch registering {len(services_to_register)} services to Registry")
 
-            # 获取对应的client_ids
-            client_ids = self.orchestrator.client_manager.get_agent_clients(agent_id)
-
+            # single-source: register services_to_register directly if not present
             registered_count = 0
             skipped_count = 0
 
-            for client_id in client_ids:
-                client_config = self.orchestrator.client_manager.get_client_config(client_id)
-                if not client_config:
+            for service_name, config in services_to_register.items():
+                if self.orchestrator.registry.has_service(agent_id, service_name):
+                    skipped_count += 1
                     continue
-
-                # 检查这个client是否包含要注册的服务
-                client_services = client_config.get("mcpServers", {})
-                services_in_client = set(client_services.keys()) & set(services_to_register.keys())
-
-                if services_in_client:
-                    # 🔧 新增：检查服务是否已经在Registry中注册
-                    already_registered = []
-                    need_registration = []
-
-                    for service_name in services_in_client:
-                        if self.orchestrator.registry.has_service(agent_id, service_name):
-                            already_registered.append(service_name)
-                            skipped_count += 1
-                        else:
-                            need_registration.append(service_name)
-
-                    if already_registered:
-                        logger.debug(f"Services already registered, skipping: {already_registered}")
-
-                    if need_registration:
-                        try:
-                            # 🔧 重构：使用统一的add_service方法而不是register_json_services
-                            if hasattr(self.orchestrator, 'store') and self.orchestrator.store:
-                                # 使用统一注册架构
-                                await self.orchestrator.store.for_store().add_service_async(client_config, source="auto_startup")
-                                logger.debug(f"Registered client {client_id} with services: {need_registration} via unified add_service")
-                                registered_count += len(need_registration)
-                            else:
-                                # 回退到原有方法（带警告）
-                                logger.warning("Store reference not available, falling back to register_json_services")
-                                await self.orchestrator.register_json_services(client_config, client_id=client_id)
-                                logger.debug(f"Registered client {client_id} with services: {need_registration}")
-                                registered_count += len(need_registration)
-                        except Exception as e:
-                            logger.error(f"Failed to register client {client_id}: {e}")
+                try:
+                    if hasattr(self.orchestrator, 'store') and self.orchestrator.store:
+                        # Use existing add_service_async with explicit mcpServers shape
+                        await self.orchestrator.store.for_store().add_service_async(
+                            config={"mcpServers": {service_name: config}},
+                            source="auto_startup"
+                        )
+                    else:
+                        # Update mcp.json directly then let lifecycle initialize
+                        current = self.orchestrator.mcp_config.load_config()
+                        m = current.get("mcpServers", {})
+                        m[service_name] = config
+                        current["mcpServers"] = m
+                        self.orchestrator.mcp_config.save_config(current)
+                    registered_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to register service {service_name}: {e}")
 
             logger.info(f"Batch registration completed: {registered_count} registered, {skipped_count} skipped")
 
@@ -453,12 +432,20 @@ class UnifiedMCPSyncManager:
             if existing_client_id:
                 # 使用现有的client_id，只更新配置
                 client_id = existing_client_id
-                logger.debug(f"🔄 使用现有client_id: {service_name} -> {client_id}")
+                logger.debug(f" 使用现有client_id: {service_name} -> {client_id}")
             else:
-                # 🔧 修复：使用与SetupMixin相同的确定性client_id生成算法
-                import hashlib
-                config_hash = hashlib.md5(str(service_config).encode()).hexdigest()[:8]
-                client_id = f"client_store_{service_name}_{config_hash}"
+                # 🔧 使用统一的ClientIDGenerator生成确定性client_id
+                from mcpstore.core.utils.id_generator import ClientIDGenerator
+                
+                # UnifiedMCPSyncManager主要处理Store级别的服务，所以使用global_agent_store_id
+                global_agent_store_id = getattr(self.orchestrator.client_manager, 'global_agent_store_id', 'global_agent_store')
+                
+                client_id = ClientIDGenerator.generate_deterministic_id(
+                    agent_id=agent_id,
+                    service_name=service_name,
+                    service_config=service_config,
+                    global_agent_store_id=global_agent_store_id
+                )
                 logger.debug(f"🆕 生成新client_id: {service_name} -> {client_id}")
 
             # 更新缓存映射1：Agent-Client映射
@@ -549,22 +536,10 @@ class UnifiedMCPSyncManager:
         不是异步持久化（_persist_to_files_async）
         """
         try:
-            cache_manager = getattr(self.orchestrator, 'cache_manager', None)
-            if cache_manager:
-                # 调用缓存同步机制：将缓存映射同步到文件
-                cache_manager.sync_to_client_manager(self.orchestrator.client_manager)
-                logger.debug("✅ 缓存映射同步到文件成功")
-            else:
-                # 备用方案
-                registry = getattr(self.orchestrator, 'registry', None)
-                if registry:
-                    registry.sync_to_client_manager(self.orchestrator.client_manager)
-                    logger.debug("✅ 缓存映射同步到文件成功（备用方案）")
-                else:
-                    logger.warning("无法触发缓存映射同步：cache_manager和registry都不可用")
-
+            # 单源模式：不再将缓存映射同步到分片文件
+            logger.debug("Single-source mode: skip shard mapping sync (agent_clients/client_services)")
         except Exception as e:
-            logger.error(f"Failed to trigger cache mapping sync: {e}")
+            logger.error(f"Failed in shard sync skip path: {e}")
 
     async def manual_sync(self) -> Dict[str, Any]:
         """手动触发同步（用于API调用）"""
@@ -580,3 +555,4 @@ class UnifiedMCPSyncManager:
             "sync_lock_locked": self.sync_lock.locked(),
             "file_observer_running": self.file_observer is not None and self.file_observer.is_alive() if self.file_observer else False
         }
+
