@@ -1211,7 +1211,7 @@ class ServiceOperationsMixin:
                     logger.info(f"🔄 [AGENT_PROXY] 创建新服务: {local_name}")
 
                     # 🔧 修复：统一使用 ClientIDGenerator 生成共享 Client ID
-                    from mcpstore.core.id_generator import ClientIDGenerator
+                    from mcpstore.core.utils.id_generator import ClientIDGenerator
                     client_id = ClientIDGenerator.generate_deterministic_id(
                         agent_id=agent_id,
                         service_name=local_name,
