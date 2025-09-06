@@ -499,8 +499,8 @@ const editService = async (service) => {
     editMode.value = 'fields'
 
     // 获取服务配置
-    const { agentServiceAPI } = await import('@/api/services')
-    const response = await agentServiceAPI.showConfig(agentId.value)
+    const { api } = await import('@/api')
+    const response = await api.agent.showConfig(agentId.value)
 
     if (response.data.success) {
       // 从配置中找到当前服务的配置和client_id
@@ -623,8 +623,8 @@ const deleteService = async (service) => {
     const identifier = service.client_id || service.name
     console.log('🔍 [DEBUG] 删除服务:', { serviceName: service.name, clientId: service.client_id, identifier })
 
-    const { agentServiceAPI } = await import('@/api/services')
-    const response = await agentServiceAPI.deleteConfig(agentId.value, identifier)
+    const { api } = await import('@/api')
+    const response = await api.agent.deleteConfig(agentId.value, identifier)
 
     if (response.data.success) {
       ElMessage.success(`服务 ${service.name} 删除成功`)
@@ -669,7 +669,7 @@ const saveServiceEdit = async () => {
   try {
     editSaving.value = true
 
-    const { agentServiceAPI } = await import('@/api/services')
+    const { api } = await import('@/api')
     let config
 
     if (editMode.value === 'fields') {
@@ -728,7 +728,7 @@ const saveServiceEdit = async () => {
     const identifier = editingService.value.client_id || editingService.value.name
     console.log('🔍 [DEBUG] 更新服务配置:', { serviceName: editingService.value.name, clientId: editingService.value.client_id, identifier, config })
 
-    const response = await agentServiceAPI.updateConfigNew(agentId.value, identifier, config)
+    const response = await api.agent.updateConfig(agentId.value, identifier, config)
 
     if (response.data.success) {
       ElMessage.success('服务配置更新成功')

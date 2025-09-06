@@ -113,7 +113,32 @@ class MCPStoreContext(
         """Return a LangChain adapter instance for subsequent LangChain-related operations."""
         from ...adapters.langchain_adapter import LangChainAdapter
         return LangChainAdapter(self)
-    
+
+    def for_llamaindex(self) -> 'LlamaIndexAdapter':
+        """Return a LlamaIndex adapter (FunctionTool) for MCP tools."""
+        from ...adapters.llamaindex_adapter import LlamaIndexAdapter
+        return LlamaIndexAdapter(self)
+
+    def for_crewai(self) -> 'CrewAIAdapter':
+        """Return a CrewAI adapter that reuses LangChain tools for compatibility."""
+        from ...adapters.crewai_adapter import CrewAIAdapter
+        return CrewAIAdapter(self)
+
+    def for_langgraph(self) -> 'LangGraphAdapter':
+        """Return a LangGraph adapter that reuses LangChain tools."""
+        from ...adapters.langgraph_adapter import LangGraphAdapter
+        return LangGraphAdapter(self)
+
+    def for_autogen(self) -> 'AutoGenAdapter':
+        """Return an AutoGen adapter that produces Python functions for registration."""
+        from ...adapters.autogen_adapter import AutoGenAdapter
+        return AutoGenAdapter(self)
+
+    def for_semantic_kernel(self) -> 'SemanticKernelAdapter':
+        """Return a Semantic Kernel adapter that produces native function callables."""
+        from ...adapters.semantic_kernel_adapter import SemanticKernelAdapter
+        return SemanticKernelAdapter(self)
+
     # === Hub 功能扩展 ===
     
     def hub_services(self) -> 'HubServicesBuilder':

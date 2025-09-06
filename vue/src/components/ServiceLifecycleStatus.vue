@@ -80,7 +80,7 @@
 </template>
 
 <script>
-import { storeMonitoringAPI } from '@/api/services'
+import { api } from '@/api'
 
 // 简化的状态处理函数
 const getServiceStateText = (state) => {
@@ -217,7 +217,7 @@ export default {
     async handleRefreshContent() {
       this.refreshing = true
       try {
-        const response = await storeMonitoringAPI.refreshServiceContent(
+        const response = await api.monitoring.refreshServiceTools(
           this.serviceName, 
           this.agentId
         )
@@ -238,7 +238,7 @@ export default {
     async handleHealthCheck() {
       this.checking = true
       try {
-        const response = await storeMonitoringAPI.triggerHealthCheck(this.serviceName)
+        const response = await api.monitoring.triggerHealthCheck(this.serviceName)
         
         if (response.success) {
           this.$message.success(`服务 ${this.serviceName} 健康检查完成`)
@@ -262,7 +262,7 @@ export default {
         onOk: async () => {
           this.disconnecting = true
           try {
-            const response = await storeMonitoringAPI.gracefulDisconnectService(
+            const response = await api.monitoring.gracefulDisconnect(
               this.serviceName,
               this.agentId,
               'user_requested'

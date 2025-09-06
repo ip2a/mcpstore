@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { storeServiceAPI, agentServiceAPI } from '@/api/services'
-import { storeMonitoringAPI } from '@/api/services'
+import { api } from '@/api'
 import { useAppStore } from './app'
 
 export const useSystemStore = defineStore('system', () => {
@@ -69,8 +68,8 @@ export const useSystemStore = defineStore('system', () => {
     healthyServices: stats.value.healthyServices,
     unhealthyServices: stats.value.unhealthyServices,
     totalServices: stats.value.totalServices,
-    // 从健康状态数据中获取orchestrator状态
-    running: healthStatus.value.orchestrator_status === 'running'
+    // 从健康状态数据中获取orchestrator状态，如果healthStatus为空则返回false
+    running: healthStatus.value?.orchestrator_status === 'running'
   }))
   
   const servicesByStatus = computed(() => {
@@ -184,14 +183,18 @@ export const useSystemStore = defineStore('system', () => {
       setLoadingState('services', true)
       appStore?.setLoadingState('services', true)
 
-      const response = await storeServiceAPI.getServices()
+      const response = await api.store.listServices()
       console.log('🔍 [STORE] 服务列表响应:', response)
 
-      // 🔧 修复：正确提取服务数组，支持新的API响应格式
-      if (response.data && response.data.success && response.data.data && response.data.data.services) {
+      // 🔧 修复：正确提取服务数组，支持多种API响应格式
+      if (response.data && response.data.success && response.data.data && Array.isArray(response.data.data.services)) {
         // 新格式：{ success: true, data: { services: [...], total_services: 2 } }
         services.value = response.data.data.services
         console.log('✅ [STORE] 使用新格式提取服务数据')
+      } else if (response.data && Array.isArray(response.data.services)) {
+        // 另一种格式：{ services: [...], total_services: 2 }
+        services.value = response.data.services
+        console.log('✅ [STORE] 使用直接services格式提取服务数据')
       } else if (response.data && Array.isArray(response.data.data)) {
         // 兼容旧格式：data直接是数组
         services.value = response.data.data
@@ -232,7 +235,7 @@ export const useSystemStore = defineStore('system', () => {
       setLoadingState('tools', true)
       appStore?.setLoadingState('tools', true)
 
-      const response = await storeServiceAPI.getTools()
+      const response = await api.store.getTools()
       // 修复：正确提取工具数组
       tools.value = response.data?.data || []
       updateStats()
@@ -254,12 +257,43 @@ export const useSystemStore = defineStore('system', () => {
       appStore?.setLoadingState('tools', false)
     }
   }
+
+  const fetchAgents = async (force = false) => {
+    if ((loading.value || loadingStates.value.agents) && !force) return
+
+    try {
+      loading.value = true
+      setLoadingState('agents', true)
+      appStore?.setLoadingState('agents', true)
+
+      const response = await api.store.listAllAgents()
+      // 修复：正确提取代理数组
+      agents.value = response.data?.data || response.data || []
+      updateStats()
+      lastUpdateTime.value = new Date()
+
+      console.log(`🤖 Loaded ${agents.value.length} agents`)
+      return agents.value
+    } catch (error) {
+      console.error('Failed to fetch agents:', error)
+      addError({
+        message: `获取代理列表失败: ${error.message}`,
+        type: 'fetch-error',
+        source: 'fetchAgents'
+      })
+      throw error
+    } finally {
+      loading.value = false
+      setLoadingState('agents', false)
+      appStore?.setLoadingState('agents', false)
+    }
+  }
   
   const fetchSystemStatus = async () => {
     try {
       console.log('🔍 [STORE] 开始检查服务状态...')
       loading.value = true
-      const response = await storeServiceAPI.checkServices()
+      const response = await api.store.checkServices()
       console.log('🔍 [STORE] 服务状态响应:', response)
       // 修复：正确提取健康状态数据
       healthStatus.value = response.data?.data || {}
@@ -299,7 +333,7 @@ export const useSystemStore = defineStore('system', () => {
   const addService = async (serviceConfig) => {
     try {
       loading.value = true
-      const response = await storeServiceAPI.addService(serviceConfig)
+      const response = await api.store.addService(serviceConfig)
 
       // 检查添加是否成功
       if (response.data?.success) {
@@ -322,7 +356,7 @@ export const useSystemStore = defineStore('system', () => {
   const deleteService = async (serviceName) => {
     try {
       loading.value = true
-      await storeServiceAPI.deleteService(serviceName)
+      await api.store.deleteService(serviceName)
       
       // 从本地状态中移除
       services.value = services.value.filter(s => s.name !== serviceName)
@@ -341,7 +375,7 @@ export const useSystemStore = defineStore('system', () => {
   const restartService = async (serviceName) => {
     try {
       loading.value = true
-      await storeServiceAPI.restartService(serviceName)
+      await api.store.restartService(serviceName)
       
       // 刷新服务状态
       await fetchSystemStatus()
@@ -358,7 +392,7 @@ export const useSystemStore = defineStore('system', () => {
   const executeToolAction = async (toolName, args) => {
     try {
       loading.value = true
-      const response = await storeServiceAPI.useTool(toolName, args)
+      const response = await api.store.callTool(toolName, args)
       // 修复：返回正确的响应数据
       return response.data
     } catch (error) {
@@ -371,7 +405,7 @@ export const useSystemStore = defineStore('system', () => {
 
   const getServiceInfo = async (serviceName) => {
     try {
-      const response = await storeServiceAPI.getServiceInfo(serviceName)
+      const response = await api.store.getServiceInfo(serviceName)
       // 修复：正确提取服务信息
       return response.data?.data
     } catch (error) {
@@ -383,7 +417,7 @@ export const useSystemStore = defineStore('system', () => {
   const updateService = async (serviceName, config) => {
     try {
       loading.value = true
-      const response = await storeServiceAPI.updateService(serviceName, config)
+      const response = await api.store.updateService(serviceName, config)
 
       if (response.data.success) {
         // 刷新服务列表
@@ -403,7 +437,7 @@ export const useSystemStore = defineStore('system', () => {
   const patchService = async (serviceName, updates) => {
     try {
       loading.value = true
-      const response = await storeServiceAPI.patchService(serviceName, updates)
+      const response = await api.store.patchService(serviceName, updates)
 
       if (response.data.success) {
         // 刷新服务列表
@@ -423,7 +457,7 @@ export const useSystemStore = defineStore('system', () => {
   const batchUpdateServices = async (updates) => {
     try {
       loading.value = true
-      const response = await storeServiceAPI.batchUpdateServices(updates)
+      const response = await api.store.batchUpdateServices(updates)
 
       if (response.data.success) {
         // 刷新服务列表
@@ -443,7 +477,7 @@ export const useSystemStore = defineStore('system', () => {
   const batchDeleteServices = async (serviceNames) => {
     try {
       loading.value = true
-      const response = await storeServiceAPI.batchDeleteServices(serviceNames)
+      const response = await api.store.batchDeleteServices(serviceNames)
 
       if (response.data.success) {
         // 从本地状态中移除
@@ -464,7 +498,7 @@ export const useSystemStore = defineStore('system', () => {
   const batchRestartServices = async (serviceNames) => {
     try {
       loading.value = true
-      const response = await storeServiceAPI.batchRestartServices(serviceNames)
+      const response = await api.store.batchRestartServices(serviceNames)
 
       if (response.data.success) {
         // 刷新服务状态
@@ -506,7 +540,7 @@ export const useSystemStore = defineStore('system', () => {
     try {
       setLoadingState('resources', true)
 
-      const response = await storeMonitoringAPI.getToolRecords(limit)
+      const response = await api.store.getToolRecords(limit)
       console.log('API响应:', response) // 调试日志
 
       // API返回格式: { data: { success: true, data: { executions: [...], summary: {...} }, message: "..." } }
@@ -536,7 +570,7 @@ export const useSystemStore = defineStore('system', () => {
     try {
       setLoadingState('resources', true)
 
-      const response = await storeMonitoringAPI.getSystemResources()
+      const response = await api.monitoring.getSystemResources()
 
       if (response.success && response.data) {
         systemResources.value = {
@@ -700,6 +734,7 @@ export const useSystemStore = defineStore('system', () => {
     // 方法
     fetchServices,
     fetchTools,
+    fetchAgents,
     fetchSystemStatus,
     safeCheckSystemStatus,
     addService,

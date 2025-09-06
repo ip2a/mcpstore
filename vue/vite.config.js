@@ -38,7 +38,7 @@ export default defineConfig(({ mode }) => {
     base,
     server: {
       port: 5177,
-      host: '0.0.0.0',  // 服务器监听所有接口，但客户端连接地址由HMR配置决定
+      host: true,  // 监听所有地址
       open: !isDomain,
       cors: true,
 
@@ -50,7 +50,7 @@ export default defineConfig(({ mode }) => {
 
       // 域名环境的额外配置
       ...(isDomain && {
-        allowedHosts: ['mcpstore.wiki', 'localhost', '127.0.0.1', '0.0.0.0']
+        allowedHosts: ['mcpstore.wiki', 'localhost', '127.0.0.1']
       })
     },
     build: {
@@ -69,11 +69,14 @@ export default defineConfig(({ mode }) => {
       port: 5177,
       host: '0.0.0.0'
     },
+    define: {
+      global: 'globalThis',
+      globalThis: 'globalThis'
+    },
     css: {
       preprocessorOptions: {
         scss: {
-          additionalData: `@use "@/styles/variables.scss" as *;`,
-          api: 'modern-compiler' // 使用现代编译器API
+          additionalData: `@use "@/styles/variables.scss" as *;`
         }
       }
     }

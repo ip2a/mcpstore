@@ -147,7 +147,7 @@
 
 <script>
 import ServiceLifecycleStatus from './ServiceLifecycleStatus.vue'
-import { storeMonitoringAPI } from '@/api/services'
+import { api } from '@/api'
 
 // 简化的工具函数
 const formatResponseTime = (time) => {
@@ -322,7 +322,7 @@ export default {
     async refreshServiceContent(record) {
       this.$set(record, 'refreshing', true)
       try {
-        const response = await storeMonitoringAPI.refreshServiceContent(
+        const response = await api.monitoring.refreshServiceTools(
           record.serviceName,
           record.agentId
         )
@@ -343,7 +343,7 @@ export default {
     async triggerHealthCheck(record) {
       this.$set(record, 'checking', true)
       try {
-        const response = await storeMonitoringAPI.triggerHealthCheck(record.serviceName)
+        const response = await api.monitoring.triggerHealthCheck(record.serviceName)
         
         if (response.success) {
           this.$message.success(`服务 ${record.serviceName} 健康检查完成`)
@@ -366,7 +366,7 @@ export default {
         cancelText: '取消',
         onOk: async () => {
           try {
-            const response = await storeMonitoringAPI.gracefulDisconnectService(
+            const response = await api.monitoring.gracefulDisconnect(
               record.serviceName,
               record.agentId,
               'user_requested'

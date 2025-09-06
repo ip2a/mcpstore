@@ -16,6 +16,8 @@ from fastapi import APIRouter
 
 from .api_agent import agent_router
 from .api_monitoring import monitoring_router
+from .api_data_space import data_space_router
+from .api_langchain import langchain_router
 # Import all sub-route modules
 from .api_store import store_router
 
@@ -34,6 +36,12 @@ router.include_router(agent_router, tags=["Agent Operations"])
 # Monitoring and statistics routes
 router.include_router(monitoring_router, tags=["Monitoring & Statistics"])
 
+# Data space and workspace management routes
+router.include_router(data_space_router, tags=["Data Space & Workspace"])
+
+# LangChain integration routes
+router.include_router(langchain_router, tags=["LangChain Integration"])
+
 # Maintain backward compatibility - export commonly used functions and classes
 # This way existing import statements can still work normally
 
@@ -44,16 +52,22 @@ def get_route_info():
     store_routes = len(store_router.routes)
     agent_routes = len(agent_router.routes)
     monitoring_routes = len(monitoring_router.routes)
+    data_space_routes = len(data_space_router.routes)
+    langchain_routes = len(langchain_router.routes)
 
     return {
         "total_routes": total_routes,
         "store_routes": store_routes,
         "agent_routes": agent_routes,
         "monitoring_routes": monitoring_routes,
+        "data_space_routes": data_space_routes,
+        "langchain_routes": langchain_routes,
         "modules": {
             "api_store.py": f"{store_routes} routes",
             "api_agent.py": f"{agent_routes} routes",
-            "api_monitoring.py": f"{monitoring_routes} routes"
+            "api_monitoring.py": f"{monitoring_routes} routes",
+            "api_data_space.py": f"{data_space_routes} routes",
+            "api_langchain.py": f"{langchain_routes} routes"
         }
     }
 
@@ -69,7 +83,7 @@ async def api_root():
         success=True,
         data={
             "message": "MCPStore API Server",
-            "version": "0.6.0",
+            "version": "1.0.0",
             "status": "running",
             "routes": route_info,
             "documentation": "/docs",

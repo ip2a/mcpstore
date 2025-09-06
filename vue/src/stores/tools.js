@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { storeToolsAPI } from '@/api/tools'
-import { storeServiceAPI } from '@/api/services'
+import { api } from '@/api'
 import { useAppStore } from './app'
 
 export const useToolsStore = defineStore('tools', () => {
@@ -184,7 +183,7 @@ export const useToolsStore = defineStore('tools', () => {
     try {
       appStore?.setLoadingState('tools', true)
 
-      const response = await storeServiceAPI.getTools()
+      const response = await api.store.listTools()
 
       // 🔍 调试：检查API返回的数据格式
       console.log('🔍 [DEBUG] Tools API返回的原始数据:', response)
@@ -271,7 +270,7 @@ export const useToolsStore = defineStore('tools', () => {
       })
 
       const startTime = Date.now()
-      const response = await storeServiceAPI.useTool(toolName, params)
+      const response = await api.store.callTool(toolName, params)
       const endTime = Date.now()
       const duration = endTime - startTime
 
@@ -343,7 +342,7 @@ export const useToolsStore = defineStore('tools', () => {
   
   const getToolDetails = async (toolName) => {
     try {
-      const response = await storeToolsAPI.getToolDetails(toolName)
+      const response = await api.store.getToolInfo(toolName)
       return response.data
     } catch (error) {
       console.error('获取工具详情失败:', error)
@@ -357,7 +356,7 @@ export const useToolsStore = defineStore('tools', () => {
     try {
       setLoadingState('records', true)
 
-      const response = await storeToolsAPI.getToolRecords(limit)
+      const response = await api.store.getToolRecords(limit)
       const data = response.data || { executions: [], summary: { total_executions: 0, by_tool: {}, by_service: {} } }
 
       // 更新本地状态

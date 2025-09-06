@@ -147,9 +147,155 @@ class ServiceLifecycleConfig(BaseModel):
     reconnecting_failure_threshold: Optional[int] = Field(default=None, ge=2, le=10, description="进入RECONNECTING状态的失败阈值，范围2-10")
     max_reconnect_attempts: Optional[int] = Field(default=None, ge=3, le=20, description="最大重连尝试次数，范围3-20")
 
+# === 服务详情相关响应模型 ===
+
+class ServiceLifecycleInfo(BaseModel):
+    """服务生命周期信息"""
+    consecutive_successes: int = Field(description="连续成功次数")
+    consecutive_failures: int = Field(description="连续失败次数")
+    last_ping_time: Optional[str] = Field(None, description="最后ping时间")
+    error_message: Optional[str] = Field(None, description="错误信息")
+    reconnect_attempts: int = Field(description="重连尝试次数")
+    state_entered_time: Optional[str] = Field(None, description="状态进入时间")
+
+class ServiceToolInfo(BaseModel):
+    """服务工具信息"""
+    name: str = Field(description="工具名称")
+    description: Optional[str] = Field(None, description="工具描述")
+    input_schema: Optional[Dict[str, Any]] = Field(None, description="输入模式")
+    service_name: str = Field(description="所属服务名称")
+
+class ServiceHealthDetail(BaseModel):
+    """服务健康详情"""
+    status: str = Field(description="健康状态")
+    message: Optional[str] = Field(None, description="健康消息")
+    timestamp: Optional[str] = Field(None, description="检查时间戳")
+    uptime: Optional[str] = Field(None, description="运行时间")
+    error_count: int = Field(default=0, description="错误计数")
+    last_error: Optional[str] = Field(None, description="最后错误")
+    response_time: Optional[float] = Field(None, description="响应时间（毫秒）")
+    is_healthy: bool = Field(description="是否健康")
+
+class ServiceDetailResponse(BaseModel):
+    """服务详细信息响应"""
+    name: str = Field(description="服务名称")
+    status: str = Field(description="服务状态")
+    transport: str = Field(description="传输类型")
+    client_id: Optional[str] = Field(None, description="客户端ID")
+    url: Optional[str] = Field(None, description="服务URL")
+    command: Optional[str] = Field(None, description="启动命令")
+    args: Optional[List[str]] = Field(None, description="命令参数")
+    env: Optional[Dict[str, str]] = Field(None, description="环境变量")
+    tool_count: int = Field(description="工具数量")
+    is_active: bool = Field(description="是否已激活")
+    config: Dict[str, Any] = Field(default_factory=dict, description="配置信息")
+    lifecycle: Optional[ServiceLifecycleInfo] = Field(None, description="生命周期信息")
+    tools: List[ServiceToolInfo] = Field(default_factory=list, description="工具列表")
+    health: Optional[ServiceHealthDetail] = Field(None, description="健康信息")
+
+class ServiceStatusResponse(BaseModel):
+    """服务状态响应"""
+    name: str = Field(description="服务名称")
+    status: str = Field(description="服务状态")
+    is_active: bool = Field(description="是否已激活")
+    client_id: Optional[str] = Field(None, description="客户端ID")
+    last_updated: Optional[str] = Field(None, description="最后更新时间")
+    consecutive_successes: int = Field(default=0, description="连续成功次数")
+    consecutive_failures: int = Field(default=0, description="连续失败次数")
+    error_message: Optional[str] = Field(None, description="错误信息")
+    reconnect_attempts: int = Field(default=0, description="重连尝试次数")
+
+# === 数据空间相关响应模型 ===
+
+class WorkspaceInfo(BaseModel):
+    """工作空间信息"""
+    name: str = Field(description="工作空间名称")
+    path: str = Field(description="工作空间路径")
+    mcp_config_path: str = Field(description="MCP配置文件路径")
+    is_current: bool = Field(description="是否为当前工作空间")
+
+class DataSpaceInfo(BaseModel):
+    """数据空间信息"""
+    is_using_data_space: bool = Field(description="是否使用数据空间")
+    workspace_dir: Optional[str] = Field(None, description="工作空间目录")
+    mcp_config_path: Optional[str] = Field(None, description="MCP配置文件路径")
+    data_space_path: Optional[str] = Field(None, description="数据空间路径")
+    workspace_config: Dict[str, Any] = Field(default_factory=dict, description="工作空间配置")
+
+class WorkspacesListResponse(BaseModel):
+    """工作空间列表响应"""
+    workspaces: List[WorkspaceInfo] = Field(description="工作空间列表")
+    current_workspace: Optional[str] = Field(None, description="当前工作空间路径")
+    using_default: bool = Field(default=False, description="是否使用默认配置")
+
+# === LangChain 相关响应模型 ===
+
+class LangChainToolParameter(BaseModel):
+    """LangChain工具参数信息"""
+    required: List[str] = Field(default_factory=list, description="必需参数")
+    optional: List[str] = Field(default_factory=list, description="可选参数")
+    total_count: int = Field(default=0, description="参数总数")
+
+class LangChainToolResponse(BaseModel):
+    """LangChain工具响应"""
+    name: str = Field(description="工具名称")
+    description: str = Field(description="工具描述")
+    args_schema: Optional[Dict[str, Any]] = Field(None, description="参数模式")
+    is_structured: bool = Field(description="是否为结构化工具")
+    tool_type: str = Field(description="工具类型")
+    parameters: Optional[LangChainToolParameter] = Field(None, description="参数信息")
+    original_info: Optional[Dict[str, Any]] = Field(None, description="原始工具信息")
+
+class LangChainToolsListResponse(BaseModel):
+    """LangChain工具列表响应"""
+    tools: List[LangChainToolResponse] = Field(description="工具列表")
+    total_tools: int = Field(description="工具总数")
+    structured_tools: int = Field(description="结构化工具数量")
+
+# === 批量操作请求模型 ===
+
+class BatchServiceOperationRequest(BaseModel):
+    """批量服务操作请求"""
+    service_names: List[str] = Field(..., description="服务名称列表")
+    operation: str = Field(..., description="操作类型: init, start, stop, restart, delete")
+
+class BatchServiceOperationResponse(BaseModel):
+    """批量服务操作响应"""
+    total_count: int = Field(description="总数")
+    success_count: int = Field(description="成功数量")
+    failure_count: int = Field(description="失败数量")
+    results: List[Dict[str, Any]] = Field(description="各服务操作结果")
+
+# === API分页模型 ===
+
+class PaginationParams(BaseModel):
+    """分页参数"""
+    page: int = Field(default=1, ge=1, description="页码")
+    page_size: int = Field(default=20, ge=1, le=100, description="每页大小")
+
+class PaginatedResponse(BaseModel):
+    """分页响应基类"""
+    items: List[Any] = Field(description="数据项")
+    total: int = Field(description="总数")
+    page: int = Field(description="当前页码")
+    page_size: int = Field(description="每页大小")
+    total_pages: int = Field(description="总页数")
+
+# === 生命周期配置扩展 ===
+
+class ExtendedServiceLifecycleConfig(ServiceLifecycleConfig):
+    """扩展的服务生命周期配置模型"""
     # 重试间隔配置
     base_reconnect_delay: Optional[float] = Field(default=None, ge=0.5, le=10.0, description="基础重连延迟（秒），范围0.5-10.0")
     max_reconnect_delay: Optional[float] = Field(default=None, ge=10.0, le=300.0, description="最大重连延迟（秒），范围10.0-300.0")
+    
+    # 健康检查配置
+    health_check_interval: Optional[float] = Field(default=None, ge=5.0, le=300.0, description="健康检查间隔（秒），范围5.0-300.0")
+    health_check_timeout: Optional[float] = Field(default=None, ge=1.0, le=60.0, description="健康检查超时（秒），范围1.0-60.0")
+    
+    # 性能监控配置
+    enable_performance_metrics: Optional[bool] = Field(default=None, description="是否启用性能指标收集")
+    metrics_retention_days: Optional[int] = Field(default=None, ge=1, le=365, description="指标保留天数，范围1-365")
     long_retry_interval: Optional[float] = Field(default=None, ge=60.0, le=1800.0, description="长周期重试间隔（秒），范围60.0-1800.0")
 
     # 心跳配置

@@ -186,11 +186,38 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import { useAgentsStore } from '@/stores/agents'
-import { validateService } from '@/api/agents'
-
 const route = useRoute()
 const router = useRouter()
 const agentsStore = useAgentsStore()
+
+// 服务配置验证函数
+const validateService = (serviceForm) => {
+  const errors = []
+  
+  if (!serviceForm.name || serviceForm.name.trim() === '') {
+    errors.push('服务名称不能为空')
+  }
+  
+  if (serviceForm.serviceType === 'remote') {
+    if (!serviceForm.url || serviceForm.url.trim() === '') {
+      errors.push('远程服务URL不能为空')
+    }
+    try {
+      new URL(serviceForm.url)
+    } catch {
+      errors.push('请输入有效的URL')
+    }
+  } else {
+    if (!serviceForm.command || serviceForm.command.trim() === '') {
+      errors.push('本地服务命令不能为空')
+    }
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors
+  }
+}
 
 // 响应式数据
 const formRef = ref()

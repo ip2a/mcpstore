@@ -105,6 +105,9 @@ class MonitoringManager:
         self.max_file_size_mb = tool_record_max_file_size
         self.retention_days = tool_record_retention_days
 
+        # 记录启动时间用于计算运行时间
+        self.start_time = time.time()
+
         # 确保数据文件存在
         self._ensure_data_files()
     

@@ -123,6 +123,13 @@ class APIServerMixin:
         """设置API使用的store实例"""
         # 将当前store实例设置为全局实例，供API使用
         import mcpstore.scripts.api_app as api_app
+        import mcpstore.scripts.api_dependencies as api_deps
+        
+        # 设置api_app的全局实例
         api_app._global_store_instance = self
+        
+        # 设置api_dependencies的全局实例
+        api_deps.set_global_store(self)
+        
         logger.info(f"Set global store instance: data_space={self.is_using_data_space()}, workspace={self.get_workspace_dir()}")
         logger.info(f"Global instance id: {id(self)}, api module instance id: {id(api_app._global_store_instance)}")

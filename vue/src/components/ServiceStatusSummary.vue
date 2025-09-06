@@ -104,7 +104,7 @@
 </template>
 
 <script>
-import { storeMonitoringAPI } from '@/api/services'
+import { api } from '@/api'
 
 // 简单的状态统计生成函数
 const generateServiceStateStats = (services) => {
@@ -201,7 +201,7 @@ export default {
     async handleRefreshAll() {
       this.refreshingAll = true
       try {
-        const response = await storeMonitoringAPI.refreshAllContent()
+        const response = await api.monitoring.refreshAllTools()
         
         if (response.success) {
           this.$message.success(`成功刷新 ${response.data.updated_services}/${response.data.total_services} 个服务`)

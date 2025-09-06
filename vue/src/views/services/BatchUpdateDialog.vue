@@ -176,7 +176,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { storeServiceAPI } from '@/api/services'
+import { api } from '@/api'
 import { Plus, Delete } from '@element-plus/icons-vue'
 
 const props = defineProps({
@@ -297,7 +297,7 @@ const handleUpdate = async () => {
       config: JSON.parse(updatePreview.value)
     }))
     
-    const response = await storeServiceAPI.batchUpdateServices(updates)
+    const response = await api.store.batchUpdateServices(updates)
     
     if (response.data.success) {
       ElMessage.success('批量更新成功')

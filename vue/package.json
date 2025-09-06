@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --port 5177 --host localhost --mode development",
+    "dev": "vite --port 5177 --mode development",
     "dev:local": "vite --port 5177 --host localhost --mode local",
     "dev:domain": "vite --port 5177 --host 0.0.0.0 --mode domain",
     "build": "vite build --mode production",
@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
+    "@iarna/toml": "^2.2.5",
     "axios": "^1.6.0",
     "dayjs": "^1.11.10",
     "echarts": "^5.6.0",

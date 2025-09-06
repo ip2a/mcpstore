@@ -1,5 +1,5 @@
 <template>
-  <div class="dashboard">
+  <div class="dashboard animate-fade-in">
     <!-- 错误状态 -->
     <ErrorState
       v-if="hasError"
@@ -12,268 +12,362 @@
     />
 
     <!-- 正常内容 -->
-    <div v-else>
-      <!-- 第一行：紧凑的状态卡片和快捷操作 -->
-      <el-row :gutter="16">
-      <!-- 系统状态卡片 -->
-      <el-col :span="4">
-        <el-card class="status-card compact-card">
-          <div class="card-header">
-            <el-icon><Monitor /></el-icon>
-            <span>系统状态</span>
+    <div v-else class="dashboard-content">
+      <!-- 第一行：统计卡片 -->
+      <div class="stats-grid">
+        <!-- 系统状态卡片 -->
+        <div class="stat-card system-status-card hover-lift">
+          <div class="stat-card-header">
+            <div class="stat-icon system-icon">
+              <el-icon><Monitor /></el-icon>
+            </div>
+            <div class="stat-info">
+              <h3 class="stat-title">系统状态</h3>
+              <p class="stat-subtitle">System Status</p>
+            </div>
           </div>
-          <div class="card-content">
-            <div class="status-item">
-              <span class="label">运行状态</span>
-              <el-tag :type="systemStatus.running ? 'success' : 'danger'" size="small">
+          <div class="stat-card-content">
+            <div class="status-indicator">
+              <span class="status-label">运行状态</span>
+              <el-tag 
+                :type="systemStatus.running ? 'success' : 'danger'" 
+                size="small"
+                :effect="systemStatus.running ? 'light' : 'plain'"
+                class="status-tag"
+              >
+                <el-icon class="status-tag-icon">
+                  <component :is="systemStatus.running ? 'CircleCheck' : 'CircleClose'" />
+                </el-icon>
                 {{ systemStatus.running ? '运行中' : '已停止' }}
               </el-tag>
             </div>
-            <div class="status-item">
-              <span class="label">运行时间</span>
-              <span class="value">{{ systemInfo.uptime }}</span>
+            <div class="status-metric">
+              <span class="metric-label">运行时间</span>
+              <span class="metric-value">{{ systemInfo.uptime }}</span>
             </div>
           </div>
-        </el-card>
-      </el-col>
+        </div>
 
-      <!-- 快速操作 - 2行2列布局 -->
-      <el-col :span="6">
-        <el-card class="status-card compact-card">
-          <div class="card-header">
-            <el-icon><Operation /></el-icon>
-            <span>快速操作</span>
+        <!-- 快速操作卡片 -->
+        <div class="stat-card quick-actions-card hover-lift">
+          <div class="stat-card-header">
+            <div class="stat-icon actions-icon">
+              <el-icon><Operation /></el-icon>
+            </div>
+            <div class="stat-info">
+              <h3 class="stat-title">快速操作</h3>
+              <p class="stat-subtitle">Quick Actions</p>
+            </div>
           </div>
           <div class="quick-actions-grid">
-            <el-button size="small" type="primary" @click="$router.push('/services/add')">
+            <el-button 
+              size="small" 
+              type="primary" 
+              @click="$router.push('/services/add')"
+              class="action-btn primary-action"
+            >
               <el-icon><Plus /></el-icon>
               添加服务
             </el-button>
-            <el-button size="small" type="success" @click="$router.push('/tools/execute')">
+            <el-button 
+              size="small" 
+              type="success" 
+              @click="$router.push('/tools/execute')"
+              class="action-btn success-action"
+            >
               <el-icon><VideoPlay /></el-icon>
               执行工具
             </el-button>
-            <el-button size="small" type="info" @click="$router.push('/agents/create')">
+            <el-button 
+              size="small" 
+              type="info" 
+              @click="$router.push('/agents/create')"
+              class="action-btn info-action"
+            >
               <el-icon><UserFilled /></el-icon>
               创建Agent
             </el-button>
-            <el-button size="small" type="warning" @click="refreshData">
+            <el-button 
+              size="small" 
+              type="warning" 
+              @click="refreshData"
+              class="action-btn warning-action"
+            >
               <el-icon><Refresh /></el-icon>
               刷新数据
             </el-button>
           </div>
-        </el-card>
-      </el-col>
+        </div>
 
-      <!-- 工具统计 -->
-      <el-col :span="4">
-        <el-card class="status-card compact-card">
-          <div class="card-header">
-            <el-icon><Tools /></el-icon>
-            <span>工具统计</span>
-          </div>
-          <div class="card-content">
-            <div class="status-item">
-              <span class="label">可用工具</span>
-              <span class="value">{{ toolStats.available }}</span>
-            </div>
-            <div class="status-item">
-              <span class="label">今日调用</span>
-              <span class="value">{{ toolStats.todayCalls }}</span>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-
-      <!-- Agent统计 -->
-      <el-col :span="4">
-        <el-card class="status-card compact-card">
-          <div class="card-header">
-            <el-icon><User /></el-icon>
-            <span>Agent统计</span>
-          </div>
-          <div class="card-content">
-            <div class="status-item">
-              <span class="label">活跃Agent</span>
-              <span class="value">{{ agentStats.active }}</span>
-            </div>
-            <div class="status-item">
-              <span class="label">总Agent数</span>
-              <span class="value">{{ agentStats.total }}</span>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-
-      <!-- 服务统计 - 扩展版 -->
-      <el-col :span="6">
-        <el-card class="status-card compact-card">
-          <div class="card-header">
-            <el-icon><Connection /></el-icon>
-            <span>服务统计</span>
-          </div>
-          <div class="service-stats-grid">
-            <div class="stat-item">
-              <div class="stat-label">总服务数</div>
-              <div class="stat-value">{{ serviceStats.total }}</div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-label">远程服务</div>
-              <div class="stat-value text-primary">{{ serviceStats.remote }}</div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-label">本地服务</div>
-              <div class="stat-value text-info">{{ serviceStats.local }}</div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-label">健康服务</div>
-              <div class="stat-value text-success">{{ serviceStats.healthy }}</div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <!-- 第二行：工具日志、健康服务、今日趋势 -->
-    <el-row :gutter="16" style="margin-top: 16px;">
-      <!-- 工具使用日志 -->
-      <el-col :span="8">
-        <el-card v-loading="toolStatsLoading" element-loading-text="" element-loading-spinner="el-icon-loading" element-loading-background="rgba(255, 255, 255, 0.5)" class="logs-card">
-          <template #header>
-            <div class="card-header">
+        <!-- 工具统计卡片 -->
+        <div class="stat-card tools-stats-card hover-lift">
+          <div class="stat-card-header">
+            <div class="stat-icon tools-icon">
               <el-icon><Tools /></el-icon>
-              <span>工具使用日志</span>
-              <el-button
-                size="small"
-                :icon="Refresh"
-                @click="refreshToolStats"
-                :loading="toolStatsLoading"
-              >
-                刷新
-              </el-button>
             </div>
-          </template>
-          <div class="tool-logs-container">
-            <div class="tool-logs-list">
-              <div
-                v-for="tool in topTools"
-                :key="tool.tool_name"
-                class="tool-log-item"
-              >
-                <div class="tool-log-header">
-                  <div class="tool-name">{{ tool.tool_name }}</div>
-                  <div class="tool-time">{{ formatLastExecuted(tool.last_executed) }}</div>
-                </div>
-                <div class="tool-log-details">
-                  <span class="service-tag">{{ tool.service_name }}</span>
-                  <span class="execution-count">{{ tool.execution_count }}次</span>
-                  <span class="success-rate" :class="getSuccessRateClass(tool.success_rate)">
-                    {{ tool.success_rate.toFixed(1) }}%
-                  </span>
-                  <span class="response-time">{{ tool.average_response_time.toFixed(0) }}ms</span>
-                </div>
+            <div class="stat-info">
+              <h3 class="stat-title">工具统计</h3>
+              <p class="stat-subtitle">Tools Statistics</p>
+            </div>
+          </div>
+          <div class="stat-card-content">
+            <div class="metric-row">
+              <span class="metric-label">可用工具</span>
+              <span class="metric-value highlight">{{ toolStats.available }}</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">今日调用</span>
+              <span class="metric-value success">{{ toolStats.todayCalls }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Agent统计卡片 -->
+        <div class="stat-card agents-stats-card hover-lift">
+          <div class="stat-card-header">
+            <div class="stat-icon agents-icon">
+              <el-icon><User /></el-icon>
+            </div>
+            <div class="stat-info">
+              <h3 class="stat-title">Agent统计</h3>
+              <p class="stat-subtitle">Agents Statistics</p>
+            </div>
+          </div>
+          <div class="stat-card-content">
+            <div class="metric-row">
+              <span class="metric-label">活跃Agent</span>
+              <span class="metric-value success">{{ agentStats.active }}</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">总Agent数</span>
+              <span class="metric-value">{{ agentStats.total }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 服务统计卡片 -->
+        <div class="stat-card services-stats-card hover-lift">
+          <div class="stat-card-header">
+            <div class="stat-icon services-icon">
+              <el-icon><Connection /></el-icon>
+            </div>
+            <div class="stat-info">
+              <h3 class="stat-title">服务统计</h3>
+              <p class="stat-subtitle">Services Statistics</p>
+            </div>
+          </div>
+          <div class="services-stats-grid">
+            <div class="service-stat-item">
+              <div class="service-stat-value">{{ serviceStats.total }}</div>
+              <div class="service-stat-label">总服务数</div>
+            </div>
+            <div class="service-stat-item">
+              <div class="service-stat-value primary">{{ serviceStats.remote }}</div>
+              <div class="service-stat-label">远程服务</div>
+            </div>
+            <div class="service-stat-item">
+              <div class="service-stat-value info">{{ serviceStats.local }}</div>
+              <div class="service-stat-label">本地服务</div>
+            </div>
+            <div class="service-stat-item">
+              <div class="service-stat-value success">{{ serviceStats.healthy }}</div>
+              <div class="service-stat-label">健康服务</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 第二行：详细数据展示 -->
+      <div class="data-section">
+        <!-- 工具使用日志 -->
+        <div class="data-card logs-card hover-lift">
+          <div class="data-card-header">
+            <div class="data-card-title">
+              <el-icon class="data-card-icon"><Tools /></el-icon>
+              <div class="title-content">
+                <h4 class="data-card-heading">工具使用日志</h4>
+                <p class="data-card-subtitle">Recent Tool Usage</p>
               </div>
             </div>
-            <div v-if="topTools.length === 0" class="empty-logs">
-              <el-icon><Tools /></el-icon>
-              <span>暂无工具使用记录</span>
-            </div>
+            <el-button
+              size="small"
+              :icon="Refresh"
+              @click="refreshToolStats"
+              :loading="toolStatsLoading"
+              class="refresh-btn"
+            >
+              刷新
+            </el-button>
           </div>
-        </el-card>
-      </el-col>
-
-      <!-- 健康服务状态 -->
-      <el-col :span="8">
-        <el-card v-loading="servicesLoading" element-loading-text="" element-loading-spinner="el-icon-loading" element-loading-background="rgba(255, 255, 255, 0.5)" class="services-card">
-          <template #header>
-            <div class="card-header">
-              <el-icon><CircleCheck /></el-icon>
-              <span>健康服务</span>
-              <el-button
-                size="small"
-                :icon="Refresh"
-                @click="refreshHealthyServices"
-                :loading="servicesLoading"
-              >
-                刷新
-              </el-button>
+          <div class="data-card-content">
+            <div v-if="toolStatsLoading" class="loading-container">
+              <el-icon class="loading-icon"><Loading /></el-icon>
+              <span class="loading-text">加载工具使用数据...</span>
             </div>
-          </template>
-          <div class="healthy-services-container">
-            <div class="healthy-services-list">
-              <div
-                v-for="service in healthyServices"
-                :key="service.name"
-                class="service-item"
-              >
-                <div class="service-status">
-                  <el-icon class="status-icon healthy"><CircleCheck /></el-icon>
-                </div>
-                <div class="service-info">
-                  <div class="service-name">{{ service.name }}</div>
-                  <div class="service-type">{{ getServiceType(service) }}</div>
-                </div>
-                <div class="service-tools">
-                  <el-tag size="small" type="info">{{ service.toolCount || 0 }} 工具</el-tag>
+            <div v-else class="tool-logs-container">
+              <div v-if="topTools.length > 0" class="tool-logs-list">
+                <div
+                  v-for="tool in topTools"
+                  :key="tool.tool_name"
+                  class="tool-log-item hover-scale"
+                >
+                  <div class="tool-log-header">
+                    <div class="tool-name-wrapper">
+                      <el-icon class="tool-icon"><Setting /></el-icon>
+                      <div class="tool-name">{{ tool.tool_name }}</div>
+                    </div>
+                    <div class="tool-time">{{ formatLastExecuted(tool.last_executed) }}</div>
+                  </div>
+                  <div class="tool-log-details">
+                    <el-tag size="small" type="primary" class="service-tag">
+                      {{ tool.service_name }}
+                    </el-tag>
+                    <div class="metric-badge">
+                      <span class="badge-label">调用</span>
+                      <span class="badge-value">{{ tool.execution_count }}</span>
+                    </div>
+                    <div 
+                      class="success-rate-badge"
+                      :class="getSuccessRateClass(tool.success_rate)"
+                    >
+                      <el-icon><TrendCharts /></el-icon>
+                      {{ tool.success_rate.toFixed(1) }}%
+                    </div>
+                    <div class="response-time-badge">
+                      <el-icon><Timer /></el-icon>
+                      {{ tool.average_response_time.toFixed(0) }}ms
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-            <div v-if="healthyServices.length === 0" class="empty-services">
-              <el-icon><Warning /></el-icon>
-              <span>暂无健康服务</span>
+              <div v-else class="empty-container">
+                <el-icon class="empty-icon"><Tools /></el-icon>
+                <div class="empty-title">暂无工具使用记录</div>
+                <div class="empty-description">开始使用工具后，这里将显示使用统计信息</div>
+              </div>
             </div>
           </div>
-        </el-card>
-      </el-col>
+        </div>
 
-      <!-- 今日24小时趋势图 -->
-      <el-col :span="8">
-        <el-card v-loading="todayChartLoading" element-loading-text="" element-loading-spinner="el-icon-loading" element-loading-background="rgba(255, 255, 255, 0.3)" class="chart-card">
-          <template #header>
-            <div class="card-header">
-              <el-icon><TrendCharts /></el-icon>
-              <span>今日趋势 (24小时)</span>
-              <el-button
-                size="small"
-                :icon="Refresh"
-                @click="refreshTodayChart"
-                :loading="todayChartLoading"
-              >
-                刷新
-              </el-button>
+        <!-- 健康服务状态 -->
+        <div class="data-card health-card hover-lift">
+          <div class="data-card-header">
+            <div class="data-card-title">
+              <el-icon class="data-card-icon health-icon"><CircleCheck /></el-icon>
+              <div class="title-content">
+                <h4 class="data-card-heading">健康服务</h4>
+                <p class="data-card-subtitle">Healthy Services</p>
+              </div>
             </div>
-          </template>
-          <div class="chart-container today-chart">
-            <div ref="todayChart" class="trend-chart"></div>
+            <el-button
+              size="small"
+              :icon="Refresh"
+              @click="refreshHealthyServices"
+              :loading="servicesLoading"
+              class="refresh-btn"
+            >
+              刷新
+            </el-button>
           </div>
-        </el-card>
-      </el-col>
-    </el-row>
+          <div class="data-card-content">
+            <div v-if="servicesLoading" class="loading-container">
+              <el-icon class="loading-icon"><Loading /></el-icon>
+              <span class="loading-text">检查服务状态...</span>
+            </div>
+            <div v-else class="healthy-services-container">
+              <div v-if="healthyServices.length > 0" class="healthy-services-list">
+                <div
+                  v-for="service in healthyServices"
+                  :key="service.name"
+                  class="service-item hover-scale"
+                >
+                  <div class="service-status-indicator">
+                    <el-icon class="status-icon healthy-pulse"><CircleCheck /></el-icon>
+                  </div>
+                  <div class="service-info">
+                    <div class="service-name">{{ service.name }}</div>
+                    <div class="service-type">{{ getServiceType(service) }}</div>
+                  </div>
+                  <div class="service-tools">
+                    <el-tag size="small" type="success" effect="light">
+                      {{ service.toolCount || 0 }} 工具
+                    </el-tag>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="empty-container">
+                <el-icon class="empty-icon"><Warning /></el-icon>
+                <div class="empty-title">暂无健康服务</div>
+                <div class="empty-description">所有服务当前都处于异常状态</div>
+              </div>
+            </div>
+          </div>
+        </div>
 
-    <!-- 第三行：30天趋势图 -->
-    <el-row :gutter="16" style="margin-top: 16px;">
-      <el-col :span="24">
-        <el-card v-loading="monthlyChartLoading" element-loading-text="" element-loading-spinner="el-icon-loading" element-loading-background="rgba(255, 255, 255, 0.3)">
-          <template #header>
-            <div class="card-header">
-              <el-icon><TrendCharts /></el-icon>
-              <span>最近30天工具使用趋势</span>
-              <el-button
-                size="small"
-                :icon="Refresh"
-                @click="refreshMonthlyChart"
-                :loading="monthlyChartLoading"
-              >
-                刷新
-              </el-button>
+        <!-- 今日24小时趋势图 -->
+        <div class="data-card chart-card hover-lift">
+          <div class="data-card-header">
+            <div class="data-card-title">
+              <el-icon class="data-card-icon chart-icon"><TrendCharts /></el-icon>
+              <div class="title-content">
+                <h4 class="data-card-heading">今日趋势</h4>
+                <p class="data-card-subtitle">24-Hour Usage Trend</p>
+              </div>
             </div>
-          </template>
-          <div class="chart-container monthly-chart">
-            <div ref="monthlyChart" class="trend-chart"></div>
+            <el-button
+              size="small"
+              :icon="Refresh"
+              @click="refreshTodayChart"
+              :loading="todayChartLoading"
+              class="refresh-btn"
+            >
+              刷新
+            </el-button>
           </div>
-        </el-card>
-      </el-col>
-      </el-row>
+          <div class="data-card-content">
+            <div v-if="todayChartLoading" class="loading-container">
+              <el-icon class="loading-icon"><Loading /></el-icon>
+              <span class="loading-text">加载趋势数据...</span>
+            </div>
+            <div v-else class="chart-container today-chart">
+              <div ref="todayChart" class="trend-chart"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 第三行：30天趋势图 -->
+      <div class="data-section full-width">
+        <div class="data-card monthly-chart-card hover-lift">
+          <div class="data-card-header">
+            <div class="data-card-title">
+              <el-icon class="data-card-icon chart-icon"><TrendCharts /></el-icon>
+              <div class="title-content">
+                <h4 class="data-card-heading">最近30天工具使用趋势</h4>
+                <p class="data-card-subtitle">30-Day Usage Trend</p>
+              </div>
+            </div>
+            <el-button
+              size="small"
+              :icon="Refresh"
+              @click="refreshMonthlyChart"
+              :loading="monthlyChartLoading"
+              class="refresh-btn"
+            >
+              刷新
+            </el-button>
+          </div>
+          <div class="data-card-content">
+            <div v-if="monthlyChartLoading" class="loading-container">
+              <el-icon class="loading-icon"><Loading /></el-icon>
+              <span class="loading-text">加载月度趋势数据...</span>
+            </div>
+            <div v-else class="chart-container monthly-chart">
+              <div ref="monthlyChart" class="trend-chart"></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -285,8 +379,7 @@ import { useSystemStore } from '@/stores/system'
 import { useServicesStore } from '@/stores/services'
 import { useToolsStore } from '@/stores/tools'
 import { useToolExecutionStore } from '@/stores/toolExecution'
-import { storeServiceAPI } from '@/api/services'
-import { agentsAPI } from '@/api/agents'
+import { api } from '@/api'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import ErrorState from '@/components/common/ErrorState.vue'
@@ -416,7 +509,7 @@ const fetchAgentData = async () => {
     console.log('🔍 [DEBUG] 开始获取Agent数据...')
 
     // 使用正确的Agent列表接口
-    const response = await agentsAPI.getAgentsList()
+    const response = await api.agent.getAgentsList()
     console.log('🔍 [DEBUG] Agent API原始响应:', response)
 
     // 🔧 修复：正确处理API响应格式
@@ -743,9 +836,24 @@ const parseToolExecutionTime = (toolsData) => {
 
 // 初始化今日24小时趋势图
 const initTodayChart = async () => {
-  if (!todayChart.value) return
+  try {
+    console.log('🔍 [Dashboard] 开始初始化今日图表...')
+    console.log('🔍 [Dashboard] 今日图表DOM元素:', todayChart.value)
+    
+    if (!todayChart.value) {
+      console.warn('⚠️ [Dashboard] 今日图表容器不存在')
+      return
+    }
 
-  todayChartInstance = echarts.init(todayChart.value)
+    // 确保容器有正确的尺寸
+    if (todayChart.value.offsetWidth === 0 || todayChart.value.offsetHeight === 0) {
+      console.warn('⚠️ [Dashboard] 今日图表容器尺寸为0，等待DOM渲染完成')
+      await nextTick()
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+
+    todayChartInstance = echarts.init(todayChart.value)
+    console.log('✅ [Dashboard] 今日图表ECharts实例创建成功')
 
   // 基于真实数据生成今日24小时趋势
   const generateTodayTrendData = async () => {
@@ -884,18 +992,39 @@ const initTodayChart = async () => {
   }
 
   todayChartInstance.setOption(todayOption)
+  console.log('✅ [Dashboard] 今日图表配置设置成功')
 
   // 监听窗口大小变化
   window.addEventListener('resize', () => {
     todayChartInstance?.resize()
   })
+  
+  } catch (error) {
+    console.error('❌ [Dashboard] 今日图表初始化失败:', error)
+    console.error('❌ [Dashboard] 错误详情:', error.stack)
+  }
 }
 
 // 初始化30天趋势图
 const initMonthlyChart = async () => {
-  if (!monthlyChart.value) return
+  try {
+    console.log('🔍 [Dashboard] 开始初始化月度图表...')
+    console.log('🔍 [Dashboard] 月度图表DOM元素:', monthlyChart.value)
+    
+    if (!monthlyChart.value) {
+      console.warn('⚠️ [Dashboard] 月度图表容器不存在')
+      return
+    }
 
-  monthlyChartInstance = echarts.init(monthlyChart.value)
+    // 确保容器有正确的尺寸
+    if (monthlyChart.value.offsetWidth === 0 || monthlyChart.value.offsetHeight === 0) {
+      console.warn('⚠️ [Dashboard] 月度图表容器尺寸为0，等待DOM渲染完成')
+      await nextTick()
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+
+    monthlyChartInstance = echarts.init(monthlyChart.value)
+    console.log('✅ [Dashboard] 月度图表ECharts实例创建成功')
 
   // 基于真实数据生成30天趋势
   const generateMonthlyTrendData = async () => {
@@ -1041,26 +1170,36 @@ const initMonthlyChart = async () => {
   }
 
   monthlyChartInstance.setOption(monthlyOption)
+  console.log('✅ [Dashboard] 月度图表配置设置成功')
 
   // 监听窗口大小变化
   window.addEventListener('resize', () => {
     monthlyChartInstance?.resize()
   })
+  
+  } catch (error) {
+    console.error('❌ [Dashboard] 月度图表初始化失败:', error)
+    console.error('❌ [Dashboard] 错误详情:', error.stack)
+  }
 }
 
 // 加载图表数据
 const loadChartData = async () => {
   try {
-    console.log('🔍 开始加载图表数据...')
+    console.log('🔍 [Dashboard] 开始加载图表数据...')
+
+    // 确保DOM完全渲染
+    await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 200))
 
     // 初始化图表
-    await nextTick()
     await initTodayChart()
     await initMonthlyChart()
 
-    console.log('✅ 图表数据加载完成')
+    console.log('✅ [Dashboard] 图表数据加载完成')
   } catch (error) {
-    console.error('❌ 图表数据加载失败:', error)
+    console.error('❌ [Dashboard] 图表数据加载失败:', error)
+    console.error('❌ [Dashboard] 错误详情:', error.stack)
     // 不抛出错误，避免影响整个仪表板加载
   }
 }
@@ -1114,11 +1253,6 @@ onMounted(async () => {
 
   // 启动运行时间定时器
   uptimeTimer = setInterval(updateUptime, 1000)
-
-  // 初始化图表
-  await nextTick()
-  initTodayChart()
-  initMonthlyChart()
 })
 
 onUnmounted(() => {
@@ -1143,342 +1277,439 @@ onUnmounted(() => {
 })
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
+// 仪表板样式 - 现代化专业设计
 .dashboard {
-  padding: 16px;
-  background-color: #f5f7fa;
-  min-height: calc(100vh - 60px);
+  padding: 24px;
+  background-color: var(--bg-color-page);
+  min-height: calc(100vh - 64px);
+  animation: fadeIn 0.6s ease-out;
 }
 
-/* 紧凑卡片样式 */
-.compact-card {
-  height: 130px; /* 稍微增加高度以适应按钮 */
+// 统计卡片网格布局
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+  margin-bottom: 32px;
+  
+  @media (min-width: 1200px) {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  
+  @media (max-width: 768px) {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
 }
 
-.compact-card .card-header {
-  padding: 8px 12px;
-  font-size: 13px;
+// 数据区域网格布局
+.data-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 24px;
+  margin-bottom: 32px;
+  
+  @media (min-width: 1400px) {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  @media (max-width: 1200px) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  @media (max-width: 768px) {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
 }
 
-.compact-card .card-content {
-  padding: 8px 12px;
+// 全宽区域
+.full-width {
+  grid-column: 1 / -1;
 }
 
-.compact-card .status-item {
-  margin-bottom: 4px;
+// 统计卡片基础样式
+.stat-card {
+  @include card-base;
+  padding: 24px;
+  background: linear-gradient(135deg, var(--bg-color) 0%, var(--bg-color-secondary) 100%);
+  border: 1px solid var(--border-lighter);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--primary-color), var(--primary-light));
+    transform: scaleX(0);
+    transition: transform 0.3s ease;
+  }
+  
+  &:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg);
+    border-color: var(--primary-light);
+    
+    &::before {
+      transform: scaleX(1);
+    }
+  }
+  
+  // 特殊卡片样式
+  &.system-status-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: var(--text-inverse);
+    
+    .stat-icon {
+      background: rgba(255, 255, 255, 0.2);
+      color: var(--text-inverse);
+    }
+    
+    .stat-title,
+    .stat-subtitle {
+      color: var(--text-inverse);
+    }
+    
+    .status-tag {
+      background: rgba(255, 255, 255, 0.2);
+      border-color: rgba(255, 255, 255, 0.3);
+      color: var(--text-inverse);
+    }
+  }
+  
+  &.quick-actions-card {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    color: var(--text-inverse);
+    
+    .stat-icon {
+      background: rgba(255, 255, 255, 0.2);
+      color: var(--text-inverse);
+    }
+    
+    .stat-title,
+    .stat-subtitle {
+      color: var(--text-inverse);
+    }
+  }
+  
+  &.tools-stats-card {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    color: var(--text-inverse);
+    
+    .stat-icon {
+      background: rgba(255, 255, 255, 0.2);
+      color: var(--text-inverse);
+    }
+    
+    .stat-title,
+    .stat-subtitle {
+      color: var(--text-inverse);
+    }
+  }
+  
+  &.agents-stats-card {
+    background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+    color: var(--text-inverse);
+    
+    .stat-icon {
+      background: rgba(255, 255, 255, 0.2);
+      color: var(--text-inverse);
+    }
+    
+    .stat-title,
+    .stat-subtitle {
+      color: var(--text-inverse);
+    }
+  }
+  
+  &.services-stats-card {
+    background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+    color: var(--text-inverse);
+    
+    .stat-icon {
+      background: rgba(255, 255, 255, 0.2);
+      color: var(--text-inverse);
+    }
+    
+    .stat-title,
+    .stat-subtitle {
+      color: var(--text-inverse);
+    }
+  }
 }
 
-.compact-card .status-item .label {
-  font-size: 12px;
+// 卡片头部
+.stat-card-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
 }
 
-.compact-card .status-item .value {
-  font-size: 14px;
+// 图标样式
+.stat-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--border-radius-lg);
+  background: var(--primary-lighter);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  color: var(--primary-color);
+  transition: all 0.3s ease;
 }
 
-/* 快捷操作 - 2行2列网格 */
+// 卡片信息
+.stat-info {
+  flex: 1;
+}
+
+.stat-title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  margin: 0 0 4px 0;
+  line-height: 1.2;
+}
+
+.stat-subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin: 0;
+  opacity: 0.8;
+}
+
+// 卡片内容
+.stat-card-content {
+  .status-indicator,
+  .metric-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+  
+  .status-label,
+  .metric-label {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+  }
+  
+  .metric-value {
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-bold);
+    color: var(--text-primary);
+    
+    &.highlight {
+      color: var(--primary-color);
+      font-size: var(--font-size-2xl);
+    }
+    
+    &.success {
+      color: var(--success-color);
+    }
+    
+    &.primary {
+      color: var(--primary-color);
+    }
+    
+    &.info {
+      color: var(--info-color);
+    }
+  }
+}
+
+// 快捷操作网格
 .quick-actions-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  gap: 8px;
-  padding: 8px;
-  height: 80px;
-  align-items: stretch;
-  justify-items: stretch;
-  box-sizing: border-box;
-  /* 调试边框 - 可以临时启用查看网格 */
-  /* border: 1px solid red; */
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  height: 120px;
 }
 
-/* 调试网格项 - 可以临时启用 */
-/* .quick-actions-grid > * {
-  border: 1px solid blue;
-} */
-
-.quick-actions-grid .el-button {
-  /* 强制重置所有可能影响对齐的属性 */
+.action-btn {
   width: 100% !important;
   height: 100% !important;
-  font-size: 12px !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  border-radius: 4px !important;
-  font-weight: 500 !important;
-  box-sizing: border-box !important;
+  border-radius: var(--border-radius-md) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: var(--text-inverse) !important;
+  font-size: var(--font-size-sm) !important;
+  font-weight: var(--font-weight-medium) !important;
+  transition: all 0.3s ease !important;
   display: flex !important;
+  flex-direction: column;
   align-items: center !important;
   justify-content: center !important;
-  white-space: nowrap !important;
-  vertical-align: baseline !important;
-  line-height: 1 !important;
-  min-height: unset !important;
-  max-height: unset !important;
+  gap: 8px !important;
+  
+  &:hover {
+    background: rgba(255, 255, 255, 0.2) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15) !important;
+  }
+  
+  .el-icon {
+    font-size: 20px !important;
+    margin: 0 !important;
+  }
+  
+  span {
+    font-size: var(--font-size-sm) !important;
+    line-height: 1 !important;
+  }
 }
 
-/* 特定按钮定位 */
-.quick-actions-grid .el-button:nth-child(1) {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.quick-actions-grid .el-button:nth-child(2) {
-  grid-column: 2;
-  grid-row: 1;
-}
-
-.quick-actions-grid .el-button:nth-child(3) {
-  grid-column: 1;
-  grid-row: 2;
-}
-
-.quick-actions-grid .el-button:nth-child(4) {
-  grid-column: 2;
-  grid-row: 2;
-}
-
-.quick-actions-grid .el-button .el-icon {
-  margin-right: 4px !important;
-  font-size: 12px !important;
-  flex-shrink: 0 !important;
-}
-
-.quick-actions-grid .el-button span {
-  font-size: 12px !important;
-  line-height: 1 !important;
-  white-space: nowrap !important;
-}
-
-/* 服务统计网格 - 8列宽度 */
-.service-stats-grid {
+// 服务统计网格
+.services-stats-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  gap: 8px;
-  padding: 8px 0;
-  height: 70px;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 12px;
+  height: 120px;
 }
 
-.stat-item {
+.service-stat-item {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: var(--border-radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.3s ease;
+  
+  &:hover {
+    background: rgba(255, 255, 255, 0.15);
+    transform: scale(1.05);
+  }
+  
+  .service-stat-value {
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-bold);
+    color: var(--text-inverse);
+    margin-bottom: 4px;
+    
+    &.primary {
+      color: #FFE066;
+    }
+    
+    &.info {
+      color: #A8DADC;
+    }
+    
+    &.success {
+      color: #95E1D3;
+    }
+  }
+  
+  .service-stat-label {
+    font-size: var(--font-size-xs);
+    color: var(--text-inverse);
+    opacity: 0.9;
+  }
 }
 
-.stat-label {
-  font-size: 11px;
-  color: #909399;
-  margin-bottom: 2px;
+// 数据卡片
+.data-card {
+  @include card-base;
+  background: var(--bg-color);
+  border: 1px solid var(--border-lighter);
+  transition: all 0.3s ease;
+  
+  &:hover {
+    box-shadow: var(--shadow-md);
+    border-color: var(--primary-light);
+  }
 }
 
-.stat-value {
-  font-size: 16px;
-  font-weight: 600;
-  color: #303133;
-}
-
-.stat-value.text-primary {
-  color: #409eff;
-}
-
-.stat-value.text-info {
-  color: #909399;
-}
-
-.stat-value.text-success {
-  color: #67c23a;
-}
-
-.status-card {
-  height: 160px;
-}
-
-.card-header {
+// 数据卡片头部
+.data-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  font-weight: 600;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-lighter);
+  background: linear-gradient(135deg, var(--bg-color) 0%, var(--bg-color-secondary) 100%);
 }
 
-.card-header .el-button {
-  margin-left: auto;
-}
-
-.card-content {
-  margin-top: 16px;
-}
-
-.status-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.status-item .label {
-  color: var(--el-text-color-regular);
-  font-size: 14px;
-}
-
-.status-item .value {
-  font-weight: 600;
-  font-size: 16px;
-}
-
-.text-success {
-  color: var(--el-color-success);
-}
-
-.text-danger {
-  color: var(--el-color-danger);
-}
-
-.quick-actions {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.system-info .info-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--el-border-color-lighter);
-}
-
-.system-info .info-item:last-child {
-  border-bottom: none;
-}
-
-.system-info .label {
-  color: var(--el-text-color-regular);
-}
-
-.system-info .value {
-  font-weight: 600;
-}
-
-/* 工具统计样式 */
-.tool-stats-list {
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.tool-stat-item {
+.data-card-title {
   display: flex;
   align-items: center;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--el-border-color-lighter);
   gap: 12px;
 }
 
-.tool-stat-item:last-child {
-  border-bottom: none;
-}
-
-.tool-rank {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--el-color-primary-light-8);
-  color: var(--el-color-primary);
+.data-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--border-radius-md);
+  background: var(--primary-lighter);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
-  font-weight: 600;
-  flex-shrink: 0;
+  font-size: 20px;
+  color: var(--primary-color);
 }
 
-.tool-info {
-  flex: 1;
-  min-width: 0;
+.title-content {
+  h4 {
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-primary);
+    margin: 0 0 2px 0;
+  }
+  
+  p {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    margin: 0;
+  }
 }
 
-.tool-name {
-  font-weight: 500;
-  color: var(--el-text-color-primary);
-  font-size: 14px;
-  margin-bottom: 2px;
+.refresh-btn {
+  padding: 8px 16px !important;
+  border-radius: var(--border-radius-sm) !important;
+  font-size: var(--font-size-sm) !important;
 }
 
-.tool-service {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
+// 数据卡片内容
+.data-card-content {
+  padding: 24px;
+  min-height: 300px;
 }
 
-.tool-metrics {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-  flex-shrink: 0;
+// 加载状态
+.loading-container {
+  @include flex-column-center;
+  min-height: 300px;
+  color: var(--text-secondary);
+  
+  .loading-icon {
+    font-size: 32px;
+    margin-bottom: 16px;
+    animation: pulse 2s infinite;
+  }
+  
+  .loading-text {
+    font-size: var(--font-size-base);
+  }
 }
 
-.execution-count {
-  font-weight: 600;
-  color: var(--el-color-primary);
-  font-size: 14px;
-}
-
-.success-rate {
-  font-size: 12px;
-  color: var(--el-color-success);
-}
-
-.avg-time {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-
-.empty-stats {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 40px 20px;
-  color: var(--el-text-color-secondary);
-  gap: 8px;
-}
-
-.empty-stats .el-icon {
-  font-size: 32px;
-  opacity: 0.5;
-}
-
-/* 图表容器样式 */
-.chart-container {
-  height: 300px;
-  padding: 10px;
-}
-
-.chart-container.today-chart {
-  height: 300px; /* 与其他第二行模块保持一致 */
-}
-
-.chart-container.monthly-chart {
-  height: 350px; /* 月度图表稍高一些 */
-}
-
-.trend-chart {
-  width: 100%;
-  height: 100%;
-}
-
-/* 第二行统一卡片高度 */
-.logs-card,
-.services-card,
-.chart-card {
-  height: 380px; /* 统一高度 */
-}
-
-/* 工具日志样式 */
+// 工具日志
 .tool-logs-container {
-  height: 300px; /* 固定容器高度 */
+  height: 300px;
   display: flex;
   flex-direction: column;
 }
@@ -1486,118 +1717,110 @@ onUnmounted(() => {
 .tool-logs-list {
   flex: 1;
   overflow-y: auto;
-  min-height: 0; /* 允许flex子项收缩 */
+  @include scrollbar-thin;
 }
 
 .tool-log-item {
-  padding: 12px;
-  border-bottom: 1px solid #f0f0f0;
-  transition: background-color 0.2s;
-}
-
-.tool-log-item:hover {
-  background-color: #f8f9fa;
-}
-
-.tool-log-item:last-child {
-  border-bottom: none;
+  padding: 16px;
+  border-bottom: 1px solid var(--border-lighter);
+  transition: all 0.2s ease;
+  
+  &:hover {
+    background: var(--bg-color-secondary);
+  }
+  
+  &:last-child {
+    border-bottom: none;
+  }
 }
 
 .tool-log-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
+}
+
+.tool-name-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .tool-name {
-  font-weight: 600;
-  color: #303133;
-  font-size: 14px;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  @include text-ellipsis;
   max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .tool-time {
-  font-size: 12px;
-  color: #909399;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
 }
 
 .tool-log-details {
   display: flex;
+  align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
 
 .service-tag {
-  background-color: #e1f3d8;
-  color: #67c23a;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 500;
+  background: var(--success-lighter);
+  color: var(--success-color);
+  padding: 4px 8px;
+  border-radius: var(--border-radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
 }
 
-.execution-count {
-  background-color: #ecf5ff;
-  color: #409eff;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.success-rate {
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.success-rate.success-high {
-  background-color: #f0f9ff;
-  color: #67c23a;
-}
-
-.success-rate.success-medium {
-  background-color: #fdf6ec;
-  color: #e6a23c;
-}
-
-.success-rate.success-low {
-  background-color: #fef0f0;
-  color: #f56c6c;
-}
-
-.response-time {
-  background-color: #f4f4f5;
-  color: #909399;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.empty-logs {
+.metric-badge,
+.success-rate-badge,
+.response-time-badge {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  height: 100%; /* 填满整个容器 */
-  color: var(--el-text-color-secondary);
-  gap: 8px;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: var(--border-radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
 }
 
-.empty-logs .el-icon {
-  font-size: 32px;
-  opacity: 0.5;
+.metric-badge {
+  background: var(--primary-lighter);
+  color: var(--primary-color);
 }
 
-/* 健康服务样式 */
+.success-rate-badge {
+  background: var(--success-lighter);
+  color: var(--success-color);
+  
+  &.success-high {
+    background: var(--success-lighter);
+    color: var(--success-color);
+  }
+  
+  &.success-medium {
+    background: var(--warning-lighter);
+    color: var(--warning-color);
+  }
+  
+  &.success-low {
+    background: var(--danger-lighter);
+    color: var(--danger-color);
+  }
+}
+
+.response-time-badge {
+  background: var(--info-lighter);
+  color: var(--info-color);
+}
+
+// 健康服务
 .healthy-services-container {
-  height: 300px; /* 固定容器高度 */
+  height: 300px;
   display: flex;
   flex-direction: column;
 }
@@ -1605,66 +1828,228 @@ onUnmounted(() => {
 .healthy-services-list {
   flex: 1;
   overflow-y: auto;
-  min-height: 0; /* 允许flex子项收缩 */
+  @include scrollbar-thin;
 }
 
 .service-item {
   display: flex;
   align-items: center;
-  padding: 12px;
-  border-bottom: 1px solid #f0f0f0;
-  transition: background-color 0.2s;
+  padding: 16px;
+  border-bottom: 1px solid var(--border-lighter);
+  transition: all 0.2s ease;
+  
+  &:hover {
+    background: var(--bg-color-secondary);
+  }
+  
+  &:last-child {
+    border-bottom: none;
+  }
 }
 
-.service-item:hover {
-  background-color: #f8f9fa;
-}
-
-.service-item:last-child {
-  border-bottom: none;
-}
-
-.service-status {
+.service-status-indicator {
   margin-right: 12px;
-}
-
-.status-icon.healthy {
-  color: #67c23a;
-  font-size: 16px;
+  
+  .status-icon {
+    color: var(--success-color);
+    font-size: 20px;
+    
+    &.healthy-pulse {
+      animation: pulse 2s infinite;
+    }
+  }
 }
 
 .service-info {
   flex: 1;
-}
-
-.service-name {
-  font-weight: 600;
-  color: #303133;
-  font-size: 14px;
-  margin-bottom: 4px;
-}
-
-.service-type {
-  font-size: 12px;
-  color: #909399;
+  
+  .service-name {
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-primary);
+    margin-bottom: 4px;
+  }
+  
+  .service-type {
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+  }
 }
 
 .service-tools {
-  margin-left: 8px;
+  margin-left: auto;
 }
 
-.empty-services {
-  display: flex;
-  flex-direction: column;
+// 图表容器
+.chart-container {
+  height: 300px;
+  padding: 16px;
+  position: relative;
+  
+  &.monthly-chart {
+    height: 350px;
+  }
+}
+
+.trend-chart {
+  width: 100%;
+  height: 100%;
+}
+
+// 空状态
+.empty-container {
+  @include flex-column-center;
+  height: 100%;
+  color: var(--text-secondary);
+  text-align: center;
+  
+  .empty-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+  }
+  
+  .empty-title {
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-primary);
+    margin-bottom: 8px;
+  }
+  
+  .empty-description {
+    font-size: var(--font-size-base);
+    color: var(--text-secondary);
+    max-width: 300px;
+    line-height: var(--line-height-relaxed);
+  }
+}
+
+// 状态标签
+.status-tag {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  height: 100%; /* 填满整个容器 */
-  color: var(--el-text-color-secondary);
-  gap: 8px;
+  gap: 4px;
+  padding: 4px 12px;
+  border-radius: var(--border-radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  
+  .status-tag-icon {
+    font-size: 14px;
+  }
+  
+  &.success {
+    background: var(--success-lighter);
+    color: var(--success-color);
+    border: 1px solid var(--success-light);
+  }
+  
+  &.danger {
+    background: var(--danger-lighter);
+    color: var(--danger-color);
+    border: 1px solid var(--danger-light);
+  }
 }
 
-.empty-services .el-icon {
-  font-size: 32px;
-  opacity: 0.5;
+// 动画
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+// 响应式设计
+@media (max-width: 768px) {
+  .dashboard {
+    padding: 16px;
+  }
+  
+  .stats-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  
+  .data-section {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  
+  .stat-card {
+    padding: 20px;
+  }
+  
+  .quick-actions-grid {
+    grid-template-columns: 1fr;
+    height: auto;
+    gap: 8px;
+  }
+  
+  .services-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  
+  .data-card-header {
+    padding: 16px 20px;
+  }
+  
+  .data-card-content {
+    padding: 20px;
+  }
+  
+  .tool-log-item,
+  .service-item {
+    padding: 12px;
+  }
+}
+
+// 暗色模式适配
+:root.dark {
+  .stat-card {
+    background: linear-gradient(135deg, var(--bg-color) 0%, var(--bg-color-tertiary) 100%);
+    border-color: var(--border-light);
+  }
+  
+  .data-card {
+    background: var(--bg-color);
+    border-color: var(--border-light);
+  }
+  
+  .data-card-header {
+    background: linear-gradient(135deg, var(--bg-color) 0%, var(--bg-color-tertiary) 100%);
+    border-color: var(--border-light);
+  }
+  
+  .tool-log-item,
+  .service-item {
+    border-color: var(--border-light);
+    
+    &:hover {
+      background: var(--bg-color-tertiary);
+    }
+  }
 }
 </style>

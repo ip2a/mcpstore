@@ -151,6 +151,27 @@
         </el-col>
       </el-row>
     </el-card>
+
+    <!-- Batch Operations Component -->
+    <BatchOperations
+      ref="batchOperationsRef"
+      :items="systemStore.services"
+      item-key="name"
+      item-name="name"
+      :show-header="false"
+      :show-overlay="true"
+      :editable-fields="[
+        { label: '超时时间', value: 'timeout', type: 'number' },
+        { label: '传输协议', value: 'transport', type: 'select', options: [
+          { label: 'HTTP', value: 'http' },
+          { label: 'WebSocket', value: 'ws' },
+          { label: 'Streamable HTTP', value: 'streamable-http' }
+        ] }
+      ]"
+      @batch-edit="handleBatchEdit"
+      @batch-delete="handleBatchDelete"
+      @selection-change="handleBatchSelectionChange"
+    />
     
     <!-- 服务表格 -->
     <el-card class="table-card">
@@ -544,6 +565,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useSystemStore } from '@/stores/system'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
+import BatchOperations from '@/components/BatchOperations.vue'
 import BatchUpdateDialog from './BatchUpdateDialog.vue'
 import ErrorState from '@/components/common/ErrorState.vue'
 import { SERVICE_STATUS_COLORS, SERVICE_STATUS_MAP } from '@/utils/constants'
@@ -564,6 +586,7 @@ const refreshLoading = ref(false)
 const searchQuery = ref('')
 const statusFilter = ref('')
 const typeFilter = ref('')
+const batchOperationsRef = ref(null)
 const selectedServices = ref([])
 const batchUpdateDialogVisible = ref(false)
 const servicesData = ref(null) // 存储API返回的完整数据
@@ -666,8 +689,8 @@ const refreshServices = async () => {
   refreshLoading.value = true
   try {
     // 直接调用API获取完整数据
-    const { storeServiceAPI } = await import('@/api/services')
-    const response = await storeServiceAPI.getServices()
+    const { api } = await import('@/api')
+    const response = await api.store.listServices()
 
     // 保存完整的API响应数据
     servicesData.value = response.data.data
@@ -694,6 +717,14 @@ const handleFilter = () => {
 
 const handleSelectionChange = (selection) => {
   selectedServices.value = selection
+  // Sync with batch operations component
+  if (batchOperationsRef.value) {
+    batchOperationsRef.value.selectedItems = selection
+  }
+}
+
+const handleBatchSelectionChange = (selection) => {
+  selectedServices.value = selection
 }
 
 const handleBatchAction = async (command) => {
@@ -701,13 +732,17 @@ const handleBatchAction = async (command) => {
 
   switch (command) {
     case 'batch-update':
-      await handleBatchUpdate()
+      if (batchOperationsRef.value) {
+        batchOperationsRef.value.showBatchEditDialog()
+      }
       break
     case 'batch-restart':
       await handleBatchRestart()
       break
     case 'batch-delete':
-      await handleBatchDelete()
+      if (batchOperationsRef.value) {
+        batchOperationsRef.value.showBatchDeleteDialog()
+      }
       break
   }
 }
@@ -737,9 +772,9 @@ const handleBatchRestart = async () => {
       }
     )
 
-    const { storeServiceAPI } = await import('@/api/services')
+    const { api } = await import('@/api')
     const serviceNames = selectedServices.value.map(s => s.name)
-    const response = await storeServiceAPI.batchRestartServices(serviceNames)
+    const response = await api.store.batchRestartServices(serviceNames)
 
     if (response.data.success) {
       ElMessage.success('批量重启成功')
@@ -756,12 +791,34 @@ const handleBatchRestart = async () => {
   }
 }
 
-const handleBatchDelete = async () => {
-  if (selectedServices.value.length === 0) return
+const handleBatchEdit = async (data) => {
+  try {
+    const { items, field, value } = data
+    const serviceNames = items.map(s => s.name)
+    
+    // Prepare update data
+    const updateData = {}
+    updateData[field] = value
+    
+    const { api } = await import('@/api')
+    const response = await api.store.batchUpdateServices(serviceNames, updateData)
+    
+    if (response.data.success) {
+      ElMessage.success('批量更新成功')
+      await refreshServices()
+    } else {
+      ElMessage.error(response.data.message || '批量更新失败')
+    }
+  } catch (error) {
+    console.error('Batch edit failed:', error)
+    ElMessage.error('批量更新失败')
+  }
+}
 
+const handleBatchDelete = async (services) => {
   try {
     await ElMessageBox.confirm(
-      `确定要删除选中的 ${selectedServices.value.length} 个服务吗？`,
+      `确定要删除选中的 ${services.length} 个服务吗？`,
       '批量删除确认',
       {
         confirmButtonText: '确定',
@@ -770,9 +827,9 @@ const handleBatchDelete = async () => {
       }
     )
 
-    const { storeServiceAPI } = await import('@/api/services')
-    const serviceNames = selectedServices.value.map(s => s.name)
-    const response = await storeServiceAPI.batchDeleteServices(serviceNames)
+    const { api } = await import('@/api')
+    const serviceNames = services.map(s => s.name)
+    const response = await api.store.batchDeleteServices(serviceNames)
 
     if (response.data.success) {
       ElMessage.success('批量删除成功')
@@ -780,10 +837,9 @@ const handleBatchDelete = async () => {
     } else {
       ElMessage.error(response.data.message || '批量删除失败')
     }
-
-    selectedServices.value = []
   } catch (error) {
     if (error !== 'cancel') {
+      console.error('Batch delete failed:', error)
       ElMessage.error('批量删除失败')
     }
   }
@@ -828,7 +884,7 @@ const deleteService = async (service) => {
       }
     )
 
-    const { storeServiceAPI, agentServiceAPI } = await import('@/api/services')
+    const { api } = await import('@/api')
 
     // 根据是否有agent参数决定使用哪个API
     const agentId = route.query.agent
@@ -836,10 +892,10 @@ const deleteService = async (service) => {
 
     if (agentId) {
       // Agent级别删除
-      response = await agentServiceAPI.deleteConfig(agentId, service.name)
+      response = await api.agent.deleteConfig(agentId, service.name)
     } else {
       // Store级别删除
-      response = await storeServiceAPI.deleteConfig(service.name)
+      response = await api.store.deleteConfig(service.name)
     }
 
     if (response.data.success) {
@@ -861,16 +917,16 @@ const editService = async (service) => {
     editMode.value = 'fields'
 
     // 获取服务配置
-    const { storeServiceAPI, agentServiceAPI } = await import('@/api/services')
+    const { api } = await import('@/api')
     const agentId = route.query.agent
     let response
 
     if (agentId) {
       // Agent级别获取配置
-      response = await agentServiceAPI.showConfig(agentId)
+      response = await api.agent.showConfig(agentId)
     } else {
       // Store级别获取配置
-      response = await storeServiceAPI.showConfig('global_agent_store')
+      response = await api.store.showConfig('global_agent_store')
     }
 
     if (response.data.success) {
@@ -1003,8 +1059,8 @@ const activateService = async (service) => {
   try {
     service.activating = true
 
-    const { storeServiceAPI } = await import('@/api/services')
-    const response = await storeServiceAPI.activateService(service.name)
+    const { api } = await import('@/api')
+    const response = await api.store.activateService(service.name)
 
     if (response.data.success) {
       ElMessage.success(`服务 ${service.name} 激活成功`)
@@ -1044,8 +1100,8 @@ const handleResetStoreConfig = async () => {
       }
     )
 
-    const { storeServiceAPI } = await import('@/api/services')
-    const response = await storeServiceAPI.resetConfig()
+    const { api } = await import('@/api')
+    const response = await api.store.resetConfig()
 
     if (response.data.success) {
       ElMessage.success('Store配置重置成功')
@@ -1131,7 +1187,7 @@ const saveServiceEdit = async () => {
   try {
     editSaving.value = true
 
-    const { storeServiceAPI, agentServiceAPI } = await import('@/api/services')
+    const { api } = await import('@/api')
     const agentId = route.query.agent
     let config
 
@@ -1190,10 +1246,10 @@ const saveServiceEdit = async () => {
     let response
     if (agentId) {
       // Agent级别更新
-      response = await agentServiceAPI.updateConfigNew(agentId, editingService.value.name, config)
+      response = await api.agent.updateConfig(agentId, editingService.value.name, config)
     } else {
       // Store级别更新
-      response = await storeServiceAPI.updateConfigNew(editingService.value.name, config)
+      response = await api.store.updateConfig(editingService.value.name, config)
     }
 
     if (response.data.success) {
@@ -1215,9 +1271,9 @@ onMounted(async () => {
   pageLoading.value = true
   try {
     // 获取完整的服务数据
-    const { storeServiceAPI } = await import('@/api/services')
-    const response = await storeServiceAPI.getServices()
-    servicesData.value = response.data.data
+    const { api } = await import('@/api')
+    const response = await api.store.listServices()
+    servicesData.value = response // extractResponseData already returns the data array
 
     // 同时更新systemStore
     await systemStore.fetchServices()

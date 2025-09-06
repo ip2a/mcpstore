@@ -216,7 +216,7 @@ import {
   Document, Refresh, Check, Upload,
   Edit, InfoFilled, List, Tools, Plus, Delete, RefreshLeft
 } from '@element-plus/icons-vue'
-import { storeServiceAPI } from '@/api/services'
+import { api } from '@/api'
 import JsonEditor from '@/components/config/JsonEditor.vue'
 
 // 响应式数据
@@ -256,7 +256,7 @@ const hasServices = computed(() => serviceCount.value > 0)
 const loadConfig = async () => {
   loading.value = true
   try {
-    const response = await storeServiceAPI.getConfig()
+    const response = await api.store.getConfig()
     console.log('🔍 完整API响应:', response)
 
     // 正确提取数据：response.data.data（API包装格式）
@@ -300,7 +300,7 @@ const saveConfig = async () => {
     const config = JSON.parse(configText.value)
     console.log('🔄 开始两步操作保存配置...')
 
-    const response = await storeServiceAPI.updateConfigTwoStep(config)
+    const response = await api.store.updateConfig('default', config)
     console.log('🔍 两步操作结果:', response.data)
 
     if (response.data.success) {
@@ -365,11 +365,11 @@ const registerServices = async () => {
     const config = JSON.parse(configText.value)
     
     // 先保存配置
-    await storeServiceAPI.updateConfig(config)
+    await api.store.updateConfig('default', config)
     
     // 然后注册服务
     const serviceNames = Object.keys(config.mcpServers)
-    await storeServiceAPI.addService(serviceNames)
+    await api.store.addService(serviceNames)
     
     ElMessage.success(`成功注册 ${serviceNames.length} 个服务`)
   } catch (error) {

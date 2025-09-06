@@ -336,8 +336,8 @@ class SharedClientStateSyncManager:
             # 直接更新registry中的状态，不触发同步
             if agent_id in self.registry.service_states:
                 if service_name in self.registry.service_states[agent_id]:
-                    old_state = self.registry.service_states[agent_id][service_name].state
-                    self.registry.service_states[agent_id][service_name].state = new_state
+                    old_state = self.registry.service_states[agent_id][service_name]
+                    self.registry.service_states[agent_id][service_name] = new_state
                     logger.debug(f" [DIRECT_SET] {agent_id}:{service_name} state: {old_state} -> {new_state.value}")
                 else:
                     logger.warning(f"⚠️ [DIRECT_SET] Service {service_name} not found in agent {agent_id}")

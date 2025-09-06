@@ -679,14 +679,14 @@ class ServiceManagementMixin:
     def _is_deterministic_client_id(self, identifier: str) -> bool:
         """使用 ClientIDGenerator 统一判断确定性client_id格式"""
         try:
-            from mcpstore.core.id_generator import ClientIDGenerator
+            from mcpstore.core.utils.id_generator import ClientIDGenerator
             return ClientIDGenerator.is_deterministic_format(identifier)
         except Exception:
             return False
 
     def _parse_deterministic_client_id(self, client_id: str, agent_id: str) -> Tuple[str, str]:
         """使用 ClientIDGenerator 统一解析确定性client_id，并验证agent范围"""
-        from mcpstore.core.id_generator import ClientIDGenerator
+        from mcpstore.core.utils.id_generator import ClientIDGenerator
         parsed = ClientIDGenerator.parse_client_id(client_id)
         if parsed.get("type") == "store":
             global_agent_store_id = self._store.client_manager.global_agent_store_id
@@ -764,7 +764,7 @@ class ServiceManagementMixin:
             client_config = self._store.registry.get_client_config_from_cache(client_id_or_service_name)
             if client_config and "mcpServers" in client_config:
                 # 验证这个client_id是否属于指定的agent（通过解析判断类型和agent范围）
-                from mcpstore.core.id_generator import ClientIDGenerator
+                from mcpstore.core.utils.id_generator import ClientIDGenerator
                 parsed = ClientIDGenerator.parse_client_id(client_id_or_service_name)
                 if parsed.get("type") == "store":
                     expected_agent = self._store.client_manager.global_agent_store_id

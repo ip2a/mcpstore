@@ -156,20 +156,23 @@ class ServiceProxy:
         """
         try:
             # 尝试通过 Registry 按服务直接获取，效率更高
-            agent_id = self._agent_id if self._context_type == ContextType.AGENT else self._context._store.client_manager.global_agent_store_id
+            # 统一从 global_agent_store 命名空间读取工具缓存，避免 Agent 命名空间未写入导致列表为空
+            global_agent_id = self._context._store.client_manager.global_agent_store_id
             # 处理 Agent 本地名 → 全局名
             service_key = self._service_name
             if self._context_type == ContextType.AGENT and getattr(self._context, "_service_mapper", None):
                 service_key = self._context._service_mapper.to_global_name(self._service_name)
-            tool_names = self._context._store.registry.get_tools_for_service(agent_id, service_key)
+            tool_names = self._context._store.registry.get_tools_for_service(global_agent_id, service_key)
             tools: List[ToolInfo] = []
             for tname in tool_names:
-                info = self._context._store.registry.get_tool_info(agent_id, tname)
+                info = self._context._store.registry.get_tool_info(global_agent_id, tname)
                 if info:
+                    # 将 service_name 映射回本地名显示
+                    display_service_name = self._service_name if self._context_type == ContextType.AGENT else info.get("service_name", self._service_name)
                     tools.append(ToolInfo(
                         name=info.get("name", tname),
                         description=info.get("description", ""),
-                        service_name=info.get("service_name", self._service_name),
+                        service_name=display_service_name,
                         client_id=info.get("client_id"),
                         inputSchema=info.get("inputSchema")
                     ))

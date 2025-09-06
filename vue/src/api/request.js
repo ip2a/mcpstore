@@ -1,35 +1,22 @@
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import NProgress from 'nprogress'
-
-// 🔍 调试信息：环境变量检查
-console.log('🔍 [DEBUG] 环境变量调试信息:')
-console.log('  - import.meta.env.MODE:', import.meta.env.MODE)
-console.log('  - import.meta.env.VITE_API_BASE_URL:', import.meta.env.VITE_API_BASE_URL)
-console.log('  - import.meta.env.VITE_API_TIMEOUT:', import.meta.env.VITE_API_TIMEOUT)
-console.log('  - 所有环境变量:', import.meta.env)
-
-// 确定最终的API配置
-const apiBaseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:18200'
-const apiTimeout = parseInt(import.meta.env.VITE_API_TIMEOUT) || 15000 // 增加到15秒
-
-console.log('🚀 [DEBUG] 最终API配置:')
-console.log('  - baseURL:', apiBaseURL)
-console.log('  - timeout:', apiTimeout)
+import { API_BASE_URL } from './config'
+import { handleApiError } from './utils'
 
 // 创建axios实例
 const request = axios.create({
-  baseURL: apiBaseURL,
-  timeout: apiTimeout,
+  baseURL: API_BASE_URL,
+  timeout: 30000, // 增加到30秒以适应长时间操作
   headers: {
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'X-API-Version': '1.0.0'
   }
 })
 
 // 请求拦截器
 request.interceptors.request.use(
   (config) => {
-    // 添加时间戳防止缓存
+    // 添加时间戳防止缓存（仅GET请求）
     if (config.method === 'get') {
       config.params = {
         ...config.params,
@@ -37,21 +24,27 @@ request.interceptors.request.use(
       }
     }
 
-    // 🔍 详细的请求调试信息（总是显示）
-    console.log('🚀 [REQUEST] API请求详情:')
-    console.log('  - 方法:', config.method?.toUpperCase())
-    console.log('  - URL:', config.url)
-    console.log('  - 完整URL:', config.baseURL + config.url)
-    console.log('  - 参数:', config.params)
-    console.log('  - 数据:', config.data)
-    console.log('  - 请求头:', config.headers)
-    console.log('  - 超时时间:', config.timeout)
+    // 添加认证头（如果有token）
+    const token = localStorage.getItem('mcpstore_token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+
+    // 开发环境下显示详细日志
+    if (import.meta.env.DEV) {
+      console.log('🚀 [REQUEST]:', {
+        method: config.method?.toUpperCase(),
+        url: config.url,
+        params: config.params,
+        data: config.data
+      })
+    }
 
     return config
   },
   (error) => {
-    console.error('❌ [REQUEST] 请求错误:', error)
-    return Promise.reject(error)
+    console.error('❌ [REQUEST ERROR]:', error)
+    return Promise.reject(handleApiError(error, 'Request'))
   }
 )
 
@@ -60,105 +53,90 @@ request.interceptors.response.use(
   (response) => {
     const { data } = response
 
-    // 🔍 详细的响应调试信息（总是显示）
-    console.log('✅ [RESPONSE] API响应详情:')
-    console.log('  - 状态码:', response.status)
-    console.log('  - 状态文本:', response.statusText)
-    console.log('  - 请求URL:', response.config.url)
-    console.log('  - 完整URL:', response.config.baseURL + response.config.url)
-    console.log('  - 响应数据:', data)
-    console.log('  - 响应头:', response.headers)
+    // 开发环境下显示详细日志
+    if (import.meta.env.DEV) {
+      console.log('✅ [RESPONSE]:', {
+        status: response.status,
+        url: response.config.url,
+        data: data
+      })
+    }
     
-    // 检查业务状态码
+    // 统一的响应格式验证
     if (data && typeof data === 'object') {
-      if (data.success === false) {
-        // 业务错误 - 不在拦截器中显示错误消息，让组件自己处理
-        console.warn('API业务错误:', data.message || '请求失败')
-        // 仍然返回数据，让组件自己判断success字段
-        return { data }
+      // 检查API响应格式
+      if ('success' in data && !data.success) {
+        // 业务错误，返回错误对象
+        const error = new Error(data.message || 'API request failed')
+        error.code = data.error?.code
+        error.details = data.error?.details
+        error.response = response
+        return Promise.reject(error)
       }
 
-      // 检查是否有错误字段
-      if (data.error && typeof data.error === 'string') {
-        console.warn('API错误字段:', data.error)
-        return Promise.reject(new Error(data.error))
-      }
-
-      // 返回完整的响应数据，包装在response对象中
-      return { data }
+      // 成功响应，返回完整数据
+      return response
     }
 
-    // 直接返回响应数据，包装在response对象中
-    return { data }
+    // 非对象响应，直接返回
+    return response
   },
   (error) => {
-    console.error('Response Error:', error)
+    const apiError = handleApiError(error, 'Response')
     
-    let errorMessage = '网络错误'
+    // 根据错误类型显示用户友好的消息
+    let userMessage = apiError.message
     
-    if (error.response) {
-      // 服务器响应错误
-      const { status, data } = error.response
-      
-      switch (status) {
-        case 400:
-          errorMessage = data?.message || '请求参数错误'
-          break
-        case 401:
-          errorMessage = '未授权访问'
-          break
-        case 403:
-          errorMessage = '禁止访问'
-          break
-        case 404:
-          errorMessage = '请求的资源不存在'
-          break
-        case 500:
-          errorMessage = data?.message || '服务器内部错误'
-          break
-        case 502:
-          errorMessage = '网关错误'
-          break
-        case 503:
-          errorMessage = '服务不可用'
-          break
-        default:
-          errorMessage = data?.message || `请求失败 (${status})`
-      }
-    } else if (error.request) {
-      // 网络错误
-      if (error.code === 'ECONNABORTED') {
-        errorMessage = '请求超时'
-      } else if (error.message.includes('Network Error')) {
-        errorMessage = '网络连接失败，请检查后端服务是否启动'
-      } else {
-        errorMessage = '网络错误'
-      }
-    } else {
-      errorMessage = error.message || '未知错误'
+    switch (apiError.type) {
+      case 'NETWORK_ERROR':
+        userMessage = '网络连接失败，请检查网络设置'
+        break
+      case 'TIMEOUT_ERROR':
+        userMessage = '请求超时，请稍后重试'
+        break
+      case 'UNAUTHORIZED':
+        userMessage = '未授权访问，请重新登录'
+        // 清除无效的token
+        localStorage.removeItem('mcpstore_token')
+        break
+      case 'FORBIDDEN':
+        userMessage = '权限不足，无法访问该资源'
+        break
+      case 'NOT_FOUND':
+        userMessage = '请求的资源不存在'
+        break
+      case 'SERVICE_UNAVAILABLE':
+        userMessage = '服务暂时不可用，请稍后重试'
+        break
+      default:
+        userMessage = apiError.message || '操作失败，请稍后重试'
     }
     
-    // 显示错误消息
-    ElMessage.error(errorMessage)
+    // 显示错误消息（除了静默错误）
+    if (!error.config?.silent) {
+      ElMessage.error(userMessage)
+    }
     
-    return Promise.reject(error)
+    return Promise.reject(apiError)
   }
 )
 
 // 通用请求方法
 export const apiRequest = {
   get: (url, config = {}) => request.get(url, config),
-  post: (url, data = {}) => request.post(url, data),
-  put: (url, data = {}) => request.put(url, data),
+  post: (url, data = {}, config = {}) => request.post(url, data, config),
+  put: (url, data = {}, config = {}) => request.put(url, data, config),
   delete: (url, config = {}) => request.delete(url, config),
-  patch: (url, data = {}) => request.patch(url, data)
+  patch: (url, data = {}, config = {}) => request.patch(url, data, config)
 }
 
 // 文件上传请求
-export const uploadRequest = (url, formData, onProgress) => {
+export const uploadRequest = (url, formData, onProgress, config = {}) => {
   return request.post(url, formData, {
+    ...config,
     headers: {
-      'Content-Type': 'multipart/form-data'
+      'Content-Type': 'multipart/form-data',
+      ...config.headers
     },
     onUploadProgress: (progressEvent) => {
       if (onProgress && progressEvent.total) {
@@ -170,51 +148,160 @@ export const uploadRequest = (url, formData, onProgress) => {
 }
 
 // 下载文件请求
-export const downloadRequest = (url, params = {}, filename) => {
-  return request.get(url, {
-    params,
-    responseType: 'blob'
-  }).then(response => {
+export const downloadRequest = async (url, params = {}, filename = null) => {
+  try {
+    const response = await request.get(url, {
+      params,
+      responseType: 'blob'
+    })
+    
+    // 从响应头获取文件名
+    const contentDisposition = response.headers['content-disposition']
+    let defaultFilename = filename || 'download'
+    
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
+      if (filenameMatch && filenameMatch[1]) {
+        defaultFilename = filenameMatch[1].replace(/['"]/g, '')
+      }
+    }
+    
     const blob = new Blob([response.data])
     const downloadUrl = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = downloadUrl
-    link.download = filename || 'download'
+    link.download = defaultFilename
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
     window.URL.revokeObjectURL(downloadUrl)
-  })
-}
-
-// 批量请求
-export const batchRequest = (requests) => {
-  return Promise.allSettled(requests.map(req => {
-    const { method, url, data, params } = req
-    return request[method](url, method === 'get' ? { params } : data)
-  }))
-}
-
-// 重试请求
-export const retryRequest = (requestFn, maxRetries = 3, delay = 1000) => {
-  return new Promise((resolve, reject) => {
-    let retries = 0
     
-    const attempt = () => {
-      requestFn()
-        .then(resolve)
-        .catch(error => {
-          retries++
-          if (retries < maxRetries) {
-            setTimeout(attempt, delay * retries)
-          } else {
-            reject(error)
-          }
-        })
+    return { success: true, filename: defaultFilename }
+  } catch (error) {
+    console.error('Download failed:', error)
+    throw error
+  }
+}
+
+// 批量请求（支持并发控制）
+export const batchRequest = async (requests, concurrency = 5) => {
+  const results = []
+  
+  for (let i = 0; i < requests.length; i += concurrency) {
+    const batch = requests.slice(i, i + concurrency)
+    const batchResults = await Promise.allSettled(
+      batch.map(req => {
+        const { method, url, data, params, config = {} } = req
+        return request[method](url, method === 'get' ? { ...config, params } : { ...config, data })
+      })
+    )
+    results.push(...batchResults)
+  }
+  
+  return results
+}
+
+// 重试请求（支持指数退避）
+export const retryRequest = async (requestFn, maxRetries = 3, baseDelay = 1000) => {
+  let lastError
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await requestFn()
+    } catch (error) {
+      lastError = error
+      
+      if (attempt === maxRetries) {
+        break
+      }
+      
+      // 指数退避
+      const delay = baseDelay * Math.pow(2, attempt - 1)
+      await new Promise(resolve => setTimeout(resolve, delay))
     }
+  }
+  
+  throw lastError
+}
+
+// 取消请求控制器
+export const createCancelToken = () => {
+  const source = axios.CancelToken.source()
+  return {
+    token: source.token,
+    cancel: source.cancel
+  }
+}
+
+// WebSocket 连接管理
+export const createWebSocket = (url, options = {}) => {
+  const ws = new WebSocket(url)
+  
+  ws.onopen = () => {
+    console.log('WebSocket connected')
+    options.onOpen?.()
+  }
+  
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data)
+      options.onMessage?.(data)
+    } catch (error) {
+      console.error('WebSocket message parse error:', error)
+      options.onError?.(error)
+    }
+  }
+  
+  ws.onclose = () => {
+    console.log('WebSocket disconnected')
+    options.onClose?.()
     
-    attempt()
+    // 自动重连
+    if (options.reconnect !== false) {
+      setTimeout(() => {
+        createWebSocket(url, options)
+      }, options.reconnectDelay || 3000)
+    }
+  }
+  
+  ws.onerror = (error) => {
+    console.error('WebSocket error:', error)
+    options.onError?.(error)
+  }
+  
+  return ws
+}
+
+// 请求缓存
+const requestCache = new Map()
+export const cachedRequest = async (key, requestFn, ttl = 60000) => {
+  const cached = requestCache.get(key)
+  
+  if (cached && Date.now() - cached.timestamp < ttl) {
+    return cached.data
+  }
+  
+  const data = await requestFn()
+  requestCache.set(key, {
+    data,
+    timestamp: Date.now()
   })
+  
+  return data
+}
+
+// 清除缓存
+export const clearRequestCache = (pattern = null) => {
+  if (pattern) {
+    const regex = new RegExp(pattern)
+    for (const key of requestCache.keys()) {
+      if (regex.test(key)) {
+        requestCache.delete(key)
+      }
+    }
+  } else {
+    requestCache.clear()
+  }
 }
 
 export default request

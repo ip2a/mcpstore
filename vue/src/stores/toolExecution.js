@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { storeToolsAPI } from '@/api/tools'
+import { api } from '@/api'
 import { useAppStore } from './app'
 
 /**
@@ -367,7 +367,7 @@ export const useToolExecutionStore = defineStore('toolExecution', () => {
       setLoading('records', true)
 
       console.log('🔍 [DEBUG] 开始获取工具执行记录...')
-      const response = await storeToolsAPI.getToolRecords(limit)
+      const response = await api.store.getToolRecords(limit)
       console.log('🔍 [DEBUG] API响应:', response)
 
       // 🔧 修复：正确处理API响应格式

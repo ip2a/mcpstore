@@ -1,49 +1,146 @@
 // MCPStore Vue Frontend - 全局样式
 @use './variables.scss' as *;
 
-// 重置样式
-* {
+// CSS Reset - 现代化重置
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  border: 0 solid;
 }
 
 html {
   height: 100%;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
+  -webkit-text-size-adjust: 100%;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  font-feature-settings: "rlig" 1, "calt" 1;
 }
 
 body {
   height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  font-family: var(--font-family-sans);
   font-size: var(--font-size-base);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-base);
   color: var(--text-primary);
   background-color: var(--bg-color-page);
-  transition: var(--transition-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: var(--transition-normal);
 }
 
 #app {
   height: 100%;
+  position: relative;
 }
 
-// 滚动条样式
+// 基础排版优化
+h1, h2, h3, h4, h5, h6 {
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-4);
+}
+
+h1 { font-size: var(--font-size-4xl); }
+h2 { font-size: var(--font-size-3xl); }
+h3 { font-size: var(--font-size-2xl); }
+h4 { font-size: var(--font-size-xl); }
+h5 { font-size: var(--font-size-lg); }
+h6 { font-size: var(--font-size-md); }
+
+p {
+  margin-bottom: var(--spacing-4);
+  line-height: var(--line-height-relaxed);
+}
+
+a {
+  color: var(--primary-color);
+  text-decoration: none;
+  transition: var(--transition-fast);
+  
+  &:hover {
+    color: var(--primary-dark);
+    text-decoration: underline;
+  }
+  
+  &:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+}
+
+code, pre {
+  font-family: var(--font-family-mono);
+  font-size: 0.875em;
+}
+
+code {
+  background-color: var(--bg-color-secondary);
+  padding: 0.125rem 0.375rem;
+  border-radius: var(--border-radius-sm);
+  color: var(--danger-color);
+}
+
+pre {
+  background-color: var(--bg-color-secondary);
+  padding: var(--spacing-4);
+  border-radius: var(--border-radius-md);
+  overflow-x: auto;
+  line-height: var(--line-height-base);
+}
+
+// 按钮重置和增强
+button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  
+  &:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+  
+  &:disabled {
+    cursor: not-allowed;
+    opacity: var(--opacity-50);
+  }
+}
+
+// 输入框增强
+input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  
+  &:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+}
+
+// 滚动条样式 - 现代化设计
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--border-extra-light);
-  border-radius: 3px;
+  background: var(--bg-color-secondary);
+  border-radius: var(--border-radius-full);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border-base);
-  border-radius: 3px;
+  background: var(--text-placeholder);
+  border-radius: var(--border-radius-full);
+  transition: var(--transition-fast);
   
   &:hover {
     background: var(--text-secondary);
@@ -53,11 +150,11 @@ body {
 // 暗色模式滚动条
 .dark {
   ::-webkit-scrollbar-track {
-    background: var(--border-extra-light);
+    background: var(--bg-color-tertiary);
   }
   
   ::-webkit-scrollbar-thumb {
-    background: var(--border-base);
+    background: var(--text-placeholder);
     
     &:hover {
       background: var(--text-secondary);
@@ -65,9 +162,13 @@ body {
   }
 }
 
-// 通用工具类
+// 通用工具类 - 现代化布局
 .flex {
   display: flex;
+}
+
+.flex-inline {
+  display: inline-flex;
 }
 
 .flex-center {
@@ -83,14 +184,64 @@ body {
   flex-direction: column;
 }
 
+.flex-row-reverse {
+  flex-direction: row-reverse;
+}
+
 .flex-wrap {
   flex-wrap: wrap;
 }
 
-.flex-1 {
-  flex: 1;
+.flex-nowrap {
+  flex-wrap: nowrap;
 }
 
+.flex-1 {
+  flex: 1 1 0%;
+}
+
+.flex-auto {
+  flex: 1 1 auto;
+}
+
+.flex-none {
+  flex: none;
+}
+
+.flex-shrink-0 {
+  flex-shrink: 0;
+}
+
+.flex-grow {
+  flex-grow: 1;
+}
+
+// Flex 对齐
+.items-start { align-items: flex-start; }
+.items-end { align-items: flex-end; }
+.items-center { align-items: center; }
+.items-stretch { align-items: stretch; }
+.items-baseline { align-items: baseline; }
+
+.justify-start { justify-content: flex-start; }
+.justify-end { justify-content: flex-end; }
+.justify-center { justify-content: center; }
+.justify-between { justify-content: space-between; }
+.justify-around { justify-content: space-around; }
+.justify-evenly { justify-content: space-evenly; }
+
+// Gap 工具类
+.gap-1 { gap: var(--spacing-1); }
+.gap-2 { gap: var(--spacing-2); }
+.gap-3 { gap: var(--spacing-3); }
+.gap-4 { gap: var(--spacing-4); }
+.gap-5 { gap: var(--spacing-5); }
+.gap-6 { gap: var(--spacing-6); }
+.gap-8 { gap: var(--spacing-8); }
+.gap-10 { gap: var(--spacing-10); }
+.gap-12 { gap: var(--spacing-12); }
+
+// 文本工具类
 .text-center {
   text-align: center;
 }
@@ -103,9 +254,58 @@ body {
   text-align: right;
 }
 
+.text-justify {
+  text-align: justify;
+}
+
+.text-start {
+  text-align: start;
+}
+
+.text-end {
+  text-align: end;
+}
+
 .text-ellipsis {
   @include text-ellipsis;
 }
+
+.text-break {
+  word-wrap: break-word;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+.text-nowrap {
+  white-space: nowrap;
+}
+
+// 字体粗细
+.font-light { font-weight: var(--font-weight-light); }
+.font-normal { font-weight: var(--font-weight-normal); }
+.font-medium { font-weight: var(--font-weight-medium); }
+.font-semibold { font-weight: var(--font-weight-semibold); }
+.font-bold { font-weight: var(--font-weight-bold); }
+.font-extrabold { font-weight: var(--font-weight-extrabold); }
+
+// 字体大小
+.text-xs { font-size: var(--font-size-xs); }
+.text-sm { font-size: var(--font-size-sm); }
+.text-base { font-size: var(--font-size-base); }
+.text-md { font-size: var(--font-size-md); }
+.text-lg { font-size: var(--font-size-lg); }
+.text-xl { font-size: var(--font-size-xl); }
+.text-2xl { font-size: var(--font-size-2xl); }
+.text-3xl { font-size: var(--font-size-3xl); }
+.text-4xl { font-size: var(--font-size-4xl); }
+.text-5xl { font-size: var(--font-size-5xl); }
+
+// 行高
+.leading-tight { line-height: var(--line-height-tight); }
+.leading-snug { line-height: var(--line-height-snug); }
+.leading-normal { line-height: var(--line-height-base); }
+.leading-relaxed { line-height: var(--line-height-relaxed); }
+.leading-loose { line-height: var(--line-height-loose); }
 
 .clearfix {
   @include clearfix;

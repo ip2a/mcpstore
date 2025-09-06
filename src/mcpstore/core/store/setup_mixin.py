@@ -60,7 +60,7 @@ class SetupMixin:
             for client_id in client_ids:
                 # 优先解析确定性ID
                 try:
-                    from mcpstore.core.id_generator import ClientIDGenerator
+                    from mcpstore.core.utils.id_generator import ClientIDGenerator
                     if ClientIDGenerator.is_deterministic_format(client_id):
                         parsed = ClientIDGenerator.parse_client_id(client_id)
                         if parsed.get("type") == "agent" \
@@ -105,7 +105,7 @@ class SetupMixin:
             for client_id in client_ids:
                 # 统一的确定性ID格式匹配：优先尝试解析
                 try:
-                    from mcpstore.core.id_generator import ClientIDGenerator
+                    from mcpstore.core.utils.id_generator import ClientIDGenerator
                     if ClientIDGenerator.is_deterministic_format(client_id):
                         parsed = ClientIDGenerator.parse_client_id(client_id)
                         if parsed.get("type") == "store" and parsed.get("service_name") == service_name:
@@ -217,7 +217,7 @@ class SetupMixin:
                             logger.debug(f" [INIT_MCP] 使用现有Store client_id: {service_name} -> {client_id}")
                         else:
                             # 生成新的client_id（统一使用确定性算法）
-                            from mcpstore.core.id_generator import ClientIDGenerator
+                            from mcpstore.core.utils.id_generator import ClientIDGenerator
                             client_id = ClientIDGenerator.generate_deterministic_id(
                                 agent_id=global_agent_store_id,
                                 service_name=service_name,

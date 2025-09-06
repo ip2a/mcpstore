@@ -266,7 +266,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSystemStore } from '@/stores/system'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { storeServiceAPI, agentServiceAPI } from '@/api/services'
+import { api } from '@/api'
 import {
   Plus, Delete, CopyDocument
 } from '@element-plus/icons-vue'
@@ -406,10 +406,10 @@ const loadServiceConfig = async () => {
 
   try {
     console.log('Loading service config for:', serviceName.value)
-    const api = agentId.value ? agentServiceAPI : storeServiceAPI
+    const apiModule = agentId.value ? api.agent : api.store
     const response = agentId.value
-      ? await api.getServiceInfo(agentId.value, serviceName.value)
-      : await api.getServiceInfo(serviceName.value)
+      ? await apiModule.getServiceInfo(agentId.value, serviceName.value)
+      : await apiModule.getServiceInfo(serviceName.value)
 
     console.log('API response:', response)
 
@@ -512,10 +512,10 @@ const handleSubmit = async () => {
     
     if (isEdit.value) {
       // 更新服务（完全替换）
-      const api = agentId.value ? agentServiceAPI : storeServiceAPI
+      const apiModule = agentId.value ? api.agent : api.store
       const response = agentId.value
-        ? await api.updateService(agentId.value, serviceName.value, config)
-        : await api.updateService(serviceName.value, config)
+        ? await apiModule.updateService(agentId.value, serviceName.value, config)
+        : await apiModule.updateService(serviceName.value, config)
       
       if (response.data.success) {
         ElMessage.success('服务更新成功')
@@ -525,10 +525,10 @@ const handleSubmit = async () => {
       }
     } else {
       // 添加新服务
-      const api = agentId.value ? agentServiceAPI : storeServiceAPI
+      const apiModule = agentId.value ? api.agent : api.store
       const response = agentId.value
-        ? await api.addService(agentId.value, config)
-        : await api.addService(config)
+        ? await apiModule.addService(agentId.value, config)
+        : await apiModule.addService(config)
       
       if (response.data.success) {
         ElMessage.success('服务添加成功')
@@ -554,10 +554,10 @@ const handlePatchUpdate = async () => {
     const updates = buildServiceConfig()
     delete updates.name // 增量更新不包含名称
     
-    const api = agentId.value ? agentServiceAPI : storeServiceAPI
+    const apiModule = agentId.value ? api.agent : api.store
     const response = agentId.value
-      ? await api.patchService(agentId.value, serviceName.value, updates)
-      : await api.patchService(serviceName.value, updates)
+      ? await apiModule.patchService(agentId.value, serviceName.value, updates)
+      : await apiModule.patchService(serviceName.value, updates)
     
     if (response.data.success) {
       ElMessage.success('服务增量更新成功')

@@ -11,7 +11,16 @@ from fastapi import Request, FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from mcpstore.core.store import MCPStore
+
+# 导入统一的异常处理器
+from .api_exceptions import (
+    mcpstore_exception_handler,
+    validation_exception_handler,
+    http_exception_handler,
+    general_exception_handler
+)
 
 # Global store instance (set by MCPStore.start_api_server)
 _global_store_instance: MCPStore = None
@@ -37,6 +46,16 @@ def get_store() -> MCPStore:
         logger.info(f"Using global store instance: data_space={is_data_space}, workspace={workspace_dir}")
 
     return _global_store_instance
+
+def set_global_store(store: MCPStore):
+    """Set the global MCPStore instance
+    
+    Args:
+        store: The MCPStore instance to set as global
+    """
+    global _global_store_instance
+    _global_store_instance = store
+    logger.info(f"Global store instance updated: {id(store)}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -94,7 +113,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="MCPStore API",
         description="MCPStore HTTP API Service",
-        version="0.2.0",
+        version="1.0.0",
         lifespan=lifespan
     )
     
@@ -111,36 +130,16 @@ def create_app() -> FastAPI:
     from .api import router
     app.include_router(router)
     
-    # 注册异常处理
-    @app.exception_handler(RequestValidationError)
-    async def validation_exception_handler(request: Request, exc: RequestValidationError):
-        errors = exc.errors()
-        error_messages = []
-        for error in errors:
-            loc = " -> ".join([str(l) for l in error["loc"] if l != "body"])
-            msg = error["msg"]
-            error_messages.append(f"{loc}: {msg}")
-
-        return JSONResponse(
-            status_code=400,
-            content={
-                "success": False,
-                "message": "Validation error",
-                "data": error_messages
-            }
-        )
-
-    @app.exception_handler(Exception)
-    async def general_exception_handler(request: Request, exc: Exception):
-        logger.error(f"Unhandled exception in {request.method} {request.url.path}: {exc}")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False,
-                "message": "Internal server error",
-                "data": str(exc)
-            }
-        )
+    # 注册统一的异常处理器
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+    
+    # 导入并注册MCPStore异常处理器
+    from .api_exceptions import MCPStoreException
+    app.add_exception_handler(MCPStoreException, mcpstore_exception_handler)
+    
+    # 注册通用异常处理器（最后注册，作为兜底）
+    app.add_exception_handler(Exception, general_exception_handler)
 
     # 添加请求日志和性能监控中间件
     @app.middleware("http")
@@ -202,7 +201,7 @@ def create_app() -> FastAPI:
             return {
                 "status": "healthy",
                 "service": "MCPStore API",
-                "version": "0.2.0",
+                "version": "1.0.0",
                 "timestamp": time.time(),
                 "data_space": workspace_info
             }
@@ -249,6 +248,51 @@ def create_app() -> FastAPI:
                 content={
                     "success": False,
                     "message": f"Failed to get workspace info: {str(e)}",
+                    "data": {}
+                }
+            )
+    
+    # 添加错误监控端点
+    @app.get("/errors/stats")
+    async def error_stats():
+        """获取错误统计信息"""
+        try:
+            from .api_exceptions import error_monitor
+            stats = error_monitor.get_error_stats()
+            return {
+                "success": True,
+                "data": stats,
+                "message": "Error statistics retrieved successfully"
+            }
+        except Exception as e:
+            logger.error(f"Failed to get error stats: {e}")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "message": f"Failed to get error stats: {str(e)}",
+                    "data": {}
+                }
+            )
+    
+    @app.post("/errors/clear")
+    async def clear_error_stats():
+        """清除错误统计信息"""
+        try:
+            from .api_exceptions import error_monitor
+            error_monitor.clear_stats()
+            return {
+                "success": True,
+                "data": {},
+                "message": "Error statistics cleared successfully"
+            }
+        except Exception as e:
+            logger.error(f"Failed to clear error stats: {e}")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "message": f"Failed to clear error stats: {str(e)}",
                     "data": {}
                 }
             )

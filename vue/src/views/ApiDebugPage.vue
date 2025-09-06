@@ -49,7 +49,7 @@
 
 <script setup>
 import { ref } from 'vue'
-import { storeServiceAPI } from '@/api/services'
+import { api } from '@/api'
 
 const testing = ref(false)
 const results = ref([])
@@ -84,7 +84,7 @@ const testServicesAPI = async () => {
   testing.value = true
   try {
     console.log('🔍 测试Services API...')
-    const response = await storeServiceAPI.getServices()
+    const response = await api.store.listServices()
     
     const analysis = analyzeResponse(response)
     
@@ -113,7 +113,7 @@ const testToolsAPI = async () => {
   testing.value = true
   try {
     console.log('🔍 测试Tools API...')
-    const response = await storeServiceAPI.getTools()
+    const response = await api.store.getTools()
     
     const analysis = analyzeResponse(response)
     

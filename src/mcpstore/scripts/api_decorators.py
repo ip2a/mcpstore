@@ -4,6 +4,7 @@ Contains common functionality such as exception handling, performance monitoring
 """
 
 import time
+import logging
 from functools import wraps
 from typing import Optional, List
 
@@ -12,11 +13,19 @@ from mcpstore import MCPStore
 from mcpstore.core.models.common import APIResponse
 from pydantic import ValidationError
 
+# 导入统一的异常处理系统
+from .api_exceptions import (
+    MCPStoreException, ValidationException, ErrorCode,
+    handle_api_exceptions, error_monitor
+)
+
+logger = logging.getLogger(__name__)
+
 
 # === Decorator functions ===
 
 def handle_exceptions(func):
-    """Unified exception handling decorator"""
+    """统一的异常处理装饰器（使用增强版异常处理系统）"""
     @wraps(func)
     async def wrapper(*args, **kwargs):
         try:
@@ -26,16 +35,39 @@ def handle_exceptions(func):
                 return result
             # Otherwise wrap as APIResponse
             return APIResponse(success=True, data=result)
+        except MCPStoreException:
+            # MCPStore 异常已经包含足够信息，直接抛出
+            raise
         except HTTPException:
-            # HTTPException should be passed directly, don't wrap
+            # HTTPException 应该直接传递，不要包装
             raise
         except ValidationError as e:
-            # Pydantic validation error, return 400
-            raise HTTPException(status_code=400, detail=f"Validation error: {str(e)}")
+            # Pydantic 验证错误
+            raise ValidationException(
+                message=f"Data validation error: {str(e)}",
+                details={"validation_errors": e.errors()}
+            )
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            # 值错误
+            raise ValidationException(message=str(e))
+        except KeyError as e:
+            # 键错误
+            raise ValidationException(
+                message=f"Missing required field: {str(e)}",
+                field=str(e)
+            )
         except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            # 记录未处理的异常
+            error_monitor.record_error(e, {"function": func.__name__})
+            logger.error(f"Unhandled exception in {func.__name__}: {str(e)}", exc_info=True)
+            raise MCPStoreException(
+                message=f"Internal server error in {func.__name__}",
+                error_code=ErrorCode.INTERNAL_ERROR,
+                details={
+                    "function": func.__name__,
+                    "type": type(e).__name__
+                }
+            )
     return wrapper
 
 def monitor_api_performance(func):
@@ -106,6 +138,6 @@ def validate_service_names(service_names: Optional[List[str]]):
 
 def get_store() -> MCPStore:
     """获取MCPStore实例的依赖注入函数"""
-    # 从api_app模块获取当前的store实例
-    from .api_app import get_store as get_app_store
-    return get_app_store()
+    # 使用依赖注入模块获取store实例
+    from .api_dependencies import get_global_store
+    return get_global_store()

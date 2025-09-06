@@ -316,7 +316,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Refresh, Document, Setting, Monitor, User
 } from '@element-plus/icons-vue'
-import { storeServiceAPI, agentServiceAPI } from '@/api/services'
+import { api } from '@/api'
 
 // 响应式数据
 const loading = ref(false)
@@ -369,7 +369,7 @@ const clearLogs = () => {
 const refreshData = async () => {
   loading.value = true
   try {
-    const response = await storeServiceAPI.getStats()
+    const response = await api.store.getStats()
     if (response.data.success) {
       const stats = response.data.data
       systemStats.totalServices = stats.services?.total || 0
@@ -401,7 +401,7 @@ const resetAllConfig = async () => {
     )
 
     resetLoading.allConfig = true
-    const response = await storeServiceAPI.resetConfig('all')
+    const response = await api.store.resetConfig('all')
 
     if (response.data.success) {
       ElMessage.success('所有配置重置成功')
@@ -436,7 +436,7 @@ const resetStoreConfig = async () => {
     )
 
     resetLoading.storeConfig = true
-    const response = await storeServiceAPI.resetConfig('global_agent_store')
+    const response = await api.store.resetConfig('global_agent_store')
 
     if (response.data.success) {
       ElMessage.success('Store配置重置成功')
@@ -476,7 +476,7 @@ const resetAgentConfig = async () => {
     )
 
     resetLoading.agentConfig = true
-    const response = await agentServiceAPI.resetConfig(selectedAgentId.value)
+    const response = await api.agent.resetConfig(selectedAgentId.value)
 
     if (response.data.success) {
       ElMessage.success(`Agent "${selectedAgentId.value}" 配置重置成功`)
@@ -512,9 +512,9 @@ const loadConfig = async () => {
         configError.value = '请输入Agent ID'
         return
       }
-      response = await agentServiceAPI.showConfig(configAgentId.value)
+      response = await api.agent.showConfig(configAgentId.value)
     } else {
-      response = await storeServiceAPI.showConfig(configScope.value)
+      response = await api.store.showConfig(configScope.value)
     }
 
     if (response.data.success) {

@@ -68,7 +68,7 @@ async def agent_add_service(
 
 @agent_router.get("/for_agent/{agent_id}/list_services", response_model=APIResponse)
 @handle_exceptions
-async def agent_list_services(agent_id: str):
+async def agent_list_services(agent_id: str) -> APIResponse:
     """Agent 级别获取服务列表"""
     try:
         validate_agent_id(agent_id)
@@ -102,7 +102,7 @@ async def agent_list_services(agent_id: str):
 
 @agent_router.post("/for_agent/{agent_id}/init_service", response_model=APIResponse)
 @handle_exceptions
-async def agent_init_service(agent_id: str, request: Request):
+async def agent_init_service(agent_id: str, request: Request) -> APIResponse:
     """Agent 级别初始化服务到 INITIALIZING 状态
 
     支持三种调用方式：
@@ -169,7 +169,7 @@ async def agent_init_service(agent_id: str, request: Request):
 
 @agent_router.get("/for_agent/{agent_id}/list_tools", response_model=APIResponse)
 @handle_exceptions
-async def agent_list_tools(agent_id: str):
+async def agent_list_tools(agent_id: str) -> APIResponse:
     """Agent 级别获取工具列表"""
     try:
         validate_agent_id(agent_id)
@@ -193,7 +193,7 @@ async def agent_list_tools(agent_id: str):
 
 @agent_router.get("/for_agent/{agent_id}/check_services", response_model=APIResponse)
 @handle_exceptions
-async def agent_check_services(agent_id: str):
+async def agent_check_services(agent_id: str) -> APIResponse:
     """Agent 级别健康检查"""
     try:
         validate_agent_id(agent_id)
@@ -215,7 +215,7 @@ async def agent_check_services(agent_id: str):
 
 @agent_router.post("/for_agent/{agent_id}/call_tool", response_model=APIResponse)
 @handle_exceptions
-async def agent_call_tool(agent_id: str, request: SimpleToolExecutionRequest):
+async def agent_call_tool(agent_id: str, request: SimpleToolExecutionRequest) -> APIResponse:
     """Agent 级别工具执行"""
     try:
         import time
@@ -263,7 +263,7 @@ async def agent_call_tool(agent_id: str, request: SimpleToolExecutionRequest):
 
 @agent_router.post("/for_agent/{agent_id}/get_service_info", response_model=APIResponse)
 @handle_exceptions
-async def agent_get_service_info(agent_id: str, request: Request):
+async def agent_get_service_info(agent_id: str, request: Request) -> APIResponse:
     """Agent 级别获取服务信息"""
     try:
         validate_agent_id(agent_id)
@@ -762,4 +762,343 @@ async def agent_restart_service(agent_id: str, request: Request):
             success=False,
             message=f"Failed to restart agent service: {str(e)}",
             data={"error": str(e)}
+        )
+
+
+@agent_router.get("/for_agent/{agent_id}/get_json_config", response_model=APIResponse)
+@handle_exceptions
+async def agent_get_json_config(agent_id: str):
+    """Agent 级别获取 JSON 配置"""
+    try:
+        validate_agent_id(agent_id)
+        store = get_store()
+        config = store.get_json_config()  # 全局配置
+        return APIResponse(
+            success=True,
+            data=config,
+            message=f"JSON configuration retrieved successfully for agent '{agent_id}'"
+        )
+    except Exception as e:
+        logger.error(f"Failed to get JSON config for agent '{agent_id}': {e}")
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Failed to get JSON configuration: {str(e)}"
+        )
+
+# === Agent 级别服务详情相关 API ===
+
+@agent_router.get("/for_agent/{agent_id}/service_info/{service_name}", response_model=APIResponse)
+@handle_exceptions
+async def agent_get_service_info_detailed(agent_id: str, service_name: str):
+    """Agent 级别获取服务详细信息
+    
+    提供服务的完整信息，包括：
+    - 基本配置信息
+    - 运行状态
+    - 生命周期状态元数据
+    - 工具列表
+    - 健康检查结果
+    """
+    try:
+        validate_agent_id(agent_id)
+        store = get_store()
+        context = store.for_agent(agent_id)
+        
+        # 查找服务
+        service = None
+        all_services = await context.list_services_async()
+        for s in all_services:
+            if s.name == service_name:
+                service = s
+                break
+        
+        if not service:
+            return APIResponse(
+                success=False,
+                data={},
+                message=f"Service '{service_name}' not found for agent '{agent_id}'"
+            )
+        
+        # 构建详细的服务信息
+        service_info = {
+            "name": service.name,
+            "status": service.status.value if hasattr(service.status, 'value') else str(service.status),
+            "transport": service.transport_type.value if service.transport_type else 'unknown',
+            "client_id": getattr(service, 'client_id', None),
+            "url": getattr(service, 'url', None),
+            "command": getattr(service, 'command', None),
+            "args": getattr(service, 'args', None),
+            "env": getattr(service, 'env', None),
+            "tool_count": getattr(service, 'tool_count', 0),
+            "is_active": getattr(service, 'state_metadata', None) is not None,
+            "config": getattr(service, 'config', {}),
+        }
+        
+        # 添加生命周期状态元数据
+        if hasattr(service, 'state_metadata') and service.state_metadata:
+            service_info["lifecycle"] = {
+                "consecutive_successes": getattr(service.state_metadata, 'consecutive_successes', 0),
+                "consecutive_failures": getattr(service.state_metadata, 'consecutive_failures', 0),
+                "last_ping_time": getattr(service.state_metadata, 'last_ping_time', None),
+                "error_message": getattr(service.state_metadata, 'error_message', None),
+                "reconnect_attempts": getattr(service.state_metadata, 'reconnect_attempts', 0),
+                "state_entered_time": getattr(service.state_metadata, 'state_entered_time', None)
+            }
+            # 转换时间格式
+            if service_info["lifecycle"]["last_ping_time"]:
+                service_info["lifecycle"]["last_ping_time"] = service_info["lifecycle"]["last_ping_time"].isoformat()
+            if service_info["lifecycle"]["state_entered_time"]:
+                service_info["lifecycle"]["state_entered_time"] = service_info["lifecycle"]["state_entered_time"].isoformat()
+        
+        # 获取工具列表
+        try:
+            tools_info = context.get_tools_with_stats()
+            service_tools = [tool for tool in tools_info["tools"] if tool.get("service_name") == service_name]
+            service_info["tools"] = service_tools
+        except Exception as e:
+            logger.warning(f"Failed to get tools for service {service_name} in agent {agent_id}: {e}")
+            service_info["tools"] = []
+        
+        # 执行健康检查
+        try:
+            health_status = await context.check_services_async()
+            service_health = None
+            if isinstance(health_status, dict) and "services" in health_status:
+                service_health = health_status["services"].get(service_name)
+            service_info["health"] = service_health or {"status": "unknown", "message": "Health check not available"}
+        except Exception as e:
+            logger.warning(f"Failed to get health for service {service_name} in agent {agent_id}: {e}")
+            service_info["health"] = {"status": "error", "message": str(e)}
+        
+        return APIResponse(
+            success=True,
+            data=service_info,
+            message=f"Detailed service info retrieved for '{service_name}' in agent '{agent_id}'"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get detailed service info for {service_name} in agent {agent_id}: {e}")
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Failed to get detailed service info: {str(e)}"
+        )
+
+@agent_router.get("/for_agent/{agent_id}/service_status/{service_name}", response_model=APIResponse)
+@handle_exceptions
+async def agent_get_service_status(agent_id: str, service_name: str):
+    """Agent 级别获取服务状态"""
+    try:
+        validate_agent_id(agent_id)
+        store = get_store()
+        context = store.for_agent(agent_id)
+        
+        # 查找服务
+        service = None
+        all_services = await context.list_services_async()
+        for s in all_services:
+            if s.name == service_name:
+                service = s
+                break
+        
+        if not service:
+            return APIResponse(
+                success=False,
+                data={},
+                message=f"Service '{service_name}' not found for agent '{agent_id}'"
+            )
+        
+        # 构建状态信息
+        status_info = {
+            "name": service.name,
+            "status": service.status.value if hasattr(service.status, 'value') else str(service.status),
+            "is_active": getattr(service, 'state_metadata', None) is not None,
+            "client_id": getattr(service, 'client_id', None),
+            "last_updated": None
+        }
+        
+        # 添加生命周期状态
+        if hasattr(service, 'state_metadata') and service.state_metadata:
+            lifecycle = {
+                "consecutive_successes": getattr(service.state_metadata, 'consecutive_successes', 0),
+                "consecutive_failures": getattr(service.state_metadata, 'consecutive_failures', 0),
+                "error_message": getattr(service.state_metadata, 'error_message', None),
+                "reconnect_attempts": getattr(service.state_metadata, 'reconnect_attempts', 0),
+                "last_ping_time": getattr(service.state_metadata, 'last_ping_time', None),
+                "state_entered_time": getattr(service.state_metadata, 'state_entered_time', None)
+            }
+            status_info.update(lifecycle)
+            # 转换时间格式
+            if status_info["last_ping_time"]:
+                status_info["last_ping_time"] = status_info["last_ping_time"].isoformat()
+            if status_info["state_entered_time"]:
+                status_info["state_entered_time"] = status_info["state_entered_time"].isoformat()
+            status_info["last_updated"] = status_info["last_ping_time"] or status_info["state_entered_time"]
+        
+        return APIResponse(
+            success=True,
+            data=status_info,
+            message=f"Service status retrieved for '{service_name}' in agent '{agent_id}'"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get service status for {service_name} in agent {agent_id}: {e}")
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Failed to get service status: {str(e)}"
+        )
+
+@agent_router.post("/for_agent/{agent_id}/service_health/{service_name}", response_model=APIResponse)
+@handle_exceptions
+async def agent_check_service_health(agent_id: str, service_name: str):
+    """Agent 级别检查服务健康状态"""
+    try:
+        validate_agent_id(agent_id)
+        store = get_store()
+        context = store.for_agent(agent_id)
+        
+        # 首先检查服务是否存在
+        service = None
+        all_services = await context.list_services_async()
+        for s in all_services:
+            if s.name == service_name:
+                service = s
+                break
+        
+        if not service:
+            return APIResponse(
+                success=False,
+                data={},
+                message=f"Service '{service_name}' not found for agent '{agent_id}'"
+            )
+        
+        # 执行健康检查
+        health_status = await context.check_services_async()
+        service_health = None
+        
+        if isinstance(health_status, dict) and "services" in health_status:
+            service_health = health_status["services"].get(service_name)
+        
+        if not service_health:
+            return APIResponse(
+                success=False,
+                data={"service_name": service_name, "agent_id": agent_id},
+                message=f"Health status not available for service '{service_name}' in agent '{agent_id}'"
+            )
+        
+        # 构建健康详情
+        health_details = {
+            "service_name": service_name,
+            "agent_id": agent_id,
+            "status": service_health.get("status", "unknown"),
+            "message": service_health.get("message", "No health information available"),
+            "timestamp": service_health.get("timestamp"),
+            "uptime": service_health.get("uptime"),
+            "error_count": service_health.get("error_count", 0),
+            "last_error": service_health.get("last_error"),
+            "response_time": service_health.get("response_time"),
+            "is_healthy": service_health.get("status") in ["healthy", "ready"]
+        }
+        
+        return APIResponse(
+            success=True,
+            data=health_details,
+            message=f"Health check completed for service '{service_name}' in agent '{agent_id}'"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to check service health for {service_name} in agent {agent_id}: {e}")
+        return APIResponse(
+            success=False,
+            data={"service_name": service_name, "agent_id": agent_id, "error": str(e)},
+            message=f"Failed to check service health: {str(e)}"
+        )
+
+@agent_router.get("/for_agent/{agent_id}/service_health_details/{service_name}", response_model=APIResponse)
+@handle_exceptions
+async def agent_get_service_health_details(agent_id: str, service_name: str):
+    """Agent 级别获取服务健康详情"""
+    try:
+        validate_agent_id(agent_id)
+        store = get_store()
+        context = store.for_agent(agent_id)
+        
+        # 首先检查服务是否存在
+        service = None
+        all_services = await context.list_services_async()
+        for s in all_services:
+            if s.name == service_name:
+                service = s
+                break
+        
+        if not service:
+            return APIResponse(
+                success=False,
+                data={},
+                message=f"Service '{service_name}' not found for agent '{agent_id}'"
+            )
+        
+        # 获取完整的服务信息
+        service_info = {
+            "name": service.name,
+            "status": service.status.value if hasattr(service.status, 'value') else str(service.status),
+            "client_id": getattr(service, 'client_id', None),
+            "transport": service.transport_type.value if service.transport_type else 'unknown'
+        }
+        
+        # 添加生命周期状态
+        if hasattr(service, 'state_metadata') and service.state_metadata:
+            lifecycle = {
+                "consecutive_successes": getattr(service.state_metadata, 'consecutive_successes', 0),
+                "consecutive_failures": getattr(service.state_metadata, 'consecutive_failures', 0),
+                "error_message": getattr(service.state_metadata, 'error_message', None),
+                "reconnect_attempts": getattr(service.state_metadata, 'reconnect_attempts', 0),
+                "last_ping_time": getattr(service.state_metadata, 'last_ping_time', None),
+                "state_entered_time": getattr(service.state_metadata, 'state_entered_time', None)
+            }
+            service_info["lifecycle"] = lifecycle
+            # 转换时间格式
+            if service_info["lifecycle"]["last_ping_time"]:
+                service_info["lifecycle"]["last_ping_time"] = service_info["lifecycle"]["last_ping_time"].isoformat()
+            if service_info["lifecycle"]["state_entered_time"]:
+                service_info["lifecycle"]["state_entered_time"] = service_info["lifecycle"]["state_entered_time"].isoformat()
+        
+        # 执行健康检查
+        health_status = await context.check_services_async()
+        service_health = None
+        
+        if isinstance(health_status, dict) and "services" in health_status:
+            service_health = health_status["services"].get(service_name)
+        
+        health_details = service_health or {
+            "status": "unknown",
+            "message": "Health check not available"
+        }
+        
+        # 合并信息
+        result = {
+            "service": service_info,
+            "health": health_details,
+            "summary": {
+                "is_healthy": health_details.get("status") in ["healthy", "ready"],
+                "is_active": getattr(service, 'state_metadata', None) is not None,
+                "has_errors": bool(getattr(service, 'state_metadata', None) and getattr(service.state_metadata, 'error_message', None)),
+                "consecutive_failures": getattr(service.state_metadata, 'consecutive_failures', 0) if hasattr(service, 'state_metadata') and service.state_metadata else 0
+            }
+        }
+        
+        return APIResponse(
+            success=True,
+            data=result,
+            message=f"Health details retrieved for service '{service_name}' in agent '{agent_id}'"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get service health details for {service_name} in agent {agent_id}: {e}")
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Failed to get service health details: {str(e)}"
         )

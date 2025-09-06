@@ -103,27 +103,55 @@
           </el-select>
         </el-col>
         <el-col :xs="24" :sm="12" :md="4">
-          <el-button 
-            type="primary" 
-            :icon="VideoPlay"
-            @click="$router.push('/tools/execute')"
-          >
-            执行工具
-          </el-button>
+          <el-dropdown @command="handleBatchAction" :disabled="selectedTools.length === 0">
+            <el-button
+              type="primary"
+              :icon="Operation"
+              :disabled="selectedTools.length === 0"
+            >
+              批量操作
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="batch-execute" :icon="VideoPlay">
+                  批量执行
+                </el-dropdown-item>
+                <el-dropdown-item command="batch-favorite" :icon="Star">
+                  添加收藏
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </el-col>
       </el-row>
     </el-card>
     
     <!-- 工具列表 -->
     <el-card class="tools-card">
+      <!-- Batch Operations Component -->
+      <BatchOperations
+        ref="batchOperationsRef"
+        :items="systemStore.tools"
+        item-key="name"
+        item-name="name"
+        :show-header="false"
+        :show-overlay="true"
+        @batch-edit="handleBatchEdit"
+        @batch-delete="handleBatchDelete"
+        @selection-change="handleBatchSelectionChange"
+      />
+      
       <!-- 列表视图 -->
       <el-table
         v-if="viewMode === 'list'"
         v-loading="loading"
         :data="filteredTools"
+        @selection-change="handleSelectionChange"
         stripe
         style="width: 100%"
       >
+        <el-table-column type="selection" width="50" />
         <el-table-column prop="name" label="工具名称" min-width="200">
           <template #default="{ row }">
             <div class="tool-name">
@@ -314,20 +342,23 @@ import { useRouter, useRoute } from 'vue-router'
 import { useSystemStore } from '@/stores/system'
 import { ElMessage } from 'element-plus'
 import {
-  Refresh, Tools, Connection, Menu, Search, VideoPlay, Setting
+  Refresh, Tools, Connection, Menu, Search, VideoPlay, Setting, Operation, Star, ArrowDown
 } from '@element-plus/icons-vue'
+import BatchOperations from '@/components/BatchOperations.vue'
 
 const router = useRouter()
 const route = useRoute()
 const systemStore = useSystemStore()
 
 // 响应式数据
+const batchOperationsRef = ref(null)
 const loading = ref(false)
 const searchQuery = ref('')
 const serviceFilter = ref('')
 const viewMode = ref('list')
 const detailDialogVisible = ref(false)
 const selectedTool = ref(null)
+const selectedTools = ref([])
 
 // 计算属性
 const filteredTools = computed(() => {
@@ -394,6 +425,46 @@ const clearServiceFilter = () => {
   serviceFilter.value = ''
   // 清除URL参数
   router.replace({ path: '/tools/list' })
+}
+
+const handleSelectionChange = (selection) => {
+  selectedTools.value = selection
+  // Sync with batch operations component
+  if (batchOperationsRef.value) {
+    batchOperationsRef.value.selectedItems = selection
+  }
+}
+
+const handleBatchSelectionChange = (selection) => {
+  selectedTools.value = selection
+}
+
+const handleBatchAction = async (command) => {
+  if (selectedTools.value.length === 0) return
+
+  switch (command) {
+    case 'batch-execute':
+      // Navigate to execute page with selected tools
+      router.push({
+        path: '/tools/execute',
+        query: { tools: selectedTools.value.map(t => t.name).join(',') }
+      })
+      break
+    case 'batch-favorite':
+      ElMessage.success(`已将 ${selectedTools.value.length} 个工具添加到收藏`)
+      selectedTools.value = []
+      break
+  }
+}
+
+const handleBatchEdit = async (data) => {
+  // Handle batch edit if needed
+  console.log('Batch edit:', data)
+}
+
+const handleBatchDelete = async (tools) => {
+  // Handle batch delete if needed
+  console.log('Batch delete:', tools)
 }
 
 const getParameterCount = (tool) => {

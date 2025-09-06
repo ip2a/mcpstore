@@ -158,3 +158,15 @@ class DataSpaceManager:
             "mcp_json_path": str(self.mcp_json_path),
             "mcp_json_exists": self.mcp_json_path.exists(),
         }
+
+    def get_file_path(self, relative_path: str) -> Path:
+        """
+        获取工作空间内文件的完整路径
+
+        Args:
+            relative_path: 相对于工作空间的路径
+
+        Returns:
+            Path: 完整的文件路径
+        """
+        return self.workspace_dir / relative_path

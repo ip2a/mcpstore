@@ -53,7 +53,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { storeServiceAPI } from '@/api/services'
+import { api } from '@/api'
 
 const router = useRouter()
 
@@ -100,7 +100,7 @@ const testStoreServices = async () => {
   testResult.value = ''
   
   try {
-    const response = await storeServiceAPI.getServices()
+    const response = await api.store.listServices()
     testResult.value = `✅ 服务列表获取成功!\n${JSON.stringify(response, null, 2)}`
   } catch (error) {
     testResult.value = `❌ 服务列表获取失败: ${error.message}`

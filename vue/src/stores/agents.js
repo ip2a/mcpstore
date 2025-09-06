@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { agentsAPI } from '@/api/agents'
+import { api } from '@/api'
 
 export const useAgentsStore = defineStore('agents', () => {
   // 状态
@@ -52,7 +52,7 @@ export const useAgentsStore = defineStore('agents', () => {
     loading.value = true
     try {
       console.log('Fetching agents from API...')
-      const response = await agentsAPI.getAgentsList()
+      const response = await api.agent.getAgentsList()
       console.log('API response:', response)
       console.log('Response structure:', Object.keys(response))
 
@@ -132,7 +132,7 @@ export const useAgentsStore = defineStore('agents', () => {
   const getAgentServices = async (agentId) => {
     try {
       console.log('🔍 [DEBUG] 获取Agent服务列表:', agentId)
-      const response = await agentsAPI.getAgentServices(agentId)
+      const response = await api.agent.getAgentServices(agentId)
       console.log('🔍 [DEBUG] Agent服务API响应:', response)
 
       // 🔧 修复：正确处理API响应格式
@@ -159,7 +159,7 @@ export const useAgentsStore = defineStore('agents', () => {
   const getAgentTools = async (agentId) => {
     try {
       console.log('🔍 [DEBUG] 获取Agent工具列表:', agentId)
-      const response = await agentsAPI.getAgentTools(agentId)
+      const response = await api.agent.getAgentTools(agentId)
       console.log('🔍 [DEBUG] Agent工具API响应:', response)
 
       // 🔧 修复：正确处理API响应格式
@@ -186,7 +186,7 @@ export const useAgentsStore = defineStore('agents', () => {
   const getAgentStats = async (agentId) => {
     try {
       console.log('🔍 [DEBUG] 获取Agent统计信息:', agentId)
-      const response = await agentsAPI.getAgentStats(agentId)
+      const response = await api.agent.getAgentStats(agentId)
       console.log('🔍 [DEBUG] Agent统计API响应:', response)
 
       // 🔧 修复：正确处理API响应格式并映射字段
@@ -229,7 +229,7 @@ export const useAgentsStore = defineStore('agents', () => {
   
   const addService = async (agentId, serviceConfig) => {
     try {
-      const response = await agentsAPI.addService(agentId, serviceConfig)
+      const response = await api.agent.addService(agentId, serviceConfig)
       if (response.data.success) {
         await fetchAgents() // 重新获取列表以更新统计
         return { success: true, data: response.data }
@@ -243,7 +243,7 @@ export const useAgentsStore = defineStore('agents', () => {
   
   const deleteService = async (agentId, serviceName) => {
     try {
-      const response = await agentsAPI.deleteService(agentId, serviceName)
+      const response = await api.agent.deleteService(agentId, serviceName)
       if (response.data.success) {
         await fetchAgents() // 重新获取列表以更新统计
         return { success: true }
@@ -257,7 +257,7 @@ export const useAgentsStore = defineStore('agents', () => {
   
   const updateService = async (agentId, serviceName, config) => {
     try {
-      const response = await agentsAPI.updateService(agentId, serviceName, config)
+      const response = await api.agent.updateService(agentId, serviceName, config)
       if (response.data.success) {
         await fetchAgents() // 重新获取列表以更新统计
         return { success: true, data: response.data }
@@ -271,7 +271,7 @@ export const useAgentsStore = defineStore('agents', () => {
   
   const restartService = async (agentId, serviceName) => {
     try {
-      const response = await agentsAPI.restartService(agentId, serviceName)
+      const response = await api.agent.restartService(agentId, serviceName)
       return response.data
     } catch (error) {
       console.error('重启服务失败:', error)
@@ -281,7 +281,7 @@ export const useAgentsStore = defineStore('agents', () => {
   
   const useTool = async (agentId, toolName, args) => {
     try {
-      const response = await agentsAPI.useTool(agentId, toolName, args)
+      const response = await api.agent.callTool(agentId, toolName, args)
       return response.data
     } catch (error) {
       console.error('使用工具失败:', error)
@@ -291,7 +291,7 @@ export const useAgentsStore = defineStore('agents', () => {
   
   const checkServices = async (agentId) => {
     try {
-      const response = await agentsAPI.checkServices(agentId)
+      const response = await api.agent.checkServices(agentId)
       return response.data
     } catch (error) {
       console.error('检查服务健康状态失败:', error)
@@ -301,7 +301,7 @@ export const useAgentsStore = defineStore('agents', () => {
   
   const resetAgentConfig = async (agentId) => {
     try {
-      const response = await agentsAPI.resetConfig(agentId)
+      const response = await api.agent.resetConfig(agentId)
       if (response.data.success) {
         await fetchAgents() // 重新获取列表
         return { success: true }

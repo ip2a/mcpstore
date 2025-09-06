@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { storeServiceAPI, storeMonitoringAPI } from '@/api/services'
+import { api } from '@/api'
 import { useAppStore } from './app'
+import { SERVICE_LIFECYCLE_STATES } from '@/api/config'
 
 export const useServicesStore = defineStore('services', () => {
   const appStore = useAppStore()
@@ -163,7 +164,7 @@ export const useServicesStore = defineStore('services', () => {
     try {
       appStore?.setLoadingState('services', true)
 
-      const response = await storeServiceAPI.getServices()
+      const response = await api.store.listServices()
 
       // 🔍 调试：检查API返回的数据格式
       console.log('🔍 [DEBUG] API返回的原始数据:', response)
@@ -259,7 +260,7 @@ export const useServicesStore = defineStore('services', () => {
       setLoadingState('adding', true)
       appStore?.setLoadingState('services', true)
 
-      const response = await storeServiceAPI.addService(serviceData)
+      const response = await api.store.addService(serviceData)
       if (response.data.success) {
         await fetchServices(true) // 强制重新获取列表
 
@@ -298,7 +299,7 @@ export const useServicesStore = defineStore('services', () => {
       setLoadingState('removing', true)
       appStore?.setLoadingState('services', true)
 
-      const response = await storeServiceAPI.deleteService(serviceName)
+      const response = await api.store.deleteService(serviceName)
       if (response.data.success) {
         // 从本地状态中移除
         const index = services.value.findIndex(s => s.name === serviceName)
@@ -345,7 +346,7 @@ export const useServicesStore = defineStore('services', () => {
   
   const restartService = async (serviceName) => {
     try {
-      const response = await storeServiceAPI.restartService(serviceName)
+      const response = await api.store.restartService(serviceName)
       if (response.data.success) {
         await fetchServices()
         return { success: true }
@@ -359,7 +360,7 @@ export const useServicesStore = defineStore('services', () => {
   
   const updateService = async (serviceName, config) => {
     try {
-      const response = await storeServiceAPI.updateService(serviceName, config)
+      const response = await api.store.updateService(serviceName, config)
       if (response.data.success) {
         await fetchServices()
         return { success: true }
@@ -373,7 +374,7 @@ export const useServicesStore = defineStore('services', () => {
   
   const batchUpdateServices = async (updates) => {
     try {
-      const response = await storeServiceAPI.batchUpdateServices(updates)
+      const response = await api.store.batchUpdateServices(updates)
       if (response.data.success) {
         await fetchServices()
         return { success: true }
@@ -387,7 +388,7 @@ export const useServicesStore = defineStore('services', () => {
   
   const batchDeleteServices = async (serviceNames) => {
     try {
-      const response = await storeServiceAPI.batchDeleteServices(serviceNames)
+      const response = await api.store.batchDeleteServices(serviceNames)
       if (response.data.success) {
         await fetchServices()
         return { success: true }
@@ -401,7 +402,7 @@ export const useServicesStore = defineStore('services', () => {
   
   const batchRestartServices = async (serviceNames) => {
     try {
-      const response = await storeServiceAPI.batchRestartServices(serviceNames)
+      const response = await api.store.batchRestartServices(serviceNames)
       if (response.data.success) {
         await fetchServices()
         return { success: true }
@@ -417,7 +418,7 @@ export const useServicesStore = defineStore('services', () => {
     try {
       setLoadingState('checking', true)
 
-      const response = await storeServiceAPI.checkServices()
+      const response = await api.store.checkServices()
       // 更新服务状态
       if (response.data && Array.isArray(response.data)) {
         response.data.forEach(healthInfo => {
@@ -469,7 +470,7 @@ export const useServicesStore = defineStore('services', () => {
   // 获取系统资源信息
   const fetchSystemResources = async () => {
     try {
-      const response = await storeMonitoringAPI.getSystemResources()
+      const response = await api.monitoring.getSystemResources()
 
       if (response.success && response.data) {
         return response.data

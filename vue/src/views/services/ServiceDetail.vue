@@ -320,8 +320,8 @@ const fetchServiceDetail = async () => {
     pageLoading.value = true
 
     // 获取服务详情 - 使用现有的getServiceInfo方法
-    const { storeServiceAPI } = await import('@/api/services')
-    const response = await storeServiceAPI.getServiceInfo(serviceName.value)
+    const { api } = await import('@/api')
+    const response = await api.store.getServiceInfo(serviceName.value)
 
     if (response.data.success) {
       serviceData.value = response.data.data
@@ -379,7 +379,7 @@ const toggleEdit = async (section) => {
 }
 
 const saveChanges = async (section) => {
-  const { storeServiceAPI } = await import('@/api/services')
+  const { api } = await import('@/api')
 
   let updateData = {}
 
@@ -399,7 +399,7 @@ const saveChanges = async (section) => {
     }
   }
 
-  const response = await storeServiceAPI.patchService(serviceName.value, updateData)
+  const response = await api.store.patchService(serviceName.value, updateData)
 
   if (response.data.success) {
     ElMessage.success('保存成功')
@@ -423,8 +423,8 @@ const restartService = async () => {
 
     actionLoading.restart = true
 
-    const { storeServiceAPI } = await import('@/api/services')
-    const response = await storeServiceAPI.restartService(serviceName.value)
+    const { api } = await import('@/api')
+    const response = await api.store.restartService(serviceName.value)
 
     if (response.data.success) {
       ElMessage.success('服务重启成功')
@@ -455,8 +455,8 @@ const disconnectService = async () => {
 
     actionLoading.disconnect = true
 
-    const { storeServiceAPI } = await import('@/api/services')
-    const response = await storeServiceAPI.gracefulDisconnectService(serviceName.value)
+    const { api } = await import('@/api')
+    const response = await api.monitoring.gracefulDisconnect(serviceName.value)
 
     if (response.data.success) {
       ElMessage.success('服务断开成功')
@@ -487,8 +487,8 @@ const deleteService = async () => {
 
     actionLoading.delete = true
 
-    const { storeServiceAPI } = await import('@/api/services')
-    const response = await storeServiceAPI.deleteService(serviceName.value)
+    const { api } = await import('@/api')
+    const response = await api.store.deleteService(serviceName.value)
 
     if (response.data.success) {
       ElMessage.success('服务删除成功')

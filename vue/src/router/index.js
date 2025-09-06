@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 // 路由组件懒加载
-const Dashboard = () => import('@/views/Dashboard.vue')
+const Dashboard = () => import('@/views/DashboardAdvanced.vue')
 const ServiceList = () => import('@/views/services/ServiceList.vue')
 const ServiceAdd = () => import('@/views/services/ServiceAdd.vue')
 const ServiceEdit = () => import('@/views/services/ServiceEdit.vue')
@@ -19,6 +19,11 @@ const TestPage = () => import('@/views/TestPage.vue')
 const DashboardSimple = () => import('@/views/DashboardSimple.vue')
 const ApiDebugPage = () => import('@/views/ApiDebugPage.vue')
 const McpConfigManager = () => import('@/views/config/McpConfigManager.vue')
+const ConfigEditor = () => import('@/views/config/ConfigEditor.vue')
+const WorkspaceManager = () => import('@/views/WorkspaceManager.vue')
+const ServiceAnalytics = () => import('@/views/analytics/ServiceAnalytics.vue')
+const ToolTemplates = () => import('@/views/templates/ToolTemplates.vue')
+const AdvancedSearch = () => import('@/views/search/AdvancedSearch.vue')
 
 const routes = [
   {
@@ -111,6 +116,26 @@ const routes = [
         }
       }
     ]
+  },
+  {
+    path: '/analytics',
+    name: 'ServiceAnalytics',
+    component: ServiceAnalytics,
+    meta: {
+      title: '服务分析',
+      icon: 'TrendCharts',
+      keepAlive: true
+    }
+  },
+  {
+    path: '/templates',
+    name: 'ToolTemplates',
+    component: ToolTemplates,
+    meta: {
+      title: '工具模板',
+      icon: 'Document',
+      keepAlive: true
+    }
   },
   {
     path: '/agents',
@@ -216,8 +241,38 @@ const routes = [
           icon: 'Document',
           keepAlive: false
         }
+      },
+      {
+        path: '/system/config-editor',
+        name: 'ConfigEditor',
+        component: ConfigEditor,
+        meta: {
+          title: '高级配置编辑器',
+          icon: 'Edit',
+          keepAlive: false
+        }
+      },
+      {
+        path: '/system/workspace',
+        name: 'WorkspaceManager',
+        component: WorkspaceManager,
+        meta: {
+          title: '工作空间管理',
+          icon: 'FolderOpened',
+          keepAlive: false
+        }
       }
     ]
+  },
+  {
+    path: '/search',
+    name: 'AdvancedSearch',
+    component: AdvancedSearch,
+    meta: {
+      title: '高级搜索',
+      icon: 'Search',
+      keepAlive: true
+    }
   },
   {
     path: '/:pathMatch(.*)*',

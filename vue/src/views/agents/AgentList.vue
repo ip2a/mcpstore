@@ -129,10 +129,23 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import { Plus, Refresh, User } from '@element-plus/icons-vue'
 import { useAgentsStore } from '@/stores/agents'
-import { AGENT_STATUS_MAP, AGENT_STATUS_COLORS } from '@/api/agents'
-
 const router = useRouter()
 const agentsStore = useAgentsStore()
+
+// Agent状态映射
+const AGENT_STATUS_MAP = {
+  active: '活跃',
+  inactive: '非活跃',
+  partial: '部分可用',
+  error: '错误'
+}
+
+const AGENT_STATUS_COLORS = {
+  active: 'success',
+  inactive: 'info',
+  partial: 'warning',
+  error: 'danger'
+}
 
 // 状态处理函数
 const getStatusType = (status) => {

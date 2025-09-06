@@ -11,6 +11,9 @@ from mcpstore.core.models.common import APIResponse
 from mcpstore.core.models.service import JsonUpdateRequest
 
 from .api_decorators import handle_exceptions, get_store
+from .api_service_utils import (
+    ServiceOperationHelper
+)
 from .api_models import (
     ToolExecutionRecordResponse, ToolRecordsResponse, ToolRecordsSummaryResponse,
     NetworkEndpointResponse, SystemResourceInfoResponse, NetworkEndpointCheckRequest,
@@ -24,10 +27,30 @@ store_router = APIRouter()
 
 @store_router.post("/for_store/sync_services", response_model=APIResponse)
 @handle_exceptions
-async def store_sync_services():
-    """Manually trigger service synchronization
-
-    Force re-synchronization of all services in global_agent_store from mcp.json
+async def store_sync_services() -> APIResponse:
+    """手动触发服务同步
+    
+    强制从 mcp.json 重新同步 global_agent_store 中的所有服务。
+    这将重新加载配置并更新所有服务的状态。
+    
+    Returns:
+        APIResponse: 包含同步结果的响应对象
+        
+    Response Data Structure:
+        {
+            "success": bool,           # 同步是否成功
+            "data": {
+                "total_services": int, # 总服务数量
+                "added": int,          # 新增服务数量
+                "removed": int,        # 移除服务数量
+                "updated": int,        # 更新服务数量
+                "errors": List[str]    # 错误信息列表
+            },
+            "message": str            # 响应消息
+        }
+        
+    Raises:
+        MCPStoreException: 当同步过程中出现错误时抛出
     """
     try:
         store = get_store()
@@ -52,7 +75,7 @@ async def store_sync_services():
 
 @store_router.get("/for_store/sync_status", response_model=APIResponse)
 @handle_exceptions
-async def store_sync_status():
+async def store_sync_status() -> APIResponse:
     """获取同步状态信息"""
     try:
         store = get_store()
@@ -83,7 +106,7 @@ async def store_sync_status():
 
 @store_router.post("/market/refresh", response_model=APIResponse)
 @handle_exceptions
-async def market_refresh(payload: Optional[Dict[str, Any]] = None):
+async def market_refresh(payload: Optional[Dict[str, Any]] = None) -> APIResponse:
     """Manually trigger market remote refresh (background-safe).
     Body example: {"remote_url": "https://.../servers.json", "force": false}
     """
@@ -208,8 +231,41 @@ async def store_add_service(
 
 @store_router.get("/for_store/list_services", response_model=APIResponse)
 @handle_exceptions
-async def store_list_services():
-    """Store 级别获取服务列表 - 返回完整的生命周期信息"""
+async def store_list_services() -> APIResponse:
+    """获取 Store 级别服务列表
+    
+    返回所有已注册服务的完整信息，包括生命周期状态、
+    健康状况、工具数量等详细信息。
+    
+    Returns:
+        APIResponse: 包含服务列表的响应对象
+        
+    Response Data Structure:
+        {
+            "success": bool,
+            "data": {
+                "total_services": int,          # 总服务数量
+                "active_services": int,         # 活跃服务数量
+                "services": [                   # 服务列表
+                    {
+                        "name": str,           # 服务名称
+                        "status": str,         # 服务状态
+                        "transport": str,      # 传输类型
+                        "client_id": str,      # 客户端ID
+                        "url": str,            # 服务URL
+                        "tool_count": int,     # 工具数量
+                        "lifecycle": {         # 生命周期信息
+                            "consecutive_successes": int,
+                            "consecutive_failures": int,
+                            "last_ping_time": str,
+                            "error_message": str
+                        }
+                    }
+                ]
+            },
+            "message": str
+        }
+    """
     try:
         store = get_store()
         context = store.for_store()
@@ -275,7 +331,7 @@ async def store_list_services():
 
 @store_router.post("/for_store/init_service", response_model=APIResponse)
 @handle_exceptions
-async def store_init_service(request: Request):
+async def store_init_service(request: Request) -> APIResponse:
     """Store 级别初始化服务到 INITIALIZING 状态
 
     支持三种调用方式：
@@ -337,8 +393,38 @@ async def store_init_service(request: Request):
 
 @store_router.get("/for_store/list_tools", response_model=APIResponse)
 @handle_exceptions
-async def store_list_tools():
-    """Store 级别获取工具列表"""
+async def store_list_tools() -> APIResponse:
+    """获取 Store 级别工具列表
+    
+    返回所有可用工具的详细信息，包括工具描述、输入模式、
+    所属服务、执行统计等。
+    
+    Returns:
+        APIResponse: 包含工具列表的响应对象
+        
+    Response Data Structure:
+        {
+            "success": bool,
+            "data": [                      # 工具列表
+                {
+                    "name": str,         # 工具名称
+                    "description": str,   # 工具描述
+                    "inputSchema": dict,  # 输入模式
+                    "service_name": str,  # 所属服务名称
+                    "executable": bool,  # 是否可执行
+                    "execution_count": int,  # 执行次数
+                    "last_executed": str,     # 最后执行时间
+                    "average_response_time": float  # 平均响应时间
+                }
+            ],
+            "metadata": {                # 元数据
+                "total_tools": int,     # 总工具数量
+                "services_count": int,   # 服务数量
+                "executable_tools": int # 可执行工具数量
+            },
+            "message": str
+        }
+    """
     try:
         store = get_store()
         context = store.for_store()
@@ -360,7 +446,7 @@ async def store_list_tools():
 
 @store_router.get("/for_store/check_services", response_model=APIResponse)
 @handle_exceptions
-async def store_check_services():
+async def store_check_services() -> APIResponse:
     """Store 级别健康检查"""
     try:
         store = get_store()
@@ -381,7 +467,7 @@ async def store_check_services():
 
 @store_router.post("/for_store/call_tool", response_model=APIResponse)
 @handle_exceptions
-async def store_call_tool(request: SimpleToolExecutionRequest):
+async def store_call_tool(request: SimpleToolExecutionRequest) -> APIResponse:
     """Store 级别工具执行"""
     try:
         import time
@@ -426,7 +512,7 @@ async def store_call_tool(request: SimpleToolExecutionRequest):
 
 @store_router.post("/for_store/get_service_info", response_model=APIResponse)
 @handle_exceptions
-async def store_get_service_info(request: Request):
+async def store_get_service_info(request: Request) -> APIResponse:
     """Store 级别获取服务信息"""
     try:
         body = await request.json()
@@ -453,7 +539,7 @@ async def store_get_service_info(request: Request):
 
 @store_router.put("/for_store/update_service/{service_name}", response_model=APIResponse)
 @handle_exceptions
-async def store_update_service(service_name: str, request: Request):
+async def store_update_service(service_name: str, request: Request) -> APIResponse:
     """Store 级别更新服务配置"""
     try:
         body = await request.json()
@@ -497,7 +583,7 @@ async def store_delete_service(service_name: str):
 
 @store_router.get("/for_store/show_mcpconfig", response_model=APIResponse)
 @handle_exceptions
-async def store_show_mcpconfig():
+async def store_show_mcpconfig() -> APIResponse:
     """Store 级别获取MCP配置"""
     try:
         store = get_store()
@@ -713,7 +799,7 @@ async def store_delete_config(client_id_or_service_name: str):
 
 @store_router.put("/for_store/update_config/{client_id_or_service_name}", response_model=APIResponse)
 @handle_exceptions
-async def store_update_config(client_id_or_service_name: str, new_config: dict):
+async def store_update_config(client_id_or_service_name: str, new_config: dict) -> APIResponse:
     """
     Store 级别更新服务配置
 
@@ -724,27 +810,27 @@ async def store_update_config(client_id_or_service_name: str, new_config: dict):
     Returns:
         APIResponse: 更新结果
     """
-    try:
-        store = get_store()
-        result = await store.for_store().update_config_async(client_id_or_service_name, new_config)
+    store = get_store()
+    context = store.for_store()
+    
+    # 使用带超时的配置更新方法
+    success = await ServiceOperationHelper.update_config_with_timeout(
+        context, 
+        new_config,
+        timeout=30.0
+    )
 
-        if result.get("success"):
-            return APIResponse(
-                success=True,
-                data=result,
-                message=result.get("message", "Configuration updated successfully")
-            )
-        else:
-            return APIResponse(
-                success=False,
-                data=result,
-                message=result.get("error", "Failed to update configuration")
-            )
-    except Exception as e:
+    if success:
+        return APIResponse(
+            success=True,
+            data={"client_id_or_service_name": client_id_or_service_name, "config": new_config},
+            message=f"Configuration updated successfully for {client_id_or_service_name}"
+        )
+    else:
         return APIResponse(
             success=False,
-            data={"error": str(e), "client_id": None, "service_name": None, "old_config": None, "new_config": None},
-            message=f"Failed to update store configuration: {str(e)}"
+            data={"client_id_or_service_name": client_id_or_service_name},
+            message=f"Failed to update configuration for {client_id_or_service_name}"
         )
 
 @store_router.post("/for_store/reset_config", response_model=APIResponse)
@@ -777,7 +863,7 @@ async def store_reset_config(scope: str = "all"):
 
 @store_router.post("/for_store/reset_mcp_json_file", response_model=APIResponse)
 @handle_exceptions
-async def store_reset_mcp_json_file():
+async def store_reset_mcp_json_file() -> APIResponse:
     """Store 级别直接重置MCP JSON配置文件"""
     try:
         store = get_store()
@@ -799,7 +885,7 @@ async def store_reset_mcp_json_file():
 # === Store 级别统计和监控 ===
 @store_router.get("/for_store/get_stats", response_model=APIResponse)
 @handle_exceptions
-async def store_get_stats():
+async def store_get_stats() -> APIResponse:
     """Store 级别获取系统统计信息"""
     try:
         store = get_store()
@@ -821,7 +907,7 @@ async def store_get_stats():
 
 @store_router.get("/for_store/health", response_model=APIResponse)
 @handle_exceptions
-async def store_health_check():
+async def store_health_check() -> APIResponse:
     """Store 级别系统健康检查"""
     try:
         # 检查Store级别健康状态
@@ -1230,7 +1316,7 @@ async def store_list_services_by_agent(agent_id: Optional[str] = None):
 
 @store_router.get("/for_store/list_all_agents", response_model=APIResponse)
 @handle_exceptions
-async def store_list_all_agents():
+async def store_list_all_agents() -> APIResponse:
     """列出所有 Agent"""
     try:
         store = get_store()
@@ -1305,4 +1391,341 @@ async def store_list_all_agents():
             success=False,
             message=f"Failed to list all agents: {str(e)}",
             data={"error": str(e)}
+        )
+
+
+
+@store_router.get("/for_store/get_json_config", response_model=APIResponse)
+@handle_exceptions
+async def store_get_json_config() -> APIResponse:
+    """Store 级别获取 JSON 配置"""
+    try:
+        store = get_store()
+        config = store.get_json_config()
+        return APIResponse(
+            success=True,
+            data=config,
+            message="JSON configuration retrieved successfully"
+        )
+    except Exception as e:
+        logger.error(f"Failed to get JSON config: {e}")
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Failed to get JSON configuration: {str(e)}"
+        )
+
+@store_router.get("/for_store/show_mcpjson", response_model=APIResponse)
+@handle_exceptions
+async def store_show_mcpjson() -> APIResponse:
+    """Store 级别显示 mcp.json 内容（已存在，但确保与其他配置 API 一致）"""
+    try:
+        store = get_store()
+        mcpjson = store.show_mcpjson()
+        return APIResponse(
+            success=True,
+            data=mcpjson,
+            message="MCP JSON content retrieved successfully"
+        )
+    except Exception as e:
+        logger.error(f"Failed to show MCP JSON: {e}")
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Failed to show MCP JSON: {str(e)}"
+        )
+
+# === 服务详情相关 API ===
+
+@store_router.get("/for_store/service_info/{service_name}", response_model=APIResponse)
+@handle_exceptions
+async def store_get_service_info_detailed(service_name: str):
+    """Store 级别获取服务详细信息
+    
+    提供服务的完整信息，包括：
+    - 基本配置信息
+    - 运行状态
+    - 生命周期状态元数据
+    - 工具列表
+    - 健康检查结果
+    """
+    try:
+        store = get_store()
+        context = store.for_store()
+        
+        # 查找服务
+        service = None
+        all_services = context.list_services()
+        for s in all_services:
+            if s.name == service_name:
+                service = s
+                break
+        
+        if not service:
+            return APIResponse(
+                success=False,
+                data={},
+                message=f"Service '{service_name}' not found"
+            )
+        
+        # 构建详细的服务信息
+        service_info = {
+            "name": service.name,
+            "status": service.status.value if service.status else "unknown",
+            "transport": service.transport_type.value if service.transport_type else "unknown",
+            "client_id": service.client_id,
+            "url": service.url,
+            "command": service.command,
+            "args": service.args,
+            "env": service.env,
+            "tool_count": service.tool_count,
+            "is_active": service.state_metadata is not None,
+            "config": getattr(service, 'config', {}),
+        }
+        
+        # 添加生命周期状态元数据
+        if service.state_metadata:
+            service_info["lifecycle"] = {
+                "consecutive_successes": service.state_metadata.consecutive_successes,
+                "consecutive_failures": service.state_metadata.consecutive_failures,
+                "last_ping_time": service.state_metadata.last_ping_time.isoformat() if service.state_metadata.last_ping_time else None,
+                "error_message": service.state_metadata.error_message,
+                "reconnect_attempts": service.state_metadata.reconnect_attempts,
+                "state_entered_time": service.state_metadata.state_entered_time.isoformat() if service.state_metadata.state_entered_time else None
+            }
+        
+        # 获取工具列表
+        try:
+            tools_info = context.get_tools_with_stats()
+            service_tools = [tool for tool in tools_info["tools"] if tool.get("service_name") == service_name]
+            service_info["tools"] = service_tools
+        except Exception as e:
+            logger.warning(f"Failed to get tools for service {service_name}: {e}")
+            service_info["tools"] = []
+        
+        # 执行健康检查
+        try:
+            health_status = await context.check_services_async()
+            service_health = None
+            if isinstance(health_status, dict) and "services" in health_status:
+                service_health = health_status["services"].get(service_name)
+            service_info["health"] = service_health or {"status": "unknown", "message": "Health check not available"}
+        except Exception as e:
+            logger.warning(f"Failed to get health for service {service_name}: {e}")
+            service_info["health"] = {"status": "error", "message": str(e)}
+        
+        return APIResponse(
+            success=True,
+            data=service_info,
+            message=f"Detailed service info retrieved for '{service_name}'"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get detailed service info for {service_name}: {e}")
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Failed to get detailed service info: {str(e)}"
+        )
+
+@store_router.get("/for_store/service_status/{service_name}", response_model=APIResponse)
+@handle_exceptions
+async def store_get_service_status(service_name: str):
+    """Store 级别获取服务状态"""
+    try:
+        store = get_store()
+        context = store.for_store()
+        
+        # 查找服务
+        service = None
+        all_services = context.list_services()
+        for s in all_services:
+            if s.name == service_name:
+                service = s
+                break
+        
+        if not service:
+            return APIResponse(
+                success=False,
+                data={},
+                message=f"Service '{service_name}' not found"
+            )
+        
+        # 构建状态信息
+        status_info = {
+            "name": service.name,
+            "status": service.status.value if service.status else "unknown",
+            "is_active": service.state_metadata is not None,
+            "client_id": service.client_id,
+            "last_updated": None
+        }
+        
+        # 添加生命周期状态
+        if service.state_metadata:
+            status_info.update({
+                "consecutive_successes": service.state_metadata.consecutive_successes,
+                "consecutive_failures": service.state_metadata.consecutive_failures,
+                "error_message": service.state_metadata.error_message,
+                "reconnect_attempts": service.state_metadata.reconnect_attempts,
+                "last_ping_time": service.state_metadata.last_ping_time.isoformat() if service.state_metadata.last_ping_time else None,
+                "state_entered_time": service.state_metadata.state_entered_time.isoformat() if service.state_metadata.state_entered_time else None
+            })
+            status_info["last_updated"] = status_info["last_ping_time"] or status_info["state_entered_time"]
+        
+        return APIResponse(
+            success=True,
+            data=status_info,
+            message=f"Service status retrieved for '{service_name}'"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get service status for {service_name}: {e}")
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Failed to get service status: {str(e)}"
+        )
+
+@store_router.post("/for_store/service_health/{service_name}", response_model=APIResponse)
+@handle_exceptions
+async def store_check_service_health(service_name: str):
+    """Store 级别检查服务健康状态"""
+    try:
+        store = get_store()
+        context = store.for_store()
+        
+        # 首先检查服务是否存在
+        service = None
+        all_services = context.list_services()
+        for s in all_services:
+            if s.name == service_name:
+                service = s
+                break
+        
+        if not service:
+            return APIResponse(
+                success=False,
+                data={},
+                message=f"Service '{service_name}' not found"
+            )
+        
+        # 执行健康检查
+        health_status = await context.check_services_async()
+        service_health = None
+        
+        if isinstance(health_status, dict) and "services" in health_status:
+            service_health = health_status["services"].get(service_name)
+        
+        if not service_health:
+            return APIResponse(
+                success=False,
+                data={"service_name": service_name},
+                message=f"Health status not available for service '{service_name}'"
+            )
+        
+        # 构建健康详情
+        health_details = {
+            "service_name": service_name,
+            "status": service_health.get("status", "unknown"),
+            "message": service_health.get("message", "No health information available"),
+            "timestamp": service_health.get("timestamp"),
+            "uptime": service_health.get("uptime"),
+            "error_count": service_health.get("error_count", 0),
+            "last_error": service_health.get("last_error"),
+            "response_time": service_health.get("response_time"),
+            "is_healthy": service_health.get("status") in ["healthy", "ready"]
+        }
+        
+        return APIResponse(
+            success=True,
+            data=health_details,
+            message=f"Health check completed for service '{service_name}'"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to check service health for {service_name}: {e}")
+        return APIResponse(
+            success=False,
+            data={"service_name": service_name, "error": str(e)},
+            message=f"Failed to check service health: {str(e)}"
+        )
+
+@store_router.get("/for_store/service_health_details/{service_name}", response_model=APIResponse)
+@handle_exceptions
+async def store_get_service_health_details(service_name: str):
+    """Store 级别获取服务健康详情"""
+    try:
+        store = get_store()
+        context = store.for_store()
+        
+        # 首先检查服务是否存在
+        service = None
+        all_services = context.list_services()
+        for s in all_services:
+            if s.name == service_name:
+                service = s
+                break
+        
+        if not service:
+            return APIResponse(
+                success=False,
+                data={},
+                message=f"Service '{service_name}' not found"
+            )
+        
+        # 获取完整的服务信息
+        service_info = {
+            "name": service.name,
+            "status": service.status.value if service.status else "unknown",
+            "client_id": service.client_id,
+            "transport": service.transport_type.value if service.transport_type else "unknown"
+        }
+        
+        # 添加生命周期状态
+        if service.state_metadata:
+            service_info["lifecycle"] = {
+                "consecutive_successes": service.state_metadata.consecutive_successes,
+                "consecutive_failures": service.state_metadata.consecutive_failures,
+                "error_message": service.state_metadata.error_message,
+                "reconnect_attempts": service.state_metadata.reconnect_attempts,
+                "last_ping_time": service.state_metadata.last_ping_time.isoformat() if service.state_metadata.last_ping_time else None,
+                "state_entered_time": service.state_metadata.state_entered_time.isoformat() if service.state_metadata.state_entered_time else None
+            }
+        
+        # 执行健康检查
+        health_status = await context.check_services_async()
+        service_health = None
+        
+        if isinstance(health_status, dict) and "services" in health_status:
+            service_health = health_status["services"].get(service_name)
+        
+        health_details = service_health or {
+            "status": "unknown",
+            "message": "Health check not available"
+        }
+        
+        # 合并信息
+        result = {
+            "service": service_info,
+            "health": health_details,
+            "summary": {
+                "is_healthy": health_details.get("status") in ["healthy", "ready"],
+                "is_active": service.state_metadata is not None,
+                "has_errors": bool(service.state_metadata and service.state_metadata.error_message),
+                "consecutive_failures": service.state_metadata.consecutive_failures if service.state_metadata else 0
+            }
+        }
+        
+        return APIResponse(
+            success=True,
+            data=result,
+            message=f"Health details retrieved for service '{service_name}'"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get service health details for {service_name}: {e}")
+        return APIResponse(
+            success=False,
+            data={},
+            message=f"Failed to get service health details: {str(e)}"
         )

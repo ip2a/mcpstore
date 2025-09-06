@@ -885,12 +885,12 @@ class ServiceOperationsMixin:
             logger.info("📁 Starting background file persistence...")
 
             if self._context_type == ContextType.STORE:
-                # Store模式：更新 mcp.json 和 agent_clients 映射
+                # 单一数据源模式：仅更新 mcp.json（agent_clients 映射仅更新缓存，不写分片文件）
                 await self._persist_to_mcp_json(services_to_add)
-                # 🔧 修复：Store模式也需要同步agent_clients映射到文件
+                # 单一数据源模式：跳过 agent_clients 分片文件的写入，仅维护缓存映射
                 await self._persist_store_agent_mappings(services_to_add)
             else:
-                # Agent模式：更新 agent_clients.json 和 client_services.json
+                # Agent模式：仅更新缓存，所有持久化仅通过 mcp.json 完成（分片文件已废弃）
                 await self._persist_to_agent_files(services_to_add)
 
             logger.info("📁 Background file persistence completed")
@@ -923,9 +923,9 @@ class ServiceOperationsMixin:
 
     async def _persist_store_agent_mappings(self, services_to_add: Dict[str, Dict[str, Any]]):
         """
-        Store模式：持久化agent_clients映射到文件
+        单一数据源模式：仅更新内存缓存中的 agent_clients 映射
 
-        Store模式下，服务添加到global_agent_store，需要同步映射关系到文件
+        说明：Store 模式下，服务添加到 global_agent_store，仅维护缓存映射；不再写入任何分片文件
         """
         try:
             agent_id = self._store.client_manager.global_agent_store_id
@@ -1257,14 +1257,11 @@ class ServiceOperationsMixin:
                 if (hasattr(self._store, 'orchestrator') and self._store.orchestrator and
                     hasattr(self._store.orchestrator, 'lifecycle_manager') and
                     self._store.orchestrator.lifecycle_manager):
-                    # 为两个缓存空间都初始化生命周期
+                    # 仅初始化全局命名空间的生命周期，避免对同一远端服务重复连接
                     self._store.orchestrator.lifecycle_manager.initialize_service(
                         self._store.client_manager.global_agent_store_id, global_name, service_config
                     )
-                    self._store.orchestrator.lifecycle_manager.initialize_service(
-                        agent_id, local_name, service_config
-                    )
-                    logger.debug(f"✅ [AGENT_PROXY] 初始化生命周期管理: {global_name}, {local_name}")
+                    logger.debug(f"✅ [AGENT_PROXY] 初始化生命周期管理(仅全局): {global_name}")
 
                 logger.info(f"✅ [AGENT_PROXY] Agent 服务添加完成: {local_name} → {global_name}")
 

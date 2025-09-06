@@ -1,80 +1,154 @@
 // MCPStore Vue Frontend - SCSS Variables
-// 定义全局样式变量
+// 基于 vue-element-admin 设计系统的现代化样式变量
 
-// 颜色系统
+// 颜色系统 - 专业的企业级配色
 :root {
-  // 主色调
+  // 主色调 - Element Plus 蓝色系
   --primary-color: #409EFF;
-  --primary-light: #79bbff;
+  --primary-light: #66B1FF;
   --primary-dark: #337ecc;
+  --primary-lighter: #ECF5FF;
+  --primary-lightest: #F0F9FF;
   
-  // 功能色
+  // 辅助色 - 精选的功能色
+  --secondary-color: #E6A23C;
+  --secondary-light: #F3D19E;
+  --secondary-dark: #CF9236;
+  
+  // 功能色 - 语义化色彩
   --success-color: #67C23A;
-  --warning-color: #E6A23C;
-  --danger-color: #F56C6C;
-  --info-color: #909399;
+  --success-light: #85CE61;
+  --success-lighter: #F0F9FF;
+  --success-dark: #529B2E;
   
-  // 中性色
+  --warning-color: #E6A23C;
+  --warning-light: #F3D19E;
+  --warning-lighter: #FDF6EC;
+  --warning-dark: #CF9236;
+  
+  --danger-color: #F56C6C;
+  --danger-light: #F78989;
+  --danger-lighter: #FEF0F0;
+  --danger-dark: #DD6161;
+  
+  --info-color: #909399;
+  --info-light: #A6A9AD;
+  --info-lighter: #F4F4F5;
+  --info-dark: #82848A;
+  
+  // 中性色 - 专业的灰度层次
   --text-primary: #303133;
   --text-regular: #606266;
   --text-secondary: #909399;
   --text-placeholder: #C0C4CC;
+  --text-inverse: #FFFFFF;
   
-  // 边框色
+  // 边框色 - 细腻的层次感
   --border-base: #DCDFE6;
   --border-light: #E4E7ED;
   --border-lighter: #EBEEF5;
   --border-extra-light: #F2F6FC;
+  --border-emphasis: #D4D7DE;
   
-  // 背景色
+  // 背景色 - 清晰的层次结构
   --bg-color: #FFFFFF;
-  --bg-color-page: #F2F3F5;
-  --bg-color-overlay: rgba(255, 255, 255, 0.9);
+  --bg-color-page: #F5F7FA;
+  --bg-color-overlay: rgba(255, 255, 255, 0.95);
+  --bg-color-secondary: #F5F7FA;
+  --bg-color-tertiary: #EBEEF5;
+  --bg-color-quaternary: #E6E8EB;
   
-  // 阴影
-  --shadow-base: 0 2px 4px rgba(0, 0, 0, 0.12), 0 0 6px rgba(0, 0, 0, 0.04);
-  --shadow-light: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-  --shadow-dark: 0 4px 12px rgba(0, 0, 0, 0.15);
+  // 阴影系统 - 专业的阴影层次
+  --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+  --shadow-sm: 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+  --shadow-base: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 16px 0 rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 6px 24px 0 rgba(0, 0, 0, 0.12);
+  --shadow-xl: 0 8px 32px 0 rgba(0, 0, 0, 0.14);
+  --shadow-2xl: 0 12px 48px 0 rgba(0, 0, 0, 0.16);
+  --shadow-inner: inset 0 2px 8px 0 rgba(0, 0, 0, 0.06);
+  --shadow-colored: 0 4px 12px 0 rgba(64, 158, 255, 0.15);
   
-  // 圆角
-  --border-radius-base: 4px;
-  --border-radius-small: 2px;
-  --border-radius-large: 8px;
-  --border-radius-round: 20px;
-  --border-radius-circle: 50%;
+  // 圆角系统 - 统一的圆角规范
+  --border-radius-xs: 2px;
+  --border-radius-sm: 4px;
+  --border-radius-base: 6px;
+  --border-radius-md: 8px;
+  --border-radius-lg: 12px;
+  --border-radius-xl: 16px;
+  --border-radius-2xl: 20px;
+  --border-radius-3xl: 24px;
+  --border-radius-full: 50%;
+  --border-radius-section: 12px;
+  --border-radius-card: 8px;
   
-  // 间距
-  --spacing-xs: 4px;
-  --spacing-sm: 8px;
-  --spacing-md: 16px;
-  --spacing-lg: 24px;
-  --spacing-xl: 32px;
-  --spacing-xxl: 48px;
+  // 间距系统 - 8px 基准的间距体系
+  --spacing-0: 0;
+  --spacing-1: 2px;
+  --spacing-2: 4px;
+  --spacing-3: 6px;
+  --spacing-4: 8px;
+  --spacing-5: 10px;
+  --spacing-6: 12px;
+  --spacing-7: 14px;
+  --spacing-8: 16px;
+  --spacing-9: 18px;
+  --spacing-10: 20px;
+  --spacing-11: 22px;
+  --spacing-12: 24px;
+  --spacing-14: 28px;
+  --spacing-16: 32px;
+  --spacing-18: 36px;
+  --spacing-20: 40px;
+  --spacing-24: 48px;
+  --spacing-28: 56px;
+  --spacing-32: 64px;
+  --spacing-36: 72px;
+  --spacing-40: 80px;
+  --spacing-48: 96px;
+  --spacing-56: 112px;
+  --spacing-64: 128px;
   
-  // 字体
+  // 字体系统 - 专业的字体规范
+  --font-family-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+  --font-family-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, 'Courier New', monospace;
+  
   --font-size-xs: 12px;
   --font-size-sm: 13px;
   --font-size-base: 14px;
+  --font-size-md: 14px;
   --font-size-lg: 16px;
   --font-size-xl: 18px;
-  --font-size-xxl: 20px;
+  --font-size-2xl: 20px;
+  --font-size-3xl: 24px;
+  --font-size-4xl: 28px;
+  --font-size-5xl: 32px;
+  --font-size-6xl: 36px;
   
   --font-weight-light: 300;
   --font-weight-normal: 400;
   --font-weight-medium: 500;
+  --font-weight-semibold: 600;
   --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
   
-  // 行高
+  --line-height-tight: 1.25;
+  --line-height-snug: 1.375;
   --line-height-base: 1.5;
-  --line-height-small: 1.2;
-  --line-height-large: 1.8;
+  --line-height-relaxed: 1.625;
+  --line-height-loose: 2;
   
-  // 过渡动画
-  --transition-base: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
-  --transition-fast: all 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
-  --transition-slow: all 0.5s cubic-bezier(0.645, 0.045, 0.355, 1);
+  // 过渡动画 - 流畅的动画效果
+  --transition-fast: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: all 400ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slower: all 500ms cubic-bezier(0.4, 0, 0.2, 1);
   
-  // Z-index层级
+  // Z-index 层级 - 清晰的层级关系
+  --z-index-hide: -1;
+  --z-index-auto: auto;
+  --z-index-base: 1;
   --z-index-dropdown: 1000;
   --z-index-sticky: 1020;
   --z-index-fixed: 1030;
@@ -82,47 +156,167 @@
   --z-index-modal: 1050;
   --z-index-popover: 1060;
   --z-index-tooltip: 1070;
-  --z-index-toast: 1080;
+  --z-index-notification: 1080;
+  --z-index-toast: 1090;
+  --z-index-sider: 1000;
+  --z-index-header: 900;
+  
+  // 尺寸系统 - 统一的尺寸规范
+  --size-0: 0;
+  --size-1: 2px;
+  --size-2: 4px;
+  --size-3: 6px;
+  --size-4: 8px;
+  --size-5: 10px;
+  --size-6: 12px;
+  --size-7: 14px;
+  --size-8: 16px;
+  --size-9: 18px;
+  --size-10: 20px;
+  --size-11: 22px;
+  --size-12: 24px;
+  --size-14: 28px;
+  --size-16: 32px;
+  --size-18: 36px;
+  --size-20: 40px;
+  --size-24: 48px;
+  --size-28: 56px;
+  --size-32: 64px;
+  --size-36: 72px;
+  --size-40: 80px;
+  --size-44: 88px;
+  --size-48: 96px;
+  --size-52: 104px;
+  --size-56: 112px;
+  --size-60: 120px;
+  --size-64: 128px;
+  --size-72: 144px;
+  --size-80: 160px;
+  --size-96: 192px;
+  
+  // 透明度系统 - 精细的透明度控制
+  --opacity-0: 0;
+  --opacity-5: 0.05;
+  --opacity-10: 0.1;
+  --opacity-20: 0.2;
+  --opacity-25: 0.25;
+  --opacity-30: 0.3;
+  --opacity-40: 0.4;
+  --opacity-50: 0.5;
+  --opacity-60: 0.6;
+  --opacity-70: 0.7;
+  --opacity-75: 0.75;
+  --opacity-80: 0.8;
+  --opacity-90: 0.9;
+  --opacity-95: 0.95;
+  --opacity-100: 1;
+  
+  // 断点系统 - 响应式设计断点
+  --breakpoint-xs: 480px;
+  --breakpoint-sm: 768px;
+  --breakpoint-md: 992px;
+  --breakpoint-lg: 1200px;
+  --breakpoint-xl: 1600px;
+  
+  // 头部高度
+  --header-height: 64px;
+  
+  // 侧边栏宽度
+  --sidebar-width: 260px;
+  --sidebar-collapse-width: 64px;
+  
+  // 组件尺寸
+  --component-height-sm: 32px;
+  --component-height-base: 36px;
+  --component-height-lg: 40px;
+  
+  // 间隔
+  --gap-xs: 4px;
+  --gap-sm: 8px;
+  --gap-md: 16px;
+  --gap-lg: 24px;
+  --gap-xl: 32px;
+  
+  // 卡片样式
+  --card-padding: 20px;
+  --card-radius: 8px;
+  --card-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
 }
 
-// 暗色主题
+// 暗色主题 - 专业的暗色模式配色
 :root.dark {
-  // 主色调（暗色模式下稍微调亮）
-  --primary-color: #529EFF;
-  --primary-light: #79bbff;
-  --primary-dark: #337ecc;
+  // 主色调 - 保持品牌一致性
+  --primary-color: #409EFF;
+  --primary-light: #66B1FF;
+  --primary-dark: #53A8FF;
+  --primary-lighter: #182B4A;
+  --primary-lightest: #0F182D;
   
-  // 功能色
-  --success-color: #7EC23A;
-  --warning-color: #F6A23C;
-  --danger-color: #FF6C6C;
-  --info-color: #A0A4A8;
+  // 辅助色 - 暗色模式适配
+  --secondary-color: #E6A23C;
+  --secondary-light: #F3D19E;
+  --secondary-dark: #E6A23C;
   
-  // 中性色
+  // 功能色 - 暗色模式优化
+  --success-color: #67C23A;
+  --success-light: #85CE61;
+  --success-lighter: #1B3A1F;
+  --success-dark: #67C23A;
+  
+  --warning-color: #E6A23C;
+  --warning-light: #F3D19E;
+  --warning-lighter: #3A2F1F;
+  --warning-dark: #E6A23C;
+  
+  --danger-color: #F56C6C;
+  --danger-light: #F78989;
+  --danger-lighter: #3A1F1F;
+  --danger-dark: #F56C6C;
+  
+  --info-color: #909399;
+  --info-light: #A6A9AD;
+  --info-lighter: #2F3133;
+  --info-dark: #909399;
+  
+  // 中性色 - 暗色模式层次
   --text-primary: #E5EAF3;
   --text-regular: #CFD3DC;
   --text-secondary: #A3A6AD;
   --text-placeholder: #8D9095;
+  --text-inverse: #141414;
   
-  // 边框色
+  // 边框色 - 暗色模式边框
   --border-base: #4C4D4F;
-  --border-light: #414243;
-  --border-lighter: #363637;
-  --border-extra-light: #2B2B2C;
+  --border-light: #363637;
+  --border-lighter: #2B2B2D;
+  --border-extra-light: #262727;
+  --border-emphasis: #5C5D5E;
   
-  // 背景色
-  --bg-color: #1D1E1F;
+  // 背景色 - 暗色模式层次
+  --bg-color: #141414;
   --bg-color-page: #0A0A0A;
-  --bg-color-overlay: rgba(29, 30, 31, 0.9);
+  --bg-color-overlay: rgba(20, 20, 20, 0.95);
+  --bg-color-secondary: #1A1A1A;
+  --bg-color-tertiary: #262727;
+  --bg-color-quaternary: #2B2B2D;
   
-  // 阴影
-  --shadow-base: 0 2px 4px rgba(0, 0, 0, 0.24), 0 0 6px rgba(0, 0, 0, 0.08);
-  --shadow-light: 0 2px 12px 0 rgba(0, 0, 0, 0.2);
-  --shadow-dark: 0 4px 12px rgba(0, 0, 0, 0.3);
+  // 阴影系统 - 暗色模式阴影
+  --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.2);
+  --shadow-sm: 0 1px 4px 0 rgba(0, 0, 0, 0.3);
+  --shadow-base: 0 2px 8px 0 rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px 0 rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 24px 0 rgba(0, 0, 0, 0.6);
+  --shadow-xl: 0 12px 32px 0 rgba(0, 0, 0, 0.7);
+  --shadow-2xl: 0 16px 48px 0 rgba(0, 0, 0, 0.8);
+  --shadow-inner: inset 0 2px 4px 0 rgba(0, 0, 0, 0.3);
+  --shadow-colored: 0 4px 12px 0 rgba(64, 158, 255, 0.25);
 }
 
-// SCSS变量（用于编译时）
+// SCSS变量（用于编译时）- 基于 Element Plus 设计系统
 $primary-color: #409EFF;
+$primary-light: #66B1FF;
+$primary-dark: #337ecc;
+
 $success-color: #67C23A;
 $warning-color: #E6A23C;
 $danger-color: #F56C6C;
@@ -138,11 +332,13 @@ $border-light: #E4E7ED;
 $border-lighter: #EBEEF5;
 
 $bg-color: #FFFFFF;
-$bg-color-page: #F2F3F5;
+$bg-color-page: #F5F7FA;
+$bg-color-secondary: #F5F7FA;
 
-$border-radius-base: 4px;
-$border-radius-small: 2px;
-$border-radius-large: 8px;
+$border-radius-base: 6px;
+$border-radius-sm: 4px;
+$border-radius-md: 8px;
+$border-radius-lg: 12px;
 
 $spacing-xs: 4px;
 $spacing-sm: 8px;
@@ -153,20 +349,34 @@ $spacing-xl: 32px;
 $font-size-xs: 12px;
 $font-size-sm: 13px;
 $font-size-base: 14px;
+$font-size-md: 14px;
 $font-size-lg: 16px;
 $font-size-xl: 18px;
 
-$transition-base: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
-$transition-fast: all 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
+$transition-base: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+$transition-fast: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+$transition-normal: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
 
 // 断点
 $breakpoint-xs: 480px;
 $breakpoint-sm: 768px;
 $breakpoint-md: 992px;
 $breakpoint-lg: 1200px;
-$breakpoint-xl: 1920px;
+$breakpoint-xl: 1600px;
 
-// 混合器
+// 布局变量
+$header-height: 64px;
+$sidebar-width: 260px;
+$sidebar-collapse-width: 64px;
+
+// 组件变量
+$card-padding: 20px;
+$card-radius: 8px;
+$card-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+
+// 混合器 - 现代化的样式工具
+
+// Flexbox 布局工具
 @mixin flex-center {
   display: flex;
   align-items: center;
@@ -179,12 +389,52 @@ $breakpoint-xl: 1920px;
   justify-content: space-between;
 }
 
+@mixin flex-start {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+@mixin flex-end {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+@mixin flex-column {
+  display: flex;
+  flex-direction: column;
+}
+
+@mixin flex-column-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+// 文本工具
 @mixin text-ellipsis {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+@mixin text-ellipsis-multiline($lines: 2) {
+  display: -webkit-box;
+  -webkit-line-clamp: $lines;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@mixin text-break {
+  word-wrap: break-word;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+// 清除浮动
 @mixin clearfix {
   &::after {
     content: "";
@@ -193,23 +443,84 @@ $breakpoint-xl: 1920px;
   }
 }
 
-@mixin card-shadow {
-  box-shadow: var(--shadow-base);
-  border-radius: var(--border-radius-base);
+// 卡片样式
+@mixin card-base {
+  border-radius: var(--border-radius-card);
   background: var(--bg-color);
   border: 1px solid var(--border-lighter);
+  transition: var(--transition-base);
 }
 
+@mixin card-shadow {
+  @include card-base;
+  box-shadow: var(--card-shadow);
+}
+
+@mixin card-hover {
+  @include card-shadow;
+  
+  &:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+    border-color: var(--border-emphasis);
+  }
+}
+
+// 按钮样式
+@mixin button-base {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--border-radius-base);
+  font-weight: var(--font-weight-medium);
+  transition: var(--transition-base);
+  cursor: pointer;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  
+  &:focus {
+    outline: none;
+  }
+  
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+// 状态样式
+@mixin status-badge($color) {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--border-radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  background: rgba($color, 0.1);
+  color: $color;
+  border: 1px solid rgba($color, 0.2);
+}
+
+// 阴影效果
 @mixin hover-shadow {
   transition: var(--transition-base);
   
   &:hover {
-    box-shadow: var(--shadow-light);
+    box-shadow: var(--shadow-md);
     transform: translateY(-2px);
   }
 }
 
-// 响应式混合器
+@mixin hover-lift {
+  transition: var(--transition-base);
+  
+  &:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+// 响应式工具
 @mixin respond-to($breakpoint) {
   @if $breakpoint == xs {
     @media (max-width: #{$breakpoint-xs - 1px}) {
@@ -236,4 +547,125 @@ $breakpoint-xl: 1920px;
       @content;
     }
   }
+}
+
+// 滚动条样式
+@mixin scrollbar-thin {
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  &::-webkit-scrollbar-track {
+    background: var(--bg-color-secondary);
+    border-radius: var(--border-radius-sm);
+  }
+  
+  &::-webkit-scrollbar-thumb {
+    background: var(--border-light);
+    border-radius: var(--border-radius-sm);
+    
+    &:hover {
+      background: var(--border-emphasis);
+    }
+  }
+}
+
+// 动画效果
+@mixin slide-in($direction: 'left', $duration: 300ms) {
+  @if $direction == 'left' {
+    animation: slideInLeft $duration ease-out;
+  } @else if $direction == 'right' {
+    animation: slideInRight $duration ease-out;
+  } @else if $direction == 'up' {
+    animation: slideInUp $duration ease-out;
+  } @else if $direction == 'down' {
+    animation: slideInDown $duration ease-out;
+  }
+}
+
+// 渐变背景
+@mixin gradient-primary {
+  background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+}
+
+@mixin gradient-success {
+  background: linear-gradient(135deg, var(--success-color) 0%, var(--success-dark) 100%);
+}
+
+@mixin gradient-warning {
+  background: linear-gradient(135deg, var(--warning-color) 0%, var(--warning-dark) 100%);
+}
+
+@mixin gradient-danger {
+  background: linear-gradient(135deg, var(--danger-color) 0%, var(--danger-dark) 100%);
+}
+
+// 工具类生成器
+@mixin utility-classes {
+  // 间距工具类
+  @each $size, $value in (0, 0), (1, 4px), (2, 8px), (3, 12px), (4, 16px), (5, 20px), (6, 24px), (8, 32px), (10, 40px), (12, 48px), (16, 64px) {
+    .m-#{$size} { margin: $value !important; }
+    .mt-#{$size} { margin-top: $value !important; }
+    .mr-#{$size} { margin-right: $value !important; }
+    .mb-#{$size} { margin-bottom: $value !important; }
+    .ml-#{$size} { margin-left: $value !important; }
+    .mx-#{$size} { margin-left: $value !important; margin-right: $value !important; }
+    .my-#{$size} { margin-top: $value !important; margin-bottom: $value !important; }
+    
+    .p-#{$size} { padding: $value !important; }
+    .pt-#{$size} { padding-top: $value !important; }
+    .pr-#{$size} { padding-right: $value !important; }
+    .pb-#{$size} { padding-bottom: $value !important; }
+    .pl-#{$size} { padding-left: $value !important; }
+    .px-#{$size} { padding-left: $value !important; padding-right: $value !important; }
+    .py-#{$size} { padding-top: $value !important; padding-bottom: $value !important; }
+  }
+  
+  // 文本对齐工具类
+  .text-left { text-align: left !important; }
+  .text-center { text-align: center !important; }
+  .text-right { text-align: right !important; }
+  .text-justify { text-align: justify !important; }
+  
+  // 文本颜色工具类
+  .text-primary { color: var(--text-primary) !important; }
+  .text-regular { color: var(--text-regular) !important; }
+  .text-secondary { color: var(--text-secondary) !important; }
+  .text-placeholder { color: var(--text-placeholder) !important; }
+  .text-success { color: var(--success-color) !important; }
+  .text-warning { color: var(--warning-color) !important; }
+  .text-danger { color: var(--danger-color) !important; }
+  .text-info { color: var(--info-color) !important; }
+  
+  // 背景颜色工具类
+  .bg-primary { background-color: var(--primary-color) !important; }
+  .bg-success { background-color: var(--success-color) !important; }
+  .bg-warning { background-color: var(--warning-color) !important; }
+  .bg-danger { background-color: var(--danger-color) !important; }
+  .bg-info { background-color: var(--info-color) !important; }
+  
+  // 显示隐藏工具类
+  .d-none { display: none !important; }
+  .d-block { display: block !important; }
+  .d-inline { display: inline !important; }
+  .d-inline-block { display: inline-block !important; }
+  .d-flex { display: flex !important; }
+  .d-inline-flex { display: inline-flex !important; }
+  
+  // Flexbox 工具类
+  .flex-row { flex-direction: row !important; }
+  .flex-column { flex-direction: column !important; }
+  .flex-wrap { flex-wrap: wrap !important; }
+  .flex-nowrap { flex-wrap: nowrap !important; }
+  .justify-start { justify-content: flex-start !important; }
+  .justify-end { justify-content: flex-end !important; }
+  .justify-center { justify-content: center !important; }
+  .justify-between { justify-content: space-between !important; }
+  .justify-around { justify-content: space-around !important; }
+  .items-start { align-items: flex-start !important; }
+  .items-end { align-items: flex-end !important; }
+  .items-center { align-items: center !important; }
+  .items-baseline { align-items: baseline !important; }
+  .items-stretch { align-items: stretch !important; }
 }
