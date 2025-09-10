@@ -688,15 +688,10 @@ const getStatusText = (status) => {
 const refreshServices = async () => {
   refreshLoading.value = true
   try {
-    // 直接调用API获取完整数据
     const { api } = await import('@/api')
-    const response = await api.store.listServices()
-
-    // 保存完整的API响应数据
-    servicesData.value = response.data.data
-
-    // 同时更新systemStore中的服务数据
-    await systemStore.fetchServices()
+    const servicesArr = await api.store.listServices()
+    servicesData.value = { services: servicesArr, total_services: servicesArr.length }
+    await systemStore.fetchServices(true)
 
     ElMessage.success('服务列表刷新成功')
   } catch (error) {
@@ -895,7 +890,7 @@ const deleteService = async (service) => {
       response = await api.agent.deleteConfig(agentId, service.name)
     } else {
       // Store级别删除
-      response = await api.store.deleteConfig(service.name)
+      response = await api.store.deleteService(service.name)
     }
 
     if (response.data.success) {
@@ -926,7 +921,7 @@ const editService = async (service) => {
       response = await api.agent.showConfig(agentId)
     } else {
       // Store级别获取配置
-      response = await api.store.showConfig('global_agent_store')
+      response = await api.store.getConfig('global')
     }
 
     if (response.data.success) {
@@ -1060,7 +1055,7 @@ const activateService = async (service) => {
     service.activating = true
 
     const { api } = await import('@/api')
-    const response = await api.store.activateService(service.name)
+    const response = await api.store.initService(service.name)
 
     if (response.data.success) {
       ElMessage.success(`服务 ${service.name} 激活成功`)
@@ -1270,13 +1265,10 @@ const saveServiceEdit = async () => {
 onMounted(async () => {
   pageLoading.value = true
   try {
-    // 获取完整的服务数据
     const { api } = await import('@/api')
-    const response = await api.store.listServices()
-    servicesData.value = response // extractResponseData already returns the data array
-
-    // 同时更新systemStore
-    await systemStore.fetchServices()
+    const servicesArr = await api.store.listServices()
+    servicesData.value = { services: servicesArr, total_services: servicesArr.length }
+    await systemStore.fetchServices(true)
   } catch (error) {
     console.error('初始加载服务列表失败:', error)
     handleError(error)

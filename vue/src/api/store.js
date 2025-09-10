@@ -134,7 +134,10 @@ export const storeApi = {
   /**
    * 批量操作
    */
-  batchUpdateServices: (updates) => apiRequest.patch(API_ENDPOINTS.STORE.BATCH_UPDATE_SERVICES, updates),
+  batchUpdateServices: (serviceNames, updates) => apiRequest.patch(
+    API_ENDPOINTS.STORE.BATCH_UPDATE_SERVICES,
+    { service_names: serviceNames, updates }
+  ),
   
   batchDeleteServices: (serviceNames) => apiRequest.post(API_ENDPOINTS.STORE.BATCH_DELETE_SERVICES, { 
     service_names: serviceNames 

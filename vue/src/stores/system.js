@@ -183,27 +183,8 @@ export const useSystemStore = defineStore('system', () => {
       setLoadingState('services', true)
       appStore?.setLoadingState('services', true)
 
-      const response = await api.store.listServices()
-      console.log('🔍 [STORE] 服务列表响应:', response)
-
-      // 🔧 修复：正确提取服务数组，支持多种API响应格式
-      if (response.data && response.data.success && response.data.data && Array.isArray(response.data.data.services)) {
-        // 新格式：{ success: true, data: { services: [...], total_services: 2 } }
-        services.value = response.data.data.services
-        console.log('✅ [STORE] 使用新格式提取服务数据')
-      } else if (response.data && Array.isArray(response.data.services)) {
-        // 另一种格式：{ services: [...], total_services: 2 }
-        services.value = response.data.services
-        console.log('✅ [STORE] 使用直接services格式提取服务数据')
-      } else if (response.data && Array.isArray(response.data.data)) {
-        // 兼容旧格式：data直接是数组
-        services.value = response.data.data
-        console.log('✅ [STORE] 使用旧格式提取服务数据')
-      } else {
-        console.warn('⚠️ [STORE] 无法识别的API响应格式，使用空数组')
-        console.warn('响应结构:', response.data)
-        services.value = []
-      }
+      const servicesArr = await api.store.listServices()
+      services.value = Array.isArray(servicesArr) ? servicesArr : []
 
       console.log('🔍 [STORE] 解析后的服务数据:', services.value)
       console.log('🔍 [STORE] 服务数量:', services.value.length)
@@ -235,9 +216,8 @@ export const useSystemStore = defineStore('system', () => {
       setLoadingState('tools', true)
       appStore?.setLoadingState('tools', true)
 
-      const response = await api.store.getTools()
-      // 修复：正确提取工具数组
-      tools.value = response.data?.data || []
+      const toolsArr = await api.store.getTools()
+      tools.value = Array.isArray(toolsArr) ? toolsArr : []
       updateStats()
       lastUpdateTime.value = new Date()
 
@@ -266,9 +246,8 @@ export const useSystemStore = defineStore('system', () => {
       setLoadingState('agents', true)
       appStore?.setLoadingState('agents', true)
 
-      const response = await api.store.listAllAgents()
-      // 修复：正确提取代理数组
-      agents.value = response.data?.data || response.data || []
+      const agentsArr = await api.store.listAllAgents()
+      agents.value = Array.isArray(agentsArr) ? agentsArr : []
       updateStats()
       lastUpdateTime.value = new Date()
 
@@ -454,10 +433,10 @@ export const useSystemStore = defineStore('system', () => {
     }
   }
 
-  const batchUpdateServices = async (updates) => {
+  const batchUpdateServices = async (serviceNames, updates) => {
     try {
       loading.value = true
-      const response = await api.store.batchUpdateServices(updates)
+      const response = await api.store.batchUpdateServices(serviceNames, updates)
 
       if (response.data.success) {
         // 刷新服务列表
