@@ -106,45 +106,66 @@ class ServiceQueryMixin:
                 )
                 services_info.append(service_info)
 
-        # 2. Agent模式：从缓存获取 Agent 的服务
+        # 2. Agent模式：作为“视图”，从 Store 命名空间派生服务列表
         elif agent_mode and id:
-            service_names = self.registry.get_all_service_names(id)
+            try:
+                agent_id = id
+                global_agent_id = self.client_manager.global_agent_store_id
 
-            for service_name in service_names:
-                complete_info = self.registry.get_complete_service_info(id, service_name)
+                # 通过映射获取该 Agent 的全局服务名集合
+                global_service_names = self.registry.get_agent_services(agent_id)
+                if not global_service_names:
+                    logger.debug(f"[STORE.LIST_SERVICES] Agent {agent_id} 没有已映射的全局服务，返回空列表")
+                    return services_info
 
-                # Agent模式可能需要名称映射
-                display_name = service_name
-                if hasattr(self, '_service_mapper') and self._service_mapper:
-                    display_name = self._service_mapper.to_local_name(service_name)
+                for global_name in global_service_names:
+                    # 解析出本地名（显示用）并校验归属
+                    parsed = self.registry.get_agent_service_from_global_name(global_name)
+                    if not parsed:
+                        continue
+                    mapped_agent, local_name = parsed
+                    if mapped_agent != agent_id:
+                        continue
 
-                # 确保状态是ServiceConnectionState枚举
-                state = complete_info.get("state", "disconnected")
-                if isinstance(state, str):
-                    try:
-                        state = ServiceConnectionState(state)
-                    except ValueError:
-                        state = ServiceConnectionState.DISCONNECTED
+                    # 从全局命名空间读取该服务的完整信息
+                    complete_info = self.registry.get_complete_service_info(global_agent_id, global_name)
+                    if not complete_info:
+                        logger.debug(f"[STORE.LIST_SERVICES] 全局缓存中未找到服务: {global_name}")
+                        continue
 
-                service_info = ServiceInfo(
-                    url=complete_info.get("config", {}).get("url", ""),
-                    name=display_name,  # 显示本地名称
-                    transport_type=self._infer_transport_type(complete_info.get("config", {})),
-                    status=state,
-                    tool_count=complete_info.get("tool_count", 0),
-                    keep_alive=complete_info.get("config", {}).get("keep_alive", False),
-                    working_dir=complete_info.get("config", {}).get("working_dir"),
-                    env=complete_info.get("config", {}).get("env"),
-                    last_heartbeat=complete_info.get("last_heartbeat"),
-                    command=complete_info.get("config", {}).get("command"),
-                    args=complete_info.get("config", {}).get("args"),
-                    package_name=complete_info.get("config", {}).get("package_name"),
-                    state_metadata=complete_info.get("state_metadata"),
-                    last_state_change=complete_info.get("state_entered_time"),
-                    client_id=complete_info.get("client_id"),
-                    config=complete_info.get("config", {})  # 🔧 [REFACTOR] 添加完整的config字段
-                )
-                services_info.append(service_info)
+                    # 状态枚举转换
+                    state = complete_info.get("state", "disconnected")
+                    if isinstance(state, str):
+                        try:
+                            state = ServiceConnectionState(state)
+                        except ValueError:
+                            state = ServiceConnectionState.DISCONNECTED
+
+                    # 构建以本地名展示的 ServiceInfo（数据来源于全局）
+                    cfg = complete_info.get("config", {})
+                    service_info = ServiceInfo(
+                        url=cfg.get("url", ""),
+                        name=local_name or global_name,
+                        transport_type=self._infer_transport_type(cfg),
+                        status=state,
+                        tool_count=complete_info.get("tool_count", 0),
+                        keep_alive=cfg.get("keep_alive", False),
+                        working_dir=cfg.get("working_dir"),
+                        env=cfg.get("env"),
+                        last_heartbeat=complete_info.get("last_heartbeat"),
+                        command=cfg.get("command"),
+                        args=cfg.get("args"),
+                        package_name=cfg.get("package_name"),
+                        state_metadata=complete_info.get("state_metadata"),
+                        last_state_change=complete_info.get("state_entered_time"),
+                        # 透明代理：client_id 使用全局命名空间的client
+                        client_id=complete_info.get("client_id"),
+                        config=cfg
+                    )
+                    services_info.append(service_info)
+            except Exception as e:
+                logger.error(f"[STORE.LIST_SERVICES] Agent 视图派生失败: {e}")
+                return services_info
 
         return services_info
 
@@ -181,24 +202,71 @@ class ServiceQueryMixin:
         # 按client_id顺序查找服务
         # 🔧 修复：服务存储在agent_id级别，而不是client_id级别
         agent_id_for_query = self.client_manager.global_agent_store_id if not agent_id else agent_id
+
+        # === 健壮名称解析：支持在 Agent 上下文传入“本地名”或“全局名” ===
+        query_names: List[str] = [name]
+        from mcpstore.core.agent_service_mapper import AgentServiceMapper
+        try:
+            if agent_id:
+                # 如果传入的是全局名（包含 _byagent_），尝试解析回本地名，确保在 agent 命名空间可匹配
+                if AgentServiceMapper.is_any_agent_service(name):
+                    parsed = self.registry.get_agent_service_from_global_name(name)
+                    if parsed:
+                        parsed_agent_id, local_name = parsed
+                        # 仅当全局名确实属于当前 agent 时才使用解析出的本地名
+                        if parsed_agent_id == agent_id and local_name:
+                            query_names.append(local_name)
+                else:
+                    # 传入可能是本地名，同步构造对应全局名，方便后续 cross-namespace 校验
+                    mapper = AgentServiceMapper(agent_id)
+                    query_names.append(mapper.to_global_name(name))
+        except Exception:
+            pass
+
         service_names = self.registry.get_all_service_names(agent_id_for_query)
-        
-        if name in service_names:
-            # 找到服务，需要确定它属于哪个client_id
-            service_client_id = self.registry.get_service_client_id(agent_id_for_query, name)
+
+        # 遍历候选名称，找到第一个匹配的（在 agent 命名空间）
+        match_name = next((qn for qn in query_names if qn in service_names), None)
+        if match_name:
+            # 推导本地名/全局名
+            local_name = name
+            global_name = None
+            if agent_id:
+                # 优先从映射表获取全局名
+                global_name = self.registry.get_global_name_from_agent_service(agent_id, local_name)
+                # 如果 match_name 已经是全局名，则直接使用
+                if not global_name and AgentServiceMapper.is_any_agent_service(match_name):
+                    global_name = match_name
+                # 如果仍然没有，构造一个（不会影响存在性，仅用于读取配置）
+                if not global_name:
+                    mapper = AgentServiceMapper(agent_id)
+                    global_name = mapper.to_global_name(local_name)
+            else:
+                # store 模式下，名称即全局名
+                global_name = match_name
+
+            # 确定用于读取配置/生命周期/工具的命名空间与名称
+            config_key = global_name  # 单一数据源：mcp.json 使用全局名
+            lifecycle_agent = self.client_manager.global_agent_store_id if agent_id else agent_id_for_query
+            lifecycle_name = global_name if agent_id else match_name
+            tools_agent = self.client_manager.global_agent_store_id if agent_id else agent_id_for_query
+            tools_service = global_name if agent_id else match_name
+
+            # 找到服务，需要确定它属于哪个client_id（保持 agent 视角）
+            service_client_id = self.registry.get_service_client_id(agent_id_for_query, match_name)
             if service_client_id and service_client_id in client_ids:
                 # 找到服务，获取详细信息
-                config = self.config.get_service_config(name) or {}
+                # 从 mcp.json 读取（使用全局名）
+                config = self.config.get_service_config(config_key) or {}
 
-                # 获取生命周期状态
-                service_state = self.orchestrator.lifecycle_manager.get_service_state(agent_id_for_query, name)
+                # 获取生命周期状态（优先全局命名空间）
+                service_state = self.orchestrator.lifecycle_manager.get_service_state(lifecycle_agent, lifecycle_name)
 
-                # 获取工具信息
-                # 🔧 修复：使用正确的方法获取特定服务的工具信息
-                tool_names = self.registry.get_tools_for_service(agent_id_for_query, name)
+                # 获取工具信息（优先全局命名空间）
+                tool_names = self.registry.get_tools_for_service(tools_agent, tools_service)
                 tools_info = []
                 for tool_name in tool_names:
-                    tool_info = self.registry.get_tool_info(agent_id_for_query, tool_name)
+                    tool_info = self.registry.get_tool_info(tools_agent, tool_name)
                     if tool_info:
                         tools_info.append(tool_info)
                 tool_count = len(tools_info)
@@ -206,25 +274,25 @@ class ServiceQueryMixin:
                 # 获取连接状态
                 connected = service_state in [ServiceConnectionState.HEALTHY, ServiceConnectionState.WARNING]
 
-                # 🔧 修复：获取真实的生命周期数据
-                service_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(agent_id_for_query, name)
-                
-                # 构建ServiceInfo
+                # 获取真实的生命周期数据（优先全局命名空间）
+                service_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(lifecycle_agent, lifecycle_name)
+
+                # 构建ServiceInfo（Agent 视图下 name 使用本地名展示）
                 service_info = ServiceInfo(
                     url=config.get("url", ""),
-                    name=name,
+                    name=local_name if agent_id else match_name,
                     transport_type=self._infer_transport_type(config),
                     status=service_state,
                     tool_count=tool_count,
                     keep_alive=config.get("keep_alive", False),
                     working_dir=config.get("working_dir"),
                     env=config.get("env"),
-                    last_heartbeat=service_metadata.last_ping_time if service_metadata else None,  # 🔧 真实数据
+                    last_heartbeat=service_metadata.last_ping_time if service_metadata else None,
                     command=config.get("command"),
                     args=config.get("args"),
                     package_name=config.get("package_name"),
-                    state_metadata=service_metadata,  # 🔧 真实数据
-                    last_state_change=service_metadata.state_entered_time if service_metadata else None,  # 🔧 真实数据
+                    state_metadata=service_metadata,
+                    last_state_change=service_metadata.state_entered_time if service_metadata else None,
                     client_id=service_client_id,
                     config=config
                 )

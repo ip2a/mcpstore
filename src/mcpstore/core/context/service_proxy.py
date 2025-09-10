@@ -80,7 +80,7 @@ class ServiceProxy:
             result = self._context._sync_helper.run_async(
                 self._context._store.orchestrator.check_service_health_detailed(
                     effective_name,
-                    self._agent_id if self._context_type == ContextType.AGENT else None
+                    None  # 透明代理：统一在全局命名空间执行健康检查
                 ),
                 force_background=True
             )

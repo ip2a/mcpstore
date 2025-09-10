@@ -427,65 +427,64 @@ class ToolOperationsMixin:
         """
         获取 Agent 的工具视图（本地名称）
 
-        从 Agent 缓存中获取工具，转换为本地名称显示
+        透明代理（方案A）：基于映射从 global_agent_store 的缓存派生工具列表，
+        不依赖 Agent 命名空间的 sessions/tool_cache。
         """
         try:
-            agent_tools = []
+            agent_tools: List[ToolInfo] = []
+            agent_id = self._agent_id
+            global_agent_id = self._store.client_manager.global_agent_store_id
 
-            # 获取 Agent 的所有服务
-            if self._agent_id in self._store.registry.sessions:
-                agent_session_dict = self._store.registry.sessions[self._agent_id]
+            # 1) 通过映射获取该 Agent 的全局服务名集合
+            global_service_names = self._store.registry.get_agent_services(agent_id)
+            if not global_service_names:
+                logger.info(f"[AGENT_TOOLS] view agent='{agent_id}' count=0 (no mapped services)")
+                return agent_tools
 
-                for local_service_name in agent_session_dict.keys():
-                    # 获取该服务的工具
-                    try:
-                        # 获取全局服务名
-                        global_service_name = self._store.registry.get_global_name_from_agent_service(self._agent_id, local_service_name)
-                        if not global_service_name:
-                            logger.warning(f"[AGENT_TOOLS] map_missing agent='{self._agent_id}' local='{local_service_name}'")
-                            continue
+            # 2) 遍历映射的全局服务，读取其工具并转换为本地名称
+            for global_service_name in global_service_names:
+                mapping = self._store.registry.get_agent_service_from_global_name(global_service_name)
+                if not mapping:
+                    continue
+                mapped_agent, local_service_name = mapping
+                if mapped_agent != agent_id:
+                    continue
 
-                        # 🔧 直接从 Registry 获取该服务的工具名列表
-                        service_tool_names = self._store.registry.get_tools_for_service(
-                            self._store.client_manager.global_agent_store_id,
-                            global_service_name
-                        )
+                try:
+                    # 获取该服务的工具名列表（从全局命名空间）
+                    service_tool_names = self._store.registry.get_tools_for_service(
+                        global_agent_id,
+                        global_service_name
+                    )
 
-                        # 获取工具的详细信息并转换为本地名称
-                        for tool_name in service_tool_names:
-                            try:
-                                # 从 Registry 获取工具的详细信息
-                                tool_info = self._store.registry.get_tool_info(
-                                    self._store.client_manager.global_agent_store_id,
-                                    tool_name
-                                )
-
-                                if tool_info:
-                                    # 转换工具名为本地名称
-                                    local_tool_name = self._convert_tool_name_to_local(tool_name, global_service_name, local_service_name)
-
-                                    # 创建本地工具视图
-                                    local_tool = ToolInfo(
-                                        name=local_tool_name,
-                                        description=tool_info.get('description', ''),
-                                        service_name=local_service_name,  # 使用本地服务名
-                                        inputSchema=tool_info.get('inputSchema', {}),
-                                        client_id=tool_info.get('client_id', '')
-                                    )
-                                    agent_tools.append(local_tool)
-                                    logger.debug(f"[AGENT_TOOLS] add name='{local_tool_name}' service='{local_service_name}'")
-                                else:
-                                    logger.warning(f"[AGENT_TOOLS] tool_info_missing name='{tool_name}'")
-
-                            except Exception as e:
-                                logger.error(f"[AGENT_TOOLS] tool_error name='{tool_name}' error={e}")
+                    for tool_name in service_tool_names:
+                        try:
+                            tool_info = self._store.registry.get_tool_info(global_agent_id, tool_name)
+                            if not tool_info:
+                                logger.warning(f"[AGENT_TOOLS] tool_info_missing name='{tool_name}'")
                                 continue
 
-                    except Exception as e:
-                        logger.error(f"[AGENT_TOOLS] service_tools_error service='{local_service_name}' error={e}")
-                        continue
+                            # 转换工具名为本地名称
+                            local_tool_name = self._convert_tool_name_to_local(tool_name, global_service_name, local_service_name)
 
-            logger.info(f"[AGENT_TOOLS] view agent='{self._agent_id}' count={len(agent_tools)}")
+                            # 创建本地工具视图（client_id 使用全局命名空间）
+                            local_tool = ToolInfo(
+                                name=local_tool_name,
+                                description=tool_info.get('description', ''),
+                                service_name=local_service_name,
+                                inputSchema=tool_info.get('inputSchema', {}),
+                                client_id=tool_info.get('client_id', '')
+                            )
+                            agent_tools.append(local_tool)
+                            logger.debug(f"[AGENT_TOOLS] add name='{local_tool_name}' service='{local_service_name}'")
+                        except Exception as e:
+                            logger.error(f"[AGENT_TOOLS] tool_error name='{tool_name}' error={e}")
+                            continue
+                except Exception as e:
+                    logger.error(f"[AGENT_TOOLS] service_tools_error service='{local_service_name}' error={e}")
+                    continue
+
+            logger.info(f"[AGENT_TOOLS] view agent='{agent_id}' count={len(agent_tools)}")
             return agent_tools
 
         except Exception as e:
