@@ -260,47 +260,89 @@ class ToolOperationsMixin:
             return tools
         # 3. agent级别，聚合 agent_id 下所有 client_id 的工具；如果 id 不是 agent_id，尝试作为 client_id 查
         if agent_mode and id:
-            # 🔧 修复：Agent模式也直接从Registry缓存获取工具
-            self.logger.debug(f"🔧 [STORE.LIST_TOOLS] Agent模式，直接从Registry缓存获取工具，agent_id={id}")
+            # 🔧 Agent模式：优先读取Agent命名空间工具；若为空，回退到全局命名空间（按映射过滤）
+            self.logger.debug(f"🔧 [STORE.LIST_TOOLS] Agent模式，agent_id={id}")
 
-            # 直接从tool_cache获取所有工具
-            tool_cache = self.registry.tool_cache.get(id, {})
-            self.logger.debug(f"🔧 [STORE.LIST_TOOLS] Agent模式Registry中的工具数量: {len(tool_cache)}")
+            agent_tool_cache = self.registry.tool_cache.get(id, {})
+            if agent_tool_cache:
+                self.logger.debug(f"🔧 [STORE.LIST_TOOLS] 使用Agent自身工具缓存，数量: {len(agent_tool_cache)}")
+                for tool_name, tool_def in agent_tool_cache.items():
+                    session = self.registry.tool_to_session_map.get(id, {}).get(tool_name)
+                    service_name = None
+                    for svc_name, svc_session in self.registry.sessions.get(id, {}).items():
+                        if svc_session is session:
+                            service_name = svc_name
+                            break
+                    service_client_id = self._get_client_id_for_service(self.client_manager.global_agent_store_id, service_name)
 
-            for tool_name, tool_def in tool_cache.items():
-                # 获取工具对应的session来确定service_name
-                session = self.registry.tool_to_session_map.get(id, {}).get(tool_name)
-                service_name = None
+                    if isinstance(tool_def, dict) and "function" in tool_def:
+                        function_data = tool_def["function"]
+                        tools.append(ToolInfo(
+                            name=tool_name,
+                            description=function_data.get("description", ""),
+                            service_name=service_name or "unknown",
+                            client_id=service_client_id,
+                            inputSchema=function_data.get("parameters", {})
+                        ))
+                    else:
+                        tools.append(ToolInfo(
+                            name=tool_name,
+                            description=tool_def.get("description", ""),
+                            service_name=service_name or "unknown",
+                            client_id=service_client_id,
+                            inputSchema=tool_def.get("inputSchema", {})
+                        ))
+                self.logger.debug(f"🔧 [STORE.LIST_TOOLS] Agent模式最终工具数量(Agent缓存): {len(tools)}")
+                return tools
 
-                # 通过session找到service_name
-                for svc_name, svc_session in self.registry.sessions.get(id, {}).items():
-                    if svc_session is session:
-                        service_name = svc_name
-                        break
+            # 回退：根据Agent的映射，从全局命名空间派生工具
+            self.logger.debug(f"🔧 [STORE.LIST_TOOLS] Agent工具缓存为空，回退到全局命名空间派生")
+            try:
+                global_agent_id = self.client_manager.global_agent_store_id
+                mapped_globals = set(self.registry.get_agent_services(id))  # 全局服务名集合
+                if not mapped_globals:
+                    self.logger.debug(f"🔧 [STORE.LIST_TOOLS] Agent {id} 无映射的全局服务，返回空列表")
+                    return tools
 
-                # 🔧 获取该服务对应的client_id（Agent模式使用global_agent_store）
-                service_client_id = self._get_client_id_for_service(self.client_manager.global_agent_store_id, service_name)
+                # 遍历全局工具缓存，筛选属于该Agent映射服务的工具
+                global_tool_cache = self.registry.tool_cache.get(global_agent_id, {})
+                global_tool_map = self.registry.tool_to_session_map.get(global_agent_id, {})
+                sessions_map = self.registry.sessions.get(global_agent_id, {})
 
-                # 构造ToolInfo对象
-                if isinstance(tool_def, dict) and "function" in tool_def:
-                    function_data = tool_def["function"]
-                    tools.append(ToolInfo(
-                        name=tool_name,
-                        description=function_data.get("description", ""),
-                        service_name=service_name or "unknown",
-                        client_id=service_client_id,  # 🎯 使用正确的client_id
-                        inputSchema=function_data.get("parameters", {})
-                    ))
-                else:
-                    # 兼容其他格式
-                    tools.append(ToolInfo(
-                        name=tool_name,
-                        description=tool_def.get("description", ""),
-                        service_name=service_name or "unknown",
-                        client_id=service_client_id,  # 🎯 使用正确的client_id
-                        inputSchema=tool_def.get("inputSchema", {})
-                    ))
+                # 为了从tool -> service，依据 session 反查所属服务
+                for tool_name, tool_def in global_tool_cache.items():
+                    session = global_tool_map.get(tool_name)
+                    service_name = None
+                    for svc_name, svc_session in sessions_map.items():
+                        if svc_session is session:
+                            service_name = svc_name
+                            break
+                    if not service_name or service_name not in mapped_globals:
+                        continue
 
-            self.logger.debug(f"🔧 [STORE.LIST_TOOLS] Agent模式最终工具数量: {len(tools)}")
-            return tools
+                    service_client_id = self._get_client_id_for_service(global_agent_id, service_name)
+
+                    if isinstance(tool_def, dict) and "function" in tool_def:
+                        function_data = tool_def["function"]
+                        tools.append(ToolInfo(
+                            name=tool_name,
+                            description=function_data.get("description", ""),
+                            service_name=service_name,
+                            client_id=service_client_id,
+                            inputSchema=function_data.get("parameters", {})
+                        ))
+                    else:
+                        tools.append(ToolInfo(
+                            name=tool_name,
+                            description=tool_def.get("description", ""),
+                            service_name=service_name,
+                            client_id=service_client_id,
+                            inputSchema=tool_def.get("inputSchema", {})
+                        ))
+
+                self.logger.debug(f"🔧 [STORE.LIST_TOOLS] Agent模式最终工具数量(全局回退): {len(tools)}")
+                return tools
+            except Exception as e:
+                self.logger.error(f"[STORE.LIST_TOOLS] Agent 视图工具派生失败: {e}")
+                return tools
         return tools

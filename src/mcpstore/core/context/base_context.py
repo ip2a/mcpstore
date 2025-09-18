@@ -139,6 +139,11 @@ class MCPStoreContext(
         from ...adapters.semantic_kernel_adapter import SemanticKernelAdapter
         return SemanticKernelAdapter(self)
 
+    def for_openai(self) -> 'OpenAIAdapter':
+        """Return an OpenAI adapter that produces OpenAI function calling format tools."""
+        from ...adapters.openai_adapter import OpenAIAdapter
+        return OpenAIAdapter(self)
+
     # === Hub 功能扩展 ===
     
     def hub_services(self) -> 'HubServicesBuilder':

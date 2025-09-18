@@ -1310,52 +1310,63 @@ class ServiceOperationsMixin:
         """
         获取 Agent 的服务视图（本地名称）
 
-        从 Agent 缓存中获取服务，转换为 ServiceInfo 对象，使用本地名称
+        透明代理（方案A）：不读取 Agent 命名空间缓存，
+        直接基于映射从 global_agent_store 的缓存派生服务列表。
         """
         try:
-            from mcpstore.core.models.service import ServiceInfo, TransportType
+            from mcpstore.core.models.service import ServiceInfo
+            from mcpstore.core.models.service import ServiceConnectionState
 
-            agent_services = []
+            agent_services: List[ServiceInfo] = []
+            agent_id = self._agent_id
+            global_agent_id = self._store.client_manager.global_agent_store_id
 
-            # 获取 Agent 缓存中的所有服务
-            if self._agent_id in self._store.registry.sessions:
-                agent_session_dict = self._store.registry.sessions[self._agent_id]
+            # 1) 通过映射获取该 Agent 的全局服务名集合
+            global_service_names = self._store.registry.get_agent_services(agent_id)
+            if not global_service_names:
+                logger.info(f"✅ [AGENT_VIEW] Agent {agent_id} 服务视图: 0 个服务（无映射）")
+                return agent_services
 
-                for local_name in agent_session_dict.keys():
-                    # 获取服务状态
-                    state = self._store.registry.get_service_state(self._agent_id, local_name)
+            # 2) 遍历每个全局服务，从全局命名空间读取完整信息，并以本地名展示
+            for global_name in global_service_names:
+                # 解析出 (agent_id, local_name)
+                mapping = self._store.registry.get_agent_service_from_global_name(global_name)
+                if not mapping:
+                    continue
+                mapped_agent, local_name = mapping
+                if mapped_agent != agent_id:
+                    continue
 
-                    # 获取 Client ID
-                    client_id = self._store.registry.get_service_client_id(self._agent_id, local_name)
+                complete_info = self._store.registry.get_complete_service_info(global_agent_id, global_name)
+                if not complete_info:
+                    logger.debug(f"[AGENT_VIEW] 全局缓存中未找到服务: {global_name}")
+                    continue
 
-                    # 获取服务配置
-                    service_config = {}
-                    if client_id and client_id in self._store.registry.client_configs:
-                        client_config = self._store.registry.client_configs[client_id]
-                        # 从 client 配置中提取对应的服务配置
-                        global_name = self._store.registry.get_global_name_from_agent_service(self._agent_id, local_name)
-                        if "mcpServers" in client_config:
-                            # 单源一致性：优先按本地名取配置，兼容性回退到全局名
-                            service_config = (
-                                client_config["mcpServers"].get(local_name)
-                                or (client_config["mcpServers"].get(global_name) if global_name else {})
-                                or {}
-                            )
+                # 状态转换
+                state = complete_info.get("state", ServiceConnectionState.DISCONNECTED)
+                if isinstance(state, str):
+                    try:
+                        state = ServiceConnectionState(state)
+                    except Exception:
+                        state = ServiceConnectionState.DISCONNECTED
 
-                    # 构造 ServiceInfo 对象
-                    service_info = ServiceInfo(
-                        name=local_name,  # 使用本地名称
-                        status=state.value if state else "unknown",
-                        transport_type=TransportType.STDIO,  # 默认传输类型
-                        client_id=client_id or "",
-                        config=service_config,
-                        tool_count=0,  # 暂时设为 0，后续可以实现工具计数
-                        keep_alive=False  # 默认值
-                    )
-                    agent_services.append(service_info)
-                    logger.debug(f"🔧 [AGENT_VIEW] 添加服务到视图: {local_name}")
+                cfg = complete_info.get("config", {})
+                tool_count = complete_info.get("tool_count", 0)
 
-            logger.info(f"✅ [AGENT_VIEW] Agent {self._agent_id} 服务视图: {len(agent_services)} 个服务")
+                # 透明代理：client_id 使用全局命名空间的 client_id
+                service_info = ServiceInfo(
+                    name=local_name,
+                    status=state,
+                    transport_type=self._store._infer_transport_type(cfg) if hasattr(self._store, '_infer_transport_type') else None,
+                    client_id=complete_info.get("client_id"),
+                    config=cfg,
+                    tool_count=tool_count,
+                    keep_alive=cfg.get("keep_alive", False),
+                )
+                agent_services.append(service_info)
+                logger.debug(f"🔧 [AGENT_VIEW] derive '{local_name}' <- '{global_name}' tools={tool_count}")
+
+            logger.info(f"✅ [AGENT_VIEW] Agent {agent_id} 服务视图: {len(agent_services)} 个服务（派生）")
             return agent_services
 
         except Exception as e:

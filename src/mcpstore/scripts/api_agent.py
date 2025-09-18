@@ -805,21 +805,19 @@ async def agent_get_service_info_detailed(agent_id: str, service_name: str):
         store = get_store()
         context = store.for_agent(agent_id)
         
-        # 查找服务
-        service = None
-        all_services = await context.list_services_async()
-        for s in all_services:
-            if s.name == service_name:
-                service = s
-                break
-        
-        if not service:
+        # 优先使用 SDK 的鲁棒解析逻辑，支持本地名/全局名
+        # 先尝试用 SDK 直接获取（带工具和连接态）
+        info = context.get_service_info(service_name)
+        if not info or not getattr(info, 'success', False):
             return APIResponse(
                 success=False,
                 data={},
-                message=f"Service '{service_name}' not found for agent '{agent_id}'"
+                message=getattr(info, 'message', f"Service '{service_name}' not found for agent '{agent_id}'")
             )
-        
+
+        # 从 SDK 返回中提取基础 ServiceInfo（为兼容后续构造保留）
+        service = getattr(info, 'service', None)
+
         # 构建详细的服务信息
         service_info = {
             "name": service.name,
@@ -851,15 +849,20 @@ async def agent_get_service_info_detailed(agent_id: str, service_name: str):
             if service_info["lifecycle"]["state_entered_time"]:
                 service_info["lifecycle"]["state_entered_time"] = service_info["lifecycle"]["state_entered_time"].isoformat()
         
-        # 获取工具列表
+        # 获取工具列表：从 SDK 结果直接取（更可靠），或回退到统计
         try:
-            tools_info = context.get_tools_with_stats()
-            service_tools = [tool for tool in tools_info["tools"] if tool.get("service_name") == service_name]
-            service_info["tools"] = service_tools
+            if hasattr(info, 'tools') and isinstance(info.tools, list) and info.tools:
+                service_info["tools"] = info.tools
+            else:
+                tools_info = context.get_tools_with_stats()
+                # 兼容本地名/全局名：匹配本地名
+                local_name = service.name if hasattr(service, 'name') else service_name
+                service_tools = [tool for tool in tools_info["tools"] if tool.get("service_name") == local_name]
+                service_info["tools"] = service_tools
         except Exception as e:
             logger.warning(f"Failed to get tools for service {service_name} in agent {agent_id}: {e}")
             service_info["tools"] = []
-        
+
         # 执行健康检查
         try:
             health_status = await context.check_services_async()

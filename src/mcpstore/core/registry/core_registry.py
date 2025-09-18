@@ -944,6 +944,7 @@ class ServiceRegistry:
             }
         """
         if not self.has_service(agent_id, service_name):
+            print(f"没有找到这个{agent_id}有这个服务{service_name}")
             return {}
 
         state = self.get_service_state(agent_id, service_name)
