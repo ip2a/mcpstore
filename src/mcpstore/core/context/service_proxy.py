@@ -301,6 +301,33 @@ class ServiceProxy:
             logger.error(f"Failed to refresh content for {self._service_name}: {e}")
             return False
 
+    def find_tool(self, tool_name: str) -> 'ToolProxy':
+        """
+        在当前服务范围内查找工具
+        
+        进一步缩小范围到特定服务的工具
+        
+        Args:
+            tool_name: 工具名称
+            
+        Returns:
+            ToolProxy: 工具代理对象，范围限定为当前服务
+            
+        Example:
+            # 先获取服务，再查找服务内的工具
+            weather_service = store.for_store().find_service('weather')
+            weather_tool = weather_service.find_tool('get_current_weather')
+            weather_tool.tool_info()        # 获取工具详情
+            weather_tool.call_tool({...})   # 调用工具
+            
+            # Agent 模式下的服务工具查找
+            demo_service = store.for_agent('demo1').find_service('service1')
+            demo_tool = demo_service.find_tool('search_tool')
+            demo_tool.usage_stats()         # 使用统计
+        """
+        from .tool_proxy import ToolProxy
+        return ToolProxy(self._context, tool_name, scope='service', service_name=self._service_name)
+
     # === 便捷属性方法 ===
 
     @property

@@ -17,7 +17,7 @@ from mcpstore.core.configuration.config_processor import ConfigProcessor
 from mcpstore.core.integration.local_service_adapter import get_local_service_manager
 from fastmcp import Client
 from mcpstore.config.json_config import MCPConfig
-from mcpstore.core.session_manager import SessionManager
+from mcpstore.core.agents.session_manager import SessionManager
 from mcpstore.core.lifecycle import get_health_manager, HealthStatus, HealthCheckResult, ServiceLifecycleManager, ServiceContentManager
 from mcpstore.core.models.service import ServiceConnectionState
 

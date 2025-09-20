@@ -148,7 +148,7 @@ class SetupMixin:
             for service_name, service_config in mcp_servers.items():
                 try:
                     # 通过名称后缀解析是否为 Agent 服务
-                    from mcpstore.core.agent_service_mapper import AgentServiceMapper
+                    from mcpstore.core.context.agent_service_mapper import AgentServiceMapper
 
                     if AgentServiceMapper.is_any_agent_service(service_name):
                         agent_id, local_name = AgentServiceMapper.parse_agent_service_name(service_name)
@@ -186,7 +186,7 @@ class SetupMixin:
                                 service_config=service_config,
                                 global_agent_store_id=global_agent_store_id
                             )
-                            logger.debug(f"🆕 [INIT_MCP] 生成新Agent client_id: {global_name} -> {client_id}")
+                            logger.debug(f" [INIT_MCP] 生成新Agent client_id: {global_name} -> {client_id}")
 
                         client_config = {"mcpServers": {local_name: service_config}}
 
@@ -224,7 +224,7 @@ class SetupMixin:
                                 service_config=service_config,
                                 global_agent_store_id=global_agent_store_id
                             )
-                            logger.debug(f"🆕 [INIT_MCP] 生成新Store client_id: {service_name} -> {client_id}")
+                            logger.debug(f" [INIT_MCP] 生成新Store client_id: {service_name} -> {client_id}")
 
                         client_config = {"mcpServers": {service_name: service_config}}
 

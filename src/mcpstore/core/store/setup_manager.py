@@ -121,7 +121,7 @@ class StoreSetupManager:
         logger.info(" [SETUP_STORE] 开始初始化缓存...")
         try:
             async_helper.run_async(store.initialize_cache_from_files(), force_background=True)
-            logger.info("✅ [SETUP_STORE] 缓存初始化完成")
+            logger.info("[SETUP_STORE] 缓存初始化完成")
         except Exception as e:
             logger.error(f"❌ [SETUP_STORE] 缓存初始化失败: {e}")
             import traceback

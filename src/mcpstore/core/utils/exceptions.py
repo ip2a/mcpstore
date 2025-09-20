@@ -18,3 +18,15 @@ class DeleteServiceError(MCPStoreError):
     """Failed to delete service"""
     pass
 
+class ConfigurationError(MCPStoreError):
+    """Configuration error"""
+    pass
+
+class ServiceConnectionError(MCPStoreError):
+    """Service connection error"""
+    pass
+
+class ToolExecutionError(MCPStoreError):
+    """Tool execution error"""
+    pass
+

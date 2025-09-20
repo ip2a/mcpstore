@@ -205,7 +205,7 @@ class ServiceQueryMixin:
 
         # === 健壮名称解析：支持在 Agent 上下文传入“本地名”或“全局名” ===
         query_names: List[str] = [name]
-        from mcpstore.core.agent_service_mapper import AgentServiceMapper
+        from mcpstore.core.context.agent_service_mapper import AgentServiceMapper
         try:
             if agent_id:
                 # 如果传入的是全局名（包含 _byagent_），尝试解析回本地名，确保在 agent 命名空间可匹配

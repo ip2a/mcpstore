@@ -409,7 +409,7 @@ class ToolOperationsMixin:
                     return global_name
 
             # 2. 如果映射失败，检查是否已经是全局名称
-            from mcpstore.core.agent_service_mapper import AgentServiceMapper
+            from .agent_service_mapper import AgentServiceMapper
             if AgentServiceMapper.is_any_agent_service(local_service_name):
                 logger.debug(f"[TOOL_PROXY] already_global name='{local_service_name}'")
                 return local_service_name

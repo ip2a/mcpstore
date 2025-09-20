@@ -446,7 +446,7 @@ class UnifiedMCPSyncManager:
                     service_config=service_config,
                     global_agent_store_id=global_agent_store_id
                 )
-                logger.debug(f"🆕 生成新client_id: {service_name} -> {client_id}")
+                logger.debug(f" 生成新client_id: {service_name} -> {client_id}")
 
             # 更新缓存映射1：Agent-Client映射
             if agent_id not in registry.agent_clients:
@@ -459,7 +459,7 @@ class UnifiedMCPSyncManager:
                 "mcpServers": {service_name: service_config}
             }
 
-            logger.debug(f"✅ 缓存映射更新成功: {service_name} -> {client_id}")
+            logger.debug(f"缓存映射更新成功: {service_name} -> {client_id}")
             logger.debug(f"   - agent_clients[{agent_id}] 已更新")
             logger.debug(f"   - client_configs[{client_id}] 已更新")
             return True

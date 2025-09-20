@@ -3,10 +3,10 @@ MCPStore FastMCP Authentication Module
 FastMCP认证配置封装模块 - 完全基于FastMCP的认证功能
 """
 
-from .builder import AuthServiceBuilder, AuthProviderBuilder, AuthTokenBuilder
-from .manager import AuthConfigManager, get_auth_config_manager
+# 注意：复杂的认证构建器已移除，现在使用简化的 auth/headers 参数方式
+# 如需复杂认证配置，请直接使用 FastMCP 的原生API
+
 from .types import (
-    AuthProviderConfig, 
     AuthProviderType,
     FastMCPAuthConfig,
     HubAuthConfig,
@@ -14,19 +14,9 @@ from .types import (
 )
 
 __all__ = [
-    # 构建器
-    'AuthServiceBuilder', 
-    'AuthProviderBuilder',
-    'AuthTokenBuilder',
-    
-    # 管理器
-    'AuthConfigManager',
-    'get_auth_config_manager',
-    
-    # 类型定义
-    'AuthProviderConfig',
+    # 基础类型定义（保留以供内部使用）
     'AuthProviderType',
-    'FastMCPAuthConfig',
+    'FastMCPAuthConfig', 
     'HubAuthConfig',
     'JWTPayloadConfig'
 ]

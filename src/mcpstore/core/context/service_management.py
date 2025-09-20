@@ -13,6 +13,36 @@ from .types import ContextType
 
 logger = logging.getLogger(__name__)
 
+
+class UpdateServiceAuthHelper:
+    """更新服务认证助手 - 明确的服务名，避免状态混乱"""
+    
+    def __init__(self, context: 'MCPStoreContext', service_name: str, config: Dict[str, Any] = None):
+        self._context = context
+        self._service_name = service_name  # 🎯 明确的服务名，不会混乱
+        self._config = config.copy() if config else {}
+    
+    def bearer_auth(self, auth: str) -> 'MCPStoreContext':
+        """为指定服务更新 Bearer Token 认证"""
+        self._config["auth"] = auth
+        return self._execute_update()
+    
+    def custom_headers(self, headers: Dict[str, str]) -> 'MCPStoreContext':
+        """为指定服务更新自定义请求头"""
+        if "headers" not in self._config:
+            self._config["headers"] = {}
+        self._config["headers"].update(headers)
+        return self._execute_update()
+    
+    def _execute_update(self) -> 'MCPStoreContext':
+        """执行更新服务"""
+        self._context._sync_helper.run_async(
+            self._context.update_service_async(self._service_name, self._config),
+            timeout=60.0
+        )
+        return self._context
+
+
 class ServiceManagementMixin:
     """服务管理混入类"""
 
@@ -66,18 +96,53 @@ class ServiceManagementMixin:
             logger.error(f"[get_service_info] 未知上下文类型: {self._context_type}")
             return {}
 
-    def update_service(self, name: str, config: Dict[str, Any]) -> bool:
+    def update_service(self, 
+                      name: str, 
+                      config: Union[Dict[str, Any], None] = None,
+                      # 🆕 与 FastMCP 对齐
+                      auth: Optional[str] = None,
+                      headers: Optional[Dict[str, str]] = None) -> Union['MCPStoreContext', 'UpdateServiceAuthHelper']:
         """
-        更新服务配置（同步版本）- 完全替换配置
-
+        更新服务配置，支持安全的链式认证
+        
         Args:
-            name: 服务名称
+            name: 服务名称（明确指定，不会混乱）
             config: 新的服务配置
-
+            auth: Bearer token，如果提供则立即执行
+            headers: 自定义请求头，如果提供则立即执行
+            
         Returns:
-            bool: 更新是否成功
+            如果有配置或认证参数：立即执行更新，返回 MCPStoreContext
+            如果什么都没有：返回 UpdateServiceAuthHelper 支持链式配置
         """
-        return self._sync_helper.run_async(self.update_service_async(name, config), timeout=60.0)
+        
+        if config is not None:
+            # 有配置参数：立即执行更新（保持向后兼容）
+            if auth is not None or headers is not None:
+                # 配置 + 认证：合并后执行
+                final_config = self._apply_auth_to_update_config(config, auth, headers)
+            else:
+                # 纯配置：直接执行
+                final_config = config
+                
+            self._sync_helper.run_async(
+                self.update_service_async(name, final_config),
+                timeout=60.0
+            )
+            return self
+        else:
+            # 没有配置参数：
+            if auth is not None or headers is not None:
+                # 纯认证：立即执行
+                final_config = self._apply_auth_to_update_config({}, auth, headers)
+                self._sync_helper.run_async(
+                    self.update_service_async(name, final_config),
+                    timeout=60.0
+                )
+                return self
+            else:
+                # 什么都没有：返回助手用于链式调用
+                return UpdateServiceAuthHelper(self, name, {})
 
     async def update_service_async(self, name: str, config: Dict[str, Any]) -> bool:
         """
@@ -743,7 +808,7 @@ class ServiceManagementMixin:
         """
         logger.debug(f"[RESOLVE_CLIENT_ID] start value='{client_id_or_service_name}' agent='{agent_id}'")
 
-        from mcpstore.core.agent_service_mapper import AgentServiceMapper
+        from .agent_service_mapper import AgentServiceMapper
         global_agent_id = self._store.client_manager.global_agent_store_id
 
         # 1) 优先：确定性 client_id 直接解析
@@ -1436,5 +1501,21 @@ class ServiceManagementMixin:
                 raise ValueError(f"Invalid status '{s}'. Valid statuses are: {sorted(valid_statuses)}")
 
         return target_statuses
+
+    def _apply_auth_to_update_config(self, config: Dict[str, Any], 
+                                    auth: Optional[str], 
+                                    headers: Optional[Dict[str, str]]) -> Dict[str, Any]:
+        """将认证配置应用到更新配置中"""
+        final_config = config.copy() if config else {}
+        
+        if auth is not None:
+            final_config["auth"] = auth
+        
+        if headers is not None:
+            if "headers" not in final_config:
+                final_config["headers"] = {}
+            final_config["headers"].update(headers)
+        
+        return final_config
 
 

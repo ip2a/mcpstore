@@ -95,7 +95,7 @@ class LoggingConfig:
                 'mcpstore.core.orchestrator',
                 'mcpstore.core.registry',
                 'mcpstore.core.client_manager',
-                'mcpstore.core.session_manager',
+                'mcpstore.core.agents.session_manager',
                 'mcpstore.core.tool_resolver',
                 'mcpstore.plugins.json_mcp',
                 'mcpstore.adapters.langchain_adapter'
@@ -114,7 +114,7 @@ class LoggingConfig:
                 'mcpstore.core.orchestrator',
                 'mcpstore.core.registry',
                 'mcpstore.core.client_manager',
-                'mcpstore.core.session_manager',
+                'mcpstore.core.agents.session_manager',
                 'mcpstore.core.tool_resolver',
                 'mcpstore.plugins.json_mcp',
                 'mcpstore.adapters.langchain_adapter'

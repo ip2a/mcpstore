@@ -129,6 +129,9 @@ class ServiceOperationsMixin:
                      json_file: str = None,
                      source: str = "manual",
                      wait: Union[str, int, float] = "auto",
+                     # 🆕 与 FastMCP 对齐的认证参数
+                     auth: Optional[str] = None,
+                     headers: Optional[Dict[str, str]] = None,
                      # 市场安装（同步封装）
                      from_market: str = None,
                      market_env: Dict[str, str] = None) -> 'MCPStoreContext':
@@ -142,12 +145,20 @@ class ServiceOperationsMixin:
             wait: 等待连接完成的时间
                 - "auto": 自动根据服务类型判断（远程2s，本地4s）
                 - 数字: 等待时间（毫秒）
+            auth: Bearer token（与 FastMCP 对齐）
+            headers: 自定义请求头（与 FastMCP 对齐）
             from_market: 市场服务名（与 config/json_file 互斥）
             market_env: 透传给市场配置的环境变量（不做本地校验）
+            
+        Returns:
+            MCPStoreContext: 上下文对象，保持一致性
         """
+        # 应用认证配置到服务配置中（如果提供了认证参数）
+        final_config = self._apply_auth_to_config(config, auth, headers)
+        
         # 🔧 修复：使用后台循环来支持后台任务
         return self._sync_helper.run_async(
-            self.add_service_async(config, json_file, source, wait, from_market=from_market, market_env=market_env),
+            self.add_service_async(final_config, json_file, source, wait, from_market=from_market, market_env=market_env),
             timeout=120.0,
             force_background=True  # 强制使用后台循环，确保后台任务不被取消
         )
@@ -332,6 +343,9 @@ class ServiceOperationsMixin:
                                json_file: str = None,
                                source: str = "manual",
                                wait: Union[str, int, float] = "auto",
+                               # 🆕 与 FastMCP 对齐的认证参数  
+                               auth: Optional[str] = None,
+                               headers: Optional[Dict[str, str]] = None,
                                # 新增市场功能参数
                                from_market: str = None,
                                market_env: Dict[str, str] = None) -> 'MCPStoreContext':
@@ -390,6 +404,9 @@ class ServiceOperationsMixin:
             MCPStoreContext: 返回自身实例以支持链式调用
         """
         try:
+            # === 新增：应用认证配置到服务配置中 ===
+            config = self._apply_auth_to_config(config, auth, headers)
+            
             # === 新增：处理市场安装参数 ===
             if from_market:
                 # 验证from_market参数
@@ -808,7 +825,7 @@ class ServiceOperationsMixin:
             global_agent_store_id=global_agent_store_id
         )
 
-        logger.debug(f"🆕 [CLIENT_ID] 生成新client_id: {service_name} -> {client_id}")
+        logger.debug(f" [CLIENT_ID] 生成新client_id: {service_name} -> {client_id}")
         return client_id
 
     async def _connect_and_update_cache(self, agent_id: str, service_name: str, service_config: Dict[str, Any]):
@@ -978,7 +995,7 @@ class ServiceOperationsMixin:
             logger.error(f"Failed to persist to agent files with incremental cache update: {e}")
             raise
 
-    # === 🆕 Service Initialization Methods ===
+    # ===  Service Initialization Methods ===
 
     def init_service(self, client_id_or_service_name: str = None, *,
                      client_id: str = None, service_name: str = None) -> 'MCPStoreContext':
@@ -1161,7 +1178,7 @@ class ServiceOperationsMixin:
         try:
             logger.info(f"🔄 [AGENT_PROXY] 开始 Agent 透明代理添加服务，Agent: {agent_id}")
 
-            from mcpstore.core.agent_service_mapper import AgentServiceMapper
+            from .agent_service_mapper import AgentServiceMapper
             from mcpstore.core.models.service import ServiceConnectionState
 
             mapper = AgentServiceMapper(agent_id)
@@ -1284,7 +1301,7 @@ class ServiceOperationsMixin:
             if "mcpServers" not in current_mcp_config:
                 current_mcp_config["mcpServers"] = {}
 
-            from mcpstore.core.agent_service_mapper import AgentServiceMapper
+            from .agent_service_mapper import AgentServiceMapper
             mapper = AgentServiceMapper(agent_id)
 
             for local_name, service_config in services_to_add.items():
@@ -1372,3 +1389,29 @@ class ServiceOperationsMixin:
         except Exception as e:
             logger.error(f"❌ [AGENT_VIEW] 获取 Agent 服务视图失败: {e}")
             return []
+    
+    def _apply_auth_to_config(self, config, auth: Optional[str], headers: Optional[Dict[str, str]]):
+        """将认证配置应用到服务配置中"""
+        # 如果没有认证参数，直接返回原配置
+        if auth is None and headers is None:
+            return config
+        
+        # 处理不同类型的配置格式
+        if isinstance(config, dict):
+            final_config = config.copy()
+        elif config is None:
+            final_config = {}
+        else:
+            # 对于其他格式（如字符串），转换为字典
+            final_config = dict(config) if hasattr(config, '__iter__') and not isinstance(config, str) else {}
+        
+        # 应用认证配置
+        if auth is not None:
+            final_config["auth"] = auth
+        
+        if headers is not None:
+            if "headers" not in final_config:
+                final_config["headers"] = {}
+            final_config["headers"].update(headers)
+        
+        return final_config

@@ -197,9 +197,9 @@ class ServiceLifecycleManager:
         # 📊 使用采样日志，避免频繁打印相同内容
         log_key = f"get_service_state_{agent_id}_{service_name}"
         if state is None:
-            content = f"🔍 [GET_SERVICE_STATE] No state found for {service_name} in agent {agent_id}"
+            content = f"[GET_SERVICE_STATE] No state found for {service_name} in agent {agent_id}"
         else:
-            content = f"🔍 [GET_SERVICE_STATE] Service {service_name} (agent {agent_id}) state: {state}"
+            content = f"[GET_SERVICE_STATE] Service {service_name} (agent {agent_id}) state: {state}"
             
         if self._should_log(log_key, content):
             logger.debug(content)
@@ -571,12 +571,12 @@ class ServiceLifecycleManager:
 
     async def _process_service(self, agent_id: str, service_name: str):
         """处理单个服务的生命周期"""
-        logger.debug(f"🔍 [PROCESS_SERVICE] Processing {service_name} (agent {agent_id})")
+        logger.debug(f"[PROCESS_SERVICE] Processing {service_name} (agent {agent_id})")
 
         current_state = self.get_service_state(agent_id, service_name)
         metadata = self.get_service_metadata(agent_id, service_name)
 
-        logger.debug(f"🔍 [PROCESS_SERVICE] Current state: {current_state}, metadata exists: {metadata is not None}")
+        logger.debug(f"[PROCESS_SERVICE] Current state: {current_state}, metadata exists: {metadata is not None}")
 
         if not metadata:
             logger.warning(f"⚠️ [PROCESS_SERVICE] No metadata found for {service_name}, removing from queue")
@@ -585,7 +585,7 @@ class ServiceLifecycleManager:
             return
 
         now = datetime.now()
-        logger.debug(f"🔍 [PROCESS_SERVICE] Current time: {now}")
+        logger.debug(f"[PROCESS_SERVICE] Current time: {now}")
 
         # 处理需要连接/重试的状态
         if current_state == ServiceConnectionState.INITIALIZING:
@@ -622,7 +622,7 @@ class ServiceLifecycleManager:
         else:
             logger.debug(f"⏸️ [PROCESS_SERVICE] No processing needed for {service_name} in state {current_state}")
 
-        logger.debug(f"🔍 [PROCESS_SERVICE] Completed processing {service_name}")
+        logger.debug(f"[PROCESS_SERVICE] Completed processing {service_name}")
 
     async def _attempt_initial_connection(self, agent_id: str, service_name: str):
         """尝试初始连接（支持 Agent 透明代理）"""

@@ -15,7 +15,7 @@
 
 import logging
 from typing import Dict, Any, Optional, List, Tuple
-from mcpstore.core.agent_service_mapper import AgentServiceMapper
+from mcpstore.core.context.agent_service_mapper import AgentServiceMapper
 
 logger = logging.getLogger(__name__)
 

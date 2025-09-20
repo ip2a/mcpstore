@@ -5,6 +5,9 @@ Provides unified and deterministic client ID generation for MCPStore
 
 import hashlib
 import logging
+import uuid
+import random
+import string
 from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -49,11 +52,11 @@ class ClientIDGenerator:
             if agent_id == global_agent_store_id:
                 # Store服务格式
                 client_id = f"client_store_{service_name}_{config_hash}"
-                logger.debug(f"🆕 [ID_GEN] Generated Store client_id: {service_name} -> {client_id}")
+                logger.debug(f" [ID_GEN] Generated Store client_id: {service_name} -> {client_id}")
             else:
                 # Agent服务格式
                 client_id = f"client_{agent_id}_{service_name}_{config_hash}"
-                logger.debug(f"🆕 [ID_GEN] Generated Agent client_id: {agent_id}:{service_name} -> {client_id}")
+                logger.debug(f" [ID_GEN] Generated Agent client_id: {agent_id}:{service_name} -> {client_id}")
 
             return client_id
 
@@ -160,4 +163,40 @@ class ClientIDGenerator:
 
         logger.info(f"✅ [ID_GEN] Migration completed: {legacy_id} -> {new_id}")
         return new_id
+
+
+def generate_id(length: int = 8) -> str:
+    """
+    生成随机ID
+    
+    Args:
+        length: ID长度，默认8位
+        
+    Returns:
+        str: 随机ID字符串
+    """
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
+
+
+def generate_short_id(length: int = 4) -> str:
+    """
+    生成短随机ID
+    
+    Args:
+        length: ID长度，默认4位
+        
+    Returns:
+        str: 短随机ID字符串
+    """
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
+
+
+def generate_uuid() -> str:
+    """
+    生成UUID
+    
+    Returns:
+        str: UUID字符串
+    """
+    return str(uuid.uuid4())
 
