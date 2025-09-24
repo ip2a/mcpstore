@@ -20,6 +20,8 @@ from .service_proxy import ServiceProxy
 from .tool_proxy import ToolProxy, ToolCallResult
 from .agent_service_mapper import AgentServiceMapper
 from .service_management import UpdateServiceAuthHelper
+from .session import Session, SessionContext
+from .session_management import SessionManagementMixin
 from .tool_transformation import (
     ToolTransformer, 
     ToolTransformationManager, 
@@ -37,6 +39,9 @@ __all__ = [
     'ToolCallResult', 
     'AgentServiceMapper',
     'UpdateServiceAuthHelper',
+    'Session',
+    'SessionContext',
+    'SessionManagementMixin',
     'ToolTransformer',
     'ToolTransformationManager', 
     'ToolTransformConfig',

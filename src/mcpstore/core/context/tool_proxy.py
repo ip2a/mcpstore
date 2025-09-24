@@ -1,0 +1,469 @@
+"""
+MCPStore Tool Proxy Module
+工具代理对象，提供具体工具的操作方法
+"""
+
+import logging
+from typing import Dict, List, Optional, Any, Union
+from datetime import datetime
+
+from mcpstore.core.models.tool import ToolInfo
+from .types import ContextType
+
+logger = logging.getLogger(__name__)
+
+
+class ToolCallResult:
+    """
+    工具调用结果封装
+    基于 FastMCP CallToolResult 提供友好接口
+    """
+    
+    def __init__(self, fastmcp_result, tool_name: str, arguments: Dict[str, Any]):
+        """
+        初始化工具调用结果
+        
+        Args:
+            fastmcp_result: FastMCP 的 CallToolResult 对象
+            tool_name: 工具名称
+            arguments: 调用参数
+        """
+        self._result = fastmcp_result
+        self._tool_name = tool_name
+        self._arguments = arguments
+        self._called_at = datetime.now()
+        
+        logger.debug(f"[TOOL_CALL_RESULT] Created for tool '{tool_name}', error={self.is_error}")
+    
+    @property
+    def data(self):
+        """
+        FastMCP 的完全水合对象（核心特色）
+        
+        Returns:
+            Any: 完全重构的 Python 对象，包括复杂类型如 datetime、UUID 等
+        """
+        return self._result.data if hasattr(self._result, 'data') else None
+    
+    @property
+    def content(self):
+        """
+        标准 MCP 内容块
+        
+        Returns:
+            List: MCP 内容块列表 (TextContent, ImageContent 等)
+        """
+        return self._result.content if hasattr(self._result, 'content') else []
+        
+    @property
+    def structured_content(self) -> Optional[Dict[str, Any]]:
+        """
+        标准 MCP 结构化 JSON 数据
+        
+        Returns:
+            Dict: 服务器发送的原始结构化数据
+        """
+        return getattr(self._result, 'structured_content', None)
+        
+    @property
+    def is_error(self) -> bool:
+        """
+        是否出错
+        
+        Returns:
+            bool: True 表示工具执行失败
+        """
+        return getattr(self._result, 'is_error', False)
+        
+    @property
+    def text_output(self) -> str:
+        """
+        便捷的文本输出
+        
+        Returns:
+            str: 工具的文本结果
+        """
+        if self.content and len(self.content) > 0:
+            first_content = self.content[0]
+            if hasattr(first_content, 'text'):
+                return first_content.text
+        
+        # 如果没有文本内容，尝试从 data 获取
+        if self.data is not None:
+            return str(self.data)
+            
+        return ""
+    
+    @property
+    def tool_name(self) -> str:
+        """获取工具名称"""
+        return self._tool_name
+    
+    @property
+    def arguments(self) -> Dict[str, Any]:
+        """获取调用参数"""
+        return self._arguments
+    
+    @property
+    def called_at(self) -> datetime:
+        """获取调用时间"""
+        return self._called_at
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        转换为字典格式
+        
+        Returns:
+            Dict: 包含所有结果信息的字典
+        """
+        return {
+            "tool_name": self.tool_name,
+            "arguments": self.arguments,
+            "called_at": self.called_at.isoformat(),
+            "is_error": self.is_error,
+            "data": self.data,
+            "text_output": self.text_output,
+            "has_structured_content": self.structured_content is not None
+        }
+    
+    def __str__(self) -> str:
+        status = "ERROR" if self.is_error else "SUCCESS"
+        return f"ToolCallResult(tool='{self.tool_name}', status={status}, output='{self.text_output[:50]}...')"
+    
+    def __repr__(self) -> str:
+        return self.__str__()
+
+
+class ToolProxy:
+    """
+    工具代理对象
+    提供具体工具的所有操作方法，进一步缩小作用域
+    """
+
+    def __init__(self, context: 'MCPStoreContext', tool_name: str, 
+                 scope: str = 'context', service_name: str = None):
+        """
+        初始化工具代理
+        
+        Args:
+            context: 父级上下文对象
+            tool_name: 工具名称
+            scope: 作用域类型 ('context' | 'service')
+            service_name: 服务名称 (当 scope='service' 时)
+        """
+        self._context = context
+        self._tool_name = tool_name
+        self._scope = scope
+        self._service_name = service_name
+        self._context_type = context.context_type
+        self._agent_id = context.agent_id
+        self._tool_info = None  # 延迟加载
+
+        logger.debug(f"[TOOL_PROXY] Created proxy for tool '{tool_name}' "
+                    f"in {self._context_type.value} context, scope={scope}, service={service_name}")
+
+    @property
+    def tool_name(self) -> str:
+        """获取工具名称"""
+        return self._tool_name
+
+    @property
+    def context_type(self) -> ContextType:
+        """获取上下文类型"""
+        return self._context_type
+    
+    @property
+    def scope(self) -> str:
+        """获取作用域类型"""
+        return self._scope
+    
+    @property
+    def service_name(self) -> Optional[str]:
+        """获取关联的服务名称"""
+        return self._service_name
+
+    # === 工具信息查询方法（两个单词）===
+
+    def tool_info(self) -> Dict[str, Any]:
+        """
+        获取工具详细信息（包括 FastMCP 的 meta 和 tags）
+        
+        Returns:
+            Dict: 工具的完整信息，包括 FastMCP 特有的 meta 数据
+        """
+        if not self._tool_info:
+            self._load_tool_info()
+        
+        return self._tool_info or {}
+
+    def tool_schema(self) -> Optional[Dict[str, Any]]:
+        """
+        获取工具参数模式
+        
+        Returns:
+            Dict: 工具的输入参数 schema
+        """
+        info = self.tool_info()
+        return info.get('inputSchema')
+
+    def tool_tags(self) -> List[str]:
+        """
+        获取工具标签（基于 FastMCP meta._fastmcp.tags）
+        
+        Returns:
+            List[str]: 工具标签列表
+        """
+        info = self.tool_info()
+        return info.get('tags', [])
+
+    def tool_meta(self) -> Dict[str, Any]:
+        """
+        获取工具元数据
+        
+        Returns:
+            Dict: 完整的 meta 数据
+        """
+        info = self.tool_info()
+        return info.get('meta', {})
+
+    # === 工具执行方法（两个单词）===
+
+    def call_tool(self, arguments: Dict[str, Any] = None, **kwargs) -> ToolCallResult:
+        """
+        调用工具（同步版本）
+        利用 FastMCP 的 call_tool() 和 CallToolResult
+        
+        Args:
+            arguments: 工具参数字典
+            **kwargs: 额外的调用选项 (timeout, progress_handler 等)
+        
+        Returns:
+            ToolCallResult: 封装 FastMCP CallToolResult 的友好对象
+        """
+        return self._context._sync_helper.run_async(
+            self.call_tool_async(arguments, **kwargs)
+        )
+
+    async def call_tool_async(self, arguments: Dict[str, Any] = None, **kwargs) -> ToolCallResult:
+        """
+        调用工具（异步版本）
+        
+        Args:
+            arguments: 工具参数字典
+            **kwargs: 额外的调用选项 (timeout, progress_handler 等)
+        
+        Returns:
+            ToolCallResult: 封装的工具调用结果
+        """
+        try:
+            arguments = arguments or {}
+            
+            logger.info(f"[TOOL_PROXY] Calling tool '{self._tool_name}' with args: {arguments}")
+            
+            # 使用上下文的 call_tool_async 方法
+            # 这会利用 FastMCP 的 call_tool() 功能
+            result = await self._context.call_tool_async(self._tool_name, arguments, **kwargs)
+            
+            # 封装为 ToolCallResult
+            tool_result = ToolCallResult(result, self._tool_name, arguments)
+            
+            logger.info(f"[TOOL_PROXY] Tool call completed, error={tool_result.is_error}")
+            return tool_result
+            
+        except Exception as e:
+            logger.error(f"[TOOL_PROXY] Tool call failed: {e}")
+            # 创建错误结果
+            error_result = type('ErrorResult', (), {
+                'data': None,
+                'content': [type('ErrorContent', (), {'text': str(e)})()],
+                'structured_content': None,
+                'is_error': True
+            })()
+            return ToolCallResult(error_result, self._tool_name, arguments or {})
+
+    def test_call(self, arguments: Dict[str, Any] = None) -> ToolCallResult:
+        """
+        测试调用工具（包含验证逻辑）
+        
+        Args:
+            arguments: 测试参数
+            
+        Returns:
+            ToolCallResult: 测试调用结果
+        """
+        # 首先验证工具是否存在
+        info = self.tool_info()
+        if not info:
+            error_result = type('ErrorResult', (), {
+                'data': None,
+                'content': [type('ErrorContent', (), {'text': f"Tool '{self._tool_name}' not found"})()],
+                'structured_content': None,
+                'is_error': True
+            })()
+            return ToolCallResult(error_result, self._tool_name, arguments or {})
+        
+        # 执行实际调用
+        return self.call_tool(arguments)
+
+    # === 工具统计方法（两个单词）===
+
+    def usage_stats(self) -> Dict[str, Any]:
+        """
+        获取该工具的使用统计
+        
+        Returns:
+            Dict: 工具使用统计信息
+        """
+        try:
+            # 通过监控系统获取工具统计
+            if hasattr(self._context, '_monitoring') and self._context._monitoring:
+                # 获取工具使用记录
+                records = self._context._monitoring.get_tool_records(limit=100)
+                
+                # 过滤当前工具的记录
+                tool_records = []
+                if 'records' in records:
+                    tool_records = [
+                        record for record in records['records'] 
+                        if record.get('tool_name') == self._tool_name
+                    ]
+                
+                return {
+                    "tool_name": self._tool_name,
+                    "total_calls": len(tool_records),
+                    "recent_calls": len([r for r in tool_records[-10:]]),  # 最近10次
+                    "success_rate": self._calculate_success_rate(tool_records),
+                    "average_duration": self._calculate_average_duration(tool_records)
+                }
+            else:
+                return {
+                    "tool_name": self._tool_name,
+                    "total_calls": 0,
+                    "recent_calls": 0,
+                    "success_rate": 0.0,
+                    "average_duration": 0.0,
+                    "note": "Monitoring not available"
+                }
+        except Exception as e:
+            logger.error(f"[TOOL_PROXY] Failed to get usage stats: {e}")
+            return {
+                "tool_name": self._tool_name,
+                "error": str(e)
+            }
+
+    def call_history(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        获取调用历史
+        
+        Args:
+            limit: 返回记录数量限制
+            
+        Returns:
+            List[Dict]: 调用历史记录
+        """
+        try:
+            if hasattr(self._context, '_monitoring') and self._context._monitoring:
+                records = self._context._monitoring.get_tool_records(limit=limit * 2)  # 获取更多记录用于过滤
+                
+                # 过滤当前工具的记录
+                tool_records = []
+                if 'records' in records:
+                    tool_records = [
+                        record for record in records['records'] 
+                        if record.get('tool_name') == self._tool_name
+                    ]
+                
+                # 返回最近的记录
+                return tool_records[:limit]
+            else:
+                return []
+        except Exception as e:
+            logger.error(f"[TOOL_PROXY] Failed to get call history: {e}")
+            return []
+
+    # === 内部辅助方法 ===
+
+    def _load_tool_info(self):
+        """延迟加载工具信息"""
+        try:
+            # 获取所有工具信息
+            tools = self._context._sync_helper.run_async(self._context.list_tools_async())
+            
+            for tool in tools:
+                if tool.name == self._tool_name:
+                    # 如果是服务范围，验证服务匹配
+                    if self._scope == 'service' and self._service_name:
+                        if tool.service_name != self._service_name:
+                            continue
+                    
+                    # 构建工具信息
+                    self._tool_info = {
+                        'name': tool.name,
+                        'description': tool.description,
+                        'inputSchema': tool.inputSchema,
+                        'service_name': tool.service_name,
+                        'client_id': tool.client_id,
+                        'tags': [],  # 将从 FastMCP meta 中提取
+                        'meta': {},  # 将从 FastMCP 中获取
+                        'scope': self._scope
+                    }
+                    
+                    # TODO: 从 FastMCP 的 list_tools() 获取 meta 信息
+                    # 这需要访问底层的 FastMCP 客户端
+                    
+                    break
+            
+            if not self._tool_info:
+                logger.warning(f"[TOOL_PROXY] Tool '{self._tool_name}' not found in scope '{self._scope}'")
+                
+        except Exception as e:
+            logger.error(f"[TOOL_PROXY] Failed to load tool info: {e}")
+
+    def _calculate_success_rate(self, records: List[Dict[str, Any]]) -> float:
+        """计算成功率"""
+        if not records:
+            return 0.0
+        
+        success_count = sum(1 for record in records if not record.get('is_error', False))
+        return (success_count / len(records)) * 100.0
+
+    def _calculate_average_duration(self, records: List[Dict[str, Any]]) -> float:
+        """计算平均执行时间"""
+        if not records:
+            return 0.0
+        
+        durations = [record.get('duration', 0.0) for record in records if 'duration' in record]
+        if not durations:
+            return 0.0
+        
+        return sum(durations) / len(durations)
+
+    # === 便捷属性方法 ===
+
+    @property
+    def name(self) -> str:
+        """获取工具名称（便捷属性）"""
+        return self._tool_name
+
+    @property
+    def description(self) -> str:
+        """获取工具描述"""
+        info = self.tool_info()
+        return info.get('description', '')
+
+    @property
+    def has_schema(self) -> bool:
+        """是否有参数模式"""
+        return self.tool_schema() is not None
+
+    @property
+    def is_available(self) -> bool:
+        """工具是否可用"""
+        return bool(self.tool_info())
+
+    def __str__(self) -> str:
+        scope_info = f", service='{self._service_name}'" if self._scope == 'service' else ""
+        return f"ToolProxy(tool='{self._tool_name}', context='{self._context_type.value}', scope='{self._scope}'{scope_info})"
+
+    def __repr__(self) -> str:
+        return self.__str__()

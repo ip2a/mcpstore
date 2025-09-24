@@ -59,11 +59,11 @@ class ConfigManagementMixin:
         新架构下，Agent发现只需要更新缓存，所有持久化通过mcp.json完成
         """
         try:
-            logger.info(f" [SYNC_AGENTS] 单一数据源模式：跳过分片文件同步，已发现 {len(agents_discovered)} 个 Agent")
+            # logger.info(f" [SYNC_AGENTS] 单一数据源模式：跳过分片文件同步，已发现 {len(agents_discovered)} 个 Agent")
             
             # 单一数据源模式：不再写入分片文件，仅维护缓存和mcp.json
-            logger.info("✅ [SYNC_AGENTS] 单一数据源模式：Agent发现完成，缓存已更新")
-
+            # logger.info("✅ [SYNC_AGENTS] 单一数据源模式：Agent发现完成，缓存已更新")
+            pass
         except Exception as e:
-            logger.error(f"❌ [SYNC_AGENTS] Agent 同步失败: {e}")
+            # logger.error(f"❌ [SYNC_AGENTS] Agent 同步失败: {e}")
             raise

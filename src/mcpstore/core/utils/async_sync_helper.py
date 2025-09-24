@@ -91,30 +91,38 @@ class AsyncSyncHelper:
             TimeoutError: 执行超时
             RuntimeError: 执行失败
         """
+        import time as _t
+        t0 = _t.perf_counter()
         try:
             # 检查是否已经在事件循环中
             try:
                 current_loop = asyncio.get_running_loop()
-                # 如果已经在事件循环中，使用后台循环
+                t1 = _t.perf_counter()
                 logger.debug("Running coroutine in background loop (nested)")
                 loop = self._ensure_loop()
+                t2 = _t.perf_counter()
                 future = asyncio.run_coroutine_threadsafe(coro, loop)
-                return future.result(timeout=timeout)
+                result = future.result(timeout=timeout)
+                t3 = _t.perf_counter()
+                logger.debug(f"[TIMING] run_async nested: ensure_loop={(t2-t1):.3f}s, wait_result={(t3 - t2):.3f}s, total={(t3 - t0):.3f}s")
+                return result
             except RuntimeError:
                 # 没有运行中的事件循环
                 if force_background:
-                    # 强制使用后台循环（用于需要后台任务的场景）
                     logger.debug("[ASYNC_HELPER] run_background_loop forced=True")
                     loop = self._ensure_loop()
-                    logger.debug(f"[ASYNC_HELPER] background_loop running={loop.is_running()}")
                     future = asyncio.run_coroutine_threadsafe(coro, loop)
                     result = future.result(timeout=timeout)
-                    logger.debug(f"[ASYNC_HELPER] background_loop done result_type={type(result)}")
+                    t4 = _t.perf_counter()
+                    logger.debug(f"[TIMING] run_async forced_background: total={(t4 - t0):.3f}s")
                     return result
                 else:
                     # 使用临时循环
                     logger.debug("Running coroutine with asyncio.run")
-                    return asyncio.run(coro)
+                    result = asyncio.run(coro)
+                    t5 = _t.perf_counter()
+                    logger.debug(f"[TIMING] run_async asyncio.run: total={(t5 - t0):.3f}s")
+                    return result
 
         except Exception as e:
             logger.error(f"Error running async function: {e}")

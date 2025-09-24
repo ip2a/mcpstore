@@ -946,12 +946,12 @@ class ServiceOperationsMixin:
         """
         try:
             agent_id = self._store.client_manager.global_agent_store_id
-            logger.info(f"🔄 Store模式agent映射持久化开始，agent_id: {agent_id}, 服务数量: {len(services_to_add)}")
-
-            # 单源模式：不再触发分片映射文件同步
-            logger.info("ℹ️ 单源模式：跳过 agent_clients 映射文件同步")
-
-            logger.info("✅ Store模式agent映射持久化完成")
+            # logger.info(f"🔄 Store模式agent映射持久化开始，agent_id: {agent_id}, 服务数量: {len(services_to_add)}")
+            #
+            # # 单源模式：不再触发分片映射文件同步
+            # logger.info("ℹ️ 单源模式：跳过 agent_clients 映射文件同步")
+            #
+            # logger.info("✅ Store模式agent映射持久化完成")
 
         except Exception as e:
             logger.error(f"Failed to persist store agent mappings: {e}")

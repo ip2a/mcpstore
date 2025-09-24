@@ -55,7 +55,7 @@ class ToolNameResolver:
             self._service_name_mapping[normalized] = service
             self._service_name_mapping[service] = service
 
-        logger.debug(f"[RESOLVER] init services={len(self.available_services)} multi_server={self.is_multi_server}")
+        # logger.debug(f"[RESOLVER] init services={len(self.available_services)} multi_server={self.is_multi_server}")
     
     def resolve_tool_name_smart(self, user_input: str, available_tools: List[Dict[str, Any]] = None) -> ToolResolution:
         """

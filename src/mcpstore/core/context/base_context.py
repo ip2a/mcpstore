@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 from .service_operations import ServiceOperationsMixin
 from .tool_operations import ToolOperationsMixin
 from .service_management import ServiceManagementMixin
+from .session_management import SessionManagementMixin
 from .advanced_features import AdvancedFeaturesMixin
 from .resources_prompts import ResourcesPromptsMixin
 from .agent_statistics import AgentStatisticsMixin
@@ -52,6 +53,7 @@ class MCPStoreContext(
     ServiceOperationsMixin,
     ToolOperationsMixin,
     ServiceManagementMixin,
+    SessionManagementMixin,
     AdvancedFeaturesMixin,
     ResourcesPromptsMixin,
     AgentStatisticsMixin
@@ -71,6 +73,9 @@ class MCPStoreContext(
         # 🔧 修复：初始化等待策略（来自ServiceOperationsMixin）
         from .service_operations import AddServiceWaitStrategy
         self.wait_strategy = AddServiceWaitStrategy()
+        
+        # 🆕 初始化会话管理（来自SessionManagementMixin）
+        SessionManagementMixin.__init__(self)
 
         # New feature manager
         self._transformation_manager = get_transformation_manager()
@@ -110,8 +115,18 @@ class MCPStoreContext(
         self._cache: Dict[str, Any] = {}
 
     def for_langchain(self) -> 'LangChainAdapter':
-        """Return a LangChain adapter instance for subsequent LangChain-related operations."""
-        from ...adapters.langchain_adapter import LangChainAdapter
+        """Return a LangChain adapter. If a session is active (within with_session),
+        return a session-aware adapter bound to that session; otherwise return the
+        standard context adapter.
+        """
+        # Avoid top-level import cycles
+        from ...adapters.langchain_adapter import LangChainAdapter, SessionAwareLangChainAdapter
+
+        active = getattr(self, "_active_session", None)
+        if active is not None and getattr(active, "is_active", False):
+            # Implicit session routing: with_session scope auto-binds LangChain tools
+            return SessionAwareLangChainAdapter(self, active)
+
         return LangChainAdapter(self)
 
     def for_llamaindex(self) -> 'LlamaIndexAdapter':

@@ -23,6 +23,7 @@ class ToolExecutionRequest(BaseModel):
     args: Dict[str, Any] = Field(default_factory=dict, description="Tool parameters")
     agent_id: Optional[str] = Field(None, description="Agent ID")
     client_id: Optional[str] = Field(None, description="Client ID")
+    session_id: Optional[str] = Field(None, description="Session ID (for session-aware execution)")
 
     # FastMCP standard parameters
     timeout: Optional[float] = Field(None, description="Timeout (seconds)")

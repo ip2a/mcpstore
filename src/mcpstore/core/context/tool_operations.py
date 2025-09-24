@@ -44,8 +44,9 @@ class ToolOperationsMixin:
             logger.debug("[LIST_TOOLS] quick_check_unavailable skip_smart_wait")
 
         # 然后获取工具列表
-        logger.info(f"[LIST_TOOLS] start background_fetch=True")
-        result = self._sync_helper.run_async(self.list_tools_async(), force_background=True)
+        logger.info(f"[LIST_TOOLS] start")
+        # Avoid forcing background loop to reduce nested loop overhead; set reasonable timeout
+        result = self._sync_helper.run_async(self.list_tools_async(), timeout=60.0)
         logger.info(f"[LIST_TOOLS] count={len(result)}")
         if result:
             logger.info(f"[LIST_TOOLS] names={[t.name for t in result]}")
@@ -264,7 +265,9 @@ class ToolOperationsMixin:
             - 单个内容块：直接返回字符串/数据
             - 多个内容块：返回列表
         """
-        return self._sync_helper.run_async(self.call_tool_async(tool_name, args, **kwargs))
+        # Use background event loop to preserve persistent FastMCP clients across sync calls
+        # Especially critical in auto-session mode to avoid per-call asyncio.run() closing loops
+        return self._sync_helper.run_async(self.call_tool_async(tool_name, args, **kwargs), force_background=True)
 
     def use_tool(self, tool_name: str, args: Union[Dict[str, Any], str] = None, **kwargs) -> Any:
         """
@@ -288,6 +291,30 @@ class ToolOperationsMixin:
             Any: 工具执行结果（FastMCP 标准格式）
         """
         args = args or {}
+
+        # 🎯 隐式会话路由：在 with_session 作用域内且未显式指定 session_id 时优先走当前激活会话
+        if getattr(self, '_active_session', None) is not None and 'session_id' not in kwargs:
+            try:
+                logger.debug(f"[IMPLICIT_SESSION] Routing tool '{tool_name}' to active session '{self._active_session.session_id}'")
+            except Exception:
+                logger.debug(f"[IMPLICIT_SESSION] Routing tool '{tool_name}' to active session")
+            # Avoid duplicate session_id when delegating to Session API
+            kwargs.pop('session_id', None)
+            return await self._active_session.use_tool_async(tool_name, args, **kwargs)
+
+        # 🎯 自动会话路由：仅当启用了自动会话且未显式指定 session_id 时才路由
+        if getattr(self, '_auto_session_enabled', False) and 'session_id' not in kwargs:
+            logger.debug(f"[AUTO_SESSION] Routing tool '{tool_name}' to auto session (no explicit session_id)")
+            return await self._use_tool_with_session_async(tool_name, args, **kwargs)
+        elif getattr(self, '_auto_session_enabled', False) and 'session_id' in kwargs:
+            logger.debug("[AUTO_SESSION] Enabled but explicit session_id provided; skip auto routing")
+
+        # 🎯 隐式会话路由：如果 with_session 激活了会话且未显式提供 session_id，则路由到该会话
+        active_session = getattr(self, '_active_session', None)
+        if active_session is not None and getattr(active_session, 'is_active', False) and 'session_id' not in kwargs:
+            logger.debug(f"[ACTIVE_SESSION] Routing tool '{tool_name}' to active session '{active_session.session_id}'")
+            kwargs.pop('session_id', None)
+            return await active_session.use_tool_async(tool_name, args, **kwargs)
 
         # 获取可用工具列表用于智能解析
         available_tools = []
@@ -333,12 +360,37 @@ class ToolOperationsMixin:
         # 🚀 使用新的智能用户友好型解析器
         from mcpstore.core.registry.tool_resolver import ToolNameResolver
 
-        # 检测是否为多服务场景
-        available_services = self._get_available_services()
-        is_multi_server = len(available_services) > 1
+        # 检测是否为多服务场景（从已获取的工具列表推导，避免同步→异步桥导致的30s超时）
+        derived_services = sorted({
+            t.get("service_name") for t in available_tools
+            if isinstance(t, dict) and t.get("service_name")
+        })
+
+        # 极简兜底：若当前无法从工具列表推导服务（例如工具缓存暂空），
+        # 则从 Registry 的同步缓存读取服务名，避免跨异步边界
+        if not derived_services:
+            try:
+                if self._context_type == ContextType.STORE:
+                    agent_id = self._store.client_manager.global_agent_store_id
+                    cached_services = self._store.registry.get_all_service_names(agent_id)
+                    derived_services = sorted(set(cached_services or []))
+                else:
+                    # Agent 模式：需要将全局服务名映射回本地服务名
+                    global_names = self._store.registry.get_agent_services(self._agent_id)
+                    local_names = set()
+                    for g in (global_names or []):
+                        mapping = self._store.registry.get_agent_service_from_global_name(g)
+                        if mapping and mapping[0] == self._agent_id:
+                            local_names.add(mapping[1])
+                    derived_services = sorted(local_names)
+                logger.debug(f"[RESOLVE_FALLBACK] derived_services from registry cache: {len(derived_services)}")
+            except Exception as e:
+                logger.debug(f"[RESOLVE_FALLBACK] failed to derive services from cache: {e}")
+
+        is_multi_server = len(derived_services) > 1
 
         resolver = ToolNameResolver(
-            available_services=available_services,
+            available_services=derived_services,
             is_multi_server=is_multi_server
         )
 

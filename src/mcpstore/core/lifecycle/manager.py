@@ -187,7 +187,7 @@ class ServiceLifecycleManager:
             return True
             
         except Exception as e:
-            logger.error(f"❌ [INITIALIZE_SERVICE] Failed to initialize service {service_name}: {e}")
+            logger.error(f"[INITIALIZE_SERVICE] Failed to initialize service {service_name}: {e}")
             return False
     
     def get_service_state(self, agent_id: str, service_name: str) -> Optional[ServiceConnectionState]:
@@ -430,27 +430,27 @@ class ServiceLifecycleManager:
             agent_id: Agent ID
             service_name: 服务名称
         """
-        logger.debug(f"🔄 [REQUEST_RECONNECTION] Starting for {service_name} (agent {agent_id})")
+        logger.debug(f" [REQUEST_RECONNECTION] Starting for {service_name} (agent {agent_id})")
 
         current_state = self.get_service_state(agent_id, service_name)
         if current_state is None:
-            logger.warning(f"⚠️ [REQUEST_RECONNECTION] No state found for {service_name} (agent {agent_id})")
+            logger.warning(f"[REQUEST_RECONNECTION] No state found for {service_name} (agent {agent_id})")
             return
 
         metadata = self.get_service_metadata(agent_id, service_name)
         if not metadata:
-            logger.error(f"❌ [REQUEST_RECONNECTION] No metadata found for {service_name} (agent {agent_id})")
+            logger.error(f"[REQUEST_RECONNECTION] No metadata found for {service_name} (agent {agent_id})")
             return
 
         # 检查是否可以重连
         if current_state in [ServiceConnectionState.RECONNECTING, ServiceConnectionState.UNREACHABLE]:
             if not self.state_machine.should_retry_now(metadata):
-                logger.debug(f"⏸️ [REQUEST_RECONNECTION] Not time to retry yet for {service_name}")
+                logger.debug(f" [REQUEST_RECONNECTION] Not time to retry yet for {service_name}")
                 return
 
             # 增加重连尝试次数
             metadata.reconnect_attempts += 1
-            logger.debug(f"🔄 [REQUEST_RECONNECTION] Attempt #{metadata.reconnect_attempts} for {service_name}")
+            logger.debug(f" [REQUEST_RECONNECTION] Attempt #{metadata.reconnect_attempts} for {service_name}")
 
             # 尝试重连
             try:
@@ -461,14 +461,14 @@ class ServiceLifecycleManager:
                     logger.info(f"✅ [REQUEST_RECONNECTION] Reconnection successful for {service_name}")
                     await self._transition_to_state(agent_id, service_name, ServiceConnectionState.HEALTHY)
                 else:
-                    logger.warning(f"❌ [REQUEST_RECONNECTION] Reconnection failed for {service_name}")
+                    logger.warning(f"[REQUEST_RECONNECTION] Reconnection failed for {service_name}")
                     # 状态转换将由健康检查结果处理
 
             except Exception as e:
-                logger.error(f"❌ [REQUEST_RECONNECTION] Reconnection error for {service_name}: {e}")
+                logger.error(f"[REQUEST_RECONNECTION] Reconnection error for {service_name}: {e}")
                 metadata.error_message = str(e)
         else:
-            logger.debug(f"⏸️ [REQUEST_RECONNECTION] Service {service_name} is not in a reconnectable state: {current_state}")
+            logger.debug(f" [REQUEST_RECONNECTION] Service {service_name} is not in a reconnectable state: {current_state}")
 
     async def request_disconnection(self, agent_id: str, service_name: str):
         """
@@ -482,7 +482,7 @@ class ServiceLifecycleManager:
 
         current_state = self.get_service_state(agent_id, service_name)
         if current_state is None:
-            logger.warning(f"⚠️ [REQUEST_DISCONNECTION] No state found for {service_name} (agent {agent_id})")
+            logger.warning(f"[REQUEST_DISCONNECTION] No state found for {service_name} (agent {agent_id})")
             return
 
         # 只有在非断开状态下才能请求断开
@@ -495,9 +495,9 @@ class ServiceLifecycleManager:
                 await self._transition_to_state(agent_id, service_name, ServiceConnectionState.DISCONNECTED)
                 logger.info(f"✅ [REQUEST_DISCONNECTION] Service {service_name} (agent {agent_id}) disconnected")
             except Exception as e:
-                logger.error(f"❌ [REQUEST_DISCONNECTION] Failed to disconnect {service_name}: {e}")
+                logger.error(f"[REQUEST_DISCONNECTION] Failed to disconnect {service_name}: {e}")
         else:
-            logger.debug(f"⏸️ [REQUEST_DISCONNECTION] Service {service_name} is already disconnecting/disconnected")
+            logger.debug(f" [REQUEST_DISCONNECTION] Service {service_name} is already disconnecting/disconnected")
 
     def remove_service(self, agent_id: str, service_name: str):
         """
@@ -538,7 +538,7 @@ class ServiceLifecycleManager:
                     services_to_process = list(self.state_change_queue)
                     self.state_change_queue.clear()
 
-                    logger.debug(f"🔄 [LIFECYCLE_LOOP] Processing {len(services_to_process)} services")
+                    logger.debug(f" [LIFECYCLE_LOOP] Processing {len(services_to_process)} services")
 
                     # 并发处理多个服务
                     tasks = []
@@ -554,7 +554,7 @@ class ServiceLifecycleManager:
                         for i, result in enumerate(results):
                             if isinstance(result, Exception):
                                 agent_id, service_name = services_to_process[i]
-                                logger.error(f"❌ [LIFECYCLE_LOOP] Error processing {service_name} (agent {agent_id}): {result}")
+                                logger.error(f"[LIFECYCLE_LOOP] Error processing {service_name} (agent {agent_id}): {result}")
 
                 # 等待下一次循环
                 await asyncio.sleep(5.0)  # 5秒检查一次
@@ -563,7 +563,7 @@ class ServiceLifecycleManager:
                 logger.info("Lifecycle management loop was cancelled")
                 break
             except Exception as e:
-                logger.error(f"❌ [LIFECYCLE_LOOP] Unexpected error in lifecycle management loop: {e}")
+                logger.error(f"[LIFECYCLE_LOOP] Unexpected error in lifecycle management loop: {e}")
                 # 继续运行，不要因为单次错误而停止整个循环
                 await asyncio.sleep(1.0)
 
@@ -579,7 +579,7 @@ class ServiceLifecycleManager:
         logger.debug(f"[PROCESS_SERVICE] Current state: {current_state}, metadata exists: {metadata is not None}")
 
         if not metadata:
-            logger.warning(f"⚠️ [PROCESS_SERVICE] No metadata found for {service_name}, removing from queue")
+            logger.warning(f"[PROCESS_SERVICE] No metadata found for {service_name}, removing from queue")
             # 从队列中移除，避免重复处理
             self.state_change_queue.discard((agent_id, service_name))
             return
@@ -600,7 +600,7 @@ class ServiceLifecycleManager:
                 logger.debug(f"🔧 [PROCESS_SERVICE] Time to retry reconnection for {service_name}")
                 await self._attempt_reconnection(agent_id, service_name)
             else:
-                logger.debug(f"⏸️ [PROCESS_SERVICE] Not time to retry yet for {service_name}")
+                logger.debug(f" [PROCESS_SERVICE] Not time to retry yet for {service_name}")
 
         elif current_state == ServiceConnectionState.UNREACHABLE:
             logger.debug(f"🔧 [PROCESS_SERVICE] UNREACHABLE state - checking long period retry for {service_name}")
@@ -608,7 +608,7 @@ class ServiceLifecycleManager:
                 logger.debug(f"🔧 [PROCESS_SERVICE] Time for long period retry for {service_name}")
                 await self._attempt_long_period_retry(agent_id, service_name)
             else:
-                logger.debug(f"⏸️ [PROCESS_SERVICE] Not time for long period retry yet for {service_name}")
+                logger.debug(f" [PROCESS_SERVICE] Not time for long period retry yet for {service_name}")
 
         elif current_state == ServiceConnectionState.DISCONNECTING:
             logger.debug(f"🔧 [PROCESS_SERVICE] DISCONNECTING state - checking timeout for {service_name}")
@@ -617,10 +617,10 @@ class ServiceLifecycleManager:
                 # 断连超时，强制转换为DISCONNECTED
                 await self._transition_to_state(agent_id, service_name, ServiceConnectionState.DISCONNECTED)
             else:
-                logger.debug(f"⏸️ [PROCESS_SERVICE] Disconnect timeout not reached yet for {service_name}")
+                logger.debug(f" [PROCESS_SERVICE] Disconnect timeout not reached yet for {service_name}")
 
         else:
-            logger.debug(f"⏸️ [PROCESS_SERVICE] No processing needed for {service_name} in state {current_state}")
+            logger.debug(f" [PROCESS_SERVICE] No processing needed for {service_name} in state {current_state}")
 
         logger.debug(f"[PROCESS_SERVICE] Completed processing {service_name}")
 
@@ -728,7 +728,7 @@ class ServiceLifecycleManager:
                 logger.warning(f"Service {service_name} initial connection failed")
 
         except Exception as e:
-            logger.error(f"❌ [ATTEMPT_INITIAL_CONNECTION] Error during initial connection for {service_name}: {e}")
+            logger.error(f"[ATTEMPT_INITIAL_CONNECTION] Error during initial connection for {service_name}: {e}")
             await self.handle_health_check_result(
                 agent_id=agent_id,
                 service_name=service_name,
@@ -744,7 +744,7 @@ class ServiceLifecycleManager:
             return
 
         try:
-            logger.debug(f"🔄 [ATTEMPT_RECONNECTION] Starting reconnection attempt #{metadata.reconnect_attempts + 1} for {service_name}")
+            logger.debug(f" [ATTEMPT_RECONNECTION] Starting reconnection attempt #{metadata.reconnect_attempts + 1} for {service_name}")
 
             # 增加重连尝试次数
             metadata.reconnect_attempts += 1
@@ -773,10 +773,10 @@ class ServiceLifecycleManager:
                     response_time=0.0,
                     error_message=f"Reconnection attempt #{metadata.reconnect_attempts} failed"
                 )
-                logger.warning(f"❌ [ATTEMPT_RECONNECTION] Reconnection attempt #{metadata.reconnect_attempts} failed for {service_name}, next retry in {delay}s")
+                logger.warning(f"[ATTEMPT_RECONNECTION] Reconnection attempt #{metadata.reconnect_attempts} failed for {service_name}, next retry in {delay}s")
 
         except Exception as e:
-            logger.error(f"❌ [ATTEMPT_RECONNECTION] Error during reconnection for {service_name}: {e}")
+            logger.error(f"[ATTEMPT_RECONNECTION] Error during reconnection for {service_name}: {e}")
 
             # 计算下次重试时间
             delay = self.state_machine.calculate_reconnect_delay(metadata.reconnect_attempts)
@@ -797,7 +797,7 @@ class ServiceLifecycleManager:
             return
 
         try:
-            logger.debug(f"🔄 [ATTEMPT_LONG_PERIOD_RETRY] Starting long period retry for {service_name}")
+            logger.debug(f" [ATTEMPT_LONG_PERIOD_RETRY] Starting long period retry for {service_name}")
 
             # 重置重连尝试次数，开始新一轮重连
             metadata.reconnect_attempts = 0
@@ -817,10 +817,10 @@ class ServiceLifecycleManager:
             else:
                 # 连接失败，转换到RECONNECTING状态开始新一轮重连
                 await self._transition_to_state(agent_id, service_name, ServiceConnectionState.RECONNECTING)
-                logger.warning(f"❌ [ATTEMPT_LONG_PERIOD_RETRY] Long period retry failed for {service_name}, starting new reconnection cycle")
+                logger.warning(f"[ATTEMPT_LONG_PERIOD_RETRY] Long period retry failed for {service_name}, starting new reconnection cycle")
 
         except Exception as e:
-            logger.error(f"❌ [ATTEMPT_LONG_PERIOD_RETRY] Error during long period retry for {service_name}: {e}")
+            logger.error(f"[ATTEMPT_LONG_PERIOD_RETRY] Error during long period retry for {service_name}: {e}")
 
             # 连接失败，转换到RECONNECTING状态
             await self._transition_to_state(agent_id, service_name, ServiceConnectionState.RECONNECTING)
@@ -954,6 +954,6 @@ class ServiceLifecycleManager:
             return agent_id, service_name
 
         except Exception as e:
-            logger.error(f"❌ [SERVICE_LOCATION] 解析失败 {agent_id}:{service_name}: {e}")
+            logger.error(f"[SERVICE_LOCATION] 解析失败 {agent_id}:{service_name}: {e}")
             # 出错时返回原始位置
             return agent_id, service_name

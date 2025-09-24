@@ -72,7 +72,8 @@ class ToolOperationsMixin:
                 agent_id=request.agent_id,
                 timeout=request.timeout,
                 progress_handler=request.progress_handler,
-                raise_on_error=request.raise_on_error
+                raise_on_error=request.raise_on_error,
+                session_id=getattr(request, 'session_id', None)  # 🆕 传递会话ID（如果有）
             )
 
             # 📊 记录成功的工具执行

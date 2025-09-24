@@ -822,8 +822,8 @@ class ServiceRegistry:
     def get_agent_clients_from_cache(self, agent_id: str) -> List[str]:
         """从缓存获取 Agent 的所有 Client ID"""
         result = self.agent_clients.get(agent_id, [])
-        logger.debug(f"[REGISTRY] get_clients agent_id={agent_id} result={result}")
-        logger.debug(f"[REGISTRY] agent_clients_full={dict(self.agent_clients)}")
+        # logger.debug(f"[REGISTRY] get_clients agent_id={agent_id} result={result}")
+        # logger.debug(f"[REGISTRY] agent_clients_full={dict(self.agent_clients)}")
         return result
 
     def remove_agent_client_mapping(self, agent_id: str, client_id: str):
@@ -868,11 +868,11 @@ class ServiceRegistry:
     def get_service_client_id(self, agent_id: str, service_name: str) -> Optional[str]:
         """获取服务对应的 Client ID"""
         result = self.service_to_client.get(agent_id, {}).get(service_name)
-        # 🔧 调试：记录映射查询结果
-        logger.debug(f"[CLIENT_ID_LOOKUP] agent_id={agent_id} service_name={service_name} result={result}")
-        logger.debug(f"[CLIENT_ID_LOOKUP] keys={list(self.service_to_client.keys())}")
-        if agent_id in self.service_to_client:
-            logger.debug(f"[CLIENT_ID_LOOKUP] services_for_agent={list(self.service_to_client[agent_id].keys())}")
+        # # 🔧 调试：记录映射查询结果
+        # logger.debug(f"[CLIENT_ID_LOOKUP] agent_id={agent_id} service_name={service_name} result={result}")
+        # logger.debug(f"[CLIENT_ID_LOOKUP] keys={list(self.service_to_client.keys())}")
+        # if agent_id in self.service_to_client:
+        #     logger.debug(f"[CLIENT_ID_LOOKUP] services_for_agent={list(self.service_to_client[agent_id].keys())}")
         return result
 
     def remove_service_client_mapping(self, agent_id: str, service_name: str):

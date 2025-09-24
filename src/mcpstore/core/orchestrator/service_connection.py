@@ -195,12 +195,12 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
 
             # 尝试连接
             try:
-                logger.info(f"🔗 [REMOTE_SERVICE] 准备进入 async with client 上下文: {name}")
+                logger.info(f" [REMOTE_SERVICE] 准备进入 async with client 上下文: {name}")
                 async with client:
-                    logger.info(f"🔗 [REMOTE_SERVICE] 成功进入 async with client 上下文: {name}")
-                    logger.info(f"🔗 [REMOTE_SERVICE] 准备调用 client.list_tools(): {name}")
+                    logger.info(f" [REMOTE_SERVICE] 成功进入 async with client 上下文: {name}")
+                    logger.info(f" [REMOTE_SERVICE] 准备调用 client.list_tools(): {name}")
                     tools = await client.list_tools()
-                    logger.info(f"🔗 [REMOTE_SERVICE] 成功获取工具列表，数量: {len(tools)}")
+                    logger.info(f" [REMOTE_SERVICE] 成功获取工具列表，数量: {len(tools)}")
 
                     # 🔧 修复：更新Registry缓存
                     await self._update_service_cache(agent_id, name, client, tools, service_config)
@@ -241,7 +241,7 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
                         await client.close()
                     logger.debug(f"Closed current client for remote service {name}")
                 except Exception as cleanup_error:
-                    logger.error(f"Failed to close current client for remote service {name}: {cleanup_error}")
+                    logger.warning(f"Failed to close current client for remote service {name}: {cleanup_error}")
 
                 # 通知生命周期管理器连接失败
                 await self.lifecycle_manager.handle_health_check_result(

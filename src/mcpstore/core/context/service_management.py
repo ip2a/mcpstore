@@ -405,7 +405,7 @@ class ServiceManagementMixin:
         """Store级别重置配置的内部实现"""
         try:
             if scope == "all":
-                logger.info("🔄 Store级别：重置所有缓存和所有JSON文件")
+                logger.info(" Store级别：重置所有缓存和所有JSON文件")
 
                 # 1. 清空所有缓存
                 self._store.registry.agent_clients.clear()
@@ -426,11 +426,11 @@ class ServiceManagementMixin:
                 # 3. 单源模式：不再维护分片映射文件
                 logger.info("Single-source mode: skip shard mapping files (agent_clients/client_services)")
 
-                logger.info("✅ Store级别：所有配置重置完成")
+                logger.info(" Store级别：所有配置重置完成")
                 return mcp_success
 
             elif scope == "global_agent_store":
-                logger.info("🔄 Store级别：只重置global_agent_store")
+                logger.info(" Store级别：只重置global_agent_store")
 
                 # 1. 清空global_agent_store在缓存中的数据
                 global_agent_store_id = self._store.client_manager.global_agent_store_id
@@ -443,7 +443,7 @@ class ServiceManagementMixin:
                 # 3. 单源模式：不再维护分片映射文件
                 logger.info("Single-source mode: skip shard mapping files (agent_clients/client_services)")
 
-                logger.info("✅ Store级别：global_agent_store重置完成")
+                logger.info(" Store级别：global_agent_store重置完成")
                 return mcp_success
 
             else:
@@ -457,7 +457,7 @@ class ServiceManagementMixin:
     async def _reset_agent_config(self) -> bool:
         """Agent级别重置配置的内部实现"""
         try:
-            logger.info(f"🔄 Agent级别：重置Agent {self._agent_id} 的所有配置")
+            logger.info(f" Agent级别：重置Agent {self._agent_id} 的所有配置")
 
             # 1. 清空Agent在缓存中的数据
             self._store.registry.clear(self._agent_id)
@@ -465,7 +465,7 @@ class ServiceManagementMixin:
             # 2. 单源模式：不再同步到分片文件
             logger.info("Single-source mode: skip shard mapping files sync")
 
-            logger.info(f"✅ Agent级别：Agent {self._agent_id} 配置重置完成")
+            logger.info(f" Agent级别：Agent {self._agent_id} 配置重置完成")
             return True
 
         except Exception as e:
@@ -519,7 +519,7 @@ class ServiceManagementMixin:
         """Store级别显示配置的内部实现"""
         try:
             if scope == "all":
-                logger.info("🔄 Store级别：显示所有Agent的配置")
+                logger.info(" Store级别：显示所有Agent的配置")
 
                 # 获取所有Agent ID
                 all_agent_ids = self._store.registry.get_all_agent_ids()
@@ -564,7 +564,7 @@ class ServiceManagementMixin:
                 }
 
             elif scope == "global_agent_store":
-                logger.info("🔄 Store级别：只显示global_agent_store的配置")
+                logger.info(" Store级别：只显示global_agent_store的配置")
 
                 global_agent_store_id = self._store.client_manager.global_agent_store_id
                 return await self._get_single_agent_config(global_agent_store_id)
@@ -588,7 +588,7 @@ class ServiceManagementMixin:
     async def _show_agent_config(self) -> Dict[str, Any]:
         """Agent级别显示配置的内部实现"""
         try:
-            logger.info(f"🔄 Agent级别：显示Agent {self._agent_id} 的配置")
+            logger.info(f" Agent级别：显示Agent {self._agent_id} 的配置")
 
             # 检查Agent是否存在
             all_agent_ids = self._store.registry.get_all_agent_ids()
@@ -905,7 +905,7 @@ class ServiceManagementMixin:
             # 6. 单源模式：不再同步到分片文件
             logger.info("Single-source mode: skip shard mapping files sync")
 
-            logger.info(f"✅ Store级别：配置删除完成 {service_name}")
+            logger.info(f" Store级别：配置删除完成 {service_name}")
 
             return {
                 "success": True,
@@ -953,7 +953,7 @@ class ServiceManagementMixin:
             # 5. 单源模式：不再同步到分片文件
             logger.info("Single-source mode: skip shard mapping files sync")
 
-            logger.info(f"✅ Agent级别：配置删除完成 {service_name}")
+            logger.info(f" Agent级别：配置删除完成 {service_name}")
 
             return {
                 "success": True,
@@ -1030,14 +1030,14 @@ class ServiceManagementMixin:
     async def _update_store_config(self, client_id_or_service_name: str, new_config: Dict[str, Any]) -> Dict[str, Any]:
         """Store级别更新配置的内部实现"""
         try:
-            logger.info(f"🔄 Store级别：更新配置 {client_id_or_service_name}")
+            logger.info(f" Store级别：更新配置 {client_id_or_service_name}")
 
             global_agent_store_id = self._store.client_manager.global_agent_store_id
 
             # 解析client_id和服务名
             client_id, service_name = self._resolve_client_id(client_id_or_service_name, global_agent_store_id)
 
-            logger.info(f"🔄 解析结果: client_id={client_id}, service_name={service_name}")
+            logger.info(f" 解析结果: client_id={client_id}, service_name={service_name}")
 
             # 获取当前配置
             old_complete_info = self._store.registry.get_complete_service_info(global_agent_store_id, service_name)
@@ -1049,7 +1049,7 @@ class ServiceManagementMixin:
             # 验证和标准化新配置
             normalized_config = self._validate_and_normalize_config(new_config, service_name, old_config)
 
-            logger.info(f"🔄 配置验证通过，开始更新: {service_name}")
+            logger.info(f" 配置验证通过，开始更新: {service_name}")
 
             # 1. 清空服务的工具和会话数据
             self._store.registry.clear_service_tools_only(global_agent_store_id, service_name)
@@ -1088,7 +1088,7 @@ class ServiceManagementMixin:
                 global_agent_store_id, service_name, normalized_config
             )
 
-            logger.info(f"✅ Store级别：配置更新完成 {service_name}")
+            logger.info(f" Store级别：配置更新完成 {service_name}")
 
             return {
                 "success": True,
@@ -1113,12 +1113,12 @@ class ServiceManagementMixin:
     async def _update_agent_config(self, client_id_or_service_name: str, new_config: Dict[str, Any]) -> Dict[str, Any]:
         """Agent级别更新配置的内部实现"""
         try:
-            logger.info(f"🔄 Agent级别：更新Agent {self._agent_id} 的配置 {client_id_or_service_name}")
+            logger.info(f" Agent级别：更新Agent {self._agent_id} 的配置 {client_id_or_service_name}")
 
             # 解析client_id和服务名
             client_id, service_name = self._resolve_client_id(client_id_or_service_name, self._agent_id)
 
-            logger.info(f"🔄 解析结果: client_id={client_id}, service_name={service_name}")
+            logger.info(f" 解析结果: client_id={client_id}, service_name={service_name}")
 
             # 获取当前配置
             old_complete_info = self._store.registry.get_complete_service_info(self._agent_id, service_name)
@@ -1130,7 +1130,7 @@ class ServiceManagementMixin:
             # 验证和标准化新配置
             normalized_config = self._validate_and_normalize_config(new_config, service_name, old_config)
 
-            logger.info(f"🔄 配置验证通过，开始更新: {service_name}")
+            logger.info(f" 配置验证通过，开始更新: {service_name}")
 
             # 1. 清空服务的工具和会话数据
             self._store.registry.clear_service_tools_only(self._agent_id, service_name)
@@ -1162,7 +1162,7 @@ class ServiceManagementMixin:
                 self._agent_id, service_name, normalized_config
             )
 
-            logger.info(f"✅ Agent级别：配置更新完成 {service_name}")
+            logger.info(f" Agent级别：配置更新完成 {service_name}")
 
             return {
                 "success": True,
@@ -1266,7 +1266,7 @@ class ServiceManagementMixin:
                 success = self._store.config.save_config(current_config)
 
                 if success:
-                    logger.info(f"✅ [SERVICE_DELETE] Store 服务删除成功: {service_name}")
+                    logger.info(f" [SERVICE_DELETE] Store 服务删除成功: {service_name}")
                 else:
                     logger.error(f"❌ [SERVICE_DELETE] Store 服务删除失败: {service_name}")
 
@@ -1309,7 +1309,7 @@ class ServiceManagementMixin:
                 success = self._store.config.save_config(current_config)
 
                 if success:
-                    logger.info(f"✅ [SERVICE_DELETE] Agent 服务删除成功: {local_name} → {global_name}")
+                    logger.info(f" [SERVICE_DELETE] Agent 服务删除成功: {local_name} → {global_name}")
                 else:
                     logger.error(f"❌ [SERVICE_DELETE] Agent 服务删除失败: {local_name} → {global_name}")
 
