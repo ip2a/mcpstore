@@ -103,8 +103,7 @@ class ClientIDGenerator:
                         "config_hash": parts[3] if len(parts) > 3 else ""
                     }
 
-            # 无法解析的格式
-            logger.warning(f"⚠️ [ID_GEN] Unable to parse client_id format: {client_id}")
+
             return {
                 "type": "unknown",
                 "agent_id": None,

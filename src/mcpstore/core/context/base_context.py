@@ -113,6 +113,9 @@ class MCPStoreContext(
         self._metadata: Dict[str, Any] = {}
         self._config: Dict[str, Any] = {}
         self._cache: Dict[str, Any] = {}
+        # Per-tool overrides (e.g., flags consumed by adapters like LangChain)
+        # Keyed by "{service_name}:{tool_name}" -> { flag_name: value }
+        self._tool_overrides: Dict[str, Dict[str, Any]] = {}
 
     def for_langchain(self) -> 'LangChainAdapter':
         """Return a LangChain adapter. If a session is active (within with_session),
@@ -319,6 +322,41 @@ class MCPStoreContext(
 
     # === Internal helper methods ===
     
+    def _tool_override_key(self, service_name: str, tool_name: str) -> str:
+        """Compose stable key for tool overrides."""
+        service_safe = service_name or ""
+        return f"{service_safe}:{tool_name}"
+
+    def _set_tool_override(self, service_name: str, tool_name: str, flag: str, value: Any) -> None:
+        """Set an override flag for a specific tool.
+
+        Args:
+            service_name: The service that provides the tool (agent-local or global depending on context view)
+            tool_name: Tool name as exposed by current context's tools view
+            flag: Override flag name, e.g., "return_direct"
+            value: Override value
+        """
+        try:
+            key = self._tool_override_key(service_name, tool_name)
+            if key not in self._tool_overrides:
+                self._tool_overrides[key] = {}
+            self._tool_overrides[key][flag] = value
+            logger.debug(f"[TOOL_OVERRIDE] set {flag}={value} for {key}")
+        except Exception as e:
+            logger.warning(f"[TOOL_OVERRIDE] failed to set override for {service_name}:{tool_name} flag={flag}: {e}")
+
+    def _get_tool_override(self, service_name: str, tool_name: str, flag: str, default: Any = None) -> Any:
+        """Get an override flag value for a tool, or default if not set."""
+        try:
+            key = self._tool_override_key(service_name, tool_name)
+            return self._tool_overrides.get(key, {}).get(flag, default)
+        except Exception:
+            return default
+
+    def _get_all_tool_overrides(self) -> Dict[str, Dict[str, Any]]:
+        """Return a snapshot of all tool overrides."""
+        return dict(self._tool_overrides)
+
     def _get_available_services(self) -> List[str]:
         """Get available service list"""
         try:

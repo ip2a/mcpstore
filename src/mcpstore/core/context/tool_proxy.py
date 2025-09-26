@@ -226,6 +226,63 @@ class ToolProxy:
         info = self.tool_info()
         return info.get('meta', {})
 
+    # === 配置覆盖（如 LangChain return_direct） ===
+
+    def set_redirect(self, enabled: bool = True) -> 'ToolProxy':
+        """
+        标记该工具为 "redirect" 行为（LangChain 中对应 return_direct）。
+
+        当后续通过 context.for_langchain().list_tools() 转换为 LangChain 工具时，
+        将读取该标记并设置到生成的 Tool/StructuredTool 上。
+        """
+        try:
+            # 1) 先尝试加载精确的工具信息
+            if not self._tool_info:
+                self._load_tool_info()
+
+            resolved_service = None
+            resolved_tool_name = None
+
+            if self._tool_info:
+                # 已经有精确匹配的信息
+                resolved_service = self._tool_info.get('service_name')
+                resolved_tool_name = self._tool_info.get('name', self._tool_name)
+            else:
+                # 2) 进行后缀匹配解析：支持传入简名（如 get_current_weather）
+                tools = self._context._sync_helper.run_async(self._context.list_tools_async())
+                candidate = None
+
+                for t in tools:
+                    # 限定服务匹配（如果指定了 service 范围）
+                    if self._service_name and t.service_name != self._service_name:
+                        continue
+
+                    if t.name == self._tool_name:
+                        candidate = t
+                        break
+                    # 支持下划线或双下划线分隔的后缀匹配
+                    if t.name.endswith(f"_{self._tool_name}") or t.name.endswith(f"__{self._tool_name}"):
+                        candidate = t
+                        # 不立即 break，以便优先找到完全相同服务的匹配项（上面已按服务过滤）
+
+                if candidate:
+                    resolved_service = candidate.service_name
+                    resolved_tool_name = candidate.name
+                else:
+                    # 保底：直接使用现有信息（可能覆盖不到正确键）
+                    resolved_service = self._service_name or ""
+                    resolved_tool_name = self._tool_name
+
+            # 3) 设置覆盖键（service:resolved_tool_name）
+            self._context._set_tool_override(resolved_service or "", resolved_tool_name, "return_direct", bool(enabled))
+            logger.debug(
+                f"[TOOL_PROXY] set_redirect(return_direct)={enabled} input='{self._tool_name}', "
+                f"resolved='{resolved_tool_name}', service='{resolved_service}'"
+            )
+        except Exception as e:
+            logger.warning(f"[TOOL_PROXY] set_redirect failed: {e}")
+        return self
+
     # === 工具执行方法（两个单词）===
 
     def call_tool(self, arguments: Dict[str, Any] = None, **kwargs) -> ToolCallResult:
@@ -408,13 +465,13 @@ class ToolProxy:
                         'scope': self._scope
                     }
                     
-                    # TODO: 从 FastMCP 的 list_tools() 获取 meta 信息
+                    # T 从 FastMCP 的 list_tools() 获取 meta 信息
                     # 这需要访问底层的 FastMCP 客户端
                     
                     break
             
             if not self._tool_info:
-                logger.warning(f"[TOOL_PROXY] Tool '{self._tool_name}' not found in scope '{self._scope}'")
+                logger.debug(f"[TOOL_PROXY] Tool '{self._tool_name}' not found in scope '{self._scope}'")
                 
         except Exception as e:
             logger.error(f"[TOOL_PROXY] Failed to load tool info: {e}")

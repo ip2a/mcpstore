@@ -261,28 +261,41 @@ class LangChainAdapter:
             schema_properties = tool_info.inputSchema.get("properties", {})
             param_count = len(schema_properties)
 
+            # Read per-tool overrides (e.g., return_direct) from context
+            try:
+                return_direct_flag = self._context._get_tool_override(tool_info.service_name, tool_info.name, "return_direct", False)
+            except Exception:
+                return_direct_flag = False
+
             if param_count > 1:
                 # Multi-parameter tools use StructuredTool
-                langchain_tools.append(
-                    StructuredTool(
-                        name=tool_info.name,
-                        description=enhanced_description,
-                        func=sync_func,
-                        coroutine=async_coroutine,
-                        args_schema=args_schema,
-                    )
+                lc_tool = StructuredTool(
+                    name=tool_info.name,
+                    description=enhanced_description,
+                    func=sync_func,
+                    coroutine=async_coroutine,
+                    args_schema=args_schema,
                 )
+                # Set return_direct if supported
+                try:
+                    setattr(lc_tool, 'return_direct', bool(return_direct_flag))
+                except Exception:
+                    pass
+                langchain_tools.append(lc_tool)
             else:
                 # Single-parameter or no-parameter tools use regular Tool
-                langchain_tools.append(
-                    Tool(
-                        name=tool_info.name,
-                        description=enhanced_description,
-                        func=sync_func,
-                        coroutine=async_coroutine,
-                        args_schema=args_schema,
-                    )
+                lc_tool = Tool(
+                    name=tool_info.name,
+                    description=enhanced_description,
+                    func=sync_func,
+                    coroutine=async_coroutine,
+                    args_schema=args_schema,
                 )
+                try:
+                    setattr(lc_tool, 'return_direct', bool(return_direct_flag))
+                except Exception:
+                    pass
+                langchain_tools.append(lc_tool)
         return langchain_tools
 
 

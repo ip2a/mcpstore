@@ -3,7 +3,7 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Union
 
 logger = logging.getLogger(__name__)
 
@@ -12,29 +12,50 @@ class LoggingConfig:
 
     _debug_enabled = False
     _configured = False
+    _current_level: int = logging.WARNING
 
     @classmethod
-    def setup_logging(cls, debug: bool = False, force_reconfigure: bool = False):
+    def setup_logging(cls, debug: Union[bool, str, int] = False, force_reconfigure: bool = False):
         """
-        Setup logging configuration
+        Setup logging configuration.
 
         Args:
-            debug: Whether to enable debug logging
+            debug: Backward-compatible log control. Supports:
+                   - True  -> DEBUG
+                   - False -> WARNING (was ERROR before; now more practical)
+                   - "DEBUG"/"INFO"/"WARNING"/"ERROR"/"CRITICAL" -> exact level
+                   - int   -> logging level constant
             force_reconfigure: Whether to force reconfiguration
         """
+        def _to_level(v: Union[bool, str, int]) -> int:
+            if isinstance(v, bool):
+                return logging.DEBUG if v else logging.WARNING
+            if isinstance(v, int):
+                return v
+            if isinstance(v, str):
+                m = v.strip().upper()
+                return {
+                    "DEBUG": logging.DEBUG,
+                    "INFO": logging.INFO,
+                    "WARNING": logging.WARNING,
+                    "ERROR": logging.ERROR,
+                    "CRITICAL": logging.CRITICAL,
+                }.get(m, logging.WARNING)
+            return logging.WARNING
+
+        level = _to_level(debug)
+
         if cls._configured and not force_reconfigure:
-            # If already configured and not forcing reconfiguration, only update log level
-            if debug != cls._debug_enabled:
-                cls._set_log_level(debug)
+            # Only update levels if changed
+            if level != cls._current_level:
+                cls._set_log_level(level)
             return
 
         # Configure log format
-        if debug:
+        if level <= logging.DEBUG:
             log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            log_level = logging.DEBUG
         else:
             log_format = '%(levelname)s - %(message)s'
-            log_level = logging.ERROR  # Non-debug mode only shows errors
 
         # Get root logger
         root_logger = logging.getLogger()
@@ -49,80 +70,70 @@ class LoggingConfig:
         handler.setFormatter(formatter)
 
         # Set log level
-        root_logger.setLevel(log_level)
-        handler.setLevel(log_level)
+        root_logger.setLevel(level)
+        handler.setLevel(level)
 
         # Add handler
         root_logger.addHandler(handler)
 
         # Set specific module log levels
-        cls._configure_module_loggers(debug)
+        cls._configure_module_loggers(level)
 
-        cls._debug_enabled = debug
+        cls._debug_enabled = (level <= logging.DEBUG)
+        cls._current_level = level
         cls._configured = True
 
     @classmethod
-    def _set_log_level(cls, debug: bool):
-        """Set log level"""
-        if debug:
-            log_level = logging.DEBUG
+    def _set_log_level(cls, level_or_flag: Union[bool, str, int]):
+        """Set log level dynamically without reconfiguring handlers."""
+        # Normalize
+        if isinstance(level_or_flag, bool):
+            level = logging.DEBUG if level_or_flag else logging.WARNING
+        elif isinstance(level_or_flag, int):
+            level = level_or_flag
         else:
-            log_level = logging.ERROR  # Non-debug mode only shows errors
+            m = str(level_or_flag).strip().upper()
+            level = {
+                "DEBUG": logging.DEBUG,
+                "INFO": logging.INFO,
+                "WARNING": logging.WARNING,
+                "ERROR": logging.ERROR,
+                "CRITICAL": logging.CRITICAL,
+            }.get(m, logging.WARNING)
 
         # Update root logger level
         root_logger = logging.getLogger()
-        root_logger.setLevel(log_level)
+        root_logger.setLevel(level)
 
         # Update all handler levels
         for handler in root_logger.handlers:
-            handler.setLevel(log_level)
+            handler.setLevel(level)
 
         # Update specific module log levels
-        cls._configure_module_loggers(debug)
+        cls._configure_module_loggers(level)
 
-        cls._debug_enabled = debug
+        cls._debug_enabled = (level <= logging.DEBUG)
+        cls._current_level = level
 
     @classmethod
-    def _configure_module_loggers(cls, debug: bool):
-        """Configure specific module loggers"""
-        if debug:
-            # Debug mode: Show all MCPStore related logs
-            mcpstore_loggers = [
-                'mcpstore',
-                'mcpstore.core',
-                'mcpstore.core.store',
-                'mcpstore.core.context',
-                'mcpstore.core.orchestrator',
-                'mcpstore.core.registry',
-                'mcpstore.core.client_manager',
-                'mcpstore.core.agents.session_manager',
-                'mcpstore.core.tool_resolver',
-                'mcpstore.plugins.json_mcp',
-                'mcpstore.adapters.langchain_adapter'
-            ]
-
-            for logger_name in mcpstore_loggers:
-                module_logger = logging.getLogger(logger_name)
-                module_logger.setLevel(logging.DEBUG)
-        else:
-            # Non-debug mode: Only show warnings and errors
-            mcpstore_loggers = [
-                'mcpstore',
-                'mcpstore.core',
-                'mcpstore.core.store',
-                'mcpstore.core.context',
-                'mcpstore.core.orchestrator',
-                'mcpstore.core.registry',
-                'mcpstore.core.client_manager',
-                'mcpstore.core.agents.session_manager',
-                'mcpstore.core.tool_resolver',
-                'mcpstore.plugins.json_mcp',
-                'mcpstore.adapters.langchain_adapter'
-            ]
-
-            for logger_name in mcpstore_loggers:
-                module_logger = logging.getLogger(logger_name)
-                module_logger.setLevel(logging.ERROR)  # Non-debug mode only shows errors
+    def _configure_module_loggers(cls, level: int):
+        """Configure specific module loggers with a unified level."""
+        mcpstore_loggers = [
+            'mcpstore',
+            'mcpstore.core',
+            'mcpstore.core.store',
+            'mcpstore.core.context',
+            'mcpstore.core.orchestrator',
+            'mcpstore.core.registry',
+            'mcpstore.core.client_manager',
+            'mcpstore.core.agents.session_manager',
+            'mcpstore.core.tool_resolver',
+            'mcpstore.plugins.json_mcp',
+            'mcpstore.adapters.langchain_adapter'
+        ]
+        for logger_name in mcpstore_loggers:
+            module_logger = logging.getLogger(logger_name)
+            module_logger.setLevel(level)
 
     @classmethod
     def is_debug_enabled(cls) -> bool:
