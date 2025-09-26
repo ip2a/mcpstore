@@ -17,7 +17,7 @@ English | [简体中文](README_zh.md)
 
 ### Installation
 ```bash
-pip install aiohttp psutil mcpstore
+pip install mcpstore
 ```
 
 ### Online Experience
