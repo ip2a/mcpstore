@@ -17,7 +17,10 @@ English | [简体中文](README_zh.md)
 
 ### Installation
 ```bash
-pip install mcpstore
+mkdir mcp && cd mcp
+python -m venv ./
+source bin/activate
+pip install aiohttp psutil mcpstore
 ```
 
 ### Online Experience
