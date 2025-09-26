@@ -17,9 +17,6 @@ English | [简体中文](README_zh.md)
 
 ### Installation
 ```bash
-mkdir mcp && cd mcp
-python -m venv ./
-source bin/activate
 pip install aiohttp psutil mcpstore
 ```
 
