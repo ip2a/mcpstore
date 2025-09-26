@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- 背景 -->
+  <rect width="32" height="32" rx="6" fill="#2196F3"/>
+  
+  <!-- MCP 简化图标 -->
+  <path d="M6 8 L6 24 L8 24 L8 16 L12 20 L14 20 L18 16 L18 24 L20 24 L20 8 L18 8 L13 16 L10 8 Z" fill="white"/>
+  
+  <!-- C 字母 -->
+  <path d="M22 14 C22 12 23 10 25 10 C26 10 27 11 27 12 L29 11 C28 9 26 8 25 8 C22 8 20 10 20 14 C20 18 22 20 25 20 C26 20 28 19 29 17 L27 16 C27 17 26 18 25 18 C23 18 22 16 22 14 Z" fill="white"/>
+</svg>

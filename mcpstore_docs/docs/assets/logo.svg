@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- 背景圆形 -->
+  <circle cx="50" cy="50" r="45" fill="#2196F3" stroke="#1976D2" stroke-width="2"/>
+  
+  <!-- MCP 字母 M -->
+  <path d="M20 30 L20 70 L25 70 L25 45 L35 60 L40 60 L50 45 L50 70 L55 70 L55 30 L50 30 L37.5 50 L25 30 Z" fill="white"/>
+  
+  <!-- MCP 字母 C -->
+  <path d="M60 45 C60 37 67 30 75 30 C80 30 84 32 87 35 L90 31 C86 27 80 25 75 25 C64 25 55 34 55 45 C55 56 64 65 75 65 C80 65 86 63 90 59 L87 55 C84 58 80 60 75 60 C67 60 60 53 60 45 Z" fill="white"/>
+  
+  <!-- 装饰性元素 - 齿轮 -->
+  <circle cx="75" cy="75" r="8" fill="none" stroke="white" stroke-width="1.5"/>
+  <circle cx="75" cy="75" r="3" fill="white"/>
+  <path d="M75 67 L77 69 L75 71 L73 69 Z M83 75 L81 77 L79 75 L81 73 Z M75 83 L73 81 L75 79 L77 81 Z M67 75 L69 73 L71 75 L69 77 Z" fill="white"/>
+  
+  <!-- 装饰性元素 - 连接线 -->
+  <path d="M25 75 Q40 80 55 75" stroke="white" stroke-width="2" fill="none" opacity="0.7"/>
+  <circle cx="25" cy="75" r="2" fill="white"/>
+  <circle cx="55" cy="75" r="2" fill="white"/>
+</svg>

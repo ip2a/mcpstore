@@ -1,0 +1,257 @@
+site_name: MCPStore 文档
+site_description: 快速综合的MCP管理包 - 三行代码实现将MCP的工具即拿即用
+site_author: whillhill
+site_url: https://mcpstore.wiki
+
+# Repository
+repo_name: whillhill/mcpstore
+repo_url: https://github.com/whillhill/mcpstore
+edit_uri: edit/main/mcpstore_docs/docs/
+
+# Copyright
+copyright: Copyright &copy; 2025 whillhill
+
+# Configuration
+theme:
+  name: material
+  language: zh
+
+  # Logo and favicon
+  logo: assets/logo.svg
+  favicon: assets/favicon.ico
+
+  # 字体配置
+  font:
+    text: Noto Sans SC
+    code: JetBrains Mono
+
+  # Color palette
+  palette:
+    # Palette toggle for light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: 切换到深色模式
+
+    # Palette toggle for dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: 切换到浅色模式
+
+  # Features - 优化的左右布局配置
+  features:
+    - announce.dismiss
+    - content.action.edit
+    - content.action.view
+    - content.code.annotate
+    - content.code.copy
+    - content.tabs.link
+    - content.tooltips
+    - header.autohide
+    - navigation.footer
+    - navigation.indexes
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.instant.progress
+    - navigation.prune
+    - navigation.sections
+    # 不使用顶部标签页，保持左侧导航
+    # - navigation.tabs
+    # - navigation.tabs.sticky
+    - navigation.top
+    - navigation.tracking
+    - search.highlight
+    - search.share
+    - search.suggest
+    # 关键配置：右侧显示页面内目录
+    - toc.follow
+    # 不集成到左侧，保持独立的右侧目录
+    # - toc.integrate
+
+# Plugins
+plugins:
+  - search:
+      separator: '[\s\u200b\-_,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+      lang:
+        - zh
+        - en
+  - minify:
+      minify_html: true
+      minify_css: true
+      minify_js: true
+      htmlmin_opts:
+        remove_comments: true
+        remove_empty_space: true
+      cache_safe: true
+
+# Customization
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/whillhill/mcpstore
+      name: GitHub 仓库
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/mcpstore/
+      name: PyPI 包
+    - icon: fontawesome/solid/book
+      link: https://mcpstore.wiki
+      name: 在线文档
+
+# Extensions
+markdown_extensions:
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - tables
+  - fenced_code
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.magiclink:
+      normalize_issue_symbols: true
+      repo_url_shorthand: true
+      user: mcpstore
+      repo: mcpstore
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets:
+      auto_append:
+        - includes/mkdocs.md
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+      combine_header_slug: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+# Navigation
+nav:
+  - 🏠 首页: index.md
+  - 🚀 快速入门:
+    - 📦 安装: getting-started/installation.md
+    - ⚡ 快速演示: getting-started/quick-demo.md
+    - 🎭 两种使用模式: getting-started/usage-modes.md
+  - 📚 示例:
+    - find_service 与代理示例: examples/find-service-examples.md
+    - 本地测试脚本索引: examples/local-test-scripts.md
+  - 🔧 服务管理:
+    - 服务概述: services/overview.md
+    - 服务注册:
+      - 服务注册概览: services/registration/register-service.md
+      - add_service(): services/registration/add-service.md
+      - add_service_with_details(): services/registration/add-service-with-details.md
+      - batch_add_services(): services/registration/batch-add-services.md
+      - 配置格式速查表: services/registration/config-formats.md
+      - 注册架构详解: services/registration/architecture.md
+      - 完整示例集合: services/registration/examples.md
+
+    - 服务查询:
+      - 服务列表概览: services/listing/service-listing-overview.md
+      - find_service(): services/listing/find-service.md
+      - 服务代理（ServiceProxy）: services/listing/service-proxy.md
+      - list_services(): services/listing/list-services.md
+      - get_service_info(): services/listing/get-service-info.md
+    - 健康监控:
+      - check_services(): services/health/check-services.md
+      - get_service_status(): services/health/get-service-status.md
+      - wait_service(): services/health/wait-service.md
+    - 服务管理:
+      - update_service(): services/management/update-service.md
+      - patch_service(): services/management/patch-service.md
+      - delete_service(): services/management/delete-service.md
+      - restart_service(): services/management/restart-service.md
+    - 配置管理:
+      - reset_config(): services/config/reset-config.md
+      - show_config(): services/config/show-config.md
+
+  - 🛠️ 工具管理:
+    - 工具概述: tools/overview.md
+    - 工具管理架构: tools/tool-architecture.md
+    - 工具查询:
+      - 工具列表概览: tools/listing/tool-listing-overview.md
+      - list_tools(): tools/listing/list-tools.md
+      - get_tools_with_stats(): tools/listing/get-tools-with-stats.md
+    - 工具调用:
+      - 工具使用概览: tools/usage/tool-usage-overview.md
+      - call_tool(): tools/usage/call-tool.md
+      - use_tool(): tools/usage/use-tool.md
+    - 统计分析:
+      - get_system_stats(): tools/stats/get-system-stats.md
+      - get_usage_stats(): tools/stats/get-usage-stats.md
+      - get_performance_report(): tools/stats/get-performance-report.md
+    - 工具转换:
+      - create_simple_tool(): tools/transform/create-simple-tool.md
+      - create_safe_tool(): tools/transform/create-safe-tool.md
+    - LangChain集成:
+      - for_langchain().list_tools(): tools/langchain/langchain-list-tools.md
+      - 使用示例: tools/langchain/examples.md
+  - 🔐 权限认证:
+      - LlamaIndex集成:
+        - for_llamaindex().list_tools(): tools/llamaindex/llamaindex-list-tools.md
+      - CrewAI集成:
+        - for_crewai().list_tools(): tools/crewai/crewai-list-tools.md
+      - LangGraph集成:
+        - for_langgraph().list_tools(): tools/langgraph/langgraph-list-tools.md
+      - AutoGen集成:
+        - for_autogen().list_tools(): tools/autogen/autogen-list-tools.md
+      - Semantic Kernel集成:
+        - for_semantic_kernel().list_tools(): tools/semantic-kernel/semantic-kernel-list-tools.md
+
+    - 认证概览: authentication/overview.md
+    - 认证配置: authentication/configuration.md
+    - 使用示例: authentication/examples.md
+    - API 参考: authentication/api-reference.md
+  - API 参考:
+    - MCPStore 类: api-reference/mcpstore-class.md
+    - Context 类: api-reference/context-class.md
+    - 数据模型: api-reference/data-models.md
+    - REST API: api-reference/rest-api.md
+  - 🧭 架构专题:
+    - 架构概览: architecture/overview.md
+    - 生命周期与缓存: architecture/lifecycle-and-cache.md
+  - 命令行工具 (CLI):
+    - CLI 概述: cli/overview.md
+    - 命令参考: cli/commands.md
+    - 配置管理: cli/configuration.md
+  - 高级开发:
+    - 核心概念: advanced/concepts.md
+    - 系统架构: advanced/architecture.md
+    - 生命周期（7 状态）: advanced/lifecycle.md
+    - 健康状态桥梁机制: advanced/health-status-bridge.md
+    - 统一状态管理器: advanced/unified-state-manager.md
+    - 缓存架构: advanced/cache-architecture.md
+    - 运行期工具变更：检测与刷新: advanced/tool-refresh.md
+    - 持久化架构: advanced/persistence.md
+    - 插件开发: advanced/plugin-development.md
+    - 自定义适配器: advanced/custom-adapters.md
+    - 最佳实践: advanced/best-practices.md
