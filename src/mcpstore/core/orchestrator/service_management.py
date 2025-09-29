@@ -15,6 +15,21 @@ logger = logging.getLogger(__name__)
 class ServiceManagementMixin:
     """Service management mixin class"""
 
+    async def tools_snapshot(self, agent_id: Optional[str] = None) -> List[Any]:
+        """Public API: return a stable snapshot of tools for the given agent context.
+
+        This avoids ad-hoc waiting in context layer. Snapshot logic should
+        consult lifecycle/content managers to ensure consistency.
+        """
+        try:
+            # Default to global agent in store context
+            effective_agent_id = agent_id or self.client_manager.global_agent_store_id
+            tools = self.registry.list_tools(effective_agent_id)
+            return tools or []
+        except Exception as e:
+            logger.error(f"Failed to get tools snapshot: {e}")
+            return []
+
     async def register_agent_client(self, agent_id: str, config: Dict[str, Any] = None) -> Client:
         """
         Register a new client instance for agent
@@ -67,7 +82,7 @@ class ServiceManagementMixin:
                 # 使用生命周期管理器获取服务状态
                 service_state = self.lifecycle_manager.get_service_state(agent_id, name)
 
-                # 🔧 修复：新服务（状态为None）也应该被处理
+                #  修复：新服务（状态为None）也应该被处理
                 if service_state is None:
                     healthy_services.append(name)
                     logger.debug(f"Service {name} has no state (new service), included in processable list")
@@ -239,7 +254,7 @@ class ServiceManagementMixin:
     async def remove_service(self, service_name: str, agent_id: str = None):
         """移除服务并处理生命周期状态"""
         try:
-            # 🔧 修复：更安全的agent_id处理
+            #  修复：更安全的agent_id处理
             if agent_id is None:
                 if not hasattr(self.client_manager, 'global_agent_store_id'):
                     logger.error("No agent_id provided and global_agent_store_id not available")
@@ -250,7 +265,7 @@ class ServiceManagementMixin:
                 agent_key = agent_id
                 logger.debug(f"Using provided agent_id: {agent_key}")
 
-            # 🔧 修复：检查服务是否存在于生命周期管理器中
+            #  修复：检查服务是否存在于生命周期管理器中
             current_state = self.lifecycle_manager.get_service_state(agent_key, service_name)
             if current_state is None:
                 logger.warning(f"Service {service_name} not found in lifecycle manager for agent {agent_key}")
@@ -266,7 +281,7 @@ class ServiceManagementMixin:
             else:
                 logger.info(f"Removing service {service_name} from agent {agent_key} (no lifecycle state)")
 
-            # 🔧 修复：安全地调用各个组件的移除方法
+            #  修复：安全地调用各个组件的移除方法
             try:
                 # 通知生命周期管理器开始优雅断连（如果服务存在于生命周期管理器中）
                 if current_state:
@@ -352,7 +367,7 @@ class ServiceManagementMixin:
         try:
             agent_key = agent_id or self.client_manager.global_agent_store_id
 
-            logger.info(f"🔄 [RESTART_SERVICE] Starting restart for service '{service_name}' (agent: {agent_key})")
+            logger.info(f" [RESTART_SERVICE] Starting restart for service '{service_name}' (agent: {agent_key})")
 
             # 检查服务是否存在
             if not self.registry.has_service(agent_key, service_name):
@@ -367,7 +382,7 @@ class ServiceManagementMixin:
 
             # 重置服务状态为 INITIALIZING
             self.registry.set_service_state(agent_key, service_name, ServiceConnectionState.INITIALIZING)
-            logger.debug(f"🔄 [RESTART_SERVICE] Set state to INITIALIZING for '{service_name}'")
+            logger.debug(f" [RESTART_SERVICE] Set state to INITIALIZING for '{service_name}'")
 
             # 重置元数据
             from datetime import datetime
@@ -380,14 +395,14 @@ class ServiceManagementMixin:
 
             # 更新元数据到注册表
             self.registry.set_service_metadata(agent_key, service_name, metadata)
-            logger.debug(f"🔄 [RESTART_SERVICE] Reset metadata for '{service_name}'")
+            logger.debug(f" [RESTART_SERVICE] Reset metadata for '{service_name}'")
 
             # 如果有生命周期管理器，触发初始化
             if hasattr(self, 'lifecycle_manager') and self.lifecycle_manager:
                 init_success = self.lifecycle_manager.initialize_service(agent_key, service_name, metadata.service_config)
-                logger.debug(f"🔄 [RESTART_SERVICE] Triggered lifecycle initialization for '{service_name}': {init_success}")
+                logger.debug(f" [RESTART_SERVICE] Triggered lifecycle initialization for '{service_name}': {init_success}")
 
-            logger.info(f"✅ [RESTART_SERVICE] Successfully restarted service '{service_name}'")
+            logger.info(f" [RESTART_SERVICE] Successfully restarted service '{service_name}'")
             return True
 
         except Exception as e:

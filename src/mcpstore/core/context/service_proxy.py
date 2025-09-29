@@ -76,30 +76,17 @@ class ServiceProxy:
             effective_name = self._service_name
             if self._context_type == ContextType.AGENT and getattr(self._context, "_service_mapper", None):
                 effective_name = self._context._service_mapper.to_global_name(self._service_name)
-            # 调用 orchestrator 详细健康检查（同步封装）
+            # 使用 orchestrator 的稳定公共 API
             result = self._context._sync_helper.run_async(
-                self._context._store.orchestrator.check_service_health_detailed(
+                self._context._store.orchestrator.health_details(
                     effective_name,
                     None  # 透明代理：统一在全局命名空间执行健康检查
-                ),
-                force_background=True
+                )
             )
-            # 将 HealthCheckResult 转为可读字典
-            from mcpstore.core.lifecycle.health_bridge import HealthStatusBridge
-            status_value = getattr(result.status, "value", str(result.status)) if result else "unknown"
-            lifecycle_state = HealthStatusBridge.map_health_to_lifecycle(result.status).value if result else "unknown"
-            healthy = HealthStatusBridge.is_health_status_positive(result.status) if result else False
-            return {
-                "service_name": self._service_name,
-                "effective_name": effective_name,
-                "status": status_value,
-                "lifecycle_state": lifecycle_state,
-                "healthy": healthy,
-                "response_time": getattr(result, "response_time", None),
-                "timestamp": getattr(result, "timestamp", None),
-                "error_message": getattr(result, "error_message", None),
-                "details": getattr(result, "details", {})
-            }
+            # 保持向后兼容：补齐 effective_name 字段
+            if isinstance(result, dict) and "effective_name" not in result:
+                result = {**result, "effective_name": effective_name, "service_name": self._service_name}
+            return result
         except Exception as e:
             logger.error(f"Failed to get health details for {self._service_name}: {e}")
             return {"service_name": self._service_name, "status": "error", "error": str(e)}

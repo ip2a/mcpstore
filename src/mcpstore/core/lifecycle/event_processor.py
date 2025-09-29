@@ -50,7 +50,7 @@ class StateChangeEventProcessor:
             )
         else:
             # 回退到直接处理
-            logger.debug(f"🔧 [EVENT_INIT] 快速处理器不可用，使用直接处理: {service_name}")
+            logger.debug(f" [EVENT_INIT] 快速处理器不可用，使用直接处理: {service_name}")
             asyncio.create_task(
                 self._direct_initializing_processing(agent_id, service_name)
             )
@@ -72,7 +72,7 @@ class StateChangeEventProcessor:
     async def _direct_initializing_processing(self, agent_id: str, service_name: str):
         """直接处理INITIALIZING状态（回退方案）"""
         try:
-            logger.debug(f"🔧 [EVENT_DIRECT] 直接处理INITIALIZING: {service_name}")
+            logger.debug(f" [EVENT_DIRECT] 直接处理INITIALIZING: {service_name}")
             
             await asyncio.wait_for(
                 self.lifecycle_manager._attempt_initial_connection(agent_id, service_name),

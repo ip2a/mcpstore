@@ -69,16 +69,16 @@ class MCPOrchestrator(
         # 智能重连功能已集成到ServiceLifecycleManager中
         self.react_agent = None
 
-        # 🔧 新增：独立配置管理器
+        #  新增：独立配置管理器
         self.standalone_config_manager = standalone_config_manager
 
-        # 🔧 新增：统一同步管理器
+        #  新增：统一同步管理器
         self.sync_manager = None
 
-        # 🔧 新增：store引用（用于统一注册架构）
+        #  新增：store引用（用于统一注册架构）
         self.store = None
 
-        # 🔧 新增：异步同步助手（用于Resources和Prompts的同步方法）
+        #  新增：异步同步助手（用于Resources和Prompts的同步方法）
         from mcpstore.core.utils.async_sync_helper import AsyncSyncHelper
         self._sync_helper = AsyncSyncHelper()
 
@@ -89,7 +89,7 @@ class MCPOrchestrator(
 
         # 监控任务已集成到ServiceLifecycleManager和ServiceContentManager中
 
-        # 🔧 修改：根据是否有独立配置管理器或传入的mcp_config决定如何初始化MCPConfig
+        #  修改：根据是否有独立配置管理器或传入的mcp_config决定如何初始化MCPConfig
         if standalone_config_manager:
             # 使用独立配置，不依赖文件系统
             self.mcp_config = self._create_standalone_mcp_config(standalone_config_manager)
@@ -103,7 +103,7 @@ class MCPOrchestrator(
         # 旧的资源管理配置已被ServiceLifecycleManager替代
         # 保留一些配置以避免错误，但实际不再使用
 
-        # 🔧 单一数据源架构：简化客户端管理器初始化
+        #  单一数据源架构：简化客户端管理器初始化
         self.client_manager = ClientManager(
             global_agent_store_id=None  # 使用默认的"global_agent_store"
         )
@@ -204,7 +204,7 @@ class MCPOrchestrator(
         except Exception as e:
             logger.warning(f"Failed to start monitoring tasks: {e}")
 
-        # 🔧 新增：启动统一同步管理器
+        #  新增：启动统一同步管理器
         try:
             logger.info("About to call _setup_sync_manager()...")
             await self._setup_sync_manager()
@@ -274,7 +274,7 @@ class MCPOrchestrator(
         """关闭编排器并清理资源"""
         logger.info("Shutting down MCP Orchestrator...")
 
-        # 🔧 修复：按正确顺序停止管理器，并添加错误处理
+        #  修复：按正确顺序停止管理器，并添加错误处理
         try:
             # 先停止生命周期管理器（停止状态转换）
             logger.debug("Stopping lifecycle manager...")

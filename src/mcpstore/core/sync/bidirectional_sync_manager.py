@@ -65,7 +65,7 @@ class BidirectionalSyncManager:
                 # 从 Store 中删除服务
                 await self._delete_store_service(global_name)
             
-            logger.info(f"✅ [BIDIRECTIONAL_SYNC] Agent → Store 同步完成: {sync_key}")
+            logger.info(f" [BIDIRECTIONAL_SYNC] Agent → Store 同步完成: {sync_key}")
             
         except Exception as e:
             logger.error(f"❌ [BIDIRECTIONAL_SYNC] Agent → Store 同步失败 {sync_key}: {e}")
@@ -107,7 +107,7 @@ class BidirectionalSyncManager:
                 # 从 Agent 中删除服务
                 await self._delete_agent_service(agent_id, local_name)
             
-            logger.info(f"✅ [BIDIRECTIONAL_SYNC] Store → Agent 同步完成: {sync_key}")
+            logger.info(f" [BIDIRECTIONAL_SYNC] Store → Agent 同步完成: {sync_key}")
             
         except Exception as e:
             logger.error(f"❌ [BIDIRECTIONAL_SYNC] Store → Agent 同步失败 {sync_key}: {e}")
@@ -177,7 +177,7 @@ class BidirectionalSyncManager:
             success = self.store.config.save_config(current_mcp_config)
             
             if success:
-                logger.debug(f"✅ [BIDIRECTIONAL_SYNC] Store 配置更新成功: {global_name}")
+                logger.debug(f" [BIDIRECTIONAL_SYNC] Store 配置更新成功: {global_name}")
             else:
                 logger.error(f"❌ [BIDIRECTIONAL_SYNC] Store 配置更新失败: {global_name}")
             
@@ -192,7 +192,7 @@ class BidirectionalSyncManager:
             if hasattr(self.store.registry, 'update_service_config'):
                 self.store.registry.update_service_config(agent_id, local_name, new_config)
             
-            logger.debug(f"✅ [BIDIRECTIONAL_SYNC] Agent 配置更新成功: {agent_id}:{local_name}")
+            logger.debug(f" [BIDIRECTIONAL_SYNC] Agent 配置更新成功: {agent_id}:{local_name}")
             
         except Exception as e:
             logger.error(f"❌ [BIDIRECTIONAL_SYNC] 更新 Agent 服务配置失败 {agent_id}:{local_name}: {e}")
@@ -214,7 +214,7 @@ class BidirectionalSyncManager:
                 success = self.store.config.save_config(current_mcp_config)
                 
                 if success:
-                    logger.debug(f"✅ [BIDIRECTIONAL_SYNC] Store 服务删除成功: {global_name}")
+                    logger.debug(f" [BIDIRECTIONAL_SYNC] Store 服务删除成功: {global_name}")
                 else:
                     logger.error(f"❌ [BIDIRECTIONAL_SYNC] Store 服务删除失败: {global_name}")
             
@@ -231,7 +231,7 @@ class BidirectionalSyncManager:
             # 移除映射关系
             self.store.registry.remove_agent_service_mapping(agent_id, local_name)
             
-            logger.debug(f"✅ [BIDIRECTIONAL_SYNC] Agent 服务删除成功: {agent_id}:{local_name}")
+            logger.debug(f" [BIDIRECTIONAL_SYNC] Agent 服务删除成功: {agent_id}:{local_name}")
             
         except Exception as e:
             logger.error(f"❌ [BIDIRECTIONAL_SYNC] 删除 Agent 服务失败 {agent_id}:{local_name}: {e}")

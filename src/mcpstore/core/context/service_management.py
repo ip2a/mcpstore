@@ -157,15 +157,21 @@ class ServiceManagementMixin:
         """
         try:
             if self._context_type == ContextType.STORE:
-                # Store级别：直接更新mcp.json中的服务配置
-                current_config = self._store.config.load_config()
-                if name not in current_config.get("mcpServers", {}):
-                    logger.error(f"Service {name} not found in store configuration")
+                # Store级别：使用原子更新，避免读改写竞态
+                from mcpstore.core.configuration.config_write_service import ConfigWriteService
+                cws = ConfigWriteService()
+                def _mutator(cfg: Dict[str, Any]) -> Dict[str, Any]:
+                    servers = dict(cfg.get("mcpServers", {}))
+                    if name not in servers:
+                        raise KeyError(f"Service {name} not found in store configuration")
+                    servers[name] = config
+                    cfg["mcpServers"] = servers
+                    return cfg
+                try:
+                    success = cws.atomic_update(self._store.config.json_path, _mutator)
+                except KeyError as e:
+                    logger.error(str(e))
                     return False
-
-                # 完全替换配置
-                current_config["mcpServers"][name] = config
-                success = self._store.config.save_config(current_config)
 
                 if success:
                     # 触发重新注册
@@ -179,13 +185,20 @@ class ServiceManagementMixin:
                 if self._service_mapper:
                     global_name = self._service_mapper.to_global_name(name)
 
-                current_config = self._store.config.load_config()
-                if global_name not in current_config.get("mcpServers", {}):
-                    logger.error(f"Service {global_name} not found in store configuration (agent mode)")
+                from mcpstore.core.configuration.config_write_service import ConfigWriteService
+                cws = ConfigWriteService()
+                def _mutator(cfg: Dict[str, Any]) -> Dict[str, Any]:
+                    servers = dict(cfg.get("mcpServers", {}))
+                    if global_name not in servers:
+                        raise KeyError(f"Service {global_name} not found in store configuration (agent mode)")
+                    servers[global_name] = config
+                    cfg["mcpServers"] = servers
+                    return cfg
+                try:
+                    success = cws.atomic_update(self._store.config.json_path, _mutator)
+                except KeyError as e:
+                    logger.error(str(e))
                     return False
-
-                current_config["mcpServers"][global_name] = config
-                success = self._store.config.save_config(current_config)
 
                 if success and hasattr(self._store.orchestrator, 'sync_manager') and self._store.orchestrator.sync_manager:
                     await self._store.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
@@ -232,17 +245,23 @@ class ServiceManagementMixin:
         """
         try:
             if self._context_type == ContextType.STORE:
-                # Store级别：增量更新mcp.json中的服务配置
-                current_config = self._store.config.load_config()
-                if name not in current_config.get("mcpServers", {}):
-                    logger.error(f"Service {name} not found in store configuration")
+                # Store级别：使用原子增量更新
+                from mcpstore.core.configuration.config_write_service import ConfigWriteService
+                cws = ConfigWriteService()
+                def _mutator(cfg: Dict[str, Any]) -> Dict[str, Any]:
+                    servers = dict(cfg.get("mcpServers", {}))
+                    if name not in servers:
+                        raise KeyError(f"Service {name} not found in store configuration")
+                    merged = dict(servers[name])
+                    merged.update(updates)
+                    servers[name] = merged
+                    cfg["mcpServers"] = servers
+                    return cfg
+                try:
+                    success = cws.atomic_update(self._store.config.json_path, _mutator)
+                except KeyError as e:
+                    logger.error(str(e))
                     return False
-
-                # 增量更新配置
-                service_config = current_config["mcpServers"][name]
-                service_config.update(updates)
-
-                success = self._store.config.save_config(current_config)
 
                 if success:
                     # 触发重新注册
@@ -255,15 +274,22 @@ class ServiceManagementMixin:
                 global_name = name
                 if self._service_mapper:
                     global_name = self._service_mapper.to_global_name(name)
-
-                current_config = self._store.config.load_config()
-                if global_name not in current_config.get("mcpServers", {}):
-                    logger.error(f"Service {global_name} not found in store configuration (agent mode)")
+                from mcpstore.core.configuration.config_write_service import ConfigWriteService
+                cws = ConfigWriteService()
+                def _mutator(cfg: Dict[str, Any]) -> Dict[str, Any]:
+                    servers = dict(cfg.get("mcpServers", {}))
+                    if global_name not in servers:
+                        raise KeyError(f"Service {global_name} not found in store configuration (agent mode)")
+                    merged = dict(servers[global_name])
+                    merged.update(updates)
+                    servers[global_name] = merged
+                    cfg["mcpServers"] = servers
+                    return cfg
+                try:
+                    success = cws.atomic_update(self._store.config.json_path, _mutator)
+                except KeyError as e:
+                    logger.error(str(e))
                     return False
-
-                # 增量更新配置
-                current_config["mcpServers"][global_name].update(updates)
-                success = self._store.config.save_config(current_config)
 
                 if success and hasattr(self._store.orchestrator, 'sync_manager') and self._store.orchestrator.sync_manager:
                     await self._store.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
@@ -778,18 +804,18 @@ class ServiceManagementMixin:
             # 检查client_id是否存在于agent的映射中
             agent_clients = self._store.registry.get_agent_clients_from_cache(agent_id)
             if client_id not in agent_clients:
-                logger.debug(f"🔍 [VALIDATE_MAPPING] client_id '{client_id}' not found in agent '{agent_id}' clients")
+                logger.debug(f" [VALIDATE_MAPPING] client_id '{client_id}' not found in agent '{agent_id}' clients")
                 return False
 
             # 检查service_name是否存在于Registry中
             existing_client_id = self._store.registry.get_service_client_id(agent_id, service_name)
             if existing_client_id != client_id:
-                logger.debug(f"🔍 [VALIDATE_MAPPING] service '{service_name}' maps to different client_id: expected={client_id}, actual={existing_client_id}")
+                logger.debug(f" [VALIDATE_MAPPING] service '{service_name}' maps to different client_id: expected={client_id}, actual={existing_client_id}")
                 return False
 
             return True
         except Exception as e:
-            logger.debug(f"🔍 [VALIDATE_MAPPING] 验证失败: {e}")
+            logger.debug(f" [VALIDATE_MAPPING] 验证失败: {e}")
             return False
 
     def _resolve_client_id(self, client_id_or_service_name: str, agent_id: str) -> Tuple[str, str]:
@@ -1222,7 +1248,7 @@ class ServiceManagementMixin:
             logger.error(f"Failed to restart service {name}: {e}")
             return False
 
-    # === 🔧 新增：Agent 透明代理辅助方法 ===
+    # ===  新增：Agent 透明代理辅助方法 ===
 
     async def _map_agent_service_to_global(self, local_name: str) -> str:
         """
@@ -1239,11 +1265,11 @@ class ServiceManagementMixin:
                 # 尝试从映射关系中获取全局名称
                 global_name = self._store.registry.get_global_name_from_agent_service(self._agent_id, local_name)
                 if global_name:
-                    logger.debug(f"🔧 [SERVICE_PROXY] 服务名映射: {local_name} → {global_name}")
+                    logger.debug(f" [SERVICE_PROXY] 服务名映射: {local_name} → {global_name}")
                     return global_name
 
             # 如果映射失败，可能是 Store 原生服务，直接返回
-            logger.debug(f"🔧 [SERVICE_PROXY] 无映射，使用原名: {local_name}")
+            logger.debug(f" [SERVICE_PROXY] 无映射，使用原名: {local_name}")
             return local_name
 
         except Exception as e:
@@ -1287,7 +1313,7 @@ class ServiceManagementMixin:
             # 1. 获取全局名称
             global_name = self._store.registry.get_global_name_from_agent_service(self._agent_id, local_name)
             if not global_name:
-                logger.warning(f"🔧 [SERVICE_DELETE] 未找到映射关系: {self._agent_id}:{local_name}")
+                logger.warning(f" [SERVICE_DELETE] 未找到映射关系: {self._agent_id}:{local_name}")
                 return
 
             # 2. 从 Agent 缓存中删除

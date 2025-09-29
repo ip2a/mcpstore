@@ -25,29 +25,24 @@ class ToolOperationsMixin:
         - 本地服务：最多等待5秒
         - 状态确定后立即返回
         """
-        # 🔧 智能等待：先等待INITIALIZING服务就绪
-        # 快速路径：如果没有INITIALIZING服务，跳过等待
-        if hasattr(self, '_has_initializing_services'):
-            from .types import ContextType
-            agent_id = self._agent_id if self._context_type == ContextType.AGENT else self._store.client_manager.global_agent_store_id
-            has_initializing = self._has_initializing_services(agent_id)
-
-            if has_initializing:
-                logger.info(f"[LIST_TOOLS] initializing_detected smart_wait start")
-                if hasattr(self, '_wait_for_initializing_services'):
-                    self._sync_helper.run_async(self._wait_for_initializing_services(), force_background=True)
-                else:
-                    logger.warning("[LIST_TOOLS] _wait_for_initializing_services missing")
+        # 统一等待策略：从 orchestrator 获取一致性快照，避免在 context 层做临时等待
+        logger.info(f"[LIST_TOOLS] start (snapshot)")
+        try:
+            agent_id = self._agent_id if self._context_type == ContextType.AGENT else None
+            snapshot = self._store.orchestrator._sync_helper.run_async(
+                self._store.orchestrator.tools_snapshot(agent_id)
+            )
+            # 如果 orchestrator 返回的是 dict/对象列表，尽量映射为 ToolInfo
+            if snapshot and isinstance(snapshot, list) and snapshot and not isinstance(snapshot[0], ToolInfo):
+                from mcpstore.core.models.tool import ToolInfo
+                result = [ToolInfo(**t) for t in snapshot if isinstance(t, dict)]
             else:
-                logger.debug("[LIST_TOOLS] no_initializing skip_smart_wait")
-        else:
-            logger.debug("[LIST_TOOLS] quick_check_unavailable skip_smart_wait")
-
-        # 然后获取工具列表
-        logger.info(f"[LIST_TOOLS] start")
-        # Avoid forcing background loop to reduce nested loop overhead; set reasonable timeout
-        result = self._sync_helper.run_async(self.list_tools_async(), timeout=60.0)
-        logger.info(f"[LIST_TOOLS] count={len(result)}")
+                result = snapshot
+        except Exception as e:
+            logger.warning(f"[LIST_TOOLS] snapshot failed, fallback to async list: {e}")
+            # Avoid forcing background loop to reduce nested loop overhead; set reasonable timeout
+            result = self._sync_helper.run_async(self.list_tools_async(), timeout=60.0)
+        logger.info(f"[LIST_TOOLS] count={len(result) if result else 0}")
         if result:
             logger.info(f"[LIST_TOOLS] names={[t.name for t in result]}")
         else:
@@ -85,7 +80,7 @@ class ToolOperationsMixin:
         try:
             tools = await self.list_tools_async()
             
-            # 🔧 修复：返回完整的工具信息，包括Vue前端需要的所有字段
+            #  修复：返回完整的工具信息，包括Vue前端需要的所有字段
             tools_data = [
                 {
                     "name": tool.name,
@@ -106,7 +101,7 @@ class ToolOperationsMixin:
                     tools_by_service[service_name] = 0
                 tools_by_service[service_name] += 1
 
-            # 🔧 修复：返回API期望的格式
+            #  修复：返回API期望的格式
             return {
                 "tools": tools_data,
                 "metadata": {
@@ -118,7 +113,7 @@ class ToolOperationsMixin:
             
         except Exception as e:
             logger.error(f"Failed to get tools with stats: {e}")
-            # 🔧 修复：错误情况下也返回API期望的格式
+            #  修复：错误情况下也返回API期望的格式
             return {
                 "tools": [],
                 "metadata": {
@@ -328,7 +323,7 @@ class ToolOperationsMixin:
             for tool in tools:
                 # Agent模式：需要转换服务名称为本地名称
                 if self._context_type == ContextType.AGENT and self._agent_id:
-                    # 🔧 透明代理：将全局服务名转换为本地服务名
+                    #  透明代理：将全局服务名转换为本地服务名
                     local_service_name = self._get_local_service_name_from_global(tool.service_name)
                     if local_service_name:
                         # 构建本地工具名称
@@ -423,7 +418,7 @@ class ToolOperationsMixin:
                 tool_name=fastmcp_tool_name,  # 🚀 使用FastMCP标准格式
                 service_name=global_service_name,  # 使用全局服务名称
                 args=args,
-                agent_id=self._store.client_manager.global_agent_store_id,  # 🔧 使用全局 Agent ID
+                agent_id=self._store.client_manager.global_agent_store_id,  #  使用全局 Agent ID
                 **kwargs
             )
 
@@ -438,7 +433,7 @@ class ToolOperationsMixin:
         """
         return await self.call_tool_async(tool_name, args, **kwargs)
 
-    # === 🔧 新增：Agent 工具调用透明代理方法 ===
+    # ===  新增：Agent 工具调用透明代理方法 ===
 
     async def _map_agent_tool_to_global_service(self, local_service_name: str, tool_name: str) -> str:
         """

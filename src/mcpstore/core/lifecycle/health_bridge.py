@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class HealthStatusBridge:
     """健康状态到生命周期状态的映射桥梁"""
     
-    # 🔧 核心映射表：HealthStatus → ServiceConnectionState
+    #  核心映射表：HealthStatus → ServiceConnectionState
     STATUS_MAPPING = {
         HealthStatus.HEALTHY: ServiceConnectionState.HEALTHY,
         HealthStatus.WARNING: ServiceConnectionState.WARNING,
@@ -101,7 +101,7 @@ class HealthStatusBridge:
         }
 
 
-# 🔧 便利函数：向后兼容
+#  便利函数：向后兼容
 def map_health_to_lifecycle(health_status: HealthStatus) -> ServiceConnectionState:
     """向后兼容的便利函数"""
     return HealthStatusBridge.map_health_to_lifecycle(health_status)

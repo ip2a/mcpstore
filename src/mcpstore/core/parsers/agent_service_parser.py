@@ -289,7 +289,7 @@ class AgentServiceParser:
     def clear_cache(self):
         """清空缓存"""
         self._cache.clear()
-        logger.debug("🔧 [PARSER] 缓存已清空")
+        logger.debug(" [PARSER] 缓存已清空")
     
     def _validate_components(self, local_name: str, agent_id: str) -> Optional[str]:
         """

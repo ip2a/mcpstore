@@ -30,7 +30,7 @@ class StandaloneConfig:
     # === File path configuration ===
     config_dir: Optional[str] = None  # If None, use in-memory configuration
     mcp_config_file: Optional[str] = None
-    # 🔧 单一数据源架构：分片文件配置已废弃
+    #  单一数据源架构：分片文件配置已废弃
     # client_services_file: Optional[str] = None  # 已废弃
     # agent_clients_file: Optional[str] = None    # 已废弃
     

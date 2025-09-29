@@ -70,8 +70,8 @@ class StreamableHTTPTransport:
                     "name": "mcp-client",
                     "version": "1.0.0"
                 },
-                "protocolVersion": "2024-11-05",  # 🔧 修复：使用标准MCP协议版本
-                "capabilities": {                 # 🔧 修复：使用标准MCP能力格式
+                "protocolVersion": "2024-11-05",  #  修复：使用标准MCP协议版本
+                "capabilities": {                 #  修复：使用标准MCP能力格式
                     "tools": {}
                 }
             },

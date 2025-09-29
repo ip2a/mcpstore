@@ -102,7 +102,7 @@ class ServiceContentManager:
         if self.content_update_task and not self.content_update_task.done():
             self.content_update_task.cancel()
             try:
-                # 🔧 修复：检查当前事件循环，避免循环冲突
+                #  修复：检查当前事件循环，避免循环冲突
                 current_loop = asyncio.get_running_loop()
                 task_loop = getattr(self.content_update_task, '_loop', None)
 
@@ -118,7 +118,7 @@ class ServiceContentManager:
             except Exception as e:
                 logger.warning(f"Error stopping content update task: {e}")
 
-        # 🔧 修复：清理任务引用
+        #  修复：清理任务引用
         self.content_update_task = None
         logger.info("ServiceContentManager stopped")
     

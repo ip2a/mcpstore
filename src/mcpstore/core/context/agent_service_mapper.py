@@ -164,7 +164,7 @@ class AgentServiceMapper:
                     state_metadata=getattr(service_info, 'state_metadata', None),
                     last_state_change=getattr(service_info, 'last_state_change', None),
                     client_id=getattr(service_info, 'client_id', None),
-                    config=getattr(service_info, 'config', {})  # 🔧 [REFACTOR] 复制config字段
+                    config=getattr(service_info, 'config', {})  #  [REFACTOR] 复制config字段
                 )
                 
                 local_service_infos.append(local_service_info)

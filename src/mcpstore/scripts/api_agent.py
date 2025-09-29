@@ -76,7 +76,7 @@ async def agent_list_services(agent_id: str) -> APIResponse:
         context = store.for_agent(agent_id)
         services = await context.list_services_async()
 
-        # 🔧 修复：正确获取transport字段
+        #  修复：正确获取transport字段
         services_data = [
             {
                 "name": service.name,

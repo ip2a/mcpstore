@@ -111,7 +111,7 @@ def load_config(path: Optional[str] = None) -> Dict[str, Any]:
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
-        typer.echo(f"✅ Configuration loaded from: {config_path}")
+        typer.echo(f" Configuration loaded from: {config_path}")
         return config
     except json.JSONDecodeError as e:
         typer.echo(f"❌ Invalid JSON in config file: {e}")
@@ -134,7 +134,7 @@ def save_config(config: Dict[str, Any], path: Optional[str] = None) -> bool:
         with open(config_path, 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
         
-        typer.echo(f"✅ Configuration saved to: {config_path}")
+        typer.echo(f" Configuration saved to: {config_path}")
         return True
     except Exception as e:
         typer.echo(f"❌ Failed to save config: {e}")
@@ -220,7 +220,7 @@ def validate_config(config: Dict[str, Any]) -> bool:
             typer.echo(f"   • {error}")
         return False
     else:
-        typer.echo("✅ Configuration is valid")
+        typer.echo(" Configuration is valid")
         return True
 
 def _format_service_info(name: str, server_config: Dict[str, Any]) -> None:
@@ -294,7 +294,7 @@ def show_config(path: Optional[str] = None):
 
     # 显示服务列表
     servers = config.get("mcpServers", {})
-    typer.echo(f"\n🔧 MCP Services ({len(servers)} configured):")
+    typer.echo(f"\n MCP Services ({len(servers)} configured):")
 
     if not servers:
         typer.echo("   No services configured")
@@ -329,7 +329,7 @@ def init_config(path: Optional[str] = None, force: bool = False, with_examples: 
 
     if save_config(config, str(config_path)):
         typer.echo("🎉 Configuration initialized successfully!")
-        typer.echo(f"📁 Location: {config_path}")
+        typer.echo(f" Location: {config_path}")
 
         if with_examples:
             typer.echo("\n💡 Example services have been added. Edit the file to customize them.")
@@ -351,7 +351,7 @@ def add_example_services(path: Optional[str] = None):
         if name not in servers:
             servers[name] = service_config
             added_count += 1
-            typer.echo(f"✅ Added example service: {name}")
+            typer.echo(f" Added example service: {name}")
         else:
             typer.echo(f"⚠️  Service '{name}' already exists, skipping")
 
@@ -405,7 +405,7 @@ def _show_config_path(path: Optional[str] = None):
     else:
         config_path = get_default_config_path()
 
-    typer.echo(f"📁 Configuration file path: {config_path}")
+    typer.echo(f" Configuration file path: {config_path}")
     typer.echo(f"📊 Exists: {'Yes' if config_path.exists() else 'No'}")
 
     if config_path.exists():

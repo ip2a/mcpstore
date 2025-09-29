@@ -21,7 +21,7 @@ class StoreSetupManager:
 
         Args:
             mcp_config_file: Custom mcp.json configuration file path, uses default path if not specified
-                           🔧 New: This parameter now supports data space isolation, each JSON file path corresponds to an independent data space
+                            New: This parameter now supports data space isolation, each JSON file path corresponds to an independent data space
             debug: Whether to enable debug logging, default is False (no debug info displayed)
             standalone_config: Standalone configuration object, if provided, does not depend on environment variables
             tool_record_max_file_size: Maximum size of tool record JSON file (MB), default 30MB, set to -1 for no limit
@@ -40,13 +40,13 @@ class StoreSetupManager:
         Returns:
             MCPStore instance
         """
-        # 🔧 New: Support standalone configuration
+        #  New: Support standalone configuration
         if standalone_config is not None:
             return StoreSetupManager._setup_with_standalone_config(standalone_config, debug,
                                                         tool_record_max_file_size, tool_record_retention_days,
                                                         monitoring)
 
-        # 🔧 New: Data space management
+        #  New: Data space management
         if mcp_config_file is not None:
             return StoreSetupManager._setup_with_data_space(mcp_config_file, debug,
                                                  tool_record_max_file_size, tool_record_retention_days,
@@ -104,10 +104,10 @@ class StoreSetupManager:
 
         store = MCPStore(orchestrator, config, tool_record_max_file_size, tool_record_retention_days)
 
-        # 🔧 修复：在orchestrator.setup()之前设置store引用，避免UnifiedMCPSyncManager启动时store为None
+        #  修复：在orchestrator.setup()之前设置store引用，避免UnifiedMCPSyncManager启动时store为None
         orchestrator.store = store
 
-        # 🔧 修复：使用force_background=True避免生命周期管理器被意外停止
+        #  修复：使用force_background=True避免生命周期管理器被意外停止
         async_helper = AsyncSyncHelper()
         try:
             # Synchronously run orchestrator.setup(), ensure completion
@@ -117,7 +117,7 @@ class StoreSetupManager:
             logger.error(f"Failed to setup orchestrator: {e}")
             raise
 
-        # 🔧 修复：初始化缓存也使用后台循环
+        #  修复：初始化缓存也使用后台循环
         logger.info(" [SETUP_STORE] 开始初始化缓存...")
         try:
             async_helper.run_async(store.initialize_cache_from_files(), force_background=True)
@@ -213,7 +213,7 @@ class StoreSetupManager:
                 mcp_config=config
             )
 
-            # 🔧 重构：为数据空间模式设置FastMCP适配器的工作目录
+            #  重构：为数据空间模式设置FastMCP适配器的工作目录
             from mcpstore.core.integration.local_service_adapter import set_local_service_manager_work_dir
             set_local_service_manager_work_dir(str(data_space_manager.workspace_dir))
 
@@ -244,13 +244,13 @@ class StoreSetupManager:
             store = MCPStore(orchestrator, config, tool_record_max_file_size, tool_record_retention_days)
             store._data_space_manager = data_space_manager
 
-            # 🔧 新增：设置orchestrator的store引用（用于统一注册架构）
+            #  新增：设置orchestrator的store引用（用于统一注册架构）
             orchestrator.store = store
 
             # Initialize orchestrator (including tool update monitor)
             from mcpstore.core.utils.async_sync_helper import AsyncSyncHelper
 
-            # 🔧 修复：使用force_background=True避免生命周期管理器被意外停止
+            #  修复：使用force_background=True避免生命周期管理器被意外停止
             async_helper = AsyncSyncHelper()
             try:
                 # Run orchestrator.setup() synchronously, ensure completion
@@ -260,7 +260,7 @@ class StoreSetupManager:
                 logger.error(f"Failed to setup orchestrator: {e}")
                 raise
 
-            # 🔧 修复：初始化缓存也使用后台循环
+            #  修复：初始化缓存也使用后台循环
             try:
                 async_helper.run_async(store.initialize_cache_from_files(), force_background=True)
             except Exception as e:

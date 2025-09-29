@@ -31,10 +31,10 @@ class AgentStatisticsMixin:
             AgentsSummary: Agent summary information
         """
         try:
-            # 🔧 [REFACTOR] Get all Agent IDs from Registry cache
+            #  [REFACTOR] Get all Agent IDs from Registry cache
             logger.info(" [AGENT_STATS] 开始获取Agent统计信息...")
             all_agent_ids = self._store.registry.get_all_agent_ids()
-            logger.info(f"🔧 [AGENT_STATS] 从Registry缓存获取到的Agent IDs: {all_agent_ids}")
+            logger.info(f" [AGENT_STATS] 从Registry缓存获取到的Agent IDs: {all_agent_ids}")
 
             # Statistical information
             total_agents = len(all_agent_ids)
@@ -49,7 +49,7 @@ class AgentStatisticsMixin:
                     # Get Agent statistics information
                     logger.info(f" [AGENT_STATS] 开始获取Agent {agent_id} 的详细统计信息...")
                     agent_stats = await self._get_agent_statistics(agent_id)
-                    logger.info(f"✅ [AGENT_STATS] Agent {agent_id} 统计完成: {agent_stats.service_count}个服务, {agent_stats.tool_count}个工具")
+                    logger.info(f" [AGENT_STATS] Agent {agent_id} 统计完成: {agent_stats.service_count}个服务, {agent_stats.tool_count}个工具")
                     
                     if agent_stats.is_active:
                         active_agents += 1
@@ -75,7 +75,7 @@ class AgentStatisticsMixin:
                     )
                     agent_details.append(error_stats)
             
-            # 🔧 [REFACTOR] 获取Store级别的统计信息
+            #  [REFACTOR] 获取Store级别的统计信息
             store_services = await self._store.list_services()
             store_tools = await self._store.list_tools()
 
@@ -115,7 +115,7 @@ class AgentStatisticsMixin:
             # 获取Agent的所有client
             logger.info(f" [AGENT_STATS] 获取Agent {agent_id} 的所有client...")
             client_ids = self._store.registry.get_agent_clients_from_cache(agent_id)
-            logger.info(f"🔧 [AGENT_STATS] Agent {agent_id} 的client列表: {client_ids}")
+            logger.info(f" [AGENT_STATS] Agent {agent_id} 的client列表: {client_ids}")
 
             # 统计服务和工具
             services = []
@@ -130,18 +130,18 @@ class AgentStatisticsMixin:
                     if not client_config:
                         continue
                     
-                    # 🔧 [REFACTOR] 简化逻辑：直接检查服务状态来判断client是否活跃
+                    #  [REFACTOR] 简化逻辑：直接检查服务状态来判断client是否活跃
                     # 不再调用不存在的get_client_status方法
                     
                     # 统计服务
                     for service_name, service_config in client_config.get("mcpServers", {}).items():
                         try:
-                            # 🔧 [REFACTOR] 使用正确的Registry方法获取服务工具
+                            #  [REFACTOR] 使用正确的Registry方法获取服务工具
                             service_tools = self._store.registry.get_tools_for_service(agent_id, service_name)
                             tool_count = len(service_tools) if service_tools else 0
                             total_tools += tool_count
 
-                            # 🔧 [REFACTOR] 使用正确的Registry方法获取服务状态
+                            #  [REFACTOR] 使用正确的Registry方法获取服务状态
                             service_state = self._store.registry.get_service_state(agent_id, service_name)
 
                             # 检查服务是否活跃（有工具且状态不是DISCONNECTED）

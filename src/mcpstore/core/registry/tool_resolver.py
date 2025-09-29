@@ -501,7 +501,7 @@ class ToolNameResolver:
         """
         转换为FastMCP标准格式的工具名称
 
-        🔧 重要发现：
+         重要发现：
         - MCPStore内部：工具名称带前缀 "mcpstore-demo-weather_get_current_weather"
         - FastMCP原生：工具名称不带前缀 "get_current_weather"
         - 我们需要返回FastMCP原生期望的格式！

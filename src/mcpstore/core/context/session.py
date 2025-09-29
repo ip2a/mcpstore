@@ -128,7 +128,12 @@ class Session:
         # Eagerly create and cache persistent client to avoid first-call delay
         try:
             orchestrator = self._context._store.orchestrator
-            client = await orchestrator._create_persistent_client(self._agent_session, service_name)
+            # Use public API to ensure persistent client without relying on private method
+            if hasattr(orchestrator, 'ensure_persistent_client'):
+                client = await orchestrator.ensure_persistent_client(self._agent_session, service_name)
+            else:
+                # Backward-compatible fallback in case orchestrator hasn't been updated
+                client = await orchestrator._create_persistent_client(self._agent_session, service_name)
             if client:
                 logger.info(f"[SESSION:{self._session_id}] Eager persistent client created for service '{service_name}'")
         except Exception as e:

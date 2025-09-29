@@ -18,6 +18,15 @@ logger = logging.getLogger(__name__)
 class ToolExecutionMixin:
     """Tool execution mixin class"""
 
+    async def ensure_persistent_client(self, session, service_name: str):
+        """Public API: ensure a persistent FastMCP client is created and cached.
+
+        This is a non-breaking wrapper exposing the previously private
+        `_create_persistent_client` method, allowing callers (e.g., context/session)
+        to depend on a stable public API.
+        """
+        return await self._create_persistent_client(session, service_name)
+
     async def execute_tool_fastmcp(
         self,
         service_name: str,
@@ -70,13 +79,13 @@ class ToolExecutionMixin:
                     raise Exception(f"No clients found in registry cache for agent {agent_id}")
             else:
                 # Store 模式：在 global_agent_store 的客户端中查找服务
-                # 🔧 修复：优先从Registry缓存获取，回退到ClientManager持久化文件
+                #  修复：优先从Registry缓存获取，回退到ClientManager持久化文件
                 global_agent_id = self.client_manager.global_agent_store_id
-                logger.debug(f"🔧 [TOOL_EXECUTION] 查找global_agent_id: {global_agent_id}")
+                logger.debug(f" [TOOL_EXECUTION] 查找global_agent_id: {global_agent_id}")
 
                 client_ids = self.registry.get_agent_clients_from_cache(global_agent_id)
-                logger.debug(f"🔧 [TOOL_EXECUTION] Registry缓存中的client_ids: {client_ids}")
-                logger.debug(f"🔧 [TOOL_EXECUTION] Registry完整agent_clients缓存: {dict(self.registry.agent_clients)}")
+                logger.debug(f" [TOOL_EXECUTION] Registry缓存中的client_ids: {client_ids}")
+                logger.debug(f" [TOOL_EXECUTION] Registry完整agent_clients缓存: {dict(self.registry.agent_clients)}")
 
                 if not client_ids:
                     # 单源模式：不再回退到分片文件
@@ -85,7 +94,7 @@ class ToolExecutionMixin:
 
             # 遍历客户端查找服务
             for client_id in client_ids:
-                # 🔧 修复：has_service需要正确的agent_id
+                #  修复：has_service需要正确的agent_id
                 effective_agent_id = agent_id if agent_id else self.client_manager.global_agent_store_id
                 if self.registry.has_service(effective_agent_id, service_name):
                     try:

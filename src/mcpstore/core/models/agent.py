@@ -41,7 +41,7 @@ class AgentStatistics:
     healthy_services: int
     unhealthy_services: int
     total_tool_executions: int
-    is_active: bool = False  # 🔧 [REFACTOR] 添加缺失的is_active字段
+    is_active: bool = False  #  [REFACTOR] 添加缺失的is_active字段
     last_activity: Optional[datetime] = None
     services: List[AgentServiceSummary] = None
 
