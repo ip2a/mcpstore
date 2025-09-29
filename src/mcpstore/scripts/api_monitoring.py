@@ -308,7 +308,7 @@ async def get_health_summary():
         services_health = {}
         total_services = 0
 
-        # 🔧 修复：使用lifecycle_manager的service_states而不是registry的废弃字段
+        #  修复：使用lifecycle_manager的service_states而不是registry的废弃字段
         for agent_id, services in lifecycle_manager.service_states.items():
             for service_name, state in services.items():
                 total_services += 1
@@ -318,7 +318,7 @@ async def get_health_summary():
                 # 获取状态元数据
                 metadata = lifecycle_manager.get_service_metadata(agent_id, service_name)
 
-                # 🔧 改进：添加元数据存在性检查
+                #  改进：添加元数据存在性检查
                 if metadata:
                     services_health[f"{agent_id}:{service_name}"] = ServiceHealthResponse(
                         service_name=service_name,
@@ -404,7 +404,7 @@ async def get_service_health(service_name: str, agent_id: str = None):
         # 确定agent_id
         target_agent_id = agent_id or orchestrator.client_manager.global_agent_store_id
 
-        # 🔧 改进：检查服务是否存在，支持跨agent查找
+        #  改进：检查服务是否存在，支持跨agent查找
         state = lifecycle_manager.get_service_state(target_agent_id, service_name)
         metadata = lifecycle_manager.get_service_metadata(target_agent_id, service_name)
 

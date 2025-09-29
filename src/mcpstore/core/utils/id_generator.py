@@ -160,7 +160,7 @@ class ClientIDGenerator:
             agent_id, service_name, service_config, global_agent_store_id
         )
 
-        logger.info(f"✅ [ID_GEN] Migration completed: {legacy_id} -> {new_id}")
+        logger.info(f" [ID_GEN] Migration completed: {legacy_id} -> {new_id}")
         return new_id
 
 

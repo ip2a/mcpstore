@@ -17,6 +17,31 @@ logger = logging.getLogger(__name__)
 class HealthMonitoringMixin:
     """Health monitoring mixin class"""
 
+    async def health_details(self, name: str, client_id: Optional[str] = None) -> Dict[str, Any]:
+        """Public API: wrapper around detailed service health check that returns a dict.
+
+        This provides a stable structure for proxies/UI without reformatting in callers.
+        """
+        try:
+            result = await self.check_service_health_detailed(name, client_id)
+            from mcpstore.core.lifecycle.health_bridge import HealthStatusBridge
+            status_value = getattr(result.status, "value", str(result.status)) if result else "unknown"
+            lifecycle_state = HealthStatusBridge.map_health_to_lifecycle(result.status).value if result else "unknown"
+            healthy = HealthStatusBridge.is_health_status_positive(result.status) if result else False
+            return {
+                "service_name": name,
+                "status": status_value,
+                "lifecycle_state": lifecycle_state,
+                "healthy": healthy,
+                "response_time": getattr(result, "response_time", None),
+                "timestamp": getattr(result, "timestamp", None),
+                "error_message": getattr(result, "error_message", None),
+                "details": getattr(result, "details", {})
+            }
+        except Exception as e:
+            logger.error(f"health_details failed for {name}: {e}")
+            return {"service_name": name, "status": "error", "error": str(e)}
+
     async def check_service_health_detailed(self, name: str, client_id: Optional[str] = None) -> HealthCheckResult:
         """
         Detailed service health check, returns complete health status information
@@ -211,7 +236,7 @@ class HealthMonitoringMixin:
             if not parsed.hostname:
                 return True  # 无法解析主机名，跳过检查
 
-            # 🔧 修复：对MCP端点使用TCP连接检查而不是HTTP GET请求
+            #  修复：对MCP端点使用TCP连接检查而不是HTTP GET请求
             # MCP服务器期望POST请求，GET请求会返回400错误
             try:
                 reader, writer = await asyncio.wait_for(

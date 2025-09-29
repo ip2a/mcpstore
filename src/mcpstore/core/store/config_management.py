@@ -54,7 +54,7 @@ class ConfigManagementMixin:
 
     async def _sync_discovered_agents_to_files(self, agents_discovered: set):
         """
-        🔧 单一数据源架构：不再同步到分片文件
+         单一数据源架构：不再同步到分片文件
         
         新架构下，Agent发现只需要更新缓存，所有持久化通过mcp.json完成
         """
@@ -62,7 +62,7 @@ class ConfigManagementMixin:
             # logger.info(f" [SYNC_AGENTS] 单一数据源模式：跳过分片文件同步，已发现 {len(agents_discovered)} 个 Agent")
             
             # 单一数据源模式：不再写入分片文件，仅维护缓存和mcp.json
-            # logger.info("✅ [SYNC_AGENTS] 单一数据源模式：Agent发现完成，缓存已更新")
+            # logger.info(" [SYNC_AGENTS] 单一数据源模式：Agent发现完成，缓存已更新")
             pass
         except Exception as e:
             # logger.error(f"❌ [SYNC_AGENTS] Agent 同步失败: {e}")

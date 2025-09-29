@@ -109,7 +109,14 @@ class ServiceOperationsMixin:
         🚀 优化：直接返回缓存状态，不等待任何连接
         服务状态管理由生命周期管理器负责，查询和管理完全分离
         """
-        # 直接返回缓存中的服务列表，不等待任何连接
+        # 使用内核（若可用）执行读路径，保持零破坏
+        kernel = getattr(self, "_kernel", None)
+        if kernel is not None:
+            try:
+                return kernel.list_services()
+            except Exception:
+                pass
+        # 回退：原实现
         return self._sync_helper.run_async(self.list_services_async(), force_background=True)
 
     async def list_services_async(self) -> List[ServiceInfo]:
@@ -156,7 +163,7 @@ class ServiceOperationsMixin:
         # 应用认证配置到服务配置中（如果提供了认证参数）
         final_config = self._apply_auth_to_config(config, auth, headers)
         
-        # 🔧 修复：使用后台循环来支持后台任务
+        #  修复：使用后台循环来支持后台任务
         return self._sync_helper.run_async(
             self.add_service_async(final_config, json_file, source, wait, from_market=from_market, market_env=market_env),
             timeout=120.0,
@@ -173,7 +180,7 @@ class ServiceOperationsMixin:
         Returns:
             Dict: 包含添加结果的详细信息
         """
-        # 🔧 修复：使用后台循环来支持后台任务
+        #  修复：使用后台循环来支持后台任务
         return self._sync_helper.run_async(
             self.add_service_with_details_async(config),
             timeout=120.0,
@@ -463,7 +470,7 @@ class ServiceOperationsMixin:
                         if mm and hasattr(mm, "refresh_from_remote_async"):
                             loop = asyncio.get_running_loop()
                             loop.create_task(mm.refresh_from_remote_async(force=False))
-                            logger.info(f"🔄 [MARKET] Triggered background remote refresh for missing service: {from_market}")
+                            logger.info(f" [MARKET] Triggered background remote refresh for missing service: {from_market}")
                     except Exception:
                         pass
 
@@ -506,7 +513,7 @@ class ServiceOperationsMixin:
             # 获取正确的 agent_id（Store级别使用global_agent_store作为agent_id）
             agent_id = self._agent_id if self._context_type == ContextType.AGENT else self._store.orchestrator.client_manager.global_agent_store_id
 
-            # 🔄 新增：详细的注册开始日志
+            #  新增：详细的注册开始日志
             logger.info(f"[ADD_SERVICE] start source={source}")
             logger.info(f"[ADD_SERVICE] config type={type(config)} content={config}")
             logger.info(f"[ADD_SERVICE] context={self._context_type.name} agent_id={agent_id}")
@@ -516,7 +523,7 @@ class ServiceOperationsMixin:
                 # Store模式下的全量注册
                 if self._context_type == ContextType.STORE:
                     logger.info("STORE模式-使用统一同步机制注册所有服务")
-                    # 🔧 修改：使用统一同步机制，不再手动注册
+                    #  修改：使用统一同步机制，不再手动注册
                     if hasattr(self._store.orchestrator, 'sync_manager') and self._store.orchestrator.sync_manager:
                         results = await self._store.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
                         logger.info(f"同步结果: {results}")
@@ -583,7 +590,7 @@ class ServiceOperationsMixin:
 
             # 处理字典格式的配置（包括从批量配置转换来的）
             if isinstance(config, dict):
-                # 🔧 新增：缓存优先的添加服务流程
+                #  新增：缓存优先的添加服务流程
                 return await self._add_service_cache_first(config, agent_id, wait)
 
         except Exception as e:
@@ -594,13 +601,13 @@ class ServiceOperationsMixin:
         """
         缓存优先的添加服务流程
 
-        🔧 新流程：
+         新流程：
         1. 立即更新缓存（用户马上可以查询）
         2. 尝试连接服务（更新缓存状态）
         3. 异步持久化到文件（不阻塞用户）
         """
         try:
-            # 🔄 新增：缓存优先流程开始日志
+            #  新增：缓存优先流程开始日志
             logger.info(f"[ADD_SERVICE] cache_first start")
 
             # 转换为标准格式
@@ -625,7 +632,7 @@ class ServiceOperationsMixin:
             cache_results = []
             logger.info(f"[ADD_SERVICE] to_add_count={len(services_to_add)}")
 
-            # 🔧 Agent模式下透明代理：添加到两个缓存空间并建立映射
+            #  Agent模式下透明代理：添加到两个缓存空间并建立映射
             if self._context_type == ContextType.AGENT:
                 await self._add_agent_services_with_mapping(services_to_add, agent_id)
                 return self  # Agent 模式直接返回，不需要后续的 Store 逻辑
@@ -809,10 +816,10 @@ class ServiceOperationsMixin:
         # 检查是否已有client_id
         existing_client_id = self._store.registry.get_service_client_id(agent_id, service_name)
         if existing_client_id:
-            logger.debug(f"🔄 [CLIENT_ID] 使用现有client_id: {service_name} -> {existing_client_id}")
+            logger.debug(f" [CLIENT_ID] 使用现有client_id: {service_name} -> {existing_client_id}")
             return existing_client_id
 
-        # 🔧 使用统一的ClientIDGenerator生成确定性client_id
+        #  使用统一的ClientIDGenerator生成确定性client_id
         from mcpstore.core.utils.id_generator import ClientIDGenerator
 
         service_config = service_config or {}
@@ -836,7 +843,7 @@ class ServiceOperationsMixin:
             logger.info(f"🔗 [CONNECT_SERVICE] Agent ID: {agent_id}")
             logger.info(f"🔗 [CONNECT_SERVICE] 调用orchestrator.connect_service")
 
-            # 🔧 修复：使用connect_service方法（现已修复ConfigProcessor问题）
+            #  修复：使用connect_service方法（现已修复ConfigProcessor问题）
             try:
                 logger.info(f"🔗 [CONNECT_SERVICE] 准备调用connect_service，参数: name={service_name}, agent_id={agent_id}")
                 logger.info(f"🔗 [CONNECT_SERVICE] service_config: {service_config}")
@@ -899,7 +906,7 @@ class ServiceOperationsMixin:
     async def _persist_to_files_async(self, mcp_config: Dict[str, Any], services_to_add: Dict[str, Dict[str, Any]]):
         """异步持久化到文件（不阻塞用户）"""
         try:
-            logger.info("📁 Starting background file persistence...")
+            logger.info(" Starting background file persistence...")
 
             if self._context_type == ContextType.STORE:
                 # 单一数据源模式：仅更新 mcp.json（agent_clients 映射仅更新缓存，不写分片文件）
@@ -910,7 +917,7 @@ class ServiceOperationsMixin:
                 # Agent模式：仅更新缓存，所有持久化仅通过 mcp.json 完成（分片文件已废弃）
                 await self._persist_to_agent_files(services_to_add)
 
-            logger.info("📁 Background file persistence completed")
+            logger.info(" Background file persistence completed")
 
         except Exception as e:
             logger.error(f"Background file persistence failed: {e}")
@@ -946,12 +953,12 @@ class ServiceOperationsMixin:
         """
         try:
             agent_id = self._store.client_manager.global_agent_store_id
-            # logger.info(f"🔄 Store模式agent映射持久化开始，agent_id: {agent_id}, 服务数量: {len(services_to_add)}")
+            # logger.info(f" Store模式agent映射持久化开始，agent_id: {agent_id}, 服务数量: {len(services_to_add)}")
             #
             # # 单源模式：不再触发分片映射文件同步
             # logger.info("ℹ️ 单源模式：跳过 agent_clients 映射文件同步")
             #
-            # logger.info("✅ Store模式agent映射持久化完成")
+            # logger.info(" Store模式agent映射持久化完成")
 
         except Exception as e:
             logger.error(f"Failed to persist store agent mappings: {e}")
@@ -959,7 +966,7 @@ class ServiceOperationsMixin:
 
     async def _persist_to_agent_files(self, services_to_add: Dict[str, Dict[str, Any]]):
         """
-        🔧 单一数据源架构：更新缓存而不操作分片文件
+         单一数据源架构：更新缓存而不操作分片文件
 
         新架构流程：
         1. 更新缓存中的映射关系
@@ -967,7 +974,7 @@ class ServiceOperationsMixin:
         """
         try:
             agent_id = self._agent_id
-            logger.info(f"🔄 [AGENT_PERSIST] Agent模式缓存更新开始，agent_id: {agent_id}, 服务数量: {len(services_to_add)}")
+            logger.info(f" [AGENT_PERSIST] Agent模式缓存更新开始，agent_id: {agent_id}, 服务数量: {len(services_to_add)}")
 
             # 1. 更新缓存映射（单一数据源架构）
             for service_name, service_config in services_to_add.items():
@@ -985,11 +992,11 @@ class ServiceOperationsMixin:
                     "mcpServers": {service_name: service_config}
                 }
 
-                logger.debug(f"✅ [AGENT_PERSIST] 缓存更新完成: {service_name} -> {client_id}")
+                logger.debug(f" [AGENT_PERSIST] 缓存更新完成: {service_name} -> {client_id}")
 
             # 2. 单一数据源模式：仅维护缓存，不写入分片文件
-            logger.info("🔧 [AGENT_PERSIST] 单一数据源模式：缓存更新完成，跳过分片文件写入")
-            logger.info("✅ [AGENT_PERSIST] Agent模式：缓存增量更新完成")
+            logger.info(" [AGENT_PERSIST] 单一数据源模式：缓存更新完成，跳过分片文件写入")
+            logger.info(" [AGENT_PERSIST] Agent模式：缓存增量更新完成")
 
         except Exception as e:
             logger.error(f"Failed to persist to agent files with incremental cache update: {e}")
@@ -1052,7 +1059,7 @@ class ServiceOperationsMixin:
                 identifier, agent_id
             )
 
-            logger.info(f"🔍 [INIT_SERVICE] 解析结果: client_id={resolved_client_id}, service_name={resolved_service_name}")
+            logger.info(f" [INIT_SERVICE] 解析结果: client_id={resolved_client_id}, service_name={resolved_service_name}")
 
             # 4. 从缓存获取服务配置
             service_config = self._get_service_config_from_cache(agent_id, resolved_service_name)
@@ -1067,7 +1074,7 @@ class ServiceOperationsMixin:
             if not success:
                 raise RuntimeError(f"Failed to initialize service {resolved_service_name}")
 
-            logger.info(f"✅ [INIT_SERVICE] Service {resolved_service_name} initialized to INITIALIZING state")
+            logger.info(f" [INIT_SERVICE] Service {resolved_service_name} initialized to INITIALIZING state")
             return self
 
         except Exception as e:
@@ -1102,13 +1109,13 @@ class ServiceOperationsMixin:
 
         # 返回非空的参数
         if client_id_or_service_name:
-            logger.debug(f"🔍 [INIT_PARAMS] 使用通用参数: {client_id_or_service_name}")
+            logger.debug(f" [INIT_PARAMS] 使用通用参数: {client_id_or_service_name}")
             return client_id_or_service_name.strip()
         elif client_id:
-            logger.debug(f"🔍 [INIT_PARAMS] 使用明确client_id: {client_id}")
+            logger.debug(f" [INIT_PARAMS] 使用明确client_id: {client_id}")
             return client_id.strip()
         elif service_name:
-            logger.debug(f"🔍 [INIT_PARAMS] 使用明确service_name: {service_name}")
+            logger.debug(f" [INIT_PARAMS] 使用明确service_name: {service_name}")
             return service_name.strip()
 
         # 理论上不会到达这里
@@ -1141,7 +1148,7 @@ class ServiceOperationsMixin:
             # 方法1: 从 service_metadata 获取（优先）
             metadata = self._store.registry.get_service_metadata(agent_id, service_name)
             if metadata and metadata.service_config:
-                logger.debug(f"🔍 [CONFIG] 从metadata获取配置: {service_name}")
+                logger.debug(f" [CONFIG] 从metadata获取配置: {service_name}")
                 return metadata.service_config
 
             # 方法2: 从 client_config 获取（备用）
@@ -1151,7 +1158,7 @@ class ServiceOperationsMixin:
                 if client_config and 'mcpServers' in client_config:
                     service_config = client_config['mcpServers'].get(service_name)
                     if service_config:
-                        logger.debug(f"🔍 [CONFIG] 从client_config获取配置: {service_name}")
+                        logger.debug(f" [CONFIG] 从client_config获取配置: {service_name}")
                         return service_config
 
             logger.warning(f"⚠️ [CONFIG] 未找到服务配置: {service_name} (agent: {agent_id})")
@@ -1161,7 +1168,7 @@ class ServiceOperationsMixin:
             logger.error(f"❌ [CONFIG] 获取服务配置失败 {service_name}: {e}")
             return None
 
-    # === 🔧 新增：Agent 透明代理方法 ===
+    # ===  新增：Agent 透明代理方法 ===
 
     async def _add_agent_services_with_mapping(self, services_to_add: Dict[str, Any], agent_id: str):
         """
@@ -1176,7 +1183,7 @@ class ServiceOperationsMixin:
         6. 同步到持久化文件
         """
         try:
-            logger.info(f"🔄 [AGENT_PROXY] 开始 Agent 透明代理添加服务，Agent: {agent_id}")
+            logger.info(f" [AGENT_PROXY] 开始 Agent 透明代理添加服务，Agent: {agent_id}")
 
             from .agent_service_mapper import AgentServiceMapper
             from mcpstore.core.models.service import ServiceConnectionState
@@ -1184,11 +1191,11 @@ class ServiceOperationsMixin:
             mapper = AgentServiceMapper(agent_id)
 
             for local_name, service_config in services_to_add.items():
-                logger.info(f"🔄 [AGENT_PROXY] 处理服务: {local_name}")
+                logger.info(f" [AGENT_PROXY] 处理服务: {local_name}")
 
                 # 1. 生成全局名称
                 global_name = mapper.to_global_name(local_name)
-                logger.debug(f"🔧 [AGENT_PROXY] 服务名映射: {local_name} → {global_name}")
+                logger.debug(f" [AGENT_PROXY] 服务名映射: {local_name} → {global_name}")
 
                 # 2. 检查是否已存在同名服务
                 existing_client_id = self._store.registry.get_service_client_id(agent_id, local_name)
@@ -1198,7 +1205,7 @@ class ServiceOperationsMixin:
 
                 if existing_client_id and existing_global_client_id:
                     # 同名服务已存在，更新配置而不是重新创建
-                    logger.info(f"🔄 [AGENT_PROXY] 发现同名服务，更新配置: {local_name}")
+                    logger.info(f" [AGENT_PROXY] 发现同名服务，更新配置: {local_name}")
                     client_id = existing_client_id
 
                     # 使用 preserve_mappings=True 来保留现有映射关系
@@ -1222,12 +1229,12 @@ class ServiceOperationsMixin:
                         preserve_mappings=True
                     )
 
-                    logger.info(f"✅ [AGENT_PROXY] 同名服务配置更新完成: {local_name} (Client ID: {client_id})")
+                    logger.info(f" [AGENT_PROXY] 同名服务配置更新完成: {local_name} (Client ID: {client_id})")
                 else:
                     # 新服务，正常创建
-                    logger.info(f"🔄 [AGENT_PROXY] 创建新服务: {local_name}")
+                    logger.info(f" [AGENT_PROXY] 创建新服务: {local_name}")
 
-                    # 🔧 修复：统一使用 ClientIDGenerator 生成共享 Client ID
+                    #  修复：统一使用 ClientIDGenerator 生成共享 Client ID
                     from mcpstore.core.utils.id_generator import ClientIDGenerator
                     client_id = ClientIDGenerator.generate_deterministic_id(
                         agent_id=agent_id,
@@ -1235,7 +1242,7 @@ class ServiceOperationsMixin:
                         service_config=service_config,
                         global_agent_store_id=self._store.client_manager.global_agent_store_id
                     )
-                    logger.debug(f"🔧 [AGENT_PROXY] 生成确定性共享 Client ID: {client_id}")
+                    logger.debug(f" [AGENT_PROXY] 生成确定性共享 Client ID: {client_id}")
 
                     # 3. 添加到 global_agent_store 缓存（全局名称）
                     self._store.registry.add_service(
@@ -1246,7 +1253,7 @@ class ServiceOperationsMixin:
                         service_config=service_config,
                         state=ServiceConnectionState.INITIALIZING
                     )
-                    logger.debug(f"✅ [AGENT_PROXY] 添加到 global_agent_store: {global_name}")
+                    logger.debug(f" [AGENT_PROXY] 添加到 global_agent_store: {global_name}")
 
                     # 4. 添加到 Agent 缓存（本地名称）
                     self._store.registry.add_service(
@@ -1257,18 +1264,18 @@ class ServiceOperationsMixin:
                         service_config=service_config,
                         state=ServiceConnectionState.INITIALIZING
                     )
-                    logger.debug(f"✅ [AGENT_PROXY] 添加到 Agent 缓存: {agent_id}:{local_name}")
+                    logger.debug(f" [AGENT_PROXY] 添加到 Agent 缓存: {agent_id}:{local_name}")
 
                     # 5. 建立双向映射关系（新服务）
                     self._store.registry.add_agent_service_mapping(agent_id, local_name, global_name)
-                    logger.debug(f"✅ [AGENT_PROXY] 建立映射关系: {agent_id}:{local_name} ↔ {global_name}")
+                    logger.debug(f" [AGENT_PROXY] 建立映射关系: {agent_id}:{local_name} ↔ {global_name}")
 
                 # 6. 设置共享 Client ID 映射（新服务和同名服务都需要）
                 self._store.registry.add_service_client_mapping(
                     self._store.client_manager.global_agent_store_id, global_name, client_id
                 )
                 self._store.registry.add_service_client_mapping(agent_id, local_name, client_id)
-                logger.debug(f"✅ [AGENT_PROXY] 设置共享 Client ID 映射: {client_id}")
+                logger.debug(f" [AGENT_PROXY] 设置共享 Client ID 映射: {client_id}")
 
                 # 7. 添加到生命周期管理器（新服务和同名服务都需要）
                 if (hasattr(self._store, 'orchestrator') and self._store.orchestrator and
@@ -1278,14 +1285,14 @@ class ServiceOperationsMixin:
                     self._store.orchestrator.lifecycle_manager.initialize_service(
                         self._store.client_manager.global_agent_store_id, global_name, service_config
                     )
-                    logger.debug(f"✅ [AGENT_PROXY] 初始化生命周期管理(仅全局): {global_name}")
+                    logger.debug(f" [AGENT_PROXY] 初始化生命周期管理(仅全局): {global_name}")
 
-                logger.info(f"✅ [AGENT_PROXY] Agent 服务添加完成: {local_name} → {global_name}")
+                logger.info(f" [AGENT_PROXY] Agent 服务添加完成: {local_name} → {global_name}")
 
             # 8. 同步到持久化文件
             await self._sync_agent_services_to_files(agent_id, services_to_add)
 
-            logger.info(f"✅ [AGENT_PROXY] Agent 透明代理添加完成，共处理 {len(services_to_add)} 个服务")
+            logger.info(f" [AGENT_PROXY] Agent 透明代理添加完成，共处理 {len(services_to_add)} 个服务")
 
         except Exception as e:
             logger.error(f"❌ [AGENT_PROXY] Agent 透明代理添加失败: {e}")
@@ -1294,7 +1301,7 @@ class ServiceOperationsMixin:
     async def _sync_agent_services_to_files(self, agent_id: str, services_to_add: Dict[str, Any]):
         """同步 Agent 服务到持久化文件"""
         try:
-            logger.info(f"🔄 [AGENT_SYNC] 开始同步 Agent 服务到文件: {agent_id}")
+            logger.info(f" [AGENT_SYNC] 开始同步 Agent 服务到文件: {agent_id}")
 
             # 更新 mcp.json（添加带后缀的服务）
             current_mcp_config = self._store.config.load_config()
@@ -1307,12 +1314,12 @@ class ServiceOperationsMixin:
             for local_name, service_config in services_to_add.items():
                 global_name = mapper.to_global_name(local_name)
                 current_mcp_config["mcpServers"][global_name] = service_config
-                logger.debug(f"🔧 [AGENT_SYNC] 添加到 mcp.json: {global_name}")
+                logger.debug(f" [AGENT_SYNC] 添加到 mcp.json: {global_name}")
 
             # 保存 mcp.json
             success = self._store.config.save_config(current_mcp_config)
             if success:
-                logger.info(f"✅ [AGENT_SYNC] mcp.json 更新成功")
+                logger.info(f" [AGENT_SYNC] mcp.json 更新成功")
             else:
                 logger.error(f"❌ [AGENT_SYNC] mcp.json 更新失败")
 
@@ -1341,7 +1348,7 @@ class ServiceOperationsMixin:
             # 1) 通过映射获取该 Agent 的全局服务名集合
             global_service_names = self._store.registry.get_agent_services(agent_id)
             if not global_service_names:
-                logger.info(f"✅ [AGENT_VIEW] Agent {agent_id} 服务视图: 0 个服务（无映射）")
+                logger.info(f" [AGENT_VIEW] Agent {agent_id} 服务视图: 0 个服务（无映射）")
                 return agent_services
 
             # 2) 遍历每个全局服务，从全局命名空间读取完整信息，并以本地名展示
@@ -1381,9 +1388,9 @@ class ServiceOperationsMixin:
                     keep_alive=cfg.get("keep_alive", False),
                 )
                 agent_services.append(service_info)
-                logger.debug(f"🔧 [AGENT_VIEW] derive '{local_name}' <- '{global_name}' tools={tool_count}")
+                logger.debug(f" [AGENT_VIEW] derive '{local_name}' <- '{global_name}' tools={tool_count}")
 
-            logger.info(f"✅ [AGENT_VIEW] Agent {agent_id} 服务视图: {len(agent_services)} 个服务（派生）")
+            logger.info(f" [AGENT_VIEW] Agent {agent_id} 服务视图: {len(agent_services)} 个服务（派生）")
             return agent_services
 
         except Exception as e:

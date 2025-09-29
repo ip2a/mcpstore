@@ -26,7 +26,7 @@ class ServiceLifecycleManager:
         self.registry = orchestrator.registry
         self.config = ServiceLifecycleConfig()
 
-        # 🔧 重构：移除独立状态存储，Registry为唯一状态源
+        #  重构：移除独立状态存储，Registry为唯一状态源
         # 所有状态操作直接通过Registry进行，确保状态一致性
 
         # Scheduled tasks
@@ -46,7 +46,7 @@ class ServiceLifecycleManager:
         # 📊 日志采样机制：避免频繁打印相同内容
         self._log_cache: Dict[str, Tuple[str, float]] = {}  # key -> (last_content, last_time)
 
-        logger.info("🔧 [REFACTOR] ServiceLifecycleManager initialized with unified Registry state management")
+        logger.info(" [REFACTOR] ServiceLifecycleManager initialized with unified Registry state management")
     
     def _should_log(self, log_key: str, content: str, interval_seconds: int = 10) -> bool:
         """
@@ -152,9 +152,9 @@ class ServiceLifecycleManager:
             bool: Whether initialization was successful
         """
         try:
-            logger.debug(f"🔧 [INITIALIZE_SERVICE] Starting initialization for {service_name} in agent {agent_id}")
+            logger.debug(f" [INITIALIZE_SERVICE] Starting initialization for {service_name} in agent {agent_id}")
             
-            # 🔧 [REFACTOR] 直接在Registry中设置状态和元数据
+            #  [REFACTOR] 直接在Registry中设置状态和元数据
 
             # Set initial state in Registry
             self.registry.set_service_state(agent_id, service_name, ServiceConnectionState.INITIALIZING)
@@ -191,7 +191,7 @@ class ServiceLifecycleManager:
             return False
     
     def get_service_state(self, agent_id: str, service_name: str) -> Optional[ServiceConnectionState]:
-        """🔧 [REFACTOR] Get service state from unified Registry cache"""
+        """ [REFACTOR] Get service state from unified Registry cache"""
         state = self.registry.get_service_state(agent_id, service_name)
         
         # 📊 使用采样日志，避免频繁打印相同内容
@@ -207,7 +207,7 @@ class ServiceLifecycleManager:
         return state
 
     def get_service_metadata(self, agent_id: str, service_name: str) -> Optional[ServiceStateMetadata]:
-        """🔧 [REFACTOR] Get service metadata from unified Registry cache"""
+        """ [REFACTOR] Get service metadata from unified Registry cache"""
         return self.registry.get_service_metadata(agent_id, service_name)
     
     async def handle_health_check_result(self, agent_id: str, service_name: str,
@@ -310,7 +310,7 @@ class ServiceLifecycleManager:
             else:
                 logger.debug(f"[HEALTH_CHECK_ENHANCED] failure service='{service_name}' state='{suggested_state.value}'")
                 metadata.consecutive_failures += 1
-                # 🔧 修复：直接转换到建议的失败状态，而不是让状态机重新决定
+                #  修复：直接转换到建议的失败状态，而不是让状态机重新决定
                 await self._transition_to_state(agent_id, service_name, suggested_state)
         else:
             # 向后兼容：如果没有建议状态，使用原有的布尔逻辑
@@ -343,10 +343,10 @@ class ServiceLifecycleManager:
         )
     
     def _set_service_state(self, agent_id: str, service_name: str, state: ServiceConnectionState):
-        """🔧 [REFACTOR] 直接设置Registry状态，无需同步"""
+        """ [REFACTOR] 直接设置Registry状态，无需同步"""
         # 直接设置Registry状态，Registry为唯一状态源
         self.registry.set_service_state(agent_id, service_name, state)
-        logger.debug(f"🔧 [SET_STATE] Service {service_name} (agent {agent_id}) state set to {state.value}")
+        logger.debug(f" [SET_STATE] Service {service_name} (agent {agent_id}) state set to {state.value}")
     
     async def _on_state_entered(self, agent_id: str, service_name: str,
                               new_state: ServiceConnectionState, old_state: ServiceConnectionState):
@@ -408,9 +408,9 @@ class ServiceLifecycleManager:
 
         logger.info(f"Service {service_name} (agent {agent_id}) entered HEALTHY state")
 
-    # 🔧 [REFACTOR] 移除同步方法 - Registry为唯一状态源，无需同步
+    #  [REFACTOR] 移除同步方法 - Registry为唯一状态源，无需同步
 
-    # 🔧 [REFACTOR] 移除批量同步方法 - Registry为唯一状态源，无需同步
+    #  [REFACTOR] 移除批量同步方法 - Registry为唯一状态源，无需同步
 
     async def _trigger_alert_notification(self, agent_id: str, service_name: str, message: str):
         """触发告警通知（占位符实现）"""
@@ -454,11 +454,11 @@ class ServiceLifecycleManager:
 
             # 尝试重连
             try:
-                # 🔧 修复：使用正确的参数名调用connect_service
+                #  修复：使用正确的参数名调用connect_service
                 success, message = await self.orchestrator.connect_service(service_name, service_config=metadata.service_config, agent_id=agent_id)
 
                 if success:
-                    logger.info(f"✅ [REQUEST_RECONNECTION] Reconnection successful for {service_name}")
+                    logger.info(f" [REQUEST_RECONNECTION] Reconnection successful for {service_name}")
                     await self._transition_to_state(agent_id, service_name, ServiceConnectionState.HEALTHY)
                 else:
                     logger.warning(f"[REQUEST_RECONNECTION] Reconnection failed for {service_name}")
@@ -493,7 +493,7 @@ class ServiceLifecycleManager:
             try:
                 await self.orchestrator.disconnect_service(service_name, agent_id)
                 await self._transition_to_state(agent_id, service_name, ServiceConnectionState.DISCONNECTED)
-                logger.info(f"✅ [REQUEST_DISCONNECTION] Service {service_name} (agent {agent_id}) disconnected")
+                logger.info(f" [REQUEST_DISCONNECTION] Service {service_name} (agent {agent_id}) disconnected")
             except Exception as e:
                 logger.error(f"[REQUEST_DISCONNECTION] Failed to disconnect {service_name}: {e}")
         else:
@@ -509,7 +509,7 @@ class ServiceLifecycleManager:
         """
         logger.debug(f"🗑️ [REMOVE_SERVICE] Removing {service_name} (agent {agent_id})")
 
-        # 🔧 [REFACTOR] 从Registry中移除状态和元数据
+        #  [REFACTOR] 从Registry中移除状态和元数据
         # 检查服务是否存在
         if self.registry.get_service_state(agent_id, service_name) is not None:
             # 移除状态（Registry内部会处理不存在的情况）
@@ -524,7 +524,7 @@ class ServiceLifecycleManager:
         # 从处理队列中移除
         self.state_change_queue.discard((agent_id, service_name))
 
-        logger.info(f"✅ [REMOVE_SERVICE] Service {service_name} (agent {agent_id}) removed from lifecycle management")
+        logger.info(f" [REMOVE_SERVICE] Service {service_name} (agent {agent_id}) removed from lifecycle management")
 
     async def _lifecycle_management_loop(self):
         """生命周期管理主循环"""
@@ -589,31 +589,31 @@ class ServiceLifecycleManager:
 
         # 处理需要连接/重试的状态
         if current_state == ServiceConnectionState.INITIALIZING:
-            logger.debug(f"🔧 [PROCESS_SERVICE] INITIALIZING state - attempting initial connection for {service_name}")
+            logger.debug(f" [PROCESS_SERVICE] INITIALIZING state - attempting initial connection for {service_name}")
             # 新服务初始化，尝试首次连接
             await self._attempt_initial_connection(agent_id, service_name)
 
         elif current_state == ServiceConnectionState.RECONNECTING:
-            logger.debug(f"🔧 [PROCESS_SERVICE] RECONNECTING state - checking retry time for {service_name}")
-            logger.debug(f"🔧 [PROCESS_SERVICE] Next retry time: {metadata.next_retry_time}, current time: {now}")
+            logger.debug(f" [PROCESS_SERVICE] RECONNECTING state - checking retry time for {service_name}")
+            logger.debug(f" [PROCESS_SERVICE] Next retry time: {metadata.next_retry_time}, current time: {now}")
             if metadata.next_retry_time and now >= metadata.next_retry_time:
-                logger.debug(f"🔧 [PROCESS_SERVICE] Time to retry reconnection for {service_name}")
+                logger.debug(f" [PROCESS_SERVICE] Time to retry reconnection for {service_name}")
                 await self._attempt_reconnection(agent_id, service_name)
             else:
                 logger.debug(f" [PROCESS_SERVICE] Not time to retry yet for {service_name}")
 
         elif current_state == ServiceConnectionState.UNREACHABLE:
-            logger.debug(f"🔧 [PROCESS_SERVICE] UNREACHABLE state - checking long period retry for {service_name}")
+            logger.debug(f" [PROCESS_SERVICE] UNREACHABLE state - checking long period retry for {service_name}")
             if metadata.next_retry_time and now >= metadata.next_retry_time:
-                logger.debug(f"🔧 [PROCESS_SERVICE] Time for long period retry for {service_name}")
+                logger.debug(f" [PROCESS_SERVICE] Time for long period retry for {service_name}")
                 await self._attempt_long_period_retry(agent_id, service_name)
             else:
                 logger.debug(f" [PROCESS_SERVICE] Not time for long period retry yet for {service_name}")
 
         elif current_state == ServiceConnectionState.DISCONNECTING:
-            logger.debug(f"🔧 [PROCESS_SERVICE] DISCONNECTING state - checking timeout for {service_name}")
+            logger.debug(f" [PROCESS_SERVICE] DISCONNECTING state - checking timeout for {service_name}")
             if metadata.next_retry_time and now >= metadata.next_retry_time:
-                logger.debug(f"🔧 [PROCESS_SERVICE] Disconnect timeout reached for {service_name}, forcing DISCONNECTED")
+                logger.debug(f" [PROCESS_SERVICE] Disconnect timeout reached for {service_name}, forcing DISCONNECTED")
                 # 断连超时，强制转换为DISCONNECTED
                 await self._transition_to_state(agent_id, service_name, ServiceConnectionState.DISCONNECTED)
             else:
@@ -631,7 +631,7 @@ class ServiceLifecycleManager:
             return
 
         try:
-            # 🔧 Agent 透明代理支持：检查共享 Client ID 的连接状态
+            #  Agent 透明代理支持：检查共享 Client ID 的连接状态
             actual_agent_id, actual_service_name = self._resolve_actual_service_location(agent_id, service_name)
 
             # 检查服务是否已经连接成功（通过检查工具数量）
@@ -651,7 +651,7 @@ class ServiceLifecycleManager:
                     )
                     logger.info(f"Service {service_name} (agent {agent_id}) initial connection successful with {len(service_tools)} tools")
 
-                    # 🔧 如果是 Agent 服务，同步状态到全局服务
+                    #  如果是 Agent 服务，同步状态到全局服务
                     if actual_agent_id != agent_id or actual_service_name != service_name:
                         await self.handle_health_check_result(
                             agent_id=actual_agent_id,
@@ -659,7 +659,7 @@ class ServiceLifecycleManager:
                             success=True,
                             response_time=0.0
                         )
-                        logger.debug(f"🔧 [SHARED_STATE] 同步状态: {agent_id}:{service_name} → {actual_agent_id}:{actual_service_name}")
+                        logger.debug(f" [SHARED_STATE] 同步状态: {agent_id}:{service_name} → {actual_agent_id}:{actual_service_name}")
 
                     return
                 else:
@@ -681,7 +681,7 @@ class ServiceLifecycleManager:
                         )
                         logger.info(f"Service {service_name} (agent {agent_id}) initial connection successful with {len(service_tools)} tools")
 
-                        # 🔧 如果是 Agent 服务，同步状态到全局服务
+                        #  如果是 Agent 服务，同步状态到全局服务
                         if actual_agent_id != agent_id or actual_service_name != service_name:
                             await self.handle_health_check_result(
                                 agent_id=actual_agent_id,
@@ -689,7 +689,7 @@ class ServiceLifecycleManager:
                                 success=True,
                                 response_time=0.0
                             )
-                            logger.debug(f"🔧 [SHARED_STATE] 同步状态: {agent_id}:{service_name} → {actual_agent_id}:{actual_service_name}")
+                            logger.debug(f" [SHARED_STATE] 同步状态: {agent_id}:{service_name} → {actual_agent_id}:{actual_service_name}")
 
                         return
                     else:
@@ -760,7 +760,7 @@ class ServiceLifecycleManager:
                     success=True,
                     response_time=0.0
                 )
-                logger.info(f"✅ [ATTEMPT_RECONNECTION] Reconnection successful for {service_name} after {metadata.reconnect_attempts} attempts")
+                logger.info(f" [ATTEMPT_RECONNECTION] Reconnection successful for {service_name} after {metadata.reconnect_attempts} attempts")
             else:
                 # 重连失败，计算下次重试时间
                 delay = self.state_machine.calculate_reconnect_delay(metadata.reconnect_attempts)
@@ -813,7 +813,7 @@ class ServiceLifecycleManager:
                     success=True,
                     response_time=0.0
                 )
-                logger.info(f"✅ [ATTEMPT_LONG_PERIOD_RETRY] Long period retry successful for {service_name}")
+                logger.info(f" [ATTEMPT_LONG_PERIOD_RETRY] Long period retry successful for {service_name}")
             else:
                 # 连接失败，转换到RECONNECTING状态开始新一轮重连
                 await self._transition_to_state(agent_id, service_name, ServiceConnectionState.RECONNECTING)
@@ -847,7 +847,7 @@ class ServiceLifecycleManager:
                 summary["agents"][agent_id] = self._get_agent_status_summary(agent_id)
         else:
             # 返回所有agent的状态
-            # 🔧 [REFACTOR] 从Registry获取所有agent
+            #  [REFACTOR] 从Registry获取所有agent
             for aid in self.registry.service_states.keys():
                 summary["agents"][aid] = self._get_agent_status_summary(aid)
 
@@ -865,7 +865,7 @@ class ServiceLifecycleManager:
             "disconnected_services": 0
         }
 
-        # 🔧 [REFACTOR] 从Registry获取服务列表
+        #  [REFACTOR] 从Registry获取服务列表
         service_names = self.registry.get_all_service_names(agent_id)
         if not service_names:
             return agent_summary
@@ -912,13 +912,13 @@ class ServiceLifecycleManager:
         logger.info(f"Lifecycle configuration updated: {self.config}")
 
     def cleanup(self):
-        """🔧 [REFACTOR] 清理资源 - Registry状态由Registry自己管理"""
+        """ [REFACTOR] 清理资源 - Registry状态由Registry自己管理"""
         logger.debug("Cleaning up ServiceLifecycleManager")
 
         # 清理处理队列
         self.state_change_queue.clear()
 
-        # 🔧 注意：Registry状态由Registry自己管理，不在这里清理
+        #  注意：Registry状态由Registry自己管理，不在这里清理
 
         logger.info("ServiceLifecycleManager cleanup completed")
 
@@ -947,7 +947,7 @@ class ServiceLifecycleManager:
                     global_service_name = self.registry.get_global_name_from_agent_service(agent_id, service_name)
                     if global_service_name:
                         # 找到映射关系，返回全局位置
-                        logger.debug(f"🔧 [SERVICE_LOCATION] 映射: {agent_id}:{service_name} → {global_agent_store_id}:{global_service_name}")
+                        logger.debug(f" [SERVICE_LOCATION] 映射: {agent_id}:{service_name} → {global_agent_store_id}:{global_service_name}")
                         return global_agent_store_id, global_service_name
 
             # 没有映射关系，返回原始位置

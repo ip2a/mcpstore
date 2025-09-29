@@ -150,6 +150,13 @@ class AdvancedFeaturesMixin:
             MCPStoreContext: 支持链式调用
         """
         try:
+            import warnings
+            warnings.warn(
+                "enable_caching() is deprecated: tool result caching has been removed; "
+                "only service discovery caching remains.",
+                DeprecationWarning,
+                stacklevel=2
+            )
             logger.warning(f"[{self._context_type.value}] Tool result caching has been removed. This method is deprecated.")
             logger.info(f"[{self._context_type.value}] Only service discovery caching is still available.")
             result = self._performance_optimizer.enable_caching(patterns)
@@ -314,7 +321,7 @@ class AdvancedFeaturesMixin:
             mcp_success = self._store.config.save_config(new_config)
             
             if mcp_success:
-                logger.info(f"✅ [MCP_RESET] MCP JSON file reset completed for scope: {scope}")
+                logger.info(f" [MCP_RESET] MCP JSON file reset completed for scope: {scope}")
                 
                 # 4. 触发重新同步（可选）
                 if hasattr(self._store.orchestrator, 'sync_manager') and self._store.orchestrator.sync_manager:

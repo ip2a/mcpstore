@@ -26,7 +26,7 @@ class BaseMCPStore:
         self.config = config
         self.registry = orchestrator.registry
         self.client_manager = orchestrator.client_manager
-        # 🔧 修复：添加LocalServiceManager访问属性
+        #  修复：添加LocalServiceManager访问属性
         self.local_service_manager = orchestrator.local_service_manager
         self.session_manager = orchestrator.session_manager
         self.logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ class BaseMCPStore:
         # Data space manager (optional, only set when using data spaces)
         self._data_space_manager = None
 
-        # 🔧 新增：缓存管理器
+        #  新增：缓存管理器
         
         # 认证配置管理器
         from mcpstore.core.auth.manager import AuthConfigManager
@@ -62,7 +62,7 @@ class BaseMCPStore:
         self.cache_manager = ServiceCacheManager(self.registry, self.orchestrator.lifecycle_manager)
         self.transaction_manager = CacheTransactionManager(self.registry)
 
-        # 🔧 新增：智能查询接口
+        #  新增：智能查询接口
         from mcpstore.core.registry.smart_query import SmartCacheQuery
         self.query = SmartCacheQuery(self.registry)
 

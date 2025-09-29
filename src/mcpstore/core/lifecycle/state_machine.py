@@ -28,8 +28,8 @@ class ServiceStateMachine:
         if current_state in [ServiceConnectionState.INITIALIZING,
                            ServiceConnectionState.WARNING,
                            ServiceConnectionState.RECONNECTING,
-                           ServiceConnectionState.UNREACHABLE]:  # 🔧 Added: UNREACHABLE can also recover to HEALTHY
-            # 🔧 Fix: Reset all failure-related counters on successful transition
+                           ServiceConnectionState.UNREACHABLE]:  #  Added: UNREACHABLE can also recover to HEALTHY
+            #  Fix: Reset all failure-related counters on successful transition
             metadata = get_metadata_func(agent_id, service_name)
             if metadata:
                 metadata.consecutive_failures = 0

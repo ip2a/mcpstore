@@ -22,7 +22,7 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
         """
         Connect to specified service (supports local and remote services) and update cache
 
-        🔧 缓存优先架构：优先从缓存获取配置，支持完整的服务配置
+         缓存优先架构：优先从缓存获取配置，支持完整的服务配置
 
         Args:
             name: Service name
@@ -37,7 +37,7 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
             # 确定Agent ID
             agent_key = agent_id or self.client_manager.global_agent_store_id
 
-            # 🔧 缓存优先：从缓存获取服务配置
+            #  缓存优先：从缓存获取服务配置
             if service_config is None:
                 service_config = self.registry.get_service_config_from_cache(agent_key, name)
                 if not service_config:
@@ -72,7 +72,7 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
             # 本地服务通常使用 stdio 传输
             local_config = service_config.copy()
 
-            # 🔧 修复：使用 ConfigProcessor 处理配置（与remote service保持一致）
+            #  修复：使用 ConfigProcessor 处理配置（与remote service保持一致）
             from mcpstore.core.configuration.config_processor import ConfigProcessor
             processed_config = ConfigProcessor.process_user_config_for_fastmcp({
                 "mcpServers": {name: local_config}
@@ -89,13 +89,13 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
                 async with client:
                     tools = await client.list_tools()
 
-                    # 🔧 修复：更新Registry缓存
+                    #  修复：更新Registry缓存
                     await self._update_service_cache(agent_id, name, client, tools, service_config)
 
                     # 更新客户端缓存（保持向后兼容）
                     self.clients[name] = client
 
-                    # 🔧 修复：通知生命周期管理器连接成功
+                    #  修复：通知生命周期管理器连接成功
                     await self.lifecycle_manager.handle_health_check_result(
                         agent_id=agent_id,
                         service_name=name,
@@ -110,7 +110,7 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
                 error_msg = str(e)
                 logger.error(f"Failed to connect to local service {name}: {error_msg}")
 
-                # 🔧 修复：清理资源，避免僵尸进程
+                #  修复：清理资源，避免僵尸进程
                 try:
                     # 停止本地服务进程
                     await self.local_service_manager.stop_local_service(name)
@@ -144,7 +144,7 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
             error_msg = str(e)
             logger.error(f"Error connecting local service {name}: {error_msg}")
 
-            # 🔧 修复：清理资源，避免僵尸进程
+            #  修复：清理资源，避免僵尸进程
             try:
                 # 停止本地服务进程
                 await self.local_service_manager.stop_local_service(name)
@@ -177,7 +177,7 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
     async def _connect_remote_service(self, name: str, service_config: Dict[str, Any], agent_id: str) -> Tuple[bool, str]:
         """连接远程服务并更新缓存"""
         try:
-            # 🔧 修复：使用ConfigProcessor处理配置，确保transport字段正确
+            #  修复：使用ConfigProcessor处理配置，确保transport字段正确
             from mcpstore.core.configuration.config_processor import ConfigProcessor
 
             # 构造配置格式
@@ -202,13 +202,13 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
                     tools = await client.list_tools()
                     logger.info(f" [REMOTE_SERVICE] 成功获取工具列表，数量: {len(tools)}")
 
-                    # 🔧 修复：更新Registry缓存
+                    #  修复：更新Registry缓存
                     await self._update_service_cache(agent_id, name, client, tools, service_config)
 
                     # 更新客户端缓存（保持向后兼容）
                     self.clients[name] = client
 
-                    # 🔧 修复：通知生命周期管理器连接成功
+                    #  修复：通知生命周期管理器连接成功
                     await self.lifecycle_manager.handle_health_check_result(
                         agent_id=agent_id,
                         service_name=name,
@@ -223,7 +223,7 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
                 error_msg = str(e)
                 logger.warning(f"Failed to connect to remote service {name}: {error_msg}")
 
-                # 🔧 修复：清理资源，避免资源泄漏
+                #  修复：清理资源，避免资源泄漏
                 # 清理客户端缓存
                 if name in self.clients:
                     try:
@@ -258,7 +258,7 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
             error_msg = str(e)
             logger.error(f"Error connecting remote service {name}: {error_msg}")
 
-            # 🔧 修复：清理资源，避免资源泄漏
+            #  修复：清理资源，避免资源泄漏
             # 清理客户端缓存
             if name in self.clients:
                 try:
@@ -293,15 +293,15 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
             service_config: 服务配置
         """
         try:
-            # 🔧 优雅修复：智能清理缓存，保留Agent-Client映射
+            #  优雅修复：智能清理缓存，保留Agent-Client映射
             existing_session = self.registry.get_session(agent_id, service_name)
             if existing_session:
                 # 服务已存在，只清理工具缓存，保留Agent-Client映射
-                logger.debug(f"🔧 [CACHE_UPDATE] 服务 {service_name} 已存在，执行智能清理")
+                logger.debug(f" [CACHE_UPDATE] 服务 {service_name} 已存在，执行智能清理")
                 self.registry.clear_service_tools_only(agent_id, service_name)
             else:
                 # 新服务，不需要清理任何缓存
-                logger.debug(f"🔧 [CACHE_UPDATE] 服务 {service_name} 是新服务，跳过清理")
+                logger.debug(f" [CACHE_UPDATE] 服务 {service_name} 是新服务，跳过清理")
 
             # 处理工具定义（复用register_json_services的逻辑）
             processed_tools = []
@@ -336,7 +336,7 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
                     logger.error(f"Failed to process tool {tool.name}: {e}")
                     continue
 
-            # 🔧 优雅修复：添加到Registry缓存，保留现有映射关系
+            #  优雅修复：添加到Registry缓存，保留现有映射关系
             self.registry.add_service(
                 agent_id=agent_id,
                 name=service_name,
@@ -349,13 +349,13 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
             if self._is_long_lived_service(service_config):
                 self.registry.mark_as_long_lived(agent_id, service_name)
 
-            # 🔧 重要：注册客户端到 Agent 客户端缓存
+            #  重要：注册客户端到 Agent 客户端缓存
             client_id = self.registry.get_service_client_id(agent_id, service_name)
             if client_id:
                 self.registry.add_agent_client_mapping(agent_id, client_id)
-                logger.debug(f"🔧 [CLIENT_REGISTER] 注册客户端 {client_id} 到 Agent {agent_id}")
+                logger.debug(f" [CLIENT_REGISTER] 注册客户端 {client_id} 到 Agent {agent_id}")
             else:
-                logger.warning(f"🔧 [CLIENT_REGISTER] 无法获取服务 {service_name} 的 Client ID")
+                logger.warning(f" [CLIENT_REGISTER] 无法获取服务 {service_name} 的 Client ID")
 
             # 通知生命周期管理器连接成功
             await self.lifecycle_manager.handle_health_check_result(
@@ -465,7 +465,7 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
 
     async def refresh_services(self):
         """手动刷新所有服务连接（重新加载mcp.json）"""
-        # 🔧 修复：使用统一同步管理器进行同步
+        #  修复：使用统一同步管理器进行同步
         if hasattr(self, 'sync_manager') and self.sync_manager:
             await self.sync_manager.sync_global_agent_store_from_mcp_json()
         else:

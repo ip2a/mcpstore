@@ -19,7 +19,7 @@ class ServiceCacheManager:
         self.registry = registry
         self.lifecycle_manager = lifecycle_manager
     
-    # === 🔧 智能缓存操作 ===
+    # ===  智能缓存操作 ===
     
     async def smart_add_service(self, agent_id: str, service_name: str, service_config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -67,7 +67,7 @@ class ServiceCacheManager:
 
     def sync_from_client_manager(self, client_manager):
         """
-        🔧 单一数据源架构：ClientManager不再管理分片文件
+         单一数据源架构：ClientManager不再管理分片文件
         
         新架构下，缓存不从ClientManager同步，而是从mcp.json通过UnifiedMCPSyncManager同步
         """
@@ -82,14 +82,14 @@ class ServiceCacheManager:
                 # 初始化为空缓存
                 self.registry.agent_clients = {}
                 self.registry.client_configs = {}
-                logger.info("🔧 [CACHE_INIT] 空缓存初始化完成")
+                logger.info(" [CACHE_INIT] 空缓存初始化完成")
 
                 # 标记缓存已初始化
                 self.registry.cache_initialized = True
 
             else:
                 # 运行时：单一数据源模式下无需从ClientManager同步
-                logger.info("🔧 [CACHE_SYNC] 单一数据源模式：运行时跳过ClientManager同步")
+                logger.info(" [CACHE_SYNC] 单一数据源模式：运行时跳过ClientManager同步")
                 logger.info("ℹ️ [CACHE_SYNC] 缓存数据由UnifiedMCPSyncManager从mcp.json同步")
             
             # 更新同步时间（记录操作）
@@ -97,7 +97,7 @@ class ServiceCacheManager:
             self.registry.cache_sync_status["client_manager"] = datetime.now()
             self.registry.cache_sync_status["sync_mode"] = "single_source_mode"
             
-            logger.info("✅ [CACHE_INIT] ClientManager同步完成（单一数据源模式）")
+            logger.info(" [CACHE_INIT] ClientManager同步完成（单一数据源模式）")
             
         except Exception as e:
             logger.error(f"Failed to sync cache from ClientManager: {e}")
@@ -105,13 +105,13 @@ class ServiceCacheManager:
     
     def sync_to_client_manager(self, client_manager):
         """
-        🔧 单一数据源架构：不再同步到ClientManager
+         单一数据源架构：不再同步到ClientManager
         
         新架构下，缓存数据只同步到mcp.json，不再维护分片文件
         """
         try:
             # 单一数据源模式：跳过ClientManager同步
-            logger.info("🔧 [CACHE_SYNC] 单一数据源模式：跳过ClientManager同步，仅维护mcp.json")
+            logger.info(" [CACHE_SYNC] 单一数据源模式：跳过ClientManager同步，仅维护mcp.json")
             
             # 更新同步时间（记录跳过的操作）
             from datetime import datetime

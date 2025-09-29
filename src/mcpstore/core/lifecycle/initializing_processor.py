@@ -176,7 +176,7 @@ class InitializingStateProcessor:
                     timeout=self.timeout_per_service
                 )
 
-                logger.debug(f"✅ [FAST_INIT] 服务{service_name}处理完成")
+                logger.debug(f" [FAST_INIT] 服务{service_name}处理完成")
                 
             except asyncio.TimeoutError:
                 logger.warning(f"[FAST_INIT] timeout_initialize service={service_name} -> RECONNECTING")

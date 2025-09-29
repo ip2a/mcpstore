@@ -43,32 +43,65 @@ class ServiceRegistry:
         # agent_id -> {service_name: ServiceStateMetadata}
         self.service_metadata: Dict[str, Dict[str, ServiceStateMetadata]] = {}
 
-        # 🔧 新增：Agent-Client 映射缓存
+        #  新增：Agent-Client 映射缓存
         self.agent_clients: Dict[str, List[str]] = {}
         # 结构：{agent_id: [client_id1, client_id2, ...]}
 
-        # 🔧 新增：Client 配置缓存
+        #  新增：Client 配置缓存
         self.client_configs: Dict[str, Dict[str, Any]] = {}
         # 结构：{client_id: {"mcpServers": {...}}}
 
-        # 🔧 新增：Service 到 Client 的反向映射
+        #  新增：Service 到 Client 的反向映射
         self.service_to_client: Dict[str, Dict[str, str]] = {}
         # 结构：{agent_id: {service_name: client_id}}
 
-        # 🔧 新增：缓存同步状态
+        #  新增：缓存同步状态
         from datetime import datetime
         self.cache_sync_status: Dict[str, datetime] = {}
 
-        # 🔧 新增：Agent 服务映射关系
+        #  新增：Agent 服务映射关系
         # agent_id -> {local_name: global_name}
         self.agent_to_global_mappings: Dict[str, Dict[str, str]] = {}
         # global_name -> (agent_id, local_name)
         self.global_to_agent_mappings: Dict[str, Tuple[str, str]] = {}
 
-        # 🔧 新增：状态同步管理器（延迟初始化）
+        #  新增：状态同步管理器（延迟初始化）
         self._state_sync_manager = None
 
         logger.info("ServiceRegistry initialized (multi-context isolation with lifecycle support).")
+
+    def list_tools(self, agent_id: str) -> List[Dict[str, Any]]:
+        """Return a list-like snapshot of tools for the given agent_id.
+
+        The registry stores raw tool definitions; this method converts them
+        into a minimal, stable structure compatible with ToolInfo fields.
+        We avoid importing pydantic models here to keep registry free of heavy deps.
+        """
+        tools_map = self.tool_cache.get(agent_id, {})
+        result: List[Dict[str, Any]] = []
+        for tool_name, tool_def in tools_map.items():
+            try:
+                if isinstance(tool_def, dict) and "function" in tool_def:
+                    fn = tool_def["function"]
+                    result.append({
+                        "name": fn.get("name", tool_name),
+                        "description": fn.get("description", ""),
+                        "service_name": fn.get("service_name", ""),
+                        "client_id": None,
+                        "inputSchema": fn.get("parameters")
+                    })
+                else:
+                    # Fallback best-effort mapping
+                    result.append({
+                        "name": tool_name,
+                        "description": str(tool_def.get("description", "")) if isinstance(tool_def, dict) else "",
+                        "service_name": tool_def.get("service_name", "") if isinstance(tool_def, dict) else "",
+                        "client_id": None,
+                        "inputSchema": tool_def.get("parameters") if isinstance(tool_def, dict) else None
+                    })
+            except Exception as e:
+                logger.warning(f"[REGISTRY] Failed to map tool '{tool_name}': {e}")
+        return result
 
     def _ensure_state_sync_manager(self):
         """确保状态同步管理器已初始化"""
@@ -86,7 +119,7 @@ class ServiceRegistry:
         self.tool_cache.pop(agent_id, None)
         self.tool_to_session_map.pop(agent_id, None)
 
-        # 🔧 清理新增的缓存字段
+        #  清理新增的缓存字段
         self.service_states.pop(agent_id, None)
         self.service_metadata.pop(agent_id, None)
         self.service_to_client.pop(agent_id, None)
@@ -116,7 +149,7 @@ class ServiceRegistry:
         - preserve_mappings: 是否保留现有的Agent-Client映射关系（优雅修复用）
         返回实际注册的工具名列表。
         """
-        # 🔧 新增：支持所有状态的服务注册
+        #  新增：支持所有状态的服务注册
         tools = tools or []
         service_config = service_config or {}
 
@@ -144,7 +177,7 @@ class ServiceRegistry:
                 from mcpstore.core.models.service import ServiceConnectionState
                 state = ServiceConnectionState.DISCONNECTED  # 连接失败
 
-        # 🔧 优雅修复：智能处理现有服务
+        #  优雅修复：智能处理现有服务
         if name in self.sessions[agent_id]:
             if preserve_mappings:
                 # 保留映射关系，只清理工具缓存
@@ -167,7 +200,7 @@ class ServiceRegistry:
                 service_name=name,
                 agent_id=agent_id,
                 state_entered_time=datetime.now(),
-                service_config=service_config,  # 🔧 存储完整配置
+                service_config=service_config,  #  存储完整配置
                 consecutive_failures=0 if session else 1,
                 error_message=None if session else "Connection failed"
             )
@@ -244,7 +277,7 @@ class ServiceRegistry:
             if tool_name in self.tool_cache.get(agent_id, {}): del self.tool_cache[agent_id][tool_name]
             if tool_name in self.tool_to_session_map.get(agent_id, {}): del self.tool_to_session_map[agent_id][tool_name]
 
-        # 🔧 清理新增的缓存字段
+        #  清理新增的缓存字段
         self._cleanup_service_cache_data(agent_id, name)
 
         logger.info(f"Service '{name}' for agent '{agent_id}' removed from registry.")
@@ -391,16 +424,16 @@ class ServiceRegistry:
     def get_tools_for_service(self, agent_id: str, name: str) -> List[str]:
         """
         获取指定 agent_id 下某服务的所有工具名。
-        🔧 修复：改为从service_to_client映射和tool_cache获取，而不是依赖sessions
+         修复：改为从service_to_client映射和tool_cache获取，而不是依赖sessions
         """
         logger.info(f"[REGISTRY] get_tools service={name} agent_id={agent_id}")
 
-        # 🔧 修复：首先检查服务是否存在
+        #  修复：首先检查服务是否存在
         if not self.has_service(agent_id, name):
             logger.warning(f"[REGISTRY] service_not_exists service={name}")
             return []
 
-        # 🔧 修复：从tool_cache中查找属于该服务的工具
+        #  修复：从tool_cache中查找属于该服务的工具
         tools = []
         tool_cache = self.tool_cache.get(agent_id, {})
         tool_to_session = self.tool_to_session_map.get(agent_id, {})
@@ -416,7 +449,7 @@ class ServiceRegistry:
             if service_session and tool_session is service_session:
                 tools.append(tool_name)
             elif not service_session:
-                # 🔧 当sessions为空时，通过工具名前缀匹配（备用方案）
+                #  当sessions为空时，通过工具名前缀匹配（备用方案）
                 if tool_name.startswith(f"{name}_") or tool_name.startswith(f"{name}-"):
                     tools.append(tool_name)
 
@@ -594,7 +627,7 @@ class ServiceRegistry:
     def get_all_service_names(self, agent_id: str) -> List[str]:
         """
         获取指定 agent_id 下所有已注册服务名。
-        🔧 修复：从service_states获取服务列表，而不是sessions（sessions可能为空）
+         修复：从service_states获取服务列表，而不是sessions（sessions可能为空）
         """
         return list(self.service_states.get(agent_id, {}).keys())
 
@@ -659,7 +692,7 @@ class ServiceRegistry:
                 last_heartbeat=metadata.last_ping_time if metadata else None,
                 last_state_change=metadata.state_entered_time if metadata else datetime.now(),
                 state_metadata=metadata,
-                config=service_config  # 🔧 [REFACTOR] 添加完整的config字段
+                config=service_config  #  [REFACTOR] 添加完整的config字段
             )
 
             return service_info
@@ -687,7 +720,7 @@ class ServiceRegistry:
     def has_service(self, agent_id: str, name: str) -> bool:
         """
         判断指定 agent_id 下是否存在某服务。
-        🔧 修复：从service_states判断服务是否存在，而不是sessions（sessions可能为空）
+         修复：从service_states判断服务是否存在，而不是sessions（sessions可能为空）
         """
         return name in self.service_states.get(agent_id, {})
 
@@ -726,7 +759,7 @@ class ServiceRegistry:
     # === 生命周期状态管理方法 ===
 
     def set_service_state(self, agent_id: str, service_name: str, state: Optional[ServiceConnectionState]):
-        """🔧 [ENHANCED] 设置服务生命周期状态，自动同步共享 Client ID 的服务"""
+        """ [ENHANCED] 设置服务生命周期状态，自动同步共享 Client ID 的服务"""
 
         # 记录旧状态
         old_state = self.service_states.get(agent_id, {}).get(service_name)
@@ -745,7 +778,7 @@ class ServiceRegistry:
             self.service_states[agent_id][service_name] = state
             logger.debug(f"Service {service_name} (agent {agent_id}) state set to {state.value}")
 
-        # 🔧 新增：自动同步共享服务状态
+        #  新增：自动同步共享服务状态
         if state is not None and old_state != state:
             self._ensure_state_sync_manager()
             self._state_sync_manager.sync_state_for_shared_client(agent_id, service_name, state)
@@ -755,7 +788,7 @@ class ServiceRegistry:
         return self.service_states.get(agent_id, {}).get(service_name, ServiceConnectionState.DISCONNECTED)
 
     def set_service_metadata(self, agent_id: str, service_name: str, metadata: Optional[ServiceStateMetadata]):
-        """🔧 [REFACTOR] 设置服务状态元数据，支持删除操作"""
+        """ [REFACTOR] 设置服务状态元数据，支持删除操作"""
         if agent_id not in self.service_metadata:
             self.service_metadata[agent_id] = {}
 
@@ -798,7 +831,7 @@ class ServiceRegistry:
         """
         return self.is_long_lived_service(agent_id, service_name)
 
-    # === 🔧 新增：Agent-Client 映射管理 ===
+    # ===  新增：Agent-Client 映射管理 ===
 
     def add_agent_client_mapping(self, agent_id: str, client_id: str):
         """添加 Agent-Client 映射到缓存"""
@@ -813,7 +846,7 @@ class ServiceRegistry:
             logger.debug(f"[REGISTRY] agent_client_exists client_id={client_id} agent_id={agent_id}")
 
     def get_all_agent_ids(self) -> List[str]:
-        """🔧 [REFACTOR] 从缓存获取所有Agent ID列表"""
+        """ [REFACTOR] 从缓存获取所有Agent ID列表"""
         agent_ids = list(self.agent_clients.keys())
         logger.info(f"[REGISTRY] get_all_agent_ids ids={agent_ids}")
         logger.info(f"[REGISTRY] agent_clients_full={dict(self.agent_clients)}")
@@ -833,7 +866,7 @@ class ServiceRegistry:
             if not self.agent_clients[agent_id]:  # 如果列表为空，删除agent
                 del self.agent_clients[agent_id]
 
-    # === 🔧 新增：Client 配置管理 ===
+    # ===  新增：Client 配置管理 ===
 
     def add_client_config(self, client_id: str, config: Dict[str, Any]):
         """添加 Client 配置到缓存"""
@@ -855,7 +888,7 @@ class ServiceRegistry:
         """从缓存移除 Client 配置"""
         self.client_configs.pop(client_id, None)
 
-    # === 🔧 新增：Service-Client 映射管理 ===
+    # ===  新增：Service-Client 映射管理 ===
 
     def add_service_client_mapping(self, agent_id: str, service_name: str, client_id: str):
         """添加 Service-Client 映射到缓存"""
@@ -868,7 +901,7 @@ class ServiceRegistry:
     def get_service_client_id(self, agent_id: str, service_name: str) -> Optional[str]:
         """获取服务对应的 Client ID"""
         result = self.service_to_client.get(agent_id, {}).get(service_name)
-        # # 🔧 调试：记录映射查询结果
+        # #  调试：记录映射查询结果
         # logger.debug(f"[CLIENT_ID_LOOKUP] agent_id={agent_id} service_name={service_name} result={result}")
         # logger.debug(f"[CLIENT_ID_LOOKUP] keys={list(self.service_to_client.keys())}")
         # if agent_id in self.service_to_client:
@@ -880,7 +913,7 @@ class ServiceRegistry:
         if agent_id in self.service_to_client:
             self.service_to_client[agent_id].pop(service_name, None)
 
-    # === 🔧 新增：Agent 服务映射管理 ===
+    # ===  新增：Agent 服务映射管理 ===
 
     def add_agent_service_mapping(self, agent_id: str, local_name: str, global_name: str):
         """
@@ -899,7 +932,7 @@ class ServiceRegistry:
         # 建立 global -> agent 映射
         self.global_to_agent_mappings[global_name] = (agent_id, local_name)
 
-        logger.debug(f"🔧 [AGENT_MAPPING] Added mapping: {agent_id}:{local_name} ↔ {global_name}")
+        logger.debug(f" [AGENT_MAPPING] Added mapping: {agent_id}:{local_name} ↔ {global_name}")
 
     def get_global_name_from_agent_service(self, agent_id: str, local_name: str) -> Optional[str]:
         """获取 Agent 服务对应的全局名称"""
@@ -923,9 +956,9 @@ class ServiceRegistry:
             global_name = self.agent_to_global_mappings[agent_id].pop(local_name, None)
             if global_name:
                 self.global_to_agent_mappings.pop(global_name, None)
-                logger.debug(f"🔧 [AGENT_MAPPING] Removed mapping: {agent_id}:{local_name} ↔ {global_name}")
+                logger.debug(f" [AGENT_MAPPING] Removed mapping: {agent_id}:{local_name} ↔ {global_name}")
 
-    # === 🔧 新增：完整的服务信息获取 ===
+    # ===  新增：完整的服务信息获取 ===
 
     def get_service_summary(self, agent_id: str, service_name: str) -> Dict[str, Any]:
         """
@@ -1005,7 +1038,7 @@ class ServiceRegistry:
             for service_name in service_names
         ]
 
-    # === 🔧 新增：便捷查询方法 ===
+    # ===  新增：便捷查询方法 ===
 
     def get_services_by_state(self, agent_id: str, states: List['ServiceConnectionState']) -> List[str]:
         """
@@ -1048,7 +1081,7 @@ class ServiceRegistry:
                 services_with_tools.append(service_name)
         return services_with_tools
 
-    # === 🔧 新增：缓存同步管理 ===
+    # ===  新增：缓存同步管理 ===
 
     def sync_to_client_manager(self, client_manager):
         """将缓存数据同步到 ClientManager（简化版本）"""
@@ -1061,7 +1094,7 @@ class ServiceRegistry:
             logger.error(f"Failed to sync registry to ClientManager: {e}")
             raise
 
-    # 🔧 [REFACTOR] 移除重复的方法定义 - 使用上面统一的方法
+    #  [REFACTOR] 移除重复的方法定义 - 使用上面统一的方法
 
     def get_service_config_from_cache(self, agent_id: str, service_name: str) -> Optional[Dict[str, Any]]:
         """从缓存获取服务配置（缓存优先架构的核心方法）"""

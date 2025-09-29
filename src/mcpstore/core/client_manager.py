@@ -24,7 +24,7 @@ class ClientManager:
         Args:
             global_agent_store_id: 全局Agent Store ID
         """
-        # 🔧 单一数据源架构：只需要global_agent_store_id
+        #  单一数据源架构：只需要global_agent_store_id
         self.global_agent_store_id = global_agent_store_id or self._generate_data_space_client_id()
         logger.info(f"ClientManager initialized with global_agent_store_id: {self.global_agent_store_id}")
 

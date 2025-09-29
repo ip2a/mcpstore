@@ -1,3 +1,13 @@
 {
-  "mcpServers": {}
+  "mcpServers": {
+    "agent-test-service_byagent_config_test_agent": {
+      "url": "https://example.com/agent-mcp"
+    },
+    "mcpstore-demo-weather": {
+      "url": "https://mcpstore.wiki/mcp"
+    },
+    "mcpstore-demo": {
+      "url": "https://mcpstore.wiki/mcp"
+    }
+  }
 }

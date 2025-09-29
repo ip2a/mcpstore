@@ -106,7 +106,7 @@ class SharedClientStateSyncManager:
                 if mapped_client_id == client_id:
                     services.append((agent_id, service_name))
         
-        logger.debug(f"🔍 [STATE_SYNC] Found {len(services)} services with client_id {client_id}: {services}")
+        logger.debug(f" [STATE_SYNC] Found {len(services)} services with client_id {client_id}: {services}")
         return services
     
     def _set_state_directly(self, agent_id: str, service_name: str, state: ServiceConnectionState):
@@ -219,7 +219,7 @@ class SharedClientStateSyncManager:
             - inconsistent_services: List 状态不一致的服务
         """
         try:
-            logger.debug(f"🔍 [STATE_VALIDATION] Validating state consistency for client_id: {client_id}")
+            logger.debug(f" [STATE_VALIDATION] Validating state consistency for client_id: {client_id}")
             
             # 查找所有使用该 client_id 的服务
             shared_services = self._find_all_services_with_client_id(client_id)
@@ -271,7 +271,7 @@ class SharedClientStateSyncManager:
             }
             
             if is_consistent:
-                logger.info(f"✅ [STATE_VALIDATION] State consistency validated for client_id {client_id}: ALL CONSISTENT")
+                logger.info(f" [STATE_VALIDATION] State consistency validated for client_id {client_id}: ALL CONSISTENT")
             else:
                 logger.warning(f"⚠️ [STATE_VALIDATION] State inconsistency detected for client_id {client_id}: {len(inconsistent_services)} services inconsistent")
             
@@ -317,7 +317,7 @@ class SharedClientStateSyncManager:
                     else:
                         logger.debug(f" [BATCH_SYNC] Skipped {agent_id}:{service_name}: already {target_state.value}")
                 
-                logger.info(f"✅ [BATCH_SYNC] Batch sync completed: {updated_count}/{len(shared_services)} services updated for client_id {client_id}")
+                logger.info(f" [BATCH_SYNC] Batch sync completed: {updated_count}/{len(shared_services)} services updated for client_id {client_id}")
                 
             except Exception as e:
                 logger.error(f"❌ [BATCH_SYNC] Failed batch sync for client_id {client_id}: {e}")

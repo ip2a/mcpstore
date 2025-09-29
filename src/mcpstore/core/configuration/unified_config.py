@@ -44,7 +44,7 @@ class UnifiedConfigManager:
                  client_services_path: Optional[str] = None):
         """Initialize unified configuration manager
         
-        🔧 单一数据源架构：client_services_path已废弃，仅保留向后兼容
+         单一数据源架构：client_services_path已废弃，仅保留向后兼容
 
         Args:
             mcp_config_path: MCP configuration file path
@@ -55,7 +55,7 @@ class UnifiedConfigManager:
         # 初始化各个配置组件
         self.env_config = None
         self.mcp_config = MCPConfig(json_path=mcp_config_path)
-        self.client_manager = ClientManager()  # 🔧 单一数据源架构：简化初始化
+        self.client_manager = ClientManager()  #  单一数据源架构：简化初始化
         
         # 配置缓存
         self._config_cache: Dict[ConfigType, Dict[str, Any]] = {}
@@ -202,7 +202,7 @@ class UnifiedConfigManager:
     
     def add_client(self, config: Dict[str, Any], client_id: Optional[str] = None) -> str:
         """
-        🔧 单一数据源架构：废弃方法，现已不支持
+         单一数据源架构：废弃方法，现已不支持
         
         新架构下，客户端配置通过mcp.json和缓存管理，不再单独管理
         """
@@ -246,7 +246,7 @@ class UnifiedConfigManager:
             is_valid=self._cache_valid.get(ConfigType.MCP_SERVICES, False)
         ))
         
-        # 🔧 单一数据源架构：分片文件配置已废弃
+        #  单一数据源架构：分片文件配置已废弃
         configs.append(ConfigInfo(
             config_type=ConfigType.CLIENT_SERVICES,
             source="[已废弃] 单一数据源架构下不再使用分片文件",

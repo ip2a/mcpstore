@@ -54,7 +54,7 @@ class ServiceQueryMixin:
         """
         纯缓存模式的服务列表获取
 
-        🔧 新特点：
+         新特点：
         - 完全从缓存获取数据
         - 包含完整的 Agent-Client 信息
         - 高性能，无文件IO
@@ -65,7 +65,7 @@ class ServiceQueryMixin:
         if not agent_mode and (not id or id == self.client_manager.global_agent_store_id):
             agent_id = self.client_manager.global_agent_store_id
 
-            # 🔧 关键：纯缓存获取
+            #  关键：纯缓存获取
             service_names = self.registry.get_all_service_names(agent_id)
 
             if not service_names:
@@ -101,8 +101,8 @@ class ServiceQueryMixin:
                     package_name=complete_info.get("config", {}).get("package_name"),
                     state_metadata=complete_info.get("state_metadata"),
                     last_state_change=complete_info.get("state_entered_time"),
-                    client_id=complete_info.get("client_id"),  # 🔧 新增：Client ID 信息
-                    config=complete_info.get("config", {})  # 🔧 [REFACTOR] 添加完整的config字段
+                    client_id=complete_info.get("client_id"),  #  新增：Client ID 信息
+                    config=complete_info.get("config", {})  #  [REFACTOR] 添加完整的config字段
                 )
                 services_info.append(service_info)
 
@@ -200,7 +200,7 @@ class ServiceQueryMixin:
             )
 
         # 按client_id顺序查找服务
-        # 🔧 修复：服务存储在agent_id级别，而不是client_id级别
+        #  修复：服务存储在agent_id级别，而不是client_id级别
         agent_id_for_query = self.client_manager.global_agent_store_id if not agent_id else agent_id
 
         # === 健壮名称解析：支持在 Agent 上下文传入“本地名”或“全局名” ===

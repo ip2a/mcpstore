@@ -179,7 +179,7 @@ async def store_add_service(
             # 将ServiceInfo对象转换为可序列化的字典
             services_data = []
             for service in services:
-                # 🔧 改进：添加完整的生命周期状态信息
+                #  改进：添加完整的生命周期状态信息
                 service_data = {
                     "name": service.name,
                     "transport": service.transport_type.value if service.transport_type else "unknown",
@@ -271,7 +271,7 @@ async def store_list_services() -> APIResponse:
         context = store.for_store()
         services = context.list_services()
 
-        # 🔧 改进：返回完整的服务信息，包括生命周期状态
+        #  改进：返回完整的服务信息，包括生命周期状态
         services_data = []
         for service in services:
             service_data = {
@@ -477,7 +477,7 @@ async def store_call_tool(request: SimpleToolExecutionRequest) -> APIResponse:
         start_time = time.time()
         trace_id = str(uuid.uuid4())[:8]
 
-        # 🔧 直接使用SDK的call_tool_async方法，它已经包含了完整的工具解析逻辑
+        #  直接使用SDK的call_tool_async方法，它已经包含了完整的工具解析逻辑
         # SDK会自动处理：工具名称解析、服务推断、格式转换等
         store = get_store()
         result = await store.for_store().call_tool_async(request.tool_name, request.args)
@@ -688,7 +688,7 @@ async def activate_service(body: dict):
         if target_service.command:
             activation_config["command"] = target_service.command
 
-        # 🔧 修复：不直接返回MCPStoreContext对象
+        #  修复：不直接返回MCPStoreContext对象
         context.add_service(activation_config)
 
         # 获取激活后的服务状态
@@ -1198,7 +1198,7 @@ async def store_wait_service(request: Request):
             data={"error": str(e)}
         )
 
-# === 🔧 新增：Agent 相关端点 ===
+# ===  新增：Agent 相关端点 ===
 
 @store_router.get("/for_store/list_services_by_agent", response_model=APIResponse)
 @handle_exceptions

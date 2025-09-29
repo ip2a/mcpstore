@@ -38,7 +38,7 @@ class ToolOperationsMixin:
             logger.debug(f"Processing tool request: {request.service_name}::{request.tool_name}")
 
             # 检查服务生命周期状态
-            # 🔧 对于 Agent 透明代理，全局服务存在于 global_agent_store 中
+            #  对于 Agent 透明代理，全局服务存在于 global_agent_store 中
             if request.agent_id and "_byagent_" in request.service_name:
                 # Agent 透明代理：全局服务在 global_agent_store 中
                 state_check_agent_id = self.client_manager.global_agent_store_id
@@ -199,13 +199,13 @@ class ToolOperationsMixin:
         tools = []
         # 1. store未传id 或 id==global_agent_store，聚合 global_agent_store 下所有 client_id 的工具
         if not agent_mode and (not id or id == self.client_manager.global_agent_store_id):
-            # 🔧 修复：直接从Registry缓存获取工具，而不是通过ClientManager
+            #  修复：直接从Registry缓存获取工具，而不是通过ClientManager
             agent_id = self.client_manager.global_agent_store_id
-            self.logger.debug(f"🔧 [STORE.LIST_TOOLS] 直接从Registry缓存获取工具，agent_id={agent_id}")
+            self.logger.debug(f" [STORE.LIST_TOOLS] 直接从Registry缓存获取工具，agent_id={agent_id}")
 
             # 直接从tool_cache获取所有工具
             tool_cache = self.registry.tool_cache.get(agent_id, {})
-            self.logger.debug(f"🔧 [STORE.LIST_TOOLS] Registry中的工具数量: {len(tool_cache)}")
+            self.logger.debug(f" [STORE.LIST_TOOLS] Registry中的工具数量: {len(tool_cache)}")
 
             for tool_name, tool_def in tool_cache.items():
                 # 获取工具对应的session来确定service_name
@@ -218,7 +218,7 @@ class ToolOperationsMixin:
                         service_name = svc_name
                         break
 
-                # 🔧 获取该服务对应的client_id
+                #  获取该服务对应的client_id
                 service_client_id = self._get_client_id_for_service(agent_id, service_name)
 
                 # 构造ToolInfo对象
@@ -241,7 +241,7 @@ class ToolOperationsMixin:
                         inputSchema=tool_def.get("inputSchema", {})
                     ))
 
-            self.logger.debug(f"🔧 [STORE.LIST_TOOLS] 最终工具数量: {len(tools)}")
+            self.logger.debug(f" [STORE.LIST_TOOLS] 最终工具数量: {len(tools)}")
             return tools
         # 2. store传普通 client_id，只查该 client_id 下的工具
         if not agent_mode and id:
@@ -261,12 +261,12 @@ class ToolOperationsMixin:
             return tools
         # 3. agent级别，聚合 agent_id 下所有 client_id 的工具；如果 id 不是 agent_id，尝试作为 client_id 查
         if agent_mode and id:
-            # 🔧 Agent模式：优先读取Agent命名空间工具；若为空，回退到全局命名空间（按映射过滤）
-            self.logger.debug(f"🔧 [STORE.LIST_TOOLS] Agent模式，agent_id={id}")
+            #  Agent模式：优先读取Agent命名空间工具；若为空，回退到全局命名空间（按映射过滤）
+            self.logger.debug(f" [STORE.LIST_TOOLS] Agent模式，agent_id={id}")
 
             agent_tool_cache = self.registry.tool_cache.get(id, {})
             if agent_tool_cache:
-                self.logger.debug(f"🔧 [STORE.LIST_TOOLS] 使用Agent自身工具缓存，数量: {len(agent_tool_cache)}")
+                self.logger.debug(f" [STORE.LIST_TOOLS] 使用Agent自身工具缓存，数量: {len(agent_tool_cache)}")
                 for tool_name, tool_def in agent_tool_cache.items():
                     session = self.registry.tool_to_session_map.get(id, {}).get(tool_name)
                     service_name = None
@@ -293,16 +293,16 @@ class ToolOperationsMixin:
                             client_id=service_client_id,
                             inputSchema=tool_def.get("inputSchema", {})
                         ))
-                self.logger.debug(f"🔧 [STORE.LIST_TOOLS] Agent模式最终工具数量(Agent缓存): {len(tools)}")
+                self.logger.debug(f" [STORE.LIST_TOOLS] Agent模式最终工具数量(Agent缓存): {len(tools)}")
                 return tools
 
             # 回退：根据Agent的映射，从全局命名空间派生工具
-            self.logger.debug(f"🔧 [STORE.LIST_TOOLS] Agent工具缓存为空，回退到全局命名空间派生")
+            self.logger.debug(f" [STORE.LIST_TOOLS] Agent工具缓存为空，回退到全局命名空间派生")
             try:
                 global_agent_id = self.client_manager.global_agent_store_id
                 mapped_globals = set(self.registry.get_agent_services(id))  # 全局服务名集合
                 if not mapped_globals:
-                    self.logger.debug(f"🔧 [STORE.LIST_TOOLS] Agent {id} 无映射的全局服务，返回空列表")
+                    self.logger.debug(f" [STORE.LIST_TOOLS] Agent {id} 无映射的全局服务，返回空列表")
                     return tools
 
                 # 遍历全局工具缓存，筛选属于该Agent映射服务的工具
@@ -341,7 +341,7 @@ class ToolOperationsMixin:
                             inputSchema=tool_def.get("inputSchema", {})
                         ))
 
-                self.logger.debug(f"🔧 [STORE.LIST_TOOLS] Agent模式最终工具数量(全局回退): {len(tools)}")
+                self.logger.debug(f" [STORE.LIST_TOOLS] Agent模式最终工具数量(全局回退): {len(tools)}")
                 return tools
             except Exception as e:
                 self.logger.error(f"[STORE.LIST_TOOLS] Agent 视图工具派生失败: {e}")

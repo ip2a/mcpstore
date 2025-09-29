@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcpstore"
-version = "1.4.26"
+version = "1.4.2976"
 description = "A composable, ready-to-use MCP toolkit for agents and rapid integration."
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115.12",
     "fastmcp>=2.7.1",
@@ -16,6 +16,8 @@ dependencies = [
     "uvicorn>=0.30.0",
     "typer>=0.9.0",
     "watchdog>=3.0.0",
+    "aiohttp>=3.9.0",
+    "psutil>=5.9.0",
 ]
 authors = [
     {name = "ooooofish", email = "ooooofish@126.com"}
@@ -23,9 +25,10 @@ authors = [
 license = "MIT"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Operating System :: OS Independent",
 ]
 
@@ -39,8 +42,7 @@ classifiers = [
 mcpstore = "mcpstore.cli.main:main"
 
 [project.optional-dependencies]
-# 注意：typer已移到主依赖，因为CLI是核心功能
-# rich由fastmcp提供，无需重复声明
+
 test = [
     # httpx已在主依赖中
     "pytest>=7.0.0",
@@ -51,6 +53,16 @@ langchain = [
     "langchain-core>=0.1.0",
     "langchain-openai>=0.1.0",
 ]
+llamaindex = [
+    "llama-index>=0.10.0"
+]
+autogen = [
+    "autogen>=0.2.0"
+]
+semantic-kernel = [
+    "semantic-kernel>=0.5.0"
+]
+
 
 [tool.setuptools]
 include-package-data = true
@@ -61,3 +73,7 @@ exclude = ["tests*", "*test*", "web*", "mcpservice*"]
 
 [tool.setuptools.package-data]
 mcpstore = ["data/*.json", "data/**/*.json"]
+
+
+[tool.uv]
+index-url = "https://mirrors.aliyun.com/pypi/simple"

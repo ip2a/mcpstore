@@ -48,6 +48,7 @@ from .advanced_features import AdvancedFeaturesMixin
 from .resources_prompts import ResourcesPromptsMixin
 from .agent_statistics import AgentStatisticsMixin
 from .service_proxy import ServiceProxy
+from .internal.context_kernel import create_kernel
 
 class MCPStoreContext(
     ServiceOperationsMixin,
@@ -70,7 +71,7 @@ class MCPStoreContext(
         # Async/sync compatibility helper
         self._sync_helper = get_global_helper()
 
-        # 🔧 修复：初始化等待策略（来自ServiceOperationsMixin）
+        #  修复：初始化等待策略（来自ServiceOperationsMixin）
         from .service_operations import AddServiceWaitStrategy
         self.wait_strategy = AddServiceWaitStrategy()
         
@@ -103,7 +104,7 @@ class MCPStoreContext(
         )
 
         # Agent service name mapper
-        # 🔧 [REFACTOR] global_agent_store不使用服务映射器，因为它使用原始服务名
+        #  [REFACTOR] global_agent_store不使用服务映射器，因为它使用原始服务名
         if agent_id and agent_id != "global_agent_store":
             self._service_mapper = AgentServiceMapper(agent_id)
         else:
@@ -116,6 +117,12 @@ class MCPStoreContext(
         # Per-tool overrides (e.g., flags consumed by adapters like LangChain)
         # Keyed by "{service_name}:{tool_name}" -> { flag_name: value }
         self._tool_overrides: Dict[str, Dict[str, Any]] = {}
+
+        # Phase 1: internal kernel for read paths (no external API change)
+        try:
+            self._kernel = create_kernel(self)
+        except Exception:
+            self._kernel = None
 
     def for_langchain(self) -> 'LangChainAdapter':
         """Return a LangChain adapter. If a session is active (within with_session),

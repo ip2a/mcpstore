@@ -74,8 +74,8 @@ class UnifiedMCPSyncManager:
         self.debounce_delay = 1.0  # 防抖延迟（秒）
         self.sync_task = None
         self.last_change_time = None
-        self.last_sync_time = None  # 🔧 新增：记录上次同步时间
-        self.min_sync_interval = 5.0  # 🔧 新增：最小同步间隔（秒）
+        self.last_sync_time = None  #  新增：记录上次同步时间
+        self.min_sync_interval = 5.0  #  新增：最小同步间隔（秒）
         self.is_running = False
         
         logger.info(f"UnifiedMCPSyncManager initialized for: {self.mcp_json_path}")
@@ -92,7 +92,7 @@ class UnifiedMCPSyncManager:
             # 启动文件监听
             await self._start_file_watcher()
 
-            # 🔧 执行启动时同步（始终启用）
+            #  执行启动时同步（始终启用）
             logger.info("Executing initial sync from mcp.json")
             await self.sync_global_agent_store_from_mcp_json()
 
@@ -187,7 +187,7 @@ class UnifiedMCPSyncManager:
         """从mcp.json同步global_agent_store（核心方法）"""
         async with self.sync_lock:
             try:
-                # 🔧 新增：检查同步频率，避免过度同步
+                #  新增：检查同步频率，避免过度同步
                 import time
                 current_time = time.time()
 
@@ -206,7 +206,7 @@ class UnifiedMCPSyncManager:
                 # 执行同步
                 results = await self._sync_global_agent_store_services(services)
 
-                # 🔧 新增：记录同步时间
+                #  新增：记录同步时间
                 self.last_sync_time = current_time
 
                 logger.info(f"Global agent store sync completed: {results}")
@@ -312,7 +312,7 @@ class UnifiedMCPSyncManager:
             else:
                 logger.debug("No services need to be registered to Registry")
 
-            # 4. 🔧 新增：触发缓存到文件的异步持久化
+            # 4.  新增：触发缓存到文件的异步持久化
             if services_to_register:
                 await self._trigger_cache_persistence()
             
@@ -426,7 +426,7 @@ class UnifiedMCPSyncManager:
                 logger.error("Registry not available")
                 return False
 
-            # 🔧 修复：检查是否已存在该服务的client_id，避免重复生成
+            #  修复：检查是否已存在该服务的client_id，避免重复生成
             existing_client_id = self._find_existing_client_id_for_service(agent_id, service_name)
 
             if existing_client_id:
@@ -434,7 +434,7 @@ class UnifiedMCPSyncManager:
                 client_id = existing_client_id
                 logger.debug(f" 使用现有client_id: {service_name} -> {client_id}")
             else:
-                # 🔧 使用统一的ClientIDGenerator生成确定性client_id
+                #  使用统一的ClientIDGenerator生成确定性client_id
                 from mcpstore.core.utils.id_generator import ClientIDGenerator
                 
                 # UnifiedMCPSyncManager主要处理Store级别的服务，所以使用global_agent_store_id
@@ -491,7 +491,7 @@ class UnifiedMCPSyncManager:
             for client_id in client_ids:
                 client_config = registry.client_configs.get(client_id, {})
                 if service_name in client_config.get("mcpServers", {}):
-                    logger.debug(f"🔍 找到现有client_id: {service_name} -> {client_id}")
+                    logger.debug(f" 找到现有client_id: {service_name} -> {client_id}")
                     return client_id
 
             return None
