@@ -117,7 +117,7 @@ class ServiceOperationsMixin:
             except Exception:
                 pass
         # 回退：原实现
-        return self._sync_helper.run_async(self.list_services_async(), force_background=True)
+        return self._sync_helper.run_async(self.list_services_async())
 
     async def list_services_async(self) -> List[ServiceInfo]:
         """
@@ -197,14 +197,14 @@ class ServiceOperationsMixin:
         Returns:
             Dict: 包含添加结果的详细信息
         """
-        logger.info(f"[add_service_with_details_async] 开始添加服务，配置: {config}")
+        logger.debug(f"Adding service with config: {type(config).__name__}")
 
         # 预处理配置
         try:
             processed_config = self._preprocess_service_config(config)
-            logger.info(f"[add_service_with_details_async] 预处理后的配置: {processed_config}")
+            logger.debug(f"Config preprocessed successfully")
         except ValueError as e:
-            logger.error(f"[add_service_with_details_async] 预处理配置失败: {e}")
+            logger.error(f"Config preprocessing failed: {e}")
             return {
                 "success": False,
                 "added_services": [],
@@ -217,11 +217,11 @@ class ServiceOperationsMixin:
 
         # 添加服务
         try:
-            logger.info(f"[add_service_with_details_async] 调用 add_service_async")
+            logger.debug("Calling add_service_async")
             result = await self.add_service_async(processed_config)
-            logger.info(f"[add_service_with_details_async] add_service_async 结果: {result}")
+            logger.debug(f"Service addition result: {result is not None}")
         except Exception as e:
-            logger.error(f"[add_service_with_details_async] add_service_async 失败: {e}")
+            logger.error(f"Service addition failed: {e}")
             return {
                 "success": False,
                 "added_services": [],
@@ -233,7 +233,7 @@ class ServiceOperationsMixin:
             }
 
         if result is None:
-            logger.error(f"[add_service_with_details_async] add_service_async 返回 None")
+            logger.error("Service addition returned None")
             return {
                 "success": False,
                 "added_services": [],
@@ -245,21 +245,21 @@ class ServiceOperationsMixin:
             }
 
         # 获取添加后的详情
-        logger.info(f"[add_service_with_details_async] 获取添加后的服务和工具列表")
+        logger.debug("Retrieving updated services and tools list")
         services = await self.list_services_async()
         tools = await self.list_tools_async()
-        logger.info(f"[add_service_with_details_async] 当前服务数量: {len(services)}, 工具数量: {len(tools)}")
-        logger.info(f"[add_service_with_details_async] 当前服务列表: {[getattr(s, 'name', 'unknown') for s in services]}")
+        logger.debug(f"Current services: {len(services)}, tools: {len(tools)}")
+        logger.debug(f"Service names: {[getattr(s, 'name', 'unknown') for s in services]}")
 
         # 分析添加结果
         expected_service_names = self._extract_service_names(config)
-        logger.info(f"[add_service_with_details_async] 期望的服务名称: {expected_service_names}")
+        logger.debug(f"Expected service names: {expected_service_names}")
         added_services = []
         service_details = {}
 
         for service_name in expected_service_names:
             service_info = next((s for s in services if getattr(s, "name", None) == service_name), None)
-            logger.info(f"[add_service_with_details_async] 检查服务 {service_name}: {'找到' if service_info else '未找到'}")
+            logger.debug(f"Service {service_name}: {'found' if service_info else 'not found'}")
             if service_info:
                 added_services.append(service_name)
                 service_tools = [t for t in tools if getattr(t, "service_name", None) == service_name]
@@ -267,14 +267,14 @@ class ServiceOperationsMixin:
                     "tools_count": len(service_tools),
                     "status": getattr(service_info, "status", "unknown")
                 }
-                logger.info(f"[add_service_with_details_async] 服务 {service_name} 有 {len(service_tools)} 个工具")
+                logger.debug(f"Service {service_name} has {len(service_tools)} tools")
 
         failed_services = [name for name in expected_service_names if name not in added_services]
         success = len(added_services) > 0
         total_tools = sum(details["tools_count"] for details in service_details.values())
 
-        logger.info(f"[add_service_with_details_async] 添加成功的服务: {added_services}")
-        logger.info(f"[add_service_with_details_async] 添加失败的服务: {failed_services}")
+        logger.debug(f"Successfully added services: {added_services}")
+        logger.debug(f"Failed to add services: {failed_services}")
 
         message = (
             f"Successfully added {len(added_services)} service(s) with {total_tools} tools"
@@ -421,7 +421,7 @@ class ServiceOperationsMixin:
                     raise ValueError("from_market 参数必须是非空字符串")
 
                 from_market = from_market.strip()
-                logger.info(f"从市场安装服务: {from_market}")
+                logger.debug(f"Installing from market: {from_market}")
 
                 # 验证参数冲突
                 if config is not None:
@@ -459,7 +459,7 @@ class ServiceOperationsMixin:
                     # 标记为市场来源
                     source = "market"
 
-                    logger.info(f"成功从市场获取服务配置: {config}")
+                    logger.debug(f"Successfully retrieved market config: {type(config).__name__}")
 
                 except Exception as e:
                     # 懒加载 Miss：若本地未找到该服务，可触发一次远程刷新（后台，不阻塞）
@@ -470,7 +470,7 @@ class ServiceOperationsMixin:
                         if mm and hasattr(mm, "refresh_from_remote_async"):
                             loop = asyncio.get_running_loop()
                             loop.create_task(mm.refresh_from_remote_async(force=False))
-                            logger.info(f" [MARKET] Triggered background remote refresh for missing service: {from_market}")
+                            logger.debug(f"Triggered background refresh for missing service: {from_market}")
                     except Exception:
                         pass
 
@@ -733,7 +733,7 @@ class ServiceOperationsMixin:
             except Exception:
                 final_state = 'timeout'
 
-            logger.warning(f"[WAIT_SERVICE] timeout service='{service_name}' final='{final_state}'")
+            logger.debug(f"[WAIT_SERVICE] timeout service='{service_name}' final='{final_state}'")
             return service_name, final_state
 
         # 并发等待所有服务
@@ -771,33 +771,35 @@ class ServiceOperationsMixin:
             # 1. 生成或获取 client_id
             client_id = self._get_or_create_client_id(agent_id, service_name, service_config)
 
-            # 2. 立即添加到所有相关缓存
-            # 2.1 添加到服务缓存（初始化状态）
-            from mcpstore.core.models.service import ServiceConnectionState
-            self._store.registry.add_service(
-                agent_id=agent_id,
-                name=service_name,
-                session=None,  # 暂无连接
-                tools=[],      # 暂无工具
-                service_config=service_config,
-                state=ServiceConnectionState.INITIALIZING
-            )
+            # 使用 per-agent 写锁，串行化多步缓存更新，避免并发不一致
+            async with self._store.agent_locks.write(agent_id):
+                # 2. 立即添加到所有相关缓存
+                # 2.1 添加到服务缓存（初始化状态）
+                from mcpstore.core.models.service import ServiceConnectionState
+                self._store.registry.add_service(
+                    agent_id=agent_id,
+                    name=service_name,
+                    session=None,  # 暂无连接
+                    tools=[],      # 暂无工具
+                    service_config=service_config,
+                    state=ServiceConnectionState.INITIALIZING
+                )
 
-            # 2.2 添加到 Agent-Client 映射缓存
-            self._store.registry.add_agent_client_mapping(agent_id, client_id)
+                # 2.2 添加到 Agent-Client 映射缓存
+                self._store.registry.add_agent_client_mapping(agent_id, client_id)
 
-            # 2.3 添加到 Client 配置缓存
-            self._store.registry.add_client_config(client_id, {
-                "mcpServers": {service_name: service_config}
-            })
+                # 2.3 添加到 Client 配置缓存
+                self._store.registry.add_client_config(client_id, {
+                    "mcpServers": {service_name: service_config}
+                })
 
-            # 2.4 添加到 Service-Client 映射缓存
-            self._store.registry.add_service_client_mapping(agent_id, service_name, client_id)
+                # 2.4 添加到 Service-Client 映射缓存
+                self._store.registry.add_service_client_mapping(agent_id, service_name, client_id)
 
-            # 2.5 初始化到生命周期管理器
-            self._store.orchestrator.lifecycle_manager.initialize_service(
-                agent_id, service_name, service_config
-            )
+                # 2.5 初始化到生命周期管理器
+                self._store.orchestrator.lifecycle_manager.initialize_service(
+                    agent_id, service_name, service_config
+                )
 
             return {
                 "service_name": service_name,
@@ -839,8 +841,8 @@ class ServiceOperationsMixin:
         """异步连接服务并更新缓存状态"""
         try:
             # 🔗 新增：连接开始日志
-            logger.info(f"🔗 [CONNECT_SERVICE] 开始连接服务: {service_name}")
-            logger.info(f"🔗 [CONNECT_SERVICE] Agent ID: {agent_id}")
+            logger.debug(f"Connecting to service: {service_name}")
+            logger.debug(f"Agent ID: {agent_id}")
             logger.info(f"🔗 [CONNECT_SERVICE] 调用orchestrator.connect_service")
 
             #  修复：使用connect_service方法（现已修复ConfigProcessor问题）
@@ -853,7 +855,7 @@ class ServiceOperationsMixin:
                     service_name, service_config=service_config, agent_id=agent_id
                 )
 
-                logger.info(f"🔗 [CONNECT_SERVICE] connect_service调用完成")
+                logger.debug("Service connection completed")
 
             except Exception as connect_error:
                 logger.error(f"🔗 [CONNECT_SERVICE] connect_service调用异常: {connect_error}")
@@ -868,7 +870,7 @@ class ServiceOperationsMixin:
                 logger.info(f"🔗 Service '{service_name}' connected successfully")
                 # 连接成功，缓存会自动更新（通过现有的连接逻辑）
             else:
-                logger.warning(f"❌ Service '{service_name}' connection failed: {message}")
+                logger.warning(f" Service '{service_name}' connection failed: {message}")
                 # 更新缓存状态为失败（不重复添加服务，只更新状态）
                 from mcpstore.core.models.service import ServiceConnectionState
                 # 单源生命周期规则：初次失败进入 RECONNECTING，由生命周期器继续收敛
@@ -953,12 +955,7 @@ class ServiceOperationsMixin:
         """
         try:
             agent_id = self._store.client_manager.global_agent_store_id
-            # logger.info(f" Store模式agent映射持久化开始，agent_id: {agent_id}, 服务数量: {len(services_to_add)}")
-            #
-            # # 单源模式：不再触发分片映射文件同步
-            # logger.info("ℹ️ 单源模式：跳过 agent_clients 映射文件同步")
-            #
-            # logger.info(" Store模式agent映射持久化完成")
+            # Single source mode: skip agent mapping file sync
 
         except Exception as e:
             logger.error(f"Failed to persist store agent mappings: {e}")
@@ -974,29 +971,25 @@ class ServiceOperationsMixin:
         """
         try:
             agent_id = self._agent_id
-            logger.info(f" [AGENT_PERSIST] Agent模式缓存更新开始，agent_id: {agent_id}, 服务数量: {len(services_to_add)}")
+            logger.debug(f"Updating agent cache: {agent_id}, services: {len(services_to_add)}")
 
             # 1. 更新缓存映射（单一数据源架构）
             for service_name, service_config in services_to_add.items():
                 # 获取或创建client_id
                 client_id = self._get_or_create_client_id(agent_id, service_name, service_config)
 
-                # 更新Agent-Client映射缓存
-                if agent_id not in self._store.registry.agent_clients:
-                    self._store.registry.agent_clients[agent_id] = []
-                if client_id not in self._store.registry.agent_clients[agent_id]:
-                    self._store.registry.agent_clients[agent_id].append(client_id)
-
-                # 更新Client配置缓存
-                self._store.registry.client_configs[client_id] = {
-                    "mcpServers": {service_name: service_config}
-                }
+                # 使用统一API更新缓存映射，避免直访底层字典
+                async with self._store.agent_locks.write(agent_id):
+                    self._store.registry.add_agent_client_mapping(agent_id, client_id)
+                    self._store.registry.add_client_config(client_id, {
+                        "mcpServers": {service_name: service_config}
+                    })
 
                 logger.debug(f" [AGENT_PERSIST] 缓存更新完成: {service_name} -> {client_id}")
 
             # 2. 单一数据源模式：仅维护缓存，不写入分片文件
-            logger.info(" [AGENT_PERSIST] 单一数据源模式：缓存更新完成，跳过分片文件写入")
-            logger.info(" [AGENT_PERSIST] Agent模式：缓存增量更新完成")
+            logger.debug("Cache updated, skipping shard file write")
+            logger.debug("Agent cache incremental update completed")
 
         except Exception as e:
             logger.error(f"Failed to persist to agent files with incremental cache update: {e}")
@@ -1078,7 +1071,7 @@ class ServiceOperationsMixin:
             return self
 
         except Exception as e:
-            logger.error(f"❌ [INIT_SERVICE] Failed to initialize service: {e}")
+            logger.error(f" [INIT_SERVICE] Failed to initialize service: {e}")
             raise
 
     def _validate_and_normalize_init_params(self, client_id_or_service_name: str = None,
@@ -1165,7 +1158,7 @@ class ServiceOperationsMixin:
             return None
 
         except Exception as e:
-            logger.error(f"❌ [CONFIG] 获取服务配置失败 {service_name}: {e}")
+            logger.error(f" [CONFIG] 获取服务配置失败 {service_name}: {e}")
             return None
 
     # ===  新增：Agent 透明代理方法 ===
@@ -1183,7 +1176,7 @@ class ServiceOperationsMixin:
         6. 同步到持久化文件
         """
         try:
-            logger.info(f" [AGENT_PROXY] 开始 Agent 透明代理添加服务，Agent: {agent_id}")
+            logger.debug(f"Starting agent transparent proxy service addition for agent: {agent_id}")
 
             from .agent_service_mapper import AgentServiceMapper
             from mcpstore.core.models.service import ServiceConnectionState
@@ -1229,7 +1222,7 @@ class ServiceOperationsMixin:
                         preserve_mappings=True
                     )
 
-                    logger.info(f" [AGENT_PROXY] 同名服务配置更新完成: {local_name} (Client ID: {client_id})")
+                    logger.debug(f"Service config updated: {local_name} (Client ID: {client_id})")
                 else:
                     # 新服务，正常创建
                     logger.info(f" [AGENT_PROXY] 创建新服务: {local_name}")
@@ -1295,7 +1288,7 @@ class ServiceOperationsMixin:
             logger.info(f" [AGENT_PROXY] Agent 透明代理添加完成，共处理 {len(services_to_add)} 个服务")
 
         except Exception as e:
-            logger.error(f"❌ [AGENT_PROXY] Agent 透明代理添加失败: {e}")
+            logger.error(f" [AGENT_PROXY] Agent 透明代理添加失败: {e}")
             raise
 
     async def _sync_agent_services_to_files(self, agent_id: str, services_to_add: Dict[str, Any]):
@@ -1321,13 +1314,13 @@ class ServiceOperationsMixin:
             if success:
                 logger.info(f" [AGENT_SYNC] mcp.json 更新成功")
             else:
-                logger.error(f"❌ [AGENT_SYNC] mcp.json 更新失败")
+                logger.error(f" [AGENT_SYNC] mcp.json 更新失败")
 
             # 单源模式：不再写分片文件，仅维护 mcp.json
             logger.info(f"ℹ️ [AGENT_SYNC] 单源模式下已禁用分片文件写入（agent_clients/client_services）")
 
         except Exception as e:
-            logger.error(f"❌ [AGENT_SYNC] 同步 Agent 服务到文件失败: {e}")
+            logger.error(f" [AGENT_SYNC] 同步 Agent 服务到文件失败: {e}")
             raise
 
     async def _get_agent_service_view(self) -> List[ServiceInfo]:
@@ -1394,7 +1387,7 @@ class ServiceOperationsMixin:
             return agent_services
 
         except Exception as e:
-            logger.error(f"❌ [AGENT_VIEW] 获取 Agent 服务视图失败: {e}")
+            logger.error(f" [AGENT_VIEW] 获取 Agent 服务视图失败: {e}")
             return []
     
     def _apply_auth_to_config(self, config, auth: Optional[str], headers: Optional[Dict[str, str]]):

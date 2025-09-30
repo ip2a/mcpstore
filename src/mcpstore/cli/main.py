@@ -43,7 +43,7 @@ def run_command(
     if service == "api":
         run_api(host=host, port=port, reload=reload, log_level=log_level)
     else:
-        typer.echo(f"❌ Unknown service: {service}")
+        typer.echo(f" Unknown service: {service}")
         typer.echo("Available services: api")
         raise typer.Exit(1)
 
@@ -68,7 +68,7 @@ def run_api(host: str, port: int, reload: bool, log_level: str):
     except KeyboardInterrupt:
         typer.echo("\n🛑 Server stopped by user")
     except Exception as e:
-        typer.echo(f"❌ Failed to start server: {e}")
+        typer.echo(f" Failed to start server: {e}")
         raise typer.Exit(1)
 
 @app.command("version")
@@ -127,10 +127,10 @@ def test_command(
         if not success:
             raise typer.Exit(1)
     except ImportError as e:
-        typer.echo(f"❌ Test runner not available: {e}")
+        typer.echo(f" Test runner not available: {e}")
         raise typer.Exit(1)
     except Exception as e:
-        typer.echo(f"❌ Test failed: {e}")
+        typer.echo(f" Test failed: {e}")
         raise typer.Exit(1)
 
 @app.command("config")
@@ -150,10 +150,10 @@ def config_command(
         from mcpstore.cli.config_manager import handle_config
         handle_config(action=action, path=path)
     except ImportError:
-        typer.echo("❌ Config manager not available")
+        typer.echo(" Config manager not available")
         raise typer.Exit(1)
     except Exception as e:
-        typer.echo(f"❌ Config operation failed: {e}")
+        typer.echo(f" Config operation failed: {e}")
         raise typer.Exit(1)
 
 def main():
@@ -164,7 +164,7 @@ def main():
         typer.echo("\n👋 Goodbye!")
         sys.exit(0)
     except Exception as e:
-        typer.echo(f"❌ CLI error: {e}")
+        typer.echo(f" CLI error: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

@@ -86,11 +86,11 @@ class ServiceManagementMixin:
             return {}
 
         if self._context_type == ContextType.STORE:
-            logger.info(f"[get_service_info] STORE模式-在global_agent_store中查找服务: {name}")
+            logger.debug(f"STORE mode - searching service in global_agent_store: {name}")
             return await self._store.get_service_info(name)
         elif self._context_type == ContextType.AGENT:
             # Agent模式：将名称原样交给 Store 层处理，Store 负责本地名/全局名的鲁棒解析
-            logger.info(f"[get_service_info] AGENT模式-在agent({self._agent_id})中查找服务: {name}")
+            logger.debug(f"AGENT mode - searching service in agent({self._agent_id}): {name}")
             return await self._store.get_service_info(name, self._agent_id)
         else:
             logger.error(f"[get_service_info] 未知上下文类型: {self._context_type}")
@@ -431,7 +431,7 @@ class ServiceManagementMixin:
         """Store级别重置配置的内部实现"""
         try:
             if scope == "all":
-                logger.info(" Store级别：重置所有缓存和所有JSON文件")
+                logger.debug("Store level: resetting all caches and JSON files")
 
                 # 1. 清空所有缓存
                 self._store.registry.agent_clients.clear()
@@ -450,9 +450,9 @@ class ServiceManagementMixin:
                 mcp_success = self._store.config.save_config(default_config)
 
                 # 3. 单源模式：不再维护分片映射文件
-                logger.info("Single-source mode: skip shard mapping files (agent_clients/client_services)")
+                logger.debug("Single-source mode: skip shard mapping files (agent_clients/client_services)")
 
-                logger.info(" Store级别：所有配置重置完成")
+                logger.debug("Store level: all configuration reset completed")
                 return mcp_success
 
             elif scope == "global_agent_store":
@@ -467,7 +467,7 @@ class ServiceManagementMixin:
                 mcp_success = self._store.config.save_config(default_config)
 
                 # 3. 单源模式：不再维护分片映射文件
-                logger.info("Single-source mode: skip shard mapping files (agent_clients/client_services)")
+                logger.debug("Single-source mode: skip shard mapping files (agent_clients/client_services)")
 
                 logger.info(" Store级别：global_agent_store重置完成")
                 return mcp_success
@@ -1273,7 +1273,7 @@ class ServiceManagementMixin:
             return local_name
 
         except Exception as e:
-            logger.error(f"❌ [SERVICE_PROXY] 服务名映射失败: {e}")
+            logger.error(f" [SERVICE_PROXY] 服务名映射失败: {e}")
             return local_name
 
     async def _delete_store_service_with_sync(self, service_name: str):
@@ -1294,7 +1294,7 @@ class ServiceManagementMixin:
                 if success:
                     logger.info(f" [SERVICE_DELETE] Store 服务删除成功: {service_name}")
                 else:
-                    logger.error(f"❌ [SERVICE_DELETE] Store 服务删除失败: {service_name}")
+                    logger.error(f" [SERVICE_DELETE] Store 服务删除失败: {service_name}")
 
             # 3. 触发双向同步（如果是 Agent 服务）
             if hasattr(self._store, 'bidirectional_sync_manager'):
@@ -1304,7 +1304,7 @@ class ServiceManagementMixin:
                 )
 
         except Exception as e:
-            logger.error(f"❌ [SERVICE_DELETE] Store 服务删除失败 {service_name}: {e}")
+            logger.error(f" [SERVICE_DELETE] Store 服务删除失败 {service_name}: {e}")
             raise
 
     async def _delete_agent_service_with_sync(self, local_name: str):
@@ -1337,13 +1337,13 @@ class ServiceManagementMixin:
                 if success:
                     logger.info(f" [SERVICE_DELETE] Agent 服务删除成功: {local_name} → {global_name}")
                 else:
-                    logger.error(f"❌ [SERVICE_DELETE] Agent 服务删除失败: {local_name} → {global_name}")
+                    logger.error(f" [SERVICE_DELETE] Agent 服务删除失败: {local_name} → {global_name}")
 
             # 6. 单源模式：不再同步到分片文件
             logger.info("Single-source mode: skip shard mapping files sync")
 
         except Exception as e:
-            logger.error(f"❌ [SERVICE_DELETE] Agent 服务删除失败 {self._agent_id}:{local_name}: {e}")
+            logger.error(f" [SERVICE_DELETE] Agent 服务删除失败 {self._agent_id}:{local_name}: {e}")
             raise
 
     def show_mcpconfig(self) -> Dict[str, Any]:

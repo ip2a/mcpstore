@@ -49,9 +49,7 @@ class ToolsUpdateMonitor:
         if self.enable_notifications:
             self.message_handler = MCPStoreMessageHandler(self)
 
-        logger.info(f"ToolsUpdateMonitor initialized: interval={self.tools_update_interval}s, "
-                   f"enabled={self.enable_tools_update}, reconnection_update={self.update_tools_on_reconnection}, "
-                   f"notifications_enabled={self.enable_notifications}")
+
 
     def _update_service_timestamp(self, service_name: str, client_id: str):
         """更新服务的时间戳（统一方法）"""
@@ -86,7 +84,7 @@ class ToolsUpdateMonitor:
 
         self.last_notification_times[notification_type] = current_time
 
-        logger.info(f"[TOOLS_MONITOR] notification trigger type='{notification_type}'")
+        logger.debug(f"Tools monitor notification trigger: {notification_type}")
 
         try:
             # 执行立即更新
@@ -94,7 +92,7 @@ class ToolsUpdateMonitor:
             result["trigger"] = "notification"
             result["notification_type"] = notification_type
             
-            logger.info(f"[TOOLS_MONITOR] notification update_completed result={result}")
+            logger.debug(f"Tools monitor update completed: {result}")
             return result
 
         except Exception as e:
@@ -109,7 +107,7 @@ class ToolsUpdateMonitor:
     async def start(self):
         """启动工具更新监控"""
         if not self.enable_tools_update:
-            logger.info("Tools update monitoring is disabled")
+            logger.debug("Tools update monitoring is disabled")
             return
 
         if self.is_running:
@@ -171,7 +169,7 @@ class ToolsUpdateMonitor:
                 logger.info("Tools update loop was cancelled")
                 break
             except Exception as e:
-                logger.error(f"❌ Error in tools update loop: {e}")
+                logger.error(f" Error in tools update loop: {e}")
                 # 继续运行，不要因为单次错误而停止整个循环
                 await asyncio.sleep(60)  # 错误后等待1分钟再继续
         
@@ -194,7 +192,7 @@ class ToolsUpdateMonitor:
                 logger.debug(f"[TOOLS_MONITOR] scheduled_update no_changes result={result}")
                 
         except Exception as e:
-            logger.error(f"❌ Error during scheduled update: {e}")
+            logger.error(f" Error during scheduled update: {e}")
 
     async def trigger_immediate_update(self) -> Dict[str, Any]:
         """
@@ -328,20 +326,44 @@ class ToolsUpdateMonitor:
                 # 有变化，更新注册表
                 logger.info(f" Tools changed for {service_name}: +{len(added_tools)} -{len(removed_tools)}")
 
-                # 更新工具注册
-                session = self.registry.sessions.get(client_id, {}).get(service_name)
+                # 使用统一 Registry API 刷新该服务的工具缓存，避免直访内部字典
+                session = self.registry.get_session(client_id, service_name)
                 if session:
-                    # 移除旧工具（映射）
-                    for tool_name in removed_tools:
-                        if client_id in self.registry.tool_to_session_map and tool_name in self.registry.tool_to_session_map[client_id]:
-                            del self.registry.tool_to_session_map[client_id][tool_name]
+                    # 将最新工具列表规范化为 (name, def) 形式
+                    processed_tools = []
+                    for tool in tools_response:
+                        try:
+                            tool_name = getattr(tool, 'name', None)
+                            if not tool_name and hasattr(tool, 'get'):
+                                tool_name = tool.get('name')
+                            if not tool_name:
+                                continue
+                            if hasattr(tool, 'get'):
+                                tool_dict = dict(tool)
+                            else:
+                                tool_dict = {
+                                    'name': getattr(tool, 'name', ''),
+                                    'description': getattr(tool, 'description', ''),
+                                    'inputSchema': getattr(tool, 'inputSchema', {})
+                                }
+                            if 'function' not in tool_dict:
+                                tool_def = {"type": "function", "function": tool_dict}
+                            else:
+                                tool_def = tool_dict
+                            processed_tools.append((tool_name, tool_def))
+                        except Exception:
+                            continue
 
-                    # 添加新工具（映射）
-                    if client_id not in self.registry.tool_to_session_map:
-                        self.registry.tool_to_session_map[client_id] = {}
-
-                    for tool_name in added_tools:
-                        self.registry.tool_to_session_map[client_id][tool_name] = session
+                    # 持有 per-agent 锁，原子替换该服务的工具缓存
+                    locks_owner = getattr(self.orchestrator, 'store', None)
+                    agent_locks = getattr(locks_owner, 'agent_locks', None) if locks_owner else None
+                    if agent_locks:
+                        async with agent_locks.write(client_id):
+                            self.registry.clear_service_tools_only(client_id, service_name)
+                            self.registry.add_service(agent_id=client_id, name=service_name, session=session, tools=processed_tools, preserve_mappings=True)
+                    else:
+                        self.registry.clear_service_tools_only(client_id, service_name)
+                        self.registry.add_service(agent_id=client_id, name=service_name, session=session, tools=processed_tools, preserve_mappings=True)
 
                     # 触发全量工具定义刷新，确保缓存定义同步
                     try:

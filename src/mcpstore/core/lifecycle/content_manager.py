@@ -66,7 +66,7 @@ class ServiceContentManager:
             interval = timing_config.get("tools_update_interval_seconds")
             if isinstance(interval, (int, float)) and interval > 0:
                 self.config.tools_update_interval = float(interval)
-                logger.info(f"ServiceContentManager tools_update_interval set to {self.config.tools_update_interval}s from orchestrator config")
+                logger.debug(f"Tools update interval set to {self.config.tools_update_interval}s")
         except Exception as e:
             logger.debug(f"Failed to read tools_update_interval from orchestrator config: {e}")
 
@@ -84,7 +84,7 @@ class ServiceContentManager:
         self.content_update_task: Optional[asyncio.Task] = None
         self.is_running = False
         
-        logger.info("ServiceContentManager initialized")
+        logger.debug("ServiceContentManager initialized")
     
     async def start(self):
         """启动内容管理器"""
@@ -94,7 +94,7 @@ class ServiceContentManager:
         
         self.is_running = True
         self.content_update_task = asyncio.create_task(self._content_update_loop())
-        logger.info("ServiceContentManager started")
+        logger.debug("ServiceContentManager started")
     
     async def stop(self):
         """停止内容管理器"""
@@ -120,7 +120,7 @@ class ServiceContentManager:
 
         #  修复：清理任务引用
         self.content_update_task = None
-        logger.info("ServiceContentManager stopped")
+        logger.debug("ServiceContentManager stopped")
     
     def add_service_for_monitoring(self, agent_id: str, service_name: str):
         """添加服务到内容监控"""
@@ -138,7 +138,7 @@ class ServiceContentManager:
         
         # 添加到更新队列
         self.update_queue.add((agent_id, service_name))
-        logger.info(f"Added service {service_name} to content monitoring (agent_id={agent_id})")
+        logger.debug(f"Added service {service_name} to content monitoring (agent_id={agent_id})")
     
     def remove_service_from_monitoring(self, agent_id: str, service_name: str):
         """从内容监控中移除服务"""
@@ -339,46 +339,52 @@ class ServiceContentManager:
     
     async def _update_service_tools_cache(self, agent_id: str, service_name: str, tools: List[Any]):
         """更新服务工具缓存"""
-        if agent_id not in self.registry.tool_cache:
-            self.registry.tool_cache[agent_id] = {}
-        if agent_id not in self.registry.tool_to_session_map:
-            self.registry.tool_to_session_map[agent_id] = {}
-
         # 获取服务会话
-        service_session = self.registry.sessions.get(agent_id, {}).get(service_name)
+        service_session = self.registry.get_session(agent_id, service_name)
         if not service_session:
             logger.warning(f"No session found for service {service_name}")
             return
 
-        # 清理旧的工具缓存（只清理该服务的工具）
-        tools_to_remove = []
-        for tool_name, session in self.registry.tool_to_session_map[agent_id].items():
-            if session == service_session:
-                tools_to_remove.append(tool_name)
-
-        for tool_name in tools_to_remove:
-            self.registry.tool_cache[agent_id].pop(tool_name, None)
-            self.registry.tool_to_session_map[agent_id].pop(tool_name, None)
-
-        # 添加新的工具缓存
+        # 统一通过 Registry API 更新工具缓存，避免直访内部字典
+        # - 先清理该服务的工具缓存
+        # - 再批量注册当前工具定义
+        processed_tools: List[Tuple[str, Dict[str, Any]]] = []
         for tool in tools:
-            # 兼容字典和对象两种格式
             if hasattr(tool, 'get'):
-                # 字典格式
                 tool_name = tool.get("name")
-                tool_dict = tool
+                tool_dict = dict(tool)
             else:
-                # 对象格式（如FastMCP的Tool对象）
                 tool_name = getattr(tool, 'name', None)
-                # 将对象转换为字典格式存储
                 tool_dict = {
                     'name': getattr(tool, 'name', ''),
                     'description': getattr(tool, 'description', ''),
                     'inputSchema': getattr(tool, 'inputSchema', {})
                 }
+            if not tool_name:
+                continue
+            # 规范化为 function 形式，便于后续 full 模式与硬映射
+            if "function" not in tool_dict:
+                tool_def = {"type": "function", "function": tool_dict}
+            else:
+                tool_def = tool_dict
+            processed_tools.append((tool_name, tool_def))
 
-            if tool_name:
-                self.registry.tool_cache[agent_id][tool_name] = tool_dict
-                self.registry.tool_to_session_map[agent_id][tool_name] = service_session
+        # 加锁执行原子更新
+        locks_owner = getattr(self.orchestrator, 'store', None)
+        agent_locks = getattr(locks_owner, 'agent_locks', None) if locks_owner else None
+        if agent_locks:
+            async with agent_locks.write(agent_id):
+                self.registry.clear_service_tools_only(agent_id, service_name)
+                self.registry.add_service(agent_id=agent_id, name=service_name, session=service_session, tools=processed_tools, preserve_mappings=True)
+        else:
+            self.registry.clear_service_tools_only(agent_id, service_name)
+            self.registry.add_service(agent_id=agent_id, name=service_name, session=service_session, tools=processed_tools, preserve_mappings=True)
 
-        logger.debug(f"Updated tool cache for {service_name}: {len(tools)} tools")
+        logger.debug(f"Updated tool cache for {service_name}: {len(processed_tools)} tools")
+
+        # A+B+D: 工具缓存更新后，重建并发布全局快照
+        try:
+            global_agent_id = self.orchestrator.client_manager.global_agent_store_id
+            self.registry.rebuild_tools_snapshot(global_agent_id)
+        except Exception as e:
+            logger.warning(f"[SNAPSHOT] rebuild failed in content manager: {e}")

@@ -45,7 +45,7 @@ class HealthStatusBridge:
         """
         if health_status not in cls.STATUS_MAPPING:
             error_msg = f"未知的健康状态，无法映射: {health_status}"
-            logger.error(f"❌ [HEALTH_BRIDGE] {error_msg}")
+            logger.error(f" [HEALTH_BRIDGE] {error_msg}")
             raise ValueError(error_msg)
         
         lifecycle_state = cls.STATUS_MAPPING[health_status]

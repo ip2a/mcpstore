@@ -85,7 +85,7 @@ class SharedClientStateSyncManager:
                 logger.debug(f" [STATE_SYNC] No sync needed for client_id {client_id}")
                 
         except Exception as e:
-            logger.error(f"❌ [STATE_SYNC] Failed to sync state for {agent_id}:{service_name}: {e}")
+            logger.error(f" [STATE_SYNC] Failed to sync state for {agent_id}:{service_name}: {e}")
         finally:
             self._syncing.discard(sync_key)
     
@@ -161,7 +161,7 @@ class SharedClientStateSyncManager:
             }
             
         except Exception as e:
-            logger.error(f"❌ [STATE_SYNC] Failed to get shared services info for {agent_id}:{service_name}: {e}")
+            logger.error(f" [STATE_SYNC] Failed to get shared services info for {agent_id}:{service_name}: {e}")
             return None
     
     async def atomic_state_update(self, agent_id: str, service_name: str, new_state: ServiceConnectionState):
@@ -202,7 +202,7 @@ class SharedClientStateSyncManager:
                 logger.info(f" [ATOMIC_SYNC] Atomic update completed: {updated_count} services updated to {new_state.value} for client_id {client_id}")
                 
             except Exception as e:
-                logger.error(f"❌ [ATOMIC_SYNC] Failed atomic state update for {agent_id}:{service_name}: {e}")
+                logger.error(f" [ATOMIC_SYNC] Failed atomic state update for {agent_id}:{service_name}: {e}")
                 raise
     
     def validate_state_consistency(self, client_id: str) -> Dict[str, any]:
@@ -278,7 +278,7 @@ class SharedClientStateSyncManager:
             return result
             
         except Exception as e:
-            logger.error(f"❌ [STATE_VALIDATION] Failed to validate state consistency for client_id {client_id}: {e}")
+            logger.error(f" [STATE_VALIDATION] Failed to validate state consistency for client_id {client_id}: {e}")
             return {
                 "consistent": False,
                 "services": [],
@@ -320,7 +320,7 @@ class SharedClientStateSyncManager:
                 logger.info(f" [BATCH_SYNC] Batch sync completed: {updated_count}/{len(shared_services)} services updated for client_id {client_id}")
                 
             except Exception as e:
-                logger.error(f"❌ [BATCH_SYNC] Failed batch sync for client_id {client_id}: {e}")
+                logger.error(f" [BATCH_SYNC] Failed batch sync for client_id {client_id}: {e}")
                 raise
     
     def _set_state_directly(self, agent_id: str, service_name: str, new_state: ServiceConnectionState):
@@ -345,5 +345,5 @@ class SharedClientStateSyncManager:
                 logger.warning(f"⚠️ [DIRECT_SET] Agent {agent_id} not found in service_states")
                 
         except Exception as e:
-            logger.error(f"❌ [DIRECT_SET] Failed to set state directly for {agent_id}:{service_name}: {e}")
+            logger.error(f" [DIRECT_SET] Failed to set state directly for {agent_id}:{service_name}: {e}")
             raise

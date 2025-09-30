@@ -32,7 +32,7 @@ class SetupMixin:
             logger.info(" Cache initialization completed")
 
         except Exception as e:
-            logger.error(f"❌ Cache initialization failed: {e}")
+            logger.error(f" Cache initialization failed: {e}")
             raise
 
     def _find_existing_client_id_for_agent_service(self, agent_id: str, service_name: str) -> str:
@@ -47,16 +47,14 @@ class SetupMixin:
             现有的client_id，如果不存在则返回None
         """
         try:
-            # 检查service_to_client映射
-            if agent_id in self.registry.service_to_client:
-                # Agent 空间中Service-Client映射以本地名为键
-                if service_name in self.registry.service_to_client[agent_id]:
-                    existing_client_id = self.registry.service_to_client[agent_id][service_name]
-                    logger.debug(f" [INIT_MCP] 找到现有Agent client_id: {service_name} -> {existing_client_id}")
-                    return existing_client_id
+            # 检查service_to_client映射（统一通过Registry API）
+            existing_client_id = self.registry.get_service_client_id(agent_id, service_name)
+            if existing_client_id:
+                logger.debug(f" [INIT_MCP] 找到现有Agent client_id: {service_name} -> {existing_client_id}")
+                return existing_client_id
 
-            # 检查agent_clients中是否有匹配的client_id
-            client_ids = self.registry.agent_clients.get(agent_id, [])
+            # 检查agent_clients中是否有匹配的client_id（统一通过Registry API）
+            client_ids = self.registry.get_agent_clients_from_cache(agent_id)
             for client_id in client_ids:
                 # 优先解析确定性ID
                 try:
@@ -190,17 +188,14 @@ class SetupMixin:
 
                         client_config = {"mcpServers": {local_name: service_config}}
 
-                        # 保存 Client 配置到缓存
-                        self.registry.client_configs[client_id] = client_config
+                        # 保存 Client 配置到缓存（统一API）
+                        self.registry.add_client_config(client_id, client_config)
 
                         # 建立 Agent -> Client 映射
                         self.registry.add_agent_client_mapping(agent_id, client_id)
 
-                        # 建立服务 -> Client 映射
-                        if agent_id not in self.registry.service_to_client:
-                            self.registry.service_to_client[agent_id] = {}
-                        # Agent 空间的服务键应使用本地名
-                        self.registry.service_to_client[agent_id][local_name] = client_id
+                        # 建立 服务 -> Client 映射（统一API）
+                        self.registry.add_service_client_mapping(agent_id, local_name, client_id)
 
                         logger.debug(f" [INIT_MCP] Agent 服务映射完成: {agent_id}:{local_name} -> {client_id}")
                     
@@ -228,21 +223,19 @@ class SetupMixin:
 
                         client_config = {"mcpServers": {service_name: service_config}}
 
-                        # 保存 Client 配置到缓存
-                        self.registry.client_configs[client_id] = client_config
+                        # 保存 Client 配置到缓存（统一API）
+                        self.registry.add_client_config(client_id, client_config)
 
                         # 建立 global_agent_store -> Client 映射
                         self.registry.add_agent_client_mapping(global_agent_store_id, client_id)
 
-                        # 建立服务 -> Client 映射
-                        if global_agent_store_id not in self.registry.service_to_client:
-                            self.registry.service_to_client[global_agent_store_id] = {}
-                        self.registry.service_to_client[global_agent_store_id][service_name] = client_id
+                        # 建立服务 -> Client 映射（统一API）
+                        self.registry.add_service_client_mapping(global_agent_store_id, service_name, client_id)
 
                         logger.debug(f" [INIT_MCP] Store 服务映射完成: {service_name} -> {client_id}")
 
                 except Exception as e:
-                    logger.error(f"❌ [INIT_MCP] 处理服务 {service_name} 失败: {e}")
+                    logger.error(f" [INIT_MCP] 处理服务 {service_name} 失败: {e}")
                     continue
 
             # 同步发现的 Agent 到持久化文件
@@ -253,5 +246,5 @@ class SetupMixin:
             logger.info(f" [INIT_MCP] mcp.json 解析完成，处理了 {len(mcp_servers)} 个服务")
 
         except Exception as e:
-            logger.error(f"❌ [INIT_MCP] 从 mcp.json 初始化服务失败: {e}")
+            logger.error(f" [INIT_MCP] 从 mcp.json 初始化服务失败: {e}")
             raise

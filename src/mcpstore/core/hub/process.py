@@ -65,7 +65,7 @@ class HubProcess:
         self._status = HubStatus.INITIALIZING
         self._startup_timeout = 30  # 启动超时时间（秒）
         
-        logger.info(f"HubProcess '{package_name}' initialized with PID {process.pid}")
+        logger.debug(f"HubProcess '{package_name}' initialized with PID {process.pid}")
     
     @property
     def is_running(self) -> bool:
@@ -127,7 +127,7 @@ class HubProcess:
         if timeout is None:
             timeout = self._startup_timeout
         
-        logger.info(f"Waiting for Hub '{self.package_name}' to start (timeout: {timeout}s)")
+        logger.debug(f"Waiting for Hub '{self.package_name}' to start (timeout: {timeout}s)")
         
         start_time = time.time()
         while time.time() - start_time < timeout:
@@ -185,7 +185,7 @@ class HubProcess:
             bool: 是否成功停止
         """
         if not self.is_running:
-            logger.info(f"Hub '{self.package_name}' is already stopped")
+            logger.debug(f"Hub '{self.package_name}' is already stopped")
             return True
         
         logger.info(f"Stopping Hub '{self.package_name}' (PID: {self.process.pid})")

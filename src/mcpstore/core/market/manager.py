@@ -32,7 +32,7 @@ class MarketManager:
         self.market_service = MarketService(data_file_path)
         self.config_converter = MarketConfigConverter()
 
-        self.logger.info("MarketManager initialized successfully")
+        self.logger.debug("MarketManager initialized successfully")
         # 远程来源配置与刷新状态
         self._remote_sources: list[str] = []
         self._last_refresh_ts: float | None = None

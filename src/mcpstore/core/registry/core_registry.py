@@ -8,6 +8,11 @@ from typing import Dict, Any, Optional, Tuple, List, Set, TypeVar, Protocol
 
 from ..models.service import ServiceConnectionState, ServiceStateMetadata
 from .types import SessionProtocol, SessionType
+from typing import TYPE_CHECKING
+from .cache_backend import CacheBackend
+from .memory_backend import MemoryCacheBackend
+
+from .atomic import atomic_write
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +39,8 @@ class ServiceRegistry:
         self.tool_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}
         # agent_id -> {tool_name: session}
         self.tool_to_session_map: Dict[str, Dict[str, Any]] = {}
+        # agent_id -> {tool_name: service_name} (hard mapping)
+        self.tool_to_service: Dict[str, Dict[str, str]] = {}
         # 长连接服务标记 - agent_id:service_name
         self.long_lived_connections: Set[str] = set()
 
@@ -68,7 +75,35 @@ class ServiceRegistry:
         #  新增：状态同步管理器（延迟初始化）
         self._state_sync_manager = None
 
-        logger.info("ServiceRegistry initialized (multi-context isolation with lifecycle support).")
+        # === Snapshot (A+B+D): immutable bundle and versioning ===
+        # 当前有效的快照包（不可变结构）；读路径只读此指针，发布通过原子指针交换
+        self._tools_snapshot_bundle: Optional[Dict[str, Any]] = None
+        self._tools_snapshot_version: int = 0
+
+        logger.debug("ServiceRegistry initialized with multi-context isolation")
+
+        # Inject default cache backend (Memory); can be replaced with RedisBackend later
+        self.cache_backend: CacheBackend = MemoryCacheBackend(self)
+
+
+    def set_cache_backend(self, backend: CacheBackend) -> None:
+        """Replace the cache backend implementation at runtime.
+        Callers must ensure appropriate migration if switching from Memory to Redis.
+        """
+        self.cache_backend = backend
+
+    def configure_cache_backend(self, config: Optional[Dict[str, Any]]) -> None:
+        """Configure cache backend from a config dict without changing defaults.
+        - If config is None or backend != 'redis', remains Memory.
+        - If backend == 'redis', builds RedisCacheBackend via backend_factory and attaches provided client when present.
+        This method performs no external I/O and does not install dependencies.
+        """
+        try:
+            from .backend_factory import make_cache_backend
+            backend = make_cache_backend(config, self)
+            self.set_cache_backend(backend)
+        except Exception as e:
+            logger.error(f"Failed to configure cache backend, fallback to Memory. err={e}")
 
     def list_tools(self, agent_id: str) -> List[Dict[str, Any]]:
         """Return a list-like snapshot of tools for the given agent_id.
@@ -103,6 +138,89 @@ class ServiceRegistry:
                 logger.warning(f"[REGISTRY] Failed to map tool '{tool_name}': {e}")
         return result
 
+    # === Snapshot building and publishing API ===
+    def get_tools_snapshot_bundle(self) -> Optional[Dict[str, Any]]:
+        """
+        返回当前已发布的工具快照包（只读指针）。
+        结构（示例）：
+        {
+            "tools": {
+                "services": { "weather": [ToolItem, ...], ... },
+                "tools_by_fullname": { "weather_get": ToolItem, ... }
+            },
+            "mappings": {
+                "agent_to_global": { agent_id: { local: global } },
+                "global_to_agent": { global: (agent_id, local) }
+            },
+            "meta": { "version": int, "created_at": float }
+        }
+        """
+        return self._tools_snapshot_bundle
+
+    def rebuild_tools_snapshot(self, global_agent_id: str) -> Dict[str, Any]:
+        """
+        重建不可变的工具快照包，并使用原子指针交换发布（Copy-On-Write）。
+        仅依据 global_agent_id 下的缓存构建全局真源快照；Agent 视图由上层基于映射做投影。
+        """
+        from time import time
+
+        # 构建全局工具索引
+        services_index: Dict[str, List[Dict[str, Any]]] = {}
+        tools_by_fullname: Dict[str, Dict[str, Any]] = {}
+
+        # 遍历 global_agent_id 下的所有服务名
+        service_names = self.get_all_service_names(global_agent_id)
+        for service_name in service_names:
+            # 获取该服务的工具名列表
+            tool_names = self.get_tools_for_service(global_agent_id, service_name)
+            if not tool_names:
+                services_index[service_name] = []
+                continue
+
+            items: List[Dict[str, Any]] = []
+            for tool_name in tool_names:
+                info = self.get_tool_info(global_agent_id, tool_name)
+                if not info:
+                    continue
+                # 规范化为快照条目
+                # name: 使用 display_name 作为对外“展示名”；original_name 保留原始名称（如有）
+                item = {
+                    "name": info.get("display_name", info.get("name", tool_name)),
+                    "description": info.get("description", ""),
+                    "service_name": service_name,
+                    "client_id": info.get("client_id"),
+                    "inputSchema": info.get("inputSchema", {}),
+                    "original_name": info.get("original_name", info.get("name", tool_name))
+                }
+                items.append(item)
+                tools_by_fullname[info.get("name", tool_name)] = item
+            services_index[service_name] = items
+
+        # 复制映射快照（只读）
+        agent_to_global = {aid: dict(mapping) for aid, mapping in self.agent_to_global_mappings.items()}
+        global_to_agent = dict(self.global_to_agent_mappings)
+
+        new_bundle: Dict[str, Any] = {
+            "tools": {
+                "services": services_index,
+                "tools_by_fullname": tools_by_fullname
+            },
+            "mappings": {
+                "agent_to_global": agent_to_global,
+                "global_to_agent": global_to_agent
+            },
+            "meta": {
+                "version": self._tools_snapshot_version + 1,
+                "created_at": time()
+            }
+        }
+
+        # 原子发布（指针交换）
+        self._tools_snapshot_bundle = new_bundle
+        self._tools_snapshot_version += 1
+        logger.debug(f"Tools bundle published: v{self._tools_snapshot_version}, services={len(services_index)}")
+        return new_bundle
+
     def _ensure_state_sync_manager(self):
         """确保状态同步管理器已初始化"""
         if self._state_sync_manager is None:
@@ -118,6 +236,7 @@ class ServiceRegistry:
         self.sessions.pop(agent_id, None)
         self.tool_cache.pop(agent_id, None)
         self.tool_to_session_map.pop(agent_id, None)
+        self.tool_to_service.pop(agent_id, None)
 
         #  清理新增的缓存字段
         self.service_states.pop(agent_id, None)
@@ -135,6 +254,7 @@ class ServiceRegistry:
             if not is_used_by_others:
                 self.client_configs.pop(client_id, None)
 
+    @atomic_write(agent_id_param="agent_id", use_lock=True)
     def add_service(self, agent_id: str, name: str, session: Any = None, tools: List[Tuple[str, Dict[str, Any]]] = None,
                     service_config: Dict[str, Any] = None, state: 'ServiceConnectionState' = None,
                     preserve_mappings: bool = False) -> List[str]:
@@ -160,6 +280,8 @@ class ServiceRegistry:
             self.tool_cache[agent_id] = {}
         if agent_id not in self.tool_to_session_map:
             self.tool_to_session_map[agent_id] = {}
+        if agent_id not in self.tool_to_service:
+            self.tool_to_service[agent_id] = {}
         if agent_id not in self.service_states:
             self.service_states[agent_id] = {}
         if agent_id not in self.service_metadata:
@@ -227,12 +349,18 @@ class ServiceRegistry:
                     logger.warning(f"Tool name conflict: '{tool_name}' from {name} for agent {agent_id} conflicts with existing tool. Skipping this tool.")
                     continue
 
-            # 存储工具
+            # 存储工具 + 硬映射（并同步后端定义以备将来切换 Redis）
             self.tool_cache[agent_id][tool_name] = tool_definition
             self.tool_to_session_map[agent_id][tool_name] = session
+            self.cache_backend.map_tool_to_service(agent_id, tool_name, name)
+            # 新增：同步工具定义至后端（Memory 为内存写，Redis 为JSON写）
+            try:
+                self.cache_backend.upsert_tool_def(agent_id, tool_name, tool_definition)
+            except Exception as e:
+                logger.debug(f"upsert_tool_def failed: agent_id={agent_id} tool={tool_name} service={name} err={e}")
             added_tool_names.append(tool_name)
 
-        logger.info(f"Added service '{name}' to cache with state {state.value} and {len(tools)} tools for agent '{agent_id}'")
+        logger.debug(f"Service added: {name} ({state.value}, {len(tools)} tools) for agent {agent_id}")
         return added_tool_names
 
     def add_failed_service(self, agent_id: str, name: str, service_config: Dict[str, Any],
@@ -259,6 +387,8 @@ class ServiceRegistry:
 
         return added_tools
 
+    @atomic_write(agent_id_param="agent_id", use_lock=True)
+
     def remove_service(self, agent_id: str, name: str) -> Optional[Any]:
         """
         移除指定 agent_id 下的服务及其所有工具。
@@ -276,12 +406,20 @@ class ServiceRegistry:
         for tool_name in tools_to_remove:
             if tool_name in self.tool_cache.get(agent_id, {}): del self.tool_cache[agent_id][tool_name]
             if tool_name in self.tool_to_session_map.get(agent_id, {}): del self.tool_to_session_map[agent_id][tool_name]
+            self.cache_backend.unmap_tool(agent_id, tool_name)
+            #
+            try:
+                self.cache_backend.delete_tool_def(agent_id, tool_name)
+            except Exception as e:
+                logger.debug(f"delete_tool_def failed: agent_id={agent_id} tool={tool_name} service={name} err={e}")
 
         #  清理新增的缓存字段
         self._cleanup_service_cache_data(agent_id, name)
 
-        logger.info(f"Service '{name}' for agent '{agent_id}' removed from registry.")
+        logger.debug(f"Service removed: {name} for agent {agent_id}")
         return session
+
+    @atomic_write(agent_id_param="agent_id", use_lock=True)
 
     def clear_service_tools_only(self, agent_id: str, service_name: str):
         """
@@ -314,6 +452,13 @@ class ServiceRegistry:
                 # 清理工具-会话映射
                 if agent_id in self.tool_to_session_map and tool_name in self.tool_to_session_map[agent_id]:
                     del self.tool_to_session_map[agent_id][tool_name]
+                # 清理工具-服务硬映射
+                self.cache_backend.unmap_tool(agent_id, tool_name)
+                # 同步后端删除工具定义
+                try:
+                    self.cache_backend.delete_tool_def(agent_id, tool_name)
+                except Exception as e:
+                    logger.debug(f"delete_tool_def failed: agent_id={agent_id} tool={tool_name} service={service_name} err={e}")
 
             # 清理会话（会被新会话替换）
             if agent_id in self.sessions and service_name in self.sessions[agent_id]:
@@ -387,7 +532,7 @@ class ServiceRegistry:
                         function_data["description"] = f"{original_description} (来自服务: {service_name})"
                 function_data["service_info"] = {"service_name": service_name}
             all_tools.append(tool_with_service)
-        logger.info(f"Returning {len(all_tools)} tools from {len(self.get_all_service_names(agent_id))} services for agent {agent_id}")
+        logger.debug(f"Retrieved {len(all_tools)} tools from {len(self.get_all_service_names(agent_id))} services for agent {agent_id}")
         return all_tools
 
     def get_all_tool_info(self, agent_id: str) -> List[Dict[str, Any]]:
@@ -433,25 +578,26 @@ class ServiceRegistry:
             logger.warning(f"[REGISTRY] service_not_exists service={name}")
             return []
 
-        #  修复：从tool_cache中查找属于该服务的工具
+        #  优先：使用工具→服务硬映射
         tools = []
         tool_cache = self.tool_cache.get(agent_id, {})
         tool_to_session = self.tool_to_session_map.get(agent_id, {})
-        
+        tool_to_service = self.tool_to_service.get(agent_id, {})
+
         # 获取该服务的session（如果存在）
         service_session = self.sessions.get(agent_id, {}).get(name)
-        
-        logger.debug(f"[REGISTRY] tool_cache_size={len(tool_cache)} tool_to_session_size={len(tool_to_session)}")
+
+        logger.debug(f"[REGISTRY] tool_cache_size={len(tool_cache)} tool_to_session_size={len(tool_to_session)} tool_to_service_size={len(tool_to_service)}")
 
         for tool_name in tool_cache.keys():
+            mapped_service = tool_to_service.get(tool_name)
+            if mapped_service == name:
+                tools.append(tool_name)
+                continue
+            # 次选：当硬映射缺失时，使用会话匹配（避免历史数据缺口）
             tool_session = tool_to_session.get(tool_name)
-            # 如果有session，使用session匹配；如果没有session，通过其他方式识别
             if service_session and tool_session is service_session:
                 tools.append(tool_name)
-            elif not service_session:
-                #  当sessions为空时，通过工具名前缀匹配（备用方案）
-                if tool_name.startswith(f"{name}_") or tool_name.startswith(f"{name}-"):
-                    tools.append(tool_name)
 
         logger.debug(f"[REGISTRY] found_tools service={name} count={len(tools)} list={tools}")
         return tools
@@ -581,14 +727,13 @@ class ServiceRegistry:
         """
         if name not in self.sessions.get(agent_id, {}):
             return {}
-            
+
         logger.info(f"Getting service details for: {name} (agent_id={agent_id})")
         session = self.sessions.get(agent_id, {}).get(name)
-        
+
         # 只在调试特定问题时打印详细日志
-        if logger.getEffectiveLevel() <= logging.DEBUG:
-            print(f"[DEBUG][get_service_details] agent_id={agent_id}, name={name}, id(session)={id(session) if session else None}")
-            
+        logger.debug(f"get_service_details: agent_id={agent_id}, name={name}, session_id={id(session) if session else None}")
+
         tools = self.get_tools_for_service(agent_id, name)
         # service_health已废弃，使用None作为默认值
         last_heartbeat = None
@@ -728,13 +873,13 @@ class ServiceRegistry:
         """获取服务配置"""
         if not self.has_service(agent_id, name):
             return None
-            
+
         # 从 orchestrator 的 mcp_config 获取配置
         from api.deps import app_state
         orchestrator = app_state.get("orchestrator")
         if orchestrator and orchestrator.mcp_config:
             return orchestrator.mcp_config.get_service_config(name)
-            
+
         return None
 
     def mark_as_long_lived(self, agent_id: str, service_name: str):
@@ -834,16 +979,10 @@ class ServiceRegistry:
     # ===  新增：Agent-Client 映射管理 ===
 
     def add_agent_client_mapping(self, agent_id: str, client_id: str):
-        """添加 Agent-Client 映射到缓存"""
-        if agent_id not in self.agent_clients:
-            self.agent_clients[agent_id] = []
-
-        if client_id not in self.agent_clients[agent_id]:
-            self.agent_clients[agent_id].append(client_id)
-            logger.debug(f"[REGISTRY] agent_client_added client_id={client_id} agent_id={agent_id}")
-            logger.debug(f"[REGISTRY] agent_clients={dict(self.agent_clients)}")
-        else:
-            logger.debug(f"[REGISTRY] agent_client_exists client_id={client_id} agent_id={agent_id}")
+        """添加 Agent-Client 映射到缓存（委托后端）"""
+        self.cache_backend.add_agent_client_mapping(agent_id, client_id)
+        logger.debug(f"[REGISTRY] agent_client_mapped client_id={client_id} agent_id={agent_id}")
+        logger.debug(f"[REGISTRY] agent_clients={dict(self.agent_clients)}")
 
     def get_all_agent_ids(self) -> List[str]:
         """ [REFACTOR] 从缓存获取所有Agent ID列表"""
@@ -854,64 +993,56 @@ class ServiceRegistry:
 
     def get_agent_clients_from_cache(self, agent_id: str) -> List[str]:
         """从缓存获取 Agent 的所有 Client ID"""
-        result = self.agent_clients.get(agent_id, [])
-        # logger.debug(f"[REGISTRY] get_clients agent_id={agent_id} result={result}")
-        # logger.debug(f"[REGISTRY] agent_clients_full={dict(self.agent_clients)}")
-        return result
+        return self.cache_backend.get_agent_clients_from_cache(agent_id)
 
     def remove_agent_client_mapping(self, agent_id: str, client_id: str):
-        """从缓存移除 Agent-Client 映射"""
-        if agent_id in self.agent_clients and client_id in self.agent_clients[agent_id]:
-            self.agent_clients[agent_id].remove(client_id)
-            if not self.agent_clients[agent_id]:  # 如果列表为空，删除agent
-                del self.agent_clients[agent_id]
+        """从缓存移除 Agent-Client 映射（委托后端）"""
+        self.cache_backend.remove_agent_client_mapping(agent_id, client_id)
 
     # ===  新增：Client 配置管理 ===
 
     def add_client_config(self, client_id: str, config: Dict[str, Any]):
         """添加 Client 配置到缓存"""
-        self.client_configs[client_id] = config
+        self.cache_backend.add_client_config(client_id, config)
         logger.debug(f"Added client config for {client_id} to cache")
 
     def get_client_config_from_cache(self, client_id: str) -> Optional[Dict[str, Any]]:
         """从缓存获取 Client 配置"""
-        return self.client_configs.get(client_id)
+        return self.cache_backend.get_client_config_from_cache(client_id)
 
     def update_client_config(self, client_id: str, updates: Dict[str, Any]):
         """更新缓存中的 Client 配置"""
-        if client_id in self.client_configs:
-            self.client_configs[client_id].update(updates)
-        else:
-            self.client_configs[client_id] = updates
+        self.cache_backend.update_client_config(client_id, updates)
 
     def remove_client_config(self, client_id: str):
         """从缓存移除 Client 配置"""
-        self.client_configs.pop(client_id, None)
+        self.cache_backend.remove_client_config(client_id)
 
     # ===  新增：Service-Client 映射管理 ===
 
     def add_service_client_mapping(self, agent_id: str, service_name: str, client_id: str):
         """添加 Service-Client 映射到缓存"""
-        if agent_id not in self.service_to_client:
-            self.service_to_client[agent_id] = {}
-
-        self.service_to_client[agent_id][service_name] = client_id
+        self.cache_backend.add_service_client_mapping(agent_id, service_name, client_id)
         logger.debug(f"Mapped service {service_name} to client {client_id} for agent {agent_id}")
 
     def get_service_client_id(self, agent_id: str, service_name: str) -> Optional[str]:
         """获取服务对应的 Client ID"""
-        result = self.service_to_client.get(agent_id, {}).get(service_name)
-        # #  调试：记录映射查询结果
-        # logger.debug(f"[CLIENT_ID_LOOKUP] agent_id={agent_id} service_name={service_name} result={result}")
-        # logger.debug(f"[CLIENT_ID_LOOKUP] keys={list(self.service_to_client.keys())}")
-        # if agent_id in self.service_to_client:
-        #     logger.debug(f"[CLIENT_ID_LOOKUP] services_for_agent={list(self.service_to_client[agent_id].keys())}")
-        return result
+        return self.cache_backend.get_service_client_id(agent_id, service_name)
 
     def remove_service_client_mapping(self, agent_id: str, service_name: str):
         """移除 Service-Client 映射"""
-        if agent_id in self.service_to_client:
-            self.service_to_client[agent_id].pop(service_name, None)
+        self.cache_backend.remove_service_client_mapping(agent_id, service_name)
+
+
+    def get_repository(self):
+        """Return a Repository-style thin facade bound to this registry.
+        Avoids circular import by importing locally.
+        """
+        try:
+            from .repository import CacheRepository  # type: ignore
+        except Exception as e:
+            raise RuntimeError(f"CacheRepository unavailable: {e}")
+        return CacheRepository(self)
 
     # ===  新增：Agent 服务映射管理 ===
 
@@ -977,7 +1108,7 @@ class ServiceRegistry:
             }
         """
         if not self.has_service(agent_id, service_name):
-            print(f"没有找到这个{agent_id}有这个服务{service_name}")
+            logger.debug(f"Service not found: {service_name} for agent {agent_id}")
             return {}
 
         state = self.get_service_state(agent_id, service_name)

@@ -60,7 +60,7 @@ class UnifiedServiceStateManager:
             return lifecycle_state
             
         except Exception as e:
-            logger.error(f"❌ [UNIFIED_STATE] 状态设置失败: {service_name}, error: {e}")
+            logger.error(f" [UNIFIED_STATE] 状态设置失败: {service_name}, error: {e}")
             # 发生错误时，设置为DISCONNECTED状态作为安全回退
             fallback_state = ServiceConnectionState.DISCONNECTED
             self.registry.set_service_state(agent_id, service_name, fallback_state)

@@ -61,7 +61,7 @@ class ClientIDGenerator:
             return client_id
 
         except Exception as e:
-            logger.error(f"❌ [ID_GEN] Failed to generate client_id for {agent_id}:{service_name}: {e}")
+            logger.error(f" [ID_GEN] Failed to generate client_id for {agent_id}:{service_name}: {e}")
             # 回退到简单格式
             fallback_id = f"client_{agent_id}_{service_name}_fallback"
             logger.warning(f"⚠️ [ID_GEN] Using fallback client_id: {fallback_id}")
@@ -112,7 +112,7 @@ class ClientIDGenerator:
             }
 
         except Exception as e:
-            logger.error(f"❌ [ID_GEN] Error parsing client_id {client_id}: {e}")
+            logger.error(f" [ID_GEN] Error parsing client_id {client_id}: {e}")
             return {
                 "type": "error",
                 "agent_id": None,
@@ -154,13 +154,13 @@ class ClientIDGenerator:
         Returns:
             str: 新的确定性client_id
         """
-        logger.info(f" [ID_GEN] Migrating legacy client_id: {legacy_id} -> deterministic format")
+        logger.debug(f"Migrating legacy client_id: {legacy_id} -> deterministic format")
 
         new_id = ClientIDGenerator.generate_deterministic_id(
             agent_id, service_name, service_config, global_agent_store_id
         )
 
-        logger.info(f" [ID_GEN] Migration completed: {legacy_id} -> {new_id}")
+        logger.debug(f"ID migration completed: {legacy_id} -> {new_id}")
         return new_id
 
 

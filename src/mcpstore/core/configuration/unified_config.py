@@ -64,7 +64,7 @@ class UnifiedConfigManager:
         # 初始化配置
         self._initialize_configs()
         
-        logger.info("UnifiedConfigManager initialized successfully")
+        logger.debug("UnifiedConfigManager initialized successfully")
     
     def _initialize_configs(self):
         """初始化所有配置"""
@@ -303,16 +303,16 @@ class UnifiedConfigManager:
     
     def reload_all_configs(self):
         """重新加载所有配置"""
-        logger.info("Reloading all configurations...")
+        logger.debug("Reloading all configurations...")
         
         for config_type in ConfigType:
             try:
                 self.get_config(config_type, force_reload=True)
-                logger.info(f"Successfully reloaded {config_type.value} config")
+                logger.debug(f"Successfully reloaded {config_type.value} config")
             except Exception as e:
                 logger.error(f"Failed to reload {config_type.value} config: {e}")
         
-        logger.info("Configuration reload completed")
+        logger.debug("Configuration reload completed")
 
 
 # 全局统一配置管理器实例

@@ -293,16 +293,6 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
             service_config: 服务配置
         """
         try:
-            #  优雅修复：智能清理缓存，保留Agent-Client映射
-            existing_session = self.registry.get_session(agent_id, service_name)
-            if existing_session:
-                # 服务已存在，只清理工具缓存，保留Agent-Client映射
-                logger.debug(f" [CACHE_UPDATE] 服务 {service_name} 已存在，执行智能清理")
-                self.registry.clear_service_tools_only(agent_id, service_name)
-            else:
-                # 新服务，不需要清理任何缓存
-                logger.debug(f" [CACHE_UPDATE] 服务 {service_name} 是新服务，跳过清理")
-
             # 处理工具定义（复用register_json_services的逻辑）
             processed_tools = []
             for tool in tools:
@@ -336,26 +326,66 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
                     logger.error(f"Failed to process tool {tool.name}: {e}")
                     continue
 
-            #  优雅修复：添加到Registry缓存，保留现有映射关系
-            self.registry.add_service(
-                agent_id=agent_id,
-                name=service_name,
-                session=client,
-                tools=processed_tools,
-                preserve_mappings=True  # 保留现有的Agent-Client映射
-            )
+            # 使用 per-agent 写锁：串行化多步缓存更新，避免并发不一致
+            locks = getattr(self, 'store', None)
+            agent_locks = getattr(locks, 'agent_locks', None) if locks else None
+            if agent_locks is None:
+                logger.warning("AgentLocks not available; proceeding without per-agent lock for cache update")
+                #  优雅修复：智能清理或跳过
+                existing_session = self.registry.get_session(agent_id, service_name)
+                if existing_session:
+                    logger.debug(f" [CACHE_UPDATE] 服务 {service_name} 已存在，执行智能清理")
+                    self.registry.clear_service_tools_only(agent_id, service_name)
+                else:
+                    logger.debug(f" [CACHE_UPDATE] 服务 {service_name} 是新服务，跳过清理")
 
-            # 标记长连接服务
-            if self._is_long_lived_service(service_config):
-                self.registry.mark_as_long_lived(agent_id, service_name)
+                self.registry.add_service(
+                    agent_id=agent_id,
+                    name=service_name,
+                    session=client,
+                    tools=processed_tools,
+                    preserve_mappings=True
+                )
 
-            #  重要：注册客户端到 Agent 客户端缓存
-            client_id = self.registry.get_service_client_id(agent_id, service_name)
-            if client_id:
-                self.registry.add_agent_client_mapping(agent_id, client_id)
-                logger.debug(f" [CLIENT_REGISTER] 注册客户端 {client_id} 到 Agent {agent_id}")
+                if self._is_long_lived_service(service_config):
+                    self.registry.mark_as_long_lived(agent_id, service_name)
+
+                client_id = self.registry.get_service_client_id(agent_id, service_name)
+                if client_id:
+                    self.registry.add_agent_client_mapping(agent_id, client_id)
+                    logger.debug(f" [CLIENT_REGISTER] 注册客户端 {client_id} 到 Agent {agent_id}")
+                else:
+                    logger.warning(f" [CLIENT_REGISTER] 无法获取服务 {service_name} 的 Client ID")
             else:
-                logger.warning(f" [CLIENT_REGISTER] 无法获取服务 {service_name} 的 Client ID")
+                async with agent_locks.write(agent_id):
+                    #  优雅修复：智能清理缓存，保留Agent-Client映射
+                    existing_session = self.registry.get_session(agent_id, service_name)
+                    if existing_session:
+                        logger.debug(f" [CACHE_UPDATE] 服务 {service_name} 已存在，执行智能清理")
+                        self.registry.clear_service_tools_only(agent_id, service_name)
+                    else:
+                        logger.debug(f" [CACHE_UPDATE] 服务 {service_name} 是新服务，跳过清理")
+
+                    # 添加到Registry缓存（保留映射）
+                    self.registry.add_service(
+                        agent_id=agent_id,
+                        name=service_name,
+                        session=client,
+                        tools=processed_tools,
+                        preserve_mappings=True
+                    )
+
+                    # 标记长连接服务
+                    if self._is_long_lived_service(service_config):
+                        self.registry.mark_as_long_lived(agent_id, service_name)
+
+                    # 注册客户端到 Agent 客户端缓存
+                    client_id = self.registry.get_service_client_id(agent_id, service_name)
+                    if client_id:
+                        self.registry.add_agent_client_mapping(agent_id, client_id)
+                        logger.debug(f" [CLIENT_REGISTER] 注册客户端 {client_id} 到 Agent {agent_id}")
+                    else:
+                        logger.warning(f" [CLIENT_REGISTER] 无法获取服务 {service_name} 的 Client ID")
 
             # 通知生命周期管理器连接成功
             await self.lifecycle_manager.handle_health_check_result(
@@ -375,6 +405,13 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
                 logger.warning(f"Failed to add service '{service_name}' to content monitoring: {e}")
 
             logger.info(f"Updated cache for service '{service_name}' with {len(processed_tools)} tools for agent '{agent_id}'")
+
+            # A+B+D: 变更后重建快照并原子发布（以全局命名域为真源）
+            try:
+                global_agent_id = self.client_manager.global_agent_store_id
+                self.registry.rebuild_tools_snapshot(global_agent_id)
+            except Exception as e:
+                logger.warning(f"[SNAPSHOT] rebuild failed after cache update: {e}")
 
         except Exception as e:
             logger.error(f"Failed to update service cache for '{service_name}': {e}")

@@ -68,7 +68,7 @@ class BidirectionalSyncManager:
             logger.info(f" [BIDIRECTIONAL_SYNC] Agent → Store 同步完成: {sync_key}")
             
         except Exception as e:
-            logger.error(f"❌ [BIDIRECTIONAL_SYNC] Agent → Store 同步失败 {sync_key}: {e}")
+            logger.error(f" [BIDIRECTIONAL_SYNC] Agent → Store 同步失败 {sync_key}: {e}")
         finally:
             self._syncing_services.discard(sync_key)
     
@@ -110,7 +110,7 @@ class BidirectionalSyncManager:
             logger.info(f" [BIDIRECTIONAL_SYNC] Store → Agent 同步完成: {sync_key}")
             
         except Exception as e:
-            logger.error(f"❌ [BIDIRECTIONAL_SYNC] Store → Agent 同步失败 {sync_key}: {e}")
+            logger.error(f" [BIDIRECTIONAL_SYNC] Store → Agent 同步失败 {sync_key}: {e}")
         finally:
             self._syncing_services.discard(sync_key)
     
@@ -133,7 +133,7 @@ class BidirectionalSyncManager:
                 await self.sync_agent_to_store(agent_id, service_name, new_config, "update")
             
         except Exception as e:
-            logger.error(f"❌ [BIDIRECTIONAL_SYNC] 服务更新同步失败 {agent_id}:{service_name}: {e}")
+            logger.error(f" [BIDIRECTIONAL_SYNC] 服务更新同步失败 {agent_id}:{service_name}: {e}")
     
     async def handle_service_deletion_with_sync(self, agent_id: str, service_name: str):
         """
@@ -153,7 +153,7 @@ class BidirectionalSyncManager:
                 await self.sync_agent_to_store(agent_id, service_name, {}, "delete")
             
         except Exception as e:
-            logger.error(f"❌ [BIDIRECTIONAL_SYNC] 服务删除同步失败 {agent_id}:{service_name}: {e}")
+            logger.error(f" [BIDIRECTIONAL_SYNC] 服务删除同步失败 {agent_id}:{service_name}: {e}")
     
     # === 内部同步实现方法 ===
     
@@ -179,10 +179,10 @@ class BidirectionalSyncManager:
             if success:
                 logger.debug(f" [BIDIRECTIONAL_SYNC] Store 配置更新成功: {global_name}")
             else:
-                logger.error(f"❌ [BIDIRECTIONAL_SYNC] Store 配置更新失败: {global_name}")
+                logger.error(f" [BIDIRECTIONAL_SYNC] Store 配置更新失败: {global_name}")
             
         except Exception as e:
-            logger.error(f"❌ [BIDIRECTIONAL_SYNC] 更新 Store 服务配置失败 {global_name}: {e}")
+            logger.error(f" [BIDIRECTIONAL_SYNC] 更新 Store 服务配置失败 {global_name}: {e}")
             raise
     
     async def _update_agent_service_config(self, agent_id: str, local_name: str, new_config: Dict[str, Any]):
@@ -195,7 +195,7 @@ class BidirectionalSyncManager:
             logger.debug(f" [BIDIRECTIONAL_SYNC] Agent 配置更新成功: {agent_id}:{local_name}")
             
         except Exception as e:
-            logger.error(f"❌ [BIDIRECTIONAL_SYNC] 更新 Agent 服务配置失败 {agent_id}:{local_name}: {e}")
+            logger.error(f" [BIDIRECTIONAL_SYNC] 更新 Agent 服务配置失败 {agent_id}:{local_name}: {e}")
             raise
     
     async def _delete_store_service(self, global_name: str):
@@ -216,10 +216,10 @@ class BidirectionalSyncManager:
                 if success:
                     logger.debug(f" [BIDIRECTIONAL_SYNC] Store 服务删除成功: {global_name}")
                 else:
-                    logger.error(f"❌ [BIDIRECTIONAL_SYNC] Store 服务删除失败: {global_name}")
+                    logger.error(f" [BIDIRECTIONAL_SYNC] Store 服务删除失败: {global_name}")
             
         except Exception as e:
-            logger.error(f"❌ [BIDIRECTIONAL_SYNC] 删除 Store 服务失败 {global_name}: {e}")
+            logger.error(f" [BIDIRECTIONAL_SYNC] 删除 Store 服务失败 {global_name}: {e}")
             raise
     
     async def _delete_agent_service(self, agent_id: str, local_name: str):
@@ -234,7 +234,7 @@ class BidirectionalSyncManager:
             logger.debug(f" [BIDIRECTIONAL_SYNC] Agent 服务删除成功: {agent_id}:{local_name}")
             
         except Exception as e:
-            logger.error(f"❌ [BIDIRECTIONAL_SYNC] 删除 Agent 服务失败 {agent_id}:{local_name}: {e}")
+            logger.error(f" [BIDIRECTIONAL_SYNC] 删除 Agent 服务失败 {agent_id}:{local_name}: {e}")
             raise
     
     def get_sync_status(self) -> Dict[str, Any]:

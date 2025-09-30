@@ -124,7 +124,7 @@ class FileLockManager:
                 stat = lock_file.stat()
                 if now - datetime.fromtimestamp(stat.st_mtime) > max_age:
                     lock_file.unlink()
-                    logger.info(f"Cleaned up stale lock: {lock_file}")
+                    logger.debug(f"Cleaned up stale lock: {lock_file}")
             except Exception as e:
                 logger.warning(f"Failed to clean up lock {lock_file}: {e}")
 

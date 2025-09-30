@@ -99,7 +99,7 @@ class MarketConfigConverter:
             if transport:
                 service_config.transport = transport
             
-            self.logger.info(f"Successfully converted market service {market_info.name} using {installation.type} installation")
+            self.logger.debug(f"Converted market service {market_info.name} using {installation.type} installation")
             
             return MarketInstallResult(
                 success=True,

@@ -142,32 +142,18 @@ class ServiceProxy:
             List[ToolInfo]: 工具列表
         """
         try:
-            # 尝试通过 Registry 按服务直接获取，效率更高
-            # 统一从 global_agent_store 命名空间读取工具缓存，避免 Agent 命名空间未写入导致列表为空
-            global_agent_id = self._context._store.client_manager.global_agent_store_id
-            # 处理 Agent 本地名 → 全局名
-            service_key = self._service_name
-            if self._context_type == ContextType.AGENT and getattr(self._context, "_service_mapper", None):
-                service_key = self._context._service_mapper.to_global_name(self._service_name)
-            tool_names = self._context._store.registry.get_tools_for_service(global_agent_id, service_key)
-            tools: List[ToolInfo] = []
-            for tname in tool_names:
-                info = self._context._store.registry.get_tool_info(global_agent_id, tname)
-                if info:
-                    # 将 service_name 映射回本地名显示
-                    display_service_name = self._service_name if self._context_type == ContextType.AGENT else info.get("service_name", self._service_name)
-                    tools.append(ToolInfo(
-                        name=info.get("name", tname),
-                        description=info.get("description", ""),
-                        service_name=display_service_name,
-                        client_id=info.get("client_id"),
-                        inputSchema=info.get("inputSchema")
-                    ))
-            return tools
-        except Exception:
-            # 回退：获取所有工具然后过滤
-            all_tools = self._context.list_tools()
-            return [tool for tool in all_tools if tool.service_name == self._service_name]
+            # 使用 orchestrator 快照：
+            # - Store: 全局服务名
+            # - Agent: 已投影为本地服务名
+            agent_id = self._context._agent_id if self._context_type == ContextType.AGENT else None
+            snapshot = self._context._sync_helper.run_async(
+                self._context._store.orchestrator.tools_snapshot(agent_id)
+            )
+            filtered = [t for t in snapshot if isinstance(t, dict) and t.get("service_name") == self._service_name]
+            return [ToolInfo(**t) for t in filtered]
+        except Exception as e:
+            logger.error(f"[SERVICE_PROXY.list_tools] failed: {e}")
+            return []
 
     def tools_stats(self) -> Dict[str, Any]:
         """
@@ -251,14 +237,12 @@ class ServiceProxy:
         try:
             if self._context_type == ContextType.STORE:
                 return self._context._sync_helper.run_async(
-                    self._context._store.orchestrator.remove_service(self._service_name),
-                    force_background=True
+                    self._context._store.orchestrator.remove_service(self._service_name)
                 )
             else:
                 # Agent 模式需要传递 agent_id
                 return self._context._sync_helper.run_async(
-                    self._context._store.orchestrator.remove_service(self._service_name, self._agent_id),
-                    force_background=True
+                    self._context._store.orchestrator.remove_service(self._service_name, self._agent_id)
                 )
         except Exception as e:
             logger.error(f"Failed to remove service {self._service_name}: {e}")
@@ -276,13 +260,11 @@ class ServiceProxy:
         try:
             if self._context_type == ContextType.STORE:
                 return self._context._sync_helper.run_async(
-                    self._context._store.orchestrator.refresh_service_content(self._service_name),
-                    force_background=True
+                    self._context._store.orchestrator.refresh_service_content(self._service_name)
                 )
             else:
                 return self._context._sync_helper.run_async(
-                    self._context._store.orchestrator.refresh_service_content(self._service_name, self._agent_id),
-                    force_background=True
+                    self._context._store.orchestrator.refresh_service_content(self._service_name, self._agent_id)
                 )
         except Exception as e:
             logger.error(f"Failed to refresh content for {self._service_name}: {e}")

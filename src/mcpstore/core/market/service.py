@@ -69,7 +69,7 @@ class MarketService:
             self._categories = sorted(list(categories_set))
             self._tags = sorted(list(tags_set))
             
-            self.logger.info(f"Loaded {len(self._market_data)} market services from {self.data_file_path}")
+            self.logger.debug(f"Loaded {len(self._market_data)} market services from {self.data_file_path}")
             self.logger.debug(f"Available categories: {len(self._categories)}, tags: {len(self._tags)}")
             
         except Exception as e:

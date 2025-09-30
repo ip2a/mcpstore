@@ -91,7 +91,7 @@ class StreamableHTTPTransport:
             session_id = response.headers.get(self.config.session_id_header)
             if session_id:
                 self.config.session_id = session_id
-                logger.info(f"Session established with ID: {session_id}")
+                logger.debug(f"Session established with ID: {session_id}")
             
             # 处理响应内容
             if response.content:
@@ -126,7 +126,7 @@ class StreamableHTTPTransport:
         Returns:
             Any: 工具执行结果
         """
-        logger.info(f"Calling tool '{tool_name}' with args: {tool_args}")
+        logger.debug(f"Calling tool '{tool_name}' with args: {type(tool_args).__name__}")
         
         try:
             # 发送工具调用请求
@@ -368,10 +368,10 @@ class StreamableHTTPTransport:
                     urljoin(self.config.base_url, "/mcp"),
                     headers=headers
                 )
-                logger.info(f"Session {self.config.session_id} terminated")
+                logger.debug(f"Session {self.config.session_id} terminated")
             except Exception as e:
                 logger.warning(f"Failed to terminate session: {e}")
                 
         await self.client.aclose()
-        logger.info("Transport resources cleaned up")
+        logger.debug("Transport resources cleaned up")
 
