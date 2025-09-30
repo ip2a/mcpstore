@@ -246,8 +246,39 @@ class LangChainAdapter:
         return self._sync_helper.run_async(self.list_tools_async())
 
     async def list_tools_async(self) -> List[Tool]:
-        """Get all available mcpstore tools and convert them to LangChain Tool list (asynchronous version)."""
+        """
+        Get all available mcpstore tools and convert them to LangChain Tool list (asynchronous version).
+        
+        Raises:
+            RuntimeError: 如果没有可用的工具（所有服务都未连接成功）
+        """
         mcp_tools_info = await self._context.list_tools_async()
+        
+        # 🆕 检查工具是否为空，提供友好的错误提示
+        if not mcp_tools_info:
+            logger.warning("[LIST_TOOLS] empty=True")
+            # 检查服务状态，给出更详细的提示
+            services = await self._context.list_services_async()
+            if not services:
+                raise RuntimeError(
+                    "无可用工具：没有已添加的MCP服务。"
+                    "请先使用 add_service() 添加服务。"
+                )
+            else:
+                # 有服务但没有工具，说明服务未成功连接
+                failed_services = [s.name for s in services if s.status.value != 'healthy']
+                if failed_services:
+                    raise RuntimeError(
+                        f"无可用工具：以下服务未成功连接: {', '.join(failed_services)}。"
+                        f"请检查服务配置和依赖是否正确，或使用 wait_service() 等待服务就绪。"
+                        f"\n提示：可以使用 list_services() 查看服务状态详情。"
+                    )
+                else:
+                    raise RuntimeError(
+                        "无可用工具：服务已连接但未提供工具。"
+                        "请检查服务是否正常工作。"
+                    )
+        
         langchain_tools = []
         for tool_info in mcp_tools_info:
             enhanced_description = self._enhance_description(tool_info)
@@ -324,7 +355,7 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
         super().__init__(context)
         self._session = session
         
-        logger.info(f"[SESSION_LANGCHAIN] Initialized session-aware adapter for session '{session.session_id}'")
+        logger.debug(f"Initialized session-aware adapter for session '{session.session_id}'")
     
     def _create_tool_function(self, tool_name: str, args_schema: Type[BaseModel]):
         """
@@ -475,7 +506,7 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
         Returns:
             List of LangChain Tool objects bound to the session
         """
-        logger.info(f"[SESSION_LANGCHAIN] Creating session-bound tools for session '{self._session.session_id}'")
+        logger.debug(f"Creating session-bound tools for session '{self._session.session_id}'")
         
         # Use parent's tool discovery logic
         mcpstore_tools = await self._context.list_tools_async()
@@ -503,7 +534,7 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                 )
             )
 
-        logger.info(f"[SESSION_LANGCHAIN] Created {len(langchain_tools)} session-bound tools")
+        logger.debug(f"Created {len(langchain_tools)} session-bound tools")
         return langchain_tools
     
     def list_tools(self) -> List[Tool]:

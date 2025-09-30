@@ -46,7 +46,7 @@ class ServiceLifecycleManager:
         # 📊 日志采样机制：避免频繁打印相同内容
         self._log_cache: Dict[str, Tuple[str, float]] = {}  # key -> (last_content, last_time)
 
-        logger.info(" [REFACTOR] ServiceLifecycleManager initialized with unified Registry state management")
+        logger.debug("ServiceLifecycleManager initialized with unified Registry state management")
     
     def _should_log(self, log_key: str, content: str, interval_seconds: int = 10) -> bool:
         """
@@ -99,7 +99,7 @@ class ServiceLifecycleManager:
             # 🆕 启动新的处理器
             await self.initializing_processor.start()
 
-            logger.info("ServiceLifecycleManager started")
+            logger.debug("ServiceLifecycleManager started")
         except Exception as e:
             self.is_running = False
             logger.error(f"Failed to start ServiceLifecycleManager: {e}")
@@ -124,12 +124,12 @@ class ServiceLifecycleManager:
 
         # 清理状态
         self.state_change_queue.clear()
-        logger.info("ServiceLifecycleManager stopped")
+        logger.debug("ServiceLifecycleManager stopped")
     
     def _task_done_callback(self, task):
         """生命周期任务完成回调"""
         if task.cancelled():
-            logger.info("Lifecycle management task was cancelled")
+            logger.debug("Lifecycle management task was cancelled")
         elif task.exception():
             logger.error(f"Lifecycle management task failed: {task.exception()}")
             # 可以在这里添加重启逻辑

@@ -37,7 +37,7 @@ class AuthConfigManager:
         # 加载现有配置
         self._load_configs()
         
-        logger.info(f"AuthConfigManager initialized with config dir: {self.auth_config_dir}")
+        logger.debug(f"AuthConfigManager initialized with config dir: {self.auth_config_dir}")
     
     def _load_configs(self):
         """加载所有认证配置"""
@@ -62,7 +62,7 @@ class AuthConfigManager:
                         except Exception as e:
                             logger.error(f"Failed to load hub config {hub_id}: {e}")
             
-            logger.info(f"Loaded {len(self._provider_configs)} provider configs and {len(self._hub_configs)} hub configs")
+            logger.debug(f"Loaded {len(self._provider_configs)} provider configs and {len(self._hub_configs)} hub configs")
             
         except Exception as e:
             logger.error(f"Error loading auth configs: {e}")

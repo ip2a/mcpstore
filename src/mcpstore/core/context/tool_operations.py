@@ -32,16 +32,11 @@ class ToolOperationsMixin:
             snapshot = self._store.orchestrator._sync_helper.run_async(
                 self._store.orchestrator.tools_snapshot(agent_id)
             )
-            # 如果 orchestrator 返回的是 dict/对象列表，尽量映射为 ToolInfo
-            if snapshot and isinstance(snapshot, list) and snapshot and not isinstance(snapshot[0], ToolInfo):
-                from mcpstore.core.models.tool import ToolInfo
-                result = [ToolInfo(**t) for t in snapshot if isinstance(t, dict)]
-            else:
-                result = snapshot
+            # 映射为 ToolInfo
+            result = [ToolInfo(**t) for t in snapshot if isinstance(t, dict)]
         except Exception as e:
-            logger.warning(f"[LIST_TOOLS] snapshot failed, fallback to async list: {e}")
-            # Avoid forcing background loop to reduce nested loop overhead; set reasonable timeout
-            result = self._sync_helper.run_async(self.list_tools_async(), timeout=60.0)
+            logger.error(f"[LIST_TOOLS] snapshot error: {e}")
+            result = []
         logger.info(f"[LIST_TOOLS] count={len(result) if result else 0}")
         if result:
             logger.info(f"[LIST_TOOLS] names={[t.name for t in result]}")
@@ -55,11 +50,10 @@ class ToolOperationsMixin:
         - store context: aggregate tools from all client_ids under global_agent_store
         - agent context: aggregate tools from all client_ids under agent_id (show local names)
         """
-        if self._context_type == ContextType.STORE:
-            return await self._store.list_tools()
-        else:
-            # Agent模式：透明代理 - 获取 Agent 的工具并转换为本地名称
-            return await self._get_agent_tools_view()
+        # 统一改为读取 orchestrator 快照（无回退、无旧路径）
+        agent_id = self._agent_id if self._context_type == ContextType.AGENT else None
+        snapshot = await self._store.orchestrator.tools_snapshot(agent_id)
+        return [ToolInfo(**t) for t in snapshot if isinstance(t, dict)]
 
     def get_tools_with_stats(self) -> Dict[str, Any]:
         """
@@ -560,7 +554,7 @@ class ToolOperationsMixin:
                 return global_tool_name
 
         except Exception as e:
-            logger.error(f"❌ [TOOL_NAME_CONVERT] 工具名转换失败: {e}")
+            logger.error(f" [TOOL_NAME_CONVERT] 工具名转换失败: {e}")
             return global_tool_name
 
     def _get_local_service_name_from_global(self, global_service_name: str) -> Optional[str]:
@@ -586,5 +580,5 @@ class ToolOperationsMixin:
             return None
 
         except Exception as e:
-            logger.error(f"❌ [SERVICE_NAME_CONVERT] 服务名转换失败: {e}")
+            logger.error(f" [SERVICE_NAME_CONVERT] 服务名转换失败: {e}")
             return None

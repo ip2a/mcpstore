@@ -328,12 +328,12 @@ class AdvancedFeaturesMixin:
                     logger.info(" [MCP_RESET] Triggering cache resync from mcp.json")
                     await self._store.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
             else:
-                logger.error(f"❌ [MCP_RESET] Failed to save mcp.json for scope: {scope}")
+                logger.error(f" [MCP_RESET] Failed to save mcp.json for scope: {scope}")
             
             return mcp_success
 
         except Exception as e:
-            logger.error(f"❌ [MCP_RESET] Failed to reset MCP JSON file with scope {scope}: {e}")
+            logger.error(f" [MCP_RESET] Failed to reset MCP JSON file with scope {scope}: {e}")
             return False
 
 

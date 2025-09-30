@@ -26,6 +26,11 @@ class BaseMCPStore:
         self.config = config
         self.registry = orchestrator.registry
         self.client_manager = orchestrator.client_manager
+        # Link back so orchestrator can access store-level facilities (locks, config)
+        try:
+            setattr(self.orchestrator, 'store', self)
+        except Exception:
+            logger.debug("Orchestrator linking to store failed; proceeding without back-reference")
         #  修复：添加LocalServiceManager访问属性
         self.local_service_manager = orchestrator.local_service_manager
         self.session_manager = orchestrator.session_manager
@@ -61,6 +66,10 @@ class BaseMCPStore:
         from mcpstore.core.registry.cache_manager import ServiceCacheManager, CacheTransactionManager
         self.cache_manager = ServiceCacheManager(self.registry, self.orchestrator.lifecycle_manager)
         self.transaction_manager = CacheTransactionManager(self.registry)
+
+        # 写锁：per-agent 原子写区
+        from mcpstore.core.registry.agent_locks import AgentLocks
+        self.agent_locks = AgentLocks()
 
         #  新增：智能查询接口
         from mcpstore.core.registry.smart_query import SmartCacheQuery

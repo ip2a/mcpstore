@@ -114,10 +114,10 @@ def load_config(path: Optional[str] = None) -> Dict[str, Any]:
         typer.echo(f" Configuration loaded from: {config_path}")
         return config
     except json.JSONDecodeError as e:
-        typer.echo(f"❌ Invalid JSON in config file: {e}")
+        typer.echo(f" Invalid JSON in config file: {e}")
         return {}
     except Exception as e:
-        typer.echo(f"❌ Failed to load config: {e}")
+        typer.echo(f" Failed to load config: {e}")
         return {}
 
 def save_config(config: Dict[str, Any], path: Optional[str] = None) -> bool:
@@ -137,7 +137,7 @@ def save_config(config: Dict[str, Any], path: Optional[str] = None) -> bool:
         typer.echo(f" Configuration saved to: {config_path}")
         return True
     except Exception as e:
-        typer.echo(f"❌ Failed to save config: {e}")
+        typer.echo(f" Failed to save config: {e}")
         return False
 
 def _detect_service_type(server_config: Dict[str, Any]) -> str:
@@ -199,7 +199,7 @@ def validate_config(config: Dict[str, Any]) -> bool:
     # 检查根级必需字段
     if "mcpServers" not in config:
         errors.append("Missing 'mcpServers' field")
-        typer.echo("❌ Configuration validation failed:")
+        typer.echo(" Configuration validation failed:")
         for error in errors:
             typer.echo(f"   • {error}")
         return False
@@ -215,7 +215,7 @@ def validate_config(config: Dict[str, Any]) -> bool:
 
     # 输出结果
     if errors:
-        typer.echo("❌ Configuration validation failed:")
+        typer.echo(" Configuration validation failed:")
         for error in errors:
             typer.echo(f"   • {error}")
         return False
@@ -340,7 +340,7 @@ def add_example_services(path: Optional[str] = None):
     """向现有配置添加示例服务"""
     config = load_config(path)
     if not config:
-        typer.echo("❌ No configuration found. Use 'init' first.")
+        typer.echo(" No configuration found. Use 'init' first.")
         return
 
     examples = get_example_services()
@@ -375,7 +375,7 @@ def handle_config(action: str, path: Optional[str] = None, **kwargs):
     if action in actions:
         actions[action]()
     else:
-        typer.echo(f"❌ Unknown action: {action}")
+        typer.echo(f" Unknown action: {action}")
         typer.echo(f"Available actions: {', '.join(actions.keys())}")
 
 def _handle_validate(path: Optional[str] = None):
@@ -384,7 +384,7 @@ def _handle_validate(path: Optional[str] = None):
     if config:
         validate_config(config)
     else:
-        typer.echo("❌ No configuration to validate")
+        typer.echo(" No configuration to validate")
 
 def _handle_init(path: Optional[str] = None, **kwargs):
     """处理初始化命令"""

@@ -85,7 +85,7 @@ class StateChangeEventProcessor:
                 agent_id, service_name, ServiceConnectionState.DISCONNECTED
             )
         except Exception as e:
-            logger.error(f"❌ [EVENT_DIRECT] {service_name}连接失败: {e}")
+            logger.error(f" [EVENT_DIRECT] {service_name}连接失败: {e}")
             await self.lifecycle_manager._transition_to_state(
                 agent_id, service_name, ServiceConnectionState.DISCONNECTED
             )

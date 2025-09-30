@@ -108,7 +108,7 @@ class AgentServiceParser:
             return result
             
         except Exception as e:
-            logger.error(f"❌ [PARSER] 解析 Agent 服务名失败 {global_name}: {e}")
+            logger.error(f" [PARSER] 解析 Agent 服务名失败 {global_name}: {e}")
             result = AgentServiceInfo(
                 agent_id="",
                 local_name="",

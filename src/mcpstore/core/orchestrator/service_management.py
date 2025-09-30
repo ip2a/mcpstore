@@ -16,16 +16,57 @@ class ServiceManagementMixin:
     """Service management mixin class"""
 
     async def tools_snapshot(self, agent_id: Optional[str] = None) -> List[Any]:
-        """Public API: return a stable snapshot of tools for the given agent context.
+        """Public API: read immutable snapshot bundle and project agent view (A+B+D).
 
-        This avoids ad-hoc waiting in context layer. Snapshot logic should
-        consult lifecycle/content managers to ensure consistency.
+        - Always read global tools from the registry's current snapshot bundle.
+        - If agent_id provided, project the global services to agent-local names using
+          the mapping snapshot included in the bundle.
+        - No waiting/retry. Pure read and projection.
         """
         try:
-            # Default to global agent in store context
-            effective_agent_id = agent_id or self.client_manager.global_agent_store_id
-            tools = self.registry.list_tools(effective_agent_id)
-            return tools or []
+            bundle = self.registry.get_tools_snapshot_bundle()
+            if not bundle:
+                # Build initial bundle lazily from current cache
+                bundle = self.registry.rebuild_tools_snapshot(self.client_manager.global_agent_store_id)
+
+            tools_section = bundle.get("tools", {})
+            mappings = bundle.get("mappings", {})
+            services_index: Dict[str, List[Dict[str, Any]]] = tools_section.get("services", {})
+
+            # Flatten global tools
+            flat_global: List[Dict[str, Any]] = []
+            for svc, items in services_index.items():
+                if not items:
+                    continue
+                for it in items:
+                    # ensure service_name is global name here
+                    entry = dict(it)
+                    entry["service_name"] = svc
+                    flat_global.append(entry)
+
+            if not agent_id:
+                return flat_global
+
+            # Agent projection: global -> local service names
+            agent_map = mappings.get("agent_to_global", {}).get(agent_id, {})
+            # Build reverse map for this agent only: global -> local
+            reverse_map: Dict[str, str] = {g: l for (l, g) in agent_map.items()}
+
+            projected: List[Dict[str, Any]] = []
+            for item in flat_global:
+                gsvc = item.get("service_name")
+                lsvc = reverse_map.get(gsvc)
+                if not lsvc:
+                    # Strict projection: skip services without mapping for this agent
+                    continue
+                new_item = dict(item)
+                new_item["service_name"] = lsvc
+                # Optionally rewrite name to local-prefixed style if desired
+                # Keep as-is to avoid unexpected rename here; name resolver handles display elsewhere
+                projected.append(new_item)
+
+            return projected
+
         except Exception as e:
             logger.error(f"Failed to get tools snapshot: {e}")
             return []
@@ -47,7 +88,7 @@ class ServiceManagementMixin:
 
         # 存储agent_client
         self.agent_clients[agent_id] = agent_client
-        logger.info(f"Registered agent client for {agent_id}")
+        logger.debug(f"Registered agent client for {agent_id}")
 
         return agent_client
 
@@ -103,7 +144,7 @@ class ServiceManagementMixin:
                 logger.warning(f"Failed to check service state for {name}: {e}")
                 continue
 
-        logger.info(f"Filtered {len(healthy_services)} healthy services from {len(services)} total services")
+        logger.debug(f"Filtered {len(healthy_services)} healthy services from {len(services)} total")
         return healthy_services
 
     async def start_global_agent_store(self, config: Dict[str, Any]):
@@ -119,119 +160,16 @@ class ServiceManagementMixin:
             }
         }
         
-        # 使用健康的配置注册服务
-        await self.register_json_services(healthy_config, client_id="global_agent_store")
-        # global_agent_store专属管理逻辑可在这里补充（如缓存、生命周期等）
-
-    async def register_json_services(self, config: Dict[str, Any], client_id: str = None, agent_id: str = None):
-        """
-        @deprecated 此方法已废弃，请使用统一的add_service方法
-
-        ⚠️ 警告：此方法已被统一注册架构替代，建议使用：
-        - store.for_store().add_service_async() - Store级别注册
-        - store.for_agent(agent_id).add_service_async() - Agent级别注册
-
-        注册JSON配置中的服务（可用于global_agent_store或普通client）
-        """
-
-
-        # agent_id 兼容
-        agent_key = agent_id or client_id or self.client_manager.global_agent_store_id
+        # 使用统一注册路径（替代过时的 register_json_services）
         try:
-            # 获取健康的服务列表
-            healthy_services = await self.filter_healthy_services(list(config.get("mcpServers", {}).keys()), client_id)
-            
-            # 创建一个新的配置，只包含健康的服务
-            healthy_config = {
-                "mcpServers": {
-                    name: config["mcpServers"][name]
-                    for name in healthy_services
-                }
-            }
-            
-            if not healthy_config["mcpServers"]:
-                logger.warning(f"No healthy services found for client {agent_key}")
-                return
-            
-            # 使用ConfigProcessor处理配置
-            from mcpstore.core.config_processor import ConfigProcessor
-            processed_config = ConfigProcessor.process_user_config_for_fastmcp(healthy_config)
-            
-            # 创建客户端
-            client = Client(processed_config)
-            
-            # 连接并获取工具
-            async with client:
-                # 获取所有工具
-                tools = await client.list_tools()
-                
-                # 按服务分组工具
-                tools_by_service = {}
-                for tool in tools:
-                    # 从工具名推断服务名（这里需要更智能的逻辑）
-                    service_name = self._infer_service_from_tool(tool.name, list(healthy_config["mcpServers"].keys()))
-                    if service_name not in tools_by_service:
-                        tools_by_service[service_name] = []
-                    tools_by_service[service_name].append(tool)
-                
-                # 注册每个服务的工具
-                for service_name, service_tools in tools_by_service.items():
-                    try:
-                        # 处理工具定义
-                        processed_tools = []
-                        for tool in service_tools:
-                            try:
-                                original_tool_name = tool.name
-                                display_name = self._generate_display_name(original_tool_name, service_name)
-                                
-                                # 处理参数
-                                parameters = {}
-                                if hasattr(tool, 'inputSchema') and tool.inputSchema:
-                                    if hasattr(tool.inputSchema, 'model_dump'):
-                                        parameters = tool.inputSchema.model_dump()
-                                    elif isinstance(tool.inputSchema, dict):
-                                        parameters = tool.inputSchema
-                                
-                                # 构建工具定义
-                                tool_def = {
-                                    "type": "function",
-                                    "function": {
-                                        "name": original_tool_name,
-                                        "display_name": display_name,
-                                        "description": tool.description,
-                                        "parameters": parameters,
-                                        "service_name": service_name
-                                    }
-                                }
-                                
-                                processed_tools.append((display_name, tool_def))
-                                
-                            except Exception as e:
-                                logger.error(f"Failed to process tool {tool.name}: {e}")
-                                continue
-                        
-                        # 添加到Registry
-                        self.registry.add_service(agent_key, service_name, client, processed_tools)
-                        
-                        # 标记长连接服务
-                        service_config = healthy_config["mcpServers"].get(service_name, {})
-                        if self._is_long_lived_service(service_config):
-                            self.registry.mark_as_long_lived(agent_key, service_name)
-                        
-                        logger.info(f"Registered service '{service_name}' with {len(processed_tools)} tools for client '{agent_key}'")
-                        
-                    except Exception as e:
-                        logger.error(f"Failed to register service {service_name}: {e}")
-                        continue
-                
-                # 保存客户端配置到ClientManager
-                self.client_manager.save_client_config(agent_key, processed_config)
-                
-                logger.info(f"Successfully registered {len(tools_by_service)} services with {len(tools)} total tools for client '{agent_key}'")
-                
+            if hasattr(self, 'store') and self.store:
+                await self.store.for_store().add_service_async(healthy_config)
+            else:
+                logger.warning("Orchestrator.store not available; skipping auto registration pipeline")
         except Exception as e:
-            logger.error(f"Failed to register JSON services for client {agent_key}: {e}")
-            raise
+            logger.error(f"Failed to register healthy services via add_service_async: {e}")
+
+    # register_json_services 已移除（Deprecated）
 
     def _infer_service_from_tool(self, tool_name: str, service_names: List[str]) -> str:
         """从工具名推断服务名"""
@@ -274,12 +212,12 @@ class ServiceManagementMixin:
                     logger.warning(f"Service {service_name} not found in registry for agent {agent_key}, skipping removal")
                     return
                 else:
-                    logger.info(f"Service {service_name} found in registry but not in lifecycle manager, proceeding with cleanup")
+                    logger.debug(f"Service {service_name} found in registry but not in lifecycle, cleaning up")
 
             if current_state:
-                logger.info(f"Removing service {service_name} from agent {agent_key} (current state: {current_state.value})")
+                logger.debug(f"Removing service {service_name} from agent {agent_key} (state: {current_state.value})")
             else:
-                logger.info(f"Removing service {service_name} from agent {agent_key} (no lifecycle state)")
+                logger.debug(f"Removing service {service_name} from agent {agent_key} (no lifecycle state)")
 
             #  修复：安全地调用各个组件的移除方法
             try:
@@ -307,7 +245,14 @@ class ServiceManagementMixin:
             except Exception as e:
                 logger.warning(f"Error removing lifecycle data: {e}")
 
-            logger.info(f"Service {service_name} removal completed for agent {agent_key}")
+            # A+B+D: 变更后重建快照并原子发布
+            try:
+                global_agent_id = self.client_manager.global_agent_store_id
+                self.registry.rebuild_tools_snapshot(global_agent_id)
+            except Exception as e:
+                logger.warning(f"[SNAPSHOT] rebuild failed after removal: {e}")
+
+            logger.debug(f"Service removal completed: {service_name} from agent {agent_key}")
 
         except Exception as e:
             logger.error(f"Error removing service {service_name}: {e}")
@@ -367,7 +312,7 @@ class ServiceManagementMixin:
         try:
             agent_key = agent_id or self.client_manager.global_agent_store_id
 
-            logger.info(f" [RESTART_SERVICE] Starting restart for service '{service_name}' (agent: {agent_key})")
+            logger.debug(f"Restarting service {service_name} for agent {agent_key}")
 
             # 检查服务是否存在
             if not self.registry.has_service(agent_key, service_name):
@@ -377,7 +322,7 @@ class ServiceManagementMixin:
             # 获取服务元数据
             metadata = self.registry.get_service_metadata(agent_key, service_name)
             if not metadata:
-                logger.error(f"❌ [RESTART_SERVICE] No metadata found for service '{service_name}'")
+                logger.error(f" [RESTART_SERVICE] No metadata found for service '{service_name}'")
                 return False
 
             # 重置服务状态为 INITIALIZING
@@ -402,11 +347,11 @@ class ServiceManagementMixin:
                 init_success = self.lifecycle_manager.initialize_service(agent_key, service_name, metadata.service_config)
                 logger.debug(f" [RESTART_SERVICE] Triggered lifecycle initialization for '{service_name}': {init_success}")
 
-            logger.info(f" [RESTART_SERVICE] Successfully restarted service '{service_name}'")
+            logger.info(f"Service restarted successfully: {service_name}")
             return True
 
         except Exception as e:
-            logger.error(f"❌ [RESTART_SERVICE] Failed to restart service '{service_name}': {e}")
+            logger.error(f" [RESTART_SERVICE] Failed to restart service '{service_name}': {e}")
             return False
 
     def _generate_display_name(self, original_tool_name: str, service_name: str) -> str:

@@ -31,9 +31,9 @@ def get_store() -> MCPStore:
     """Get current MCPStore instance"""
     global _global_store_instance
 
-    logger.info(f"get_store called, global instance: {_global_store_instance is not None}")
+    logger.debug(f"get_store called, global instance: {_global_store_instance is not None}")
     if _global_store_instance is not None:
-        logger.info(f"Global instance id: {id(_global_store_instance)}")
+        logger.debug(f"Global instance id: {id(_global_store_instance)}")
 
     if _global_store_instance is None:
         # If no global instance is set, create with default configuration
@@ -43,7 +43,7 @@ def get_store() -> MCPStore:
         # Record the type of store being used
         is_data_space = _global_store_instance.is_using_data_space()
         workspace_dir = _global_store_instance.get_workspace_dir() if is_data_space else "default"
-        logger.info(f"Using global store instance: data_space={is_data_space}, workspace={workspace_dir}")
+        logger.debug(f"Using global store instance: data_space={is_data_space}, workspace={workspace_dir}")
 
     return _global_store_instance
 
@@ -55,7 +55,7 @@ def set_global_store(store: MCPStore):
     """
     global _global_store_instance
     _global_store_instance = store
-    logger.info(f"Global store instance updated: {id(store)}")
+    logger.debug(f"Global store instance updated: {id(store)}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

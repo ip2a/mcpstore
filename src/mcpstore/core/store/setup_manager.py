@@ -4,6 +4,8 @@
 """
 
 import logging
+import os
+from hashlib import sha1
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -15,7 +17,7 @@ class StoreSetupManager:
     @staticmethod
     def setup_store(mcp_config_file: str = None, debug: bool = False, standalone_config=None,
                    tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7,
-                   monitoring: dict = None):
+                   monitoring: dict = None, redis: Optional[Dict[str, Any]] = None):
         """
         Initialize MCPStore instance
 
@@ -44,13 +46,13 @@ class StoreSetupManager:
         if standalone_config is not None:
             return StoreSetupManager._setup_with_standalone_config(standalone_config, debug,
                                                         tool_record_max_file_size, tool_record_retention_days,
-                                                        monitoring)
+                                                        monitoring, redis)
 
         #  New: Data space management
         if mcp_config_file is not None:
             return StoreSetupManager._setup_with_data_space(mcp_config_file, debug,
                                                  tool_record_max_file_size, tool_record_retention_days,
-                                                 monitoring)
+                                                 monitoring, redis)
 
         # Original logic: Use default configuration
         from mcpstore.config.config import LoggingConfig
@@ -68,6 +70,30 @@ class StoreSetupManager:
 
         config = MCPConfig()
         registry = ServiceRegistry()
+
+        # Optional: configure cache backend via 'redis' dict at setup time (fail-fast)
+        if isinstance(redis, dict):
+            # Derive dataspace when requested
+            ds = redis.get("dataspace")
+            if not ds or str(ds).lower() == "auto":
+                try:
+                    cfg_path = getattr(config, "json_path", None) or ""
+                    abs_path = os.path.abspath(cfg_path) if cfg_path else ":memory:"
+                    ds = sha1(abs_path.encode("utf-8")).hexdigest()[:8] if abs_path != ":memory:" else "default"
+                except Exception:
+                    ds = "default"
+            cache_cfg = {
+                "backend": "redis",
+                "redis": {
+                    "namespace": redis.get("namespace", "default"),
+                    "dataspace": ds,
+                    "url": redis.get("url"),
+                    "password": redis.get("password"),
+                    "socket_timeout": redis.get("socket_timeout"),
+                    "healthcheck_interval": redis.get("healthcheck_interval"),
+                },
+            }
+            registry.configure_cache_backend(cache_cfg)
 
         # Merge base configuration and monitoring configuration
         base_config = config.load_config()
@@ -118,14 +144,14 @@ class StoreSetupManager:
             raise
 
         #  修复：初始化缓存也使用后台循环
-        logger.info(" [SETUP_STORE] 开始初始化缓存...")
+        logger.debug("Initializing cache...")
         try:
             async_helper.run_async(store.initialize_cache_from_files(), force_background=True)
-            logger.info("[SETUP_STORE] 缓存初始化完成")
+            logger.debug("Cache initialization completed")
         except Exception as e:
-            logger.error(f"❌ [SETUP_STORE] 缓存初始化失败: {e}")
+            logger.error(f" [SETUP_STORE] 缓存初始化失败: {e}")
             import traceback
-            logger.error(f"❌ [SETUP_STORE] 缓存初始化失败详情: {traceback.format_exc()}")
+            logger.error(f" [SETUP_STORE] 缓存初始化失败详情: {traceback.format_exc()}")
             # 缓存初始化失败不应该阻止系统启动
 
         #  [SETUP_STORE] 异步后台：市场远程刷新（可选）
@@ -159,7 +185,7 @@ class StoreSetupManager:
     @staticmethod
     def _setup_with_data_space(mcp_config_file: str, debug: bool = False,
                               tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7,
-                              monitoring: dict = None):
+                              monitoring: dict = None, redis: Optional[Dict[str, Any]] = None):
         """
         Initialize MCPStore with data space (supports independent data directory)
 
@@ -199,6 +225,29 @@ class StoreSetupManager:
 
             config = MCPConfig(json_path=mcp_config_file)
             registry = ServiceRegistry()
+
+            # Optional: configure cache backend via 'redis' dict at setup time (fail-fast)
+            if isinstance(redis, dict):
+                # dataspace: explicit, else auto derive from mcp_config_file path
+                ds = redis.get("dataspace")
+                if not ds or str(ds).lower() == "auto":
+                    try:
+                        abs_path = os.path.abspath(mcp_config_file) if mcp_config_file else ":memory:"
+                        ds = sha1(abs_path.encode("utf-8")).hexdigest()[:8] if abs_path != ":memory:" else "default"
+                    except Exception:
+                        ds = "default"
+                cache_cfg = {
+                    "backend": "redis",
+                    "redis": {
+                        "namespace": redis.get("namespace", "default"),
+                        "dataspace": ds,
+                        "url": redis.get("url"),
+                        "password": redis.get("password"),
+                        "socket_timeout": redis.get("socket_timeout"),
+                        "healthcheck_interval": redis.get("healthcheck_interval"),
+                    },
+                }
+                registry.configure_cache_backend(cache_cfg)
 
             # Merge base configuration and monitoring configuration (single-source mode)
             base_config = config.load_config()
@@ -277,11 +326,12 @@ class StoreSetupManager:
     @staticmethod
     def _setup_with_standalone_config(standalone_config, debug: bool = False,
                                      tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7,
-                                     monitoring: dict = None):
+                                     monitoring: dict = None, redis: Optional[Dict[str, Any]] = None):
         """
         使用独立配置初始化MCPStore（不依赖环境变量）
 
         Args:
+
             standalone_config: 独立配置对象
             debug: 是否启用调试日志
             tool_record_max_file_size: 工具记录JSON文件最大大小(MB)
@@ -335,6 +385,29 @@ class StoreSetupManager:
 
             def get_service_config(self, name):
                 return self._manager.get_service_config(name)
+        # Optional: configure cache backend via 'redis' dict at setup time (fail-fast)
+        if isinstance(redis, dict):
+            ds = redis.get("dataspace")
+            if not ds or str(ds).lower() == "auto":
+                try:
+                    cfg_path = getattr(config_manager.config, "mcp_config_file", None) or ":memory:"
+                    abs_path = os.path.abspath(cfg_path) if cfg_path else ":memory:"
+                    ds = sha1(abs_path.encode("utf-8")).hexdigest()[:8] if abs_path != ":memory:" else "default"
+                except Exception:
+                    ds = "default"
+            cache_cfg = {
+                "backend": "redis",
+                "redis": {
+                    "namespace": redis.get("namespace", "default"),
+                    "dataspace": ds,
+                    "url": redis.get("url"),
+                    "password": redis.get("password"),
+                    "socket_timeout": redis.get("socket_timeout"),
+                    "healthcheck_interval": redis.get("healthcheck_interval"),
+                },
+            }
+            registry.configure_cache_backend(cache_cfg)
+
 
         config = StandaloneMCPConfig(mcp_config_dict, config_manager)
 

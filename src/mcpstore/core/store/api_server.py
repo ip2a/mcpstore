@@ -116,7 +116,7 @@ class APIServerMixin:
             ) from e
         except Exception as e:
             if show_startup_info:
-                print(f"❌ Failed to start server: {e}")
+                print(f" Failed to start server: {e}")
             raise
 
     def _setup_api_store_instance(self):
