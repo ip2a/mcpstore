@@ -1,6 +1,6 @@
 """
-MCPStore Service Operations Module
-Implementation of service-related operations
+MCPStore Service Operations Module - Event-Driven Architecture
+Implementation of service-related operations using event-driven pattern
 """
 
 import asyncio
@@ -8,7 +8,7 @@ import logging
 import time
 from typing import Dict, List, Optional, Any, Union, Tuple
 
-from mcpstore.core.models.service import ServiceInfo, ServiceConfigUnion, ServiceConnectionState, TransportType
+from mcpstore.core.models.service import ServiceInfo, ServiceConfigUnion, ServiceConnectionState
 from .types import ContextType
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ class AddServiceWaitStrategy:
             'local': 4000,   # 本地服务4秒
         }
 
-    def parse_wait_parameter(self, wait_param: Union[str, int, float]) -> float:
+    def parse_wait_parameter(self, wait_param: Union[str, int, float]) -> Optional[float]:
         """
         解析等待参数
 
@@ -35,7 +35,7 @@ class AddServiceWaitStrategy:
                 - 字符串数字: 毫秒数
 
         Returns:
-            float: 等待时间（秒）
+            float: 等待时间（秒），None表示需要自动判断
         """
         if wait_param == "auto":
             return None  # 表示需要自动判断
@@ -94,8 +94,13 @@ class AddServiceWaitStrategy:
 
         return max_timeout
 
+
 class ServiceOperationsMixin:
-    """Service operations mixin class"""
+    """
+    Service operations mixin class - Event-Driven Architecture
+
+    职责：提供用户API，委托给应用服务
+    """
 
 
 
@@ -766,40 +771,26 @@ class ServiceOperationsMixin:
             return {name: 'error' for name in service_names}
 
     async def _add_service_to_cache_immediately(self, agent_id: str, service_name: str, service_config: Dict[str, Any]) -> Dict[str, Any]:
-        """立即添加服务到缓存"""
+        """
+        立即添加服务到缓存 - 使用事件驱动架构
+
+        新架构：委托给 ServiceApplicationService，通过事件总线协调各个管理器
+        """
         try:
             # 1. 生成或获取 client_id
             client_id = self._get_or_create_client_id(agent_id, service_name, service_config)
 
-            # 使用 per-agent 写锁，串行化多步缓存更新，避免并发不一致
-            async with self._store.agent_locks.write(agent_id):
-                # 2. 立即添加到所有相关缓存
-                # 2.1 添加到服务缓存（初始化状态）
-                from mcpstore.core.models.service import ServiceConnectionState
-                self._store.registry.add_service(
-                    agent_id=agent_id,
-                    name=service_name,
-                    session=None,  # 暂无连接
-                    tools=[],      # 暂无工具
-                    service_config=service_config,
-                    state=ServiceConnectionState.INITIALIZING
-                )
+            # 2. 委托给应用服务（事件驱动架构）
+            result = await self._store.container.service_application_service.add_service(
+                agent_id=agent_id,
+                service_name=service_name,
+                service_config=service_config,
+                wait_timeout=0.0,  # 不等待，立即返回
+                source="user"
+            )
 
-                # 2.2 添加到 Agent-Client 映射缓存
-                self._store.registry.add_agent_client_mapping(agent_id, client_id)
-
-                # 2.3 添加到 Client 配置缓存
-                self._store.registry.add_client_config(client_id, {
-                    "mcpServers": {service_name: service_config}
-                })
-
-                # 2.4 添加到 Service-Client 映射缓存
-                self._store.registry.add_service_client_mapping(agent_id, service_name, client_id)
-
-                # 2.5 初始化到生命周期管理器
-                self._store.orchestrator.lifecycle_manager.initialize_service(
-                    agent_id, service_name, service_config
-                )
+            if not result.success:
+                raise RuntimeError(f"Failed to add service: {result.error_message}")
 
             return {
                 "service_name": service_name,
@@ -1270,15 +1261,22 @@ class ServiceOperationsMixin:
                 self._store.registry.add_service_client_mapping(agent_id, local_name, client_id)
                 logger.debug(f" [AGENT_PROXY] 设置共享 Client ID 映射: {client_id}")
 
-                # 7. 添加到生命周期管理器（新服务和同名服务都需要）
-                if (hasattr(self._store, 'orchestrator') and self._store.orchestrator and
-                    hasattr(self._store.orchestrator, 'lifecycle_manager') and
-                    self._store.orchestrator.lifecycle_manager):
-                    # 仅初始化全局命名空间的生命周期，避免对同一远端服务重复连接
-                    self._store.orchestrator.lifecycle_manager.initialize_service(
-                        self._store.client_manager.global_agent_store_id, global_name, service_config
+                # 7. 使用事件驱动架构添加服务（新服务和同名服务都需要）
+                # 委托给应用服务，通过事件总线协调各个管理器
+                try:
+                    result = await self._store.container.service_application_service.add_service(
+                        agent_id=self._store.client_manager.global_agent_store_id,
+                        service_name=global_name,
+                        service_config=service_config,
+                        wait_timeout=0.0,  # 不等待，立即返回
+                        source="agent_proxy"
                     )
-                    logger.debug(f" [AGENT_PROXY] 初始化生命周期管理(仅全局): {global_name}")
+                    if result.success:
+                        logger.debug(f" [AGENT_PROXY] 事件驱动架构初始化成功(仅全局): {global_name}")
+                    else:
+                        logger.warning(f" [AGENT_PROXY] 事件驱动架构初始化失败: {result.error_message}")
+                except Exception as e:
+                    logger.error(f" [AGENT_PROXY] 事件驱动架构初始化异常: {e}")
 
                 logger.info(f" [AGENT_PROXY] Agent 服务添加完成: {local_name} → {global_name}")
 

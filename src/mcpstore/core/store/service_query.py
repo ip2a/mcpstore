@@ -259,8 +259,8 @@ class ServiceQueryMixin:
                 # 从 mcp.json 读取（使用全局名）
                 config = self.config.get_service_config(config_key) or {}
 
-                # 获取生命周期状态（优先全局命名空间）
-                service_state = self.orchestrator.lifecycle_manager.get_service_state(lifecycle_agent, lifecycle_name)
+                # 🆕 事件驱动架构：直接从 registry 获取生命周期状态（优先全局命名空间）
+                service_state = self.registry.get_service_state(lifecycle_agent, lifecycle_name)
 
                 # 获取工具信息（优先全局命名空间）
                 tool_names = self.registry.get_tools_for_service(tools_agent, tools_service)
@@ -274,8 +274,8 @@ class ServiceQueryMixin:
                 # 获取连接状态
                 connected = service_state in [ServiceConnectionState.HEALTHY, ServiceConnectionState.WARNING]
 
-                # 获取真实的生命周期数据（优先全局命名空间）
-                service_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(lifecycle_agent, lifecycle_name)
+                # 🆕 事件驱动架构：直接从 registry 获取元数据（不再通过 lifecycle_manager）
+                service_metadata = self.registry.get_service_metadata(lifecycle_agent, lifecycle_name)
 
                 # 构建ServiceInfo（Agent 视图下 name 使用本地名展示）
                 service_info = ServiceInfo(
@@ -333,9 +333,9 @@ class ServiceQueryMixin:
                 for name in service_names:
                     config = self.config.get_service_config(name) or {}
 
-                    # 获取生命周期状态
-                    service_state = self.orchestrator.lifecycle_manager.get_service_state(client_id, name)
-                    state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(client_id, name)
+                    # 🆕 事件驱动架构：直接从 registry 获取生命周期状态
+                    service_state = self.registry.get_service_state(client_id, name)
+                    state_metadata = self.registry.get_service_metadata(client_id, name)
 
                     service_status = {
                         "name": name,
@@ -368,9 +368,9 @@ class ServiceQueryMixin:
             for name in service_names:
                 config = self.config.get_service_config(name) or {}
 
-                # 获取生命周期状态
-                service_state = self.orchestrator.lifecycle_manager.get_service_state(id, name)
-                state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(id, name)
+                # 🆕 事件驱动架构：直接从 registry 获取生命周期状态
+                service_state = self.registry.get_service_state(id, name)
+                state_metadata = self.registry.get_service_metadata(id, name)
 
                 service_status = {
                     "name": name,
@@ -400,9 +400,9 @@ class ServiceQueryMixin:
                     for name in service_names:
                         config = self.config.get_service_config(name) or {}
 
-                        # 获取生命周期状态
-                        service_state = self.orchestrator.lifecycle_manager.get_service_state(client_id, name)
-                        state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(client_id, name)
+                        # 🆕 事件驱动架构：直接从 registry 获取生命周期状态
+                        service_state = self.registry.get_service_state(client_id, name)
+                        state_metadata = self.registry.get_service_metadata(client_id, name)
 
                         service_status = {
                             "name": name,
@@ -428,9 +428,9 @@ class ServiceQueryMixin:
                 for name in service_names:
                     config = self.config.get_service_config(name) or {}
 
-                    # 获取生命周期状态
-                    service_state = self.orchestrator.lifecycle_manager.get_service_state(id, name)
-                    state_metadata = self.orchestrator.lifecycle_manager.get_service_metadata(id, name)
+                    # 🆕 事件驱动架构：直接从 registry 获取生命周期状态
+                    service_state = self.registry.get_service_state(id, name)
+                    state_metadata = self.registry.get_service_metadata(id, name)
 
                     service_status = {
                         "name": name,
