@@ -184,6 +184,38 @@ def create_app() -> FastAPI:
             except:
                 pass  # 忽略监控错误
     
+    # 添加 API 文档入口
+    @app.get("/doc")
+    async def api_documentation():
+        """
+        API 文档入口
+        
+        返回所有可用的 API 文档链接
+        """
+        return {
+            "message": "MCPStore API Documentation",
+            "version": "1.0.0",
+            "documentation": {
+                "swagger_ui": {
+                    "url": "/docs",
+                    "description": "Swagger UI - 交互式 API 文档，可以直接测试接口"
+                },
+                "redoc": {
+                    "url": "/redoc",
+                    "description": "ReDoc - 更美观的 API 文档展示"
+                },
+                "openapi_json": {
+                    "url": "/openapi.json",
+                    "description": "OpenAPI 规范文件（JSON 格式）"
+                }
+            },
+            "quick_links": {
+                "api_root": "/",
+                "health_check": "/health",
+                "route_info": "查看根路径 / 获取详细的路由统计信息"
+            }
+        }
+    
     # 添加健康检查端点
     @app.get("/health")
     async def health_check():
@@ -214,86 +246,6 @@ def create_app() -> FastAPI:
                     "service": "MCPStore API",
                     "error": str(e),
                     "timestamp": time.time()
-                }
-            )
-    
-    # 添加数据空间信息端点
-    @app.get("/workspace/info")
-    async def workspace_info():
-        """获取工作空间信息"""
-        try:
-            store = get_store()
-            
-            if store.is_using_data_space():
-                space_info = store.get_data_space_info()
-                return {
-                    "success": True,
-                    "data": space_info,
-                    "message": "Workspace information retrieved successfully"
-                }
-            else:
-                return {
-                    "success": True,
-                    "data": {
-                        "using_data_space": False,
-                        "mcp_config_path": store.config.json_path,
-                        "message": "Using default configuration"
-                    },
-                    "message": "Default workspace information"
-                }
-        except Exception as e:
-            logger.error(f"Failed to get workspace info: {e}")
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "success": False,
-                    "message": f"Failed to get workspace info: {str(e)}",
-                    "data": {}
-                }
-            )
-    
-    # 添加错误监控端点
-    @app.get("/errors/stats")
-    async def error_stats():
-        """获取错误统计信息"""
-        try:
-            from .api_exceptions import error_monitor
-            stats = error_monitor.get_error_stats()
-            return {
-                "success": True,
-                "data": stats,
-                "message": "Error statistics retrieved successfully"
-            }
-        except Exception as e:
-            logger.error(f"Failed to get error stats: {e}")
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "success": False,
-                    "message": f"Failed to get error stats: {str(e)}",
-                    "data": {}
-                }
-            )
-    
-    @app.post("/errors/clear")
-    async def clear_error_stats():
-        """清除错误统计信息"""
-        try:
-            from .api_exceptions import error_monitor
-            error_monitor.clear_stats()
-            return {
-                "success": True,
-                "data": {},
-                "message": "Error statistics cleared successfully"
-            }
-        except Exception as e:
-            logger.error(f"Failed to clear error stats: {e}")
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "success": False,
-                    "message": f"Failed to clear error stats: {str(e)}",
-                    "data": {}
                 }
             )
     

@@ -12,6 +12,8 @@ from fastmcp import Client
 from mcpstore.core.lifecycle import HealthStatus, HealthCheckResult
 from mcpstore.core.lifecycle.health_bridge import HealthStatusBridge
 from .health_monitoring import HealthMonitoringMixin
+from mcpstore.core.models.service import ServiceConnectionState
+
 
 logger = logging.getLogger(__name__)
 
@@ -89,11 +91,11 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
                 async with client:
                     tools = await client.list_tools()
 
-                    #  修复：更新Registry缓存
+                    #  修复：更新Registry缓存（不缓存临时client到Registry，会话用占位句柄）
                     await self._update_service_cache(agent_id, name, client, tools, service_config)
 
-                    # 更新客户端缓存（保持向后兼容）
-                    self.clients[name] = client
+                    # 不再缓存临时 client（async with 结束后将被关闭）
+                    # self.clients[name] = client
 
                     #  修复：通知生命周期管理器连接成功
                     await self.lifecycle_manager.handle_health_check_result(
@@ -205,8 +207,8 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
                     #  修复：更新Registry缓存
                     await self._update_service_cache(agent_id, name, client, tools, service_config)
 
-                    # 更新客户端缓存（保持向后兼容）
-                    self.clients[name] = client
+                    # 不缓存临时 client（async with 结束后会自动关闭）
+                    # self.clients[name] = client
 
                     #  修复：通知生命周期管理器连接成功
                     await self.lifecycle_manager.handle_health_check_result(
@@ -339,11 +341,15 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
                 else:
                     logger.debug(f" [CACHE_UPDATE] 服务 {service_name} 是新服务，跳过清理")
 
+                # Use a stable per-service session handle (not a live client)
+                session_handle = existing_session if existing_session is not None else object()
                 self.registry.add_service(
                     agent_id=agent_id,
                     name=service_name,
-                    session=client,
+                    session=session_handle,
                     tools=processed_tools,
+                    service_config=service_config,
+                    state=ServiceConnectionState.HEALTHY,
                     preserve_mappings=True
                 )
 
@@ -366,12 +372,15 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
                     else:
                         logger.debug(f" [CACHE_UPDATE] 服务 {service_name} 是新服务，跳过清理")
 
-                    # 添加到Registry缓存（保留映射）
+                    # 添加到Registry缓存（保留映射，使用稳定的占位句柄）
+                    session_handle = existing_session if existing_session is not None else object()
                     self.registry.add_service(
                         agent_id=agent_id,
                         name=service_name,
-                        session=client,
+                        session=session_handle,
                         tools=processed_tools,
+                        service_config=service_config,
+                        state=ServiceConnectionState.HEALTHY,
                         preserve_mappings=True
                     )
 

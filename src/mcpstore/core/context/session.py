@@ -527,9 +527,9 @@ class SessionContext:
         
         Now that SessionManagementMixin is integrated, we can use it to create sessions.
         """
-        # Use the context's session management to create a session
-        return self._context.create_session(self._session_id)
-    
+        # Use the context's session management to get or create a session (idempotent)
+        return self._context.get_session(self._session_id)
+
     async def _close_session_async(self):
         """
         Internal method to close session asynchronously
