@@ -157,76 +157,77 @@ markdown_extensions:
 # Navigation
 nav:
   - 🏠 首页: index.md
-  - 🚀 快速入门:
-    - 📦 安装: getting-started/installation.md
-    - ⚡ 快速演示: getting-started/quick-demo.md
-    - 🎭 两种使用模式: getting-started/usage-modes.md
-  - 📚 示例:
-    - find_service 与代理示例: examples/find-service-examples.md
-    - 本地测试脚本索引: examples/local-test-scripts.md
+  - 🚀 快速上手:
+    - 快速上手指南: getting-started/quickstart.md
   - 🔧 服务管理:
     - 服务概述: services/overview.md
-    - 服务注册:
-      - 服务注册概览: services/registration/register-service.md
+    - 📝 添加服务:
       - add_service(): services/registration/add-service.md
-      - add_service_with_details(): services/registration/add-service-with-details.md
-      - batch_add_services(): services/registration/batch-add-services.md
       - 配置格式速查表: services/registration/config-formats.md
-      - 注册架构详解: services/registration/architecture.md
       - 完整示例集合: services/registration/examples.md
-
-    - 服务查询:
-      - 服务列表概览: services/listing/service-listing-overview.md
+    - 🔍 查找服务:
       - find_service(): services/listing/find-service.md
-      - 服务代理（ServiceProxy）: services/listing/service-proxy.md
       - list_services(): services/listing/list-services.md
-      - get_service_info(): services/listing/get-service-info.md
-    - 健康监控:
+      - 服务代理（ServiceProxy）: services/listing/service-proxy.md
+    - 📊 服务详情:
+      - service_info(): services/details/service-info.md
+      - service_status(): services/details/service-status.md
+    - ⏳ 等待服务:
+      - wait_service(): services/waiting/wait-service.md
+    - 🏥 健康检查:
       - check_services(): services/health/check-services.md
-      - get_service_status(): services/health/get-service-status.md
-      - wait_service(): services/health/wait-service.md
-    - 服务管理:
-      - update_service(): services/management/update-service.md
-      - patch_service(): services/management/patch-service.md
-      - delete_service(): services/management/delete-service.md
+      - check_health(): services/health/check-health.md
+      - health_details(): services/health/health-details.md
+    - ⚙️ 更新服务:
+      - update_config(): services/management/update-service.md
+      - patch_config(): services/management/patch-service.md
+    - 🔄 重启服务:
       - restart_service(): services/management/restart-service.md
-    - 配置管理:
+      - refresh_content(): services/management/refresh-content.md
+    - 🗑️ 删除服务:
+      - remove_service(): services/management/remove-service.md
+      - delete_service(): services/management/delete-service.md
+    - 📋 配置管理:
       - reset_config(): services/config/reset-config.md
       - show_config(): services/config/show-config.md
 
   - 🛠️ 工具管理:
     - 工具概述: tools/overview.md
-    - 工具管理架构: tools/tool-architecture.md
-    - 工具查询:
-      - 工具列表概览: tools/listing/tool-listing-overview.md
-      - list_tools(): tools/listing/list-tools.md
-      - get_tools_with_stats(): tools/listing/get-tools-with-stats.md
-    - 工具调用:
-      - 工具使用概览: tools/usage/tool-usage-overview.md
+    - 🔍 查找工具:
+      - find_tool(): tools/finding/find-tool.md
+      - list_tools(): tools/finding/list-tools.md
+      - ToolProxy 概念: tools/finding/tool-proxy.md
+    - 📊 工具详情:
+      - tool_info(): tools/details/tool-info.md
+      - tool_tags(): tools/details/tool-tags.md
+      - tool_schema(): tools/details/tool-schema.md
+    - 🚀 使用工具:
       - call_tool(): tools/usage/call-tool.md
       - use_tool(): tools/usage/use-tool.md
-    - 统计分析:
-      - get_system_stats(): tools/stats/get-system-stats.md
-      - get_usage_stats(): tools/stats/get-usage-stats.md
-      - get_performance_report(): tools/stats/get-performance-report.md
-    - 工具转换:
-      - create_simple_tool(): tools/transform/create-simple-tool.md
-      - create_safe_tool(): tools/transform/create-safe-tool.md
-    - LangChain集成:
+    - ⚙️ 工具配置:
+      - set_redirect(): tools/config/set-redirect.md
+    - 📈 工具统计:
+      - usage_stats(): tools/stats/usage-stats.md
+      - call_history(): tools/stats/call-history.md
+      - tools_stats(): tools/stats/tools-stats.md
+  - 💾 数据库支持:
+    - Redis 支持: database/redis.md
+  - 🔗 框架集成:
+    - 集成概览: integrations/overview.md
+    - LangChain 集成:
       - for_langchain().list_tools(): tools/langchain/langchain-list-tools.md
       - 使用示例: tools/langchain/examples.md
+    - LlamaIndex 集成:
+      - for_llamaindex().list_tools(): tools/llamaindex/llamaindex-list-tools.md
+    - CrewAI 集成:
+      - for_crewai().list_tools(): tools/crewai/crewai-list-tools.md
+    - LangGraph 集成:
+      - for_langgraph().list_tools(): tools/langgraph/langgraph-list-tools.md
+    - AutoGen 集成:
+      - for_autogen().list_tools(): tools/autogen/autogen-list-tools.md
+    - Semantic Kernel 集成:
+      - for_semantic_kernel().list_tools(): tools/semantic-kernel/semantic-kernel-list-tools.md
   - 🔐 权限认证:
-      - LlamaIndex集成:
-        - for_llamaindex().list_tools(): tools/llamaindex/llamaindex-list-tools.md
-      - CrewAI集成:
-        - for_crewai().list_tools(): tools/crewai/crewai-list-tools.md
-      - LangGraph集成:
-        - for_langgraph().list_tools(): tools/langgraph/langgraph-list-tools.md
-      - AutoGen集成:
-        - for_autogen().list_tools(): tools/autogen/autogen-list-tools.md
-      - Semantic Kernel集成:
-        - for_semantic_kernel().list_tools(): tools/semantic-kernel/semantic-kernel-list-tools.md
-
     - 认证概览: authentication/overview.md
     - 认证配置: authentication/configuration.md
     - 使用示例: authentication/examples.md
