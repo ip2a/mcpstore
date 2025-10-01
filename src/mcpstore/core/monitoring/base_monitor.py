@@ -11,8 +11,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
-import aiohttp
-import psutil
+# 条件导入 psutil
+try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
+    psutil = None
 
 logger = logging.getLogger(__name__)
 
@@ -176,19 +181,38 @@ class MonitoringManager:
     
     def get_system_resource_info(self) -> SystemResourceInfo:
         """获取系统资源信息"""
+
+        # 检查 psutil 是否可用
+        if not HAS_PSUTIL:
+            logger.debug("System resource monitoring disabled (psutil not installed). Install with: pip install mcpstore[monitor]")
+            # 返回简化版信息
+            uptime_seconds = time.time() - self.start_time
+            uptime_str = str(timedelta(seconds=int(uptime_seconds)))
+
+            return SystemResourceInfo(
+                server_uptime=uptime_str,
+                memory_total=0,
+                memory_used=0,
+                memory_percentage=0.0,
+                disk_usage_percentage=0.0,
+                network_traffic_in=0,
+                network_traffic_out=0
+            )
+
+        # 原有逻辑（使用 psutil）
         # 内存信息
         memory = psutil.virtual_memory()
-        
+
         # 磁盘信息
         disk = psutil.disk_usage('/')
-        
+
         # 网络信息
         net_io = psutil.net_io_counters()
-        
+
         # 运行时间
         uptime_seconds = time.time() - self.start_time
         uptime_str = str(timedelta(seconds=int(uptime_seconds)))
-        
+
         return SystemResourceInfo(
             server_uptime=uptime_str,
             memory_total=memory.total,

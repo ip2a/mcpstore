@@ -8,17 +8,17 @@ version = "1.4.2976"
 description = "A composable, ready-to-use MCP toolkit for agents and rapid integration."
 readme = "README.md"
 requires-python = ">=3.10"
+
+# 🎯 核心依赖（最小可用）
 dependencies = [
     "fastapi>=0.115.12",
     "fastmcp>=2.7.1",
-    "httpx>=0.28.1",
+    "httpx>=0.28.1",        # 统一HTTP客户端（替代aiohttp）
     "pydantic>=2.11.5",
     "uvicorn>=0.30.0",
-    "typer>=0.9.0",
-    "watchdog>=3.0.0",
-    "aiohttp>=3.9.0",
-    "psutil>=5.9.0",
+    "typer>=0.9.0",         # CLI核心功能
 ]
+
 authors = [
     {name = "ooooofish", email = "ooooofish@126.com"}
 ]
@@ -32,8 +32,6 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
-
-
 [project.urls]
 "Homepage" = "https://github.com/whillhill/mcpstore"
 "Bug Tracker" = "https://github.com/whillhill/mcpstore/issues"
@@ -43,24 +41,53 @@ mcpstore = "mcpstore.cli.main:main"
 
 [project.optional-dependencies]
 
-test = [
-    # httpx已在主依赖中
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
+# 📊 监控功能（文件监控 + 系统资源监控）
+monitor = [
+    "watchdog>=3.0.0",      # 文件变化监控
+    "psutil>=5.9.0",        # 系统资源监控
 ]
+
+# 🗄️ Redis支持（完整依赖）
+redis = [
+    "redis[hiredis]>=5.0.0",
+]
+
+# 🦜 LangChain集成（适配器所需）
 langchain = [
     "langchain>=0.1.0",
     "langchain-core>=0.1.0",
     "langchain-openai>=0.1.0",
 ]
+
+# 🦙 LlamaIndex集成
 llamaindex = [
     "llama-index>=0.10.0"
 ]
+
+# 🤖 AutoGen集成
 autogen = [
     "autogen>=0.2.0"
 ]
+
+# 🧠 Semantic Kernel集成
 semantic-kernel = [
     "semantic-kernel>=0.5.0"
+]
+
+# ✅ 全部功能（monitor + redis + langchain）
+all = [
+    "watchdog>=3.0.0",
+    "psutil>=5.9.0",
+    "redis[hiredis]>=5.0.0",
+    "langchain>=0.1.0",
+    "langchain-core>=0.1.0",
+    "langchain-openai>=0.1.0",
+]
+
+# 🧪 开发和测试
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
 ]
 
 

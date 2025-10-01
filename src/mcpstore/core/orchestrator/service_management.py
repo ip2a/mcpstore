@@ -120,8 +120,8 @@ class ServiceManagementMixin:
 
         for name in services:
             try:
-                # 使用生命周期管理器获取服务状态
-                service_state = self.lifecycle_manager.get_service_state(agent_id, name)
+                # 🆕 事件驱动架构：直接从 registry 获取服务状态
+                service_state = self.registry.get_service_state(agent_id, name)
 
                 #  修复：新服务（状态为None）也应该被处理
                 if service_state is None:
@@ -203,8 +203,8 @@ class ServiceManagementMixin:
                 agent_key = agent_id
                 logger.debug(f"Using provided agent_id: {agent_key}")
 
-            #  修复：检查服务是否存在于生命周期管理器中
-            current_state = self.lifecycle_manager.get_service_state(agent_key, service_name)
+            # 🆕 事件驱动架构：直接从 registry 检查服务状态
+            current_state = self.registry.get_service_state(agent_key, service_name)
             if current_state is None:
                 logger.warning(f"Service {service_name} not found in lifecycle manager for agent {agent_key}")
                 # 检查是否存在于注册表中
@@ -280,19 +280,9 @@ class ServiceManagementMixin:
         agent_key = agent_id or self.client_manager.global_agent_store_id
         return self.registry.get_service_details(agent_key, service_name)
 
-    def update_service_health(self, service_name: str, agent_id: str = None):
-        """
-        ⚠️ 已废弃：此方法已被ServiceLifecycleManager替代
-        """
-        logger.debug(f"update_service_health is deprecated for service: {service_name}")
-        pass
-
-    def get_last_heartbeat(self, service_name: str, agent_id: str = None):
-        """
-        ⚠️ 已废弃：此方法已被ServiceLifecycleManager替代
-        """
-        logger.debug(f"get_last_heartbeat is deprecated for service: {service_name}")
-        return None
+    # 🆕 事件驱动架构：以下方法已被废弃并删除
+    # - update_service_health: 已被 ServiceLifecycleManager 替代
+    # - get_last_heartbeat: 已被 ServiceLifecycleManager 替代
 
     def has_service(self, service_name: str, agent_id: str = None):
         agent_key = agent_id or self.client_manager.global_agent_store_id

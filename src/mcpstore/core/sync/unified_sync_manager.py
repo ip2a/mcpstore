@@ -18,41 +18,56 @@ import os
 import time
 from pathlib import Path
 from typing import Dict, Set, Optional, Any
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
+
+# 条件导入 watchdog
+try:
+    from watchdog.observers import Observer
+    from watchdog.events import FileSystemEventHandler
+    HAS_WATCHDOG = True
+except ImportError:
+    HAS_WATCHDOG = False
+    Observer = None
+    FileSystemEventHandler = None
 
 logger = logging.getLogger(__name__)
 
 
-class MCPFileHandler(FileSystemEventHandler):
-    """MCP configuration file change handler"""
-    
-    def __init__(self, sync_manager):
-        self.sync_manager = sync_manager
-        self.mcp_filename = os.path.basename(sync_manager.mcp_json_path)
-        
-    def on_modified(self, event):
-        """File modification event handling"""
-        if event.is_directory:
-            return
+# 条件定义 MCPFileHandler
+if HAS_WATCHDOG:
+    class MCPFileHandler(FileSystemEventHandler):
+        """MCP configuration file change handler"""
 
-        # Only monitor target mcp.json file
-        if os.path.basename(event.src_path) == self.mcp_filename:
-            logger.debug(f"MCP config file modified: {event.src_path}")
-            # Safely execute async method in correct event loop
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # If event loop is running, use call_soon_threadsafe
-                    loop.call_soon_threadsafe(
-                        lambda: asyncio.create_task(self.sync_manager.on_file_changed())
-                    )
-                else:
-                    # 如果事件循环未运行，直接创建任务
-                    asyncio.create_task(self.sync_manager.on_file_changed())
-            except RuntimeError:
-                # 如果没有事件循环，记录警告
-                logger.warning("No event loop available for file change notification")
+        def __init__(self, sync_manager):
+            self.sync_manager = sync_manager
+            self.mcp_filename = os.path.basename(sync_manager.mcp_json_path)
+
+        def on_modified(self, event):
+            """File modification event handling"""
+            if event.is_directory:
+                return
+
+            # Only monitor target mcp.json file
+            if os.path.basename(event.src_path) == self.mcp_filename:
+                logger.debug(f"MCP config file modified: {event.src_path}")
+                # Safely execute async method in correct event loop
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # If event loop is running, use call_soon_threadsafe
+                        loop.call_soon_threadsafe(
+                            lambda: asyncio.create_task(self.sync_manager.on_file_changed())
+                        )
+                    else:
+                        # 如果事件循环未运行，直接创建任务
+                        asyncio.create_task(self.sync_manager.on_file_changed())
+                except RuntimeError:
+                    # 如果没有事件循环，记录警告
+                    logger.warning("No event loop available for file change notification")
+else:
+    # 占位类，避免引用错误
+    class MCPFileHandler:
+        """Placeholder when watchdog is not installed"""
+        pass
 
 
 class UnifiedMCPSyncManager:
@@ -85,10 +100,21 @@ class UnifiedMCPSyncManager:
         if self.is_running:
             logger.warning("Sync manager is already running")
             return
-            
+
+        # 检查 watchdog 是否可用
+        if not HAS_WATCHDOG:
+            logger.info("File monitoring disabled (watchdog not installed). Install with: pip install mcpstore[monitor]")
+            logger.info("Sync manager will run without file monitoring - manual sync only")
+            self.is_running = True  # 标记为运行，但不启动文件监控
+
+            # 执行启动时同步（始终启用）
+            logger.info("Executing initial sync from mcp.json")
+            await self.sync_global_agent_store_from_mcp_json()
+            return
+
         try:
             logger.info("Starting unified MCP sync manager...")
-            
+
             # 启动文件监听
             await self._start_file_watcher()
 
@@ -98,7 +124,7 @@ class UnifiedMCPSyncManager:
 
             self.is_running = True
             logger.info("Unified MCP sync manager started successfully")
-            
+
         except Exception as e:
             logger.error(f"Failed to start sync manager: {e}")
             await self.stop()
@@ -126,6 +152,10 @@ class UnifiedMCPSyncManager:
         
     async def _start_file_watcher(self):
         """启动mcp.json文件监听"""
+        if not HAS_WATCHDOG:
+            logger.warning("Cannot start file watcher: watchdog not installed")
+            return
+
         try:
             # 确保mcp.json文件存在
             if not os.path.exists(self.mcp_json_path):
@@ -136,18 +166,18 @@ class UnifiedMCPSyncManager:
                     import json
                     json.dump({"mcpServers": {}}, f, indent=2)
                 logger.info(f"Created empty MCP config file: {self.mcp_json_path}")
-            
+
             # 创建文件监听器
             self.file_observer = Observer()
             handler = MCPFileHandler(self)
-            
+
             # 监听mcp.json所在目录
             watch_dir = os.path.dirname(self.mcp_json_path)
             self.file_observer.schedule(handler, watch_dir, recursive=False)
             self.file_observer.start()
-            
+
             logger.info(f"File watcher started for directory: {watch_dir}")
-            
+
         except Exception as e:
             logger.error(f"Failed to start file watcher: {e}")
             raise

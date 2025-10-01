@@ -307,7 +307,7 @@ class ServiceRegistry:
                 self.clear_service_tools_only(agent_id, name)
             else:
                 # 传统逻辑：完全移除服务
-                logger.warning(f"Attempting to add already registered service: {name} for agent {agent_id}. Removing old service before overwriting.")
+                logger.debug(f"Re-registering service: {name} for agent {agent_id}. Removing old service before overwriting.")
                 self.remove_service(agent_id, name)
 
         # 存储服务信息（即使连接失败也存储）
@@ -396,7 +396,7 @@ class ServiceRegistry:
         """
         session = self.sessions.get(agent_id, {}).pop(name, None)
         if not session:
-            logger.warning(f"Attempted to remove non-existent service: {name} for agent {agent_id}")
+            logger.debug(f"Service {name} has no active session for agent {agent_id}. Cleaning up cache data only.")
             # 即使session不存在，也要清理可能存在的缓存数据
             self._cleanup_service_cache_data(agent_id, name)
             return None

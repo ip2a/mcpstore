@@ -53,56 +53,8 @@ class MonitoringTasksMixin:
 
         return True
 
-    async def _check_single_service_health(self, name: str, client_id: str) -> bool:
-        """检查单个服务的健康状态并更新生命周期状态"""
-        try:
-            # 执行详细健康检查
-            health_result = await self.check_service_health_detailed(name, client_id)
-            is_healthy = health_result.status != HealthStatus.UNHEALTHY
-
-            # 🆕 使用增强版健康检查处理，传递完整的状态信息
-            try:
-                suggested_state = HealthStatusBridge.map_health_to_lifecycle(health_result.status)
-                
-                # 使用增强版方法传递丰富的状态信息
-                await self.lifecycle_manager.handle_health_check_result_enhanced(
-                    agent_id=client_id,
-                    service_name=name,
-                    suggested_state=suggested_state,
-                    response_time=health_result.response_time,
-                    error_message=health_result.error_message
-                )
-
-                if is_healthy:
-                    logger.debug(f"Health check SUCCESS for: {name} (client_id={client_id}), mapped to: {suggested_state.value}")
-                    return True
-                else:
-                    logger.debug(f"Health check FAILED for {name} (client_id={client_id}): {health_result.error_message}, mapped to: {suggested_state.value}")
-                    return False
-            
-            except ValueError as mapping_error:
-                # 状态映射失败，回退到原有方法
-                logger.warning(f"Health status mapping failed for {name}: {mapping_error}, falling back to legacy method")
-                await self.lifecycle_manager.handle_health_check_result(
-                    agent_id=client_id,
-                    service_name=name,
-                    success=is_healthy,
-                    response_time=health_result.response_time,
-                    error_message=health_result.error_message
-                )
-                return is_healthy
-
-        except Exception as e:
-            logger.warning(f"Health check error for {name} (client_id={client_id}): {e}")
-            # 对于异常情况，仍使用原有方法
-            await self.lifecycle_manager.handle_health_check_result(
-                agent_id=client_id,
-                service_name=name,
-                success=False,
-                response_time=0.0,
-                error_message=str(e)
-            )
-            return False
+    # 🆕 事件驱动架构：_check_single_service_health 方法已被废弃并删除
+    # 健康检查功能已由 HealthMonitor 接管
 
 
 
@@ -111,24 +63,28 @@ class MonitoringTasksMixin:
         """重启监控任务"""
         try:
             logger.info("Restarting monitoring tasks...")
-            
-            # 重启生命周期管理器
+
+            # 🆕 事件驱动架构：lifecycle_manager 和 content_manager 已被设置为 None
+            # 这些检查会失败，不会执行重启逻辑
+            # 新架构中，ServiceContainer 负责管理所有组件的生命周期
+
+            # 重启生命周期管理器（已废弃）
             if hasattr(self, 'lifecycle_manager') and self.lifecycle_manager:
                 await self.lifecycle_manager.restart()
                 logger.info("Lifecycle manager restarted")
-            
-            # 重启内容管理器
+
+            # 重启内容管理器（已废弃）
             if hasattr(self, 'content_manager') and self.content_manager:
                 await self.content_manager.restart()
                 logger.info("Content manager restarted")
-            
+
             # 重启工具更新监控器
             if self.tools_update_monitor:
                 await self.tools_update_monitor.restart()
                 logger.info("Tools update monitor restarted")
-            
+
             logger.info("All monitoring tasks restarted successfully")
-            
+
         except Exception as e:
             logger.error(f"Failed to restart monitoring tasks: {e}")
             raise

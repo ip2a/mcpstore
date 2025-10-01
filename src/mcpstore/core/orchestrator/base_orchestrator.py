@@ -118,11 +118,13 @@ class MCPOrchestrator(
         # 健康管理器
         self.health_manager = get_health_manager()
 
-        # 服务生命周期管理器
-        self.lifecycle_manager = ServiceLifecycleManager(self)
+        # 🆕 事件驱动架构：生命周期管理器将由 ServiceContainer 管理
+        # 保留属性以兼容旧代码，但实际使用 store.container.lifecycle_manager
+        self.lifecycle_manager = None  # 将在 store 初始化后设置
 
-        # 服务内容管理器（替代旧的工具更新监控器）
-        self.content_manager = ServiceContentManager(self)
+        # 🆕 事件驱动架构：内容管理器暂时保留（未来可能迁移到事件驱动）
+        # self.content_manager = ServiceContentManager(self)
+        self.content_manager = None  # 暂时禁用，避免依赖旧的 lifecycle_manager
 
         # 旧的工具更新监控器（保留兼容性，但将被废弃）
         self.tools_update_monitor = None
@@ -177,13 +179,6 @@ class MCPOrchestrator(
 
     async def setup(self):
         """初始化编排器资源"""
-        # 检查是否已经初始化
-        if (hasattr(self, 'lifecycle_manager') and
-            self.lifecycle_manager and
-            self.lifecycle_manager.is_running):
-            logger.info("MCP Orchestrator already set up, skipping...")
-            return
-
         logger.info("Setting up MCP Orchestrator...")
 
         # 初始化健康管理器配置
@@ -192,11 +187,13 @@ class MCPOrchestrator(
         # 初始化工具更新监控器
         self._setup_tools_update_monitor()
 
-        # 启动生命周期管理器
-        await self.lifecycle_manager.start()
-
-        # 启动内容管理器
-        await self.content_manager.start()
+        # 🆕 事件驱动架构：启动 ServiceContainer（如果 store 已设置）
+        if hasattr(self, 'store') and self.store and hasattr(self.store, 'container'):
+            logger.info("Starting ServiceContainer components...")
+            await self.store.container.start()
+            logger.info("ServiceContainer components started")
+        else:
+            logger.warning("Store or ServiceContainer not available, skipping container startup")
 
         # 启动监控任务（仅启动保留的工具更新监控器）
         try:
@@ -215,7 +212,7 @@ class MCPOrchestrator(
             logger.error(f"_setup_sync_manager() traceback: {traceback.format_exc()}")
 
         # 只做必要的资源初始化
-        logger.info("MCP Orchestrator setup completed with lifecycle, content management and unified sync")
+        logger.info("MCP Orchestrator setup completed with event-driven architecture")
 
     async def _setup_sync_manager(self):
         """设置统一同步管理器"""
@@ -257,13 +254,11 @@ class MCPOrchestrator(
                 await self.sync_manager.stop()
                 self.sync_manager = None
 
-            # 停止生命周期管理器
-            if hasattr(self, 'lifecycle_manager') and self.lifecycle_manager:
-                await self.lifecycle_manager.stop()
-
-            # 停止内容管理器
-            if hasattr(self, 'content_manager') and self.content_manager:
-                await self.content_manager.stop()
+            # 🆕 事件驱动架构：停止 ServiceContainer
+            if hasattr(self, 'store') and self.store and hasattr(self.store, 'container'):
+                logger.info("Stopping ServiceContainer components...")
+                await self.store.container.stop()
+                logger.info("ServiceContainer components stopped")
 
             logger.info("MCP Orchestrator cleanup completed")
 
@@ -274,25 +269,14 @@ class MCPOrchestrator(
         """关闭编排器并清理资源"""
         logger.info("Shutting down MCP Orchestrator...")
 
-        #  修复：按正确顺序停止管理器，并添加错误处理
+        # 🆕 事件驱动架构：停止 ServiceContainer
         try:
-            # 先停止生命周期管理器（停止状态转换）
-            logger.debug("Stopping lifecycle manager...")
-            await self.lifecycle_manager.stop()
-            logger.debug("Lifecycle manager stopped")
+            if hasattr(self, 'store') and self.store and hasattr(self.store, 'container'):
+                logger.debug("Stopping ServiceContainer...")
+                await self.store.container.stop()
+                logger.debug("ServiceContainer stopped")
         except Exception as e:
-            logger.error(f"Error stopping lifecycle manager: {e}")
-
-        try:
-            # 再停止内容管理器（停止内容更新）
-            logger.debug("Stopping content manager...")
-            await self.content_manager.stop()
-            logger.debug("Content manager stopped")
-        except Exception as e:
-            logger.error(f"Error stopping content manager: {e}")
-
-        # 旧的后台任务已被废弃，无需停止
-        logger.info("Legacy monitoring tasks were already disabled")
+            logger.error(f"Error stopping ServiceContainer: {e}")
 
         logger.info("MCP Orchestrator shutdown completed")
 

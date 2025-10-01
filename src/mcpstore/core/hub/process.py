@@ -151,24 +151,24 @@ class HubProcess:
     async def _check_server_health(self) -> bool:
         """
         检查服务器健康状态
-        
+
         通过HTTP请求检查MCP服务器是否正常响应。
-        
+
         Returns:
             bool: 服务器是否健康
         """
         try:
-            import aiohttp
-            
+            import httpx
+
             # 简单的健康检查：尝试连接MCP端点
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
                     self.endpoint_url,
-                    timeout=aiohttp.ClientTimeout(total=5)
-                ) as response:
-                    # MCP服务器应该返回200或405（GET方法可能不被支持）
-                    return response.status in [200, 405]
-                    
+                    timeout=5.0
+                )
+                # MCP服务器应该返回200或405（GET方法可能不被支持）
+                return response.status_code in [200, 405]
+
         except Exception as e:
             logger.debug(f"Health check failed for '{self.package_name}': {e}")
             return False

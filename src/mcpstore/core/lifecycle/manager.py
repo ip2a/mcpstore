@@ -12,8 +12,8 @@ from typing import Dict, Optional, Any, Tuple, Set
 from mcpstore.core.models.service import ServiceConnectionState, ServiceStateMetadata
 from .config import ServiceLifecycleConfig
 from .state_machine import ServiceStateMachine
-from .initializing_processor import InitializingStateProcessor
-from .event_processor import StateChangeEventProcessor
+# 🆕 事件驱动架构：InitializingStateProcessor 和 StateChangeEventProcessor 已被废弃
+# 新架构中，ConnectionManager 直接监听 ServiceInitialized 事件并立即触发连接
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +39,8 @@ class ServiceLifecycleManager:
         # State machine
         self.state_machine = ServiceStateMachine(self.config)
 
-        # 🆕 新增处理器
-        self.initializing_processor = InitializingStateProcessor(self)
-        self.event_processor = StateChangeEventProcessor(self)
-        
+        # 🆕 事件驱动架构：处理器已被废弃，功能由 ConnectionManager、HealthMonitor、ReconnectionScheduler 接管
+
         # 📊 日志采样机制：避免频繁打印相同内容
         self._log_cache: Dict[str, Tuple[str, float]] = {}  # key -> (last_content, last_time)
 
@@ -96,8 +94,7 @@ class ServiceLifecycleManager:
             # 添加任务完成回调，用于错误处理
             self.lifecycle_task.add_done_callback(self._task_done_callback)
 
-            # 🆕 启动新的处理器
-            await self.initializing_processor.start()
+            # 🆕 事件驱动架构：不再需要启动处理器
 
             logger.debug("ServiceLifecycleManager started")
         except Exception as e:
@@ -118,9 +115,8 @@ class ServiceLifecycleManager:
                 logger.debug("Lifecycle management task was cancelled")
             except Exception as e:
                 logger.error(f"Error during lifecycle task cancellation: {e}")
-        
-        # 🆕 停止新的处理器
-        await self.initializing_processor.stop()
+
+        # 🆕 事件驱动架构：不再需要停止处理器
 
         # 清理状态
         self.state_change_queue.clear()
@@ -177,11 +173,8 @@ class ServiceLifecycleManager:
             # Add to processing queue
             self.state_change_queue.add((agent_id, service_name))
 
-            # 🆕 触发快速处理器立即处理INITIALIZING状态
-            if hasattr(self, 'initializing_processor') and self.initializing_processor:
-                asyncio.create_task(
-                    self.initializing_processor.trigger_immediate_processing(agent_id, service_name)
-                )
+            # 🆕 事件驱动架构：不再需要触发快速处理器
+            # ConnectionManager 会监听 ServiceInitialized 事件并立即触发连接
 
             logger.info(f"[INITIALIZE_SERVICE] initialized service='{service_name}' agent='{agent_id}' state=INITIALIZING")
             return True
@@ -351,8 +344,8 @@ class ServiceLifecycleManager:
     async def _on_state_entered(self, agent_id: str, service_name: str,
                               new_state: ServiceConnectionState, old_state: ServiceConnectionState):
         """状态进入时的处理逻辑"""
-        # 🆕 触发事件处理
-        await self.event_processor.on_state_change(agent_id, service_name, old_state, new_state)
+        # 🆕 事件驱动架构：不再需要事件处理器
+        # 状态变化事件由 EventBus 自动发布，各组件直接监听
 
         # 现有的状态进入处理逻辑
         await self.state_machine.on_state_entered(

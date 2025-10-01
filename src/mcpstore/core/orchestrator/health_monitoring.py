@@ -160,12 +160,11 @@ class HealthMonitoringMixin:
         try:
             agent_key = client_id or self.client_manager.global_agent_store_id
             
-            # 从生命周期管理器获取状态
-            if hasattr(self, 'lifecycle_manager') and self.lifecycle_manager:
-                lifecycle_state = self.lifecycle_manager.get_service_state(agent_key, service_name)
-                if lifecycle_state:
-                    return lifecycle_state.value
-            
+            # 🆕 事件驱动架构：直接从 registry 获取状态
+            lifecycle_state = self.registry.get_service_state(agent_key, service_name)
+            if lifecycle_state:
+                return lifecycle_state.value
+
             # 从注册表获取基本状态
             if self.registry.has_service(agent_key, service_name):
                 return "connected"

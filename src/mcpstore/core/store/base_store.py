@@ -75,6 +75,22 @@ class BaseMCPStore:
         from mcpstore.core.registry.smart_query import SmartCacheQuery
         self.query = SmartCacheQuery(self.registry)
 
+        # 🆕 事件驱动架构：初始化 ServiceContainer
+        from mcpstore.core.infrastructure.container import ServiceContainer
+        from mcpstore.core.configuration.config_processor import ConfigProcessor
+
+        self.container = ServiceContainer(
+            registry=self.registry,
+            agent_locks=self.agent_locks,
+            config_manager=self._unified_config,
+            config_processor=ConfigProcessor,
+            local_service_manager=self.local_service_manager,
+            global_agent_store_id=self.client_manager.global_agent_store_id,
+            enable_event_history=False  # 生产环境关闭事件历史
+        )
+
+        logger.info("ServiceContainer initialized with event-driven architecture")
+
     def _create_store_context(self) -> MCPStoreContext:
         """Create store-level context"""
         return MCPStoreContext(self)
