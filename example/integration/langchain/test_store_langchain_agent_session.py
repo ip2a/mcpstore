@@ -31,7 +31,7 @@ except ImportError as e:
 
 # 1️⃣ 初始化 Store 并添加 Playwright 服务
 print("\n1️⃣ 初始化 Store 并添加 Playwright 服务")
-store = MCPStore.setup_store(debug=False)
+store = MCPStore.setup_store(debug=True)
 service_config = {
     "mcpServers": {
         "playwright": {

@@ -25,53 +25,9 @@ store_router = APIRouter()
 
 # === Store-level operations ===
 
-@store_router.post("/for_store/sync_services", response_model=APIResponse)
-@handle_exceptions
-async def store_sync_services() -> APIResponse:
-    """手动触发服务同步
-    
-    强制从 mcp.json 重新同步 global_agent_store 中的所有服务。
-    这将重新加载配置并更新所有服务的状态。
-    
-    Returns:
-        APIResponse: 包含同步结果的响应对象
-        
-    Response Data Structure:
-        {
-            "success": bool,           # 同步是否成功
-            "data": {
-                "total_services": int, # 总服务数量
-                "added": int,          # 新增服务数量
-                "removed": int,        # 移除服务数量
-                "updated": int,        # 更新服务数量
-                "errors": List[str]    # 错误信息列表
-            },
-            "message": str            # 响应消息
-        }
-        
-    Raises:
-        MCPStoreException: 当同步过程中出现错误时抛出
-    """
-    try:
-        store = get_store()
-
-        if hasattr(store.orchestrator, 'sync_manager') and store.orchestrator.sync_manager:
-            results = await store.orchestrator.sync_manager.manual_sync()
-
-            return APIResponse(
-                success=True,
-                message="Services synchronized successfully",
-                data=results
-            )
-        else:
-            return APIResponse(
-                success=False,
-                message="Sync manager not available",
-                data=None
-            )
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
+# Note: sync_services 接口已删除（v0.6.0）
+# 原因：文件监听机制已自动化配置同步，无需手动触发
+# 迁移：直接修改 mcp.json 文件，系统将在1秒内自动同步
 
 @store_router.get("/for_store/sync_status", response_model=APIResponse)
 @handle_exceptions
@@ -329,15 +285,43 @@ async def store_list_services() -> APIResponse:
             message=f"Failed to retrieve services: {str(e)}"
         )
 
-@store_router.post("/for_store/init_service", response_model=APIResponse)
+@store_router.post("/for_store/reset_service", response_model=APIResponse)
 @handle_exceptions
-async def store_init_service(request: Request) -> APIResponse:
-    """Store 级别初始化服务到 INITIALIZING 状态
+async def store_reset_service(request: Request) -> APIResponse:
+    """Store 级别重置服务状态
+    
+    重置已存在服务的状态到 INITIALIZING，清除所有错误计数和历史记录，触发重新连接。
+    
+    适用场景：
+    - ✅ 服务处于 unreachable 或 disconnected 状态，需要重试
+    - ✅ 清除服务的连续失败计数和错误信息
+    - ✅ 手动触发服务重新连接
+    - ❌ 不适用：添加新服务（应使用 add_service）
 
     支持三种调用方式：
-    1. {"identifier": "service_name_or_client_id"}  # 通用方式
+    1. {"service_name": "weather"}                  # 推荐：明确service_name
     2. {"client_id": "client_123"}                  # 明确client_id
-    3. {"service_name": "weather"}                  # 明确service_name
+    3. {"identifier": "service_name_or_client_id"}  # 通用方式
+    
+    请求示例：
+        {"service_name": "weather"}
+    
+    响应示例：
+        {
+            "success": true,
+            "data": {
+                "service_name": "weather",
+                "previous_state": "unreachable",
+                "new_state": "initializing",
+                "reset_timestamp": "2025-10-01T12:34:56Z",
+                "cleared_data": {
+                    "consecutive_failures": 5,
+                    "reconnect_attempts": 3,
+                    "error_message": "Connection timeout"
+                },
+                "expected_recovery_time": "2-4s"
+            }
+        }
     """
     try:
         # 解析 JSON 请求体
@@ -358,23 +342,42 @@ async def store_init_service(request: Request) -> APIResponse:
         client_id = body.get("client_id")
         service_name = body.get("service_name")
 
-        # 调用 init_service 方法
+        # 确定使用的标识符
+        used_identifier = service_name or identifier or client_id
+        
+        # 获取重置前的状态信息
+        from datetime import datetime
+        agent_id = store.orchestrator.client_manager.global_agent_store_id
+        previous_state = store.registry.get_service_state(agent_id, used_identifier)
+        previous_metadata = store.registry.get_service_metadata(agent_id, used_identifier)
+        
+        # 记录清除的数据
+        cleared_data = {}
+        if previous_metadata:
+            cleared_data = {
+                "consecutive_failures": previous_metadata.consecutive_failures,
+                "reconnect_attempts": previous_metadata.reconnect_attempts,
+                "error_message": previous_metadata.error_message
+            }
+
+        # 调用 init_service 方法重置状态
         await context.init_service_async(
             client_id_or_service_name=identifier,
             client_id=client_id,
             service_name=service_name
         )
 
-        # 确定使用的标识符用于响应消息
-        used_identifier = identifier or client_id or service_name
-
         return APIResponse(
             success=True,
-            message=f"Service '{used_identifier}' initialized to INITIALIZING state successfully",
+            message=f"Service '{used_identifier}' has been reset and will attempt reconnection",
             data={
-                "identifier": used_identifier,
-                "context": "store",
-                "status": "initializing"
+                "service_name": used_identifier,
+                "previous_state": previous_state.value if previous_state else "unknown",
+                "new_state": "initializing",
+                "reset_timestamp": datetime.now().isoformat(),
+                "cleared_data": cleared_data,
+                "expected_recovery_time": "2-4s",
+                "context": "store"
             }
         )
 
@@ -387,7 +390,7 @@ async def store_init_service(request: Request) -> APIResponse:
     except Exception as e:
         return APIResponse(
             success=False,
-            message=f"Failed to initialize service: {str(e)}",
+            message=f"Failed to reset service: {str(e)}",
             data=None
         )
 
@@ -510,32 +513,8 @@ async def store_call_tool(request: SimpleToolExecutionRequest) -> APIResponse:
             message=f"Tool execution failed: {str(e)}"
         )
 
-@store_router.post("/for_store/get_service_info", response_model=APIResponse)
-@handle_exceptions
-async def store_get_service_info(request: Request) -> APIResponse:
-    """Store 级别获取服务信息"""
-    try:
-        body = await request.json()
-        service_name = body.get("name")
-
-        if not service_name:
-            raise HTTPException(status_code=400, detail="Service name is required")
-
-        store = get_store()
-        context = store.for_store()
-        service_info = context.get_service_info(service_name)
-
-        return APIResponse(
-            success=True,
-            data=service_info,
-            message=f"Service info retrieved for '{service_name}'"
-        )
-    except Exception as e:
-        return APIResponse(
-            success=False,
-            data={},
-            message=f"Failed to get service info: {str(e)}"
-        )
+# ❌ 已删除 POST /for_store/get_service_info (v0.6.0)
+# 请使用 GET /for_store/service_info/{service_name} 替代（RESTful规范）
 
 @store_router.put("/for_store/update_service/{service_name}", response_model=APIResponse)
 @handle_exceptions
@@ -581,153 +560,27 @@ async def store_delete_service(service_name: str):
             message=f"Failed to delete service '{service_name}': {str(e)}"
         )
 
-@store_router.get("/for_store/show_mcpconfig", response_model=APIResponse)
-@handle_exceptions
-async def store_show_mcpconfig() -> APIResponse:
-    """Store 级别获取MCP配置"""
-    try:
-        store = get_store()
-        context = store.for_store()
-        config = context.show_mcpconfig()
-
-        return APIResponse(
-            success=True,
-            data=config,
-            message="MCP configuration retrieved successfully"
-        )
-    except Exception as e:
-        return APIResponse(
-            success=False,
-            data={},
-            message=f"Failed to get MCP configuration: {str(e)}"
-        )
-
-
-
-@store_router.post("/for_store/delete_service_two_step", response_model=APIResponse)
-@handle_exceptions
-async def store_delete_service_two_step(request: Request):
-    """Store 级别两步操作：从MCP JSON文件删除服务 + 注销服务"""
-    try:
-        body = await request.json()
-        service_name = body.get("service_name") or body.get("name")
-
-        if not service_name:
-            raise HTTPException(status_code=400, detail="Service name is required")
-
-        store = get_store()
-        result = await store.for_store().delete_service_two_step(service_name)
-
-        return APIResponse(
-            success=result["overall_success"],
-            data=result,
-            message=f"Service {service_name} deleted successfully" if result["overall_success"]
-                   else f"Partial success: JSON deleted={result['step1_json_delete']}, Service unregistered={result['step2_service_unregistration']}"
-        )
-
-    except Exception as e:
-        return APIResponse(
-            success=False,
-            data={"error": str(e)},
-            message=f"Failed to delete service: {str(e)}"
-        )
-
-@store_router.post("/services/activate", response_model=APIResponse)
-@handle_exceptions
-async def activate_service(body: dict):
-    """
-    激活配置文件中的服务
-
-    Request Body:
-        {
-            "name": "service_name"  # 要激活的服务名称
-        }
-    """
-    try:
-        service_name = body.get("name")
-
-        if not service_name:
-            raise HTTPException(status_code=400, detail="Service name is required")
-
-        store = get_store()
-        context = store.for_store()
-
-        # 检查服务是否存在于配置中
-        services = context.list_services()
-        target_service = None
-        for service in services:
-            if service.name == service_name:
-                target_service = service
-                break
-
-        if not target_service:
-            return APIResponse(
-                success=False,
-                data={},
-                message=f"Service '{service_name}' not found in configuration"
-            )
-
-        # 检查服务是否已经激活
-        if target_service.state_metadata is not None:
-            return APIResponse(
-                success=True,
-                data={
-                    "service_name": service_name,
-                    "status": target_service.status.value,
-                    "already_active": True
-                },
-                message=f"Service '{service_name}' is already activated"
-            )
-
-        # 激活服务
-        activation_config = {
-            "name": service_name
-        }
-        if target_service.url:
-            activation_config["url"] = target_service.url
-        if target_service.command:
-            activation_config["command"] = target_service.command
-
-        #  修复：不直接返回MCPStoreContext对象
-        context.add_service(activation_config)
-
-        # 获取激活后的服务状态
-        updated_services = context.list_services()
-        activated_service = None
-        for service in updated_services:
-            if service.name == service_name:
-                activated_service = service
-                break
-
-        return APIResponse(
-            success=True,
-            data={
-                "service_name": service_name,
-                "status": activated_service.status.value if activated_service else "unknown",
-                "is_active": activated_service.state_metadata is not None if activated_service else False,
-                "message": "Service activated successfully"
-            },
-            message=f"Service '{service_name}' activated successfully"
-        )
-
-    except Exception as e:
-        return APIResponse(
-            success=False,
-            data={"error": str(e)},
-            message=f"Failed to activate service: {str(e)}"
-        )
-    except Exception as e:
-        return APIResponse(
-            success=False,
-            data={"error": str(e)},
-            message=f"Failed to delete service: {str(e)}"
-        )
-
 @store_router.get("/for_store/show_config", response_model=APIResponse)
 @handle_exceptions
 async def store_show_config(scope: str = "all"):
     """
-    Store 级别显示配置信息
+    【缓存层】获取运行时配置和服务映射关系
+    
+    数据来源：从 Registry 缓存读取
+    返回内容：
+    - 服务配置
+    - client_id 映射关系
+    - 运行时状态（通过其他接口获取）
+    
+    使用场景：
+    - 查看当前运行的服务配置
+    - 检查 service → client_id 的映射关系
+    - 调试服务注册状态
+    - 查看所有 Agent 的服务分布
+    
+    对比 show_mcpjson：
+    - show_mcpjson：文件层，静态配置
+    - show_config：缓存层，运行时状态
 
     Args:
         scope: 显示范围
@@ -837,12 +690,23 @@ async def store_update_config(client_id_or_service_name: str, new_config: dict) 
 @handle_exceptions
 async def store_reset_config(scope: str = "all"):
     """
-    Store 级别重置配置
-
+    【推荐】重置配置（缓存+文件全量重置）
+    
+    执行操作：
+    1. 清空 Registry 缓存（所有服务状态、工具、会话等）
+    2. 重置 mcp.json 配置文件
+    
+    使用场景：
+    - 清理所有服务，重新开始
+    - 解决配置冲突问题
+    - 系统维护和重置
+    
     Args:
         scope: 重置范围
             - "all": 重置所有缓存和所有JSON文件（默认）
             - "global_agent_store": 只重置global_agent_store
+    
+    注意：此操作不可逆，请谨慎使用
     """
     try:
         store = get_store()
@@ -861,17 +725,32 @@ async def store_reset_config(scope: str = "all"):
             message=f"Failed to reset store configuration: {str(e)}"
         )
 
-@store_router.post("/for_store/reset_mcp_json_file", response_model=APIResponse)
+@store_router.post("/for_store/reset_mcpjson", response_model=APIResponse)
 @handle_exceptions
-async def store_reset_mcp_json_file() -> APIResponse:
-    """Store 级别直接重置MCP JSON配置文件"""
+async def store_reset_mcpjson() -> APIResponse:
+    """
+    【文件层】重置 mcp.json 配置文件
+    
+    ⚠️ 警告：此接口会同时清空缓存和文件，与 reset_config 功能重复
+    
+    执行操作：
+    1. 清空 Registry 缓存（所有服务状态）
+    2. 重置 mcp.json 为空配置 {"mcpServers": {}}
+    
+    对比 reset_config：
+    - reset_config: 重置所有配置（缓存+文件）
+    - reset_mcpjson: 重置所有配置（缓存+文件）
+    - 实际功能相同，建议统一使用 reset_config
+    
+    已更名：reset_mcp_json_file → reset_mcpjson（v0.6.0）
+    """
     try:
         store = get_store()
         success = await store.for_store().reset_mcp_json_file_async()
         return APIResponse(
             success=success,
             data=success,
-            message="MCP JSON file reset successfully" if success else "Failed to reset MCP JSON file"
+            message="MCP JSON file and cache reset successfully" if success else "Failed to reset MCP JSON file"
         )
     except Exception as e:
         return APIResponse(
@@ -882,67 +761,62 @@ async def store_reset_mcp_json_file() -> APIResponse:
 
 # Removed shard-file reset APIs (client_services.json / agent_clients.json) in single-source mode
 
-# === Store 级别统计和监控 ===
-@store_router.get("/for_store/get_stats", response_model=APIResponse)
+@store_router.get("/for_store/setup_config", response_model=APIResponse)
 @handle_exceptions
-async def store_get_stats() -> APIResponse:
-    """Store 级别获取系统统计信息"""
+async def store_setup_config() -> APIResponse:
+    """
+    获取初始化的所有配置详情
+    
+    返回内容：
+    - Store 配置信息
+    - 所有 Agent 配置
+    - 服务映射关系
+    - 缓存状态概览
+    - 生命周期管理器状态
+    
+    使用场景：
+    - 系统启动后查看完整配置
+    - 调试配置问题
+    - 导出系统配置快照
+    - 管理界面展示系统状态
+    
+    🚧 注意：此接口正在开发中，返回结构可能会调整
+    """
     try:
         store = get_store()
-        context = store.for_store()
-        # 使用SDK的统计方法
-        stats = context.get_system_stats()
-
+        
+        # TODO: 实现完整的配置详情获取逻辑
+        # 1. 获取 Store 级别配置
+        # 2. 获取所有 Agent 配置
+        # 3. 获取服务映射关系
+        # 4. 获取缓存状态
+        # 5. 获取生命周期管理器状态
+        
+        # 临时返回基础信息
+        setup_info = {
+            "status": "under_development",
+            "message": "此接口正在开发中，将在后续版本实现完整功能",
+            "available_endpoints": {
+                "config_query": "GET /for_store/show_config - 查看运行时配置",
+                "mcp_json": "GET /for_store/show_mcpjson - 查看 mcp.json 文件",
+                "services": "GET /for_store/list_services - 查看所有服务"
+            }
+        }
+        
         return APIResponse(
             success=True,
-            data=stats,
-            message="System statistics retrieved successfully"
+            data=setup_info,
+            message="Setup config endpoint (under development)"
         )
+        
     except Exception as e:
         return APIResponse(
             success=False,
             data={},
-            message=f"Failed to get system statistics: {str(e)}"
+            message=f"Failed to get setup config: {str(e)}"
         )
 
-@store_router.get("/for_store/health", response_model=APIResponse)
-@handle_exceptions
-async def store_health_check() -> APIResponse:
-    """Store 级别系统健康检查"""
-    try:
-        # 检查Store级别健康状态
-        store = get_store()
-        store_health = await store.for_store().check_services_async()
-
-        # 基本系统信息
-        health_info = {
-            "status": "healthy",
-            "timestamp": store_health.get("timestamp") if isinstance(store_health, dict) else None,
-            "store": store_health,
-            "system": {
-                "api_version": "0.2.0",
-                "store_initialized": bool(store),
-                "orchestrator_status": store_health.get("orchestrator_status", "unknown") if isinstance(store_health, dict) else "unknown",
-                "context": "store"
-            }
-        }
-
-        return APIResponse(
-            success=True,
-            data=health_info,
-            message="Health check completed successfully"
-        )
-
-    except Exception as e:
-        return APIResponse(
-            success=False,
-            data={
-                "status": "unhealthy",
-                "error": str(e),
-                "context": "store"
-            },
-            message=f"Health check failed: {str(e)}"
-        )
+# === Store 级别统计和监控 ===
 
 @store_router.get("/for_store/tool_records", response_model=APIResponse)
 async def get_store_tool_records(limit: int = 50, store: MCPStore = Depends(get_store)):
@@ -995,63 +869,6 @@ async def get_store_tool_records(limit: int = 50, store: MCPStore = Depends(get_
                 }
             },
             message=f"Failed to get tool records: {str(e)}"
-        )
-
-@store_router.post("/for_store/network_check", response_model=APIResponse)
-async def check_store_network_endpoints(request: NetworkEndpointCheckRequest, store: MCPStore = Depends(get_store)):
-    """检查Store级别的网络端点状态"""
-    try:
-        store = get_store()
-        endpoints = await store.for_store().check_network_endpoints(request.endpoints)
-
-        endpoints_data = [
-            NetworkEndpointResponse(
-                endpoint_name=endpoint.endpoint_name,
-                url=endpoint.url,
-                status=endpoint.status,
-                response_time=endpoint.response_time,
-                last_checked=endpoint.last_checked,
-                uptime_percentage=endpoint.uptime_percentage
-            ).dict() for endpoint in endpoints
-        ]
-
-        return APIResponse(
-            success=True,
-            data=endpoints_data,
-            message="Network endpoints checked successfully"
-        )
-    except Exception as e:
-        return APIResponse(
-            success=False,
-            data=[],
-            message=f"Failed to check network endpoints: {str(e)}"
-        )
-
-@store_router.get("/for_store/system_resources", response_model=APIResponse)
-async def get_store_system_resources(store: MCPStore = Depends(get_store)):
-    """获取Store级别的系统资源信息"""
-    try:
-        store = get_store()
-        resources = await store.for_store().get_system_resource_info_async()
-
-        return APIResponse(
-            success=True,
-            data=SystemResourceInfoResponse(
-                server_uptime=resources.server_uptime,
-                memory_total=resources.memory_total,
-                memory_used=resources.memory_used,
-                memory_percentage=resources.memory_percentage,
-                disk_usage_percentage=resources.disk_usage_percentage,
-                network_traffic_in=resources.network_traffic_in,
-                network_traffic_out=resources.network_traffic_out
-            ).dict(),
-            message="System resources retrieved successfully"
-        )
-    except Exception as e:
-        return APIResponse(
-            success=False,
-            data={},
-            message=f"Failed to get system resources: {str(e)}"
         )
 
 # === 向后兼容性路由 ===
@@ -1197,122 +1014,8 @@ async def store_wait_service(request: Request):
             message=f"Failed to wait for service: {str(e)}",
             data={"error": str(e)}
         )
-
-# ===  新增：Agent 相关端点 ===
-
-@store_router.get("/for_store/list_services_by_agent", response_model=APIResponse)
-@handle_exceptions
-async def store_list_services_by_agent(agent_id: Optional[str] = None):
-    """按 Agent 筛选服务列表"""
-    try:
-        store = get_store()
-        context = store.for_store()
-
-        # 获取所有服务
-        all_services = context.list_services()
-
-        if agent_id is None:
-            # 返回所有服务
-            services_data = []
-            for service in all_services:
-                service_data = {
-                    "name": service.name,
-                    "transport": service.transport_type.value if service.transport_type else "unknown",
-                    "status": service.status.value if service.status else "unknown",
-                    "client_id": service.client_id,
-                    "tool_count": service.tool_count,
-                    "is_agent_service": "_byagent_" in service.name,
-                    "agent_id": None,
-                    "local_name": None
-                }
-
-                # 如果是 Agent 服务，解析 Agent 信息
-                if service_data["is_agent_service"]:
-                    try:
-                        from mcpstore.core.parsers.agent_service_parser import AgentServiceParser
-                        parser = AgentServiceParser()
-                        info = parser.parse_agent_service_name(service.name)
-                        if info.is_valid:
-                            service_data["agent_id"] = info.agent_id
-                            service_data["local_name"] = info.local_name
-                    except Exception as e:
-                        logger.warning(f"Failed to parse agent service {service.name}: {e}")
-
-                services_data.append(service_data)
-
-            return APIResponse(
-                success=True,
-                message="All services retrieved successfully",
-                data={
-                    "services": services_data,
-                    "total_count": len(services_data),
-                    "agent_filter": None
-                }
-            )
-
-        else:
-            # 筛选指定 Agent 的服务
-            agent_services = []
-            store_services = []
-
-            for service in all_services:
-                if "_byagent_" in service.name:
-                    # Agent 服务
-                    try:
-                        from mcpstore.core.parsers.agent_service_parser import AgentServiceParser
-                        parser = AgentServiceParser()
-                        info = parser.parse_agent_service_name(service.name)
-                        if info.is_valid and info.agent_id == agent_id:
-                            service_data = {
-                                "name": service.name,
-                                "transport": service.transport_type.value if service.transport_type else "unknown",
-                                "status": service.status.value if service.status else "unknown",
-                                "client_id": service.client_id,
-                                "tool_count": service.tool_count,
-                                "is_agent_service": True,
-                                "agent_id": info.agent_id,
-                                "local_name": info.local_name
-                            }
-                            agent_services.append(service_data)
-                    except Exception as e:
-                        logger.warning(f"Failed to parse agent service {service.name}: {e}")
-                else:
-                    # Store 原生服务
-                    if agent_id == "global_agent_store":
-                        service_data = {
-                            "name": service.name,
-                            "transport": service.transport_type.value if service.transport_type else "unknown",
-                            "status": service.status.value if service.status else "unknown",
-                            "client_id": service.client_id,
-                            "tool_count": service.tool_count,
-                            "is_agent_service": False,
-                            "agent_id": "global_agent_store",
-                            "local_name": service.name
-                        }
-                        store_services.append(service_data)
-
-            # 合并结果
-            filtered_services = agent_services + store_services
-
-            return APIResponse(
-                success=True,
-                message=f"Services for agent '{agent_id}' retrieved successfully",
-                data={
-                    "services": filtered_services,
-                    "total_count": len(filtered_services),
-                    "agent_filter": agent_id,
-                    "agent_services_count": len(agent_services),
-                    "store_services_count": len(store_services)
-                }
-            )
-
-    except Exception as e:
-        logger.error(f"Store list services by agent error: {e}")
-        return APIResponse(
-            success=False,
-            message=f"Failed to list services by agent: {str(e)}",
-            data={"error": str(e)}
-        )
+# ===  Agent 相关端点已移除 ===
+# 使用 /for_agent/{agent_id}/list_services 来获取Agent的服务列表（推荐）
 
 @store_router.get("/for_store/list_all_agents", response_model=APIResponse)
 @handle_exceptions
@@ -1395,30 +1098,24 @@ async def store_list_all_agents() -> APIResponse:
 
 
 
-@store_router.get("/for_store/get_json_config", response_model=APIResponse)
-@handle_exceptions
-async def store_get_json_config() -> APIResponse:
-    """Store 级别获取 JSON 配置"""
-    try:
-        store = get_store()
-        config = store.get_json_config()
-        return APIResponse(
-            success=True,
-            data=config,
-            message="JSON configuration retrieved successfully"
-        )
-    except Exception as e:
-        logger.error(f"Failed to get JSON config: {e}")
-        return APIResponse(
-            success=False,
-            data={},
-            message=f"Failed to get JSON configuration: {str(e)}"
-        )
-
 @store_router.get("/for_store/show_mcpjson", response_model=APIResponse)
 @handle_exceptions
 async def store_show_mcpjson() -> APIResponse:
-    """Store 级别显示 mcp.json 内容（已存在，但确保与其他配置 API 一致）"""
+    """
+    【文件层】获取 mcp.json 配置文件的原始内容
+    
+    数据来源：直接读取 mcp.json 文件
+    返回内容：文件的静态配置，不包含运行时状态
+    
+    使用场景：
+    - 查看持久化的服务配置
+    - 检查配置文件是否正确
+    - 导出配置用于备份
+    
+    对比 show_config：
+    - show_mcpjson：文件层，静态配置
+    - show_config：缓存层，运行时状态
+    """
     try:
         store = get_store()
         mcpjson = store.show_mcpjson()
@@ -1440,14 +1137,28 @@ async def store_show_mcpjson() -> APIResponse:
 @store_router.get("/for_store/service_info/{service_name}", response_model=APIResponse)
 @handle_exceptions
 async def store_get_service_info_detailed(service_name: str):
-    """Store 级别获取服务详细信息
+    """
+    【完整】获取服务详细信息
     
-    提供服务的完整信息，包括：
-    - 基本配置信息
-    - 运行状态
+    数据来源：Registry 缓存 + 主动健康检查
+    性能：🐌 较慢（包含健康检查调用）
+    
+    返回内容：
+    - 基本配置信息（command, args, env, url）
+    - 运行状态（status, transport, client_id）
     - 生命周期状态元数据
-    - 工具列表
-    - 健康检查结果
+    - 工具列表（完整的工具信息）
+    - 健康检查结果（实时检查）
+    
+    使用场景：
+    - 服务详情页展示
+    - 调试和诊断
+    - 完整服务信息导出
+    
+    🔮 后续优化计划：
+    - [ ] 考虑移除主动健康检查，改为纯缓存读取
+    - [ ] 将健康检查独立为专门的接口（已有独立接口）
+    - [ ] 提升查询性能，与 service_status 对齐
     """
     try:
         store = get_store()
@@ -1531,7 +1242,28 @@ async def store_get_service_info_detailed(service_name: str):
 @store_router.get("/for_store/service_status/{service_name}", response_model=APIResponse)
 @handle_exceptions
 async def store_get_service_status(service_name: str):
-    """Store 级别获取服务状态"""
+    """
+    【轻量级】获取服务状态（纯缓存读取）
+    
+    数据来源：Registry 缓存
+    性能：⚡ 极快（毫秒级）
+    
+    返回内容：
+    - 服务基本信息（name, client_id, status）
+    - 生命周期状态（成功/失败计数、错误信息）
+    - 最后更新时间
+    
+    使用场景：
+    - 轮询监控服务状态
+    - Dashboard 实时展示
+    - 快速状态检查
+    - 列表页批量查询
+    
+    ⚠️ 注意：
+    - 不执行主动健康检查（使用专门的健康检查接口）
+    - 不包含工具列表（使用 service_info 或 list_tools）
+    - 纯读取缓存，不发起网络请求
+    """
     try:
         store = get_store()
         context = store.for_store()
@@ -1584,148 +1316,4 @@ async def store_get_service_status(service_name: str):
             success=False,
             data={},
             message=f"Failed to get service status: {str(e)}"
-        )
-
-@store_router.post("/for_store/service_health/{service_name}", response_model=APIResponse)
-@handle_exceptions
-async def store_check_service_health(service_name: str):
-    """Store 级别检查服务健康状态"""
-    try:
-        store = get_store()
-        context = store.for_store()
-        
-        # 首先检查服务是否存在
-        service = None
-        all_services = context.list_services()
-        for s in all_services:
-            if s.name == service_name:
-                service = s
-                break
-        
-        if not service:
-            return APIResponse(
-                success=False,
-                data={},
-                message=f"Service '{service_name}' not found"
-            )
-        
-        # 执行健康检查
-        health_status = await context.check_services_async()
-        service_health = None
-        
-        if isinstance(health_status, dict) and "services" in health_status:
-            service_health = health_status["services"].get(service_name)
-        
-        if not service_health:
-            return APIResponse(
-                success=False,
-                data={"service_name": service_name},
-                message=f"Health status not available for service '{service_name}'"
-            )
-        
-        # 构建健康详情
-        health_details = {
-            "service_name": service_name,
-            "status": service_health.get("status", "unknown"),
-            "message": service_health.get("message", "No health information available"),
-            "timestamp": service_health.get("timestamp"),
-            "uptime": service_health.get("uptime"),
-            "error_count": service_health.get("error_count", 0),
-            "last_error": service_health.get("last_error"),
-            "response_time": service_health.get("response_time"),
-            "is_healthy": service_health.get("status") in ["healthy", "ready"]
-        }
-        
-        return APIResponse(
-            success=True,
-            data=health_details,
-            message=f"Health check completed for service '{service_name}'"
-        )
-        
-    except Exception as e:
-        logger.error(f"Failed to check service health for {service_name}: {e}")
-        return APIResponse(
-            success=False,
-            data={"service_name": service_name, "error": str(e)},
-            message=f"Failed to check service health: {str(e)}"
-        )
-
-@store_router.get("/for_store/service_health_details/{service_name}", response_model=APIResponse)
-@handle_exceptions
-async def store_get_service_health_details(service_name: str):
-    """Store 级别获取服务健康详情"""
-    try:
-        store = get_store()
-        context = store.for_store()
-        
-        # 首先检查服务是否存在
-        service = None
-        all_services = context.list_services()
-        for s in all_services:
-            if s.name == service_name:
-                service = s
-                break
-        
-        if not service:
-            return APIResponse(
-                success=False,
-                data={},
-                message=f"Service '{service_name}' not found"
-            )
-        
-        # 获取完整的服务信息
-        service_info = {
-            "name": service.name,
-            "status": service.status.value if service.status else "unknown",
-            "client_id": service.client_id,
-            "transport": service.transport_type.value if service.transport_type else "unknown"
-        }
-        
-        # 添加生命周期状态
-        if service.state_metadata:
-            service_info["lifecycle"] = {
-                "consecutive_successes": service.state_metadata.consecutive_successes,
-                "consecutive_failures": service.state_metadata.consecutive_failures,
-                "error_message": service.state_metadata.error_message,
-                "reconnect_attempts": service.state_metadata.reconnect_attempts,
-                "last_ping_time": service.state_metadata.last_ping_time.isoformat() if service.state_metadata.last_ping_time else None,
-                "state_entered_time": service.state_metadata.state_entered_time.isoformat() if service.state_metadata.state_entered_time else None
-            }
-        
-        # 执行健康检查
-        health_status = await context.check_services_async()
-        service_health = None
-        
-        if isinstance(health_status, dict) and "services" in health_status:
-            service_health = health_status["services"].get(service_name)
-        
-        health_details = service_health or {
-            "status": "unknown",
-            "message": "Health check not available"
-        }
-        
-        # 合并信息
-        result = {
-            "service": service_info,
-            "health": health_details,
-            "summary": {
-                "is_healthy": health_details.get("status") in ["healthy", "ready"],
-                "is_active": service.state_metadata is not None,
-                "has_errors": bool(service.state_metadata and service.state_metadata.error_message),
-                "consecutive_failures": service.state_metadata.consecutive_failures if service.state_metadata else 0
-            }
-        }
-        
-        return APIResponse(
-            success=True,
-            data=result,
-            message=f"Health details retrieved for service '{service_name}'"
-        )
-        
-    except Exception as e:
-        logger.error(f"Failed to get service health details for {service_name}: {e}")
-        return APIResponse(
-            success=False,
-            data={},
-            message=f"Failed to get service health details: {str(e)}"
         )

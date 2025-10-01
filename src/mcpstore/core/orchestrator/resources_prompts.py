@@ -7,6 +7,8 @@ import time
 import logging
 from typing import Dict, List, Any, Optional
 
+from mcpstore.core.utils.mcp_client_helpers import temp_client_for_service
+
 logger = logging.getLogger(__name__)
 
 class ResourcesPromptsMixin:
@@ -134,17 +136,18 @@ class ResourcesPromptsMixin:
             if service_name:
                 # 获取特定服务的资源
                 # 从Registry获取当前活跃会话
-                client = self.registry.get_session(client_id, service_name)
-                if not client:
+                service_config = self.registry.get_service_config_from_cache(client_id, service_name)
+                if not service_config:
                     return {
                         "success": False,
-                        "error": f"Service '{service_name}' not found or not connected",
+                        "error": f"Service '{service_name}' not found or not configured",
                         "data": [],
                         "service_name": service_name,
                         "timestamp": self._get_timestamp()
                     }
 
-                resources = await client.list_resources()
+                async with temp_client_for_service(service_name, service_config) as client:
+                    resources = await client.list_resources()
                 return {
                     "success": True,
                     "data": [self._safe_model_dump(resource) for resource in resources],
@@ -159,8 +162,11 @@ class ResourcesPromptsMixin:
 
                 for sname in services:
                     try:
-                        client = self.client_manager.get_client(client_id, sname)
-                        if client:
+                        s_config = self.registry.get_service_config_from_cache(client_id, sname)
+                        if not s_config:
+                            all_resources[sname] = []
+                            continue
+                        async with temp_client_for_service(sname, s_config) as client:
                             resources = await client.list_resources()
                             all_resources[sname] = [self._safe_model_dump(resource) for resource in resources]
                     except Exception as e:
@@ -224,18 +230,19 @@ class ResourcesPromptsMixin:
                 client_id = self.client_manager.global_agent_store_id
 
             if service_name:
-                # 获取特定服务的资源模板
-                client = self.client_manager.get_client(client_id, service_name)
-                if not client:
+                # 获取特定服务的资源模板（使用临时client）
+                service_config = self.registry.get_service_config_from_cache(client_id, service_name)
+                if not service_config:
                     return {
                         "success": False,
-                        "error": f"Service '{service_name}' not found",
+                        "error": f"Service '{service_name}' not found or not configured",
                         "data": [],
                         "service_name": service_name,
                         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
                     }
 
-                templates = await client.list_resource_templates()
+                async with temp_client_for_service(service_name, service_config) as client:
+                    templates = await client.list_resource_templates()
                 return {
                     "success": True,
                     "data": [self._safe_model_dump(template) for template in templates],
@@ -250,8 +257,11 @@ class ResourcesPromptsMixin:
 
                 for sname in services:
                     try:
-                        client = self.client_manager.get_client(client_id, sname)
-                        if client:
+                        s_config = self.registry.get_service_config_from_cache(client_id, sname)
+                        if not s_config:
+                            all_templates[sname] = []
+                            continue
+                        async with temp_client_for_service(sname, s_config) as client:
                             templates = await client.list_resource_templates()
                             all_templates[sname] = [template.model_dump() for template in templates]
                     except Exception as e:
@@ -329,19 +339,20 @@ class ResourcesPromptsMixin:
                 client_id = self.client_manager.global_agent_store_id
 
             if service_name:
-                # 从特定服务读取资源
-                client = self.client_manager.get_client(client_id, service_name)
-                if not client:
+                # 从特定服务读取资源（使用临时client）
+                service_config = self.registry.get_service_config_from_cache(client_id, service_name)
+                if not service_config:
                     return {
                         "success": False,
-                        "error": f"Service '{service_name}' not found",
+                        "error": f"Service '{service_name}' not found or not configured",
                         "data": None,
                         "uri": uri,
                         "service_name": service_name,
                         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
                     }
 
-                content = await client.read_resource(uri)
+                async with temp_client_for_service(service_name, service_config) as client:
+                    content = await client.read_resource(uri)
                 return {
                     "success": True,
                     "data": [self._safe_model_dump(item) for item in content],
@@ -360,8 +371,10 @@ class ResourcesPromptsMixin:
 
                 for sname in services:
                     try:
-                        client = self.client_manager.get_client(client_id, sname)
-                        if client:
+                        s_config = self.registry.get_service_config_from_cache(client_id, sname)
+                        if not s_config:
+                            continue
+                        async with temp_client_for_service(sname, s_config) as client:
                             content = await client.read_resource(uri)
                             return {
                                 "success": True,
@@ -435,17 +448,18 @@ class ResourcesPromptsMixin:
 
             if service_name:
                 # 获取特定服务的提示词
-                client = self.registry.get_session(client_id, service_name)
-                if not client:
+                service_config = self.registry.get_service_config_from_cache(client_id, service_name)
+                if not service_config:
                     return {
                         "success": False,
-                        "error": f"Service '{service_name}' not found or not connected",
+                        "error": f"Service '{service_name}' not found or not configured",
                         "data": [],
                         "service_name": service_name,
                         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
                     }
 
-                prompts = await client.list_prompts()
+                async with temp_client_for_service(service_name, service_config) as client:
+                    prompts = await client.list_prompts()
                 return {
                     "success": True,
                     "data": [prompt.model_dump() for prompt in prompts],
@@ -460,8 +474,11 @@ class ResourcesPromptsMixin:
 
                 for sname in services:
                     try:
-                        client = self.client_manager.get_client(client_id, sname)
-                        if client:
+                        s_config = self.registry.get_service_config_from_cache(client_id, sname)
+                        if not s_config:
+                            all_prompts[sname] = []
+                            continue
+                        async with temp_client_for_service(sname, s_config) as client:
                             prompts = await client.list_prompts()
                             all_prompts[sname] = [prompt.model_dump() for prompt in prompts]
                     except Exception as e:
@@ -536,19 +553,20 @@ class ResourcesPromptsMixin:
                 arguments = {}
 
             if service_name:
-                # 从特定服务获取提示词
-                client = self.client_manager.get_client(client_id, service_name)
-                if not client:
+                # 从特定服务获取提示词（使用临时client）
+                service_config = self.registry.get_service_config_from_cache(client_id, service_name)
+                if not service_config:
                     return {
                         "success": False,
-                        "error": f"Service '{service_name}' not found",
+                        "error": f"Service '{service_name}' not found or not configured",
                         "data": None,
                         "name": name,
                         "service_name": service_name,
                         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
                     }
 
-                result = await client.get_prompt(name, arguments)
+                async with temp_client_for_service(service_name, service_config) as client:
+                    result = await client.get_prompt(name, arguments)
                 return {
                     "success": True,
                     "data": result.model_dump(),
@@ -568,8 +586,10 @@ class ResourcesPromptsMixin:
 
                 for sname in services:
                     try:
-                        client = self.registry.get_session(client_id, sname)
-                        if client:
+                        s_config = self.registry.get_service_config_from_cache(client_id, sname)
+                        if not s_config:
+                            continue
+                        async with temp_client_for_service(sname, s_config) as client:
                             result = await client.get_prompt(name, arguments)
                             return {
                                 "success": True,

@@ -8,16 +8,17 @@ Refactoring notes:
   * api_decorators.py - Decorators and utility functions
   * api_store.py - Store-level routes
   * api_agent.py - Agent-level routes
-  * api_monitoring.py - Monitoring-related routes
 - This file is responsible for unified registration of all sub-routes, maintaining API interface compatibility
+
+v0.6.0 Changes:
+- Removed api_monitoring.py (23 interfaces) - Overly complex, users can implement with basic interfaces
+- Removed api_langchain.py (7 interfaces) - Framework-specific integration, not core functionality
+- Removed api_data_space.py (6 interfaces) - Workspace management moved to separate service
 """
 
 from fastapi import APIRouter
 
 from .api_agent import agent_router
-from .api_monitoring import monitoring_router
-from .api_data_space import data_space_router
-from .api_langchain import langchain_router
 # Import all sub-route modules
 from .api_store import store_router
 
@@ -33,15 +34,6 @@ router.include_router(store_router, tags=["Store Operations"])
 # Agent-level operation routes
 router.include_router(agent_router, tags=["Agent Operations"])
 
-# Monitoring and statistics routes
-router.include_router(monitoring_router, tags=["Monitoring & Statistics"])
-
-# Data space and workspace management routes
-router.include_router(data_space_router, tags=["Data Space & Workspace"])
-
-# LangChain integration routes
-router.include_router(langchain_router, tags=["LangChain Integration"])
-
 # Maintain backward compatibility - export commonly used functions and classes
 # This way existing import statements can still work normally
 
@@ -51,23 +43,14 @@ def get_route_info():
     total_routes = len(router.routes)
     store_routes = len(store_router.routes)
     agent_routes = len(agent_router.routes)
-    monitoring_routes = len(monitoring_router.routes)
-    data_space_routes = len(data_space_router.routes)
-    langchain_routes = len(langchain_router.routes)
 
     return {
         "total_routes": total_routes,
         "store_routes": store_routes,
         "agent_routes": agent_routes,
-        "monitoring_routes": monitoring_routes,
-        "data_space_routes": data_space_routes,
-        "langchain_routes": langchain_routes,
         "modules": {
             "api_store.py": f"{store_routes} routes",
-            "api_agent.py": f"{agent_routes} routes",
-            "api_monitoring.py": f"{monitoring_routes} routes",
-            "api_data_space.py": f"{data_space_routes} routes",
-            "api_langchain.py": f"{langchain_routes} routes"
+            "api_agent.py": f"{agent_routes} routes"
         }
     }
 

@@ -11,6 +11,9 @@ from typing import Dict, List, Optional, Any, Set
 
 from .message_handler import MCPStoreMessageHandler, FASTMCP_AVAILABLE
 
+from mcpstore.core.utils.mcp_client_helpers import temp_client_for_service
+from mcpstore.core.models.service import ServiceConnectionState
+
 logger = logging.getLogger(__name__)
 
 
@@ -91,7 +94,7 @@ class ToolsUpdateMonitor:
             result = await self.trigger_immediate_update()
             result["trigger"] = "notification"
             result["notification_type"] = notification_type
-            
+
             logger.debug(f"Tools monitor update completed: {result}")
             return result
 
@@ -115,7 +118,7 @@ class ToolsUpdateMonitor:
             return
 
         self.is_running = True
-        
+
         try:
             loop = asyncio.get_running_loop()
             self.update_task = loop.create_task(self._update_loop())
@@ -129,7 +132,7 @@ class ToolsUpdateMonitor:
     async def stop(self):
         """停止工具更新监控"""
         self.is_running = False
-        
+
         if self.update_task and not self.update_task.done():
             logger.debug("Cancelling tools update task...")
             self.update_task.cancel()
@@ -139,7 +142,7 @@ class ToolsUpdateMonitor:
                 logger.debug("Tools update task was cancelled")
             except Exception as e:
                 logger.error(f"Error during tools update task cancellation: {e}")
-        
+
         logger.info("ToolsUpdateMonitor stopped")
 
     def _task_done_callback(self, task):
@@ -150,21 +153,21 @@ class ToolsUpdateMonitor:
             logger.error(f"Tools update task failed: {task.exception()}")
         else:
             logger.info("Tools update task completed normally")
-        
+
         self.is_running = False
 
     async def _update_loop(self):
         """工具更新主循环"""
         logger.info("Starting tools update loop")
-        
+
         while self.is_running:
             try:
                 # 执行定期更新
                 await self._perform_scheduled_update()
-                
+
                 # 等待下一次更新
                 await asyncio.sleep(self.tools_update_interval)
-                
+
             except asyncio.CancelledError:
                 logger.info("Tools update loop was cancelled")
                 break
@@ -172,7 +175,7 @@ class ToolsUpdateMonitor:
                 logger.error(f" Error in tools update loop: {e}")
                 # 继续运行，不要因为单次错误而停止整个循环
                 await asyncio.sleep(60)  # 错误后等待1分钟再继续
-        
+
         logger.info("Tools update loop ended")
 
     async def _perform_scheduled_update(self):
@@ -181,16 +184,16 @@ class ToolsUpdateMonitor:
             return
 
         logger.debug("[TOOLS_MONITOR] scheduled_update start")
-        
+
         try:
             result = await self.trigger_immediate_update()
             result["trigger"] = "scheduled"
-            
+
             if result.get("changed", False):
                 logger.info(f"[TOOLS_MONITOR] scheduled_update changes result={result}")
             else:
                 logger.debug(f"[TOOLS_MONITOR] scheduled_update no_changes result={result}")
-                
+
         except Exception as e:
             logger.error(f" Error during scheduled update: {e}")
 
@@ -206,13 +209,13 @@ class ToolsUpdateMonitor:
 
         logger.debug("[TOOLS_MONITOR] immediate_update start")
         start_time = time.time()
-        
+
         # 获取所有活跃的服务
         all_services = []
         for client_id in self.registry.sessions:
             for service_name in self.registry.sessions[client_id]:
                 all_services.append((client_id, service_name))
-        
+
         if not all_services:
             logger.debug("[TOOLS_MONITOR] no_active_services")
             return {
@@ -223,7 +226,7 @@ class ToolsUpdateMonitor:
             }
 
         logger.debug(f"Found {len(all_services)} services to update")
-        
+
         # 并发更新所有服务
         update_tasks = []
         for client_id, service_name in all_services:
@@ -231,20 +234,20 @@ class ToolsUpdateMonitor:
                 self._update_service_tools(client_id, service_name)
             )
             update_tasks.append(task)
-        
+
         # 等待所有更新完成
         results = await asyncio.gather(*update_tasks, return_exceptions=True)
-        
+
         # 分析结果
         total_services = len(all_services)
         successful_updates = 0
         failed_updates = 0
         services_with_changes = 0
         total_changes = 0
-        
+
         for i, result in enumerate(results):
             client_id, service_name = all_services[i]
-            
+
             if isinstance(result, Exception):
                 failed_updates += 1
                 logger.error(f"[TOOLS_MONITOR] update_failed service='{service_name}' client='{client_id}' error={result}")
@@ -259,9 +262,9 @@ class ToolsUpdateMonitor:
             else:
                 failed_updates += 1
                 logger.error(f"[TOOLS_MONITOR] unexpected_result_type service='{service_name}' client='{client_id}' type={type(result)}")
-        
+
         duration = time.time() - start_time
-        
+
         summary = {
             "changed": services_with_changes > 0,
             "total_services": total_services,
@@ -272,7 +275,7 @@ class ToolsUpdateMonitor:
             "duration": duration,
             "timestamp": datetime.now().isoformat()
         }
-        
+
         logger.info(f"[TOOLS_MONITOR] immediate_update done summary={summary}")
         return summary
 
@@ -290,12 +293,12 @@ class ToolsUpdateMonitor:
         try:
             logger.debug(f"[TOOLS_MONITOR] updating service='{service_name}' client='{client_id}'")
 
-            # 获取客户端会话（统一从Registry缓存获取）
-            client = self.registry.get_session(client_id, service_name)
-            if not client:
+            # 获取服务配置（使用缓存配置创建临时客户端）
+            service_config = self.registry.get_service_config_from_cache(client_id, service_name)
+            if not service_config:
                 return {
                     "changed": False,
-                    "error": f"No active session found for {service_name}",
+                    "error": f"No service config found for {service_name}",
                     "service_name": service_name,
                     "client_id": client_id
                 }
@@ -303,10 +306,11 @@ class ToolsUpdateMonitor:
             # 获取当前工具列表
             old_tools = set(self.registry.get_tools_for_service(client_id, service_name))
 
-            # 从服务获取最新工具列表
+            # 从服务获取最新工具列表（使用临时 client）
             try:
-                tools_response = await client.list_tools()
-                new_tools = {tool.name for tool in tools_response}
+                async with temp_client_for_service(service_name, service_config) as client:
+                    tools_response = await client.list_tools()
+                    new_tools = {tool.name for tool in tools_response}
             except Exception as e:
                 logger.error(f"[TOOLS_MONITOR] list_tools_failed service='{service_name}' error={e}")
                 return {
@@ -360,10 +364,28 @@ class ToolsUpdateMonitor:
                     if agent_locks:
                         async with agent_locks.write(client_id):
                             self.registry.clear_service_tools_only(client_id, service_name)
-                            self.registry.add_service(agent_id=client_id, name=service_name, session=session, tools=processed_tools, preserve_mappings=True)
+                            current_state = self.registry.get_service_state(client_id, service_name)
+                            self.registry.add_service(
+                                agent_id=client_id,
+                                name=service_name,
+                                session=session,
+                                tools=processed_tools,
+                                service_config=service_config,
+                                state=current_state or ServiceConnectionState.HEALTHY,
+                                preserve_mappings=True
+                            )
                     else:
                         self.registry.clear_service_tools_only(client_id, service_name)
-                        self.registry.add_service(agent_id=client_id, name=service_name, session=session, tools=processed_tools, preserve_mappings=True)
+                        current_state = self.registry.get_service_state(client_id, service_name)
+                        self.registry.add_service(
+                            agent_id=client_id,
+                            name=service_name,
+                            session=session,
+                            tools=processed_tools,
+                            service_config=service_config,
+                            state=current_state or ServiceConnectionState.HEALTHY,
+                            preserve_mappings=True
+                        )
 
                     # 触发全量工具定义刷新，确保缓存定义同步
                     try:
