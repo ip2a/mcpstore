@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol, Dict, Any, Optional, List, Tuple
+from typing import Protocol, Dict, Any, Optional, List
 
 
 class CacheBackend(Protocol):

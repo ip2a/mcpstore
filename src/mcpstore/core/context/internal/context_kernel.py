@@ -7,7 +7,7 @@ No external API changes; callers still use MCPStoreContext methods.
 
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any
 
 from ..types import ContextType
 

@@ -20,7 +20,8 @@ export const globalComponentsConfig: GlobalComponentConfig[] = [
     component: defineAsyncComponent(
       () => import('@/components/core/layouts/art-global-search/index.vue')
     ),
-    enabled: true
+    // MCP-only: 关闭以避免加载不必要的全局模块
+    enabled: false
   },
   {
     name: '锁屏',
@@ -28,7 +29,8 @@ export const globalComponentsConfig: GlobalComponentConfig[] = [
     component: defineAsyncComponent(
       () => import('@/components/core/layouts/art-screen-lock/index.vue')
     ),
-    enabled: true
+    // MCP-only: 关闭以避免对已删除用户模块的依赖
+    enabled: false
   },
   {
     name: '聊天窗口',

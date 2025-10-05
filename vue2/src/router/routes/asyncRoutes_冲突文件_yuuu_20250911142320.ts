@@ -1,7 +1,6 @@
 import { RoutesAlias } from '../routesAlias'
 import { AppRouteRecord } from '@/types/router'
 import { WEB_LINKS } from '@/utils/constants'
-import { getMcpMenuConfig } from '@/mcp/constants/menu'
 
 /**
  * 菜单列表、异步路由
@@ -18,16 +17,105 @@ import { getMcpMenuConfig } from '@/mcp/constants/menu'
  * 2、path、name 不要和动态路由冲突，否则会导致路由冲突无法访问
  */
 export const asyncRoutes: AppRouteRecord[] = [
-  // MCP核心功能菜单 - 从统一配置导入
-  ...getMcpMenuConfig(),
+  // 主页一级菜单配置示例：
+  // {
+  //   name: 'Home',
+  //   path: '/home',
+  //   component: RoutesAlias.Dashboard,
+  //   meta: {
+  //     title: 'menus.dashboard.console',
+  //     icon: '&#xe733;',
+  //     keepAlive: false
+  //   }
+  // },
+  {
+    name: 'Dashboard',
+    path: '/dashboard',
+    component: RoutesAlias.McpDashboard,
+    meta: {
+      title: 'menus.dashboard.title',
+      icon: '&#xe721;',
+      keepAlive: false,
+      fixedTab: true,
+      roles: ['R_SUPER', 'R_ADMIN'] // 角色权限，前端控制模式（只有拥有这些角色的用户才能访问）
+    }
+  },
+  {
+    name: 'ServiceList',
+    path: '/services',
+    component: RoutesAlias.ServiceList,
+    meta: {
+      title: '服务列表',
+      icon: '&#xe7aa;',
+      keepAlive: false,
+      roles: ['R_SUPER', 'R_ADMIN']
+    }
+  },
+  {
+    name: 'AddService',
+    path: '/add-service',
+    component: RoutesAlias.AddService,
+    meta: {
+      title: '添加服务',
+      icon: '&#xe812;',
+      keepAlive: false,
+      roles: ['R_SUPER', 'R_ADMIN']
+    }
+  },
+  {
+    name: 'ToolList',
+    path: '/tools',
+    component: RoutesAlias.ToolList,
+    meta: {
+      title: '工具列表',
+      icon: '&#xe82a;',
+      keepAlive: false,
+      roles: ['R_SUPER', 'R_ADMIN']
+    }
+  },
+  {
+    name: 'ToolExecute',
+    path: '/tools/execute',
+    component: RoutesAlias.ToolExecute,
+    meta: {
+      title: '工具执行器',
+      icon: '&#xe828;',
+      keepAlive: false,
+      roles: ['R_SUPER', 'R_ADMIN']
+    }
+  },
+  // 配置管理（一级页面，无子级）
+  {
+    name: 'ConfigManager',
+    path: '/config-manager',
+    component: RoutesAlias.ConfigManager,
+    meta: {
+      title: '配置管理',
+      icon: '&#xe7d1;',
+      keepAlive: false,
+      roles: ['R_SUPER', 'R_ADMIN']
+    }
+  },
+  // Agent 列表（一级）
+  {
+    name: 'AgentsList',
+    path: '/agents',
+    component: RoutesAlias.AgentsList,
+    meta: {
+      title: 'Agent列表',
+      icon: '&#xe7c3;',
+      keepAlive: false,
+      roles: ['R_SUPER', 'R_ADMIN']
+    }
+  },
+
   {
     path: '/template',
     name: 'Template',
     component: RoutesAlias.Layout,
     meta: {
       title: 'menus.template.title',
-      icon: '&#xe860;',
-      isHide: true // 隐藏模板中心菜单
+      icon: '&#xe860;'
     },
     children: [
       {
@@ -102,8 +190,7 @@ export const asyncRoutes: AppRouteRecord[] = [
     component: RoutesAlias.Layout,
     meta: {
       title: 'menus.widgets.title',
-      icon: '&#xe81a;',
-      isHide: true // 隐藏组件中心菜单
+      icon: '&#xe81a;'
     },
     children: [
       {
@@ -231,7 +318,7 @@ export const asyncRoutes: AppRouteRecord[] = [
         meta: {
           title: 'menus.widgets.elementUI',
           keepAlive: false,
-          link: 'https://doc.mcpstore.wiki/',
+          link: 'https://element-plus.org/zh-CN/component/overview.html',
           isIframe: true,
           showBadge: true
         }
@@ -246,8 +333,7 @@ export const asyncRoutes: AppRouteRecord[] = [
     meta: {
       title: 'menus.examples.title',
       icon: '&#xe8d4;',
-      showBadge: true,
-      isHide: true // 隐藏功能示例菜单
+      showBadge: true
     },
     children: [
       {
@@ -379,8 +465,7 @@ export const asyncRoutes: AppRouteRecord[] = [
       title: 'menus.system.title',
       icon: '&#xe7b9;',
       showBadge: true,
-      roles: ['R_SUPER', 'R_ADMIN'],
-      isHide: true // 隐藏系统管理菜单
+      roles: ['R_SUPER', 'R_ADMIN']
     },
     children: [
       {
@@ -536,8 +621,7 @@ export const asyncRoutes: AppRouteRecord[] = [
     meta: {
       title: 'menus.article.title',
       icon: '&#xe7ae;',
-      roles: ['R_SUPER', 'R_ADMIN'],
-      isHide: true // 隐藏文章管理菜单
+      roles: ['R_SUPER', 'R_ADMIN']
     },
     children: [
       {
@@ -603,8 +687,7 @@ export const asyncRoutes: AppRouteRecord[] = [
     component: RoutesAlias.Layout,
     meta: {
       title: 'menus.result.title',
-      icon: '&#xe715;',
-      isHide: true // 隐藏结果页面菜单
+      icon: '&#xe715;'
     },
     children: [
       {
@@ -633,8 +716,7 @@ export const asyncRoutes: AppRouteRecord[] = [
     component: RoutesAlias.Layout,
     meta: {
       title: 'menus.exception.title',
-      icon: '&#xe820;',
-      isHide: true // 隐藏异常页面菜单
+      icon: '&#xe820;'
     },
     children: [
       {
@@ -677,8 +759,7 @@ export const asyncRoutes: AppRouteRecord[] = [
     meta: {
       title: 'menus.safeguard.title',
       icon: '&#xe816;',
-      keepAlive: false,
-      isHide: true // 隐藏运维管理菜单
+      keepAlive: false
     },
     children: [
       {
@@ -701,8 +782,7 @@ export const asyncRoutes: AppRouteRecord[] = [
       icon: '&#xe73e;',
       link: WEB_LINKS.DOCS,
       isIframe: false,
-      keepAlive: false,
-      isHide: true // 隐藏文档链接
+      keepAlive: false
     }
   },
   {
@@ -714,8 +794,7 @@ export const asyncRoutes: AppRouteRecord[] = [
       icon: '&#xe7ff;',
       link: WEB_LINKS.LiteVersion,
       isIframe: false,
-      keepAlive: false,
-      isHide: true // 隐藏精简版链接
+      keepAlive: false
     }
   },
   // 一级菜单
@@ -727,8 +806,7 @@ export const asyncRoutes: AppRouteRecord[] = [
       title: 'menus.plan.log',
       showTextBadge: `v${__APP_VERSION__}`,
       icon: '&#xe712;',
-      keepAlive: false,
-      isHide: true // 隐藏更新日志菜单
+      keepAlive: false
     }
   }
 ]

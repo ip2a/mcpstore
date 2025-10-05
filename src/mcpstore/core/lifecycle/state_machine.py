@@ -4,8 +4,7 @@ Responsible for handling service state transition logic
 """
 
 import logging
-from datetime import datetime, timedelta
-from typing import Optional
+from datetime import datetime
 
 from mcpstore.core.models.service import ServiceConnectionState, ServiceStateMetadata
 from .config import ServiceLifecycleConfig

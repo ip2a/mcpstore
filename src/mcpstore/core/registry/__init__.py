@@ -32,10 +32,11 @@ __all__ = [
 ]
 
 # Main exports - maintain backward compatibility
-from .core_registry import ServiceRegistry, SessionProtocol, SessionType
+from .core_registry import ServiceRegistry
+# Protocols and type helpers are defined in types module
+from .types import SessionProtocol, SessionType, RegistryTypes
 # SchemaManager removed in single-source mode; no longer exported
 from .tool_resolver import ToolNameResolver, ToolResolution
-from .types import RegistryTypes
 
 # For backward compatibility, also export some commonly used types
 try:

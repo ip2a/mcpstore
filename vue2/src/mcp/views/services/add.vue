@@ -133,7 +133,7 @@ import { reactive, ref, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { useRouter } from 'vue-router'
-import { dashboardApi } from '../../mcp/api/dashboard'
+import { dashboardApi } from '../../api/dashboard'
 
 defineOptions({ name: 'AddService' })
 
@@ -292,28 +292,28 @@ const buildPayload = () => {
     // 用户直接贴 MCP JSON（必须是合法 JSON）
     try {
       const obj = JSON.parse(formData.jsonConfig)
-      return obj
+      // 不确定后端 JSON 模式字段名，暂采用 mcpServers 原样透传；如需改为 { type: 'json', config: obj } 请确认
+      return { mcpServers: obj }
     } catch {
       ElMessage.error('JSON 配置不是合法的 JSON，请检查后重试')
       throw new Error('Invalid JSON config')
     }
   }
   if (serviceType.value === 'remote') {
+    // v2: 明确传递 type/name/url
     return {
-      mcpServers: {
-        [formData.name]: {
-          url: formData.url
-        }
-      }
+      type: 'remote',
+      name: formData.name,
+      url: formData.url,
+      description: formData.description || undefined
     }
   }
   // local
   return {
-    mcpServers: {
-      [formData.name]: {
-        command: formData.command
-      }
-    }
+    type: 'local',
+    name: formData.name,
+    command: formData.command,
+    description: formData.description || undefined
   }
 }
 
@@ -322,7 +322,7 @@ const confirmAdd = async () => {
   submitLoading.value = true
   try {
     const payload = buildPayload()
-    const res = await dashboardApi.addService(payload, 'auto')
+    const res = await dashboardApi.addService(payload)
     if (res?.success) {
       ElMessage.success(res?.message || '服务添加成功！')
       previewVisible.value = false

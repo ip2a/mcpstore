@@ -31,9 +31,10 @@ print("\n📋 Redis 配置:")
 for key, value in redis_config.items():
     print(f"   {key}: {value}")
 
-# 1️⃣ 使用 Redis 初始化
-print("\n1️⃣ 使用 Redis 初始化")
-store = MCPStore.setup_store(debug=True, redis=redis_config)
+# 1️⃣ 使用 Redis 初始化（新架构：external_db.cache.redis）
+print("\n1️⃣ 使用 Redis 初始化（external_db.cache.redis）")
+external_db = {"cache": {"type": "redis", **redis_config}}
+store = MCPStore.setup_store(debug=True, external_db=external_db)
 print(f"✅ Store + Redis 初始化成功: {store}")
 
 # 2️⃣ 验证 Store 可用

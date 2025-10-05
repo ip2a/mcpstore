@@ -54,7 +54,14 @@
       </el-col>
     </el-row>
 
-    <!-- 搜索筛选 -->
+    <!-- 关键词搜索 -->
+    <div class="keyword-search mb-3">
+      <el-input v-model="keyword" placeholder="Search tools or services" clearable class="kw-input" />
+      <el-button class="kw-btn" type="primary" @click="refreshTable">Search</el-button>
+      <el-button class="kw-btn" @click="clearKeyword">Clear</el-button>
+    </div>
+
+    <!-- 原有筛选条：保留选择框（服务类型/名称/工具名称） -->
     <ArtSearchBar
       v-model="searchForm"
       :items="searchFormItems"
@@ -65,18 +72,7 @@
 
     <!-- 工具列表表格 -->
     <el-card class="art-table-card table-card-enhanced" shadow="hover">
-      <ArtTableHeader :loading="tableLoading" @refresh="refreshTable">
-        <template #left>
-          <el-space wrap>
-            <el-button type="primary" @click="batchExecute" :disabled="selectedRows.length === 0">
-              批量执行
-            </el-button>
-            <el-button @click="exportTools">
-              导出工具
-            </el-button>
-          </el-space>
-        </template>
-      </ArtTableHeader>
+      <ArtTableHeader :loading="tableLoading" @refresh="refreshTable" />
 
       <ArtTable
         :data="filteredTableData"
@@ -89,18 +85,23 @@
         stripe
         border
       >
-        <!-- 输入模式插槽 -->
-        <template #has_schema="{ row }">
-          <el-tag :type="row.has_schema ? 'success' : 'info'" size="small">
-            {{ row.has_schema ? '有' : '无' }}
-          </el-tag>
+        <!-- Inputs chips 展示 -->
+        <template #inputs="{ row }">
+          <div class="inputs-wrap">
+            <span v-for="it in row.inputsList" :key="it.key" class="input-chip">
+              <span class="key" :title="it.key">{{ it.key }}<span v-if="it.required" class="req">*</span></span>
+              <span class="type">{{ it.type }}</span>
+              <span v-if="it.extras" class="extras">{{ it.extras }}</span>
+            </span>
+            <span v-if="!row.inputsList || row.inputsList.length === 0" class="input-chip empty">None</span>
+          </div>
         </template>
-
-        <!-- 操作插槽 -->
+        <!-- 操作插槽（文字链接） -->
         <template #actions="{ row }">
-          <el-button type="primary" size="small" @click="executeTool(row)">执行</el-button>
-          <el-button type="info" size="small" @click="viewTool(row)">详情</el-button>
-          <el-button type="warning" size="small" @click="testTool(row)">测试</el-button>
+          <div style="display:flex; gap:8px; justify-content:flex-end;">
+            <span class="action-link" @click="viewTool(row)">详情</span>
+            <span class="action-link" @click="executeTool(row)">执行</span>
+          </div>
         </template>
       </ArtTable>
     </el-card>
@@ -110,12 +111,12 @@
 <script setup lang="ts">
 import { onMounted, reactive, computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { dashboardApi } from '@/mcp/api/dashboard'
+import { mcpApi } from '../../api/index'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
 const headerSubtitle = computed(() => {
-  return `当前共有 ${totalTools.value} 个工具，来源于 ${new Set(tableData.value.map(t => t.service_name)).size} 个服务。`
+  return `当前共有 ${totalTools.value} 个工具，来源于 ${new Set(tableData.value.map(t => t.service)).size} 个服务。`
 })
 
 
@@ -125,14 +126,21 @@ defineOptions({ name: 'ToolList' })
 const tableLoading = ref(false)
 const selectedRows = ref<any[]>([])
 
-// 搜索表单
+// 单关键词搜索
+const keyword = ref('')
+
+// 表格数据
+const tableData = ref<any[]>([])
+
+const columnChecks = ref([])
+
+// 保留原有筛选表单
 const searchForm = ref({
   serviceType: '',
   serviceName: '',
   toolName: ''
 })
 
-// 搜索表单配置
 const searchFormItems = computed(() => [
   {
     key: 'serviceType',
@@ -142,8 +150,8 @@ const searchFormItems = computed(() => [
       placeholder: '请选择服务类型',
       clearable: true,
       options: [
-        { label: '远程服务', value: 'remote' },
-        { label: '本地服务', value: 'local' }
+        { label: 'remote', value: 'remote' },
+        { label: 'local', value: 'local' }
       ]
     }
   },
@@ -154,7 +162,7 @@ const searchFormItems = computed(() => [
     props: {
       placeholder: '请选择服务名称',
       clearable: true,
-      options: Array.from(new Set(tableData.value.map(tool => tool.service_name)))
+      options: Array.from(new Set(tableData.value.map(tool => tool.service)))
         .map(svc => ({ label: svc, value: svc }))
     }
   },
@@ -166,30 +174,13 @@ const searchFormItems = computed(() => [
       placeholder: '请选择工具名称',
       clearable: true,
       options: availableToolNames.value,
-      filterable: true // 支持搜索
+      filterable: true
     }
   }
 ])
 
-// 表格数据
-const tableData = ref<any[]>([])
-
-// 列显示控制
-const columnChecks = ref([
-  { key: 'name', label: '工具名称', checked: true },
-  { key: 'serviceName', label: '服务名称', checked: true },
-  { key: 'type', label: '工具类型', checked: true },
-  { key: 'description', label: '描述', checked: true },
-  { key: 'status', label: '状态', checked: true },
-  { key: 'callCount', label: '调用次数', checked: true },
-  { key: 'successRate', label: '成功率', checked: true },
-  { key: 'avgResponseTime', label: '平均响应时间', checked: true },
-  { key: 'lastUsed', label: '最后使用', checked: true },
-  { key: 'actions', label: '操作', checked: true }
-])
-
 // 分页配置
-const pagination = reactive({
+const pagination = reactive<any>({
   currentPage: 1,
   pageSize: 10,
   total: 0,
@@ -199,25 +190,21 @@ const pagination = reactive({
 })
 
 // 表格列配置
-const tableColumns = computed(() => [
-  { type: 'selection', width: 55 },
-  { prop: 'name', label: '工具名称', minWidth: 180 },
-  { prop: 'service_name', label: '服务名称', width: 160 },
-  { prop: 'description', label: '描述', minWidth: 260 },
-  { prop: 'has_schema', label: '输入模式', width: 100, useSlot: true },
-  { prop: 'actions', label: '操作', width: 160, useSlot: true, fixed: 'right' }
-].filter(col => {
-  const check = columnChecks.value.find(c => c.key === col.prop || c.key === col.type)
-  return !check || check.checked
-}))
+const tableColumns = computed(() => ([
+  { prop: 'id', label: '#', width: 60 },
+  { prop: 'name', label: 'Name', minWidth: 200 },
+  { prop: 'service', label: 'Service', width: 160 },
+  { prop: 'description', label: 'Description', minWidth: 300 },
+  { prop: 'inputs', label: 'Inputs', minWidth: 260, useSlot: true },
+  { prop: 'actions', label: 'Actions', headerAlign: 'center', width: 140, useSlot: true, fixed: 'right' }
+]) as any)
 
 // 计算属性
 const totalTools = computed(() => tableData.value.length)
 const successRate = computed(() => {
-  // 基于工具数据计算成功率，如果没有调用数据则返回100%
   if (tableData.value.length === 0) return 100
-  const activeTools = tableData.value.filter(tool => tool.has_schema).length
-  return totalTools.value > 0 ? Math.round((activeTools / totalTools.value) * 100) : 100
+  const withInputs = tableData.value.filter(tool => (tool.inputs?.length || 0) > 0).length
+  return totalTools.value > 0 ? Math.round((withInputs / totalTools.value) * 100) : 100
 })
 
 const successChartData = computed(() => [
@@ -227,20 +214,43 @@ const successChartData = computed(() => [
 
 const toolTypeData = computed(() => {
   const services = tableData.value.reduce((acc, tool) => {
-    const svc = tool.service_name || 'unknown'
+    const svc = tool.service || 'unknown'
     acc[svc] = (acc[svc] || 0) + 1
     return acc
   }, {} as Record<string, number>)
-  return Object.values(services)
+  return Object.values(services) as number[]
 })
 
 // 加载工具：使用 MCP 实际接口 /for_store/list_tools
+const serviceTypeMap = ref<Record<string, string>>({})
+
 const loadTools = async () => {
   tableLoading.value = true
   try {
-    const res = await dashboardApi.getTools() // { success, data: [...], metadata: {...} }
-    const tools = res?.data || []
-    tableData.value = tools
+    // 获取服务类型映射
+    const services = await mcpApi.listServices()
+    const map: Record<string, string> = {}
+    ;(services || []).forEach((s: any) => {
+      const confType = s?.config?.type
+      const derived = confType || (s.type === 'streamable_http' || s.type === 'url' ? 'remote' : 'local')
+      map[s.name] = derived
+    })
+    serviceTypeMap.value = map
+
+    // 获取工具
+    const tools = await mcpApi.listTools()
+    tableData.value = (tools || []).map((t: any, idx: number) => {
+      const inputsList = schemaToList(t.input_schema)
+      return {
+        id: idx + 1,
+        name: t.name,
+        service: t.service || '',
+        serviceType: map[t.service || ''] || '',
+        description: t.description || '',
+        inputs: summarizeInputs(t.input_schema),
+        inputsList
+      }
+    })
 
     // 服务名称选项会通过计算属性自动更新，这里不需要手动更新
 
@@ -257,42 +267,39 @@ const loadTools = async () => {
 
 const toolTypeLabels = computed(() => {
   const services = tableData.value.reduce((acc, tool) => {
-    const svc = tool.service_name || 'unknown'
+    const svc = tool.service || 'unknown'
     acc[svc] = (acc[svc] || 0) + 1
     return acc
   }, {} as Record<string, number>)
   return Object.keys(services)
 })
 
-// 动态的工具名称选项
+// 关键词过滤
 const availableToolNames = computed(() => {
-  let filteredTools = tableData.value
-  
-  // 根据服务类型筛选
+  let list = tableData.value
   if (searchForm.value.serviceType) {
-    filteredTools = filteredTools.filter(tool => tool.serviceType === searchForm.value.serviceType)
+    list = list.filter(t => t.serviceType === searchForm.value.serviceType)
   }
-  
-  // 根据服务名称筛选
   if (searchForm.value.serviceName) {
-    filteredTools = filteredTools.filter(tool => tool.service_name === searchForm.value.serviceName)
+    list = list.filter(t => t.service === searchForm.value.serviceName)
   }
-  
-  // 获取工具名称并去重
-  const toolNames = Array.from(new Set(filteredTools.map(tool => tool.name)))
-  return toolNames.map(name => ({ label: name, value: name }))
+  const names = Array.from(new Set(list.map(t => t.name)))
+  return names.map(n => ({ label: n, value: n }))
 })
 
 // 筛选后的表格数据
 const filteredTableData = computed(() => {
+  const kw = (keyword.value || '').trim().toLowerCase()
   let filtered = tableData.value.filter(tool => {
-    const { serviceType, serviceName, toolName } = searchForm.value
-
-    if (serviceType && tool.serviceType !== serviceType) return false
-    if (serviceName && tool.serviceName !== serviceName) return false
-    if (toolName && !tool.name.toLowerCase().includes(toolName.toLowerCase())) return false
-
-    return true
+    if (searchForm.value.serviceType && tool.serviceType !== searchForm.value.serviceType) return false
+    if (searchForm.value.serviceName && tool.service !== searchForm.value.serviceName) return false
+    if (searchForm.value.toolName && tool.name !== searchForm.value.toolName) return false
+    if (!kw) return true
+    const haystack = [tool.name, tool.service, tool.description, tool.inputs]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+    return haystack.includes(kw)
   })
 
   // 更新分页总数
@@ -333,23 +340,27 @@ const refreshTable = async () => {
   ElMessage.success('表格数据已刷新')
 }
 
+const clearKeyword = () => {
+  keyword.value = ''
+  pagination.currentPage = 1
+}
+
 const handleSearch = () => {
   pagination.currentPage = 1
-  ElMessage.info('搜索完成')
 }
 
 const handleReset = () => {
-  pagination.currentPage = 1
-  // 重置时清空工具名称
+  searchForm.value.serviceType = ''
+  searchForm.value.serviceName = ''
   searchForm.value.toolName = ''
-  ElMessage.info('筛选条件已重置')
+  pagination.currentPage = 1
 }
 
-// 监听服务类型和服务名称变化，自动清空工具名称
 watch([() => searchForm.value.serviceType, () => searchForm.value.serviceName], () => {
-  // 当服务类型或服务名称改变时，清空工具名称选择
   searchForm.value.toolName = ''
 })
+
+// 无额外筛选监听
 
 const handleSelectionChange = (selection: any[]) => {
   selectedRows.value = selection
@@ -370,7 +381,7 @@ const executeTool = (row: any) => {
     path: '/tools/execute',
     query: { 
       toolName: row.name,
-      serviceName: row.service_name
+      serviceName: row.service
     }
   })
 }
@@ -381,7 +392,7 @@ const viewTool = (row: any) => {
     path: '/tools/detail',
     query: { 
       toolName: row.name,
-      serviceName: row.service_name
+      serviceName: row.service
     }
   })
 }
@@ -392,7 +403,7 @@ const testTool = (row: any) => {
     path: '/tools/execute',
     query: { 
       toolName: row.name,
-      serviceName: row.service_name,
+      serviceName: row.service,
       mode: 'test' // 添加测试模式标识
     }
   })
@@ -422,7 +433,7 @@ const exportTools = () => {
       headers.join(','),
       ...tableData.value.map(tool => [
         tool.name,
-        tool.service_name,
+        tool.service,
         `"${tool.description || ''}"`,
         tool.has_schema ? '有' : '无'
       ].join(','))
@@ -444,10 +455,71 @@ const exportTools = () => {
 onMounted(() => {
   loadTools()
 })
+
+function summarizeInputs(schema: any): string {
+  if (!schema || typeof schema !== 'object') return ''
+  if (schema.type !== 'object' || !schema.properties) return ''
+  const required: string[] = Array.isArray(schema.required) ? schema.required : []
+  const props = schema.properties || {}
+  const parts: string[] = []
+  for (const key of Object.keys(props)) {
+    const p: any = props[key] || {}
+    const isReq = required.includes(key)
+    const type = p.type || 'any'
+    const extras: string[] = []
+    if (p.default !== undefined) extras.push(`default:${String(p.default)}`)
+    if (typeof p.minimum === 'number') extras.push(`min:${p.minimum}`)
+    if (typeof p.maximum === 'number') extras.push(`max:${p.maximum}`)
+    const extraText = extras.length ? ` (${extras.join(', ')})` : ''
+    parts.push(`${key}${isReq ? '*' : ''}: ${type}${extraText}`)
+  }
+  return parts.join(', ')
+}
+
+function schemaToList(schema: any): Array<{ key: string; required: boolean; type: string; extras: string }> {
+  const list: Array<{ key: string; required: boolean; type: string; extras: string }> = []
+  if (!schema || schema.type !== 'object' || !schema.properties) return list
+  const required: string[] = Array.isArray(schema.required) ? schema.required : []
+  const props = schema.properties || {}
+  for (const key of Object.keys(props)) {
+    const p: any = props[key] || {}
+    const type = p.type || 'any'
+    const extras: string[] = []
+    if (p.default !== undefined) extras.push(`default:${String(p.default)}`)
+    if (typeof p.minimum === 'number') extras.push(`min:${p.minimum}`)
+    if (typeof p.maximum === 'number') extras.push(`max:${p.maximum}`)
+    list.push({ key, required: required.includes(key), type, extras: extras.join(', ') })
+  }
+  return list
+}
 </script>
 
 <style lang="scss" scoped>
 .tools-page {
+  .keyword-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    .kw-input { max-width: 360px; }
+  }
+
+  .inputs-wrap { display: flex; gap: 6px; flex-wrap: wrap; }
+  .input-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: var(--el-fill-color-light);
+    border: 1px solid var(--el-border-color-lighter);
+    color: var(--el-text-color-primary);
+    font-size: 12px;
+  }
+  .input-chip .key { font-weight: 600; }
+  .input-chip .req { color: var(--el-color-danger); margin-left: 2px; }
+  .input-chip .type { color: var(--el-text-color-secondary); }
+  .input-chip .extras { color: var(--el-text-color-secondary); }
+  .input-chip.empty { opacity: 0.7; font-style: italic; }
   padding: 20px;
 
   .mb-3 {
@@ -593,5 +665,13 @@ onMounted(() => {
       }
     }
   }
+}
+.action-link {
+  color: var(--el-color-primary);
+  cursor: pointer;
+  user-select: none;
+}
+.action-link:hover {
+  text-decoration: underline;
 }
 </style>

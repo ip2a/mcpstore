@@ -4,9 +4,7 @@ Implementation of advanced feature-related operations
 """
 
 import logging
-from typing import Dict, List, Optional, Any, Union
-
-from .types import ContextType
+from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
 

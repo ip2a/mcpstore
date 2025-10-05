@@ -5,6 +5,7 @@ Market configuration converter
 
 import logging
 from typing import Dict, Any, Optional, List
+
 from .types import MarketServerInfo, MarketInstallation, MCPStoreServiceConfig, MarketInstallResult
 
 logger = logging.getLogger(__name__)

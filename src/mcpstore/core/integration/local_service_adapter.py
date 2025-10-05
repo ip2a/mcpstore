@@ -4,9 +4,10 @@ Provides backward compatibility while transitioning from LocalServiceManager to 
 """
 
 import logging
-from typing import Dict, Any, Optional, Tuple
 from pathlib import Path
-from .fastmcp_integration import FastMCPServiceManager, get_fastmcp_service_manager
+from typing import Dict, Any, Optional, Tuple
+
+from .fastmcp_integration import FastMCPServiceManager
 
 logger = logging.getLogger(__name__)
 

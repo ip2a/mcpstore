@@ -5,7 +5,6 @@ Tool result caching, service discovery caching, intelligent prefetching, connect
 """
 
 import asyncio
-import hashlib
 import logging
 import pickle
 from collections import OrderedDict, defaultdict

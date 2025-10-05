@@ -4,6 +4,7 @@ MCPStore API Dependencies
 """
 
 from typing import Optional
+
 from mcpstore import MCPStore
 
 # 全局 store 实例

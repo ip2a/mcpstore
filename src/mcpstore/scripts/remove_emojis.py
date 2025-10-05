@@ -28,10 +28,9 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import os
-from pathlib import Path
 import re
-import shutil
 import sys
+from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 

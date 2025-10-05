@@ -242,12 +242,36 @@ class MonitoringManager:
 
             # 创建新的执行记录
             execution_time = datetime.now()
+            # 规范化结果，避免无法JSON序列化
+            def _normalize_result(res):
+                try:
+                    if hasattr(res, 'content'):
+                        items = []
+                        for c in getattr(res, 'content', []) or []:
+                            try:
+                                if isinstance(c, dict):
+                                    items.append(c)
+                                elif hasattr(c, 'type') and hasattr(c, 'text'):
+                                    items.append({"type": getattr(c, 'type', 'text'), "text": getattr(c, 'text', '')})
+                                elif hasattr(c, 'type') and hasattr(c, 'uri'):
+                                    items.append({"type": getattr(c, 'type', 'uri'), "uri": getattr(c, 'uri', '')})
+                                else:
+                                    items.append(str(c))
+                            except Exception:
+                                items.append(str(c))
+                        return {"content": items, "is_error": bool(getattr(res, 'is_error', False))}
+                    if isinstance(res, (dict, list)):
+                        return res
+                    return {"result": str(res)}
+                except Exception:
+                    return {"result": str(res)}
+
             record = {
                 "id": f"{int(execution_time.timestamp() * 1000)}_{hash(tool_name) % 10000:04d}",
                 "tool_name": tool_name,
                 "service_name": service_name,
                 "params": params,
-                "result": result,
+                "result": _normalize_result(result),
                 "error": error,
                 "response_time": round(response_time, 2),
                 "execution_time": execution_time.isoformat(),

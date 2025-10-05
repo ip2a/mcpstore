@@ -11,10 +11,10 @@
 
 import asyncio
 import logging
-from typing import Callable, Dict, List, Type, Any, Optional
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Callable, Dict, List, Type, Optional
 
 from .service_events import DomainEvent, ServiceOperationFailed
 

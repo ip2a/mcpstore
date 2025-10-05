@@ -5,61 +5,25 @@ Provides comprehensive exception handling and error response formatting
 
 import logging
 import traceback
-from typing import Optional, Dict, Any, Union, List
-from datetime import datetime
 import uuid
+from datetime import datetime
+from typing import Optional, Dict, Any, Union, List
 
 from fastapi import Request, HTTPException
-from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
+from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from mcpstore.core.models.common import APIResponse
+# 导入新的响应模型和错误码
+from mcpstore.core.models import (
+    APIResponse,
+    ResponseBuilder,
+    ErrorCode,
+    ErrorDetail
+)
 
 # 设置日志记录器
 logger = logging.getLogger(__name__)
-
-# === 错误代码定义 ===
-
-class ErrorCode:
-    """错误代码常量"""
-    # 通用错误
-    INTERNAL_ERROR = "INTERNAL_ERROR"
-    VALIDATION_ERROR = "VALIDATION_ERROR"
-    NOT_FOUND = "NOT_FOUND"
-    UNAUTHORIZED = "UNAUTHORIZED"
-    FORBIDDEN = "FORBIDDEN"
-    
-    # 服务相关错误
-    SERVICE_NOT_FOUND = "SERVICE_NOT_FOUND"
-    SERVICE_ALREADY_EXISTS = "SERVICE_ALREADY_EXISTS"
-    SERVICE_INITIALIZATION_FAILED = "SERVICE_INITIALIZATION_FAILED"
-    SERVICE_OPERATION_FAILED = "SERVICE_OPERATION_FAILED"
-    
-    # Agent相关错误
-    AGENT_NOT_FOUND = "AGENT_NOT_FOUND"
-    AGENT_ALREADY_EXISTS = "AGENT_ALREADY_EXISTS"
-    AGENT_OPERATION_FAILED = "AGENT_OPERATION_FAILED"
-    
-    # 工具相关错误
-    TOOL_NOT_FOUND = "TOOL_NOT_FOUND"
-    TOOL_EXECUTION_FAILED = "TOOL_EXECUTION_FAILED"
-    TOOL_TIMEOUT = "TOOL_TIMEOUT"
-    
-    # 配置相关错误
-    CONFIG_ERROR = "CONFIG_ERROR"
-    CONFIG_NOT_FOUND = "CONFIG_NOT_FOUND"
-    CONFIG_UPDATE_FAILED = "CONFIG_UPDATE_FAILED"
-    
-    # 数据空间相关错误
-    WORKSPACE_NOT_FOUND = "WORKSPACE_NOT_FOUND"
-    WORKSPACE_ALREADY_EXISTS = "WORKSPACE_ALREADY_EXISTS"
-    DATASPACE_ERROR = "DATASPACE_ERROR"
-    
-    # LangChain相关错误
-    LANGCHAIN_ADAPTER_ERROR = "LANGCHAIN_ADAPTER_ERROR"
-    TOOL_CONVERSION_ERROR = "TOOL_CONVERSION_ERROR"
 
 # === 异常类定义 ===
 
@@ -69,14 +33,22 @@ class MCPStoreException(Exception):
     def __init__(
         self,
         message: str,
-        error_code: str = ErrorCode.INTERNAL_ERROR,
-        status_code: int = 500,
+        error_code: Union[ErrorCode, str] = ErrorCode.INTERNAL_ERROR,
+        status_code: Optional[int] = None,
         details: Optional[Dict[str, Any]] = None,
-        stack_trace: Optional[str] = None
+        stack_trace: Optional[str] = None,
+        field: Optional[str] = None
     ):
         self.message = message
-        self.error_code = error_code
-        self.status_code = status_code
+        # 如果是ErrorCode枚举，转换为字符串并获取HTTP状态码
+        if isinstance(error_code, ErrorCode):
+            self.error_code = error_code.value
+            self.status_code = status_code or error_code.to_http_status()
+        else:
+            self.error_code = error_code
+            self.status_code = status_code or 500
+        
+        self.field = field
         self.details = details or {}
         self.stack_trace = stack_trace
         self.timestamp = datetime.utcnow()
@@ -90,7 +62,7 @@ class ServiceNotFoundException(MCPStoreException):
         super().__init__(
             message=f"Service '{service_name}' not found",
             error_code=ErrorCode.SERVICE_NOT_FOUND,
-            status_code=404,
+            field="service_name",
             details={"service_name": service_name, **(details or {})}
         )
 
@@ -101,7 +73,7 @@ class AgentNotFoundException(MCPStoreException):
         super().__init__(
             message=f"Agent '{agent_id}' not found",
             error_code=ErrorCode.AGENT_NOT_FOUND,
-            status_code=404,
+            field="agent_id",
             details={"agent_id": agent_id, **(details or {})}
         )
 
@@ -112,7 +84,7 @@ class ToolNotFoundException(MCPStoreException):
         super().__init__(
             message=f"Tool '{tool_name}' not found",
             error_code=ErrorCode.TOOL_NOT_FOUND,
-            status_code=404,
+            field="tool_name",
             details={"tool_name": tool_name, **(details or {})}
         )
 
@@ -122,8 +94,7 @@ class ServiceOperationException(MCPStoreException):
     def __init__(self, message: str, service_name: str, operation: str, details: Optional[Dict[str, Any]] = None):
         super().__init__(
             message=message,
-            error_code=ErrorCode.SERVICE_OPERATION_FAILED,
-            status_code=500,
+            error_code=ErrorCode.SERVICE_UNAVAILABLE,
             details={
                 "service_name": service_name,
                 "operation": operation,
@@ -137,9 +108,9 @@ class ValidationException(MCPStoreException):
     def __init__(self, message: str, field: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
         super().__init__(
             message=message,
-            error_code=ErrorCode.VALIDATION_ERROR,
-            status_code=400,
-            details={"field": field, **(details or {})} if field else (details or {})
+            error_code=ErrorCode.INVALID_PARAMETER,
+            field=field,
+            details=details or {}
         )
 
 class ConfigurationException(MCPStoreException):
@@ -148,56 +119,49 @@ class ConfigurationException(MCPStoreException):
     def __init__(self, message: str, config_path: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
         super().__init__(
             message=message,
-            error_code=ErrorCode.CONFIG_ERROR,
-            status_code=500,
-            details={"config_path": config_path, **(details or {})}
+            error_code=ErrorCode.CONFIG_INVALID,
+            details={"config_path": config_path, **(details or {})} if config_path else (details or {})
         )
 
-# === 错误响应格式化 ===
+# === 错误响应格式化（使用新架构） ===
 
 def format_error_response(
     error: Union[MCPStoreException, Exception],
     include_stack_trace: bool = False
-) -> Dict[str, Any]:
-    """格式化错误响应"""
+) -> APIResponse:
+    """格式化错误响应（使用新的APIResponse模型）"""
     
     if isinstance(error, MCPStoreException):
-        response = {
-            "success": False,
-            "error": {
-                "code": error.error_code,
-                "message": error.message,
-                "error_id": error.error_id,
-                "timestamp": error.timestamp.isoformat(),
-                "details": error.details
-            }
-        }
-        
+        # 构造详情，可能包含堆栈跟踪
+        details = {**error.details, "error_id": error.error_id}
         if include_stack_trace and error.stack_trace:
-            response["error"]["stack_trace"] = error.stack_trace
-            
+            details["stack_trace"] = error.stack_trace
+        
+        return ResponseBuilder.error(
+            code=error.error_code,
+            message=error.message,
+            field=error.field,
+            details=details
+        )
     else:
         # 标准异常处理
-        response = {
-            "success": False,
-            "error": {
-                "code": ErrorCode.INTERNAL_ERROR,
-                "message": str(error),
-                "error_id": str(uuid.uuid4())[:8],
-                "timestamp": datetime.utcnow().isoformat(),
-                "details": {}
-            }
+        details = {
+            "error_id": str(uuid.uuid4())[:8],
+            "error_type": type(error).__name__
         }
-        
         if include_stack_trace:
-            response["error"]["stack_trace"] = traceback.format_exc()
-    
-    return response
+            details["stack_trace"] = traceback.format_exc()
+        
+        return ResponseBuilder.error(
+            code=ErrorCode.INTERNAL_ERROR,
+            message=str(error) or "Internal server error",
+            details=details
+        )
 
 # === 异常处理器 ===
 
 async def mcpstore_exception_handler(request: Request, exc: MCPStoreException):
-    """MCPStore异常处理器"""
+    """MCPStore异常处理器（使用新响应格式）"""
     logger.error(
         f"MCPStore error [{exc.error_id}]: {exc.message}",
         extra={
@@ -210,52 +174,46 @@ async def mcpstore_exception_handler(request: Request, exc: MCPStoreException):
         }
     )
     
-    response_data = format_error_response(exc, include_stack_trace=False)
+    response = format_error_response(exc, include_stack_trace=False)
     return JSONResponse(
         status_code=exc.status_code,
-        content=response_data
+        content=response.dict(exclude_none=True)
     )
 
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """请求验证异常处理器"""
-    errors = []
+    """请求验证异常处理器（使用新响应格式）"""
+    # 转换为ErrorDetail列表
+    error_details = []
     for error in exc.errors():
         field = " -> ".join([str(loc) for loc in error["loc"] if loc != "body"])
-        errors.append({
-            "field": field,
+        error_details.append({
+            "code": ErrorCode.INVALID_PARAMETER.value,
             "message": error["msg"],
-            "type": error["type"]
+            "field": field,
+            "details": {"type": error["type"]}
         })
     
     logger.warning(
-        f"Validation error: {len(errors)} errors",
+        f"Validation error: {len(error_details)} errors",
         extra={
-            "errors": errors,
+            "errors": error_details,
             "path": request.url.path,
             "method": request.method
         }
     )
     
-    response_data = {
-        "success": False,
-        "error": {
-            "code": ErrorCode.VALIDATION_ERROR,
-            "message": "Request validation failed",
-            "error_id": str(uuid.uuid4())[:8],
-            "timestamp": datetime.utcnow().isoformat(),
-            "details": {
-                "validation_errors": errors
-            }
-        }
-    }
+    response = ResponseBuilder.errors(
+        message=f"Request validation failed ({len(error_details)} errors)",
+        errors=error_details
+    )
     
     return JSONResponse(
         status_code=422,
-        content=response_data
+        content=response.dict(exclude_none=True)
     )
 
 async def http_exception_handler(request: Request, exc: HTTPException):
-    """HTTP异常处理器"""
+    """HTTP异常处理器（使用新响应格式）"""
     logger.warning(
         f"HTTP error: {exc.status_code} - {exc.detail}",
         extra={
@@ -265,26 +223,29 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         }
     )
     
-    response_data = {
-        "success": False,
-        "error": {
-            "code": "HTTP_ERROR",
-            "message": exc.detail,
-            "error_id": str(uuid.uuid4())[:8],
-            "timestamp": datetime.utcnow().isoformat(),
-            "details": {
-                "status_code": exc.status_code
-            }
-        }
+    # 映射HTTP状态码到错误码
+    error_code_map = {
+        404: ErrorCode.SERVICE_NOT_FOUND,
+        401: ErrorCode.AUTHENTICATION_REQUIRED,
+        403: ErrorCode.AUTHORIZATION_FAILED,
+        400: ErrorCode.INVALID_REQUEST,
+        429: ErrorCode.RATE_LIMIT_EXCEEDED,
     }
+    error_code = error_code_map.get(exc.status_code, ErrorCode.INTERNAL_ERROR)
+    
+    response = ResponseBuilder.error(
+        code=error_code,
+        message=exc.detail or "HTTP error",
+        details={"http_status": exc.status_code}
+    )
     
     return JSONResponse(
         status_code=exc.status_code,
-        content=response_data
+        content=response.dict(exclude_none=True)
     )
 
 async def general_exception_handler(request: Request, exc: Exception):
-    """通用异常处理器"""
+    """通用异常处理器（使用新响应格式）"""
     error_id = str(uuid.uuid4())[:8]
     logger.error(
         f"Unhandled exception [{error_id}]: {str(exc)}",
@@ -297,22 +258,18 @@ async def general_exception_handler(request: Request, exc: Exception):
         exc_info=True
     )
     
-    response_data = {
-        "success": False,
-        "error": {
-            "code": ErrorCode.INTERNAL_ERROR,
-            "message": "Internal server error",
+    response = ResponseBuilder.error(
+        code=ErrorCode.INTERNAL_ERROR,
+        message="Internal server error",
+        details={
             "error_id": error_id,
-            "timestamp": datetime.utcnow().isoformat(),
-            "details": {
-                "type": type(exc).__name__
-            }
+            "error_type": type(exc).__name__
         }
-    }
+    )
     
     return JSONResponse(
         status_code=500,
-        content=response_data
+        content=response.dict(exclude_none=True)
     )
 
 # === 异常处理装饰器 ===
@@ -330,8 +287,11 @@ def handle_api_exceptions(func):
             if isinstance(result, APIResponse):
                 return result
                 
-            # 否则包装为APIResponse
-            return APIResponse(success=True, data=result)
+            # 否则包装为成功响应
+            return ResponseBuilder.success(
+                message="Operation completed successfully",
+                data=result if isinstance(result, (dict, list)) else {"result": result}
+            )
             
         except MCPStoreException:
             # MCPStore异常已经包含足够信息，直接抛出
@@ -408,7 +368,11 @@ class ErrorMonitor:
     
     def record_error(self, error: Union[MCPStoreException, Exception], context: Optional[Dict[str, Any]] = None):
         """记录错误"""
-        error_code = getattr(error, 'error_code', ErrorCode.INTERNAL_ERROR)
+        # 处理ErrorCode枚举
+        if isinstance(error, MCPStoreException):
+            error_code = error.error_code
+        else:
+            error_code = ErrorCode.INTERNAL_ERROR.value
         
         # 更新错误计数
         self.error_counts[error_code] = self.error_counts.get(error_code, 0) + 1

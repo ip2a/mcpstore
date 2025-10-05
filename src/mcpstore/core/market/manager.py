@@ -4,13 +4,13 @@ Market manager
 """
 
 import logging
-from typing import Optional, Dict, Any, List
 from pathlib import Path
+from typing import Optional, Dict, Any, List
 
 from mcpstore.core.utils.async_sync_helper import get_global_helper
-from .service import MarketService
 from .converter import MarketConfigConverter
-from .types import MarketServerInfo, MarketInstallResult, MCPStoreServiceConfig
+from .service import MarketService
+from .types import MarketServerInfo, MCPStoreServiceConfig
 
 logger = logging.getLogger(__name__)
 

@@ -4,7 +4,6 @@ Network utilities module - contains network error detection and utility methods
 """
 
 import logging
-from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 

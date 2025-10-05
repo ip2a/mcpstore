@@ -3,8 +3,8 @@
 负责处理 MCPStore 的服务查询相关功能
 """
 
-from typing import Optional, List, Dict, Any
 import logging
+from typing import Optional, List, Dict, Any
 
 from mcpstore.core.models.service import ServiceInfo, ServiceConnectionState, TransportType, ServiceInfoResponse
 

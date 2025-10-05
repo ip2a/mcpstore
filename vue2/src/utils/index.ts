@@ -27,8 +27,7 @@ export * from './storage'
 // 主题相关
 export * from './theme'
 
-// HTTP 相关
-export * from './http'
+// [MCP-only] 通用 HTTP 已移除；请使用 '@/mcp/api/http' 作为唯一 HTTP 客户端
 
 // 验证相关
 export * from './validation'

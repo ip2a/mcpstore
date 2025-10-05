@@ -1,6 +1,6 @@
 import { upgradeLogList } from '@/mock/upgrade/changeLog'
 import { ElNotification } from 'element-plus'
-import { useUserStore } from '@/store/modules/user'
+// [MCP-only] 用户模块已移除，不再需要登出逻辑
 import { StorageConfig } from '@/utils/storage/storage-config'
 
 /**
@@ -146,11 +146,12 @@ class VersionManager {
    * 执行升级后的登出操作
    */
   private performLogout(): void {
+    // [MCP-only] 无登录/鉴权流程，登出逻辑省略；仅做日志记录
     try {
-      useUserStore().logOut()
-      console.info('[Upgrade] 已执行升级后登出')
+      // 可选：按需清理旧缓存键位
+      console.info('[Upgrade] MCP-only 模式，无需执行登出')
     } catch (error) {
-      console.error('[Upgrade] 升级后登出失败:', error)
+      console.error('[Upgrade] 升级后清理操作失败:', error)
     }
   }
 

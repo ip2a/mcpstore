@@ -4,9 +4,8 @@ MCPStore Service Proxy Module
 """
 
 import logging
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Any
 
-from mcpstore.core.models.service import ServiceInfo, ServiceConnectionState
 from mcpstore.core.models.tool import ToolInfo
 from .types import ContextType
 

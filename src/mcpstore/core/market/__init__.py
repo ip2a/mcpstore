@@ -3,9 +3,9 @@ MCPStore Market Module
 市场功能模块 - 提供从在线市场安装MCP服务的能力
 """
 
+from .converter import MarketConfigConverter
 from .manager import MarketManager
 from .service import MarketService
-from .converter import MarketConfigConverter
 from .types import MarketServerInfo, MarketInstallation
 
 __all__ = [

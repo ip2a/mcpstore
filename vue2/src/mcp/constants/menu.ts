@@ -179,8 +179,6 @@ export function getMcpMenuConfig(): AppRouteRecord[] {
  * 根据角色过滤MCP菜单
  */
 export function filterMcpMenuByRoles(roles: string[]): AppRouteRecord[] {
-  return MCP_MENU_CONFIG.filter(item => {
-    const itemRoles = item.meta?.roles
-    return !itemRoles || itemRoles.some(role => roles.includes(role))
-  })
+  // 精简：忽略角色控制，始终返回全部 MCP 菜单
+  return MCP_MENU_CONFIG
 }

@@ -6,11 +6,12 @@ Health monitoring module - contains detailed health checks and status management
 import asyncio
 import logging
 import time
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple
 
 from fastmcp import Client
-from mcpstore.core.lifecycle import HealthStatus, HealthCheckResult
+
 from mcpstore.core.configuration.config_processor import ConfigProcessor
+from mcpstore.core.lifecycle import HealthCheckResult
 
 logger = logging.getLogger(__name__)
 

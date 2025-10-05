@@ -89,48 +89,13 @@
         stripe
         border
       >
-        <!-- 状态列插槽 -->
-        <template #status="{ row }">
-          <el-tag :type="getStatusType(row.health)" size="small">
-            {{ getStatusText(row.health) }}
-          </el-tag>
-        </template>
-
-        <!-- 单列图标操作（查看/停止/重启/修改/删除） -->
-        <template #view="{ row }">
-          <el-tooltip content="查看详情">
-            <el-button link type="primary" @click="viewService(row)">
-              <el-icon><View /></el-icon>
-            </el-button>
-          </el-tooltip>
-        </template>
-        <template #stop="{ row }">
-          <el-tooltip :content="row.status === 'running' ? '停止服务' : '启动服务'">
-            <el-button link :type="row.status === 'running' ? 'danger' : 'success'" @click="toggleService(row)">
-              <el-icon><Close /></el-icon>
-            </el-button>
-          </el-tooltip>
-        </template>
-        <template #restart="{ row }">
-          <el-tooltip content="重启服务">
-            <el-button link type="warning" @click="restartService(row)">
-              <el-icon><Refresh /></el-icon>
-            </el-button>
-          </el-tooltip>
-        </template>
-        <template #edit="{ row }">
-          <el-tooltip content="修改服务">
-            <el-button link type="info" @click="editService(row)">
-              <el-icon><Edit /></el-icon>
-            </el-button>
-          </el-tooltip>
-        </template>
-        <template #delete="{ row }">
-          <el-tooltip content="删除服务">
-            <el-button link type="danger" @click="deleteService(row)">
-              <el-icon><Delete /></el-icon>
-            </el-button>
-          </el-tooltip>
+        <!-- 合并后的操作列：文字按钮，无图标 -->
+        <template #actions="{ row }">
+          <div style="display:flex; gap:8px; justify-content:flex-end;">
+            <el-button link type="primary" @click="viewService(row)">详情</el-button>
+            <el-button link type="warning" @click="restartService(row)">重启</el-button>
+            <el-button link type="danger" @click="deleteService(row)">删除</el-button>
+          </div>
         </template>
       </ArtTable>
     </div>
@@ -150,28 +115,23 @@ const tableData = ref<any[]>([])
 
 // 筛选相关
 const showSearchBar = ref(true)
-const searchForm = reactive({ name: '', type: '', status: '', health: '' })
+const searchForm = reactive({ name: '', type: '', status: '' })
 const searchItems = [
   { key: 'name', label: '名称', type: 'input', placeholder: '服务名关键字' },
   { key: 'type', label: '类型', type: 'select', options: [
     { label: '全部', value: '' },
-    { label: 'HTTP', value: 'HTTP' },
-    { label: 'LOCAL', value: 'LOCAL' },
-    { label: 'UNKNOWN', value: 'UNKNOWN' }
+    { label: 'streamable_http', value: 'streamable_http' },
+    { label: 'stdio', value: 'stdio' },
+    { label: 'url', value: 'url' }
   ] },
   { key: 'status', label: '状态', type: 'select', options: [
     { label: '全部', value: '' },
-    { label: '运行中', value: 'running' },
-    { label: '已停止', value: 'stopped' }
-  ] },
-  { key: 'health', label: '健康', type: 'select', options: [
-    { label: '全部', value: '' },
-    { label: '健康', value: 'healthy' },
-    { label: '警告', value: 'warning' },
-    { label: '重连中', value: 'reconnecting' },
-    { label: '不可达', value: 'unreachable' },
-    { label: '已断开', value: 'disconnected' },
-    { label: '未知', value: 'unknown' }
+    { label: 'healthy', value: 'healthy' },
+    { label: 'reconnecting', value: 'reconnecting' },
+    { label: 'unhealthy', value: 'unhealthy' },
+    { label: 'disconnected', value: 'disconnected' },
+    { label: 'initializing', value: 'initializing' },
+    { label: 'unknown', value: 'unknown' }
   ] }
 ]
 const filteredData = computed(() => {
@@ -179,8 +139,7 @@ const filteredData = computed(() => {
     const byName = !searchForm.name || s.name?.toLowerCase().includes(searchForm.name.toLowerCase())
     const byType = !searchForm.type || s.type === searchForm.type
     const byStatus = !searchForm.status || s.status === searchForm.status
-    const byHealth = !searchForm.health || s.health === searchForm.health
-    return byName && byType && byStatus && byHealth
+    return byName && byType && byStatus
   })
 })
 const applyFilters = () => { /* 使用计算属性即可，这里保留钩子 */ }
@@ -188,37 +147,43 @@ const resetFilters = () => {
   searchForm.name = ''
   searchForm.type = ''
   searchForm.status = ''
-  searchForm.health = ''
+  
 }
 
 // MCP 数据（原始）
 const servicesResponse = ref<any>(null)
 
 // MCP API
-import { dashboardApi } from '@/mcp/api/dashboard'
-import http from '@/mcp/api/http'
+import { mcpApi } from '../../api/index'
 
 // 载入服务数据
 const loadServices = async () => {
   tableLoading.value = true
   try {
-    const res = await dashboardApi.getServices() // { success, data: { services: [...] } }
-    servicesResponse.value = res
-    const services = res?.data?.services || []
+    const services = await mcpApi.listServices() // data 为数组
+    servicesResponse.value = { data: services }
 
-    // 转换到表格行
-    tableData.value = services.map((s: any, idx: number) => ({
-      id: idx + 1,
-      name: s.name,
-      type: s.transport === 'streamable_http' ? 'HTTP' : (s.transport || 'Unknown').toUpperCase(),
-      endpoint: s.url ? s.url : (s.command ? `${s.command} ${Array.isArray(s.args) ? s.args.join(' ') : ''}` : ''),
-      status: s.is_active ? 'running' : 'stopped',
-      health: s.status || 'unknown',
-      lastCheck: s.state_entered_time || '-',
-      lastCheckAgo: formatTimeAgoFromString(s.state_entered_time),
-      toolCount: s.tool_count || 0,
-      description: s.url ? '远程服务' : (s.command ? '本地服务' : '服务')
-    }))
+    // 转换到表格行（使用原始 type、status；拆分 url/command/args；新增 keepAlive）
+    tableData.value = (services || []).map((s: any, idx: number) => {
+      const url = s.url || ''
+      const command = s.command || ''
+      const argsText = Array.isArray(s.args) ? s.args.join(' ') : ''
+      const lastCheck = s.last_check || '-'
+
+      return {
+        id: idx + 1,
+        name: s.name,
+        type: s.type || 'unknown',
+        status: s.status || 'unknown',
+        keepAlive: Boolean(s.keep_alive),
+        url,
+        command,
+        args: argsText,
+        lastCheck,
+        lastCheckAgo: formatTimeAgoFromString(lastCheck),
+        toolCount: s.tools_count ?? s.tool_count ?? 0
+      }
+    })
 
     // 更新分页
     pagination.total = tableData.value.length
@@ -243,24 +208,21 @@ const pagination = reactive({
 
 // 表格列配置
 const tableColumns = [
-  { prop: 'name', label: '服务名称', minWidth: 160 },
-  { prop: 'type', label: '类型', width: 100 },
-  { prop: 'endpoint', label: '端点/命令', minWidth: 220 },
-  { prop: 'status', label: '状态', width: 100, useSlot: true },
-  { prop: 'health', label: '健康状态', width: 120, useSlot: true },
-  { prop: 'toolCount', label: '工具数量', width: 100 },
-  { prop: 'lastCheckAgo', label: '最后检查', width: 140 },
-  { prop: 'description', label: '描述', minWidth: 150 },
-  { prop: 'view', label: '查看', width: 80, useSlot: true, fixed: 'right' },
-  { prop: 'stop', label: '停止', width: 80, useSlot: true, fixed: 'right' },
-  { prop: 'restart', label: '重启', width: 80, useSlot: true, fixed: 'right' },
-  { prop: 'edit', label: '修改', width: 80, useSlot: true, fixed: 'right' },
-  { prop: 'delete', label: '删除', width: 80, useSlot: true, fixed: 'right' }
+  { prop: 'id', label: '#', width: 60 },
+  { prop: 'name', label: 'Name', minWidth: 160 },
+  { prop: 'type', label: 'Type', width: 150 },
+  { prop: 'status', label: 'Status', width: 120 },
+  { prop: 'keepAlive', label: 'KeepAlive', width: 110 },
+  { prop: 'url', label: 'URL', minWidth: 220 },
+  { prop: 'command', label: 'Command', width: 100 },
+  { prop: 'args', label: 'Args', minWidth: 220 },
+  { prop: 'toolCount', label: 'Tools', width: 100 },
+  { prop: 'actions', label: 'Actions', headerAlign: 'center', width: 160, useSlot: true, fixed: 'right' }
 ]
 
 // 计算属性
 const totalServices = computed(() => tableData.value.length)
-const healthyCount = computed(() => tableData.value.filter(s => s.health === 'healthy').length)
+const healthyCount = computed(() => tableData.value.filter(s => s.status === 'healthy').length)
 // 移除了不再需要的百分比计算，因为改回自定义结构
 const healthChartData = computed(() => [
   { value: healthyCount.value, name: '健康' },
@@ -370,14 +332,12 @@ const editService = (row: any) => {
 
 const restartService = async (row: any) => {
   try {
-    // 调用重启服务API
     ElMessage.info(`正在重启服务: ${row.name}`)
-    // TODO: 实现具体的重启API调用
-    // await serviceApi.restartService(row.name)
+    await mcpApi.restartService(row.name)
     ElMessage.success(`服务 ${row.name} 重启成功`)
-    await loadServices() // 重新加载数据
-  } catch (error) {
-    ElMessage.error(`重启服务失败: ${error}`)
+    await loadServices()
+  } catch (error: any) {
+    ElMessage.error(`重启服务失败: ${error?.message || error}`)
   }
 }
 
@@ -414,24 +374,14 @@ const deleteService = async (row: any) => {
       cancelButtonText: '取消',
       type: 'warning'
     })
-    
+
     ElMessage.info(`正在删除服务: ${row.name}`)
-    // TODO: 实现具体的删除API调用
-    // await serviceApi.deleteService(row.name)
-    
-    // 暂时从本地数据中移除
-    const index = tableData.value.findIndex(item => item.id === row.id)
-    if (index > -1) {
-      tableData.value.splice(index, 1)
-      pagination.total--
-      ElMessage.success('服务已删除')
-    }
-    
-    // 重新加载数据
+    await mcpApi.deleteService(row.name)
+    ElMessage.success('服务已删除')
     await loadServices()
-  } catch (error) {
+  } catch (error: any) {
     if (error !== 'cancel') {
-      ElMessage.error(`删除服务失败: ${error}`)
+      ElMessage.error(`删除服务失败: ${error?.message || error}`)
     }
   }
 }

@@ -20,7 +20,9 @@ print("=" * 60)
 
 # 1️⃣ 初始化 Store 并添加服务
 print("\n1️⃣ 初始化 Store 并添加服务")
-store = MCPStore.setup_store(debug=True)
+
+store = MCPStore.setup_store(debug=False)
+print("=" * 60)
 service_config = {
     "mcpServers": {
         "weather": {
@@ -28,14 +30,19 @@ service_config = {
         }
     }
 }
-store.for_store().add_service(service_config)
-store.for_store().wait_service("weather", timeout=30.0)
-print(f"✅ 服务 'weather' 已添加并就绪")
+
 
 # 2️⃣ 创建 Agent 上下文
 print("\n2️⃣ 创建 Agent 上下文")
 agent_context = store.for_agent("test_agent")
 print(f"✅ Agent 上下文创建成功: test_agent")
+
+
+store.for_agent("test_agent").add_service(service_config)
+store.for_agent("test_agent").wait_service("weather")
+
+atl = store.for_agent("test_agent").list_tools()
+print(f"agent的lsittools的工具列表是{atl}")
 
 # 3️⃣ 在 Agent 中查找工具
 print("\n3️⃣ 在 Agent 中查找工具")
@@ -46,7 +53,7 @@ print(f"✅ 在 Agent 中找到工具: {tool_name}")
 # 4️⃣ 获取工具输入模式
 print("\n4️⃣ 获取工具输入模式")
 schema = tool_proxy.tool_schema()
-print(f"✅ 工具输入模式获取成功")
+print(f"✅ 工具输入模式获取成功{schema}")
 
 # 5️⃣ 准备调用参数
 print("\n5️⃣ 准备调用参数")
@@ -60,6 +67,7 @@ print("\n6️⃣ 在 Agent 中使用 call_tool() 调用工具")
 result = tool_proxy.call_tool(params)
 print(f"✅ Agent 工具调用成功")
 print(f"   返回类型: {type(result)}")
+
 
 # 7️⃣ 展示调用结果
 print("\n7️⃣ 展示调用结果")
@@ -112,31 +120,4 @@ if result1 == result2:
     print(f"   ✅ 不同 Agent 返回相同结果")
 else:
     print(f"   ⚠️ 不同 Agent 返回不同结果")
-
-# 🔟 Agent 上下文特性
-print("\n🔟 Agent 上下文特性")
-print(f"   Agent 上下文特点:")
-print(f"   - 独立的工具调用环境")
-print(f"   - 隔离的状态管理")
-print(f"   - 支持并发调用")
-print(f"   - 独立的错误处理")
-print(f"   - 可配置的权限控制")
-
-print("\n💡 Agent call_tool() 特点:")
-print("   - 在 Agent 上下文中调用")
-print("   - 支持状态隔离")
-print("   - 支持并发执行")
-print("   - 独立的错误处理")
-print("   - 可配置权限")
-
-print("\n💡 使用场景:")
-print("   - 多 Agent 系统")
-print("   - 并发工具调用")
-print("   - 状态隔离")
-print("   - 权限控制")
-print("   - 分布式处理")
-
-print("\n" + "=" * 60)
-print("✅ Agent 调用工具测试完成")
-print("=" * 60)
 

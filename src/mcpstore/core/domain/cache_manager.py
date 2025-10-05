@@ -10,8 +10,8 @@
 
 import asyncio
 import logging
-from typing import Dict, Any, List, Callable
 from dataclasses import dataclass, field
+from typing import List, Callable
 
 from mcpstore.core.events.event_bus import EventBus
 from mcpstore.core.events.service_events import (
@@ -177,6 +177,24 @@ class CacheManager:
                 )
             
             logger.info(f"[CACHE] Cache updated for {event.service_name} with {len(event.tools)} tools")
+
+            # 工具缓存更新完成后：标记快照为脏并尝试重建（确保 list_tools 读到最新）
+            try:
+                if hasattr(self._registry, 'mark_tools_snapshot_dirty'):
+                    self._registry.mark_tools_snapshot_dirty()
+                # 尝试立即重建（失败不中断流程）
+                if hasattr(self._registry, 'rebuild_tools_snapshot') and hasattr(self._event_bus, 'client_manager'):
+                    # 优先从 orchestrator 获取 global_agent_id；回退到常量
+                    global_agent_id = getattr(getattr(self, 'orchestrator', None), 'client_manager', None)
+                    if global_agent_id and hasattr(global_agent_id, 'global_agent_store_id'):
+                        gid = global_agent_id.global_agent_store_id
+                    else:
+                        # 回退：使用事件中的 agent_id 作为兜底（单 store 情况）
+                        gid = event.agent_id
+                    self._registry.rebuild_tools_snapshot(gid)
+                logger.debug(f"[SNAPSHOT] cache_manager: snapshot refreshed after cache update service={event.service_name}")
+            except Exception as e:
+                logger.warning(f"[SNAPSHOT] cache_manager: snapshot refresh failed: {e}")
             
         except Exception as e:
             logger.error(f"[CACHE] Failed to update cache for {event.service_name}: {e}", exc_info=True)

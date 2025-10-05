@@ -29,7 +29,8 @@ class LoggingConfig:
         """
         def _to_level(v: Union[bool, str, int]) -> int:
             if isinstance(v, bool):
-                return logging.DEBUG if v else logging.WARNING
+                # False means fully mute logs by setting an OFF-level above CRITICAL
+                return logging.DEBUG if v else (logging.CRITICAL + 50)
             if isinstance(v, int):
                 return v
             if isinstance(v, str):
@@ -88,7 +89,8 @@ class LoggingConfig:
         """Set log level dynamically without reconfiguring handlers."""
         # Normalize
         if isinstance(level_or_flag, bool):
-            level = logging.DEBUG if level_or_flag else logging.WARNING
+            # False means fully mute logs by setting an OFF-level above CRITICAL
+            level = logging.DEBUG if level_or_flag else (logging.CRITICAL + 50)
         elif isinstance(level_or_flag, int):
             level = level_or_flag
         else:

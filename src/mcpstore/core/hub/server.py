@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 from typing import List, Tuple
+
 from .types import HubConfig, HubServiceInfo
 
 logger = logging.getLogger(__name__)

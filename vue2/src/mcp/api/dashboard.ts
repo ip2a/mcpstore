@@ -89,24 +89,24 @@ export const dashboardApi = {
   getTools: () => http.get<any>({ url: '/for_store/list_tools' }),
 
   // 获取工具调用记录
-  getToolRecords: (limit = 10) => http.get<any>({
+  getToolRecords: (page_size = 10, page = 1) => http.get<any>({
     url: '/for_store/tool_records',
-    params: { limit }
+    params: { page, page_size }
   }),
 
   // 获取系统资源信息
   getSystemResources: () => http.get<any>({
-    url: '/for_store/system_resources'
+    url: '/health'
   }),
 
   // 获取健康状态汇总
   getHealthSummary: () => http.get<any>({
-    url: '/health/summary'
+    url: '/health'
   }),
 
   // 获取 Agent 统计
   getAgentsSummary: () => http.get<any>({
-    url: '/agents_summary'
+    url: '/for_store/list_all_agents'
   }),
 
   // 获取单个服务详情
@@ -120,17 +120,17 @@ export const dashboardApi = {
   }),
 
   // 同步服务
-  syncServices: () => http.post<any>({
-    url: '/for_store/sync_services'
+  syncServices: () => http.get<any>({
+    url: '/for_store/check_services'
   }),
 
-  // 添加服务（支持空参数/远程/本地）
-  addService: (payload?: any, wait: number | string = 'auto') =>
-    http.post<any>({ url: `/for_store/add_service?wait=${wait}`, data: payload ?? null }),
+  // 添加服务（v2，无需 wait 参数）
+  addService: (payload: any) =>
+    http.post<any>({ url: '/for_store/add_service', data: payload }),
 
   // 获取统计信息
   getStats: () => http.get<any>({
-    url: '/for_store/get_stats'
+    url: '/'
   }),
 
   // 服务操作
@@ -138,35 +138,34 @@ export const dashboardApi = {
     url: '/for_store/restart_service',
     data: { service_name: serviceName }
   }),
-  deleteServiceTwoStep: (serviceName: string) => http.post<any>({
-    url: '/for_store/delete_service_two_step',
-    data: { service_name: serviceName }
+  deleteServiceTwoStep: (serviceName: string) => http.del<any>({
+    url: `/for_store/delete_service/${encodeURIComponent(serviceName)}`
   }),
   activateService: (serviceName: string) => http.post<any>({
-    url: '/services/activate',
-    data: { name: serviceName }
+    url: '/for_store/restart_service',
+    data: { service_name: serviceName }
   }),
   disconnectService: (serviceName: string, reason = 'user_requested') => http.post<any>({
-    url: `/lifecycle/disconnect/${encodeURIComponent(serviceName)}`,
-    params: { reason }
+    url: '/for_store/restart_service',
+    data: { service_name: serviceName }
   }),
   updateService: (serviceName: string, payload: any) => http.put<any>({
-    url: `/for_store/update_service/${encodeURIComponent(serviceName)}`,
+    url: `/for_store/update_config/${encodeURIComponent(serviceName)}`,
     data: payload
   }),
 
   // 配置管理
-  showMcpConfig: () => http.get<any>({ url: '/for_store/show_mcpconfig' }),
-  getJsonConfig: () => http.get<any>({ url: '/for_store/get_json_config' }),
+  showMcpConfig: () => http.get<any>({ url: '/for_store/show_mcpjson' }),
+  getJsonConfig: () => http.get<any>({ url: '/for_store/show_config' }),
   updateConfig: (clientIdOrServiceName: string, newConfig: any) => http.put<any>({
     url: `/for_store/update_config/${encodeURIComponent(clientIdOrServiceName)}`,
     data: newConfig
   }),
-  resetMcpJsonFile: () => http.post<any>({ url: '/for_store/reset_mcp_json_file' }),
+  resetMcpJsonFile: () => http.post<any>({ url: '/for_store/reset_config' }),
 
   // 执行工具（参考旧版API：POST /for_store/call_tool { tool_name, args }）
   callTool: (toolName: string, args?: Record<string, any>, config: any = {}) =>
-    http.post<any>({ url: '/for_store/call_tool', data: { tool_name: toolName, args: args ?? {} }, ...config })
+    http.post<any>({ url: '/for_store/use_tool', data: { tool_name: toolName, arguments: args ?? {} }, ...config })
 }
 
 // 数据转换工具函数

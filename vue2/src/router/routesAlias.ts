@@ -43,10 +43,7 @@ export enum RoutesAlias {
   Map = '/template/map', // 地图
   Calendar = '/template/calendar', // 日历
   Pricing = '/template/pricing', // 定价
-  ArticleList = '/article/list', // 文章列表
-  ArticleDetail = '/article/detail', // 文章详情
-  Comment = '/article/comment', // 评论
-  ArticlePublish = '/article/publish', // 文章发布
+  // 文章模块已移除
   User = '/system/user', // 账户
   Role = '/system/role', // 角色
   UserCenter = '/system/user-center', // 用户中心

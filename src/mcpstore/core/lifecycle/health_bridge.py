@@ -6,7 +6,6 @@ HealthStatus → ServiceConnectionState 状态映射桥梁
 """
 
 import logging
-from typing import Optional
 
 from mcpstore.core.lifecycle.health_manager import HealthStatus, HealthCheckResult
 from mcpstore.core.models.service import ServiceConnectionState

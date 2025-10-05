@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator, Dict
 
 from fastmcp import Client
+
 from mcpstore.core.configuration.config_processor import ConfigProcessor
 
 

@@ -3,10 +3,10 @@ Hub Types Module
 Hub类型定义模块 - 定义Hub功能相关的数据类型和枚举
 """
 
-from typing import Dict, List, Any, Optional
-from enum import Enum
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
+from typing import Dict, List, Any, Optional
 
 
 class HubStatus(Enum):

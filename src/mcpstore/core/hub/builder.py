@@ -5,8 +5,9 @@ Hub构建器模块 - 提供链式API构建Hub服务包
 
 import logging
 from typing import TYPE_CHECKING, List, Dict, Any, Optional
-from .types import HubConfig, HubServiceInfo
+
 from .package import HubPackage
+from .types import HubConfig, HubServiceInfo
 
 if TYPE_CHECKING:
     from mcpstore.core.context.base_context import MCPStoreContext

@@ -5,6 +5,7 @@ FastMCP Authentication Types and Data Models
 
 from enum import Enum
 from typing import Dict, Any, List, Optional
+
 from pydantic import BaseModel, Field
 
 

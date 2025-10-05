@@ -2,11 +2,8 @@ from mcpstore import MCPStore
 
 demo_mcp = {
   "mcpServers": {
-    "playwright": {
-      "command": "npx",
-      "args": [
-        "@playwright/mcp"
-      ]
+    "dify": {
+    "url": "http://192.168.3.200/mcp/server/***/mcp"
     }
   }
 }

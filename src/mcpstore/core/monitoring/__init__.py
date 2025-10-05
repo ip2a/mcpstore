@@ -5,9 +5,10 @@ Monitoring module
 Responsible for tool monitoring, performance analysis, metrics collection and monitoring configuration
 """
 
+from .message_handler import MCPStoreMessageHandler
 # Main exports - maintain backward compatibility
 from .tools_monitor import ToolsUpdateMonitor
-from .message_handler import MCPStoreMessageHandler
+
 try:
     from .analytics import MonitoringAnalytics, EventCollector, ToolUsageMetrics, ServiceHealthMetrics
 except ImportError:

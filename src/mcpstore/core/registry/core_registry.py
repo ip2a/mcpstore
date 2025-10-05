@@ -4,11 +4,9 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import logging
 from datetime import datetime
-from typing import Dict, Any, Optional, Tuple, List, Set, TypeVar, Protocol
+from typing import Dict, Any, Optional, Tuple, List, Set
 
 from ..models.service import ServiceConnectionState, ServiceStateMetadata
-from .types import SessionProtocol, SessionType
-from typing import TYPE_CHECKING
 from .cache_backend import CacheBackend
 from .memory_backend import MemoryCacheBackend
 
@@ -79,8 +77,10 @@ class ServiceRegistry:
         # 当前有效的快照包（不可变结构）；读路径只读此指针，发布通过原子指针交换
         self._tools_snapshot_bundle: Optional[Dict[str, Any]] = None
         self._tools_snapshot_version: int = 0
+        # 快照脏标记：当缓存发生变化（添加/移除/清理）时设置为 True
+        self._tools_snapshot_dirty: bool = True
 
-        logger.debug("ServiceRegistry initialized with multi-context isolation")
+        logger.debug(f"ServiceRegistry initialized (id={id(self)}) with multi-context isolation, snapshot_version={self._tools_snapshot_version}")
 
         # Inject default cache backend (Memory); can be replaced with RedisBackend later
         self.cache_backend: CacheBackend = MemoryCacheBackend(self)
@@ -155,7 +155,18 @@ class ServiceRegistry:
             "meta": { "version": int, "created_at": float }
         }
         """
-        return self._tools_snapshot_bundle
+        bundle = self._tools_snapshot_bundle
+        try:
+            if bundle:
+                meta = bundle.get("meta", {}) if isinstance(bundle, dict) else {}
+                tools_section = bundle.get("tools", {}) if isinstance(bundle, dict) else {}
+                services_index = tools_section.get("services", {}) if isinstance(tools_section, dict) else {}
+                logger.debug(f"[SNAPSHOT] get_bundle ok (registry_id={id(self)}) version={meta.get('version')} services={len(services_index)}")
+            else:
+                logger.debug(f"[SNAPSHOT] get_bundle none (registry_id={id(self)})")
+        except Exception as e:
+            logger.debug(f"[SNAPSHOT] get_bundle log_error: {e}")
+        return bundle
 
     def rebuild_tools_snapshot(self, global_agent_id: str) -> Dict[str, Any]:
         """
@@ -163,6 +174,7 @@ class ServiceRegistry:
         仅依据 global_agent_id 下的缓存构建全局真源快照；Agent 视图由上层基于映射做投影。
         """
         from time import time
+        logger.debug(f"[SNAPSHOT] rebuild start (registry_id={id(self)}) agent={global_agent_id} current_version={self._tools_snapshot_version}")
 
         # 构建全局工具索引
         services_index: Dict[str, List[Dict[str, Any]]] = {}
@@ -183,9 +195,12 @@ class ServiceRegistry:
                 if not info:
                     continue
                 # 规范化为快照条目
-                # name: 使用 display_name 作为对外“展示名”；original_name 保留原始名称（如有）
+                # 统一：对外稳定键使用带前缀全名（info.name / tool_name）
+                # 展示：display_name 作为纯名称提供给前端
+                full_name = info.get("name", tool_name)
                 item = {
-                    "name": info.get("display_name", info.get("name", tool_name)),
+                    "name": full_name,
+                    "display_name": info.get("display_name", info.get("original_name", full_name.split(f"{service_name}_", 1)[-1] if isinstance(full_name, str) else full_name)),
                     "description": info.get("description", ""),
                     "service_name": service_name,
                     "client_id": info.get("client_id"),
@@ -193,7 +208,7 @@ class ServiceRegistry:
                     "original_name": info.get("original_name", info.get("name", tool_name))
                 }
                 items.append(item)
-                tools_by_fullname[info.get("name", tool_name)] = item
+                tools_by_fullname[full_name] = item
             services_index[service_name] = items
 
         # 复制映射快照（只读）
@@ -218,8 +233,28 @@ class ServiceRegistry:
         # 原子发布（指针交换）
         self._tools_snapshot_bundle = new_bundle
         self._tools_snapshot_version += 1
+        try:
+            total_tools = sum(len(v) for v in services_index.values())
+        except Exception:
+            total_tools = 0
         logger.debug(f"Tools bundle published: v{self._tools_snapshot_version}, services={len(services_index)}")
+        logger.info(f"[SNAPSHOT] rebuild done (registry_id={id(self)}) version={self._tools_snapshot_version} services={len(services_index)} tools_total={total_tools}")
+        # 重建完成后清除脏标记
+        self._tools_snapshot_dirty = False
         return new_bundle
+
+    def mark_tools_snapshot_dirty(self) -> None:
+        """标记工具快照为脏，提示读取方下一次应重建。"""
+        try:
+            self._tools_snapshot_dirty = True
+            logger.debug(f"[SNAPSHOT] marked dirty (registry_id={id(self)})")
+        except Exception:
+            # 防御性：不影响主流程
+            pass
+
+    def is_tools_snapshot_dirty(self) -> bool:
+        """返回当前工具快照是否为脏。"""
+        return bool(getattr(self, "_tools_snapshot_dirty", False))
 
     def _ensure_state_sync_manager(self):
         """确保状态同步管理器已初始化"""
@@ -326,6 +361,13 @@ class ServiceRegistry:
                 consecutive_failures=0 if session else 1,
                 error_message=None if session else "Connection failed"
             )
+        else:
+            #  修复：如果metadata已存在，也要更新service_config
+            # 这确保了配置信息始终是最新的
+            existing_metadata = self.service_metadata[agent_id][name]
+            if service_config:  # 只在提供了新配置时更新
+                existing_metadata.service_config = service_config
+                logger.debug(f"[ADD_SERVICE] Updated service_config for existing service: {name}")
 
         added_tool_names = []
         for tool_name, tool_definition in tools:
@@ -388,6 +430,93 @@ class ServiceRegistry:
         return added_tools
 
     @atomic_write(agent_id_param="agent_id", use_lock=True)
+    def replace_service_tools(self, agent_id: str, service_name: str, session: Any, remote_tools: List[Any]) -> Dict[str, int]:
+        """
+        规范化并原子替换某服务的工具缓存：
+        - 强制键名使用带前缀全名: {service}_{original}
+        - 强制 schema 写入 function.parameters（将 inputSchema 统一转换）
+        - 设置 function.display_name=original_name, function.service_name=service_name
+        - 保留现有的 Agent-Client 映射与 service 配置与状态
+
+        Returns:
+            Dict: {"replaced": int, "invalid": int}
+        """
+        replaced_count = 0
+        invalid_count = 0
+
+        try:
+            # 仅清理工具，不动映射
+            self.clear_service_tools_only(agent_id, service_name)
+
+            processed: List[Tuple[str, Dict[str, Any]]] = []
+
+            def _get(original: Any, key: str, default: Any = None) -> Any:
+                # 支持对象或字典两种形态读取
+                if isinstance(original, dict):
+                    return original.get(key, default)
+                return getattr(original, key, default)
+
+            for tool in remote_tools or []:
+                try:
+                    original_name = _get(tool, 'name')
+                    if not original_name or not isinstance(original_name, str):
+                        invalid_count += 1
+                        continue
+
+                    # 归一 schema: 优先 inputSchema → parameters
+                    schema = _get(tool, 'inputSchema')
+                    if schema is None and isinstance(tool, dict):
+                        # 兼容 function.parameters 已存在的情况
+                        fn = tool.get('function')
+                        if isinstance(fn, dict):
+                            schema = fn.get('parameters')
+
+                    description = _get(tool, 'description', '')
+
+                    full_name = f"{service_name}_{original_name}"
+                    tool_def: Dict[str, Any] = {
+                        'type': 'function',
+                        'function': {
+                            'name': original_name,
+                            'description': description or '',
+                            'parameters': schema or {},
+                            'display_name': original_name,
+                            'service_name': service_name,
+                        }
+                    }
+                    processed.append((full_name, tool_def))
+                except Exception:
+                    invalid_count += 1
+                    continue
+
+            # 使用现有状态与配置
+            current_state = self.get_service_state(agent_id, service_name)
+            service_config = self.get_service_config_from_cache(agent_id, service_name)
+
+            self.add_service(
+                agent_id=agent_id,
+                name=service_name,
+                session=session,
+                tools=processed,
+                service_config=service_config or {},
+                state=current_state,
+                preserve_mappings=True
+            )
+            replaced_count = len(processed)
+
+            # 标脏快照，由读侧或上层触发重建
+            try:
+                if hasattr(self, 'mark_tools_snapshot_dirty'):
+                    self.mark_tools_snapshot_dirty()
+            except Exception:
+                pass
+
+            return {"replaced": replaced_count, "invalid": invalid_count}
+        except Exception as e:
+            logger.error(f"[REGISTRY] replace_service_tools failed: agent={agent_id} service={service_name} err={e}")
+            return {"replaced": replaced_count, "invalid": invalid_count + 1}
+
+    @atomic_write(agent_id_param="agent_id", use_lock=True)
 
     def remove_service(self, agent_id: str, name: str) -> Optional[Any]:
         """
@@ -416,6 +545,12 @@ class ServiceRegistry:
         #  清理新增的缓存字段
         self._cleanup_service_cache_data(agent_id, name)
 
+        # 标记快照为脏，交由读取方或上层触发重建
+        try:
+            if hasattr(self, 'mark_tools_snapshot_dirty'):
+                self.mark_tools_snapshot_dirty()
+        except Exception:
+            pass
         logger.debug(f"Service removed: {name} for agent {agent_id}")
         return session
 
@@ -432,6 +567,7 @@ class ServiceRegistry:
         - 保留Service-Client映射
         """
         try:
+            logger.debug(f"[REGISTRY.CLEAR_TOOLS_ONLY] begin agent={agent_id} service={service_name} tool_cache_size={len(self.tool_cache.get(agent_id, {}))}")
             # 获取现有会话
             existing_session = self.sessions.get(agent_id, {}).get(service_name)
             if not existing_session:
@@ -871,16 +1007,34 @@ class ServiceRegistry:
 
     def get_service_config(self, agent_id: str, name: str) -> Optional[Dict[str, Any]]:
         """获取服务配置"""
-        if not self.has_service(agent_id, name):
+        try:
+            # 1) 服务不存在：直接返回 None
+            if not self.has_service(agent_id, name):
+                logger.debug(f"[REGISTRY] get_service_config: service_not_exists agent={agent_id} name={name}")
+                return None
+
+            # 2) 优先：从元数据缓存读取（单一真源）
+            metadata = self.get_service_metadata(agent_id, name)
+            if metadata and isinstance(metadata.service_config, dict) and metadata.service_config:
+                logger.debug(f"[REGISTRY] get_service_config: from_metadata agent={agent_id} name={name}")
+                return metadata.service_config
+
+            # 3) 备用：从 Client 配置映射读取
+            client_id = self.service_to_client.get(agent_id, {}).get(name)
+            if client_id:
+                client_cfg = self.client_configs.get(client_id, {}) or {}
+                svc_cfg = (client_cfg.get("mcpServers", {}) or {}).get(name)
+                if isinstance(svc_cfg, dict) and svc_cfg:
+                    logger.debug(f"[REGISTRY] get_service_config: from_client_configs agent={agent_id} name={name} client_id={client_id}")
+                    return svc_cfg
+
+            # 4) 未找到：返回 None，不依赖 Web 层
+            logger.debug(f"[REGISTRY] get_service_config: not_found agent={agent_id} name={name}")
             return None
 
-        # 从 orchestrator 的 mcp_config 获取配置
-        from api.deps import app_state
-        orchestrator = app_state.get("orchestrator")
-        if orchestrator and orchestrator.mcp_config:
-            return orchestrator.mcp_config.get_service_config(name)
-
-        return None
+        except Exception as e:
+            logger.warning(f"[REGISTRY] get_service_config error: {e}")
+            return None
 
     def mark_as_long_lived(self, agent_id: str, service_name: str):
         """标记服务为长连接服务"""

@@ -3,12 +3,12 @@ FastMCP Integration Layer
 Provides a clean interface between MCPStore and FastMCP, handling configuration normalization.
 """
 
-import asyncio
 import logging
-from typing import Dict, Any, List, Optional, Tuple
-from pathlib import Path
-from fastmcp import Client
 import time
+from pathlib import Path
+from typing import Dict, Any, Optional, Tuple
+
+from fastmcp import Client
 
 logger = logging.getLogger(__name__)
 

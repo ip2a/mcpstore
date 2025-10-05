@@ -13,7 +13,7 @@ import { useMenuStore } from '@/store/modules/menu'
  * 动态导入 views 目录和 mcp 目录下所有 .vue 组件
  */
 const modules: Record<string, () => Promise<any>> = {
-  ...import.meta.glob('../../views/**/*.vue'),
+  // MCP-only: 仅从 mcp 目录动态导入，避免将旧 views 目录打包进来
   ...import.meta.glob('../../mcp/**/*.vue')
 }
 
@@ -146,9 +146,10 @@ function loadComponent(componentPath: string, routeName: string): () => Promise<
   
   // 如果路径以 /mcp/ 开头，直接使用
   if (componentPath.startsWith('/mcp/')) {
+    const cp = componentPath.replace(/^\//, '')
     possiblePaths = [
-      `../${componentPath}.vue`,
-      `../${componentPath}/index.vue`
+      `../../${cp}.vue`,
+      `../../${cp}/index.vue`
     ]
   } else {
     // 传统的 views 路径

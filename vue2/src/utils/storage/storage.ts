@@ -1,8 +1,5 @@
 import { ElMessage } from 'element-plus'
-import { router } from '@/router'
-import { useUserStore } from '@/store/modules/user'
 import { StorageConfig } from '@/utils/storage/storage-config'
-import { RoutesAlias } from '@/router/routesAlias'
 
 /**
  * 存储兼容性管理器
@@ -79,12 +76,11 @@ class StorageCompatibilityManager {
   private performSystemLogout(): void {
     setTimeout(() => {
       try {
+        // [MCP-only] 无登录/鉴权流程：仅清理本地存储并记录日志，不做路由跳转
         localStorage.clear()
-        useUserStore().logOut()
-        router.push(RoutesAlias.Login)
-        console.info('[Storage] 已执行系统登出')
+        console.info('[Storage] MCP-only: 已清理本地存储')
       } catch (error) {
-        console.error('[Storage] 系统登出失败:', error)
+        console.error('[Storage] 清理操作失败:', error)
       }
     }, StorageConfig.LOGOUT_DELAY)
   }
@@ -101,7 +97,9 @@ class StorageCompatibilityManager {
    * 检查是否在登录页面
    */
   private isOnLoginPage(): boolean {
-    return location.href.includes(RoutesAlias.Login)
+    // [MCP-only] 
+    // 
+    return false
   }
 
   /**

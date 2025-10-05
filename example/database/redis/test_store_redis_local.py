@@ -18,19 +18,21 @@ print("=" * 60)
 print("测试：Redis 数据库支持 - 本地服务")
 print("=" * 60)
 
-# 1️⃣ 初始化 Store 并配置 Redis
-print("\n1️⃣ 初始化 Store 并配置 Redis")
-redis_config = {
-    "redis": {
-        "host": "localhost",
-        "port": 6379,
-        "db": 0,
-        "password": None
+# 1️⃣ 初始化 Store 并配置 Redis（新架构：external_db.cache.redis）
+print("\n1️⃣ 初始化 Store 并配置 Redis（external_db.cache.redis）")
+redis_url = "redis://localhost:6379/0"
+external_db = {
+    "cache": {
+        "type": "redis",
+        "url": redis_url,
+        "password": None,
+        "namespace": "example",
+        "dataspace": "auto"
     }
 }
 
-store = MCPStore.setup_store(debug=True, **redis_config)
-print(f"✅ Store 已初始化，Redis 配置: {redis_config}")
+store = MCPStore.setup_store(debug=True, external_db=external_db)
+print(f"✅ Store 已初始化，Redis 配置: {external_db}")
 
 # 2️⃣ 添加服务到 Redis 后端
 print("\n2️⃣ 添加服务到 Redis 后端")
