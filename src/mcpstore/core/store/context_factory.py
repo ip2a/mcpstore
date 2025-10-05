@@ -3,8 +3,8 @@
 负责处理 MCPStore 的上下文创建和管理功能
 """
 
-from typing import Dict, List, Optional, Union, Any
 import logging
+from typing import Dict, List, Optional
 
 from mcpstore.core.context import MCPStoreContext
 

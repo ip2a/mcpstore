@@ -10,6 +10,10 @@
       <el-table :data="services" v-loading="loading" border>
         <el-table-column label="#" type="index" width="60"/>
         <el-table-column prop="name" label="服务名称"/>
+        <el-table-column prop="status" label="状态" width="140"/>
+        <el-table-column prop="type" label="类型" width="120"/>
+        <el-table-column prop="tools_count" label="工具数" width="100"/>
+        <el-table-column prop="last_check" label="最后检查时间" width="220"/>
       </el-table>
     </el-card>
   </div>
@@ -20,7 +24,7 @@ import { onMounted, computed } from 'vue'
 import { useMcpSystemStore } from '../store/system'
 
 const store = useMcpSystemStore()
-const services = computed(() => store.services.map(name => ({ name })))
+const services = computed(() => store.services)
 const loading = computed(() => store.loading)
 
 function refresh() {

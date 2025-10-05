@@ -4,7 +4,7 @@ Implementation of Resources and Prompts functionality
 """
 
 import logging
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, Optional, Any
 
 from .types import ContextType
 

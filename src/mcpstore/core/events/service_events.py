@@ -7,8 +7,8 @@
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, Any, Optional, List, Tuple
 from enum import Enum
+from typing import Dict, Any, Optional, List, Tuple
 
 
 class EventPriority(Enum):

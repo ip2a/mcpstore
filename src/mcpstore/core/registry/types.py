@@ -5,8 +5,8 @@ Type definitions related to the registry module
 Contains all type definitions used in the registry module for unified management and import.
 """
 
-from typing import Dict, Any, Optional, List, Set, TypeVar, Protocol
 from datetime import datetime
+from typing import Dict, Any, TypeVar, Protocol
 
 # Re-export model types for unified import
 try:

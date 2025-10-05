@@ -4,10 +4,9 @@ MCPStore Tool Proxy Module
 """
 
 import logging
-from typing import Dict, List, Optional, Any, Union
 from datetime import datetime
+from typing import Dict, List, Optional, Any
 
-from mcpstore.core.models.tool import ToolInfo
 from .types import ContextType
 
 logger = logging.getLogger(__name__)
@@ -285,7 +284,7 @@ class ToolProxy:
 
     # === 工具执行方法（两个单词）===
 
-    def call_tool(self, arguments: Dict[str, Any] = None, **kwargs) -> ToolCallResult:
+    def call_tool(self, arguments: Dict[str, Any] = None, return_extracted: bool = False, **kwargs) -> Any:
         """
         调用工具（同步版本）
         利用 FastMCP 的 call_tool() 和 CallToolResult
@@ -295,13 +294,13 @@ class ToolProxy:
             **kwargs: 额外的调用选项 (timeout, progress_handler 等)
         
         Returns:
-            ToolCallResult: 封装 FastMCP CallToolResult 的友好对象
+            Any: FastMCP CallToolResult（或当 return_extracted=True 时返回已提取的数据）
         """
         return self._context._sync_helper.run_async(
-            self.call_tool_async(arguments, **kwargs)
+            self.call_tool_async(arguments, return_extracted=return_extracted, **kwargs)
         )
 
-    async def call_tool_async(self, arguments: Dict[str, Any] = None, **kwargs) -> ToolCallResult:
+    async def call_tool_async(self, arguments: Dict[str, Any] = None, return_extracted: bool = False, **kwargs) -> Any:
         """
         调用工具（异步版本）
         
@@ -310,35 +309,13 @@ class ToolProxy:
             **kwargs: 额外的调用选项 (timeout, progress_handler 等)
         
         Returns:
-            ToolCallResult: 封装的工具调用结果
+            Any: FastMCP CallToolResult（或当 return_extracted=True 时返回已提取的数据）
         """
-        try:
-            arguments = arguments or {}
-            
-            logger.info(f"[TOOL_PROXY] Calling tool '{self._tool_name}' with args: {arguments}")
-            
-            # 使用上下文的 call_tool_async 方法
-            # 这会利用 FastMCP 的 call_tool() 功能
-            result = await self._context.call_tool_async(self._tool_name, arguments, **kwargs)
-            
-            # 封装为 ToolCallResult
-            tool_result = ToolCallResult(result, self._tool_name, arguments)
-            
-            logger.info(f"[TOOL_PROXY] Tool call completed, error={tool_result.is_error}")
-            return tool_result
-            
-        except Exception as e:
-            logger.error(f"[TOOL_PROXY] Tool call failed: {e}")
-            # 创建错误结果
-            error_result = type('ErrorResult', (), {
-                'data': None,
-                'content': [type('ErrorContent', (), {'text': str(e)})()],
-                'structured_content': None,
-                'is_error': True
-            })()
-            return ToolCallResult(error_result, self._tool_name, arguments or {})
+        arguments = arguments or {}
+        logger.info(f"[TOOL_PROXY] Calling tool '{self._tool_name}' with args: {arguments}")
+        return await self._context.call_tool_async(self._tool_name, arguments, return_extracted=return_extracted, **kwargs)
 
-    def test_call(self, arguments: Dict[str, Any] = None) -> ToolCallResult:
+    def test_call(self, arguments: Dict[str, Any] = None, return_extracted: bool = False) -> Any:
         """
         测试调用工具（包含验证逻辑）
         
@@ -346,21 +323,15 @@ class ToolProxy:
             arguments: 测试参数
             
         Returns:
-            ToolCallResult: 测试调用结果
+            Any: FastMCP CallToolResult（或当 return_extracted=True 时返回已提取的数据）
         """
         # 首先验证工具是否存在
         info = self.tool_info()
         if not info:
-            error_result = type('ErrorResult', (), {
-                'data': None,
-                'content': [type('ErrorContent', (), {'text': f"Tool '{self._tool_name}' not found"})()],
-                'structured_content': None,
-                'is_error': True
-            })()
-            return ToolCallResult(error_result, self._tool_name, arguments or {})
+            raise ValueError(f"Tool '{self._tool_name}' not found")
         
         # 执行实际调用
-        return self.call_tool(arguments)
+        return self.call_tool(arguments, return_extracted=return_extracted)
 
     # === 工具统计方法（两个单词）===
 

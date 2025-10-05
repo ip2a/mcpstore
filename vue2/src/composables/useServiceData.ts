@@ -1,7 +1,7 @@
 // 服务数据管理 Composable
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { dashboardApi } from '@/mcp/api/dashboard'
+import { mcpApi } from '@/mcp/api'
 
 export function useServiceData() {
   // 响应式数据
@@ -70,23 +70,35 @@ export function useServiceData() {
     error.value = null
     
     try {
-      const res = await dashboardApi.getServices()
-      servicesResponse.value = res
-      const services = res?.data?.services || []
+      const services = await mcpApi.listServices() // data 为数组
+      servicesResponse.value = { data: services }
 
-      // 转换到表格行
-      tableData.value = services.map((s: any, idx: number) => ({
-        id: idx + 1,
-        name: s.name,
-        type: s.transport === 'streamable_http' ? 'HTTP' : (s.transport || 'Unknown').toUpperCase(),
-        endpoint: s.url ? s.url : (s.command ? `${s.command} ${Array.isArray(s.args) ? s.args.join(' ') : ''}` : ''),
-        status: s.is_active ? 'running' : 'stopped',
-        health: s.status || 'unknown',
-        lastCheck: s.state_entered_time || '-',
-        lastCheckAgo: formatTimeAgoFromString(s.state_entered_time),
-        toolCount: s.tool_count || 0,
-        description: s.url ? '远程服务' : (s.command ? '本地服务' : '服务')
-      }))
+      // 转换到表格行（对齐最新响应结构）
+      tableData.value = (services || []).map((s: any, idx: number) => {
+        const endpoint = (s.url && String(s.url).trim())
+          ? s.url
+          : (s.command
+              ? [s.command, ...(Array.isArray(s.args) ? s.args : [])].join(' ').trim()
+              : '')
+        const typeLabel = s.type === 'streamable_http' ? 'HTTP' : (s.type || 'Unknown').toUpperCase()
+        const health = s.status || 'unknown'
+        const inferredRunStatus = ['healthy', 'reconnecting', 'warning'].includes(health) ? 'running' : 'stopped'
+        const lastCheck = s.last_check || '-'
+
+        return {
+          id: idx + 1,
+          name: s.name,
+          type: typeLabel,
+          endpoint,
+          status: inferredRunStatus,
+          // 移除了对外展示的健康列；内部仍保留 health 便于统计
+          health,
+          lastCheck,
+          lastCheckAgo: formatTimeAgoFromString(lastCheck),
+          toolCount: s.tools_count ?? s.tool_count ?? 0,
+          description: s.url ? '远程服务' : (s.command ? '本地服务' : '服务')
+        }
+      })
     } catch (err) {
       error.value = err instanceof Error ? err.message : '获取服务列表失败'
       ElMessage.error('获取服务列表失败')

@@ -11,7 +11,7 @@ This repository expects `registry` to be a ServiceRegistry-like object that expo
 """
 from __future__ import annotations
 
-from typing import Dict, Iterable, Tuple, Optional, Any
+from typing import Dict, Iterable, Optional, Any
 
 from .atomic import atomic_write
 

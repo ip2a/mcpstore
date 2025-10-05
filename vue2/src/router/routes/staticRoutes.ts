@@ -19,6 +19,11 @@ export const staticRoutes: AppRouteRecordRaw[] = [
   // },
 
   {
+    path: '/',
+    redirect: '/dashboard'
+  },
+
+  {
     path: '/403',
     name: 'Exception403',
     component: () => import('@views/exception/403/index.vue'),

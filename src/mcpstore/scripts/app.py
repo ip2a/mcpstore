@@ -6,10 +6,6 @@ MCPStore API 服务 - 已弃用
 """
 
 import logging
-import os
-
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 # 导入新的应用工厂
 from .api_app import create_app

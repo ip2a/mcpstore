@@ -6,6 +6,7 @@
 - 事件总线
 """
 
+from .event_bus import EventBus, EventSubscription
 from .service_events import (
     DomainEvent,
     EventPriority,
@@ -19,8 +20,6 @@ from .service_events import (
     ServicePersisted,
     ServiceOperationFailed,
 )
-
-from .event_bus import EventBus, EventSubscription
 
 __all__ = [
     # 基础类

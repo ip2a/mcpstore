@@ -12,7 +12,7 @@ Design principles:
 """
 
 import logging
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 
 logger = logging.getLogger(__name__)
 

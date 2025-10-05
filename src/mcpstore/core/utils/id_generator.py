@@ -5,9 +5,9 @@ Provides unified and deterministic client ID generation for MCPStore
 
 import hashlib
 import logging
-import uuid
 import random
 import string
+import uuid
 from typing import Dict, Any
 
 logger = logging.getLogger(__name__)

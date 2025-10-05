@@ -1,3 +1,5 @@
+// [MCP-only 模式]：表格偏好状态（大小/斑马纹/边框等）为通用演示用途，若 MCP 页面未引用，可【待删除】
+
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { TableSizeEnum } from '@/enums/formEnum'

@@ -9,7 +9,7 @@ demo_mcp = {
     }
   }
 }
-store = MCPStore.setup_store(debug=True)
+store = MCPStore.setup_store(debug="WARNING")
 store.for_store().add_service(demo_mcp)
 ws = store.for_store().wait_service("mcpstore-demo")
 print(ws)

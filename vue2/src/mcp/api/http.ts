@@ -3,8 +3,11 @@ import axios, { AxiosRequestConfig, AxiosResponse } from 'axios'
 
 const { VITE_API_URL, VITE_WITH_CREDENTIALS } = import.meta.env
 
+// 开发环境走 Vite 代理 '/api'，生产环境用显式 API 地址
+const BASE_URL = import.meta.env.DEV ? '/api' : VITE_API_URL
+
 const instance = axios.create({
-  baseURL: VITE_API_URL, // 在开发环境通常是 /api，经由 vite 代理到后端
+  baseURL: BASE_URL,
   withCredentials: VITE_WITH_CREDENTIALS === 'true',
   timeout: 15000
 })

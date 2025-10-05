@@ -1,7 +1,6 @@
-import re
 import logging
 from datetime import datetime
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional
 
 from mcpstore.core.models.service import ServiceConnectionState
 

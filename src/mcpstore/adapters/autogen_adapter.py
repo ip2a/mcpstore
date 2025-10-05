@@ -1,11 +1,9 @@
 # src/mcpstore/adapters/autogen_adapter.py
 from __future__ import annotations
 
-import inspect
 from typing import List, TYPE_CHECKING, Callable, Any
 
-from pydantic import BaseModel
-from .common import create_args_schema, enhance_description, build_sync_executor, attach_signature_from_schema
+from .common import create_args_schema, build_sync_executor, attach_signature_from_schema
 
 if TYPE_CHECKING:
     from ..core.context.base_context import MCPStoreContext

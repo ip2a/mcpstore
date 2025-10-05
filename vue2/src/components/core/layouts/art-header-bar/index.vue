@@ -152,11 +152,9 @@
   import { storeToRefs } from 'pinia'
   import { useI18n } from 'vue-i18n'
   import { useRouter } from 'vue-router'
-  import { ElMessageBox } from 'element-plus'
   import { useFullscreen, useWindowSize } from '@vueuse/core'
   import { LanguageEnum, MenuTypeEnum } from '@/enums/appEnum'
   import { useSettingStore } from '@/store/modules/setting'
-  import { useUserStore } from '@/store/modules/user'
   import { useMenuStore } from '@/store/modules/menu'
   import AppConfig from '@/config'
   import { languageOptions } from '@/locales'
@@ -176,7 +174,6 @@
   const { width } = useWindowSize()
 
   const settingStore = useSettingStore()
-  const userStore = useUserStore()
   const menuStore = useMenuStore()
 
   // 顶部栏功能配置
@@ -200,7 +197,7 @@
   const { menuOpen, systemThemeColor, showSettingGuide, menuType, isDark, tabStyle } =
     storeToRefs(settingStore)
 
-  const { language, getUserInfo: userInfo } = storeToRefs(userStore)
+  const language = locale
   const { menuList } = storeToRefs(menuStore)
 
   const showNotice = ref(false)
@@ -285,16 +282,8 @@
    * 用户登出确认
    */
   const loginOut = (): void => {
+    // [MCP-only] 无登录/鉴权流程：登出逻辑省略
     closeUserMenu()
-    setTimeout(() => {
-      ElMessageBox.confirm(t('common.logOutTips'), t('common.tips'), {
-        confirmButtonText: t('common.confirm'),
-        cancelButtonText: t('common.cancel'),
-        customClass: 'login-out-dialog'
-      }).then(() => {
-        userStore.logOut()
-      })
-    }, 200)
   }
 
   /**
@@ -311,7 +300,7 @@
    * 初始化语言设置
    */
   const initLanguage = (): void => {
-    locale.value = language.value
+    // [MCP-only] 语言由 i18n 管理，已在全局初始化
   }
 
   /**
@@ -321,7 +310,7 @@
   const changeLanguage = (lang: LanguageEnum): void => {
     if (locale.value === lang) return
     locale.value = lang
-    userStore.setLanguage(lang)
+    // [MCP-only] 不再持久化到用户 Store；根据需要可加入本地存储
     reload(50)
   }
 

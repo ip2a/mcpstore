@@ -11,8 +11,8 @@
 
 import asyncio
 import logging
-from typing import Dict, Any, Optional
 from dataclasses import dataclass
+from typing import Dict, Any, Optional
 
 from mcpstore.core.events.event_bus import EventBus
 from mcpstore.core.events.service_events import ServiceAddRequested

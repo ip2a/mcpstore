@@ -5,7 +5,8 @@
 </template>
 
 <script setup lang="ts">
-  import { useUserStore } from './store/modules/user'
+  import { onBeforeMount, onMounted } from 'vue'
+  import { useI18n } from 'vue-i18n'
   import zh from 'element-plus/es/locale/lang/zh-cn'
   import en from 'element-plus/es/locale/lang/en'
   import { systemUpgrade } from './utils/sys'
@@ -13,8 +14,9 @@
   import { setThemeTransitionClass } from './utils/theme/animation'
   import { checkStorageCompatibility } from './utils/storage'
 
-  const userStore = useUserStore()
-  const { language } = storeToRefs(userStore)
+  // 使用全局 i18n 的语言设置，替代已移除的用户 Store
+  const { locale } = useI18n()
+  const language = locale
 
   const locales = {
     zh: zh,

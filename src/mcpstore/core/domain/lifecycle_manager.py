@@ -10,11 +10,10 @@
 
 import logging
 from datetime import datetime
-from typing import Optional
 
 from mcpstore.core.events.event_bus import EventBus
 from mcpstore.core.events.service_events import (
-    ServiceCached, ServiceInitialized, ServiceConnected, 
+    ServiceCached, ServiceInitialized, ServiceConnected,
     ServiceConnectionFailed, ServiceStateChanged
 )
 from mcpstore.core.models.service import ServiceConnectionState, ServiceStateMetadata
@@ -57,8 +56,20 @@ class LifecycleManager:
         logger.info(f"[LIFECYCLE] Initializing lifecycle for: {event.service_name}")
         
         try:
-            # 设置初始状态（已在 CacheManager 中设置为 INITIALIZING）
-            # 这里只需要初始化元数据
+            # 🔧 修复：检查是否已有 metadata（CacheManager 可能已创建）
+            existing_metadata = self._registry.get_service_metadata(event.agent_id, event.service_name)
+            
+            if existing_metadata and existing_metadata.service_config:
+                # 如果已有 metadata 且包含配置，保留原有配置
+                service_config = existing_metadata.service_config
+                logger.debug(f"[LIFECYCLE] Preserving existing service_config for: {event.service_name}")
+            else:
+                # 否则，尝试从客户端配置中读取
+                client_config = self._registry.get_client_config_from_cache(event.client_id)
+                service_config = client_config.get("mcpServers", {}).get(event.service_name, {}) if client_config else {}
+                logger.debug(f"[LIFECYCLE] Loading service_config from client config for: {event.service_name}")
+            
+            # 创建或更新元数据（保留配置信息）
             metadata = ServiceStateMetadata(
                 service_name=event.service_name,
                 agent_id=event.agent_id,
@@ -67,7 +78,7 @@ class LifecycleManager:
                 reconnect_attempts=0,
                 next_retry_time=None,
                 error_message=None,
-                service_config={}  # 配置已在缓存中
+                service_config=service_config  # 🔧 修复：使用正确的配置
             )
             
             self._registry.set_service_metadata(event.agent_id, event.service_name, metadata)

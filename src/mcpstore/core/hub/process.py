@@ -8,9 +8,9 @@ import logging
 import os
 import subprocess
 import time
-import signal
-from typing import List, Dict, Any, Optional
 from datetime import datetime
+from typing import List, Dict, Any, Optional
+
 from .types import HubStatus, HubProcessInfo, HubServiceInfo, HubRouteInfo
 
 logger = logging.getLogger(__name__)

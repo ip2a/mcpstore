@@ -10,14 +10,14 @@
 import logging
 from typing import TYPE_CHECKING
 
-from mcpstore.core.events.event_bus import EventBus
 from mcpstore.core.application.service_application_service import ServiceApplicationService
 from mcpstore.core.domain.cache_manager import CacheManager
-from mcpstore.core.domain.lifecycle_manager import LifecycleManager
 from mcpstore.core.domain.connection_manager import ConnectionManager
-from mcpstore.core.domain.persistence_manager import PersistenceManager
 from mcpstore.core.domain.health_monitor import HealthMonitor
+from mcpstore.core.domain.lifecycle_manager import LifecycleManager
+from mcpstore.core.domain.persistence_manager import PersistenceManager
 from mcpstore.core.domain.reconnection_scheduler import ReconnectionScheduler
+from mcpstore.core.events.event_bus import EventBus
 
 if TYPE_CHECKING:
     from mcpstore.core.registry.core_registry import CoreRegistry

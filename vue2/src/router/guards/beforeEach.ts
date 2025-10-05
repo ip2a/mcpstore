@@ -2,18 +2,19 @@ import type { Router, RouteLocationNormalized, NavigationGuardNext } from 'vue-r
 import { ref, nextTick } from 'vue'
 import NProgress from 'nprogress'
 import { useSettingStore } from '@/store/modules/setting'
-import { useUserStore } from '@/store/modules/user'
+
 import { useMenuStore } from '@/store/modules/menu'
 import { setWorktab } from '@/utils/navigation'
 import { setPageTitle, setSystemTheme } from '../utils/utils'
-import { fetchGetMenuList } from '@/api/system-manage'
+
 import { registerDynamicRoutes } from '../utils/registerRoutes'
 import { AppRouteRecord } from '@/types/router'
 import { RoutesAlias } from '../routesAlias'
 import { menuDataToRouter } from '../utils/menuToRouter'
-import { asyncRoutes } from '../routes/asyncRoutes'
+
+import { getMcpMenuConfig } from '@/mcp/constants/menu'
 import { loadingService } from '@/utils/ui'
-import { useCommon } from '@/composables/useCommon'
+
 import { useWorktabStore } from '@/store/modules/worktab'
 // import { fetchGetUserInfo } from '@/api/auth'
 
@@ -80,7 +81,6 @@ async function handleRouteGuard(
   router: Router
 ): Promise<void> {
   const settingStore = useSettingStore()
-  const userStore = useUserStore()
 
   // 处理进度条
   if (settingStore.showNprogress) {
@@ -90,8 +90,6 @@ async function handleRouteGuard(
   // 设置系统主题
   setSystemTheme(to)
 
-  // 关闭登录校验：始终放行
-  userStore.setLoginStatus(true)
 
   // 处理动态路由注册
   if (!isRouteRegistered.value) {
@@ -125,18 +123,6 @@ async function handleRouteGuard(
 /**
  * 处理登录状态
  */
-async function handleLoginStatus(
-  to: RouteLocationNormalized,
-  userStore: ReturnType<typeof useUserStore>,
-  next: NavigationGuardNext
-): Promise<boolean> {
-  if (!userStore.isLogin && to.path !== RoutesAlias.Login && !to.meta.noLogin) {
-    userStore.logOut()
-    next(RoutesAlias.Login)
-    return false
-  }
-  return true
-}
 
 /**
  * 处理动态路由注册
@@ -152,10 +138,7 @@ async function handleDynamicRoutes(
     pendingLoading.value = true
     loadingService.showLoading()
 
-    // 关闭用户信息获取：默认已登录且无需用户资料
-    const userStore = useUserStore()
-    if (!userStore.isLogin) userStore.setLoginStatus(true)
-
+    // 动态加载菜单（前端模式）
     await getMenuData(router)
 
     // 处理根路径跳转
@@ -180,11 +163,7 @@ async function handleDynamicRoutes(
  */
 async function getMenuData(router: Router): Promise<void> {
   try {
-    if (useCommon().isFrontendMode.value) {
-      await processFrontendMenu(router)
-    } else {
-      await processBackendMenu(router)
-    }
+    await processFrontendMenu(router)
   } catch (error) {
     handleMenuError(error)
     throw error
@@ -195,15 +174,9 @@ async function getMenuData(router: Router): Promise<void> {
  * 处理前端控制模式的菜单逻辑
  */
 async function processFrontendMenu(router: Router): Promise<void> {
-  const menuList = asyncRoutes.map((route) => menuDataToRouter(route))
-  const userStore = useUserStore()
-  const roles = userStore.info.roles
-
-  if (!roles) {
-    throw new Error('获取用户角色失败')
-  }
-
-  const filteredMenuList = filterMenuByRoles(menuList, roles)
+  // 精简为仅 MCP 菜单
+  const menuList = getMcpMenuConfig().map((route) => menuDataToRouter(route))
+  const filteredMenuList = menuList
 
   // 添加延时以提升用户体验
   await new Promise((resolve) => setTimeout(resolve, LOADING_DELAY))
@@ -214,10 +187,7 @@ async function processFrontendMenu(router: Router): Promise<void> {
 /**
  * 处理后端控制模式的菜单逻辑
  */
-async function processBackendMenu(router: Router): Promise<void> {
-  const { menuList } = await fetchGetMenuList()
-  await registerAndStoreMenu(router, menuList)
-}
+
 
 /**
  * 递归过滤空菜单项
@@ -272,29 +242,14 @@ async function registerAndStoreMenu(router: Router, menuList: AppRouteRecord[]):
  */
 function handleMenuError(error: unknown): void {
   console.error('菜单处理失败:', error)
-  useUserStore().logOut()
-  throw error instanceof Error ? error : new Error('获取菜单列表失败，请重新登录')
+  // 精简模式：不做登出处理
+  throw error instanceof Error ? error : new Error('获取菜单列表失败')
 }
 
 /**
  * 根据角色过滤菜单
  */
-const filterMenuByRoles = (menu: AppRouteRecord[], roles: string[]): AppRouteRecord[] => {
-  return menu.reduce((acc: AppRouteRecord[], item) => {
-    const itemRoles = item.meta?.roles
-    const hasPermission = !itemRoles || itemRoles.some((role) => roles?.includes(role))
 
-    if (hasPermission) {
-      const filteredItem = { ...item }
-      if (filteredItem.children?.length) {
-        filteredItem.children = filterMenuByRoles(filteredItem.children, roles)
-      }
-      acc.push(filteredItem)
-    }
-
-    return acc
-  }, [])
-}
 
 /**
  * 验证菜单列表是否有效
@@ -318,11 +273,8 @@ export function resetRouterState(): void {
  */
 function handleRootPathRedirect(to: RouteLocationNormalized, next: NavigationGuardNext): boolean {
   if (to.path === '/') {
-    const { homePath } = useCommon()
-    if (homePath.value) {
-      next({ path: homePath.value, replace: true })
-      return true
-    }
+    next({ path: '/dashboard', replace: true })
+    return true
   }
   return false
 }

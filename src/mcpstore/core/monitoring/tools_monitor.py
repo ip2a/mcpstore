@@ -6,13 +6,12 @@ Supports FastMCP notification mechanism + polling backup strategy
 import asyncio
 import logging
 import time
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Set
+from datetime import datetime
+from typing import Dict, Optional, Any
 
-from .message_handler import MCPStoreMessageHandler, FASTMCP_AVAILABLE
-
-from mcpstore.core.utils.mcp_client_helpers import temp_client_for_service
 from mcpstore.core.models.service import ServiceConnectionState
+from mcpstore.core.utils.mcp_client_helpers import temp_client_for_service
+from .message_handler import MCPStoreMessageHandler, FASTMCP_AVAILABLE
 
 logger = logging.getLogger(__name__)
 
@@ -303,14 +302,15 @@ class ToolsUpdateMonitor:
                     "client_id": client_id
                 }
 
-            # 获取当前工具列表
+            # 获取当前工具列表（用于变更统计）
             old_tools = set(self.registry.get_tools_for_service(client_id, service_name))
 
             # 从服务获取最新工具列表（使用临时 client）
             try:
                 async with temp_client_for_service(service_name, service_config) as client:
                     tools_response = await client.list_tools()
-                    new_tools = {tool.name for tool in tools_response}
+                    new_tools = {getattr(t, 'name', None) or (t.get('name') if hasattr(t, 'get') else None) for t in tools_response}
+                    new_tools = {n for n in new_tools if n}
             except Exception as e:
                 logger.error(f"[TOOLS_MONITOR] list_tools_failed service='{service_name}' error={e}")
                 return {
@@ -321,99 +321,40 @@ class ToolsUpdateMonitor:
                 }
 
             # 比较工具列表
-            added_tools = new_tools - old_tools
-            removed_tools = old_tools - new_tools
+            added_tools = new_tools - {n.split(f"{service_name}_", 1)[-1] if n.startswith(f"{service_name}_") else n for n in old_tools}
+            removed_tools = {n.split(f"{service_name}_", 1)[-1] if n.startswith(f"{service_name}_") else n for n in old_tools} - new_tools
 
             changes_count = len(added_tools) + len(removed_tools)
 
-            if changes_count > 0:
-                # 有变化，更新注册表
-                logger.info(f" Tools changed for {service_name}: +{len(added_tools)} -{len(removed_tools)}")
+            # 无论是否有变化，都用规范化入口回写，确保格式正确（带前缀 + parameters）
+            session = self.registry.get_session(client_id, service_name)
+            if session:
+                locks_owner = getattr(self.orchestrator, 'store', None)
+                agent_locks = getattr(locks_owner, 'agent_locks', None) if locks_owner else None
+                if agent_locks:
+                    async with agent_locks.write(client_id):
+                        self.registry.replace_service_tools(client_id, service_name, session, tools_response)
+                else:
+                    self.registry.replace_service_tools(client_id, service_name, session, tools_response)
 
-                # 使用统一 Registry API 刷新该服务的工具缓存，避免直访内部字典
-                session = self.registry.get_session(client_id, service_name)
-                if session:
-                    # 将最新工具列表规范化为 (name, def) 形式
-                    processed_tools = []
-                    for tool in tools_response:
-                        try:
-                            tool_name = getattr(tool, 'name', None)
-                            if not tool_name and hasattr(tool, 'get'):
-                                tool_name = tool.get('name')
-                            if not tool_name:
-                                continue
-                            if hasattr(tool, 'get'):
-                                tool_dict = dict(tool)
-                            else:
-                                tool_dict = {
-                                    'name': getattr(tool, 'name', ''),
-                                    'description': getattr(tool, 'description', ''),
-                                    'inputSchema': getattr(tool, 'inputSchema', {})
-                                }
-                            if 'function' not in tool_dict:
-                                tool_def = {"type": "function", "function": tool_dict}
-                            else:
-                                tool_def = tool_dict
-                            processed_tools.append((tool_name, tool_def))
-                        except Exception:
-                            continue
-
-                    # 持有 per-agent 锁，原子替换该服务的工具缓存
-                    locks_owner = getattr(self.orchestrator, 'store', None)
-                    agent_locks = getattr(locks_owner, 'agent_locks', None) if locks_owner else None
-                    if agent_locks:
-                        async with agent_locks.write(client_id):
-                            self.registry.clear_service_tools_only(client_id, service_name)
-                            current_state = self.registry.get_service_state(client_id, service_name)
-                            self.registry.add_service(
-                                agent_id=client_id,
-                                name=service_name,
-                                session=session,
-                                tools=processed_tools,
-                                service_config=service_config,
-                                state=current_state or ServiceConnectionState.HEALTHY,
-                                preserve_mappings=True
-                            )
-                    else:
-                        self.registry.clear_service_tools_only(client_id, service_name)
-                        current_state = self.registry.get_service_state(client_id, service_name)
-                        self.registry.add_service(
-                            agent_id=client_id,
-                            name=service_name,
-                            session=session,
-                            tools=processed_tools,
-                            service_config=service_config,
-                            state=current_state or ServiceConnectionState.HEALTHY,
-                            preserve_mappings=True
-                        )
-
-                    # 触发全量工具定义刷新，确保缓存定义同步
-                    try:
-                        await self.orchestrator.content_manager.force_update_service_content(client_id, service_name)
-                    except Exception as refresh_err:
-                        logger.warning(f"[TOOLS_MONITOR] content_refresh_failed service='{service_name}' error={refresh_err}")
+                # 尝试刷新内容（非关键路径，失败忽略）
+                try:
+                    await self.orchestrator.content_manager.force_update_service_content(client_id, service_name)
+                except Exception as refresh_err:
+                    logger.warning(f"[TOOLS_MONITOR] content_refresh_failed service='{service_name}' error={refresh_err}")
 
                 # 更新时间戳
                 self._update_service_timestamp(service_name, client_id)
 
-                return {
-                    "changed": True,
-                    "changes_count": changes_count,
-                    "added_tools": list(added_tools),
-                    "removed_tools": list(removed_tools),
-                    "service_name": service_name,
-                    "client_id": client_id,
-                    "timestamp": datetime.now().isoformat()
-                }
-            else:
-                # 无变化
-                logger.debug(f"[TOOLS_MONITOR] no_tool_changes service='{service_name}'")
-                return {
-                    "changed": False,
-                    "changes_count": 0,
-                    "service_name": service_name,
-                    "client_id": client_id
-                }
+            return {
+                "changed": changes_count > 0,
+                "changes_count": changes_count,
+                "added_tools": list(added_tools),
+                "removed_tools": list(removed_tools),
+                "service_name": service_name,
+                "client_id": client_id,
+                "timestamp": datetime.now().isoformat()
+            }
 
         except Exception as e:
             logger.error(f"[TOOLS_MONITOR] update_error service='{service_name}' error={e}")

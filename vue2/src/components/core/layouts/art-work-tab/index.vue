@@ -19,7 +19,7 @@
           :id="`scroll-li-${index}`"
           :style="{ padding: item.fixedTab ? '0 10px' : '0 8px 0 12px' }"
           @click="clickTab(item)"
-          @contextmenu.prevent="(e: MouseEvent) => showMenu(e, item.path)"
+          @contextmenu.prevent="(e) => showMenu(e, item.path)"
         >
           {{ item.customTitle || formatMenuTitle(item.title) }}
           <el-icon
@@ -36,7 +36,7 @@
     <div class="right">
       <el-icon
         class="btn console-box art-custom-card"
-        @click="(e: MouseEvent) => showMenu(e, activeTab)"
+        @click="(e) => showMenu(e, activeTab)"
       >
         <ArrowDown />
       </el-icon>
@@ -60,7 +60,6 @@
   import { storeToRefs } from 'pinia'
 
   import { useWorktabStore } from '@/store/modules/worktab'
-  import { useUserStore } from '@/store/modules/user'
   import { formatMenuTitle } from '@/router/utils/utils'
   import { useSettingStore } from '@/store/modules/setting'
   import { MenuItemType } from '../../others/art-menu-right/index.vue'
@@ -83,9 +82,8 @@
   type TabCloseType = 'current' | 'left' | 'right' | 'other' | 'all'
 
   // 基础设置
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const store = useWorktabStore()
-  const userStore = useUserStore()
   const route = useRoute()
   const router = useRouter()
   const { currentRoute } = router
@@ -439,7 +437,7 @@
   )
 
   watch(
-    () => userStore.language,
+    () => locale.value,
     () => {
       scrollState.value.translateX = 0
       nextTick(() => {

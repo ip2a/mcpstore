@@ -7,7 +7,7 @@ import logging
 from typing import TYPE_CHECKING, Dict, Any, List, Optional
 
 from .types import (
-    AuthProviderConfig, 
+    AuthProviderConfig,
     AuthProviderType,
     FastMCPAuthConfig
 )

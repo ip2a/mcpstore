@@ -57,7 +57,7 @@ print(f"   调用参数: {json.dumps(params, ensure_ascii=False)}")
 
 # 6️⃣ 在 Agent 中使用 use_tool() 调用工具
 print("\n6️⃣ 在 Agent 中使用 use_tool() 调用工具")
-result = tool_proxy.use_tool(params)
+result = tool_proxy.call_tool(params)
 print(f"✅ Agent 工具调用成功")
 print(f"   返回类型: {type(result)}")
 
@@ -83,7 +83,7 @@ call_result = tool_proxy.call_tool(params)
 print(f"   call_tool() 结果类型: {type(call_result)}")
 
 # 使用 use_tool()
-use_result = tool_proxy.use_tool(params)
+use_result = tool_proxy.call_tool(params)
 print(f"   use_tool() 结果类型: {type(use_result)}")
 
 # 比较结果

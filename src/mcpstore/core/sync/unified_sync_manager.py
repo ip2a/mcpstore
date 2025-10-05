@@ -16,8 +16,7 @@ import asyncio
 import logging
 import os
 import time
-from pathlib import Path
-from typing import Dict, Set, Optional, Any
+from typing import Dict, Any
 
 # 条件导入 watchdog
 try:

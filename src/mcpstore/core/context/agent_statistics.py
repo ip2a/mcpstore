@@ -4,10 +4,8 @@ Implementation of Agent statistics functionality
 """
 
 import logging
-from typing import Dict, List, Optional, Any, Union
 
 from mcpstore.core.models.agent import AgentsSummary, AgentStatistics, AgentServiceSummary
-from .types import ContextType
 
 logger = logging.getLogger(__name__)
 

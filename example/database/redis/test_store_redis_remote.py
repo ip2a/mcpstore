@@ -18,21 +18,23 @@ print("=" * 60)
 print("测试：Redis 数据库支持 - 远程服务")
 print("=" * 60)
 
-# 1️⃣ 初始化 Store 并配置远程 Redis
-print("\n1️⃣ 初始化 Store 并配置远程 Redis")
-redis_config = {
-    "redis": {
-        "host": "redis.example.com",  # 远程 Redis 服务器
-        "port": 6379,
-        "db": 0,
-        "password": "your_password",  # 远程 Redis 密码
-        "ssl": True,  # 启用 SSL
-        "timeout": 30  # 连接超时
+# 1️⃣ 初始化 Store 并配置远程 Redis（新架构：external_db.cache.redis）
+print("\n1️⃣ 初始化 Store 并配置远程 Redis（external_db.cache.redis）")
+redis_url = "rediss://redis.example.com:6379/0"
+external_db = {
+    "cache": {
+        "type": "redis",
+        "url": redis_url,
+        "password": "your_password",
+        "namespace": "example",
+        "dataspace": "auto",
+        "socket_timeout": 30,
+        "healthcheck_interval": 30
     }
 }
 
-store = MCPStore.setup_store(debug=True, **redis_config)
-print(f"✅ Store 已初始化，远程 Redis 配置: {redis_config}")
+store = MCPStore.setup_store(debug=True, external_db=external_db)
+print(f"✅ Store 已初始化，远程 Redis 配置: {external_db}")
 
 # 2️⃣ 添加服务到远程 Redis 后端
 print("\n2️⃣ 添加服务到远程 Redis 后端")

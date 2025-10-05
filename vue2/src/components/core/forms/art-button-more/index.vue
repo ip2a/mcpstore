@@ -31,11 +31,11 @@
 </template>
 
 <script setup lang="ts">
-  import { useAuth } from '@/composables/useAuth'
+  // 移除权限依赖，始终显示下拉项
 
   defineOptions({ name: 'ArtButtonMore' })
 
-  const { hasAuth } = useAuth()
+  const hasAuth = () => true
 
   export interface ButtonMoreItem {
     /** 按钮标识，可用于点击事件 */
@@ -68,9 +68,7 @@
   })
 
   // 检查是否有任何有权限的 item
-  const hasAnyAuthItem = computed(() => {
-    return props.list.some((item) => !item.auth || hasAuth(item.auth))
-  })
+  const hasAnyAuthItem = computed(() => props.list.length > 0)
 
   const emit = defineEmits<{
     (e: 'click', item: ButtonMoreItem): void

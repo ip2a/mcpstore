@@ -18,7 +18,8 @@
         @refresh="handleRefresh"
       >
         <template #left>
-          <ElButton v-auth="'add'" @click="handleAddMenu" v-ripple> 添加菜单 </ElButton>
+          <!-- 权限指令已移除，只保留普通按钮 -->
+          <ElButton @click="handleAddMenu" v-ripple> 添加菜单 </ElButton>
           <ElButton @click="toggleExpand" v-ripple>
             {{ isExpanded ? '收起' : '展开' }}
           </ElButton>
@@ -56,12 +57,12 @@
   import ArtButtonTable from '@/components/core/forms/art-button-table/index.vue'
   import { useTableColumns } from '@/composables/useTableColumns'
   import type { AppRouteRecord } from '@/types/router'
-  import { useAuth } from '@/composables/useAuth'
+  // 移除权限相关逻辑
   import MenuDialog from './modules/menu-dialog.vue'
 
   defineOptions({ name: 'Menus' })
 
-  const { hasAuth } = useAuth()
+  const hasAuth = () => true
   const { menuList } = storeToRefs(useMenuStore())
 
   // 状态管理

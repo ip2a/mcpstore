@@ -7,6 +7,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Any
+
 from .types import MarketServerInfo, MarketSearchFilter, MarketServerRepository, MarketServerAuthor, MarketInstallation
 
 logger = logging.getLogger(__name__)

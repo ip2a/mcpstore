@@ -58,19 +58,25 @@ def get_route_info():
 @router.get("/", tags=["System"])
 async def api_root():
     """API root path - system information"""
-    from mcpstore.core.models.common import APIResponse
-
+    from mcpstore.core.models import ResponseBuilder
+    
     route_info = get_route_info()
-
-    return APIResponse(
-        success=True,
+    
+    return ResponseBuilder.success(
+        message="MCPStore API is running",
         data={
-            "message": "MCPStore API Server",
-            "version": "1.0.0",
-            "status": "running",
-            "routes": route_info,
-            "documentation": "/docs",
-            "openapi": "/openapi.json"
-        },
-        message="MCPStore API is running successfully"
+            "service": "MCPStore API",
+            "version": "0.6.0",
+            "status": "operational",
+            "endpoints": {
+                "store": route_info.get("store_routes", 0),
+                "agent": route_info.get("agent_routes", 0),
+                "system": 2
+            },
+            "documentation": {
+                "swagger": "/docs",
+                "redoc": "/redoc",
+                "openapi": "/openapi.json"
+            }
+        }
     )

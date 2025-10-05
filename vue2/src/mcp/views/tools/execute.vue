@@ -51,7 +51,7 @@
           <ArtSearchBar
             v-model="serviceForm"
             :items="serviceItems"
-            :span="6"
+            :span="12"
             :showExpand="false"
           />
         </div>
@@ -68,7 +68,7 @@
           <ArtSearchBar
             v-model="toolForm"
             :items="toolItems"
-            :span="6"
+            :span="12"
             :showExpand="false"
           />
         </div>
@@ -163,7 +163,7 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 // 全局已注册（见 types/components.d.ts），这里无需显式导入本地组件
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
-import { dashboardApi } from '@/mcp/api/dashboard'
+import { mcpApi } from '../../api/index'
 
 defineOptions({ name: 'ToolExecutor' })
 
@@ -190,7 +190,7 @@ const totalTools = computed(() => tools.value.length)
 const toolsByServiceMap = computed(() => {
   const map: Record<string, number> = {}
   tools.value.forEach((t) => {
-    const sn = t.service_name || 'unknown'
+    const sn = t.service || t.service_name || 'unknown'
     map[sn] = (map[sn] || 0) + 1
   })
   return map
@@ -203,11 +203,11 @@ const toolsByServiceData = computed(() => Object.values(toolsByServiceMap.value)
 // 搜索条：选择服务/工具 使用内置 ArtSearchBar，而不是手写样式
 const serviceForm = reactive({ service: '' })
 const serviceItems = [
-  { key: 'service', label: '服务', type: 'select', props: { placeholder: '请选择健康服务', options: [] } }
+  { key: 'service', label: '服务', type: 'select', props: { placeholder: '请选择服务', options: [], filterable: true, clearable: true, style: 'width:100%' } }
 ]
 const toolForm = reactive({ tool: '' })
 const toolItems = [
-  { key: 'tool', label: '工具', type: 'select', props: { placeholder: '请选择工具', options: [] } }
+  { key: 'tool', label: '工具', type: 'select', props: { placeholder: '请选择工具', options: [], filterable: true, clearable: true, style: 'width:100%' } }
 ]
 
 
@@ -215,22 +215,28 @@ const toolItems = [
 const selectedService = ref<string>('')
 const healthyServices = computed(() => {
   const list = services.value || []
-  return list.filter((s: any) => s.status === 'healthy')
+  return list.filter((s: any) => s.status === 'healthy' || s.status === 'initializing')
 })
 
 // 第二步：工具选择（按服务过滤）
 const selectedToolName = ref<string>('')
 const filteredTools = computed(() => {
   if (!selectedService.value) return []
-  return tools.value.filter((t) => t.service_name === selectedService.value)
+  return tools.value.filter((t) => (t.service || t.service_name) === selectedService.value)
 })
 const selectedTool = computed(() => filteredTools.value.find((t) => t.name === selectedToolName.value))
 
 const healthyCount = computed(() => services.value.filter((s: any) => s.status === 'healthy').length)
 const totalServicesCount = computed(() => services.value.length)
-const healthyDonutData = computed(() => [healthyCount.value, Math.max(totalServicesCount.value - healthyCount.value, 0)] as [number, number])
+const healthyDonutData = computed(() => [
+  { name: 'Healthy', value: healthyCount.value },
+  { name: 'Others', value: Math.max(totalServicesCount.value - healthyCount.value, 0) }
+])
 
-const successDonutData = computed(() => [successRate.value, 100 - successRate.value] as [number, number])
+const successDonutData = computed(() => [
+  { name: 'Success', value: successRate.value },
+  { name: 'Fail', value: 100 - successRate.value }
+])
 
 // 第三步：参数动态表单
 const formRef = ref<FormInstance>()
@@ -298,7 +304,7 @@ function buildFormFromSchema(schema: any) {
 }
 
 function prepareParamsAndNext() {
-  const schema = selectedTool.value?.inputSchema
+  const schema = selectedTool.value?.input_schema || selectedTool.value?.inputSchema
   buildFormFromSchema(schema)
 }
 
@@ -321,8 +327,8 @@ async function onExecute() {
     const toolName = selectedTool.value?.name as string
     const args = { ...formModel }
 
-    // 说明：旧版API是只需 tool_name 与 args；服务由后端根据 tool 归属解析
-    const res = await dashboardApi.callTool(toolName, args)
+    // 改为 { tool_name, args }，兼容后端
+    const res = await mcpApi.callTool(toolName, args)
     execResultText.value = JSON.stringify(res, null, 2)
     if ((res as any)?.success) ElMessage.success('工具执行成功')
   } catch (e: any) {
@@ -349,9 +355,8 @@ async function refreshAll() {
 
 async function loadServices() {
   try {
-    const res = await dashboardApi.getServices()
-    // 支持 { data: { services: [...] } } 或直接 { services: [...] }
-    services.value = res?.data?.services || res?.services || []
+    const arr = await mcpApi.listServices()
+    services.value = Array.isArray(arr) ? arr : []
   } catch (e) {
     console.error(e)
     ElMessage.error('获取服务失败')
@@ -360,8 +365,8 @@ async function loadServices() {
 
 async function loadTools() {
   try {
-    const res = await dashboardApi.getTools()
-    tools.value = res?.data || []
+    const arr = await mcpApi.listTools()
+    tools.value = Array.isArray(arr) ? arr : []
   } catch (e) {
     console.error(e)
     ElMessage.error('获取工具失败')

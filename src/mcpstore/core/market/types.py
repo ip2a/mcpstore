@@ -3,9 +3,9 @@ Market data types and models
 市场数据类型和模型定义
 """
 
-from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Dict, List, Optional, Any
 
 
 @dataclass

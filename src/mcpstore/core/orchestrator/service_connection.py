@@ -3,17 +3,14 @@ MCPOrchestrator Service Connection Module
 Service connection module - contains service connection and state management
 """
 
-import asyncio
 import logging
 from typing import Dict, List, Any, Optional, Tuple
 
-from mcpstore.core.configuration.config_processor import ConfigProcessor
 from fastmcp import Client
-from mcpstore.core.lifecycle import HealthStatus, HealthCheckResult
-from mcpstore.core.lifecycle.health_bridge import HealthStatusBridge
-from .health_monitoring import HealthMonitoringMixin
-from mcpstore.core.models.service import ServiceConnectionState
 
+from mcpstore.core.lifecycle.health_bridge import HealthStatusBridge
+from mcpstore.core.models.service import ServiceConnectionState
+from .health_monitoring import HealthMonitoringMixin
 
 logger = logging.getLogger(__name__)
 
@@ -417,7 +414,11 @@ class ServiceConnectionMixin(HealthMonitoringMixin):
 
             # A+B+D: 变更后重建快照并原子发布（以全局命名域为真源）
             try:
+                # 标记快照为脏；由读取方（list_tools）或此处直接触发重建均可
+                if hasattr(self.registry, 'mark_tools_snapshot_dirty'):
+                    self.registry.mark_tools_snapshot_dirty()
                 global_agent_id = self.client_manager.global_agent_store_id
+                logger.debug(f"[SNAPSHOT] connection: trigger rebuild after cache update service={service_name} agent={agent_id}")
                 self.registry.rebuild_tools_snapshot(global_agent_id)
             except Exception as e:
                 logger.warning(f"[SNAPSHOT] rebuild failed after cache update: {e}")

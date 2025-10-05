@@ -4,13 +4,12 @@ Session management functionality for MCPStoreContext
 """
 
 import logging
-from typing import Dict, List, Optional, Any, Union, TYPE_CHECKING
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
 
 from .types import ContextType
 
 if TYPE_CHECKING:
     from .session import Session, SessionContext
-    from mcpstore.core.agents.session_manager import AgentSession
 
 logger = logging.getLogger(__name__)
 
@@ -793,7 +792,7 @@ class SessionManagementMixin:
         logger.debug(f"[SESSION_MANAGEMENT] Routing tool '{tool_name}' to auto session")
         # Avoid passing duplicate session_id when routing to session API
         kwargs.pop('session_id', None)
-        return self._auto_session.use_tool(tool_name, args, **kwargs)
+        return self._auto_session.use_tool(tool_name, args, **kwargs)  # return_extracted   - propagated by callers
 
     async def _use_tool_with_session_async(self, tool_name: str, args: Dict[str, Any] = None, **kwargs) -> Any:
         """

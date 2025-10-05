@@ -4,29 +4,18 @@ Core context classes and basic functionality
 """
 
 import logging
-from enum import Enum
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Union, TYPE_CHECKING
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
 
-from mcpstore.core.models.agent import (
-    AgentsSummary, AgentStatistics, AgentServiceSummary
-)
-from mcpstore.core.models.service import (
-    ServiceInfo, ServiceConfigUnion, ServiceConnectionState
-)
-from mcpstore.core.models.tool import ToolExecutionRequest, ToolInfo
-
-from ..utils.async_sync_helper import get_global_helper
+from .agent_service_mapper import AgentServiceMapper
+from .tool_transformation import get_transformation_manager
 # 旧的认证系统已被新的auth模块替代，保持向后兼容
 # from ..auth_security import get_auth_manager
 from ..cache_performance import get_performance_optimizer
-from ..utils.component_control import get_component_manager
-from ..utils.exceptions import ServiceNotFoundError, InvalidConfigError, DeleteServiceError
+from ..integration.openapi_integration import get_openapi_manager
 from ..monitoring import MonitoringManager, NetworkEndpoint, SystemResourceInfo
 from ..monitoring.analytics import get_monitoring_manager
-from ..integration.openapi_integration import get_openapi_manager
-from .tool_transformation import get_transformation_manager
-from .agent_service_mapper import AgentServiceMapper
+from ..utils.async_sync_helper import get_global_helper
+from ..utils.component_control import get_component_manager
 
 # Create logger instance
 logger = logging.getLogger(__name__)
@@ -74,7 +63,7 @@ class MCPStoreContext(
         #  修复：初始化等待策略（来自ServiceOperationsMixin）
         from .service_operations import AddServiceWaitStrategy
         self.wait_strategy = AddServiceWaitStrategy()
-        
+
         # 🆕 初始化会话管理（来自SessionManagementMixin）
         SessionManagementMixin.__init__(self)
 
@@ -170,25 +159,25 @@ class MCPStoreContext(
         return OpenAIAdapter(self)
 
     # === Hub 功能扩展 ===
-    
+
     def hub_services(self) -> 'HubServicesBuilder':
         """
         创建Hub服务打包构建器
-        
+
         将当前上下文中已缓存的服务打包为独立的Hub服务进程。
         基于现有服务数据，不进行新的服务注册。
-        
+
         Returns:
             HubServicesBuilder: Hub服务构建器，支持链式调用
-            
+
         Example:
             # Store级别Hub
             hub = store.for_store().hub_services()\\
                 .with_name("global-hub")\\
                 .with_description("全局服务Hub")\\
                 .build()
-            
-            # Agent级别Hub  
+
+            # Agent级别Hub
             hub = store.for_agent("team1").hub_services()\\
                 .with_name("team-hub")\\
                 .filter_services(category="api")\\
@@ -196,48 +185,48 @@ class MCPStoreContext(
         """
         from ..hub.builder import HubServicesBuilder
         return HubServicesBuilder(self, self._context_type.value, self._agent_id)
-    
+
     def hub_tools(self) -> 'HubToolsBuilder':
         """
         创建Hub工具打包构建器
-        
+
         将工具级别打包为Hub服务。
         注意：此功能在当前版本中为占位实现，后期版本将提供完整功能。
-        
+
         Returns:
             HubToolsBuilder: Hub工具构建器
-            
+
         Raises:
             NotImplementedError: 当前版本未实现此功能
         """
         from ..hub.builder import HubToolsBuilder
         return HubToolsBuilder(self, self._context_type.value, self._agent_id)
-    
+
     # === 认证功能扩展 ===
     # 注意：复杂的认证构建器已移除，现在使用简化的 auth/headers 参数方式
     # 如需复杂认证配置，请直接使用 FastMCP 的原生API
-    
+
     # TODO: 如果需要保留JWT相关功能，可以在后续版本中以更简单的方式实现
 
     def find_service(self, service_name: str) -> 'ServiceProxy':
         """
         查找指定服务并返回服务代理对象
-        
+
         进一步缩小作用域到具体服务，提供该服务的所有操作方法。
-        
+
         Args:
             service_name: 服务名称
-            
+
         Returns:
             ServiceProxy: 服务代理对象，包含该服务的所有操作方法
-            
+
         Example:
             # Store级别使用
             weather_service = store.for_store().find_service('weather')
             weather_service.service_info()      # 获取服务详情
             weather_service.list_tools()       # 列出工具
             weather_service.check_health()     # 检查健康状态
-            
+
             # Agent级别使用
             demo_service = store.for_agent('demo1').find_service('service1')
             demo_service.service_info()        # 获取服务详情
@@ -249,24 +238,24 @@ class MCPStoreContext(
     def find_tool(self, tool_name: str) -> 'ToolProxy':
         """
         查找指定工具并返回工具代理对象
-        
+
         在当前上下文范围内查找工具：
         - Store 上下文: 搜索全局所有服务的工具
         - Agent 上下文: 搜索该 Agent 的所有服务的工具
-        
+
         Args:
             tool_name: 工具名称
-            
+
         Returns:
             ToolProxy: 工具代理对象，包含该工具的所有操作方法
-            
+
         Example:
             # Store级别使用
             weather_tool = store.for_store().find_tool('get_current_weather')
             weather_tool.tool_info()        # 获取工具详情
             weather_tool.call_tool({...})   # 调用工具
             weather_tool.usage_stats()      # 使用统计
-            
+
             # Agent级别使用
             demo_tool = store.for_agent('demo1').find_tool('search_tool')
             demo_tool.tool_info()           # 获取工具详情
@@ -292,6 +281,33 @@ class MCPStoreContext(
             UnifiedConfigManager: Unified configuration manager instance
         """
         return self._store._unified_config
+
+    def setup_config(self) -> Dict[str, Any]:
+        """Return a read-only snapshot of setup-time configuration.
+        This reflects the effective configuration used during MCPStore.setup_store().
+        """
+        from copy import deepcopy
+        snap = getattr(self._store, "_setup_snapshot", None)
+        if isinstance(snap, dict):
+            return deepcopy(snap)
+        # Fallback minimal snapshot
+        try:
+            lvl = logging.getLogger().getEffectiveLevel()
+            level_name = (
+                "DEBUG" if lvl <= logging.DEBUG else
+                "INFO" if lvl <= logging.INFO else
+                "WARNING" if lvl <= logging.WARNING else
+                "ERROR" if lvl <= logging.ERROR else
+                "CRITICAL" if lvl <= logging.CRITICAL else "OFF"
+            )
+        except Exception:
+            level_name = "OFF"
+        return {
+            "mcp_json": getattr(self._store.config, "json_path", None),
+            "debug_level": level_name,
+            "external_db": {},
+            "static_config": {}
+        }
 
     # === Monitoring and statistics functionality ===
 
@@ -328,7 +344,7 @@ class MCPStoreContext(
         return self.get_tool_records(limit)
 
     # === Internal helper methods ===
-    
+
     def _tool_override_key(self, service_name: str, tool_name: str) -> str:
         """Compose stable key for tool overrides."""
         service_safe = service_name or ""
@@ -409,12 +425,12 @@ class MCPStoreContext(
                 for service_key, entry in all_entries.items():
                     if entry.client_id == client_id:
                         entries_to_remove.append(service_key)
-                
+
                 # Remove entries
                 for service_key in entries_to_remove:
                     reconnection_manager.remove_service(service_key)
                     logger.debug(f"Removed reconnection entry for {service_key}")
-                    
+
         except Exception as e:
             logger.warning(f"Failed to cleanup reconnection queue for client {client_id}: {e}")
 

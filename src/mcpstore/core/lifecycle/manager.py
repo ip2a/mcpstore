@@ -12,6 +12,7 @@ from typing import Dict, Optional, Any, Tuple, Set
 from mcpstore.core.models.service import ServiceConnectionState, ServiceStateMetadata
 from .config import ServiceLifecycleConfig
 from .state_machine import ServiceStateMachine
+
 # 🆕 事件驱动架构：InitializingStateProcessor 和 StateChangeEventProcessor 已被废弃
 # 新架构中，ConnectionManager 直接监听 ServiceInitialized 事件并立即触发连接
 

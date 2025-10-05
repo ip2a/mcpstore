@@ -12,8 +12,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from mcpstore.core.store import MCPStore
 
+from mcpstore.core.store import MCPStore
 # 导入统一的异常处理器
 from .api_exceptions import (
     mcpstore_exception_handler,
@@ -117,6 +117,9 @@ def create_app() -> FastAPI:
         lifespan=lifespan
     )
     
+    # 记录应用启动时间（用于health check）
+    app._start_time = time.time()
+    
     # 配置CORS
     app.add_middleware(
         CORSMiddleware,
@@ -192,61 +195,75 @@ def create_app() -> FastAPI:
         
         返回所有可用的 API 文档链接
         """
-        return {
-            "message": "MCPStore API Documentation",
-            "version": "1.0.0",
-            "documentation": {
-                "swagger_ui": {
-                    "url": "/docs",
-                    "description": "Swagger UI - 交互式 API 文档，可以直接测试接口"
+        from mcpstore.core.models import ResponseBuilder
+        
+        return ResponseBuilder.success(
+            message="MCPStore API Documentation",
+            data={
+                "documentation": {
+                    "swagger_ui": {
+                        "url": "/docs",
+                        "description": "Swagger UI - 交互式 API 文档，可以直接测试接口"
+                    },
+                    "redoc": {
+                        "url": "/redoc",
+                        "description": "ReDoc - 更美观的 API 文档展示"
+                    },
+                    "openapi_json": {
+                        "url": "/openapi.json",
+                        "description": "OpenAPI 规范文件（JSON 格式）"
+                    }
                 },
-                "redoc": {
-                    "url": "/redoc",
-                    "description": "ReDoc - 更美观的 API 文档展示"
-                },
-                "openapi_json": {
-                    "url": "/openapi.json",
-                    "description": "OpenAPI 规范文件（JSON 格式）"
+                "quick_links": {
+                    "api_root": "/",
+                    "health_check": "/health",
+                    "route_info": "查看根路径 / 获取详细的路由统计信息"
                 }
-            },
-            "quick_links": {
-                "api_root": "/",
-                "health_check": "/health",
-                "route_info": "查看根路径 / 获取详细的路由统计信息"
             }
-        }
+        )
     
     # 添加健康检查端点
     @app.get("/health")
     async def health_check():
         """健康检查端点"""
+        from mcpstore.core.models import ResponseBuilder, ErrorCode
+        from datetime import datetime
+        
         try:
             store = get_store()
-            workspace_info = None
             
-            if store.is_using_data_space():
-                workspace_info = {
-                    "workspace_dir": store.get_workspace_dir(),
-                    "mcp_config_path": store.config.json_path
+            # 统计服务数量
+            try:
+                context = store.for_store()
+                services = context.list_services()
+                services_count = len(services)
+                agents_count = len(store.list_all_agents()) if hasattr(store, 'list_all_agents') else 0
+            except:
+                services_count = 0
+                agents_count = 0
+            
+            # 计算运行时间
+            uptime_seconds = int(time.time() - getattr(app, '_start_time', time.time()))
+            
+            return ResponseBuilder.success(
+                message="System is healthy",
+                data={
+                    "status": "healthy",
+                    "uptime_seconds": uptime_seconds,
+                    "services_count": services_count,
+                    "agents_count": agents_count
                 }
-            
-            return {
-                "status": "healthy",
-                "service": "MCPStore API",
-                "version": "1.0.0",
-                "timestamp": time.time(),
-                "data_space": workspace_info
-            }
+            )
         except Exception as e:
             logger.error(f"Health check failed: {e}")
+            response = ResponseBuilder.error(
+                code=ErrorCode.INTERNAL_ERROR,
+                message="Health check failed",
+                details={"error": str(e)}
+            )
             return JSONResponse(
                 status_code=503,
-                content={
-                    "status": "unhealthy",
-                    "service": "MCPStore API",
-                    "error": str(e),
-                    "timestamp": time.time()
-                }
+                content=response.dict(exclude_none=True)
             )
     
     return app

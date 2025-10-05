@@ -15,11 +15,11 @@ Hub模块 - 分布式服务打包和管理功能
 - 与现有MCPStore架构无缝集成
 """
 
-from .types import HubConfig, HubStatus
 from .builder import HubServicesBuilder, HubToolsBuilder
 from .package import HubPackage
 from .process import HubProcess
 from .server import HubServerGenerator
+from .types import HubConfig, HubStatus
 
 __all__ = [
     # Core classes

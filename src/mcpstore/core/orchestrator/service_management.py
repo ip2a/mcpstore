@@ -3,11 +3,11 @@ MCPOrchestrator Service Management Module
 Service management module - contains service registration, management and information retrieval
 """
 
-import asyncio
 import logging
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional
 
 from fastmcp import Client
+
 from mcpstore.core.models.service import ServiceConnectionState
 
 logger = logging.getLogger(__name__)
@@ -25,9 +25,14 @@ class ServiceManagementMixin:
         """
         try:
             bundle = self.registry.get_tools_snapshot_bundle()
-            if not bundle:
-                # Build initial bundle lazily from current cache
+            # 若 bundle 不存在或被标记为脏，则触发重建
+            if (not bundle) or getattr(self.registry, 'is_tools_snapshot_dirty', lambda: False)():
+                reason = 'none' if not bundle else 'dirty'
+                logger.debug(f"[SNAPSHOT] tools_snapshot: trigger rebuild (reason={reason})")
                 bundle = self.registry.rebuild_tools_snapshot(self.client_manager.global_agent_store_id)
+            else:
+                meta = bundle.get("meta", {}) if isinstance(bundle, dict) else {}
+                logger.debug(f"[SNAPSHOT] tools_snapshot: using bundle version={meta.get('version')}")
 
             tools_section = bundle.get("tools", {})
             mappings = bundle.get("mappings", {})
@@ -61,10 +66,20 @@ class ServiceManagementMixin:
                     continue
                 new_item = dict(item)
                 new_item["service_name"] = lsvc
-                # Optionally rewrite name to local-prefixed style if desired
-                # Keep as-is to avoid unexpected rename here; name resolver handles display elsewhere
+                # Rewrite tool name to use local service prefix to keep name/service consistent
+                name = new_item.get("name")
+                if isinstance(name, str):
+                    if name.startswith(f"{gsvc}_"):
+                        # service_tool -> replace global service with local
+                        suffix = name[len(gsvc) + 1:]
+                        new_item["name"] = f"{lsvc}_{suffix}"
+                    elif name.startswith(f"{gsvc}__"):
+                        # legacy double-underscore format: normalize to single underscore
+                        suffix = name[len(gsvc) + 2:]
+                        new_item["name"] = f"{lsvc}_{suffix}"
                 projected.append(new_item)
 
+            logger.debug(f"[SNAPSHOT] tools_snapshot: return_count={len(projected)} (agent_view)")
             return projected
 
         except Exception as e:
@@ -236,6 +251,22 @@ class ServiceManagementMixin:
             try:
                 # 从注册表中移除服务
                 self.registry.remove_service(agent_key, service_name)
+                # 标记快照为脏
+                if hasattr(self.registry, 'mark_tools_snapshot_dirty'):
+                    self.registry.mark_tools_snapshot_dirty()
+
+                # 取消健康监控（若存在）
+                try:
+                    if hasattr(self, 'store') and self.store and hasattr(self.store, 'container') and self.store.container:
+                        hm = getattr(self.store.container, 'health_monitor', None)
+                        if hm and hasattr(hm, '_health_check_tasks'):
+                            task_key = (agent_key, service_name)
+                            task = hm._health_check_tasks.pop(task_key, None)
+                            if task and not task.done():
+                                task.cancel()
+                            logger.debug(f"[HEALTH] Unwatched removed service: {service_name} (agent={agent_key})")
+                except Exception as e:
+                    logger.debug(f"[HEALTH] Unwatch removed service failed: {e}")
             except Exception as e:
                 logger.warning(f"Error removing from registry: {e}")
 
@@ -248,6 +279,7 @@ class ServiceManagementMixin:
             # A+B+D: 变更后重建快照并原子发布
             try:
                 global_agent_id = self.client_manager.global_agent_store_id
+                logger.debug(f"[SNAPSHOT] removal: trigger rebuild after removal service={service_name} agent={agent_key}")
                 self.registry.rebuild_tools_snapshot(global_agent_id)
             except Exception as e:
                 logger.warning(f"[SNAPSHOT] rebuild failed after removal: {e}")
@@ -332,10 +364,23 @@ class ServiceManagementMixin:
             self.registry.set_service_metadata(agent_key, service_name, metadata)
             logger.debug(f" [RESTART_SERVICE] Reset metadata for '{service_name}'")
 
-            # 如果有生命周期管理器，触发初始化
+            # 如果有生命周期管理器，触发初始化并发布 ServiceInitialized 事件
             if hasattr(self, 'lifecycle_manager') and self.lifecycle_manager:
                 init_success = self.lifecycle_manager.initialize_service(agent_key, service_name, metadata.service_config)
                 logger.debug(f" [RESTART_SERVICE] Triggered lifecycle initialization for '{service_name}': {init_success}")
+                try:
+                    # 显式发布初始化完成事件，驱动 ConnectionManager 继续连接
+                    from mcpstore.core.events.service_events import ServiceInitialized
+                    if init_success and hasattr(self, 'event_bus') and self.event_bus:
+                        initialized_event = ServiceInitialized(
+                            agent_id=agent_key,
+                            service_name=service_name,
+                            initial_state="initializing"
+                        )
+                        await self.event_bus.publish(initialized_event)
+                        logger.debug(f" [RESTART_SERVICE] Published ServiceInitialized for '{service_name}'")
+                except Exception as pub_err:
+                    logger.warning(f" [RESTART_SERVICE] Failed to publish ServiceInitialized for '{service_name}': {pub_err}")
 
             logger.info(f"Service restarted successfully: {service_name}")
             return True

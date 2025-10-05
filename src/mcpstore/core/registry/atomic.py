@@ -17,9 +17,9 @@ Design goals:
 from __future__ import annotations
 
 import asyncio
-import threading
 import functools
 import inspect
+import threading
 from contextlib import contextmanager, asynccontextmanager
 from typing import Any, Callable, Optional, Dict
 

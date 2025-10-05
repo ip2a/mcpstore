@@ -3,7 +3,7 @@ import { mcpApi } from '../api'
 
 export const useMcpSystemStore = defineStore('mcp-system', {
   state: () => ({
-    services: [] as string[],
+    services: [] as any[],
     tools: [] as any[],
     loading: false,
     lastUpdate: null as Date | null,

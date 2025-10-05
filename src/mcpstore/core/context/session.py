@@ -4,12 +4,8 @@ User-friendly Session class that wraps AgentSession with rich functionality
 """
 
 import logging
-import asyncio
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Union, TYPE_CHECKING
-
-from mcpstore.core.models.tool import ToolInfo
-from .types import ContextType
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from mcpstore.core.agents.session_manager import AgentSession
@@ -144,7 +140,7 @@ class Session:
     
     # === Tool Execution ===
     
-    def use_tool(self, tool_name: str, arguments: Dict[str, Any] = None, **kwargs) -> Any:
+    def use_tool(self, tool_name: str, arguments: Dict[str, Any] = None, return_extracted: bool = False, **kwargs) -> Any:
         """
         Use tool within this session
 
@@ -182,7 +178,7 @@ class Session:
         logger.debug(f"[TIMING] Before run_async: +{(t_before_run_async - t_start)*1000:.1f}ms")
 
         result = self._context._sync_helper.run_async(
-            self.use_tool_async(tool_name, arguments, **kwargs),
+            self.use_tool_async(tool_name, arguments, return_extracted=return_extracted, **kwargs),
             timeout=wrapper_timeout,
             force_background=True
         )
@@ -192,7 +188,7 @@ class Session:
 
         return result
     
-    async def use_tool_async(self, tool_name: str, arguments: Dict[str, Any] = None, **kwargs) -> Any:
+    async def use_tool_async(self, tool_name: str, arguments: Dict[str, Any] = None, return_extracted: bool = False, **kwargs) -> Any:
         """
         Use tool within this session (async version)
         
@@ -207,8 +203,9 @@ class Session:
         # Tool name resolution and service binding will be handled downstream by call_tool_async
         # and orchestrator's session-aware execution path.
         result = await self._context.call_tool_async(
-            tool_name=tool_name, 
-            args=arguments, 
+            tool_name=tool_name,
+            args=arguments,
+            return_extracted=return_extracted,
             session_id=self._session_id,
             **kwargs
         )

@@ -235,14 +235,14 @@ class ToolOperationsMixin:
                 "total_added": 0
             }
 
-    def call_tool(self, tool_name: str, args: Union[Dict[str, Any], str] = None, **kwargs) -> Any:
+    def call_tool(self, tool_name: str, args: Union[Dict[str, Any], str] = None, return_extracted: bool = False, **kwargs) -> Any:
         """
         调用工具（同步版本），支持 store/agent 上下文
 
-        用户友好的工具调用接口，支持多种工具名称格式：
+        用户友好的工具调用接口，支持以下工具名称格式：
         - 直接工具名: "get_weather"
-        - 服务前缀: "weather__get_weather"
-        - 旧格式: "weather_get_weather"
+        - 服务前缀（单下划线）: "weather_get_weather"
+        注意：不再支持双下划线格式 "service__tool"；如使用将抛出错误并提示迁移方案
 
         Args:
             tool_name: 工具名称（支持多种格式）
@@ -256,18 +256,18 @@ class ToolOperationsMixin:
         """
         # Use background event loop to preserve persistent FastMCP clients across sync calls
         # Especially critical in auto-session mode to avoid per-call asyncio.run() closing loops
-        return self._sync_helper.run_async(self.call_tool_async(tool_name, args, **kwargs), force_background=True)
+        return self._sync_helper.run_async(self.call_tool_async(tool_name, args, return_extracted=return_extracted, **kwargs), force_background=True)
 
-    def use_tool(self, tool_name: str, args: Union[Dict[str, Any], str] = None, **kwargs) -> Any:
+    def use_tool(self, tool_name: str, args: Union[Dict[str, Any], str] = None, return_extracted: bool = False, **kwargs) -> Any:
         """
         使用工具（同步版本）- 向后兼容别名
 
         注意：此方法是 call_tool 的别名，保持向后兼容性。
         推荐使用 call_tool 方法，与 FastMCP 命名保持一致。
         """
-        return self.call_tool(tool_name, args, **kwargs)
+        return self.call_tool(tool_name, args, return_extracted=return_extracted, **kwargs)
 
-    async def call_tool_async(self, tool_name: str, args: Dict[str, Any] = None, **kwargs) -> Any:
+    async def call_tool_async(self, tool_name: str, args: Dict[str, Any] = None, return_extracted: bool = False, **kwargs) -> Any:
         """
         调用工具（异步版本），支持 store/agent 上下文
 
@@ -289,12 +289,12 @@ class ToolOperationsMixin:
                 logger.debug(f"[IMPLICIT_SESSION] Routing tool '{tool_name}' to active session")
             # Avoid duplicate session_id when delegating to Session API
             kwargs.pop('session_id', None)
-            return await self._active_session.use_tool_async(tool_name, args, **kwargs)
+            return await self._active_session.use_tool_async(tool_name, args, return_extracted=return_extracted, **kwargs)
 
         # 🎯 自动会话路由：仅当启用了自动会话且未显式指定 session_id 时才路由
         if getattr(self, '_auto_session_enabled', False) and 'session_id' not in kwargs:
             logger.debug(f"[AUTO_SESSION] Routing tool '{tool_name}' to auto session (no explicit session_id)")
-            return await self._use_tool_with_session_async(tool_name, args, **kwargs)
+            return await self._use_tool_with_session_async(tool_name, args, return_extracted=return_extracted, **kwargs)
         elif getattr(self, '_auto_session_enabled', False) and 'session_id' in kwargs:
             logger.debug("[AUTO_SESSION] Enabled but explicit session_id provided; skip auto routing")
 
@@ -303,7 +303,7 @@ class ToolOperationsMixin:
         if active_session is not None and getattr(active_session, 'is_active', False) and 'session_id' not in kwargs:
             logger.debug(f"[ACTIVE_SESSION] Routing tool '{tool_name}' to active session '{active_session.session_id}'")
             kwargs.pop('session_id', None)
-            return await active_session.use_tool_async(tool_name, args, **kwargs)
+            return await active_session.use_tool_async(tool_name, args, return_extracted=return_extracted, **kwargs)
 
         # 获取可用工具列表用于智能解析
         available_tools = []
@@ -416,7 +416,19 @@ class ToolOperationsMixin:
                 **kwargs
             )
 
-        return await self._store.process_tool_request(request)
+        response = await self._store.process_tool_request(request)
+
+        if return_extracted:
+            try:
+                from mcpstore.core.registry.tool_resolver import FastMCPToolExecutor
+                executor = FastMCPToolExecutor()
+                return executor.extract_result_data(response.result)
+            except Exception:
+                # 兜底：无法提取则直接返回原结果
+                return getattr(response, 'result', None)
+        else:
+            # 默认返回 FastMCP 的 CallToolResult（或等价对象）
+            return getattr(response, 'result', None)
 
     async def use_tool_async(self, tool_name: str, args: Dict[str, Any] = None, **kwargs) -> Any:
         """

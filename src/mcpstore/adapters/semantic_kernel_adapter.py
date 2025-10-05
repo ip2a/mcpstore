@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from typing import List, TYPE_CHECKING, Callable, Any
 
-from pydantic import BaseModel
 from .common import create_args_schema, build_sync_executor
 
 if TYPE_CHECKING:

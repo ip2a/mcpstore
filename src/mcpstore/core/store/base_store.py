@@ -4,12 +4,12 @@
 """
 
 import logging
-from typing import Optional, Dict
+from typing import Dict
 
 from mcpstore.config.json_config import MCPConfig
-from mcpstore.core.orchestrator import MCPOrchestrator
 from mcpstore.core.configuration.unified_config import UnifiedConfigManager
 from mcpstore.core.context import MCPStoreContext
+from mcpstore.core.orchestrator import MCPOrchestrator
 
 logger = logging.getLogger(__name__)
 

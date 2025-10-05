@@ -1,8 +1,8 @@
 from mcpstore import MCPStore
 
 store = MCPStore.setup_store(debug=True)
-# store = MCPStore.setup_store(mcp_config_file=r'S:\BaiduSyncdisk\2025_6\mcpstore\test_workspaces\workspace1\mcp.json',debug=False)
-# store = MCPStore.setup_store(mcp_config_file=r'S:\BaiduSyncdisk\2025_6\mcpstore\test_workspaces\workspace1\mcp.json')
+# store = MCPStore.setup_store(mcp_json=r'S:\BaiduSyncdisk\2025_6\mcpstore\test_workspaces\workspace1\mcp.json', debug=False)
+# store = MCPStore.setup_store(mcp_json=r'S:\BaiduSyncdisk\2025_6\mcpstore\test_workspaces\workspace1\mcp.json')
 l = store.get_json_config()
 print(l)
 

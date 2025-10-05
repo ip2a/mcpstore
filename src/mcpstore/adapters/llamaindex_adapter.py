@@ -1,10 +1,8 @@
 # src/mcpstore/adapters/llamaindex_adapter.py
 from __future__ import annotations
 
-import json
-from typing import List, TYPE_CHECKING, Callable
+from typing import List, TYPE_CHECKING
 
-from pydantic import BaseModel
 from .common import enhance_description, create_args_schema, build_sync_executor
 
 # TYPE_CHECKING to avoid runtime circular imports

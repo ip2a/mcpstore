@@ -3,9 +3,8 @@ MCPOrchestrator Tool Execution Module
 Tool execution module - contains tool execution and processing
 """
 
-import asyncio
 import logging
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, Any, Optional
 
 from fastmcp import Client
 
@@ -118,26 +117,41 @@ class ToolExecutionMixin:
                             for i, tool in enumerate(tools):
                                 logger.debug(f"   {i+1}. {tool.name}")
 
+                            # 预设为用户提供的原始名称（应为 FastMCP 原生方法名）
+                            effective_tool_name = tool_name
+
                             if not any(t.name == tool_name for t in tools):
+                                available = [t.name for t in tools]
                                 logger.warning(f"[FASTMCP_DEBUG] not_found tool='{tool_name}' in service='{service_name}'")
-                                logger.warning(f"[FASTMCP_DEBUG] available={[t.name for t in tools]}")
-                                continue
+                                logger.warning(f"[FASTMCP_DEBUG] available={available}")
+
+                                # 一次性自修复：若传入名称被意外加了前缀，尝试以可用列表为准做最长后缀匹配
+                                fallback = None
+                                for cand in available:
+                                    if effective_tool_name.endswith(cand):
+                                        fallback = cand
+                                        break
+
+                                if fallback and any(t.name == fallback for t in tools):
+                                    logger.warning(f"[FASTMCP_DEBUG] self_repair tool_name: '{tool_name}' -> '{fallback}'")
+                                    effective_tool_name = fallback
+                                else:
+                                    # 放弃该 client，继续尝试其它 client
+                                    continue
 
                             # 使用 FastMCP 标准执行器执行工具
                             result = await executor.execute_tool(
                                 client=client,
-                                tool_name=tool_name,
+                                tool_name=effective_tool_name,
                                 arguments=arguments,
                                 timeout=timeout,
                                 progress_handler=progress_handler,
                                 raise_on_error=raise_on_error
                             )
 
-                            # 提取结果数据（按照 FastMCP 标准）
-                            extracted_data = executor.extract_result_data(result)
-
-                            logger.info(f"[FASTMCP] call ok tool='{tool_name}' service='{service_name}'")
-                            return extracted_data
+                            # 返回 FastMCP 客户端的 CallToolResult（与官方保持一致）
+                            logger.info(f"[FASTMCP] call ok tool='{effective_tool_name}' service='{service_name}'")
+                            return result
 
                     except Exception as e:
                         logger.error(f"Failed to execute tool in client {client_id}: {e}")
@@ -244,8 +258,49 @@ class ToolExecutionMixin:
 
             if not any(t.name == tool_name for t in tools):
                 available_tools = [t.name for t in tools]
+                # 
+                #        ()
+                fallback = None
+                for cand in available_tools:
+                    if tool_name.endswith(cand):
+                        fallback = cand
+                        break
+                if fallback and any(t.name == fallback for t in tools):
+                    logger.warning(f"[SESSION_EXECUTION] self_repair tool_name: '{tool_name}' -> '{fallback}'")
+                    #     
+                    result = await executor.execute_tool(
+                        client=client,
+                        tool_name=fallback,
+                        arguments=arguments,
+                        timeout=timeout,
+                        progress_handler=progress_handler,
+                        raise_on_error=raise_on_error
+                    )
+                    logger.info(f"[SESSION_EXECUTION] call ok (repaired) tool='{fallback}' service='{service_name}'")
+                    return result
+
                 logger.warning(f"[SESSION_EXECUTION] Tool '{tool_name}' not found in service '{service_name}', available: {available_tools}")
-                raise Exception(f"Tool {tool_name} not found in service {service_name}")
+                #     
+                #         
+                suggestions = []
+                try:
+                    #        
+                    def score(c: str) -> int:
+                        s = 0
+                        if c in tool_name or tool_name in c:
+                            s += 2
+                        if c.startswith(tool_name) or tool_name.startswith(c):
+                            s += 1
+                        return s
+                    suggestions = sorted(available_tools, key=lambda c: (-score(c), len(c)))[:3]
+                except Exception:
+                    suggestions = available_tools[:3]
+
+                raise Exception(
+                    f"Tool '{tool_name}' not found in service '{service_name}'. "
+                    f"Available: {available_tools}. "
+                    f"Try one of: {suggestions} or use bare method name without any prefixes."
+                )
 
             # 使用 FastMCP 标准执行器执行工具（不进入 async with，保持连接）
             t_exec0 = _t.perf_counter()
@@ -263,11 +318,9 @@ class ToolExecutionMixin:
             # 5️⃣ 更新会话活跃时间
             session.update_activity()
             
-            # 6️⃣ 提取结果数据（按照 FastMCP 标准）
-            extracted_data = executor.extract_result_data(result)
-            
+            # 6️⃣ 返回 FastMCP 客户端的 CallToolResult（与官方保持一致）
             logger.info(f"[SESSION_EXECUTION] Tool '{tool_name}' executed successfully in session mode")
-            return extracted_data
+            return result
             
         except Exception as e:
             logger.error(f"[SESSION_EXECUTION] Tool execution failed: {e}")
