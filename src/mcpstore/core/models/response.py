@@ -12,7 +12,7 @@ MCPStore API 响应模型
 
 from typing import Optional, Any, List, Dict, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class ErrorDetail(BaseModel):
@@ -44,30 +44,30 @@ class ErrorDetail(BaseModel):
     code: str = Field(
         ...,
         description="标准错误码。大写下划线格式，用于程序判断错误类型",
-        example="SERVICE_NOT_FOUND",
+        json_schema_extra={"example": "SERVICE_NOT_FOUND"},
         pattern="^[A-Z_]+$"
     )
     
     message: str = Field(
         ...,
         description="人类可读的错误消息。可用于直接显示给用户",
-        example="The requested service does not exist"
+        json_schema_extra={"example": "The requested service does not exist"}
     )
     
     field: Optional[str] = Field(
         None,
         description="相关字段名。用于表单验证错误，指明哪个字段出错",
-        example="service_name"
+        json_schema_extra={"example": "service_name"}
     )
     
     details: Optional[Dict[str, Any]] = Field(
         None,
         description="错误的额外详情信息。包含有助于调试的上下文",
-        example={"service_name": "weather", "attempted_operation": "get_status"}
+        json_schema_extra={"example": {"service_name": "weather", "attempted_operation": "get_status"}}
     )
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "code": "INVALID_PARAMETER",
                 "message": "The 'url' parameter is required but was not provided",
@@ -79,6 +79,7 @@ class ErrorDetail(BaseModel):
                 }
             }
         }
+    )
 
 
 class ResponseMeta(BaseModel):
@@ -96,13 +97,13 @@ class ResponseMeta(BaseModel):
     timestamp: str = Field(
         ...,
         description="响应生成的ISO 8601时间戳（UTC）",
-        example="2025-10-01T12:00:00.000Z"
+        json_schema_extra={"example": "2025-10-01T12:00:00.000Z"}
     )
     
     request_id: str = Field(
         ...,
         description="唯一请求标识符。用于追踪和日志关联。格式：req_[16位随机字符]",
-        example="req_a1b2c3d4e5f6g7h8",
+        json_schema_extra={"example": "req_a1b2c3d4e5f6g7h8"},
         min_length=20,
         max_length=20
     )
@@ -110,18 +111,18 @@ class ResponseMeta(BaseModel):
     execution_time_ms: int = Field(
         ...,
         description="服务端执行时间（毫秒）。从接收请求到生成响应的耗时",
-        example=150,
+        json_schema_extra={"example": 150},
         ge=0
     )
     
     api_version: str = Field(
         default="1.0.0",
         description="API版本号。遵循语义化版本规范",
-        example="1.0.0"
+        json_schema_extra={"example": "1.0.0"}
     )
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "timestamp": "2025-10-01T12:00:00.000Z",
                 "request_id": "req_a1b2c3d4e5f6g7h8",
@@ -129,6 +130,7 @@ class ResponseMeta(BaseModel):
                 "api_version": "2.0.0"
             }
         }
+    )
 
 
 class Pagination(BaseModel):
@@ -146,14 +148,14 @@ class Pagination(BaseModel):
     page: int = Field(
         ...,
         description="当前页码（从1开始）",
-        example=1,
+        json_schema_extra={"example": 1},
         ge=1
     )
     
     page_size: int = Field(
         ...,
         description="每页记录数",
-        example=20,
+        json_schema_extra={"example": 20},
         ge=1,
         le=100
     )
@@ -161,31 +163,31 @@ class Pagination(BaseModel):
     total: int = Field(
         ...,
         description="总记录数",
-        example=100,
+        json_schema_extra={"example": 100},
         ge=0
     )
     
     total_pages: int = Field(
         ...,
         description="总页数",
-        example=5,
+        json_schema_extra={"example": 5},
         ge=0
     )
     
     has_next: bool = Field(
         ...,
         description="是否有下一页",
-        example=True
+        json_schema_extra={"example": True}
     )
     
     has_prev: bool = Field(
         ...,
         description="是否有上一页",
-        example=False
+        json_schema_extra={"example": False}
     )
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "page": 1,
                 "page_size": 20,
@@ -195,6 +197,7 @@ class Pagination(BaseModel):
                 "has_prev": False
             }
         }
+    )
 
 
 class APIResponse(BaseModel):
@@ -233,56 +236,56 @@ class APIResponse(BaseModel):
     message: str = Field(
         ..., 
         description="人类可读的响应消息。成功时描述操作结果，失败时描述错误原因",
-        example="Service retrieved successfully"
+        json_schema_extra={"example": "Service retrieved successfully"}
     )
     
     # 数据字段（可选）
     data: Optional[Union[Dict[str, Any], List[Any]]] = Field(
         None,
         description="响应数据。成功时包含实际数据，失败时为null。类型严格限制为Dict或List",
-        example={"name": "weather", "status": "healthy"}
+        json_schema_extra={"example": {"name": "weather", "status": "healthy"}}
     )
     
     # 错误字段（可选，仅失败时）
     errors: Optional[List[ErrorDetail]] = Field(
         None,
         description="错误详情列表。仅在success=false时存在。支持多个错误（如参数验证）",
-        example=[{
+        json_schema_extra={"example": [{
             "code": "SERVICE_NOT_FOUND",
             "message": "The requested service does not exist",
             "field": None,
             "details": {"service_name": "weather"}
-        }]
+        }]}
     )
     
     # 元数据字段（可选）
     meta: Optional[ResponseMeta] = Field(
         None,
         description="响应元数据。包含追踪信息、性能指标、API版本等",
-        example={
+        json_schema_extra={"example": {
             "timestamp": "2025-10-01T12:00:00.000Z",
             "request_id": "req_a1b2c3d4e5f6",
             "execution_time_ms": 150,
             "api_version": "2.0.0"
-        }
+        }}
     )
     
     # 分页字段（可选，仅列表时）
     pagination: Optional[Pagination] = Field(
         None,
         description="分页信息。仅当data为列表且支持分页时存在",
-        example={
+        json_schema_extra={"example": {
             "page": 1,
             "page_size": 20,
             "total": 100,
             "total_pages": 5,
             "has_next": True,
             "has_prev": False
-        }
+        }}
     )
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "success": True,
                 "message": "Operation completed successfully",
@@ -295,4 +298,5 @@ class APIResponse(BaseModel):
                 }
             }
         }
+    )
 
