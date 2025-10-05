@@ -566,15 +566,18 @@ class FastMCPToolExecutor:
     ) -> 'CallToolResult':
         """
         执行工具（严格按照 FastMCP 官网标准）
-        
+
+        仅使用 FastMCP 官方客户端的 call_tool 返回对象，不做任何自定义“等价对象”封装，
+        不再回退到 call_tool_mcp 进行字段映射，确保结果形态与官方一致。
+
         Args:
-            client: FastMCP 客户端实例
+            client: FastMCP 客户端实例（必须实现 call_tool）
             tool_name: 工具名称（FastMCP 原始名称）
             arguments: 工具参数
             timeout: 超时时间（秒）
             progress_handler: 进度处理器
             raise_on_error: 是否在错误时抛出异常
-            
+
         Returns:
             CallToolResult: FastMCP 标准结果对象
         """
@@ -582,63 +585,36 @@ class FastMCPToolExecutor:
         timeout = timeout or self.default_timeout
 
         try:
-            # 优先使用 FastMCP Client 的 call_tool（返回便利的 CallToolResult）
-            if hasattr(client, 'call_tool'):
-                logger.debug(f"Using client.call_tool for convenience result")
-                result = await client.call_tool(
-                    name=tool_name,
-                    arguments=arguments,
-                    timeout=timeout,
-                    progress_handler=progress_handler,
-                    raise_on_error=raise_on_error,
-                )
-                return result
+            if not hasattr(client, 'call_tool'):
+                raise RuntimeError("FastMCP client does not support call_tool; please use a compatible FastMCP client")
 
-            # 回退：使用 call_tool_mcp 并适配到便利形态
-            if hasattr(client, 'call_tool_mcp'):
-                logger.debug(f"Using call_tool_mcp (fallback) and mapping to convenience shape")
-                raw = await client.call_tool_mcp(
-                    name=tool_name,
-                    arguments=arguments,
-                    timeout=timeout,
-                    progress_handler=progress_handler,
-                )
-                from types import SimpleNamespace
-                result = SimpleNamespace(
-                    content=getattr(raw, 'content', []),
-                    structured_content=getattr(raw, 'structuredContent', None),
-                    data=None,
-                    is_error=getattr(raw, 'isError', False),
-                )
-                if result.is_error and raise_on_error:
-                    msg = None
-                    try:
-                        if result.content:
-                            for block in result.content:
-                                if hasattr(block, 'text'):
-                                    msg = block.text
-                                    break
-                    except Exception:
-                        pass
-                    raise Exception(msg or "Tool execution failed")
-                return result
-
-            raise RuntimeError("FastMCP client missing both call_tool and call_tool_mcp")
+            logger.debug("Using client.call_tool (FastMCP official) for result")
+            result = await client.call_tool(
+                name=tool_name,
+                arguments=arguments,
+                timeout=timeout,
+                progress_handler=progress_handler,
+                raise_on_error=raise_on_error,
+            )
+            return result
 
         except Exception as e:
             logger.error(f"Tool '{tool_name}' execution failed: {e}")
             if raise_on_error:
                 raise
-            else:
-                # 返回错误结果
+            # 返回与 FastMCP 形态兼容的错误信号：直接向上传播异常已被关闭时，按空 content + is_error=True 返回
+            try:
                 from types import SimpleNamespace
                 return SimpleNamespace(
                     content=[],
-                    is_error=True,
-                    data=None,
                     structured_content=None,
-                    error=str(e)
+                    data=None,
+                    is_error=True,
+                    error=str(e),
                 )
+            except Exception:
+                # 最后兜底：仍然抛出原始异常
+                raise
     
     def extract_result_data(self, result: 'CallToolResult') -> Any:
         """

@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Type, List, TYPE_CHECKING
 
-from langchain_core.tools import Tool, StructuredTool
+from langchain_core.tools import Tool, StructuredTool, ToolException
 from pydantic import BaseModel, create_model, Field
 
 from ..core.utils.async_sync_helper import get_global_helper
@@ -150,17 +150,29 @@ class LangChainAdapter:
                 # Call mcpstore's core method
                 result = self._context.call_tool(tool_name, validated_args.model_dump())
 
-                # Extract actual result
-                if hasattr(result, 'result') and result.result is not None:
-                    actual_result = result.result
-                elif hasattr(result, 'success') and result.success:
-                    actual_result = getattr(result, 'data', str(result))
-                else:
-                    actual_result = str(result)
+                # Bridge FastMCP -> LangChain: extract TextContent into string
+                # If tool signals error, raise ToolException with textual message
+                is_error = bool(getattr(result, 'is_error', False) or getattr(result, 'isError', False))
+                contents = getattr(result, 'content', []) or []
+                text_blocks = []
+                try:
+                    for block in contents:
+                        if hasattr(block, 'text'):
+                            text_blocks.append(block.text)
+                except Exception:
+                    pass
 
-                if isinstance(actual_result, (dict, list)):
-                    return json.dumps(actual_result, ensure_ascii=False)
-                return str(actual_result)
+                if not text_blocks:
+                    output = ""
+                elif len(text_blocks) == 1:
+                    output = text_blocks[0]
+                else:
+                    output = "\n".join(text_blocks)
+
+                if is_error:
+                    raise ToolException(output)
+
+                return output
             except Exception as e:
                 # Provide more detailed error information for debugging
                 error_msg = f"Tool '{tool_name}' execution failed: {str(e)}"
@@ -221,17 +233,28 @@ class LangChainAdapter:
                 # 调用 mcpstore 的核心方法（异步版本）
                 result = await self._context.call_tool_async(tool_name, validated_args.model_dump())
 
-                # 提取实际结果
-                if hasattr(result, 'result') and result.result is not None:
-                    actual_result = result.result
-                elif hasattr(result, 'success') and result.success:
-                    actual_result = getattr(result, 'data', str(result))
-                else:
-                    actual_result = str(result)
+                # Bridge FastMCP -> LangChain (async): extract TextContent into string
+                is_error = bool(getattr(result, 'is_error', False) or getattr(result, 'isError', False))
+                contents = getattr(result, 'content', []) or []
+                text_blocks = []
+                try:
+                    for block in contents:
+                        if hasattr(block, 'text'):
+                            text_blocks.append(block.text)
+                except Exception:
+                    pass
 
-                if isinstance(actual_result, (dict, list)):
-                    return json.dumps(actual_result, ensure_ascii=False)
-                return str(actual_result)
+                if not text_blocks:
+                    output = ""
+                elif len(text_blocks) == 1:
+                    output = text_blocks[0]
+                else:
+                    output = "\n".join(text_blocks)
+
+                if is_error:
+                    raise ToolException(output)
+
+                return output
             except Exception as e:
                 error_msg = f"工具 '{tool_name}' 执行失败: {str(e)}"
                 if args or kwargs:
@@ -411,18 +434,28 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                 logger.debug(f"[SESSION_LANGCHAIN] Executing tool '{tool_name}' via session '{self._session.session_id}'")
                 result = self._session.use_tool(tool_name, validated_args.model_dump())
 
-                # Extract actual result (same as parent)
-                if hasattr(result, 'result') and result.result is not None:
-                    actual_result = result.result
-                elif hasattr(result, 'success') and result.success:
-                    actual_result = getattr(result, 'data', str(result))
-                else:
-                    actual_result = str(result)
+                # Bridge FastMCP -> LangChain (session sync)
+                is_error = bool(getattr(result, 'is_error', False) or getattr(result, 'isError', False))
+                contents = getattr(result, 'content', []) or []
+                text_blocks = []
+                try:
+                    for block in contents:
+                        if hasattr(block, 'text'):
+                            text_blocks.append(block.text)
+                except Exception:
+                    pass
 
-                if isinstance(actual_result, (dict, list)):
-                    return json.dumps(actual_result, ensure_ascii=False)
+                if not text_blocks:
+                    output = ""
+                elif len(text_blocks) == 1:
+                    output = text_blocks[0]
                 else:
-                    return str(actual_result)
+                    output = "\n".join(text_blocks)
+
+                if is_error:
+                    raise ToolException(output)
+
+                return output
 
             except Exception as e:
                 error_msg = f"Tool execution failed: {str(e)}"
@@ -479,18 +512,28 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                 logger.debug(f"[SESSION_LANGCHAIN] Executing tool '{tool_name}' via session '{self._session.session_id}' (async)")
                 result = await self._session.use_tool_async(tool_name, validated_args.model_dump())
 
-                # Extract actual result
-                if hasattr(result, 'result') and result.result is not None:
-                    actual_result = result.result
-                elif hasattr(result, 'success') and result.success:
-                    actual_result = getattr(result, 'data', str(result))
-                else:
-                    actual_result = str(result)
+                # Bridge FastMCP -> LangChain (session async)
+                is_error = bool(getattr(result, 'is_error', False) or getattr(result, 'isError', False))
+                contents = getattr(result, 'content', []) or []
+                text_blocks = []
+                try:
+                    for block in contents:
+                        if hasattr(block, 'text'):
+                            text_blocks.append(block.text)
+                except Exception:
+                    pass
 
-                if isinstance(actual_result, (dict, list)):
-                    return json.dumps(actual_result, ensure_ascii=False)
+                if not text_blocks:
+                    output = ""
+                elif len(text_blocks) == 1:
+                    output = text_blocks[0]
                 else:
-                    return str(actual_result)
+                    output = "\n".join(text_blocks)
+
+                if is_error:
+                    raise ToolException(output)
+
+                return output
 
             except Exception as e:
                 error_msg = f"Async tool execution failed: {str(e)}"
