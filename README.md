@@ -1,32 +1,94 @@
-<div align="center">
 
+
+<div align="center">
 
 # McpStore
 
-One-stop open-source high-quality MCP service management tool, making it easy for AI Agents to use various tools
 
-![GitHub stars](https://img.shields.io/github/stars/whillhill/mcpstore) ![GitHub forks](https://img.shields.io/github/forks/whillhill/mcpstore) ![GitHub issues](https://img.shields.io/github/issues/whillhill/mcpstore) ![GitHub license](https://img.shields.io/github/license/whillhill/mcpstore) ![PyPI version](https://img.shields.io/pypi/v/mcpstore) ![Python versions](https://img.shields.io/pypi/pyversions/mcpstore) ![PyPI downloads](https://img.shields.io/pypi/dm/mcpstore?label=downloads)
+轻松管理MCP服务的SDK,适配主流AI框架,Agent快速调用MCP服务
 
-English | [简体中文](README_zh.md)
+![GitHub stars](https://img.shields.io/github/stars/whillhill/mcpstore) ![GitHub forks](https://img.shields.io/github/forks/whillhill/mcpstore) ![GitHub issues](https://img.shields.io/github/issues/whillhill/mcpstore) ![GitHub license](https://img.shields.io/github/license/whillhill/mcpstore) ![PyPI version](https://img.shields.io/pypi/v/mcpstore) ![Python versions](https://img.shields.io/pypi/pyversions/mcpstore) ![PyPI downloads](https://img.shields.io/pypi/dm/mcpstore?label=downloads) ![PyPI - Wheel](https://img.shields.io/pypi/wheel/mcpstore) ![code style: black](https://img.shields.io/badge/code%20style-black-000000.svg) ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
 
-🚀 [Live Demo](https://mcpstore.wiki/web_demo/dashboard) | 📖 [Documentation](https://doc.mcpstore.wiki/) | 🎯 [Quick Start](#quick-start)
+[English](README.md) | 简体中文
+
+🚀 [在线体验](https://mcpstore.wiki/web_demo/dashboard) | 📖 [详细文档](https://doc.mcpstore.wiki/) | 🎯 [快速开始](#快速开始)
 
 </div>
 
-## Quick Start
+### 快速开始
 
-### Installation
 ```bash
 pip install mcpstore
 ```
 
-### Online Experience
 
-Open-source Vue frontend interface, supporting intuitive MCP service management through SDK or API
+### mcpstore是什么？
+
+用户友好的mcp服务管理sdk，方便快速集成MCP服务，并集成了主流agent框架的适配器，简单几行代码就将MCP服务转为agent框架格式的tools对象
+
+
+### LangChain 示例
+
+```python
+from mcpstore import MCPStore
+store = MCPStore.setup_store()
+store.for_store().add_service({"name":"mcpstore-wiki","url":"https://mcpstore.wiki/mcp"})
+tools = store.for_store().for_langchain().list_tools()
+```
+到这里我们将一个mcp服务做成了langchain可以直接使用的tools对象 基于上面的代码 我们可以添加下面的代码运行
+
+```python
+#需要添加上面的代码块
+from langchain.agents import create_tool_calling_agent, AgentExecutor
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
+llm = ChatOpenAI(
+    temperature=0, model="deepseek-chat",
+    openai_api_key="****",
+    openai_api_base="https://api.deepseek.com"
+)
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "你是一个助手，回答的时候带上表情"),
+    ("human", "{input}"),
+    ("placeholder", "{agent_scratchpad}"),
+])
+agent = create_tool_calling_agent(llm, tools, prompt)
+agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+# ===
+query = "北京的天气怎么样？"
+print(f"\n   🤔: {query}")
+response = agent_executor.invoke({"input": query})
+print(f"   🤖 : {response['output']}")
+```
+同时也适配了多种agent框架，比如langgraph autogen等等，通过for_XXX()方法可以快速获取对应的工具对象
+
+
+### 数据库支持
+目前支持了redis数据库 可以通过传入redis的配置或者redis的对象
+
+```python
+redis_config = {
+            "url": "redis://localhost:6379/0",
+            "password": None,
+            "namespace": "demo_namespace"
+        }
+
+store = MCPStore.setup_store(redis =redis_config)
+
+```
+只需要
+
+```python
+pip install mcpstore[redis]
+```
+
+## 在线体验
+
+简单开源的Vue，支持通过SDK或API方式直观管理MCP服务
 
 ![image-20250721212359929](http://www.text2mcp.com/img/image-20250721212359929.png)
 
-Quick start backend service:
+快速启动后端服务：
 
 ```python
 from mcpstore import MCPStore
@@ -34,121 +96,90 @@ prod_store = MCPStore.setup_store()
 prod_store.start_api_server(host='0.0.0.0', port=18200)
 ```
 
-## Intuitive Usage
+###  你也可以直接调用工具
 
 ```python
 store = MCPStore.setup_store()
 store.for_store().add_service({"name":"mcpstore-wiki","url":"https://mcpstore.wiki/mcp"})
 tools = store.for_store().list_tools()
-# store.for_store().use_tool(tools[0].name, {"query":'hi!'})
+store.for_store().call_tool(tools[0].name, {"query":'hi!'})
 ```
 
-## LangChain Integration Example
-
-Simple integration of mcpstore tools into LangChain Agent, here's a ready-to-run code:
-
-```python
-from langchain.agents import create_tool_calling_agent, AgentExecutor
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
-from mcpstore import MCPStore
-# ===
-store = MCPStore.setup_store()
-store.for_store().add_service({"name":"mcpstore-wiki","url":"https://mcpstore.wiki/mcp"})
-tools = store.for_store().for_langchain().list_tools()
-# ===
-llm = ChatOpenAI(
-    temperature=0, model="deepseek-chat",
-    openai_api_key="****",
-    openai_api_base="https://api.deepseek.com"
-)
-prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are an assistant, respond with emojis"),
-    ("human", "{input}"),
-    ("placeholder", "{agent_scratchpad}"),
-])
-agent = create_tool_calling_agent(llm, tools, prompt)
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-# ===
-query = "What's the weather like in Beijing?"
-print(f"\n   🤔: {query}")
-response = agent_executor.invoke({"input": query})
-print(f"   🤖 : {response['output']}")
-```
+ 
 
 ![image-20250721212658085](http://www.text2mcp.com/img/image-20250721212658085.png)
 
-## Chain Call Design
 
-MCPStore adopts chain call design, providing clear context isolation:
 
-- `store.for_store()` - Global store space
-- `store.for_agent("agent_id")` - Create isolated space for specified Agent
+### MCP服务分组
 
-## Multi-Agent Isolation
+使用for_agent(agent_id)可以将mcp分组 方便不同的agent获取精确的有限上下文工具集
+即将支持根据分组 一键生成a2a协议的card
 
-Assign dedicated toolsets for different functional Agents, actively supporting A2A protocol and quick agent card generation.
+- `store.for_store()` - 全局store空间
+- `store.for_agent("agent_id")` - 为指定Agent创建隔离空间
 
 ```python
-# Initialize Store
+# 初始化Store
 store = MCPStore.setup_store()
 
-# Assign dedicated Wiki tools for "Knowledge Management Agent"
-# This operation is performed in the private context of "knowledge" agent
+# 为“知识管理Agent”分配专用的Wiki工具
+# 该操作在"knowledge" agent的私有上下文中进行
 agent_id1 = "my-knowledge-agent"
 knowledge_agent_context = store.for_agent(agent_id1).add_service(
     {"name": "mcpstore-wiki", "url": "http://mcpstore.wiki/mcp"}
 )
 
-# Assign dedicated development tools for "Development Support Agent"
-# This operation is performed in the private context of "development" agent
+# 为“开发支持Agent”分配专用的开发工具
+# 该操作在"development" agent的私有上下文中进行
 agent_id2 = "my-development-agent"
 dev_agent_context = store.for_agent(agent_id2).add_service(
     {"name": "mcpstore-demo", "url": "http://mcpstore.wiki/mcp"}
 )
 
-# Each Agent's toolset is completely isolated without interference
+# 各Agent的工具集完全隔离，互不影响
 knowledge_tools = store.for_agent(agent_id1).list_tools()
 dev_tools = store.for_agent(agent_id2).list_tools()
 ```
+很直观的，你可以通过 `store.for_store()` 和 `store.for_agent("agent_id")` 使用几乎所有的函数 ✨
 
-Intuitively, you can use almost all functions through `store.for_store()` and `store.for_agent("agent_id")` ✨
 
+### API接口
 
-## API Interface
-
-Provides complete RESTful API, start web service with one command:
+提供完整的RESTful API，一行命令启动Web服务：
 
 ```bash
 pip install mcpstore
 mcpstore run api
 ```
 
-### Main API Endpoints
+### 部分API接口
+详细的接口文档看网页
 
 ```bash
-# Service Management
-POST /for_store/add_service          # Add service
-GET  /for_store/list_services        # Get service list
-POST /for_store/delete_service       # Delete service
+# 服务管理
+POST /for_store/add_service          # 添加服务
+GET  /for_store/list_services        # 获取服务列表
+POST /for_store/delete_service       # 删除服务
 
-# Tool Operations
-GET  /for_store/list_tools           # Get tool list
-POST /for_store/use_tool             # Execute tool
+# 工具操作
+GET  /for_store/list_tools           # 获取工具列表
+POST /for_store/use_tool             # 执行工具
 
-# Monitoring & Statistics
-GET  /for_store/get_stats            # System statistics
-GET  /for_store/health               # Health check
+# 监控统计
+GET  /for_store/get_stats            # 系统统计
+GET  /for_store/health               # 健康检查
 ```
 
-## Contributing
 
-Welcome community contributions:
+## 参与贡献
 
-- ⭐ Star the project
-- 🐛 Submit Issues to report problems
-- 🔧 Submit Pull Requests to contribute code
-- 💬 Share usage experiences and best practices
+欢迎社区贡献：
+
+- ⭐ 给项目点Star
+- 🐛 提交Issues报告问题
+- 🔧 提交Pull Requests贡献代码
+- 💬 分享使用经验和最佳实践
 
 ## Star History
 
@@ -160,4 +191,5 @@ Welcome community contributions:
 
 ---
 
-**McpStore is a project under frequent updates, we humbly ask for your stars and guidance**
+**McpStore是一个还在频繁的更新的项目，恳求大家给小星并来指点**
+
