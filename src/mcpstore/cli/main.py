@@ -33,29 +33,57 @@ def run_command(
     port: Annotated[int, typer.Option("--port", "-p", help="Port to bind to")] = 18200,
     reload: Annotated[bool, typer.Option("--reload", "-r", help="Enable auto-reload")] = False,
     log_level: Annotated[str, typer.Option("--log-level", "-l", help="Log level")] = "info",
+    prefix: Annotated[str, typer.Option("--prefix", help="URL prefix (e.g., /api/v1)")] = "",  # 🆕 新增
 ):
     """
     Run MCPStore services
 
     Available services:
     - api: Start the MCPStore API server
+
+    Examples:
+
+    # 基本启动（无前缀）
+    mcpstore run api
+
+    # 使用 URL 前缀
+    mcpstore run api --prefix /api/v1
+    # 访问: http://localhost:18200/api/v1/for_store/list_services
+
+    # 开发模式 + 前缀
+    mcpstore run api --reload --prefix /api
     """
     if service == "api":
-        run_api(host=host, port=port, reload=reload, log_level=log_level)
+        run_api(host=host, port=port, reload=reload, log_level=log_level, url_prefix=prefix)
     else:
         typer.echo(f" Unknown service: {service}")
         typer.echo("Available services: api")
         raise typer.Exit(1)
 
-def run_api(host: str, port: int, reload: bool, log_level: str):
+def run_api(host: str, port: int, reload: bool, log_level: str, url_prefix: str):
     """Start MCPStore API service"""
     try:
         typer.echo("🚀 Starting MCPStore API Server...")
         typer.echo(f"   Host: {host}:{port}")
+
+        if url_prefix:
+            typer.echo(f"   URL Prefix: {url_prefix}")
+            base_url = f"http://{host if host != '0.0.0.0' else 'localhost'}:{port}"
+            typer.echo(f"   Example: {base_url}{url_prefix}/for_store/list_services")
+        else:
+            base_url = f"http://{host if host != '0.0.0.0' else 'localhost'}:{port}"
+            typer.echo(f"   Example: {base_url}/for_store/list_services")
+
         if reload:
             typer.echo("   Mode: Development (auto-reload enabled)")
         typer.echo("   Press Ctrl+C to stop")
         typer.echo()
+
+        # 🆕 启动时传入 URL 前缀配置
+        # 通过环境变量传递给应用工厂
+        import os
+        if url_prefix:
+            os.environ["MCPSTORE_URL_PREFIX"] = url_prefix
 
         # Start API service
         uvicorn.run(

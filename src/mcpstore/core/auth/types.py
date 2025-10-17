@@ -101,20 +101,3 @@ class FastMCPAuthConfig(BaseModel):
             }
         )
 
-
-class HubAuthConfig(BaseModel):
-    """Hub认证配置"""
-    hub_name: str = Field(..., description="Hub名称")
-    auth_enabled: bool = Field(False, description="是否启用认证")
-    auth_provider: Optional[AuthProviderConfig] = Field(None, description="认证提供者")
-    required_scopes: List[str] = Field(default_factory=list, description="必需的权限范围")
-    protected_tools: List[str] = Field(default_factory=list, description="受保护的工具")
-    public_tools: List[str] = Field(default_factory=list, description="公开的工具")
-
-
-class JWTPayloadConfig(BaseModel):
-    """JWT Payload配置 - 用于FastMCP token生成"""
-    client_id: str = Field(..., description="客户端ID")
-    scopes: List[str] = Field(default_factory=list, description="权限范围")
-    custom_claims: Dict[str, Any] = Field(default_factory=dict, description="自定义声明")
-    expires_in: int = Field(3600, description="过期时间（秒）")

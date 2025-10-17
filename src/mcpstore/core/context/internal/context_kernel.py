@@ -28,7 +28,7 @@ class StoreContextKernel(ContextKernel):
 
     def list_services(self) -> Any:
         # Delegate to store layer directly
-        return self.ctx._sync_helper.run_async(self.ctx._store.list_services())
+        return self.ctx._sync_helper.run_async(self.ctx._store.list_services(), force_background=True)
 
     def list_tools(self) -> Any:
         # Prefer orchestrator snapshot
@@ -41,11 +41,11 @@ class AgentContextKernel(ContextKernel):
 
     def list_services(self) -> Any:
         # Keep existing agent-view logic
-        return self.ctx._sync_helper.run_async(self.ctx._get_agent_service_view())
+        return self.ctx._sync_helper.run_async(self.ctx._get_agent_service_view(), force_background=True)
 
     def list_tools(self) -> Any:
         # Keep existing agent-view logic
-        return self.ctx._sync_helper.run_async(self.ctx._get_agent_tools_view())
+        return self.ctx._sync_helper.run_async(self.ctx._get_agent_tools_view(), force_background=True)
 
 
 def create_kernel(ctx: 'MCPStoreContext') -> ContextKernel:

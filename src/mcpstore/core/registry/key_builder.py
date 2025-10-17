@@ -5,23 +5,20 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class KeyBuilder:
-    """Scope-aware key builder for namespacing cache keys.
+    """Key builder for Redis cache namespacing.
 
-    Key layout (initial version):
-      mcpstore:{namespace}:{dataspace}:scope:{scope}:{owner}:{entity}:{identifier}
-    where scope in {device, user, pub}.
+    Key layout:
+      mcpstore:{namespace}:agent:{agent_id}:...
+      mcpstore:{namespace}:client:{client_id}:...
+      mcpstore:{namespace}:...
+
+    The namespace provides isolation between different applications/environments.
+    Default namespace is auto-generated from mcp.json path (5-char hash).
     """
 
-    namespace: str = "default"
-    dataspace: str = "default"
+    namespace: str = "mcpstore"
 
     def base(self) -> str:
-        # Global project prefix per design: 'mcpstore'
-        return f"mcpstore:{self.namespace}:{self.dataspace}"
-
-    def scope(self, scope: str, owner: str) -> str:
-        return f"{self.base()}:scope:{scope}:{owner}"
-
-    def entity(self, scope: str, owner: str, entity: str, identifier: str) -> str:
-        return f"{self.scope(scope, owner)}:{entity}:{identifier}"
+        """Return base key prefix: mcpstore:{namespace}"""
+        return f"mcpstore:{self.namespace}"
 

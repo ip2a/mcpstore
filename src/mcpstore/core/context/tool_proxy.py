@@ -297,7 +297,8 @@ class ToolProxy:
             Any: FastMCP CallToolResult（或当 return_extracted=True 时返回已提取的数据）
         """
         return self._context._sync_helper.run_async(
-            self.call_tool_async(arguments, return_extracted=return_extracted, **kwargs)
+            self.call_tool_async(arguments, return_extracted=return_extracted, **kwargs),
+            force_background=True
         )
 
     async def call_tool_async(self, arguments: Dict[str, Any] = None, return_extracted: bool = False, **kwargs) -> Any:

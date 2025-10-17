@@ -113,10 +113,15 @@ class MCPStoreContext(
         except Exception:
             self._kernel = None
 
-    def for_langchain(self) -> 'LangChainAdapter':
+    def for_langchain(self, response_format: str = "text") -> 'LangChainAdapter':
         """Return a LangChain adapter. If a session is active (within with_session),
         return a session-aware adapter bound to that session; otherwise return the
         standard context adapter.
+
+        Args:
+            response_format: Adapter-only rendering mode for tool outputs. Supported:
+                - "text" (default): Return merged TextContent as string
+                - "content_and_artifact": Return dict {"text": str, "artifacts": list}
         """
         # Avoid top-level import cycles
         from ...adapters.langchain_adapter import LangChainAdapter, SessionAwareLangChainAdapter
@@ -124,9 +129,9 @@ class MCPStoreContext(
         active = getattr(self, "_active_session", None)
         if active is not None and getattr(active, "is_active", False):
             # Implicit session routing: with_session scope auto-binds LangChain tools
-            return SessionAwareLangChainAdapter(self, active)
+            return SessionAwareLangChainAdapter(self, active, response_format=response_format)
 
-        return LangChainAdapter(self)
+        return LangChainAdapter(self, response_format=response_format)
 
     def for_llamaindex(self) -> 'LlamaIndexAdapter':
         """Return a LlamaIndex adapter (FunctionTool) for MCP tools."""
@@ -138,10 +143,13 @@ class MCPStoreContext(
         from ...adapters.crewai_adapter import CrewAIAdapter
         return CrewAIAdapter(self)
 
-    def for_langgraph(self) -> 'LangGraphAdapter':
-        """Return a LangGraph adapter that reuses LangChain tools."""
+    def for_langgraph(self, response_format: str = "text") -> 'LangGraphAdapter':
+        """Return a LangGraph adapter that reuses LangChain tools.
+        Args:
+            response_format: Same as for_langchain(); forwarded to LangChain adapter.
+        """
         from ...adapters.langgraph_adapter import LangGraphAdapter
-        return LangGraphAdapter(self)
+        return LangGraphAdapter(self, response_format=response_format)
 
     def for_autogen(self) -> 'AutoGenAdapter':
         """Return an AutoGen adapter that produces Python functions for registration."""
@@ -233,6 +241,13 @@ class MCPStoreContext(
             demo_service.restart_service()     # 重启服务
         """
         from .service_proxy import ServiceProxy
+        try:
+            effective = service_name
+            if self._context_type == ContextType.AGENT and getattr(self, '_service_mapper', None):
+                effective = self._service_mapper.to_global_name(service_name)
+            logger.info(f"[FIND_SERVICE] context={self._context_type.name} agent_id={self._agent_id} input='{service_name}' effective='{effective}'")
+        except Exception as e:
+            logger.warning(f"[FIND_SERVICE] mapping_info_failed name='{service_name}' error={e}")
         return ServiceProxy(self, service_name)
 
     def find_tool(self, tool_name: str) -> 'ToolProxy':

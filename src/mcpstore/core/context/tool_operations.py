@@ -30,7 +30,8 @@ class ToolOperationsMixin:
         try:
             agent_id = self._agent_id if self._context_type == ContextType.AGENT else None
             snapshot = self._store.orchestrator._sync_helper.run_async(
-                self._store.orchestrator.tools_snapshot(agent_id)
+                self._store.orchestrator.tools_snapshot(agent_id),
+                force_background=True
             )
             # 映射为 ToolInfo
             result = [ToolInfo(**t) for t in snapshot if isinstance(t, dict)]
@@ -62,7 +63,7 @@ class ToolOperationsMixin:
         Returns:
             Dict: 包含工具列表和统计信息
         """
-        return self._sync_helper.run_async(self.get_tools_with_stats_async())
+        return self._sync_helper.run_async(self.get_tools_with_stats_async(), force_background=True)
 
     async def get_tools_with_stats_async(self) -> Dict[str, Any]:
         """

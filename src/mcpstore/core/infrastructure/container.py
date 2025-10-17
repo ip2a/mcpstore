@@ -80,22 +80,27 @@ class ServiceContainer:
             config_manager=self._config_manager
         )
 
-        # 🆕 创建健康监控管理器
+        # 🆕 创建健康监控管理器（统一从 ServiceLifecycleConfig 读取配置）
+        from mcpstore.core.lifecycle.config import ServiceLifecycleConfig
+        lifecycle_config = ServiceLifecycleConfig()
+
         self._health_monitor = HealthMonitor(
             event_bus=self._event_bus,
             registry=self._registry,
-            check_interval=30.0,  # 30秒检查一次
-            timeout_threshold=300.0  # 5分钟超时
+            check_interval=lifecycle_config.normal_heartbeat_interval,
+            timeout_threshold=lifecycle_config.initialization_timeout,
+            ping_timeout=lifecycle_config.health_check_ping_timeout,
+            warning_interval=lifecycle_config.warning_heartbeat_interval
         )
 
-        # 🆕 创建重连调度器
+        # 🆕 创建重连调度器（统一从 ServiceLifecycleConfig 读取配置）
         self._reconnection_scheduler = ReconnectionScheduler(
             event_bus=self._event_bus,
             registry=self._registry,
-            scan_interval=1.0,  # 1秒扫描一次
-            base_delay=2.0,  # 基础延迟2秒
-            max_delay=300.0,  # 最大延迟5分钟
-            max_retries=10  # 最大重试10次
+            scan_interval=1.0,  # 扫描间隔固定1秒
+            base_delay=lifecycle_config.base_reconnect_delay,
+            max_delay=lifecycle_config.max_reconnect_delay,
+            max_retries=lifecycle_config.max_reconnect_attempts
         )
 
         # 创建应用服务

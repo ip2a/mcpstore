@@ -32,10 +32,15 @@ class LifecycleManager:
     4. 管理状态元数据
     """
     
-    def __init__(self, event_bus: EventBus, registry: 'CoreRegistry'):
+    def __init__(self, event_bus: EventBus, registry: 'CoreRegistry', lifecycle_config: 'ServiceLifecycleConfig' = None):
         self._event_bus = event_bus
         self._registry = registry
-        
+        # 配置（阈值/心跳间隔）
+        if lifecycle_config is None:
+            from mcpstore.core.lifecycle.config import ServiceLifecycleConfig
+            lifecycle_config = ServiceLifecycleConfig()
+        self._config = lifecycle_config
+
         # 订阅事件
         self._event_bus.subscribe(ServiceCached, self._on_service_cached, priority=90)
         self._event_bus.subscribe(ServiceConnected, self._on_service_connected, priority=40)
@@ -91,7 +96,7 @@ class LifecycleManager:
                 service_name=event.service_name,
                 initial_state="initializing"
             )
-            await self._event_bus.publish(initialized_event)
+            await self._event_bus.publish(initialized_event, wait=True)
             
         except Exception as e:
             logger.error(f"[LIFECYCLE] Failed to initialize lifecycle for {event.service_name}: {e}", exc_info=True)
@@ -184,20 +189,50 @@ class LifecycleManager:
 
                 self._registry.set_service_metadata(event.agent_id, event.service_name, metadata)
 
-            # 根据建议的状态转换
-            if event.suggested_state:
-                current_state = self._registry.get_service_state(event.agent_id, event.service_name)
-                suggested_state_enum = ServiceConnectionState[event.suggested_state]
+            # 基于失败计数与当前状态的转换规则（忽略 suggested_state）
+            current_state = self._registry.get_service_state(event.agent_id, event.service_name)
+            failures = 0
+            if metadata:
+                failures = metadata.consecutive_failures
 
-                # 只有状态真正变化时才转换
-                if current_state != suggested_state_enum:
+            # 成功：从 INITIALIZING/WARNING 回到 HEALTHY；HEALTHY 保持
+            if event.success:
+                if current_state in (ServiceConnectionState.INITIALIZING, ServiceConnectionState.WARNING):
                     await self._transition_state(
                         agent_id=event.agent_id,
                         service_name=event.service_name,
-                        new_state=suggested_state_enum,
-                        reason=f"health_check_{event.success}",
+                        new_state=ServiceConnectionState.HEALTHY,
+                        reason="health_check_success",
                         source="HealthMonitor"
                     )
+                return
+
+            # 失败：按阈值推进 WARNING/RECONNECTING
+            warn_th = self._config.warning_failure_threshold
+            rec_th = self._config.reconnecting_failure_threshold
+
+            # 达到重连阈值：进入 RECONNECTING
+            if failures >= rec_th:
+                if current_state != ServiceConnectionState.RECONNECTING:
+                    await self._transition_state(
+                        agent_id=event.agent_id,
+                        service_name=event.service_name,
+                        new_state=ServiceConnectionState.RECONNECTING,
+                        reason="health_check_consecutive_failures",
+                        source="HealthMonitor"
+                    )
+                return
+
+            # 从 HEALTHY 进入 WARNING（首次失败）
+            if current_state == ServiceConnectionState.HEALTHY and failures >= warn_th:
+                await self._transition_state(
+                    agent_id=event.agent_id,
+                    service_name=event.service_name,
+                    new_state=ServiceConnectionState.WARNING,
+                    reason="health_check_first_failure",
+                    source="HealthMonitor"
+                )
+                return
 
         except Exception as e:
             logger.error(f"[LIFECYCLE] Failed to handle health check result for {event.service_name}: {e}", exc_info=True)

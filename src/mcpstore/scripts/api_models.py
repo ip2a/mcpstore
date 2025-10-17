@@ -331,3 +331,85 @@ class ContentUpdateConfig(BaseModel):
     enable_adaptive_timeout: Optional[bool] = Field(default=None, description="是否启用智能超时调整")
     adaptive_timeout_multiplier: Optional[float] = Field(default=None, ge=1.5, le=5.0, description="智能超时倍数，范围1.5-5.0")
     response_time_history_size: Optional[int] = Field(default=None, ge=5, le=100, description="响应时间历史记录大小，范围5-100")
+
+
+# === 🆕 分页/排序/过滤增强模型 ===
+
+class EnhancedPaginationInfo(BaseModel):
+    """
+    增强的分页信息（统一格式）
+    
+    无论是否使用分页参数，始终返回此结构。
+    不使用分页时，limit 会等于 total，表示返回全部数据。
+    """
+    page: int = Field(..., description="当前页码（从1开始）")
+    limit: int = Field(..., description="每页数量")
+    total: int = Field(..., description="总记录数")
+    total_pages: int = Field(..., description="总页数")
+    has_next: bool = Field(..., description="是否有下一页")
+    has_prev: bool = Field(..., description="是否有上一页")
+
+
+class ListFilterInfo(BaseModel):
+    """列表过滤信息"""
+    status: Optional[str] = Field(None, description="状态过滤")
+    search: Optional[str] = Field(None, description="搜索关键词")
+    service_type: Optional[str] = Field(None, description="服务类型")
+
+
+class ListSortInfo(BaseModel):
+    """列表排序信息"""
+    by: str = Field(..., description="排序字段")
+    order: str = Field(..., description="排序方向: asc/desc")
+
+
+def create_enhanced_pagination_info(
+    page: Optional[int],
+    limit: Optional[int],
+    filtered_count: int
+) -> EnhancedPaginationInfo:
+    """
+    创建增强的分页信息（统一格式）
+    
+    Args:
+        page: 用户请求的页码（None 表示不分页）
+        limit: 用户请求的每页数量（None 表示不分页）
+        filtered_count: 过滤后的记录数
+        
+    Returns:
+        EnhancedPaginationInfo: 统一格式的分页信息
+        
+    Note:
+        - 如果不传分页参数（page 和 limit 都为 None），limit 自动设置为 filtered_count
+        - 这样前端可以统一处理响应格式，无需区分是否��页
+    """
+    # 不传分页参数时，返回全部数据
+    if page is None and limit is None:
+        return EnhancedPaginationInfo(
+            page=1,
+            limit=filtered_count,  # limit 等于总数（返回全部）
+            total=filtered_count,
+            total_pages=1,
+            has_next=False,
+            has_prev=False
+        )
+    
+    # 使用分页参数
+    page = page or 1
+    limit = limit or 20
+    
+    # 计算总页数（向上取整）
+    total_pages = (filtered_count + limit - 1) // limit if limit > 0 else 0
+    
+    # 计算当前页的范围
+    start = (page - 1) * limit
+    end = start + limit
+    
+    return EnhancedPaginationInfo(
+        page=page,
+        limit=limit,
+        total=filtered_count,
+        total_pages=total_pages,
+        has_next=end < filtered_count,  # 是否有下一页
+        has_prev=page > 1                 # 是否有上一页
+    )

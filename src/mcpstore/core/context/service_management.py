@@ -16,29 +16,47 @@ logger = logging.getLogger(__name__)
 
 class UpdateServiceAuthHelper:
     """更新服务认证助手 - 明确的服务名，避免状态混乱"""
-    
+
     def __init__(self, context: 'MCPStoreContext', service_name: str, config: Dict[str, Any] = None):
         self._context = context
         self._service_name = service_name  # 🎯 明确的服务名，不会混乱
         self._config = config.copy() if config else {}
-    
+
     def bearer_auth(self, auth: str) -> 'MCPStoreContext':
-        """为指定服务更新 Bearer Token 认证"""
-        self._config["auth"] = auth
+        """为指定服务更新 Bearer Token 认证（兼容历史）"""
+        # 统一标准化为 Authorization 头
+        if "headers" not in self._config:
+            self._config["headers"] = {}
+        self._config["headers"]["Authorization"] = f"Bearer {auth}"
         return self._execute_update()
-    
+
+    def token(self, token: str) -> 'MCPStoreContext':
+        """推荐：设置 Bearer Token（等价于 bearer_auth）"""
+        if "headers" not in self._config:
+            self._config["headers"] = {}
+        self._config["headers"]["Authorization"] = f"Bearer {token}"
+        return self._execute_update()
+
+    def api_key(self, api_key: str) -> 'MCPStoreContext':
+        """推荐：设置 API Key（标准化为 X-API-Key）"""
+        if "headers" not in self._config:
+            self._config["headers"] = {}
+        self._config["headers"]["X-API-Key"] = api_key
+        return self._execute_update()
+
     def custom_headers(self, headers: Dict[str, str]) -> 'MCPStoreContext':
-        """为指定服务更新自定义请求头"""
+        """为指定服务更新自定义请求头（显式覆盖）"""
         if "headers" not in self._config:
             self._config["headers"] = {}
         self._config["headers"].update(headers)
         return self._execute_update()
-    
+
     def _execute_update(self) -> 'MCPStoreContext':
         """执行更新服务"""
         self._context._sync_helper.run_async(
             self._context.update_service_async(self._service_name, self._config),
-            timeout=60.0
+            timeout=60.0,
+            force_background=True
         )
         return self._context
 
@@ -52,7 +70,7 @@ class ServiceManagementMixin:
         - store上下文：聚合 global_agent_store 下所有 client_id 的服务健康状态
         - agent上下文：聚合 agent_id 下所有 client_id 的服务健康状态
         """
-        return self._sync_helper.run_async(self.check_services_async())
+        return self._sync_helper.run_async(self.check_services_async(), force_background=True)
 
     async def check_services_async(self) -> dict:
         """
@@ -74,7 +92,7 @@ class ServiceManagementMixin:
         - store上下文：在 global_agent_store 下的所有 client 中查找服务
         - agent上下文：在指定 agent_id 下的所有 client 中查找服务
         """
-        return self._sync_helper.run_async(self.get_service_info_async(name))
+        return self._sync_helper.run_async(self.get_service_info_async(name), force_background=True)
 
     async def get_service_info_async(self, name: str) -> Any:
         """
@@ -96,48 +114,51 @@ class ServiceManagementMixin:
             logger.error(f"[get_service_info] 未知上下文类型: {self._context_type}")
             return {}
 
-    def update_service(self, 
-                      name: str, 
+    def update_service(self,
+                      name: str,
                       config: Union[Dict[str, Any], None] = None,
-                      # 🆕 与 FastMCP 对齐
-                      auth: Optional[str] = None,
+                      # 🆕 与用户用法对齐
+                      auth: Optional[str] = None,            # 兼容历史：等价于 token
+                      token: Optional[str] = None,           # 推荐：Bearer Token
+                      api_key: Optional[str] = None,         # 推荐：API Key
                       headers: Optional[Dict[str, str]] = None) -> Union['MCPStoreContext', 'UpdateServiceAuthHelper']:
         """
-        更新服务配置，支持安全的链式认证
-        
+        更新服务配置，支持安全的链式认证与凭证轮换（合并更新，不会破坏原有关键字段）
+
         Args:
             name: 服务名称（明确指定，不会混乱）
-            config: 新的服务配置
-            auth: Bearer token，如果提供则立即执行
-            headers: 自定义请求头，如果提供则立即执行
-            
+            config: 新的服务配置（可选，按“补丁”合并语义处理）
+            auth/token: Bearer token（两者等价；优先使用 token）
+            api_key: API Key（统一标准化为 X-API-Key 头）
+            headers: 自定义请求头（显式传入的键优先级最高）
+
         Returns:
             如果有配置或认证参数：立即执行更新，返回 MCPStoreContext
             如果什么都没有：返回 UpdateServiceAuthHelper 支持链式配置
         """
-        
+
         if config is not None:
-            # 有配置参数：立即执行更新（保持向后兼容）
-            if auth is not None or headers is not None:
-                # 配置 + 认证：合并后执行
-                final_config = self._apply_auth_to_update_config(config, auth, headers)
+            # 有配置参数：立即执行更新（与认证参数合并，并采用“补丁合并”语义）
+            if any([auth, token, api_key, headers]):
+                final_config = self._apply_auth_to_update_config(config, auth, token, api_key, headers)
             else:
-                # 纯配置：直接执行
                 final_config = config
-                
+
             self._sync_helper.run_async(
                 self.update_service_async(name, final_config),
-                timeout=60.0
+                timeout=60.0,
+                force_background=True
             )
             return self
         else:
             # 没有配置参数：
-            if auth is not None or headers is not None:
-                # 纯认证：立即执行
-                final_config = self._apply_auth_to_update_config({}, auth, headers)
+            if any([auth, token, api_key, headers]):
+                # 纯认证：立即执行（也走补丁合并语义）
+                final_config = self._apply_auth_to_update_config({}, auth, token, api_key, headers)
                 self._sync_helper.run_async(
                     self.update_service_async(name, final_config),
-                    timeout=60.0
+                    timeout=60.0,
+                    force_background=True
                 )
                 return self
             else:
@@ -146,16 +167,28 @@ class ServiceManagementMixin:
 
     async def update_service_async(self, name: str, config: Dict[str, Any]) -> bool:
         """
-        更新服务配置（异步版本）- 完全替换配置
+        更新服务配置（异步版本）- 合并更新（不会破坏未提供的关键字段）
 
         Args:
             name: 服务名称
-            config: 新的服务配置
+            config: 新的服务配置（作为补丁）
 
         Returns:
             bool: 更新是否成功
         """
         try:
+            #  内部：简单的深度合并（仅对字典执行一层合并；headers 为字典则键级覆盖）
+            def _deep_merge(base: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
+                result = dict(base or {})
+                for k, v in (patch or {}).items():
+                    if isinstance(v, dict) and isinstance(result.get(k), dict):
+                        merged = dict(result.get(k) or {})
+                        merged.update(v)
+                        result[k] = merged
+                    else:
+                        result[k] = v
+                return result
+
             if self._context_type == ContextType.STORE:
                 # Store级别：使用原子更新，避免读改写竞态
                 from mcpstore.core.configuration.config_write_service import ConfigWriteService
@@ -164,7 +197,9 @@ class ServiceManagementMixin:
                     servers = dict(cfg.get("mcpServers", {}))
                     if name not in servers:
                         raise KeyError(f"Service {name} not found in store configuration")
-                    servers[name] = config
+                    existing = dict(servers.get(name) or {})
+                    merged = _deep_merge(existing, config)
+                    servers[name] = merged
                     cfg["mcpServers"] = servers
                     return cfg
                 try:
@@ -191,7 +226,9 @@ class ServiceManagementMixin:
                     servers = dict(cfg.get("mcpServers", {}))
                     if global_name not in servers:
                         raise KeyError(f"Service {global_name} not found in store configuration (agent mode)")
-                    servers[global_name] = config
+                    existing = dict(servers.get(global_name) or {})
+                    merged = _deep_merge(existing, config)
+                    servers[global_name] = merged
                     cfg["mcpServers"] = servers
                     return cfg
                 try:
@@ -209,7 +246,8 @@ class ServiceManagementMixin:
                     global_agent = self._store.client_manager.global_agent_store_id
                     metadata = self._store.registry.get_service_metadata(global_agent, global_name)
                     if metadata:
-                        metadata.service_config = config
+                        # 将变更合并到缓存元数据中
+                        metadata.service_config = _deep_merge(metadata.service_config or {}, config)
                         self._store.registry.set_service_metadata(global_agent, global_name, metadata)
                 except Exception as _:
                     pass
@@ -230,7 +268,7 @@ class ServiceManagementMixin:
         Returns:
             bool: 更新是否成功
         """
-        return self._sync_helper.run_async(self.patch_service_async(name, updates), timeout=60.0)
+        return self._sync_helper.run_async(self.patch_service_async(name, updates), timeout=60.0, force_background=True)
 
     async def patch_service_async(self, name: str, updates: Dict[str, Any]) -> bool:
         """
@@ -320,7 +358,7 @@ class ServiceManagementMixin:
         Returns:
             bool: 删除是否成功
         """
-        return self._sync_helper.run_async(self.delete_service_async(name), timeout=60.0)
+        return self._sync_helper.run_async(self.delete_service_async(name), timeout=60.0, force_background=True)
 
     async def delete_service_async(self, name: str) -> bool:
         """
@@ -403,7 +441,7 @@ class ServiceManagementMixin:
                 - "all": 重置所有缓存和所有JSON文件（默认）
                 - "global_agent_store": 只重置global_agent_store
         """
-        return self._sync_helper.run_async(self.reset_config_async(scope), timeout=60.0)
+        return self._sync_helper.run_async(self.reset_config_async(scope), timeout=60.0, force_background=True)
 
     async def reset_config_async(self, scope: str = "all") -> bool:
         """
@@ -510,7 +548,7 @@ class ServiceManagementMixin:
         Returns:
             Dict: 配置信息字典
         """
-        return self._sync_helper.run_async(self.show_config_async(scope), timeout=60.0)
+        return self._sync_helper.run_async(self.show_config_async(scope), timeout=60.0, force_background=True)
 
     async def show_config_async(self, scope: str = "all") -> Dict[str, Any]:
         """
@@ -688,7 +726,7 @@ class ServiceManagementMixin:
         Returns:
             Dict: 删除结果
         """
-        return self._sync_helper.run_async(self.delete_config_async(client_id_or_service_name), timeout=60.0)
+        return self._sync_helper.run_async(self.delete_config_async(client_id_or_service_name), timeout=60.0, force_background=True)
 
     async def delete_config_async(self, client_id_or_service_name: str) -> Dict[str, Any]:
         """
@@ -730,7 +768,7 @@ class ServiceManagementMixin:
         Returns:
             Dict: 更新结果
         """
-        return self._sync_helper.run_async(self.update_config_async(client_id_or_service_name, new_config), timeout=60.0)
+        return self._sync_helper.run_async(self.update_config_async(client_id_or_service_name, new_config), timeout=60.0, force_background=True)
 
     async def update_config_async(self, client_id_or_service_name: str, new_config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -1212,7 +1250,7 @@ class ServiceManagementMixin:
 
     def get_service_status(self, name: str) -> dict:
         """获取单个服务的状态信息（同步版本）"""
-        return self._sync_helper.run_async(self.get_service_status_async(name))
+        return self._sync_helper.run_async(self.get_service_status_async(name), force_background=True)
 
     async def get_service_status_async(self, name: str) -> dict:
         """获取单个服务的状态信息"""
@@ -1232,7 +1270,8 @@ class ServiceManagementMixin:
 
     def restart_service(self, name: str) -> bool:
         """重启指定服务（同步版本）"""
-        return self._sync_helper.run_async(self.restart_service_async(name))
+        # 使用持久后台事件循环，避免 asyncio.run 的临时事件循环导致事件处理器被取消
+        return self._sync_helper.run_async(self.restart_service_async(name), force_background=True)
 
     async def restart_service_async(self, name: str) -> bool:
         """重启指定服务（透明代理）"""
@@ -1402,7 +1441,8 @@ class ServiceManagementMixin:
         """
         return self._sync_helper.run_async(
             self.wait_service_async(client_id_or_service_name, status, timeout, raise_on_timeout),
-            timeout=timeout + 1.0  # 给异步版本额外1秒缓冲
+            timeout=timeout + 1.0,  # 给异步版本额外1秒缓冲
+            force_background=True
         )
 
     async def wait_service_async(self, client_id_or_service_name: str,
@@ -1433,12 +1473,23 @@ class ServiceManagementMixin:
             # 在纯视图模式下，Agent 的状态查询统一使用全局命名空间
             status_agent_key = self._store.client_manager.global_agent_store_id
 
+
+            # 诊断：解析后的作用域与标识
+            try:
+                logger.info(f"[WAIT_SERVICE] resolved agent_scope={agent_scope} client_id='{client_id}' service='{service_name}' status_agent_key={status_agent_key}")
+            except Exception:
+                pass
+
             # 解析等待模式
             change_mode = False
             if isinstance(status, str) and status.lower() == 'change':
                 change_mode = True
                 logger.info(f"[WAIT_SERVICE] start mode=change service='{service_name}' timeout={timeout}s")
-                initial_status = self._store.orchestrator.get_service_comprehensive_status(service_name, status_agent_key)
+                try:
+                    initial_status = (self._store.orchestrator.get_service_status(service_name, status_agent_key) or {}).get("status", "unknown")
+                except Exception as _e_init:
+                    logger.debug(f"[WAIT_SERVICE] initial_status_error service='{service_name}' error={_e_init}")
+                    initial_status = "unknown"
             else:
                 # 规范化目标状态
                 target_statuses = self._normalize_target_statuses(status)
@@ -1462,14 +1513,25 @@ class ServiceManagementMixin:
                         raise TimeoutError(msg)
                     return False
 
-                # 获取当前状态
+                # 获取当前状态（先读一次缓存，随后在必要时读一次新缓存以防止竞态）
                 try:
-                    current_status = self._store.orchestrator.get_service_comprehensive_status(service_name, status_agent_key)
+
+                    status_dict = self._store.orchestrator.get_service_status(service_name, status_agent_key) or {}
+                    current_status = status_dict.get("status", "unknown")
 
                     # 仅在状态变化或每2秒节流一次打印
                     now = time.time()
                     if current_status != prev_status or (now - last_log) > 2.0:
                         logger.debug(f"[WAIT_SERVICE] status service='{service_name}' value='{current_status}'")
+                        # 对比 orchestrator 与 registry 的状态及最近健康检查（节流打印）
+                        try:
+                            reg_state = self._store.registry.get_service_state(status_agent_key, service_name)
+                            meta = self._store.registry.get_service_metadata(status_agent_key, service_name)
+                            last_check_ts = meta.last_health_check.isoformat() if getattr(meta, 'last_health_check', None) else None
+                            logger.debug(f"[WAIT_SERVICE] compare orchestrator='{current_status}' registry='{getattr(reg_state,'value',reg_state)}' last_check={last_check_ts}")
+                        except Exception:
+                            pass
+
                         prev_status, last_log = current_status, now
 
                     if change_mode:
@@ -1528,20 +1590,37 @@ class ServiceManagementMixin:
 
         return target_statuses
 
-    def _apply_auth_to_update_config(self, config: Dict[str, Any], 
-                                    auth: Optional[str], 
+    def _apply_auth_to_update_config(self, config: Dict[str, Any],
+                                    auth: Optional[str],
+                                    token: Optional[str],
+                                    api_key: Optional[str],
                                     headers: Optional[Dict[str, str]]) -> Dict[str, Any]:
-        """将认证配置应用到更新配置中"""
+        """将认证配置应用到更新配置中（标准化为 headers + 合并语义）"""
         final_config = config.copy() if config else {}
-        
-        if auth is not None:
-            final_config["auth"] = auth
-        
-        if headers is not None:
-            if "headers" not in final_config:
-                final_config["headers"] = {}
-            final_config["headers"].update(headers)
-        
+
+        # 构造标准化后的 headers
+        normalized_headers: Dict[str, str] = {}
+        eff_token = token if token else auth
+        if eff_token:
+            normalized_headers["Authorization"] = f"Bearer {eff_token}"
+        if api_key:
+            normalized_headers["X-API-Key"] = api_key
+        if headers:
+            normalized_headers.update(headers)
+
+        if normalized_headers:
+            existing = dict(final_config.get("headers", {}) or {})
+            existing.update(normalized_headers)
+            final_config["headers"] = existing
+
+        # 清理入口字段，避免持久化污染
+        for k in ("token", "api_key", "auth"):
+            if k in final_config:
+                try:
+                    del final_config[k]
+                except Exception:
+                    final_config.pop(k, None)
+
         return final_config
 
 

@@ -71,27 +71,32 @@ class ConfigIOError(ConfigError):
 
 class MCPConfig:
     """Handle loading, parsing and saving of mcp.json file"""
-    
+
     def __init__(self, json_path: str = None, client_id: str = "main"):
         """Initialize configuration manager
-        
+
         Args:
             json_path: Path to the configuration file
             client_id: Client identifier for multi-client support
         """
-        self.json_path = json_path or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "mcp.json")
+        self._json_path = json_path or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "mcp.json")
         self.client_id = client_id
-        logger.info(f"MCP configuration initialized for client {client_id}, using file path: {self.json_path}")
+        logger.info(f"MCP configuration initialized for client {client_id}, using file path: {self._json_path}")
+
+    @property
+    def json_path(self) -> str:
+        """Configuration file path (read-only)"""
+        return self._json_path
     
     def _backup(self) -> None:
         """Create a backup of the current configuration file"""
-        if not os.path.exists(self.json_path):
+        if not os.path.exists(self._json_path):
             return
 
         # Uniformly use .bak suffix, keep at most 1 backup per file
-        backup_path = f"{self.json_path}.bak"
+        backup_path = f"{self._json_path}.bak"
         try:
-            with open(self.json_path, 'rb') as src, open(backup_path, 'wb') as dst:
+            with open(self._json_path, 'rb') as src, open(backup_path, 'wb') as dst:
                 dst.write(src.read())
             logger.info(f"Backup created: {backup_path}")
         except Exception as e:
@@ -100,21 +105,21 @@ class MCPConfig:
     
     def load_config(self) -> Dict[str, Any]:
         """Load and validate configuration from file
-        
+
         Returns:
             Dict containing the configuration
-            
+
         Raises:
             ConfigIOError: If file operations fail
             ConfigValidationError: If configuration is invalid
         """
-        if not os.path.exists(self.json_path):
-            logger.warning(f"Configuration file does not exist: {self.json_path}, creating empty file")
+        if not os.path.exists(self._json_path):
+            logger.warning(f"Configuration file does not exist: {self._json_path}, creating empty file")
             self.save_config({"mcpServers": {}})
             return {"mcpServers": {}}
-            
+
         try:
-            with open(self.json_path, 'r', encoding='utf-8') as f:
+            with open(self._json_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
             # Basic format check, but no strict validation
@@ -134,13 +139,13 @@ class MCPConfig:
     
     def save_config(self, config: Dict[str, Any]) -> bool:
         """Save configuration to file with validation
-        
+
         Args:
             config: Configuration dictionary to save
-            
+
         Returns:
             bool: True if save was successful
-            
+
         Raises:
             ConfigValidationError: If configuration is invalid
             ConfigIOError: If file operations fail
@@ -153,15 +158,15 @@ class MCPConfig:
             raise ConfigValidationError("mcpServers must be a dictionary")
 
         # No longer perform strict Pydantic validation, let FastMCP Client handle it
-            
+
         self._backup()
-        tmp_path = f"{self.json_path}.tmp"
-        
+        tmp_path = f"{self._json_path}.tmp"
+
         try:
             with open(tmp_path, 'w', encoding='utf-8') as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
-            os.replace(tmp_path, self.json_path)
-            logger.info(f"Configuration saved successfully to {self.json_path}")
+            os.replace(tmp_path, self._json_path)
+            logger.info(f"Configuration saved successfully to {self._json_path}")
             return True
         except Exception as e:
             if os.path.exists(tmp_path):
@@ -293,15 +298,15 @@ class MCPConfig:
             from datetime import datetime
 
             # Create backup
-            backup_path = f"{self.json_path}.bak"
-            shutil.copy2(self.json_path, backup_path)
+            backup_path = f"{self._json_path}.bak"
+            shutil.copy2(self._json_path, backup_path)
             logger.info(f"Created backup at {backup_path}")
 
             # Reset to empty configuration
             empty_config = {"mcpServers": {}}
             self.save_config(empty_config)
 
-            logger.info(f"Successfully reset MCP JSON configuration file: {self.json_path}")
+            logger.info(f"Successfully reset MCP JSON configuration file: {self._json_path}")
             return True
 
         except Exception as e:

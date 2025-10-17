@@ -38,32 +38,28 @@ class UnifiedConfigManager:
     Integrates all configuration functions including environment variables, MCP service configuration, client configuration, etc.
     Provides unified configuration access, update, and validation interfaces.
     """
-    
-    def __init__(self, 
-                 mcp_config_path: Optional[str] = None,
-                 client_services_path: Optional[str] = None):
+
+    def __init__(self,
+                 mcp_config: Optional[MCPConfig] = None):
         """Initialize unified configuration manager
-        
-         单一数据源架构：client_services_path已废弃，仅保留向后兼容
 
         Args:
-            mcp_config_path: MCP configuration file path
-            client_services_path: 废弃参数，仅保留向后兼容
+            mcp_config: MCPConfig instance (if None, creates default instance)
         """
         self.logger = logger
-        
+
         # 初始化各个配置组件
         self.env_config = None
-        self.mcp_config = MCPConfig(json_path=mcp_config_path)
-        self.client_manager = ClientManager()  #  单一数据源架构：简化初始化
-        
+        self.mcp_config = mcp_config if mcp_config is not None else MCPConfig()
+        self.client_manager = ClientManager()
+
         # 配置缓存
         self._config_cache: Dict[ConfigType, Dict[str, Any]] = {}
         self._cache_valid: Dict[ConfigType, bool] = {}
-        
+
         # 初始化配置
         self._initialize_configs()
-        
+
         logger.debug("UnifiedConfigManager initialized successfully")
     
     def _initialize_configs(self):
@@ -313,21 +309,3 @@ class UnifiedConfigManager:
                 logger.error(f"Failed to reload {config_type.value} config: {e}")
         
         logger.debug("Configuration reload completed")
-
-
-# 全局统一配置管理器实例
-_global_config_manager: Optional[UnifiedConfigManager] = None
-
-def get_global_config_manager() -> UnifiedConfigManager:
-    """获取全局统一配置管理器实例"""
-    global _global_config_manager
-    if _global_config_manager is None:
-        _global_config_manager = UnifiedConfigManager()
-    return _global_config_manager
-
-
-def set_global_config_manager(manager: UnifiedConfigManager):
-    """设置全局统一配置管理器实例"""
-    global _global_config_manager
-    _global_config_manager = manager
-
