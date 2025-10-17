@@ -49,7 +49,7 @@ print(json.dumps(config_data, indent=2, ensure_ascii=False))
 
 # 3️⃣ 从 JSON 文件添加服务
 print("\n3️⃣ 从 JSON 文件添加服务")
-result = store.for_store().add_service(temp_path)
+result = store.for_store().add_service(json_file=temp_path)
 print(f"✅ 服务批量添加成功")
 print(f"   返回结果: {result}")
 

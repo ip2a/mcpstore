@@ -20,7 +20,7 @@ print("=" * 60)
 
 # 1️⃣ 初始化 Store 并添加服务
 print("\n1️⃣ 初始化 Store 并添加服务")
-store = MCPStore.setup_store(debug=False)
+store = MCPStore.setup_store(debug=True)
 service_config = {
     "mcpServers": {
         "weather": {
