@@ -26,11 +26,7 @@ class BaseMCPStore:
         self.config = config
         self.registry = orchestrator.registry
         self.client_manager = orchestrator.client_manager
-        # Link back so orchestrator can access store-level facilities (locks, config)
-        try:
-            setattr(self.orchestrator, 'store', self)
-        except Exception:
-            logger.debug("Orchestrator linking to store failed; proceeding without back-reference")
+
         #  修复：添加LocalServiceManager访问属性
         self.local_service_manager = orchestrator.local_service_manager
         self.session_manager = orchestrator.session_manager
@@ -40,11 +36,8 @@ class BaseMCPStore:
         self.tool_record_max_file_size = tool_record_max_file_size
         self.tool_record_retention_days = tool_record_retention_days
 
-        # Unified configuration manager
-        self._unified_config = UnifiedConfigManager(
-            mcp_config_path=config.json_path,
-            client_services_path=None  # single-source mode: do not use shard files
-        )
+        # Unified configuration manager (pass instance reference)
+        self._unified_config = UnifiedConfigManager(mcp_config=config)
 
         self._context_cache: Dict[str, MCPStoreContext] = {}
         self._store_context = self._create_store_context()
@@ -53,10 +46,6 @@ class BaseMCPStore:
         self._data_space_manager = None
 
         #  新增：缓存管理器
-        
-        # 认证配置管理器
-        from mcpstore.core.auth.manager import AuthConfigManager
-        self._auth_config_manager = AuthConfigManager()
         
         # 市场管理器
         from mcpstore.core.market.manager import MarketManager
@@ -88,6 +77,17 @@ class BaseMCPStore:
             global_agent_store_id=self.client_manager.global_agent_store_id,
             enable_event_history=False  # 生产环境关闭事件历史
         )
+
+        # 统一：将 orchestrator.lifecycle_manager 指向容器内的 lifecycle_manager
+        try:
+            self.orchestrator.lifecycle_manager = self.container.lifecycle_manager
+        except Exception as e:
+            logger.debug(f"Link lifecycle_manager failed: {e}")
+
+        # 🆕 解除循环依赖：将 container 和 context_factory 传递给 orchestrator
+        # 而不是让 orchestrator 持有 store 引用（必须在 container 初始化之后）
+        orchestrator.container = self.container
+        orchestrator._context_factory = lambda: self.for_store()
 
         logger.info("ServiceContainer initialized with event-driven architecture")
 

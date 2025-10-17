@@ -9,16 +9,12 @@ FastMCP认证配置封装模块 - 完全基于FastMCP的认证功能
 from .types import (
     AuthProviderType,
     FastMCPAuthConfig,
-    HubAuthConfig,
-    JWTPayloadConfig
 )
 
 __all__ = [
     # 基础类型定义（保留以供内部使用）
     'AuthProviderType',
-    'FastMCPAuthConfig', 
-    'HubAuthConfig',
-    'JWTPayloadConfig'
+    'FastMCPAuthConfig',
 ]
 
 __version__ = "0.1.0"

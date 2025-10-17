@@ -122,7 +122,7 @@ class ServiceOperationsMixin:
             except Exception:
                 pass
         # 回退：原实现
-        return self._sync_helper.run_async(self.list_services_async())
+        return self._sync_helper.run_async(self.list_services_async(), force_background=True)
 
     async def list_services_async(self) -> List[ServiceInfo]:
         """
@@ -131,48 +131,42 @@ class ServiceOperationsMixin:
         - agent context: show only agent's services with local names (transparent proxy)
         """
         if self._context_type == ContextType.STORE:
-            return await self._store.list_services()
+            result = await self._store.list_services()
+            try:
+                logger.info(f"[LIST_SERVICES] context=STORE count={len(result)}")
+            except Exception:
+                pass
+            return result
         else:
             # Agent mode: 透明代理 - 只显示属于该 Agent 的服务，使用本地名称
-            return await self._get_agent_service_view()
+            result = await self._get_agent_service_view()
+            try:
+                logger.info(f"[LIST_SERVICES] context=AGENT agent_id={self._agent_id} count={len(result)}")
+            except Exception:
+                pass
+            return result
 
     def add_service(self,
-                     config: Union[ServiceConfigUnion, List[str], None] = None,
+                     config: Union[ServiceConfigUnion, Dict[str, Any], str, None] = None,
                      json_file: str = None,
-                     source: str = "manual",
-                     wait: Union[str, int, float] = "auto",
-                     # 🆕 与 FastMCP 对齐的认证参数
                      auth: Optional[str] = None,
-                     headers: Optional[Dict[str, str]] = None,
-                     # 市场安装（同步封装）
-                     from_market: str = None,
-                     market_env: Dict[str, str] = None) -> 'MCPStoreContext':
+                     token: Optional[str] = None,
+                     api_key: Optional[str] = None,
+                     headers: Optional[Dict[str, str]] = None) -> 'MCPStoreContext':
         """
-        Enhanced service addition method (synchronous version), supports multiple configuration formats
+        添加服务（同步入口，FastMCP 薄封装，宽容输入，不等待）。
 
-        Args:
-            config: Service configuration, supports multiple formats
-            json_file: JSON文件路径，如果指定则读取该文件作为配置
-            source: 调用来源标识，用于日志追踪
-            wait: 等待连接完成的时间
-                - "auto": 自动根据服务类型判断（远程2s，本地4s）
-                - 数字: 等待时间（毫秒）
-            auth: Bearer token（与 FastMCP 对齐）
-            headers: 自定义请求头（与 FastMCP 对齐）
-            from_market: 市场服务名（与 config/json_file 互斥）
-            market_env: 透传给市场配置的环境变量（不做本地校验）
-            
-        Returns:
-            MCPStoreContext: 上下文对象，保持一致性
+        - 接受：单服务配置字典/JSON字符串/包含 mcpServers 的字典
+        - 认证：token/api_key 会标准化为 headers 并仅以 headers 落盘
+        - 等待：不等待连接；请使用 wait_service(...) 单独控制
         """
-        # 应用认证配置到服务配置中（如果提供了认证参数）
-        final_config = self._apply_auth_to_config(config, auth, headers)
-        
-        #  修复：使用后台循环来支持后台任务
+        # 标准化认证（token/api_key/auth -> headers）
+        final_config = self._apply_auth_to_config(config, auth, token, api_key, headers)
+
         return self._sync_helper.run_async(
-            self.add_service_async(final_config, json_file, source, wait, from_market=from_market, market_env=market_env),
+            self.add_service_async(final_config, json_file),
             timeout=120.0,
-            force_background=True  # 强制使用后台循环，确保后台任务不被取消
+            force_background=True
         )
 
     def add_service_with_details(self, config: Union[Dict[str, Any], List[Dict[str, Any]], str] = None) -> Dict[str, Any]:
@@ -351,16 +345,13 @@ class ServiceOperationsMixin:
         return []
 
     async def add_service_async(self,
-                               config: Union[ServiceConfigUnion, List[str], None] = None,
+                               config: Union[ServiceConfigUnion, Dict[str, Any], List[Dict[str, Any]], str, None] = None,
                                json_file: str = None,
-                               source: str = "manual",
-                               wait: Union[str, int, float] = "auto",
-                               # 🆕 与 FastMCP 对齐的认证参数  
+                               # 认证参数（可选；若上层已标准化可忽略）
                                auth: Optional[str] = None,
-                               headers: Optional[Dict[str, str]] = None,
-                               # 新增市场功能参数
-                               from_market: str = None,
-                               market_env: Dict[str, str] = None) -> 'MCPStoreContext':
+                               token: Optional[str] = None,
+                               api_key: Optional[str] = None,
+                               headers: Optional[Dict[str, str]] = None) -> 'MCPStoreContext':
         """
         增强版的服务添加方法，支持多种配置格式：
         1. URL方式：
@@ -387,102 +378,29 @@ class ServiceOperationsMixin:
                }
            })
 
-        4. 服务名称列表方式（从现有配置中选择）：
-           await add_service(['weather', 'assistant'])
+        4. 不再支持“服务名称列表方式”，请传入完整配置（字典列表）或 mcpServers 字典。
 
-        5. 无参数方式（仅限Store上下文）：
-           await add_service()  # 注册所有服务
+        5. 不再支持“无参数方式”的全量注册（初始化阶段已同步一次）。
 
         6. JSON文件方式：
            await add_service(json_file="path/to/config.json")  # 读取JSON文件作为配置
 
-        7. 市场安装方式（新增）：
-           await add_service(
-               from_market="firecrawl",
-               market_env={"FIRECRAWL_API_KEY": "your_key"}
-           )
-
         所有新添加的服务都会同步到 mcp.json 配置文件中。
 
         Args:
-            config: 服务配置，支持多种格式
+            config: 服务配置（字典/JSON字符串/包含 mcpServers 的字典/字典列表）
             json_file: JSON文件路径，如果指定则读取该文件作为配置
-            source: 服务来源标识
-            wait: 等待时间配置
-            from_market: 市场服务名称，如果指定则从市场安装服务
-            market_env: 市场服务的环境变量配置
+            auth/token/api_key/headers: 认证参数，会被标准化为 headers 并仅以 headers 落盘
 
         Returns:
             MCPStoreContext: 返回自身实例以支持链式调用
         """
         try:
-            # === 新增：应用认证配置到服务配置中 ===
-            config = self._apply_auth_to_config(config, auth, headers)
-            
-            # === 新增：处理市场安装参数 ===
-            if from_market:
-                # 验证from_market参数
-                if not isinstance(from_market, str) or not from_market.strip():
-                    raise ValueError("from_market 参数必须是非空字符串")
+            # 应用认证配置到服务配置中（token/api_key/auth -> headers）
+            config = self._apply_auth_to_config(config, auth, token, api_key, headers)
 
-                from_market = from_market.strip()
-                logger.debug(f"Installing from market: {from_market}")
 
-                # 验证参数冲突
-                if config is not None:
-                    raise ValueError("不能同时指定 config 和 from_market 参数")
-                if json_file is not None:
-                    raise ValueError("不能同时指定 json_file 和 from_market 参数")
-
-                # 验证market_env参数
-                if market_env is not None and not isinstance(market_env, dict):
-                    raise ValueError("market_env 参数必须是字典类型")
-
-                # 从市场获取服务配置
-                try:
-                    market_config = await self._store._market_manager.get_market_service_config_async(
-                        from_market,
-                        market_env
-                    )
-
-                    # 转换为标准config格式
-                    config = {
-                        "name": market_config.name,
-                        "command": market_config.command,
-                        "args": market_config.args,
-                    }
-
-                    if market_config.env:
-                        config["env"] = market_config.env
-                    if market_config.working_dir:
-                        config["working_dir"] = market_config.working_dir
-                    if market_config.transport:
-                        config["transport"] = market_config.transport
-                    if market_config.url:
-                        config["url"] = market_config.url
-
-                    # 标记为市场来源
-                    source = "market"
-
-                    logger.debug(f"Successfully retrieved market config: {type(config).__name__}")
-
-                except Exception as e:
-                    # 懒加载 Miss：若本地未找到该服务，可触发一次远程刷新（后台，不阻塞）
-                    try:
-                        # 如果 MarketManager 配置了远程源，触发一次后台刷新
-                        import asyncio
-                        mm = getattr(self._store, "_market_manager", None)
-                        if mm and hasattr(mm, "refresh_from_remote_async"):
-                            loop = asyncio.get_running_loop()
-                            loop.create_task(mm.refresh_from_remote_async(force=False))
-                            logger.debug(f"Triggered background refresh for missing service: {from_market}")
-                    except Exception:
-                        pass
-
-                    logger.error(f"从市场安装服务失败: {e}")
-                    raise ValueError(f"从市场安装服务 '{from_market}' 失败: {e}")
-
-            # 处理json_file参数
+            # 处理json_file参数（可选）
             if json_file is not None:
                 logger.info(f"从JSON文件读取配置: {json_file}")
                 try:
@@ -506,9 +424,23 @@ class ServiceOperationsMixin:
                 except Exception as e:
                     raise Exception(f"读取JSON文件失败: {e}")
 
-            # 如果既没有config也没有json_file，且不是Store模式的全量注册，则报错
-            if config is None and json_file is None and self._context_type != ContextType.STORE:
-                raise Exception("必须指定config参数或json_file参数")
+            # 支持 config 传入 JSON 字符串（单服务或 mcpServers/root 映射）
+            if isinstance(config, str):
+                try:
+                    import json as _json
+                    cfg = _json.loads(config)
+                    config = cfg
+                except Exception:
+                    raise Exception("config 为字符串时必须是合法的 JSON")
+
+            # 宽容 root 映射（无 mcpServers）：{"svc": {"url"|"command"...}, ...}
+            if isinstance(config, dict) and "mcpServers" not in config and "name" not in config:
+                if config and all(isinstance(v, dict) and ("url" in v or "command" in v) for v in config.values()):
+                    config = {"mcpServers": config}
+
+            # 必须提供配置
+            if config is None and json_file is None:
+                raise Exception("必须提供服务配置（字典/JSON字符串或 json_file）")
 
         except Exception as e:
             logger.error(f"参数处理失败: {e}")
@@ -518,28 +450,15 @@ class ServiceOperationsMixin:
             # 获取正确的 agent_id（Store级别使用global_agent_store作为agent_id）
             agent_id = self._agent_id if self._context_type == ContextType.AGENT else self._store.orchestrator.client_manager.global_agent_store_id
 
-            #  新增：详细的注册开始日志
-            logger.info(f"[ADD_SERVICE] start source={source}")
+            #  新增：详细的注册开始日志（已移除 source 参数）
+            logger.info(f"[ADD_SERVICE] start")
             logger.info(f"[ADD_SERVICE] config type={type(config)} content={config}")
             logger.info(f"[ADD_SERVICE] context={self._context_type.name} agent_id={agent_id}")
 
             # 处理不同的输入格式
             if config is None:
-                # Store模式下的全量注册
-                if self._context_type == ContextType.STORE:
-                    logger.info("STORE模式-使用统一同步机制注册所有服务")
-                    #  修改：使用统一同步机制，不再手动注册
-                    if hasattr(self._store.orchestrator, 'sync_manager') and self._store.orchestrator.sync_manager:
-                        results = await self._store.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
-                        logger.info(f"同步结果: {results}")
-                        if not (results.get("added") or results.get("updated")):
-                            logger.warning("没有服务被同步，可能mcp.json为空或所有服务已是最新")
-                    else:
-                        logger.warning("统一同步管理器不可用，跳过同步")
-                    return self
-                else:
-                    logger.warning("AGENT模式-未指定服务配置")
-                    raise Exception("AGENT模式必须指定服务配置")
+                # 不再支持空参数的全量同步；初始化阶段已同步一次
+                raise Exception("必须提供服务配置（不再支持空参数全量同步）")
 
             # 处理列表格式
             elif isinstance(config, list):
@@ -548,30 +467,7 @@ class ServiceOperationsMixin:
 
                 # 判断是服务名称列表还是服务配置列表
                 if all(isinstance(item, str) for item in config):
-                    # 服务名称列表
-                    logger.info(f"注册指定服务: {config}")
-                    # 改为从缓存读取服务配置并走统一的缓存优先流程
-                    logger.info(f"注册指定服务(缓存优先): {config}")
-                    try:
-                        # 确定读取缓存的作用域agent
-                        cache_agent_id = (self._store.orchestrator.client_manager.global_agent_store_id
-                                          if self._context_type == ContextType.STORE else agent_id)
-                        # 组装 mcpServers 子配置
-                        mcp_config = {"mcpServers": {}}
-                        missing = []
-                        for name in config:
-                            svc_cfg = self._store.registry.get_service_config_from_cache(cache_agent_id, name)
-                            if not svc_cfg:
-                                missing.append(name)
-                            else:
-                                mcp_config["mcpServers"][name] = svc_cfg
-                        if missing:
-                            raise Exception(f"以下服务未在缓存中找到配置: {missing}")
-                        # 统一走缓存优先流程（Agent 上下文将触发透明代理）
-                        return await self._add_service_cache_first(mcp_config, agent_id, wait)
-                    except Exception as e:
-                        logger.error(f"服务名称列表注册失败: {e}")
-                        raise
+                    raise Exception("不支持以服务名称列表的方式添加，请传入完整配置（字典列表）或 mcpServers 字典")
 
                 elif all(isinstance(item, dict) for item in config):
                     # 批量服务配置列表
@@ -596,13 +492,13 @@ class ServiceOperationsMixin:
             # 处理字典格式的配置（包括从批量配置转换来的）
             if isinstance(config, dict):
                 #  新增：缓存优先的添加服务流程
-                return await self._add_service_cache_first(config, agent_id, wait)
+                return await self._add_service_cache_first(config, agent_id)
 
         except Exception as e:
             logger.error(f"服务添加失败: {e}")
             raise
 
-    async def _add_service_cache_first(self, config: Dict[str, Any], agent_id: str, wait: Union[str, int, float] = "auto") -> 'MCPStoreContext':
+    async def _add_service_cache_first(self, config: Dict[str, Any], agent_id: str) -> 'MCPStoreContext':
         """
         缓存优先的添加服务流程
 
@@ -670,25 +566,8 @@ class ServiceOperationsMixin:
             self._persistence_tasks.add(persistence_task)
             persistence_task.add_done_callback(self._persistence_tasks.discard)
 
-            # === 第4阶段：可选的连接等待 ===
-            # wait == "auto": 根据服务类型推算最大等待时间；数值（ms）将被解析为秒
-            wait_timeout = self.wait_strategy.parse_wait_parameter(wait)
-            if wait_timeout is None:  # auto模式
-                wait_timeout = self.wait_strategy.get_max_wait_timeout(services_to_add)
-
-            if wait_timeout > 0:
-                logger.info(f"[ADD_SERVICE] phase4 wait timeout={wait_timeout}s")
-
-                # 并发等待所有服务连接完成（状态不再是 INITIALIZING 即视为确定）
-                service_names = list(services_to_add.keys())
-                final_states = await self._wait_for_services_ready(
-                    agent_id, service_names, wait_timeout
-                )
-
-                logger.info(f"[ADD_SERVICE] wait done final={final_states}")
-            else:
-                logger.info(f"[ADD_SERVICE] skip_wait return_immediately=True")
-
+            # 已移除等待逻辑：add_service 不等待连接，等待由 wait_service(...) 控制
+            logger.info(f"[ADD_SERVICE] skip_wait (use wait_service to control waiting)")
             logger.info(f"[ADD_SERVICE] summary added={len(services_to_add)} background_connect=True")
             return self
 
@@ -785,8 +664,7 @@ class ServiceOperationsMixin:
                 agent_id=agent_id,
                 service_name=service_name,
                 service_config=service_config,
-                wait_timeout=0.0,  # 不等待，立即返回
-                source="user"
+                wait_timeout=0.0  # 不等待，立即返回
             )
 
             if not result.success:
@@ -1268,8 +1146,7 @@ class ServiceOperationsMixin:
                         agent_id=self._store.client_manager.global_agent_store_id,
                         service_name=global_name,
                         service_config=service_config,
-                        wait_timeout=0.0,  # 不等待，立即返回
-                        source="agent_proxy"
+                        wait_timeout=0.0  # 不等待，立即返回
                     )
                     if result.success:
                         logger.debug(f" [AGENT_PROXY] 事件驱动架构初始化成功(仅全局): {global_name}")
@@ -1358,6 +1235,14 @@ class ServiceOperationsMixin:
                     continue
 
                 # 状态转换
+                # 额外诊断：记录全局与Agent缓存的状态对比
+                try:
+                    global_state_dbg = self._store.registry.get_service_state(global_agent_id, global_name)
+                    agent_state_dbg = self._store.registry.get_service_state(agent_id, local_name)
+                    logger.debug(f"[AGENT_VIEW] state_compare local='{local_name}' global='{global_name}' global_state='{getattr(global_state_dbg,'value',global_state_dbg)}' agent_state='{getattr(agent_state_dbg,'value',agent_state_dbg)}'")
+                except Exception:
+                    pass
+
                 state = complete_info.get("state", ServiceConnectionState.DISCONNECTED)
                 if isinstance(state, str):
                     try:
@@ -1387,29 +1272,64 @@ class ServiceOperationsMixin:
         except Exception as e:
             logger.error(f" [AGENT_VIEW] 获取 Agent 服务视图失败: {e}")
             return []
-    
-    def _apply_auth_to_config(self, config, auth: Optional[str], headers: Optional[Dict[str, str]]):
-        """将认证配置应用到服务配置中"""
-        # 如果没有认证参数，直接返回原配置
-        if auth is None and headers is None:
+
+    def _apply_auth_to_config(self, config,
+                               auth: Optional[str],
+                               token: Optional[str],
+                               api_key: Optional[str],
+                               headers: Optional[Dict[str, str]]):
+        """将认证配置应用到服务配置中（入口标准化）
+        - 将 token/auth 统一映射为 Authorization: Bearer <token>
+        - 将 api_key 统一映射为 X-API-Key: <api_key>
+        - headers 显式传入拥有最高优先级（覆盖前两者的相同键）
+        - 最终仅保留 headers 持久化，移除 token/api_key/auth 字段，避免混乱
+        """
+        # 如果没有任何认证参数，直接返回原配置
+        if auth is None and token is None and api_key is None and (not headers):
             return config
-        
-        # 处理不同类型的配置格式
-        if isinstance(config, dict):
-            final_config = config.copy()
-        elif config is None:
-            final_config = {}
+
+        # 构造标准化后的 headers
+        normalized_headers: Dict[str, str] = {}
+        # 兼容历史：auth 等价于 token（优先使用 token 覆盖 auth）
+        eff_token = token if token else auth
+        if eff_token:
+            normalized_headers.setdefault("Authorization", f"Bearer {eff_token}")
+        if api_key:
+            normalized_headers.setdefault("X-API-Key", api_key)
+        # 显式 headers 最高优先级
+        if headers:
+            normalized_headers.update(headers)
+
+        # 应用到配置（支持单服务字典或 mcpServers 结构）
+        def _apply_to_service_cfg(svc_cfg: Dict[str, Any]) -> Dict[str, Any]:
+            cfg = (svc_cfg or {}).copy()
+            # 合并 headers
+            existing = dict(cfg.get("headers", {}) or {})
+            existing.update(normalized_headers)
+            cfg["headers"] = existing
+            # 清理入口字段，避免落盘混乱
+            for k in ("token", "api_key", "auth"):
+                if k in cfg:
+                    try:
+                        del cfg[k]
+                    except Exception:
+                        cfg.pop(k, None)
+            return cfg
+
+        if isinstance(config, dict) and "mcpServers" in config and isinstance(config["mcpServers"], dict):
+            final_config = {"mcpServers": {}}
+            for name, svc_cfg in config["mcpServers"].items():
+                if isinstance(svc_cfg, dict):
+                    final_config["mcpServers"][name] = _apply_to_service_cfg(svc_cfg)
+                else:
+                    final_config["mcpServers"][name] = svc_cfg
+            return final_config
         else:
-            # 对于其他格式（如字符串），转换为字典
-            final_config = dict(config) if hasattr(config, '__iter__') and not isinstance(config, str) else {}
-        
-        # 应用认证配置
-        if auth is not None:
-            final_config["auth"] = auth
-        
-        if headers is not None:
-            if "headers" not in final_config:
-                final_config["headers"] = {}
-            final_config["headers"].update(headers)
-        
-        return final_config
+            # 单服务或其他可迭代形式
+            if isinstance(config, dict):
+                return _apply_to_service_cfg(config)
+            elif config is None:
+                return {"headers": normalized_headers}
+            else:
+                base = dict(config) if hasattr(config, "__iter__") and not isinstance(config, str) else {}
+                return _apply_to_service_cfg(base)

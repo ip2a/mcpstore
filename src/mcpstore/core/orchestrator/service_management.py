@@ -166,7 +166,7 @@ class ServiceManagementMixin:
         """启动 global_agent_store 的 async with 生命周期，注册服务和工具（仅健康服务）"""
         # 获取健康的服务列表
         healthy_services = await self.filter_healthy_services(list(config.get("mcpServers", {}).keys()))
-        
+
         # 创建一个新的配置，只包含健康的服务
         healthy_config = {
             "mcpServers": {
@@ -174,13 +174,14 @@ class ServiceManagementMixin:
                 for name in healthy_services
             }
         }
-        
+
         # 使用统一注册路径（替代过时的 register_json_services）
         try:
-            if hasattr(self, 'store') and self.store:
-                await self.store.for_store().add_service_async(healthy_config)
+            if self._context_factory:
+                context = self._context_factory()
+                await context.add_service_async(healthy_config)
             else:
-                logger.warning("Orchestrator.store not available; skipping auto registration pipeline")
+                logger.warning("Orchestrator context factory not available; skipping auto registration pipeline")
         except Exception as e:
             logger.error(f"Failed to register healthy services via add_service_async: {e}")
 
@@ -192,7 +193,7 @@ class ServiceManagementMixin:
         for service_name in service_names:
             if service_name.lower() in tool_name.lower():
                 return service_name
-        
+
         # 如果没有匹配，返回第一个服务名（假设单服务配置）
         return service_names[0] if service_names else "unknown_service"
 
@@ -257,8 +258,8 @@ class ServiceManagementMixin:
 
                 # 取消健康监控（若存在）
                 try:
-                    if hasattr(self, 'store') and self.store and hasattr(self.store, 'container') and self.store.container:
-                        hm = getattr(self.store.container, 'health_monitor', None)
+                    if self.container:
+                        hm = getattr(self.container, 'health_monitor', None)
                         if hm and hasattr(hm, '_health_check_tasks'):
                             task_key = (agent_key, service_name)
                             task = hm._health_check_tasks.pop(task_key, None)
@@ -364,23 +365,52 @@ class ServiceManagementMixin:
             self.registry.set_service_metadata(agent_key, service_name, metadata)
             logger.debug(f" [RESTART_SERVICE] Reset metadata for '{service_name}'")
 
-            # 如果有生命周期管理器，触发初始化并发布 ServiceInitialized 事件
-            if hasattr(self, 'lifecycle_manager') and self.lifecycle_manager:
-                init_success = self.lifecycle_manager.initialize_service(agent_key, service_name, metadata.service_config)
-                logger.debug(f" [RESTART_SERVICE] Triggered lifecycle initialization for '{service_name}': {init_success}")
+            # 事件驱动架构：直接发布 ServiceInitialized，由 ConnectionManager 接手连接
+            try:
+                from mcpstore.core.events.service_events import ServiceInitialized
+                # 优先使用 container.event_bus；否则回退到 orchestrator.event_bus
+                bus = None
+                bus_source = None
+                if self.container:
+                    bus = getattr(self.container, 'event_bus', None)
+                    bus_source = 'container.event_bus' if bus else None
+                if not bus:
+                    bus = getattr(self, 'event_bus', None)
+                    bus_source = bus_source or ('orchestrator.event_bus' if bus else None)
+
+                # Diagnostics: compare bus identities
                 try:
-                    # 显式发布初始化完成事件，驱动 ConnectionManager 继续连接
-                    from mcpstore.core.events.service_events import ServiceInitialized
-                    if init_success and hasattr(self, 'event_bus') and self.event_bus:
-                        initialized_event = ServiceInitialized(
-                            agent_id=agent_key,
-                            service_name=service_name,
-                            initial_state="initializing"
-                        )
-                        await self.event_bus.publish(initialized_event)
-                        logger.debug(f" [RESTART_SERVICE] Published ServiceInitialized for '{service_name}'")
-                except Exception as pub_err:
-                    logger.warning(f" [RESTART_SERVICE] Failed to publish ServiceInitialized for '{service_name}': {pub_err}")
+                    container_bus = getattr(self.container, 'event_bus', None) if self.container else None
+                    orchestrator_bus = getattr(self, 'event_bus', None)
+                    logger.debug(
+                        f" [RESTART_SERVICE] bus_diag chosen={hex(id(bus)) if bus else 'None'} "
+                        f"container={hex(id(container_bus)) if container_bus else 'None'} "
+                        f"orchestrator={hex(id(orchestrator_bus)) if orchestrator_bus else 'None'}"
+                    )
+                except Exception as e:
+                    logger.debug(f" [RESTART_SERVICE] bus_diag error: {e}")
+
+                if bus:
+                    initialized_event = ServiceInitialized(
+                        agent_id=agent_key,
+                        service_name=service_name,
+                        initial_state="initializing"
+                    )
+                    await bus.publish(initialized_event, wait=True)
+                    logger.debug(f" [RESTART_SERVICE] Published ServiceInitialized for '{service_name}' via {bus_source}")
+
+                    # 追加一次性健康检查请求，确保初始化后快速收敛（不必等待周期心跳）
+                    from mcpstore.core.events.service_events import HealthCheckRequested
+                    health_check_event = HealthCheckRequested(
+                        agent_id=agent_key,
+                        service_name=service_name
+                    )
+                    await bus.publish(health_check_event, wait=True)
+                    logger.debug(f" [RESTART_SERVICE] Published HealthCheckRequested for '{service_name}' via {bus_source}")
+                else:
+                    logger.warning(" [RESTART_SERVICE] EventBus not available (neither orchestrator nor store.container); cannot publish ServiceInitialized")
+            except Exception as pub_err:
+                logger.warning(f" [RESTART_SERVICE] Failed to publish ServiceInitialized for '{service_name}': {pub_err}")
 
             logger.info(f"Service restarted successfully: {service_name}")
             return True
@@ -487,7 +517,7 @@ class ServiceManagementMixin:
                 status_response["consecutive_failures"] = 0
                 status_response["state_entered_time"] = None
 
-            logger.debug(f"Retrieved cached status for service {service_name}: {status_response['status']}")
+            logger.info(f"[GET_STATUS] service='{service_name}' agent_key='{agent_key}' status='{status_response.get('status')}' healthy={status_response.get('healthy')} last_check={status_response.get('last_check')} resp_time={status_response.get('response_time')} cf={status_response.get('consecutive_failures')}")
             return status_response
 
         except Exception as e:

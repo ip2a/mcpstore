@@ -14,114 +14,33 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-# 导入新的响应模型和错误码
+# Import unified exception system
+from mcpstore.core.exceptions import (
+    MCPStoreException,
+    ErrorCode,
+    ErrorSeverity,
+    ServiceNotFoundException,
+    ServiceConnectionError,
+    ServiceUnavailableError,
+    ToolNotFoundException,
+    ToolExecutionError,
+    ConfigurationException,
+    ValidationException,
+    AgentNotFoundException,
+)
+
+# 导入新的响应模型
 from mcpstore.core.models import (
     APIResponse,
     ResponseBuilder,
-    ErrorCode,
     ErrorDetail
 )
 
 # 设置日志记录器
 logger = logging.getLogger(__name__)
 
-# === 异常类定义 ===
-
-class MCPStoreException(Exception):
-    """MCPStore基础异常类"""
-    
-    def __init__(
-        self,
-        message: str,
-        error_code: Union[ErrorCode, str] = ErrorCode.INTERNAL_ERROR,
-        status_code: Optional[int] = None,
-        details: Optional[Dict[str, Any]] = None,
-        stack_trace: Optional[str] = None,
-        field: Optional[str] = None
-    ):
-        self.message = message
-        # 如果是ErrorCode枚举，转换为字符串并获取HTTP状态码
-        if isinstance(error_code, ErrorCode):
-            self.error_code = error_code.value
-            self.status_code = status_code or error_code.to_http_status()
-        else:
-            self.error_code = error_code
-            self.status_code = status_code or 500
-        
-        self.field = field
-        self.details = details or {}
-        self.stack_trace = stack_trace
-        self.timestamp = datetime.utcnow()
-        self.error_id = str(uuid.uuid4())[:8]
-        super().__init__(self.message)
-
-class ServiceNotFoundException(MCPStoreException):
-    """服务未找到异常"""
-    
-    def __init__(self, service_name: str, details: Optional[Dict[str, Any]] = None):
-        super().__init__(
-            message=f"Service '{service_name}' not found",
-            error_code=ErrorCode.SERVICE_NOT_FOUND,
-            field="service_name",
-            details={"service_name": service_name, **(details or {})}
-        )
-
-class AgentNotFoundException(MCPStoreException):
-    """Agent未找到异常"""
-    
-    def __init__(self, agent_id: str, details: Optional[Dict[str, Any]] = None):
-        super().__init__(
-            message=f"Agent '{agent_id}' not found",
-            error_code=ErrorCode.AGENT_NOT_FOUND,
-            field="agent_id",
-            details={"agent_id": agent_id, **(details or {})}
-        )
-
-class ToolNotFoundException(MCPStoreException):
-    """工具未找到异常"""
-    
-    def __init__(self, tool_name: str, details: Optional[Dict[str, Any]] = None):
-        super().__init__(
-            message=f"Tool '{tool_name}' not found",
-            error_code=ErrorCode.TOOL_NOT_FOUND,
-            field="tool_name",
-            details={"tool_name": tool_name, **(details or {})}
-        )
-
-class ServiceOperationException(MCPStoreException):
-    """服务操作异常"""
-    
-    def __init__(self, message: str, service_name: str, operation: str, details: Optional[Dict[str, Any]] = None):
-        super().__init__(
-            message=message,
-            error_code=ErrorCode.SERVICE_UNAVAILABLE,
-            details={
-                "service_name": service_name,
-                "operation": operation,
-                **(details or {})
-            }
-        )
-
-class ValidationException(MCPStoreException):
-    """验证异常"""
-    
-    def __init__(self, message: str, field: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
-        super().__init__(
-            message=message,
-            error_code=ErrorCode.INVALID_PARAMETER,
-            field=field,
-            details=details or {}
-        )
-
-class ConfigurationException(MCPStoreException):
-    """配置异常"""
-    
-    def __init__(self, message: str, config_path: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
-        super().__init__(
-            message=message,
-            error_code=ErrorCode.CONFIG_INVALID,
-            details={"config_path": config_path, **(details or {})} if config_path else (details or {})
-        )
+# === Exception classes are now imported from mcpstore.core.exceptions ===
+# No need to redefine them here
 
 # === 错误响应格式化（使用新架构） ===
 

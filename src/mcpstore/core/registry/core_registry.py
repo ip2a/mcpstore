@@ -1075,7 +1075,10 @@ class ServiceRegistry:
         else:
             # 设置状态
             self.service_states[agent_id][service_name] = state
-            logger.debug(f"Service {service_name} (agent {agent_id}) state set to {state.value}")
+            logger.debug(f"Service {service_name} (agent {agent_id}) state {getattr(old_state,'value',old_state)} -> {getattr(state,'value',state)}")
+            # INFO级别记录状态变化以辅助诊断
+            logger.info(f"[REGISTRY_STATE] {agent_id}:{service_name} {getattr(old_state,'value',old_state)} -> {getattr(state,'value',state)}")
+
 
         #  新增：自动同步共享服务状态
         if state is not None and old_state != state:

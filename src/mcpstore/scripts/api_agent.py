@@ -4,9 +4,9 @@ Contains all Agent-level API endpoints
 """
 
 import logging
-from typing import Dict, Any, Union, List
+from typing import Dict, Any, Union, List, Optional
 
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, Query
 
 from mcpstore import MCPStore
 from mcpstore.core.models import ResponseBuilder, ErrorCode, timed_response
@@ -14,7 +14,7 @@ from mcpstore.core.models.common import APIResponse  # 保留用于 response_mod
 from .api_decorators import handle_exceptions, get_store, validate_agent_id
 from .api_models import (
     ToolExecutionRecordResponse, ToolRecordsResponse, ToolRecordsSummaryResponse,
-    SimpleToolExecutionRequest
+    SimpleToolExecutionRequest, create_enhanced_pagination_info
 )
 
 # Create Agent-level router
@@ -51,16 +51,46 @@ async def agent_add_service(
 
 @agent_router.get("/for_agent/{agent_id}/list_services", response_model=APIResponse)
 @timed_response
-async def agent_list_services(agent_id: str):
-    """Agent级别获取服务列表"""
+async def agent_list_services(
+    agent_id: str,
+    # 分页参数 (可选)
+    page: Optional[int] = Query(None, ge=1, description="页码，从 1 开始。省略时不分页。"),
+    limit: Optional[int] = Query(None, ge=1, le=1000, description="每页数量。省略时不分页。"),
+    # 过滤参数 (可选)
+    status: Optional[str] = Query(None, description="按状态过滤 (如: healthy, initializing, error)"),
+    search: Optional[str] = Query(None, description="按服务名称搜索 (模糊匹配)"),
+    service_type: Optional[str] = Query(None, description="按服务类型过滤 (如: sse, stdio)"),
+    # 排序参数 (可选)
+    sort_by: Optional[str] = Query(None, description="排序字段 (name, status, type, tools_count)"),
+    sort_order: Optional[str] = Query(None, description="排序方向 (asc, desc)")
+):
+    """
+    Agent级别获取服务列表 (支持分页/过滤/排序)
+
+    特性:
+    - 所有参数均为可选，不提供任何参数时返回全部数据
+    - 支持按状态、名称、类型过滤
+    - 支持按多个字段排序
+    - 统一返回格式，始终包含 pagination 字段
+
+    示例:
+    - 获取全部: GET /for_agent/agent1/list_services
+    - 分页: GET /for_agent/agent1/list_services?page=1&limit=10
+    - 过滤: GET /for_agent/agent1/list_services?status=healthy&service_type=sse
+    - 搜索: GET /for_agent/agent1/list_services?search=weather
+    - 排序: GET /for_agent/agent1/list_services?sort_by=name&sort_order=asc
+    - 组合: GET /for_agent/agent1/list_services?status=healthy&page=1&limit=10&sort_by=tools_count&sort_order=desc
+    """
     validate_agent_id(agent_id)
     store = get_store()
     context = store.for_agent(agent_id)
-    services = await context.list_services_async()
-    
-    # 构造完整的服务数据
+
+    # 1. 获取所有服务
+    all_services = await context.list_services_async()
+
+    # 2. 构造完整的服务数据
     services_data = []
-    for service in services:
+    for service in all_services:
         service_data = {
             "name": service.name,
             "url": service.url or "",
@@ -77,10 +107,69 @@ async def agent_list_services(agent_id: str):
             "config": service.config or {}
         }
         services_data.append(service_data)
-    
+
+    # 3. 应用过滤
+    filtered = services_data
+    applied_filters = {}
+
+    if status:
+        filtered = [s for s in filtered if s.get("status", "").lower() == status.lower()]
+        applied_filters["status"] = status
+
+    if search:
+        search_lower = search.lower()
+        filtered = [s for s in filtered if search_lower in s.get("name", "").lower()]
+        applied_filters["search"] = search
+
+    if service_type:
+        filtered = [s for s in filtered if s.get("type", "").lower() == service_type.lower()]
+        applied_filters["service_type"] = service_type
+
+    # 4. 应用排序
+    applied_sort = {}
+    if sort_by:
+        reverse = (sort_order == "desc")
+        if sort_by == "name":
+            filtered.sort(key=lambda s: s.get("name", ""), reverse=reverse)
+        elif sort_by == "status":
+            filtered.sort(key=lambda s: s.get("status", ""), reverse=reverse)
+        elif sort_by == "type":
+            filtered.sort(key=lambda s: s.get("type", ""), reverse=reverse)
+        elif sort_by == "tools_count":
+            filtered.sort(key=lambda s: s.get("tools_count", 0), reverse=reverse)
+
+        applied_sort = {"by": sort_by, "order": sort_order or "asc"}
+
+    filtered_count = len(filtered)
+
+    # 5. 应用分页
+    if page is not None or limit is not None:
+        # 有分页参数时才进行分页
+        page = page or 1
+        limit = limit or 20
+        start = (page - 1) * limit
+        paginated = filtered[start:start + limit]
+    else:
+        # 无分页参数时返回全部
+        paginated = filtered
+
+    # 6. 构造统一响应格式 (始终包含 pagination 字段)
+    pagination = create_enhanced_pagination_info(page, limit, filtered_count)
+
+    response_data = {
+        "services": paginated,
+        "pagination": pagination.dict()
+    }
+
+    # 添加过滤和排序信息（如果应用了）
+    if applied_filters:
+        response_data["filters"] = applied_filters
+    if applied_sort:
+        response_data["sort"] = applied_sort
+
     return ResponseBuilder.success(
-        message=f"Retrieved {len(services_data)} services for agent '{agent_id}'",
-        data=services_data
+        message=f"Retrieved {len(paginated)} of {filtered_count} services for agent '{agent_id}'",
+        data=response_data
     )
 
 @agent_router.post("/for_agent/{agent_id}/reset_service", response_model=APIResponse)
@@ -121,28 +210,109 @@ async def agent_reset_service(agent_id: str, request: Request):
 
 @agent_router.get("/for_agent/{agent_id}/list_tools", response_model=APIResponse)
 @timed_response
-async def agent_list_tools(agent_id: str):
-    """Agent级别获取工具列表"""
+async def agent_list_tools(
+    agent_id: str,
+    # 分页参数 (可选)
+    page: Optional[int] = Query(None, ge=1, description="页码，从 1 开始。省略时不分页。"),
+    limit: Optional[int] = Query(None, ge=1, le=1000, description="每页数量。省略时不分页。"),
+    # 过滤参数 (可选)
+    search: Optional[str] = Query(None, description="按工具名称或描述搜索 (模糊匹配)"),
+    service_name: Optional[str] = Query(None, description="按服务名称过滤 (精确匹配)"),
+    # 排序参数 (可选)
+    sort_by: Optional[str] = Query(None, description="排序字段 (name, service)"),
+    sort_order: Optional[str] = Query(None, description="排序方向 (asc, desc)")
+):
+    """
+    Agent级别获取工具列表 (支持分页/过滤/排序)
+
+    特性:
+    - 所有参数均为可选，不提供任何参数时返回全部数据
+    - 支持按工具名称、描述、服务名过滤
+    - 支持按名称、服务排序
+    - 统一返回格式，始终包含 pagination 字段
+
+    示例:
+    - 获取全部: GET /for_agent/agent1/list_tools
+    - 分页: GET /for_agent/agent1/list_tools?page=1&limit=20
+    - 搜索: GET /for_agent/agent1/list_tools?search=read
+    - 按服务: GET /for_agent/agent1/list_tools?service_name=filesystem
+    - 排序: GET /for_agent/agent1/list_tools?sort_by=name&sort_order=asc
+    - 组合: GET /for_agent/agent1/list_tools?service_name=filesystem&page=1&limit=10&sort_by=name
+    """
     validate_agent_id(agent_id)
     store = get_store()
     context = store.for_agent(agent_id)
-    
-    # 获取工具列表
-    tools = context.list_tools()
-    
-    # 简化工具数据
+
+    # 1. 获取所有工具
+    all_tools = context.list_tools()
+
+    # 2. 构造工具数据
     tools_data = [
         {
             "name": tool.name,
             "service": getattr(tool, 'service_name', 'unknown'),
             "description": tool.description or ""
         }
-        for tool in tools
+        for tool in all_tools
     ]
-    
+
+    # 3. 应用过滤
+    filtered = tools_data
+    applied_filters = {}
+
+    if search:
+        search_lower = search.lower()
+        filtered = [
+            t for t in filtered
+            if search_lower in t.get("name", "").lower() or search_lower in t.get("description", "").lower()
+        ]
+        applied_filters["search"] = search
+
+    if service_name:
+        filtered = [t for t in filtered if t.get("service", "") == service_name]
+        applied_filters["service_name"] = service_name
+
+    # 4. 应用排序
+    applied_sort = {}
+    if sort_by:
+        reverse = (sort_order == "desc")
+        if sort_by == "name":
+            filtered.sort(key=lambda t: t.get("name", ""), reverse=reverse)
+        elif sort_by == "service":
+            filtered.sort(key=lambda t: t.get("service", ""), reverse=reverse)
+
+        applied_sort = {"by": sort_by, "order": sort_order or "asc"}
+
+    filtered_count = len(filtered)
+
+    # 5. 应用分页
+    if page is not None or limit is not None:
+        # 有分页参数时才进行分页
+        page = page or 1
+        limit = limit or 20
+        start = (page - 1) * limit
+        paginated = filtered[start:start + limit]
+    else:
+        # 无分页参数时返回全部
+        paginated = filtered
+
+    # 6. 构造统一响应格式 (始终包含 pagination 字段)
+    pagination = create_enhanced_pagination_info(page, limit, filtered_count)
+
+    response_data = {
+        "tools": paginated,
+        "pagination": pagination.dict()
+    }
+
+    # 添加过滤和排序信息（如果应用了）
+    if applied_filters:
+        response_data["filters"] = applied_filters
+    if applied_sort:
+        response_data["sort"] = applied_sort
+
     return ResponseBuilder.success(
-        message=f"Retrieved {len(tools_data)} tools for agent '{agent_id}'",
-        data=tools_data
+        message=f"Retrieved {len(paginated)} of {filtered_count} tools for agent '{agent_id}'",
+        data=response_data
     )
 
 @agent_router.get("/for_agent/{agent_id}/check_services", response_model=APIResponse)

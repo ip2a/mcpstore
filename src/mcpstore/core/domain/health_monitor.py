@@ -39,13 +39,17 @@ class HealthMonitor:
         self,
         event_bus: EventBus,
         registry: 'CoreRegistry',
-        check_interval: float = 30.0,  # 默认30秒检查一次
-        timeout_threshold: float = 300.0  # 默认5分钟超时
+        check_interval: float = 30.0,  # 正常健康检查间隔（秒）
+        timeout_threshold: float = 300.0,  # 初始化超时（秒）
+        ping_timeout: float = 10.0,  # ping 调用超时（秒）
+        warning_interval: float = 10.0  # 警告状态下的检查间隔（秒）
     ):
         self._event_bus = event_bus
         self._registry = registry
         self._check_interval = check_interval
+        self._warning_interval = warning_interval
         self._timeout_threshold = timeout_threshold
+        self._ping_timeout = ping_timeout
 
         # 健康检查任务跟踪
         self._health_check_tasks: Dict[Tuple[str, str], asyncio.Task] = {}  # (agent_id, service_name) -> task
@@ -56,7 +60,10 @@ class HealthMonitor:
         self._event_bus.subscribe(HealthCheckRequested, self._on_health_check_requested, priority=100)
         self._event_bus.subscribe(ServiceStateChanged, self._on_state_changed, priority=20)
 
-        logger.info(f"HealthMonitor initialized (interval={check_interval}s, timeout={timeout_threshold}s)")
+        logger.info(
+            f"HealthMonitor initialized (bus={hex(id(self._event_bus))}, normal_interval={check_interval}s, warning_interval={warning_interval}s, "
+            f"timeout={timeout_threshold}s, ping_timeout={ping_timeout}s)"
+        )
 
     async def start(self):
         """启动健康监控"""
@@ -108,17 +115,18 @@ class HealthMonitor:
         """
         处理健康检查请求 - 立即执行健康检查
         """
-        logger.info(f"[HEALTH] Manual health check requested: {event.service_name}")
+        current_state = self._registry.get_service_state(event.agent_id, event.service_name)
+        logger.info(f"[HEALTH] Manual health check requested: {event.service_name} (state={getattr(current_state,'value',str(current_state))}, bus={hex(id(self._event_bus))})")
 
-        # 执行一次健康检查
-        await self._execute_health_check(event.agent_id, event.service_name)
+        # 执行一次健康检查（关键路径使用同步派发，确保状态及时收敛）
+        await self._execute_health_check(event.agent_id, event.service_name, wait=True)
 
     async def _on_state_changed(self, event: ServiceStateChanged):
         """
         处理状态变更 - 停止已断开服务的健康检查
         """
-        # 如果服务进入终止状态，停止健康检查
-        terminal_states = ["DISCONNECTED", "TERMINATED"]
+        # 如果服务进入终止/不可达状态，停止健康检查（使用统一小写枚举值）
+        terminal_states = ["disconnected", "disconnecting", "unreachable"]
         if event.new_state in terminal_states:
             task_key = (event.agent_id, event.service_name)
             if task_key in self._health_check_tasks:
@@ -136,8 +144,10 @@ class HealthMonitor:
 
         try:
             while self._is_running:
-                # 等待检查间隔
-                await asyncio.sleep(self._check_interval)
+                # 根据当前状态选择检查间隔
+                current_state = self._registry.get_service_state(agent_id, service_name)
+                interval = self._warning_interval if current_state == ServiceConnectionState.WARNING else self._check_interval
+                await asyncio.sleep(interval)
 
                 # 执行健康检查
                 await self._execute_health_check(agent_id, service_name)
@@ -147,7 +157,7 @@ class HealthMonitor:
         except Exception as e:
             logger.error(f"[HEALTH] Periodic health check error: {service_name} - {e}", exc_info=True)
 
-    async def _execute_health_check(self, agent_id: str, service_name: str):
+    async def _execute_health_check(self, agent_id: str, service_name: str, wait: bool = False):
         """
         执行单次健康检查
         """
@@ -174,36 +184,50 @@ class HealthMonitor:
             # 执行健康检查（使用临时 client + async with）
             try:
                 # 设置超时并使用临时 client 进行健康检查
-                async with asyncio.timeout(10.0):
+                async with asyncio.timeout(self._ping_timeout):
                     async with temp_client_for_service(service_name, service_config) as client:
                         await client.ping()
                     response_time = time.time() - start_time
 
-                    # 判断健康状态
-                    if response_time < 1.0:
-                        suggested_state = "HEALTHY"
-                    elif response_time < 3.0:
-                        suggested_state = "WARNING"
-                    else:
-                        suggested_state = "WARNING"
-
+                    # 成功：仅上报成功与响应时间，不直接建议状态
                     logger.debug(f"[HEALTH] Check passed: {service_name} ({response_time:.2f}s)")
 
-                    # 发布健康检查成功事件
+                    # 发布健康检查成功事件（手动检查使用同步派发）
                     await self._publish_health_check_success(
-                        agent_id, service_name, response_time, suggested_state
+                        agent_id, service_name, response_time, wait=wait
                     )
             except asyncio.TimeoutError:
                 response_time = time.time() - start_time
                 logger.warning(f"[HEALTH] Check timeout: {service_name}")
                 await self._publish_health_check_failed(
-                    agent_id, service_name, response_time, "Health check timeout", "RECONNECTING"
+                    agent_id, service_name, response_time, "Health check timeout", wait=wait
                 )
             except Exception as e:
                 response_time = time.time() - start_time
-                logger.error(f"[HEALTH] Check failed: {service_name} - {e}")
+                error_message = str(e)
+                logger.error(f"[HEALTH] Check failed: {service_name} - {error_message}")
+                # 分类认证失败，并记录到元数据
+                failure_reason = None
+                try:
+                    status_code = getattr(getattr(e, 'response', None), 'status_code', None)
+                    if status_code in (401, 403):
+                        failure_reason = 'auth_failed'
+                    else:
+                        lower_msg = error_message.lower()
+                        if any(word in lower_msg for word in ['unauthorized', 'forbidden', 'invalid token', 'invalid api key']):
+                            failure_reason = 'auth_failed'
+                except Exception:
+                    pass
+                try:
+                    metadata = self._registry.get_service_metadata(agent_id, service_name)
+                    if metadata:
+                        metadata.failure_reason = failure_reason
+                        metadata.error_message = error_message
+                        self._registry.set_service_metadata(agent_id, service_name, metadata)
+                except Exception:
+                    pass
                 await self._publish_health_check_failed(
-                    agent_id, service_name, response_time, str(e), "RECONNECTING"
+                    agent_id, service_name, response_time, error_message, wait=wait
                 )
         except Exception as e:
             logger.error(f"[HEALTH] Execute health check error: {service_name} - {e}", exc_info=True)
@@ -213,7 +237,7 @@ class HealthMonitor:
         agent_id: str,
         service_name: str,
         response_time: float,
-        suggested_state: str
+        wait: bool = False
     ):
         """发布健康检查成功事件"""
         event = HealthCheckCompleted(
@@ -221,9 +245,9 @@ class HealthMonitor:
             service_name=service_name,
             success=True,
             response_time=response_time,
-            suggested_state=suggested_state
+            suggested_state=None
         )
-        await self._event_bus.publish(event)
+        await self._event_bus.publish(event, wait=wait)
 
     async def _publish_health_check_failed(
         self,
@@ -231,7 +255,7 @@ class HealthMonitor:
         service_name: str,
         response_time: float,
         error_message: str,
-        suggested_state: str
+        wait: bool = False
     ):
         """发布健康检查失败事件"""
         event = HealthCheckCompleted(
@@ -240,9 +264,9 @@ class HealthMonitor:
             success=False,
             response_time=response_time,
             error_message=error_message,
-            suggested_state=suggested_state
+            suggested_state=None
         )
-        await self._event_bus.publish(event)
+        await self._event_bus.publish(event, wait=wait)
 
     async def check_timeouts(self):
         """

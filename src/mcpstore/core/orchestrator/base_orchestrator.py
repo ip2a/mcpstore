@@ -13,7 +13,6 @@ from mcpstore.config.json_config import MCPConfig
 from mcpstore.core.agents.session_manager import SessionManager
 from mcpstore.core.client_manager import ClientManager
 from mcpstore.core.integration.local_service_adapter import get_local_service_manager
-from mcpstore.core.lifecycle import get_health_manager
 from mcpstore.core.registry import ServiceRegistry
 # Import mixin classes
 from .monitoring_tasks import MonitoringTasksMixin
@@ -69,8 +68,11 @@ class MCPOrchestrator(
         #  新增：统一同步管理器
         self.sync_manager = None
 
-        #  新增：store引用（用于统一注册架构）
-        self.store = None
+        #  新增：ServiceContainer引用（替代 store 引用，解除循环依赖）
+        self.container = None
+
+        #  新增：Context工厂函数（用于服务注册，替代 store.for_store()）
+        self._context_factory = None
 
         #  新增：异步同步助手（用于Resources和Prompts的同步方法）
         from mcpstore.core.utils.async_sync_helper import AsyncSyncHelper
@@ -109,8 +111,6 @@ class MCPOrchestrator(
         # 本地服务管理器
         self.local_service_manager = get_local_service_manager()
 
-        # 健康管理器
-        self.health_manager = get_health_manager()
 
         # 🆕 事件驱动架构：生命周期管理器将由 ServiceContainer 管理
         # 保留属性以兼容旧代码，但实际使用 store.container.lifecycle_manager
@@ -175,19 +175,18 @@ class MCPOrchestrator(
         """初始化编排器资源"""
         logger.info("Setting up MCP Orchestrator...")
 
-        # 初始化健康管理器配置
-        self._update_health_manager_config()
+        # 健康管理器配置已移除（事件驱动架构直接使用容器的 HealthMonitor）
 
         # 初始化工具更新监控器
         self._setup_tools_update_monitor()
 
-        # 🆕 事件驱动架构：启动 ServiceContainer（如果 store 已设置）
-        if hasattr(self, 'store') and self.store and hasattr(self.store, 'container'):
+        # 🆕 事件驱动架构：启动 ServiceContainer（如果已设置）
+        if self.container:
             logger.info("Starting ServiceContainer components...")
-            await self.store.container.start()
+            await self.container.start()
             logger.info("ServiceContainer components started")
         else:
-            logger.warning("Store or ServiceContainer not available, skipping container startup")
+            logger.warning("ServiceContainer not available, skipping container startup")
 
         # 启动监控任务（仅启动保留的工具更新监控器）
         try:
@@ -249,9 +248,9 @@ class MCPOrchestrator(
                 self.sync_manager = None
 
             # 🆕 事件驱动架构：停止 ServiceContainer
-            if hasattr(self, 'store') and self.store and hasattr(self.store, 'container'):
+            if self.container:
                 logger.info("Stopping ServiceContainer components...")
-                await self.store.container.stop()
+                await self.container.stop()
                 logger.info("ServiceContainer components stopped")
 
             logger.info("MCP Orchestrator cleanup completed")
@@ -265,73 +264,15 @@ class MCPOrchestrator(
 
         # 🆕 事件驱动架构：停止 ServiceContainer
         try:
-            if hasattr(self, 'store') and self.store and hasattr(self.store, 'container'):
+            if self.container:
                 logger.debug("Stopping ServiceContainer...")
-                await self.store.container.stop()
+                await self.container.stop()
                 logger.debug("ServiceContainer stopped")
         except Exception as e:
             logger.error(f"Error stopping ServiceContainer: {e}")
 
         logger.info("MCP Orchestrator shutdown completed")
 
-    def _update_health_manager_config(self):
-        """更新健康管理器配置"""
-        try:
-            # 从配置中提取健康相关设置
-            timing_config = self.config.get("timing", {})
-
-            # 构建健康管理器配置
-            health_config = {
-                "local_service_ping_timeout": timing_config.get("local_service_ping_timeout", 3),
-                "remote_service_ping_timeout": timing_config.get("remote_service_ping_timeout", 5),
-                "startup_wait_time": timing_config.get("startup_wait_time", 2),
-                "healthy_response_threshold": timing_config.get("healthy_response_threshold", 1.0),
-                "warning_response_threshold": timing_config.get("warning_response_threshold", 3.0),
-                "slow_response_threshold": timing_config.get("slow_response_threshold", 10.0),
-                "enable_adaptive_timeout": timing_config.get("enable_adaptive_timeout", False),
-                "adaptive_timeout_multiplier": timing_config.get("adaptive_timeout_multiplier", 2.0),
-                "response_time_history_size": timing_config.get("response_time_history_size", 10)
-            }
-
-            # 更新健康管理器配置
-            self.health_manager.update_config(health_config)
-            logger.info(f"Health manager configuration updated: {health_config}")
-
-        except Exception as e:
-            logger.warning(f"Failed to update health manager config: {e}")
-
-    def update_monitoring_config(self, monitoring_config: Dict[str, Any]):
-        """更新监控配置（包括健康检查配置）"""
-        try:
-            # 更新时间配置
-            if "timing" not in self.config:
-                self.config["timing"] = {}
-
-            # 映射监控配置到时间配置
-            timing_mapping = {
-                "local_service_ping_timeout": "local_service_ping_timeout",
-                "remote_service_ping_timeout": "remote_service_ping_timeout",
-                "startup_wait_time": "startup_wait_time",
-                "healthy_response_threshold": "healthy_response_threshold",
-                "warning_response_threshold": "warning_response_threshold",
-                "slow_response_threshold": "slow_response_threshold",
-                "enable_adaptive_timeout": "enable_adaptive_timeout",
-                "adaptive_timeout_multiplier": "adaptive_timeout_multiplier",
-                "response_time_history_size": "response_time_history_size"
-            }
-
-            for monitor_key, timing_key in timing_mapping.items():
-                if monitor_key in monitoring_config and monitoring_config[monitor_key] is not None:
-                    self.config["timing"][timing_key] = monitoring_config[monitor_key]
-
-            # 更新健康管理器配置
-            self._update_health_manager_config()
-
-            logger.info("Monitoring configuration updated successfully")
-
-        except Exception as e:
-            logger.error(f"Failed to update monitoring config: {e}")
-            raise
 
     def _setup_tools_update_monitor(self):
         """设置工具更新监控器"""

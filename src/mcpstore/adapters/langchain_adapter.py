@@ -21,9 +21,30 @@ class LangChainAdapter:
     Adapter (bridge) between MCPStore and LangChain.
     It converts mcpstore's native objects to objects that LangChain can directly use.
     """
-    def __init__(self, context: 'MCPStoreContext'):
+    def __init__(self, context: 'MCPStoreContext', response_format: str = "text"):
         self._context = context
         self._sync_helper = get_global_helper()
+        # Adapter-only rendering preference for tool outputs
+        self._response_format = response_format if response_format in ("text", "content_and_artifact") else "text"
+
+    def _build_artifacts(self, contents: list) -> list:
+        """Convert non-text ContentBlocks into artifact dicts.
+        Only used when response_format == "content_and_artifact".
+        """
+        artifacts = []
+        try:
+            for block in contents or []:
+                if hasattr(block, 'text'):
+                    continue
+                # Generic mapping with best-effort fields
+                item = {"type": getattr(block, "type", block.__class__.__name__.lower())}
+                for attr in ("uri", "mime", "mime_type", "name", "filename", "size", "bytes", "width", "height"):
+                    if hasattr(block, attr):
+                        item[attr] = getattr(block, attr)
+                artifacts.append(item)
+        except Exception:
+            pass
+        return artifacts
 
     def _enhance_description(self, tool_info: 'ToolInfo') -> str:
         """
@@ -31,7 +52,7 @@ class LangChainAdapter:
         """
         base_description = tool_info.description
         schema_properties = tool_info.inputSchema.get("properties", {})
-        
+
         if not schema_properties:
             return base_description
 
@@ -42,7 +63,7 @@ class LangChainAdapter:
             param_descriptions.append(
                 f"- {param_name} ({param_type}): {param_desc}"
             )
-        
+
         # Append parameter descriptions to main description
         enhanced_desc = base_description + "\n\nParameter descriptions:\n" + "\n".join(param_descriptions)
         return enhanced_desc
@@ -172,6 +193,11 @@ class LangChainAdapter:
                 if is_error:
                     raise ToolException(output)
 
+                # Optional artifacts output for LangChain-only adapter
+                if getattr(self, "_response_format", "text") == "content_and_artifact":
+                    artifacts = self._build_artifacts(contents)
+                    return {"text": output, "artifacts": artifacts}
+
                 return output
             except Exception as e:
                 # Provide more detailed error information for debugging
@@ -254,6 +280,10 @@ class LangChainAdapter:
                 if is_error:
                     raise ToolException(output)
 
+                if getattr(self, "_response_format", "text") == "content_and_artifact":
+                    artifacts = self._build_artifacts(contents)
+                    return {"text": output, "artifacts": artifacts}
+
                 return output
             except Exception as e:
                 error_msg = f"工具 '{tool_name}' 执行失败: {str(e)}"
@@ -271,12 +301,12 @@ class LangChainAdapter:
     async def list_tools_async(self) -> List[Tool]:
         """
         Get all available mcpstore tools and convert them to LangChain Tool list (asynchronous version).
-        
+
         Raises:
             RuntimeError: 如果没有可用的工具（所有服务都未连接成功）
         """
         mcp_tools_info = await self._context.list_tools_async()
-        
+
         # 🆕 检查工具是否为空，提供友好的错误提示
         if not mcp_tools_info:
             logger.warning("[LIST_TOOLS] empty=True")
@@ -301,7 +331,7 @@ class LangChainAdapter:
                         "无可用工具：服务已连接但未提供工具。"
                         "请检查服务是否正常工作。"
                     )
-        
+
         langchain_tools = []
         for tool_info in mcp_tools_info:
             enhanced_description = self._enhance_description(tool_info)
@@ -356,34 +386,35 @@ class LangChainAdapter:
 class SessionAwareLangChainAdapter(LangChainAdapter):
     """
     Session-aware LangChain adapter
-    
+
     This enhanced adapter creates LangChain tools that are bound to a specific session,
     ensuring state persistence across multiple tool calls in LangChain agent workflows.
-    
+
     Key features:
     - Tools automatically use session-bound execution
     - State preservation across tool calls (e.g., browser stays open)
     - Seamless integration with existing LangChain workflows
     - Backward compatible with standard LangChainAdapter
     """
-    
-    def __init__(self, context: 'MCPStoreContext', session: 'Session'):
+
+    def __init__(self, context: 'MCPStoreContext', session: 'Session', response_format: str = "text"):
         """
         Initialize session-aware adapter
-        
+
         Args:
             context: MCPStoreContext instance (for tool discovery)
             session: Session object that tools will be bound to
+            response_format: Same as LangChainAdapter ("text" or "content_and_artifact")
         """
-        super().__init__(context)
+        super().__init__(context, response_format=response_format)
         self._session = session
-        
+
         logger.debug(f"Initialized session-aware adapter for session '{session.session_id}'")
-    
+
     def _create_tool_function(self, tool_name: str, args_schema: Type[BaseModel]):
         """
         Create session-bound tool function
-        
+
         This overrides the parent method to route tool execution through the session,
         ensuring state persistence across multiple tool calls.
         """
@@ -455,6 +486,10 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                 if is_error:
                     raise ToolException(output)
 
+                if getattr(self, "_response_format", "text") == "content_and_artifact":
+                    artifacts = self._build_artifacts(contents)
+                    return {"text": output, "artifacts": artifacts}
+
                 return output
 
             except Exception as e:
@@ -463,7 +498,7 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                 return error_msg
 
         return _session_tool_executor
-    
+
     def _create_async_tool_function(self, tool_name: str, args_schema: Type[BaseModel]):
         """
         Create session-bound async tool function
@@ -533,6 +568,10 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                 if is_error:
                     raise ToolException(output)
 
+                if getattr(self, "_response_format", "text") == "content_and_artifact":
+                    artifacts = self._build_artifacts(contents)
+                    return {"text": output, "artifacts": artifacts}
+
                 return output
 
             except Exception as e:
@@ -541,16 +580,16 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                 return error_msg
 
         return _session_async_tool_executor
-    
+
     async def list_tools_async(self) -> List[Tool]:
         """
         Create session-bound LangChain tools (async version)
-        
+
         Returns:
             List of LangChain Tool objects bound to the session
         """
         logger.debug(f"Creating session-bound tools for session '{self._session.session_id}'")
-        
+
         # Use parent's tool discovery logic
         mcpstore_tools = await self._context.list_tools_async()
         langchain_tools = []
@@ -558,10 +597,10 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
         for tool_info in mcpstore_tools:
             # Create args schema (same as parent)
             args_schema = self._create_args_schema(tool_info)
-            
+
             # Enhance description (same as parent)
             enhanced_description = self._enhance_description(tool_info)
-            
+
             # 🎯 Create session-bound functions
             sync_func = self._create_tool_function(tool_info.name, args_schema)
             async_coroutine = self._create_async_tool_function(tool_info.name, args_schema)
@@ -579,11 +618,11 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
 
         logger.debug(f"Created {len(langchain_tools)} session-bound tools")
         return langchain_tools
-    
+
     def list_tools(self) -> List[Tool]:
         """
         Create session-bound LangChain tools (sync version)
-        
+
         Returns:
             List of LangChain Tool objects bound to the session
         """

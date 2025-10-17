@@ -80,25 +80,17 @@ class StoreSetupManager:
         registry = ServiceRegistry()
         cache_mod = (external_db or {}).get("cache") if isinstance(external_db, dict) else None
         if isinstance(cache_mod, dict) and cache_mod.get("type") == "redis":
-            # 宽松校验：在此仅构造配置，异常由后续初始化处理
-            # dataspace 自动推导
-            ds = cache_mod.get("dataspace")
-            if not ds or str(ds).lower() == "auto":
-                try:
-                    cfg_path = getattr(config, "json_path", None) or ":memory:"
-                    abs_path = os.path.abspath(cfg_path) if cfg_path else ":memory:"
-                    ds = sha1(abs_path.encode("utf-8")).hexdigest()[:8] if abs_path != ":memory:" else "default"
-                except Exception:
-                    ds = "default"
+            # Redis backend configuration (Fail-Fast on connection errors)
             cache_cfg = {
                 "backend": "redis",
                 "redis": {
                     "url": cache_mod.get("url"),
                     "password": cache_mod.get("password"),
-                    "namespace": cache_mod.get("namespace", "default"),
-                    "dataspace": ds,
+                    "namespace": cache_mod.get("namespace"),  # Optional, auto-generated if None
                     "socket_timeout": cache_mod.get("socket_timeout"),
                     "healthcheck_interval": cache_mod.get("healthcheck_interval"),
+                    "max_connections": cache_mod.get("max_connections"),
+                    "_mcp_json_path": getattr(config, "json_path", None),  # For namespace auto-generation
                 },
             }
             registry.configure_cache_backend(cache_cfg)

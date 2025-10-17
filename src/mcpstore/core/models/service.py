@@ -32,6 +32,8 @@ class ServiceStateMetadata(BaseModel):
     last_failure_time: Optional[datetime] = None
     response_time: Optional[float] = None
     error_message: Optional[str] = None
+    # failure_reason 用于分类错误原因，例如 "auth_failed"、"network_error" 等
+    failure_reason: Optional[str] = None
     reconnect_attempts: int = 0
     next_retry_time: Optional[datetime] = None
     state_entered_time: Optional[datetime] = None

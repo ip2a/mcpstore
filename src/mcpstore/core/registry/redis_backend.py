@@ -36,14 +36,13 @@ class RedisCacheBackend(CacheBackend):
         self.key_builder = key_builder or KeyBuilder()
         self._redis = None  # client attached later
         self._normalizer = normalizer  # optional tool normalizer
-    # --- Optional: future multi-scope helpers (not used yet) ---
-    def _k_scope_base(self, scope: str, owner: str) -> str:
-        # Example: f"{self.key_builder.scope(scope, owner)}"
-        return self.key_builder.scope(scope, owner)
-
-    def _k_scope_entity(self, scope: str, owner: str, entity: str, identifier: str) -> str:
-        # Example: f"{self.key_builder.entity(scope, owner, entity, identifier)}"
-        return self.key_builder.entity(scope, owner, entity, identifier)
+        self._atomic_ops = None  # atomic operations helper (initialized when client attached)
+        # Health check & reconnection state
+        import time
+        self._last_health_check = time.time()
+        self._health_check_interval = 30  # seconds
+        self._connection_retries = 0
+        self._max_retries = 3
 
     # --- lifecycle ---
     def _t(self):
@@ -55,6 +54,13 @@ class RedisCacheBackend(CacheBackend):
     def attach_client(self, client: Any) -> None:  # type: ignore[name-defined]
         """Attach a redis-like client with `sadd/srem/smembers/set/get/hset/hget/hdel/delete/scan_iter`."""
         self._redis = client
+        # Initialize atomic operations helper
+        try:
+            from .redis_atomic import RedisAtomicOps
+            self._atomic_ops = RedisAtomicOps(client)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to initialize atomic operations: {e}")
 
     # ---- Optional transaction & health ----
     def begin(self) -> None:
@@ -93,17 +99,62 @@ class RedisCacheBackend(CacheBackend):
             self._pipe = None
 
     def health_check(self) -> bool:
+        """Check if Redis connection is healthy. Auto-reconnect if needed."""
+        import time
+        import logging
+        logger = logging.getLogger(__name__)
+
         c = getattr(self, "_redis", None)
         if c is None:
             return False
+
+        # Periodic health check (avoid excessive pings)
+        now = time.time()
+        if now - self._last_health_check < self._health_check_interval:
+            return True  # Assume healthy within interval
+
+        self._last_health_check = now
+
         try:
             ping = getattr(c, "ping", None)
             if callable(ping):
                 res = ping()
+                # Reset retry counter on successful ping
+                self._connection_retries = 0
                 return bool(res) if not isinstance(res, (bytes, bytearray)) else True
             return True
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Redis health check failed: {e}")
+            # Attempt reconnection
+            return self._reconnect()
+
+    def _reconnect(self) -> bool:
+        """Attempt to reconnect to Redis (up to max_retries)."""
+        import time
+        import logging
+        logger = logging.getLogger(__name__)
+
+        if self._connection_retries >= self._max_retries:
+            logger.error(f"Max reconnection attempts ({self._max_retries}) reached")
             return False
+
+        self._connection_retries += 1
+        wait_time = min(2 ** self._connection_retries, 10)  # Exponential backoff, max 10s
+
+        logger.info(f"Attempting Redis reconnection (attempt {self._connection_retries}/{self._max_retries})...")
+        time.sleep(wait_time)
+
+        try:
+            # Try ping again
+            if self._redis:
+                self._redis.ping()
+                self._connection_retries = 0  # Reset on success
+                logger.info("Redis reconnection successful")
+                return True
+        except Exception as e:
+            logger.error(f"Redis reconnection failed: {e}")
+
+        return False
 
     # ---- key helpers (agent-partitioned) ----
     def _k_agent_clients(self, agent_id: str) -> str:
@@ -145,22 +196,37 @@ class RedisCacheBackend(CacheBackend):
         t.set(self._k_client_config(client_id), json.dumps(config, ensure_ascii=False))
 
     def update_client_config(self, client_id: str, updates: Dict[str, Any]) -> None:
-        t = self._t()
-        if t is None:
-            return
+        """Atomically update client config using Lua script.
+
+        This prevents race conditions in Read-Modify-Write operations.
+        """
         key = self._k_client_config(client_id)
-        current_raw = self._redis.get(key) if getattr(self, "_redis", None) is not None else None
-        current: Dict[str, Any] = {}
-        if current_raw:
-            try:
-                if isinstance(current_raw, (bytes, bytearray)):
-                    current = json.loads(current_raw.decode("utf-8"))
-                else:
-                    current = json.loads(current_raw)
-            except Exception:
-                current = {}
-        current.update(updates)
-        self._redis.set(key, json.dumps(current, ensure_ascii=False))
+
+        # Use atomic operations if available
+        if self._atomic_ops:
+            self._atomic_ops.update_json_atomic(key, updates)
+        else:
+            # Fallback: non-atomic update (for compatibility)
+            import logging
+            logging.getLogger(__name__).warning(
+                "Atomic operations not available, using non-atomic update. "
+                "This may cause race conditions in concurrent scenarios."
+            )
+            t = self._t()
+            if t is None:
+                return
+            current_raw = self._redis.get(key) if getattr(self, "_redis", None) is not None else None
+            current: Dict[str, Any] = {}
+            if current_raw:
+                try:
+                    if isinstance(current_raw, (bytes, bytearray)):
+                        current = json.loads(current_raw.decode("utf-8"))
+                    else:
+                        current = json.loads(current_raw)
+                except Exception:
+                    current = {}
+            current.update(updates)
+            self._redis.set(key, json.dumps(current, ensure_ascii=False))
 
     def get_client_config_from_cache(self, client_id: str) -> Optional[Dict[str, Any]]:
         if getattr(self, "_redis", None) is None:
@@ -251,12 +317,32 @@ class RedisCacheBackend(CacheBackend):
         keys = t.hkeys(self._k_tool_to_service(agent_id)) or []
         return sorted([k.decode("utf-8") if isinstance(k, (bytes, bytearray)) else str(k) for k in keys])
 
-    # ---- Session (optional in M2): not persisted in Redis skeleton ----
+    # ---- Session: Not supported in Redis backend ----
     def set_session(self, agent_id: str, service_name: str, session: Any) -> None:  # type: ignore[name-defined]
-        return
+        """Redis backend does not support session persistence.
+
+        Raises:
+            NotImplementedError: Sessions are ephemeral and cannot be serialized to Redis.
+                MCP client sessions contain active connections and state that must be
+                managed in-process. Use MemoryCacheBackend for session support.
+        """
+        raise NotImplementedError(
+            "Redis backend does not support session persistence. "
+            "Sessions are ephemeral and must be managed in-process. "
+            "This is a design limitation: MCP sessions contain active connections "
+            "that cannot be serialized to Redis."
+        )
 
     def get_session(self, agent_id: str, service_name: str):  # -> Optional[Any]
-        return None
+        """Redis backend does not support session retrieval.
+
+        Raises:
+            NotImplementedError: Same reason as set_session.
+        """
+        raise NotImplementedError(
+            "Redis backend does not support session retrieval. "
+            "Sessions must be managed in-process."
+        )
 
     # ---- Bulk ----
     def clear_agent(self, agent_id: str) -> None:

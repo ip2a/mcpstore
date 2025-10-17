@@ -1,32 +1,36 @@
 """
-MCP Store exception class definitions
+MCP Store exception class definitions (Legacy)
+
+This module is deprecated. Import from mcpstore.core.exceptions instead.
 """
 
-class MCPStoreError(Exception):
-    """MCP Store base exception class"""
-    pass
+import warnings
 
-class ServiceNotFoundError(MCPStoreError):
-    """Service does not exist"""
-    pass
+# Import from unified exception system
+from mcpstore.core.exceptions import (
+    MCPStoreException as MCPStoreError,
+    ServiceNotFoundException as ServiceNotFoundError,
+    ConfigurationException as InvalidConfigError,
+    ServiceUnavailableError as DeleteServiceError,
+    ConfigurationException as ConfigurationError,
+    ServiceConnectionError,
+    ToolExecutionError,
+)
 
-class InvalidConfigError(MCPStoreError):
-    """Invalid configuration"""
-    pass
+# Deprecation warning
+warnings.warn(
+    "mcpstore.core.utils.exceptions is deprecated. "
+    "Import from mcpstore.core.exceptions instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
-class DeleteServiceError(MCPStoreError):
-    """Failed to delete service"""
-    pass
-
-class ConfigurationError(MCPStoreError):
-    """Configuration error"""
-    pass
-
-class ServiceConnectionError(MCPStoreError):
-    """Service connection error"""
-    pass
-
-class ToolExecutionError(MCPStoreError):
-    """Tool execution error"""
-    pass
-
+__all__ = [
+    "MCPStoreError",
+    "ServiceNotFoundError",
+    "InvalidConfigError",
+    "DeleteServiceError",
+    "ConfigurationError",
+    "ServiceConnectionError",
+    "ToolExecutionError",
+]

@@ -5,7 +5,7 @@ Contains all Store-level API endpoints
 
 from typing import Optional, Dict, Any, Union
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Query
 
 from mcpstore import MCPStore
 from mcpstore.core.models import ResponseBuilder, ErrorCode, timed_response
@@ -115,46 +115,180 @@ async def store_add_service(
 
 @store_router.get("/for_store/list_services", response_model=APIResponse)
 @timed_response
-async def store_list_services():
-    """获取 Store 级别服务列表
-    
-    返回所有已注册服务的完整信息，包括生命周期状态、
-    健康状况、工具数量等详细信息。
+async def store_list_services(
+    # 分页参数（可选）
+    page: Optional[int] = Query(None, ge=1, description="页码（从1开始），不传则返回全部"),
+    limit: Optional[int] = Query(None, ge=1, le=1000, description="每页数量（1-1000），不传则返回全部"),
+
+    # 过滤参数（可选）
+    status: Optional[str] = Query(None, description="按状态过滤：active/ready/error/initializing"),
+    search: Optional[str] = Query(None, description="搜索服务名称（模糊匹配）"),
+    service_type: Optional[str] = Query(None, description="按类型过滤：sse/stdio"),
+
+    # 排序参数（可选）
+    sort_by: Optional[str] = Query(None, description="排序字段：name/status/tools_count"),
+    sort_order: Optional[str] = Query(None, description="排序方向：asc/desc，默认 asc")
+):
     """
+    获取 Store 级别服务列表（增强版 - 统一响应格式）
+
+    响应格式说明：
+    - 始终返回包含 pagination 字段的统一格式
+    - 不传分页参数时，limit 自动等于 total（返回全部数据）
+    - 前端只需一套解析逻辑
+
+    示例：
+
+    1. 不传参数（返回全部）：
+       GET /for_store/list_services
+       → 返回全部服务，pagination.limit = pagination.total
+
+    2. 使用分页：
+       GET /for_store/list_services?page=1&limit=20
+       → 返回第 1 页，每页 20 条
+
+    3. 搜索：
+       GET /for_store/list_services?search=weather
+       → 返回名称包含 "weather" 的所有服务
+
+    4. 过滤 + 分页：
+       GET /for_store/list_services?status=error&page=1&limit=10
+       → 返回错误状态的服务，第 1 页，每页 10 条
+
+    5. 排序：
+       GET /for_store/list_services?sort_by=status&sort_order=desc
+       → 按状态降序排列，返回全部
+    """
+    from .api_models import (
+        EnhancedPaginationInfo,
+        ListFilterInfo,
+        ListSortInfo,
+        create_enhanced_pagination_info
+    )
+
     store = get_store()
     context = store.for_store()
-    services = context.list_services()
 
-    # 构造服务列表数据
-    services_data = []
-    for service in services:
+    # 1. 获取所有服务
+    all_services = context.list_services()
+    original_count = len(all_services)
+
+    # 2. 应用过滤
+    filtered_services = all_services
+
+    if status:
+        filtered_services = [
+            s for s in filtered_services
+            if s.status.value.lower() == status.lower()
+        ]
+
+    if search:
+        search_lower = search.lower()
+        filtered_services = [
+            s for s in filtered_services
+            if search_lower in s.name.lower()
+        ]
+
+    if service_type:
+        filtered_services = [
+            s for s in filtered_services
+            if s.transport_type.value == service_type
+        ]
+
+    filtered_count = len(filtered_services)
+
+    # 3. 应用排序
+    if sort_by:
+        reverse = (sort_order == "desc") if sort_order else False
+
+        if sort_by == "name":
+            filtered_services.sort(key=lambda s: s.name, reverse=reverse)
+        elif sort_by == "status":
+            filtered_services.sort(key=lambda s: s.status.value, reverse=reverse)
+        elif sort_by == "tools_count":
+            filtered_services.sort(key=lambda s: s.tool_count or 0, reverse=reverse)
+
+    # 4. 应用分页（如果有）
+    if page is not None or limit is not None:
+        page = page or 1
+        limit = limit or 20
+
+        start = (page - 1) * limit
+        end = start + limit
+        paginated_services = filtered_services[start:end]
+    else:
+        # 不分页，返回全部
+        paginated_services = filtered_services
+
+    # 5. 构造服务数据
+    def build_service_data(service) -> Dict[str, Any]:
+        """构造单个服务的数据"""
         service_data = {
             "name": service.name,
             "url": service.url or "",
             "command": service.command or "",
-            "args": service.args or [],  # 添加命令参数
-            "env": service.env or {},  # 添加环境变量
-            "working_dir": service.working_dir or "",  # 添加工作目录
-            "package_name": service.package_name or "",  # 添加包名
-            "keep_alive": service.keep_alive,  # 添加保活标志
+            "args": service.args or [],
+            "env": service.env or {},
+            "working_dir": service.working_dir or "",
+            "package_name": service.package_name or "",
+            "keep_alive": service.keep_alive,
             "type": service.transport_type.value if service.transport_type else "unknown",
             "status": service.status.value if service.status else "unknown",
             "tools_count": service.tool_count or 0,
             "last_check": None,
-            "client_id": service.client_id or "",  # 添加客户端ID
-            "config": service.config or {}  # 添加完整配置（用于调试）
+            "client_id": service.client_id or "",
         }
 
-        # 如果有状态元数据，添加详细信息
         if service.state_metadata:
-            service_data["last_check"] = service.state_metadata.last_ping_time.isoformat() if service.state_metadata.last_ping_time else None
+            service_data["last_check"] = (
+                service.state_metadata.last_ping_time.isoformat()
+                if service.state_metadata.last_ping_time else None
+            )
 
-        services_data.append(service_data)
+        return service_data
 
-    # 简化返回，直接返回列表
+    services_data = [build_service_data(s) for s in paginated_services]
+
+    # 6. 创建统一的分页信息
+    pagination = create_enhanced_pagination_info(
+        page=page,
+        limit=limit,
+        filtered_count=filtered_count
+    )
+
+    # 7. 构造响应数据（统一格式）
+    response_data = {
+        "services": services_data,
+        "pagination": pagination.dict()
+    }
+
+    # 添加过滤信息（如果有）
+    if any([status, search, service_type]):
+        response_data["filters"] = ListFilterInfo(
+            status=status,
+            search=search,
+            service_type=service_type
+        ).dict(exclude_none=True)
+
+    # 添加排序信息（如果有）
+    if sort_by:
+        response_data["sort"] = ListSortInfo(
+            by=sort_by,
+            order=sort_order or "asc"
+        ).dict()
+
+    # 8. 返回统一格式的响应
+    message_parts = [f"Retrieved {len(services_data)} services"]
+
+    if filtered_count < original_count:
+        message_parts.append(f"(filtered from {original_count})")
+
+    if page is not None:
+        message_parts.append(f"(page {pagination.page} of {pagination.total_pages})")
+
     return ResponseBuilder.success(
-        message=f"Retrieved {len(services_data)} services",
-        data=services_data
+        message=" ".join(message_parts),
+        data=response_data
     )
 
 @store_router.post("/for_store/reset_service", response_model=APIResponse)
@@ -198,30 +332,159 @@ async def store_reset_service(request: Request):
 
 @store_router.get("/for_store/list_tools", response_model=APIResponse)
 @timed_response
-async def store_list_tools():
-    """获取 Store 级别工具列表
-    
-    返回所有可用工具的详细信息，包括工具描述、输入模式、所属服务等。
+async def store_list_tools(
+    # 分页参数（可选）
+    page: Optional[int] = Query(None, ge=1, description="页码（从1开始），不传则返回全部"),
+    limit: Optional[int] = Query(None, ge=1, le=1000, description="每页数量（1-1000），不传则返回全部"),
+
+    # 过滤参数（可选）
+    search: Optional[str] = Query(None, description="搜索工具名称或描述（模糊匹配）"),
+    service_name: Optional[str] = Query(None, description="按服务名称过滤"),
+
+    # 排序参数（可选）
+    sort_by: Optional[str] = Query(None, description="排序字段：name/service"),
+    sort_order: Optional[str] = Query(None, description="排序方向：asc/desc，默认 asc")
+):
     """
+    获取 Store 级别工具列表（增强版 - 统一响应格式）
+
+    响应格式说明：
+    - 始终返回包含 pagination 字段的统一格式
+    - 不传分页参数时，limit 自动等于 total（返回全部数据）
+    - 前端只需一套解析逻辑
+
+    示例：
+
+    1. 不传参数（返回全部）：
+       GET /for_store/list_tools
+       → 返回全部工具，pagination.limit = pagination.total
+
+    2. 使用分页：
+       GET /for_store/list_tools?page=1&limit=20
+       → 返回第 1 页，每页 20 条
+
+    3. 搜索：
+       GET /for_store/list_tools?search=weather
+       → 返回名称或描述包含 "weather" 的所有工具
+
+    4. 按服务过滤：
+       GET /for_store/list_tools?service_name=mcpstore-wiki
+       → 返回指定服务的所有工具
+
+    5. 排序：
+       GET /for_store/list_tools?sort_by=name&sort_order=asc
+       → 按名称升序排列，返回全部
+    """
+    from .api_models import (
+        EnhancedPaginationInfo,
+        ListFilterInfo,
+        ListSortInfo,
+        create_enhanced_pagination_info
+    )
+
     store = get_store()
     context = store.for_store()
-    
-    # 获取所有工具
-    tools = context.list_tools()
-    
-    # 简化工具数据
-    tools_data = []
-    for tool in tools:
-        tools_data.append({
+
+    # 1. 获取所有工具
+    all_tools = context.list_tools()
+    original_count = len(all_tools)
+
+    # 2. 应用过滤
+    filtered_tools = all_tools
+
+    if search:
+        search_lower = search.lower()
+        filtered_tools = [
+            t for t in filtered_tools
+            if search_lower in t.name.lower() or
+               search_lower in (t.description or "").lower()
+        ]
+
+    if service_name:
+        filtered_tools = [
+            t for t in filtered_tools
+            if getattr(t, 'service_name', 'unknown') == service_name
+        ]
+
+    filtered_count = len(filtered_tools)
+
+    # 3. 应用排序
+    if sort_by:
+        reverse = (sort_order == "desc") if sort_order else False
+
+        if sort_by == "name":
+            filtered_tools.sort(key=lambda t: t.name, reverse=reverse)
+        elif sort_by == "service":
+            filtered_tools.sort(
+                key=lambda t: getattr(t, 'service_name', 'unknown'),
+                reverse=reverse
+            )
+
+    # 4. 应用分页（如果有）
+    if page is not None or limit is not None:
+        page = page or 1
+        limit = limit or 20
+
+        start = (page - 1) * limit
+        end = start + limit
+        paginated_tools = filtered_tools[start:end]
+    else:
+        # 不分页，返回全部
+        paginated_tools = filtered_tools
+
+    # 5. 构造工具数据
+    def build_tool_data(tool) -> Dict[str, Any]:
+        """构造单个工具的数据"""
+        return {
             "name": tool.name,
             "service": getattr(tool, 'service_name', 'unknown'),
             "description": tool.description or "",
             "input_schema": tool.inputSchema if hasattr(tool, 'inputSchema') else {}
-        })
-    
+        }
+
+    tools_data = [build_tool_data(t) for t in paginated_tools]
+
+    # 6. 创建统一的分页信息
+    pagination = create_enhanced_pagination_info(
+        page=page,
+        limit=limit,
+        filtered_count=filtered_count
+    )
+
+    # 7. 构造响应数据（统一格式）
+    response_data = {
+        "tools": tools_data,
+        "pagination": pagination.dict()
+    }
+
+    # 添加过滤信息（如果有）
+    if any([search, service_name]):
+        response_data["filters"] = {
+            "search": search,
+            "service_name": service_name
+        }
+        # 移除 None 值
+        response_data["filters"] = {k: v for k, v in response_data["filters"].items() if v is not None}
+
+    # 添加排序信息（如果有）
+    if sort_by:
+        response_data["sort"] = ListSortInfo(
+            by=sort_by,
+            order=sort_order or "asc"
+        ).dict()
+
+    # 8. 返回统一格式的响应
+    message_parts = [f"Retrieved {len(tools_data)} tools"]
+
+    if filtered_count < original_count:
+        message_parts.append(f"(filtered from {original_count})")
+
+    if page is not None:
+        message_parts.append(f"(page {pagination.page} of {pagination.total_pages})")
+
     return ResponseBuilder.success(
-        message=f"Retrieved {len(tools_data)} tools",
-        data=tools_data
+        message=" ".join(message_parts),
+        data=response_data
     )
 
 @store_router.get("/for_store/check_services", response_model=APIResponse)
