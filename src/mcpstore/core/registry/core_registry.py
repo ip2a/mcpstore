@@ -256,6 +256,23 @@ class ServiceRegistry:
         """返回当前工具快照是否为脏。"""
         return bool(getattr(self, "_tools_snapshot_dirty", False))
 
+    def tools_changed(self, global_agent_id: str, aggressive: bool = True) -> None:
+        """统一触发器：声明工具/服务集合发生变化。
+
+        当前阶段：直接标脏并立即重建，确保强一致；
+        后续阶段（TODO）：可在此处加入去抖/限频的调度逻辑。
+        """
+        try:
+            self.mark_tools_snapshot_dirty()
+        except Exception:
+            pass
+        if aggressive:
+            try:
+                self.rebuild_tools_snapshot(global_agent_id)
+            except Exception:
+                # 防御性：不要影响上层流程
+                pass
+
     def _ensure_state_sync_manager(self):
         """确保状态同步管理器已初始化"""
         if self._state_sync_manager is None:
@@ -545,12 +562,17 @@ class ServiceRegistry:
         #  清理新增的缓存字段
         self._cleanup_service_cache_data(agent_id, name)
 
-        # 标记快照为脏，交由读取方或上层触发重建
+        # 标记并重建快照（强一致）
         try:
-            if hasattr(self, 'mark_tools_snapshot_dirty'):
-                self.mark_tools_snapshot_dirty()
+            if hasattr(self, 'tools_changed'):
+                # 尝试使用全局agent（若无，则用当前agent作为兜底）
+                gid = getattr(self, '_main_agent_id', None) or agent_id
+                self.tools_changed(global_agent_id=gid, aggressive=True)
         except Exception:
-            pass
+            try:
+                self.mark_tools_snapshot_dirty()
+            except Exception:
+                pass
         logger.debug(f"Service removed: {name} for agent {agent_id}")
         return session
 
@@ -604,6 +626,16 @@ class ServiceRegistry:
 
         except Exception as e:
             logger.error(f"Failed to clear service tools for {service_name}: {e}")
+        # 强一致：工具清理后立即触发快照更新
+        try:
+            gid = getattr(self, '_main_agent_id', None) or agent_id
+            if hasattr(self, 'tools_changed'):
+                self.tools_changed(global_agent_id=gid, aggressive=True)
+        except Exception:
+            try:
+                self.mark_tools_snapshot_dirty()
+            except Exception:
+                pass
 
     def _cleanup_service_cache_data(self, agent_id: str, service_name: str):
         """清理服务相关的缓存数据"""

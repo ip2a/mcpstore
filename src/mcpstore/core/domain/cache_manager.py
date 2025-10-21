@@ -178,23 +178,16 @@ class CacheManager:
             
             logger.info(f"[CACHE] Cache updated for {event.service_name} with {len(event.tools)} tools")
 
-            # 工具缓存更新完成后：标记快照为脏并尝试重建（确保 list_tools 读到最新）
+            # 工具缓存更新完成后：统一触发器（强一致）
             try:
-                if hasattr(self._registry, 'mark_tools_snapshot_dirty'):
-                    self._registry.mark_tools_snapshot_dirty()
-                # 尝试立即重建（失败不中断流程）
-                if hasattr(self._registry, 'rebuild_tools_snapshot') and hasattr(self._event_bus, 'client_manager'):
-                    # 优先从 orchestrator 获取 global_agent_id；回退到常量
-                    global_agent_id = getattr(getattr(self, 'orchestrator', None), 'client_manager', None)
-                    if global_agent_id and hasattr(global_agent_id, 'global_agent_store_id'):
-                        gid = global_agent_id.global_agent_store_id
-                    else:
-                        # 回退：使用事件中的 agent_id 作为兜底（单 store 情况）
-                        gid = event.agent_id
-                    self._registry.rebuild_tools_snapshot(gid)
-                logger.debug(f"[SNAPSHOT] cache_manager: snapshot refreshed after cache update service={event.service_name}")
+                # 优先获取全局 agent id
+                cm = getattr(self, 'orchestrator', None)
+                gid = getattr(getattr(cm, 'client_manager', None), 'global_agent_store_id', None) or event.agent_id
+                if hasattr(self._registry, 'tools_changed'):
+                    self._registry.tools_changed(gid, aggressive=True)
+                logger.debug(f"[SNAPSHOT] cache_manager: tools_changed triggered service={event.service_name}")
             except Exception as e:
-                logger.warning(f"[SNAPSHOT] cache_manager: snapshot refresh failed: {e}")
+                logger.warning(f"[SNAPSHOT] cache_manager: tools_changed failed: {e}")
             
         except Exception as e:
             logger.error(f"[CACHE] Failed to update cache for {event.service_name}: {e}", exc_info=True)

@@ -250,11 +250,8 @@ class ServiceManagementMixin:
                 logger.warning(f"Error removing from content monitoring: {e}")
 
             try:
-                # 从注册表中移除服务
+                # 从注册表中移除服务（内部将触发 tools_changed）
                 self.registry.remove_service(agent_key, service_name)
-                # 标记快照为脏
-                if hasattr(self.registry, 'mark_tools_snapshot_dirty'):
-                    self.registry.mark_tools_snapshot_dirty()
 
                 # 取消健康监控（若存在）
                 try:
@@ -277,13 +274,13 @@ class ServiceManagementMixin:
             except Exception as e:
                 logger.warning(f"Error removing lifecycle data: {e}")
 
-            # A+B+D: 变更后重建快照并原子发布
+            # A+B+D: 变更后触发统一快照更新（强一致）
             try:
-                global_agent_id = self.client_manager.global_agent_store_id
-                logger.debug(f"[SNAPSHOT] removal: trigger rebuild after removal service={service_name} agent={agent_key}")
-                self.registry.rebuild_tools_snapshot(global_agent_id)
+                gid = self.client_manager.global_agent_store_id
+                if hasattr(self.registry, 'tools_changed'):
+                    self.registry.tools_changed(gid, aggressive=True)
             except Exception as e:
-                logger.warning(f"[SNAPSHOT] rebuild failed after removal: {e}")
+                logger.warning(f"[SNAPSHOT] tools_changed failed after removal: {e}")
 
             logger.debug(f"Service removal completed: {service_name} from agent {agent_key}")
 

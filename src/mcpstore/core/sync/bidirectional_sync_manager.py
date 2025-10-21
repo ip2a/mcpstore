@@ -169,16 +169,11 @@ class BidirectionalSyncManager:
                     new_config
                 )
             
-            # 2. 更新 mcp.json
-            current_mcp_config = self.store.config.load_config()
-            if "mcpServers" not in current_mcp_config:
-                current_mcp_config["mcpServers"] = {}
-            
-            current_mcp_config["mcpServers"][global_name] = new_config
-            success = self.store.config.save_config(current_mcp_config)
+            # 2. 更新 mcp.json（使用 UnifiedConfigManager 自动刷新缓存）
+            success = self.store._unified_config.add_service_config(global_name, new_config)
             
             if success:
-                logger.debug(f" [BIDIRECTIONAL_SYNC] Store 配置更新成功: {global_name}")
+                logger.debug(f" [BIDIRECTIONAL_SYNC] Store 配置更新成功: {global_name}，缓存已同步")
             else:
                 logger.error(f" [BIDIRECTIONAL_SYNC] Store 配置更新失败: {global_name}")
             
@@ -208,16 +203,13 @@ class BidirectionalSyncManager:
                 global_name
             )
             
-            # 2. 从 mcp.json 中删除
-            current_mcp_config = self.store.config.load_config()
-            if "mcpServers" in current_mcp_config and global_name in current_mcp_config["mcpServers"]:
-                del current_mcp_config["mcpServers"][global_name]
-                success = self.store.config.save_config(current_mcp_config)
-                
-                if success:
-                    logger.debug(f" [BIDIRECTIONAL_SYNC] Store 服务删除成功: {global_name}")
-                else:
-                    logger.error(f" [BIDIRECTIONAL_SYNC] Store 服务删除失败: {global_name}")
+            # 2. 从 mcp.json 中删除（使用 UnifiedConfigManager 自动刷新缓存）
+            success = self.store._unified_config.remove_service_config(global_name)
+            
+            if success:
+                logger.debug(f" [BIDIRECTIONAL_SYNC] Store 服务删除成功: {global_name}，缓存已同步")
+            else:
+                logger.error(f" [BIDIRECTIONAL_SYNC] Store 服务删除失败: {global_name}")
             
         except Exception as e:
             logger.error(f" [BIDIRECTIONAL_SYNC] 删除 Store 服务失败 {global_name}: {e}")

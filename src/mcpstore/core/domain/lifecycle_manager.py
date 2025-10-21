@@ -283,6 +283,43 @@ class LifecycleManager:
         except Exception as e:
             logger.error(f"[LIFECYCLE] Failed to update reconnection metadata: {e}")
     
+    async def graceful_disconnect(self, agent_id: str, service_name: str, reason: str = "user_requested"):
+        """优雅断开服务连接（不修改配置/注册表实体，仅生命周期断链）。
+
+        - 将状态置为 DISCONNECTING → DISCONNECTED
+        - 记录断开原因到 metadata
+        - 由上层（可选）清理工具展示缓存
+        """
+        try:
+            # 更新断开原因
+            metadata = self._registry.get_service_metadata(agent_id, service_name)
+            if metadata:
+                try:
+                    metadata.disconnect_reason = reason
+                    self._registry.set_service_metadata(agent_id, service_name, metadata)
+                except Exception:
+                    pass
+
+            # 先进入 DISCONNECTING
+            await self._transition_state(
+                agent_id=agent_id,
+                service_name=service_name,
+                new_state=ServiceConnectionState.DISCONNECTING,
+                reason=reason,
+                source="LifecycleManager"
+            )
+
+            # 立即收敛为 DISCONNECTED（不等待外部回调）
+            await self._transition_state(
+                agent_id=agent_id,
+                service_name=service_name,
+                new_state=ServiceConnectionState.DISCONNECTED,
+                reason=reason,
+                source="LifecycleManager"
+            )
+        except Exception as e:
+            logger.error(f"[LIFECYCLE] graceful_disconnect failed for {service_name}: {e}", exc_info=True)
+    
     async def _transition_state(
         self,
         agent_id: str,

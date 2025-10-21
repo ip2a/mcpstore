@@ -14,11 +14,11 @@ from .component_control import (
     EnvironmentType,
     get_component_manager
 )
-from .exceptions import (
-    ServiceNotFoundError,
-    InvalidConfigError,
-    DeleteServiceError,
-    ConfigurationError,
+from mcpstore.core.exceptions import (
+    ServiceNotFoundException as ServiceNotFoundError,
+    ConfigurationException as InvalidConfigError,
+    ServiceUnavailableError as DeleteServiceError,
+    ConfigurationException as ConfigurationError,
     ServiceConnectionError,
     ToolExecutionError
 )

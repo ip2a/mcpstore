@@ -483,12 +483,22 @@ class ServiceManagementMixin:
                 self._store.registry.service_metadata.clear()
                 self._store.registry.service_to_client.clear()
 
-                # 2. 重置mcp.json文件
+                # 2. 重置mcp.json文件（使用 UnifiedConfigManager 自动刷新缓存）
                 default_config = {"mcpServers": {}}
-                mcp_success = self._store.config.save_config(default_config)
+                mcp_success = self._store._unified_config.update_mcp_config(default_config)
 
                 # 3. 单源模式：不再维护分片映射文件
                 logger.debug("Single-source mode: skip shard mapping files (agent_clients/client_services)")
+
+                # 4. 触发快照更新（强一致）
+                try:
+                    gid = self._store.client_manager.global_agent_store_id
+                    self._store.registry.tools_changed(gid, aggressive=True)
+                except Exception:
+                    try:
+                        self._store.registry.mark_tools_snapshot_dirty()
+                    except Exception:
+                        pass
 
                 logger.debug("Store level: all configuration reset completed")
                 return mcp_success
@@ -500,12 +510,22 @@ class ServiceManagementMixin:
                 global_agent_store_id = self._store.client_manager.global_agent_store_id
                 self._store.registry.clear(global_agent_store_id)
 
-                # 2. 清空mcp.json文件
+                # 2. 清空mcp.json文件（使用 UnifiedConfigManager 自动刷新缓存）
                 default_config = {"mcpServers": {}}
-                mcp_success = self._store.config.save_config(default_config)
+                mcp_success = self._store._unified_config.update_mcp_config(default_config)
 
                 # 3. 单源模式：不再维护分片映射文件
                 logger.debug("Single-source mode: skip shard mapping files (agent_clients/client_services)")
+
+                # 4. 触发快照更新（强一致）
+                try:
+                    gid = self._store.client_manager.global_agent_store_id
+                    self._store.registry.tools_changed(gid, aggressive=True)
+                except Exception:
+                    try:
+                        self._store.registry.mark_tools_snapshot_dirty()
+                    except Exception:
+                        pass
 
                 logger.info(" Store级别：global_agent_store重置完成")
                 return mcp_success
@@ -947,12 +967,10 @@ class ServiceManagementMixin:
                 logger.warning(f"Service {service_name} not found in registry, but continuing with cleanup")
 
             # 事务性删除：先删除文件配置，再删除缓存
-            # 1. 从mcp.json中删除服务配置
-            current_config = self._store.config.load_config()
-            if "mcpServers" in current_config and service_name in current_config["mcpServers"]:
-                del current_config["mcpServers"][service_name]
-                self._store.config.save_config(current_config)
-                logger.info(f"🗑️ 已从mcp.json删除服务: {service_name}")
+            # 1. 从mcp.json中删除服务配置（使用 UnifiedConfigManager 自动刷新缓存）
+            success = self._store._unified_config.remove_service_config(service_name)
+            if success:
+                logger.info(f"🗑️ 已从mcp.json删除服务: {service_name}，缓存已同步")
 
             # 2. 从缓存中删除服务（包括工具和会话）
             self._store.registry.remove_service(global_agent_store_id, service_name)
@@ -970,6 +988,15 @@ class ServiceManagementMixin:
             logger.info("Single-source mode: skip shard mapping files sync")
 
             logger.info(f" Store级别：配置删除完成 {service_name}")
+
+            # 触发快照更新（强一致）
+            try:
+                self._store.registry.tools_changed(global_agent_store_id, aggressive=True)
+            except Exception:
+                try:
+                    self._store.registry.mark_tools_snapshot_dirty()
+                except Exception:
+                    pass
 
             return {
                 "success": True,
@@ -1018,6 +1045,16 @@ class ServiceManagementMixin:
             logger.info("Single-source mode: skip shard mapping files sync")
 
             logger.info(f" Agent级别：配置删除完成 {service_name}")
+
+            # 触发快照更新（强一致）
+            try:
+                gid = self._store.client_manager.global_agent_store_id
+                self._store.registry.tools_changed(gid, aggressive=True)
+            except Exception:
+                try:
+                    self._store.registry.mark_tools_snapshot_dirty()
+                except Exception:
+                    pass
 
             return {
                 "success": True,
@@ -1137,12 +1174,10 @@ class ServiceManagementMixin:
                 metadata.state_entered_time = datetime.now()
                 self._store.registry.set_service_metadata(global_agent_store_id, service_name, metadata)
 
-            # 4. 更新mcp.json文件
-            current_config = self._store.config.load_config()
-            if "mcpServers" not in current_config:
-                current_config["mcpServers"] = {}
-            current_config["mcpServers"][service_name] = normalized_config
-            self._store.config.save_config(current_config)
+            # 4. 更新mcp.json文件（使用 UnifiedConfigManager 自动刷新缓存）
+            success = self._store._unified_config.add_service_config(service_name, normalized_config)
+            if not success:
+                raise Exception(f"Failed to update service config for {service_name}")
 
             # 5. 单源模式：不再同步到分片文件
             logger.info("Single-source mode: skip shard mapping files sync")
@@ -1287,6 +1322,57 @@ class ServiceManagementMixin:
             logger.error(f"Failed to restart service {name}: {e}")
             return False
 
+    # === Lifecycle-only disconnection (no config/registry deletion) ===
+    def disconnect_service(self, name: str, reason: str = "user_requested") -> bool:
+        """
+        断开服务（同步版本）- 仅生命周期断链：
+        - 不修改 mcp.json
+        - 不从注册表删除服务
+        - 将状态置为 disconnected，并清空工具展示
+        """
+        return self._sync_helper.run_async(
+            self.disconnect_service_async(name, reason=reason),
+            timeout=60.0,
+            force_background=True
+        )
+
+    async def disconnect_service_async(self, name: str, reason: str = "user_requested") -> bool:
+        """
+        断开服务（异步版本）- 仅生命周期断链：不改配置/不删注册表。
+
+        Store 上下文：name 视为全局名；
+        Agent 上下文：自动将本地名映射为全局名后断开。
+        """
+        try:
+            global_agent_id = self._store.client_manager.global_agent_store_id
+            if self._context_type == ContextType.STORE:
+                global_name = name
+            else:
+                global_name = await self._map_agent_service_to_global(name)
+
+            # 调用生命周期管理器执行优雅断开
+            lm = self._store.orchestrator.lifecycle_manager
+            await lm.graceful_disconnect(global_agent_id, global_name, reason)
+
+            # 清空工具展示缓存（仅清工具，不删除服务实体）
+            try:
+                self._store.registry.clear_service_tools_only(global_agent_id, global_name)
+            except Exception:
+                pass
+            # 触发快照更新（强一致）
+            try:
+                self._store.registry.tools_changed(global_agent_id, aggressive=True)
+            except Exception:
+                try:
+                    self._store.registry.mark_tools_snapshot_dirty()
+                except Exception:
+                    pass
+
+            return True
+        except Exception as e:
+            logger.error(f"[DISCONNECT_SERVICE] Failed to disconnect '{name}': {e}")
+            return False
+
     # ===  新增：Agent 透明代理辅助方法 ===
 
     async def _map_agent_service_to_global(self, local_name: str) -> str:
@@ -1324,16 +1410,13 @@ class ServiceManagementMixin:
                 service_name
             )
 
-            # 2. 从 mcp.json 中删除
-            current_config = self._store.config.load_config()
-            if "mcpServers" in current_config and service_name in current_config["mcpServers"]:
-                del current_config["mcpServers"][service_name]
-                success = self._store.config.save_config(current_config)
-
-                if success:
-                    logger.info(f" [SERVICE_DELETE] Store 服务删除成功: {service_name}")
-                else:
-                    logger.error(f" [SERVICE_DELETE] Store 服务删除失败: {service_name}")
+            # 2. 从 mcp.json 中删除（使用 UnifiedConfigManager 自动刷新缓存）
+            success = self._store._unified_config.remove_service_config(service_name)
+            
+            if success:
+                logger.info(f" [SERVICE_DELETE] Store 服务删除成功: {service_name}，缓存已同步")
+            else:
+                logger.error(f" [SERVICE_DELETE] Store 服务删除失败: {service_name}")
 
             # 3. 触发双向同步（如果是 Agent 服务）
             if hasattr(self._store, 'bidirectional_sync_manager'):
@@ -1367,16 +1450,13 @@ class ServiceManagementMixin:
             # 4. 移除映射关系
             self._store.registry.remove_agent_service_mapping(self._agent_id, local_name)
 
-            # 5. 从 mcp.json 中删除
-            current_config = self._store.config.load_config()
-            if "mcpServers" in current_config and global_name in current_config["mcpServers"]:
-                del current_config["mcpServers"][global_name]
-                success = self._store.config.save_config(current_config)
-
-                if success:
-                    logger.info(f" [SERVICE_DELETE] Agent 服务删除成功: {local_name} → {global_name}")
-                else:
-                    logger.error(f" [SERVICE_DELETE] Agent 服务删除失败: {local_name} → {global_name}")
+            # 5. 从 mcp.json 中删除（使用 UnifiedConfigManager 自动刷新缓存）
+            success = self._store._unified_config.remove_service_config(global_name)
+            
+            if success:
+                logger.info(f" [SERVICE_DELETE] Agent 服务删除成功: {local_name} → {global_name}，缓存已同步")
+            else:
+                logger.error(f" [SERVICE_DELETE] Agent 服务删除失败: {local_name} → {global_name}")
 
             # 6. 单源模式：不再同步到分片文件
             logger.info("Single-source mode: skip shard mapping files sync")
@@ -1393,9 +1473,9 @@ class ServiceManagementMixin:
             Dict[str, Any]: Store上下文返回MCP JSON格式，Agent上下文返回client配置字典
         """
         if self._context_type == ContextType.STORE:
-            # Store上下文：返回MCP JSON格式的配置
+            # Store上下文：返回MCP JSON格式的配置（从缓存读取，更高效）
             try:
-                config = self._store.config.load_config()
+                config = self._store._unified_config.get_mcp_config()
                 # 确保返回格式正确
                 if isinstance(config, dict) and 'mcpServers' in config:
                     return config

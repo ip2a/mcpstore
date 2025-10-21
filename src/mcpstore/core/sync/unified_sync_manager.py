@@ -411,10 +411,9 @@ class UnifiedMCPSyncManager:
                     continue
                 try:
                     if hasattr(self.orchestrator, 'store') and self.orchestrator.store:
-                        # Use existing add_service_async with explicit mcpServers shape
+                        # Use existing add_service_async with explicit mcpServers shape (no extra kwargs)
                         await self.orchestrator.store.for_store().add_service_async(
-                            config={"mcpServers": {service_name: config}},
-                            source="auto_startup"
+                            config={"mcpServers": {service_name: config}}
                         )
                     else:
                         # Update mcp.json directly then let lifecycle initialize

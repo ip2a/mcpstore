@@ -258,7 +258,8 @@ class AdvancedFeaturesMixin:
         try:
             logger.info(f" [MCP_RESET] Starting MCP JSON file reset with scope: {scope}")
 
-            current_config = self._store.config.load_config()
+            # 使用 UnifiedConfigManager 读取配置（从缓存）
+            current_config = self._store._unified_config.get_mcp_config()
             mcp_servers = current_config.get("mcpServers", {})
             
             if scope == "all":
@@ -315,13 +316,23 @@ class AdvancedFeaturesMixin:
                 removed_count = len(mcp_servers) - len(preserved_services)
                 logger.info(f" [MCP_RESET] Removed {removed_count} services for Agent {agent_id}")
 
-            # 3. 保存更新后的mcp.json
-            mcp_success = self._store.config.save_config(new_config)
+            # 3. 保存更新后的mcp.json（使用 UnifiedConfigManager 自动刷新缓存）
+            mcp_success = self._store._unified_config.update_mcp_config(new_config)
             
             if mcp_success:
-                logger.info(f" [MCP_RESET] MCP JSON file reset completed for scope: {scope}")
+                logger.info(f" [MCP_RESET] MCP JSON file reset completed for scope: {scope}，缓存已同步")
                 
                 # 4. 触发重新同步（可选）
+                # 4.1 强一致：触发快照更新
+                try:
+                    gid = self._store.client_manager.global_agent_store_id
+                    self._store.registry.tools_changed(gid, aggressive=True)
+                except Exception:
+                    try:
+                        self._store.registry.mark_tools_snapshot_dirty()
+                    except Exception:
+                        pass
+
                 if hasattr(self._store.orchestrator, 'sync_manager') and self._store.orchestrator.sync_manager:
                     logger.info(" [MCP_RESET] Triggering cache resync from mcp.json")
                     await self._store.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()

@@ -126,7 +126,22 @@ class ConnectionManager:
             )
 
         except Exception as e:
-            logger.error(f"[CONNECTION] Failed: {event.service_name} - {e}", exc_info=True)
+            # Demote expected network/connectivity errors to WARNING to avoid implying global failure
+            network_error = False
+            try:
+                import httpx  # type: ignore
+                if isinstance(e, getattr(httpx, "ConnectError", tuple())) or isinstance(e, getattr(httpx, "ReadTimeout", tuple())):
+                    network_error = True
+            except Exception:
+                # Fallback to message-based detection
+                pass
+            text = str(e)
+            if ("All connection attempts failed" in text) or ("timed out" in text.lower()):
+                network_error = True
+            if network_error:
+                logger.warning(f"[CONNECTION] Failed: {event.service_name} - {e}")
+            else:
+                logger.error(f"[CONNECTION] Failed: {event.service_name} - {e}", exc_info=True)
             await self._publish_connection_failed(
                 event, str(e), "connection_error", 0
             )

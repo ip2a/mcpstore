@@ -4,6 +4,7 @@ MCPStore Unified Configuration Manager
 Integrates all configuration functions, providing a unified configuration management interface.
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from enum import Enum
@@ -56,6 +57,9 @@ class UnifiedConfigManager:
         # 配置缓存
         self._config_cache: Dict[ConfigType, Dict[str, Any]] = {}
         self._cache_valid: Dict[ConfigType, bool] = {}
+        
+        # 并发保护锁（用于异步操作）
+        self._config_lock = asyncio.Lock()
 
         # 初始化配置
         self._initialize_configs()
@@ -309,3 +313,186 @@ class UnifiedConfigManager:
                 logger.error(f"Failed to reload {config_type.value} config: {e}")
         
         logger.debug("Configuration reload completed")
+    
+    # ============ 新增便捷方法（方案B：统一配置管理）============
+    
+    def add_service_config(self, service_name: str, config: Dict[str, Any]) -> bool:
+        """添加服务配置（语义化方法）
+        
+        Args:
+            service_name: 服务名称
+            config: 服务配置
+            
+        Returns:
+            bool: 添加是否成功
+        """
+        try:
+            current_config = self.get_mcp_config()
+            
+            # 确保 mcpServers 存在
+            if "mcpServers" not in current_config:
+                current_config["mcpServers"] = {}
+            
+            # 添加服务配置
+            current_config["mcpServers"][service_name] = config
+            
+            # 保存并自动刷新缓存
+            result = self.update_mcp_config(current_config)
+            
+            if result:
+                logger.debug(f"✅ 服务 '{service_name}' 配置已添加，缓存已同步")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to add service config for {service_name}: {e}")
+            return False
+    
+    def remove_service_config(self, service_name: str) -> bool:
+        """删除服务配置
+        
+        Args:
+            service_name: 服务名称
+            
+        Returns:
+            bool: 删除是否成功
+        """
+        try:
+            current_config = self.get_mcp_config()
+            
+            # 如果服务存在，则删除
+            if service_name in current_config.get("mcpServers", {}):
+                del current_config["mcpServers"][service_name]
+                
+                # 保存并自动刷新缓存
+                result = self.update_mcp_config(current_config)
+                
+                if result:
+                    logger.debug(f"✅ 服务 '{service_name}' 配置已删除，缓存已同步")
+                
+                return result
+            else:
+                # 服务不存在，视为成功（幂等性）
+                logger.debug(f"服务 '{service_name}' 不存在，无需删除")
+                return True
+            
+        except Exception as e:
+            logger.error(f"Failed to remove service config for {service_name}: {e}")
+            return False
+    
+    def batch_add_services(self, services: Dict[str, Dict[str, Any]]) -> bool:
+        """批量添加服务配置（原子操作，一次性保存）
+        
+        Args:
+            services: 服务配置字典 {service_name: service_config}
+            
+        Returns:
+            bool: 批量添加是否成功
+        """
+        try:
+            if not services:
+                logger.debug("批量添加服务：服务列表为空，无需操作")
+                return True
+            
+            current_config = self.get_mcp_config()
+            
+            # 确保 mcpServers 存在
+            if "mcpServers" not in current_config:
+                current_config["mcpServers"] = {}
+            
+            # 批量合并服务配置
+            for service_name, service_config in services.items():
+                current_config["mcpServers"][service_name] = service_config
+            
+            # 一次性保存（原子操作）并自动刷新缓存
+            result = self.update_mcp_config(current_config)
+            
+            if result:
+                logger.debug(f"✅ 批量添加 {len(services)} 个服务成功，缓存已同步")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to batch add services: {e}")
+            return False
+    
+    def batch_remove_services(self, service_names: List[str]) -> bool:
+        """批量删除服务配置（原子操作，一次性保存）
+        
+        Args:
+            service_names: 服务名称列表
+            
+        Returns:
+            bool: 批量删除是否成功
+        """
+        try:
+            if not service_names:
+                logger.debug("批量删除服务：服务列表为空，无需操作")
+                return True
+            
+            current_config = self.get_mcp_config()
+            servers = current_config.get("mcpServers", {})
+            
+            # 批量删除服务
+            removed_count = 0
+            for service_name in service_names:
+                if service_name in servers:
+                    del servers[service_name]
+                    removed_count += 1
+            
+            # 一次性保存（原子操作）并自动刷新缓存
+            result = self.update_mcp_config(current_config)
+            
+            if result:
+                logger.debug(f"✅ 批量删除 {removed_count}/{len(service_names)} 个服务成功，缓存已同步")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to batch remove services: {e}")
+            return False
+    
+    async def update_mcp_config_async(self, config: Dict[str, Any]) -> bool:
+        """更新MCP配置（异步版本，带并发保护）
+        
+        Args:
+            config: 新的MCP配置
+            
+        Returns:
+            bool: 更新是否成功
+        """
+        async with self._config_lock:
+            try:
+                result = self.mcp_config.save_config(config)
+                if result:
+                    self._refresh_cache(ConfigType.MCP_SERVICES)
+                    logger.debug("✅ MCP配置已更新（异步），缓存已同步")
+                return result
+            except Exception as e:
+                logger.error(f"Failed to update MCP config (async): {e}")
+                return False
+    
+    async def add_service_config_async(self, service_name: str, config: Dict[str, Any]) -> bool:
+        """添加服务配置（异步版本，带并发保护）
+        
+        Args:
+            service_name: 服务名称
+            config: 服务配置
+            
+        Returns:
+            bool: 添加是否成功
+        """
+        async with self._config_lock:
+            return self.add_service_config(service_name, config)
+    
+    async def batch_add_services_async(self, services: Dict[str, Dict[str, Any]]) -> bool:
+        """批量添加服务配置（异步版本，带并发保护）
+        
+        Args:
+            services: 服务配置字典
+            
+        Returns:
+            bool: 批量添加是否成功
+        """
+        async with self._config_lock:
+            return self.batch_add_services(services)

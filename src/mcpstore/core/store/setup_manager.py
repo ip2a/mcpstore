@@ -17,19 +17,33 @@ class StoreSetupManager:
 
     @staticmethod
     def setup_store(
-        mcp_json: str | None = None,
+        mcpjson_path: str | None = None,
         debug: bool | str = False,
         external_db: Optional[Dict[str, Any]] = None,
         static_config: Optional[Dict[str, Any]] = None,
+        **deprecated_kwargs,
     ):
         """
         统一初始化 MCPStore（无隐式后台副作用）
         Args:
-            mcp_json: mcp.json 文件路径；None 则使用默认
+            mcpjson_path: mcp.json 文件路径；None 则使用默认
             debug: False=OFF（完全静默）；True=DEBUG；字符串=对应等级
             external_db: 外挂数据库模块配置字典（当前仅支持 cache.redis）
             static_config: 静态配置注入（monitoring/network/features/local_service）
+            **deprecated_kwargs: 历史兼容参数（mcp_json / mcp_config_file），将触发警告
         """
+        # Backward-compatible parameter aliases with warnings
+        if deprecated_kwargs:
+            for _old in ("mcp_json", "mcp_config_file"):
+                if _old in deprecated_kwargs:
+                    if not mcpjson_path:
+                        mcpjson_path = deprecated_kwargs.get(_old)
+                    try:
+                        import warnings as _warnings
+                        _warnings.warn(f"`{_old}` is deprecated; use `mcpjson_path`", DeprecationWarning, stacklevel=2)
+                    except Exception:
+                        pass
+                    logger.warning(f"Parameter `{_old}` is deprecated; use `mcpjson_path`")
         # 1) 日志
         from mcpstore.config.config import LoggingConfig
         LoggingConfig.setup_logging(debug=debug)
@@ -38,11 +52,11 @@ class StoreSetupManager:
         from mcpstore.config.json_config import MCPConfig
         from mcpstore.core.store.data_space_manager import DataSpaceManager
 
-        if mcp_json:
-            dsm = DataSpaceManager(mcp_json)
+        if mcpjson_path:
+            dsm = DataSpaceManager(mcpjson_path)
             if not dsm.initialize_workspace():
-                raise RuntimeError(f"Failed to initialize workspace for: {mcp_json}")
-            config = MCPConfig(json_path=mcp_json)
+                raise RuntimeError(f"Failed to initialize workspace for: {mcpjson_path}")
+            config = MCPConfig(json_path=mcpjson_path)
             workspace_dir = str(dsm.workspace_dir)
         else:
             dsm = None
@@ -108,7 +122,12 @@ class StoreSetupManager:
         # 7) 同步初始化 orchestrator（无后台副作用）
         from mcpstore.core.utils.async_sync_helper import AsyncSyncHelper
         helper = AsyncSyncHelper()
-        helper.run_async(orchestrator.setup(), force_background=False)
+        # 保持后台事件循环常驻，避免组件启动后立即被清理导致状态无法收敛
+        helper.run_async(orchestrator.setup(), force_background=True)
+        try:
+            setattr(store, "_background_helper", helper)
+        except Exception:
+            pass
 
         # 8) 可选：预热缓存
         features = stat.get("features", {}) if isinstance(stat, dict) else {}

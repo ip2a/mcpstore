@@ -71,8 +71,7 @@ async def market_refresh(payload: Optional[Dict[str, Any]] = None):
 @store_router.post("/for_store/add_service", response_model=APIResponse)
 @timed_response
 async def store_add_service(
-    payload: Optional[Dict[str, Any]] = None,
-    wait: Union[str, int, float] = "auto"
+    payload: Optional[Dict[str, Any]] = None
 ):
     """Store 级别添加服务
     
@@ -81,20 +80,24 @@ async def store_add_service(
     2. URL方式添加服务
     3. 命令方式添加服务(本地服务)
     
-    等待参数 (wait):
-    - "auto": 自动根据服务类型判断(远程2s, 本地4s)
-    - 数字: 等待时间(毫秒)
     """
     store = get_store()
     
     # 添加服务
     if payload is None:
-        # 空参数：注册所有服务
-        context_result = await store.for_store().add_service_async(wait=wait)
+        # 空参数：从 mcp.json 全量同步到缓存（统一同步管理器）
+        sync_mgr = getattr(store.orchestrator, 'sync_manager', None)
+        if not sync_mgr:
+            return ResponseBuilder.error(
+                code=ErrorCode.INTERNAL_ERROR,
+                message="Sync manager not initialized"
+            )
+        await sync_mgr.sync_global_agent_store_from_mcp_json()
+        context_result = True
         service_name = "all services"
     else:
         # 有参数：添加特定服务
-        context_result = await store.for_store().add_service_async(payload, wait=wait)
+        context_result = await store.for_store().add_service_async(payload)
         service_name = payload.get("name", "unknown")
     
     if not context_result:
@@ -589,6 +592,49 @@ async def store_delete_service(service_name: str):
             "deleted_at": ResponseBuilder._get_timestamp()
         }
     )
+
+@store_router.post("/for_store/disconnect_service", response_model=APIResponse)
+@timed_response
+async def store_disconnect_service(request: Request):
+    """Store 级别断开服务（生命周期断链，不修改配置）
+
+    Body 示例：
+    {
+      "service_name": "remote-demo",
+      "reason": "user_requested"
+    }
+    """
+    body = await request.json()
+    service_name = body.get("service_name") or body.get("name")
+    reason = body.get("reason", "user_requested")
+
+    if not service_name:
+        return ResponseBuilder.error(
+            code=ErrorCode.VALIDATION_ERROR,
+            message="Missing service_name"
+        )
+
+    store = get_store()
+    context = store.for_store()
+
+    try:
+        ok = await context.disconnect_service_async(service_name, reason=reason)
+        if ok:
+            return ResponseBuilder.success(
+                message=f"Service '{service_name}' disconnected",
+                data={"service_name": service_name, "status": "disconnected"}
+            )
+        return ResponseBuilder.error(
+            code=ErrorCode.SERVICE_OPERATION_FAILED,
+            message=f"Failed to disconnect service '{service_name}'",
+            details={"service_name": service_name}
+        )
+    except Exception as e:
+        return ResponseBuilder.error(
+            code=ErrorCode.INTERNAL_ERROR,
+            message=f"Failed to disconnect service '{service_name}': {e}",
+            details={"service_name": service_name}
+        )
 
 @store_router.get("/for_store/show_config", response_model=APIResponse)
 @timed_response
