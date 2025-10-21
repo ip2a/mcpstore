@@ -63,23 +63,30 @@ print(f"   🤖 : {response['output']}")
 同时也适配了多种agent框架，比如langgraph autogen等等，通过for_XXX()方法可以快速获取对应的工具对象
 
 
-### 数据库支持
-目前支持了redis数据库 可以通过传入redis的配置或者redis的对象
+### 缓存/Redis 后端
+支持使用 Redis 作为共享缓存后端，用于跨进程/多实例共享服务与工具元数据。
 
-```python
-redis_config = {
-            "url": "redis://localhost:6379/0",
-            "password": None,
-            "namespace": "demo_namespace"
-        }
+安装额外依赖：
 
-store = MCPStore.setup_store(redis =redis_config)
-
-```
-只需要
-
-```python
+```bash
 pip install mcpstore[redis]
+```
+
+使用方式（通过 `external_db` 传入缓存模块配置）：
+
+```python
+from mcpstore import MCPStore
+
+store = MCPStore.setup_store(
+    external_db={
+        "cache": {
+            "type": "redis",
+            "url": "redis://localhost:6379/0",   # 必填
+            "password": None,                      # 可选
+            "namespace": "demo_namespace"      # 可选；
+        }
+    }
+)
 ```
 
 ## 在线体验
@@ -105,7 +112,7 @@ tools = store.for_store().list_tools()
 store.for_store().call_tool(tools[0].name, {"query":'hi!'})
 ```
 
- 
+
 
 ![image-20250721212658085](http://www.text2mcp.com/img/image-20250721212658085.png)
 
@@ -170,6 +177,39 @@ POST /for_store/use_tool             # 执行工具
 GET  /for_store/get_stats            # 系统统计
 GET  /for_store/health               # 健康检查
 ```
+
+### 重要变更（保持与后端最新一致）
+
+- add_service 不再支持 wait 参数；且不支持空参数（必须提供服务配置或 json_file）
+- add_service 调用后不等待连接完成，如需等待请在 Agent 级别使用 `/for_agent/{agent_id}/wait_service`，或轮询 `service_status`
+- 请求体示例（Store 级别）：
+
+```json
+{
+  "name": "weather",
+  "url": "https://weather.example.com/mcp",
+  "transport": "streamable_http",
+  "headers": {"Authorization": "Bearer ..."}
+}
+```
+
+```json
+{
+  "name": "assistant",
+  "command": "python",
+  "args": ["./assistant_server.py"],
+  "env": {"DEBUG": "true"}
+}
+```
+
+```json
+{
+  "mcpServers": {
+    "weather": { "url": "https://weather.example.com/mcp" }
+  }
+}
+```
+
 
 
 ## 参与贡献
