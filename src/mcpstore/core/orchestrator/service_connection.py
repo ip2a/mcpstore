@@ -454,14 +454,12 @@ class ServiceConnectionMixin:
 
             # A+B+D: ???????????????????????
             try:
-                # ????????????list_tools????????????
-                if hasattr(self.registry, 'mark_tools_snapshot_dirty'):
-                    self.registry.mark_tools_snapshot_dirty()
-                global_agent_id = self.client_manager.global_agent_store_id
-                logger.debug(f"[SNAPSHOT] connection: trigger rebuild after cache update service={service_name} agent={agent_id}")
-                self.registry.rebuild_tools_snapshot(global_agent_id)
+                gid = self.client_manager.global_agent_store_id
+                if hasattr(self.registry, 'tools_changed'):
+                    self.registry.tools_changed(gid, aggressive=True)
+                logger.debug(f"[SNAPSHOT] connection: tools_changed after cache update service={service_name} agent={agent_id}")
             except Exception as e:
-                logger.warning(f"[SNAPSHOT] rebuild failed after cache update: {e}")
+                logger.warning(f"[SNAPSHOT] tools_changed failed after cache update: {e}")
 
         except Exception as e:
             logger.error(f"Failed to update service cache for '{service_name}': {e}")

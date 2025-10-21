@@ -88,6 +88,11 @@ class BaseMCPStore:
         # 而不是让 orchestrator 持有 store 引用（必须在 container 初始化之后）
         orchestrator.container = self.container
         orchestrator._context_factory = lambda: self.for_store()
+        # Ensure sync manager can reference store for batch registration path
+        try:
+            orchestrator.store = self
+        except Exception:
+            pass
 
         logger.info("ServiceContainer initialized with event-driven architecture")
 

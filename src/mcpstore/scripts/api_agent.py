@@ -388,6 +388,51 @@ async def agent_delete_service(agent_id: str, service_name: str):
         data={"service_name": service_name, "agent_id": agent_id}
     )
 
+@agent_router.post("/for_agent/{agent_id}/disconnect_service", response_model=APIResponse)
+@timed_response
+async def agent_disconnect_service(agent_id: str, request: Request):
+    """Agent 级别断开服务（生命周期断链，不修改配置）
+
+    Body 示例：
+    {
+      "service_name": "localName",  # Agent 本地名
+      "reason": "user_requested"
+    }
+    """
+    validate_agent_id(agent_id)
+    body = await request.json()
+    local_name = body.get("service_name") or body.get("name")
+    reason = body.get("reason", "user_requested")
+
+    if not local_name:
+        return ResponseBuilder.error(
+            code=ErrorCode.VALIDATION_ERROR,
+            message="Missing service_name",
+            field="service_name"
+        )
+
+    store = get_store()
+    context = store.for_agent(agent_id)
+
+    try:
+        ok = await context.disconnect_service_async(local_name, reason=reason)
+        if ok:
+            return ResponseBuilder.success(
+                message=f"Service '{local_name}' disconnected for agent '{agent_id}'",
+                data={"agent_id": agent_id, "service_name": local_name, "status": "disconnected"}
+            )
+        return ResponseBuilder.error(
+            code=ErrorCode.SERVICE_OPERATION_FAILED,
+            message=f"Failed to disconnect service '{local_name}' for agent '{agent_id}'",
+            details={"agent_id": agent_id, "service_name": local_name}
+        )
+    except Exception as e:
+        return ResponseBuilder.error(
+            code=ErrorCode.INTERNAL_ERROR,
+            message=f"Failed to disconnect service '{local_name}' for agent '{agent_id}': {e}",
+            details={"agent_id": agent_id, "service_name": local_name}
+        )
+
 @agent_router.get("/for_agent/{agent_id}/show_mcpconfig", response_model=APIResponse)
 @timed_response
 async def agent_show_mcpconfig(agent_id: str):

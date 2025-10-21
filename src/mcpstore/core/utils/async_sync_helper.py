@@ -56,6 +56,50 @@ class AsyncSyncHelper:
             try:
                 self._loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(self._loop)
+                # Install a custom exception handler to demote expected network errors
+                try:
+                    default_handler = self._loop.get_exception_handler()
+                except Exception:
+                    default_handler = None
+
+                def _exception_handler(loop, context):
+                    try:
+                        exc = context.get("exception")
+                        msg = context.get("message", "")
+                        # Import lazily to avoid hard dependency at import time
+                        try:
+                            import httpx  # type: ignore
+                        except Exception:
+                            httpx = None  # type: ignore
+                        # Demote common network/connectivity errors from ERROR to WARNING
+                        if exc is not None:
+                            if httpx and isinstance(exc, getattr(httpx, "ConnectError", tuple())):
+                                logger.warning("[ASYNC_LOOP] background task connection error (demoted): %s", exc)
+                                return
+                            text = str(exc)
+                            if "All connection attempts failed" in text or "timed out" in text:
+                                logger.warning("[ASYNC_LOOP] background task network error (demoted): %s", exc)
+                                return
+                        # Fallback to default behavior
+                        if default_handler:
+                            default_handler(loop, context)
+                        else:
+                            loop.default_exception_handler(context)
+                    except Exception:
+                        # Never let the exception handler crash
+                        try:
+                            if default_handler:
+                                default_handler(loop, context)
+                            else:
+                                loop.default_exception_handler(context)
+                        except Exception:
+                            pass
+
+                try:
+                    self._loop.set_exception_handler(_exception_handler)
+                except Exception:
+                    pass
+
                 loop_ready.set()
                 logger.debug("Background event loop started")
                 self._loop.run_forever()

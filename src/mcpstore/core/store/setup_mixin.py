@@ -129,8 +129,8 @@ class SetupMixin:
         try:
             logger.info(" [INIT_MCP] 开始从 mcp.json 解析服务...")
 
-            # 读取 mcp.json 配置
-            mcp_config = self.config.load_config()
+            # 读取 mcp.json 配置（优化：使用缓存）
+            mcp_config = self._unified_config.get_mcp_config()
             mcp_servers = mcp_config.get("mcpServers", {})
 
             if not mcp_servers:

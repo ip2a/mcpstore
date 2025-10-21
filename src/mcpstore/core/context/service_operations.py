@@ -102,7 +102,48 @@ class ServiceOperationsMixin:
     职责：提供用户API，委托给应用服务
     """
 
-
+    @staticmethod
+    def _find_mcp_servers_key(config: Dict[str, Any]) -> Optional[str]:
+        """
+        查找 mcpServers 键（不区分大小写）
+        
+        Args:
+            config: 配置字典
+            
+        Returns:
+            Optional[str]: 找到的键名（原始大小写），如果没找到返回 None
+        """
+        if not isinstance(config, dict):
+            return None
+        
+        for key in config.keys():
+            if key.lower() == "mcpservers":
+                return key
+        return None
+    
+    @staticmethod
+    def _normalize_mcp_servers(config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        标准化 mcpServers 配置（将键名统一为 "mcpServers"）
+        
+        Args:
+            config: 配置字典
+            
+        Returns:
+            Optional[Dict[str, Any]]: 标准化后的配置，如果没有 mcpServers 键返回 None
+        """
+        key = ServiceOperationsMixin._find_mcp_servers_key(config)
+        if not key:
+            return None
+        
+        # 如果已经是标准格式，直接返回
+        if key == "mcpServers":
+            return config
+        
+        # 标准化为 mcpServers
+        standardized = {k: v for k, v in config.items() if k != key}
+        standardized["mcpServers"] = config[key]
+        return standardized
 
     # === Core service interface ===
     def list_services(self) -> List[ServiceInfo]:
@@ -298,16 +339,18 @@ class ServiceOperationsMixin:
 
         if isinstance(config, dict):
             # 处理单个服务配置
-            if "mcpServers" in config:
-                # mcpServers格式，直接返回
-                return config
+            # 兼容大小写不敏感的 mcpServers
+            normalized = self._normalize_mcp_servers(config)
+            if normalized:
+                # mcpServers格式，返回标准化后的配置
+                return normalized
             else:
                 # 单个服务格式，进行验证和转换
                 processed = config.copy()
 
                 # 验证必需字段
                 if "name" not in processed:
-                    raise ValueError("Service name is required")
+                    raise ValueError("服务配置缺少name字段")
 
                 # 验证互斥字段
                 if "url" in processed and "command" in processed:
@@ -337,8 +380,11 @@ class ServiceOperationsMixin:
         if isinstance(config, dict):
             if "name" in config:
                 return [config["name"]]
-            elif "mcpServers" in config:
-                return list(config["mcpServers"].keys())
+            else:
+                # 兼容大小写不敏感的 mcpServers
+                key = self._find_mcp_servers_key(config)
+                if key:
+                    return list(config[key].keys())
         elif isinstance(config, list):
             return config
 
@@ -434,7 +480,8 @@ class ServiceOperationsMixin:
                     raise Exception("config 为字符串时必须是合法的 JSON")
 
             # 宽容 root 映射（无 mcpServers）：{"svc": {"url"|"command"...}, ...}
-            if isinstance(config, dict) and "mcpServers" not in config and "name" not in config:
+            # 兼容大小写不敏感的 mcpServers
+            if isinstance(config, dict) and not self._find_mcp_servers_key(config) and "name" not in config:
                 if config and all(isinstance(v, dict) and ("url" in v or "command" in v) for v in config.values()):
                     config = {"mcpServers": config}
 
@@ -512,9 +559,11 @@ class ServiceOperationsMixin:
             logger.info(f"[ADD_SERVICE] cache_first start")
 
             # 转换为标准格式
-            if "mcpServers" in config:
-                # 已经是MCPConfig格式
-                mcp_config = config
+            # 兼容大小写不敏感的 mcpServers
+            normalized = self._normalize_mcp_servers(config)
+            if normalized:
+                # 已经是MCPConfig格式，使用标准化后的配置
+                mcp_config = normalized
             else:
                 # 单个服务配置，需要转换为MCPConfig格式
                 service_name = config.get("name")
@@ -795,22 +844,15 @@ class ServiceOperationsMixin:
             # 文件持久化失败不影响缓存使用，但需要记录
 
     async def _persist_to_mcp_json(self, services_to_add: Dict[str, Dict[str, Any]]):
-        """持久化到 mcp.json"""
+        """持久化到 mcp.json（优化：使用 UnifiedConfigManager）"""
         try:
-            # 1. 加载现有配置
-            current_config = self._store.config.load_config()
-
-            # 2. 合并新配置到mcp.json
-            for name, service_config in services_to_add.items():
-                current_config["mcpServers"][name] = service_config
-
-            # 3. 保存更新后的配置
-            self._store.config.save_config(current_config)
-
-            # 4. 重新加载配置以确保同步
-            self._store.config.load_config()
-
-            logger.info("Store模式：mcp.json已更新")
+            # 使用 UnifiedConfigManager 批量添加服务（一次性保存 + 自动刷新缓存）
+            success = self._store._unified_config.batch_add_services(services_to_add)
+            
+            if not success:
+                raise Exception("Failed to persist services to mcp.json")
+            
+            logger.info(f"✅ Store模式：已添加 {len(services_to_add)} 个服务到 mcp.json，缓存已同步")
 
         except Exception as e:
             logger.error(f"Failed to persist to mcp.json: {e}")
@@ -1167,29 +1209,27 @@ class ServiceOperationsMixin:
             raise
 
     async def _sync_agent_services_to_files(self, agent_id: str, services_to_add: Dict[str, Any]):
-        """同步 Agent 服务到持久化文件"""
+        """同步 Agent 服务到持久化文件（优化：使用 UnifiedConfigManager）"""
         try:
             logger.info(f" [AGENT_SYNC] 开始同步 Agent 服务到文件: {agent_id}")
 
-            # 更新 mcp.json（添加带后缀的服务）
-            current_mcp_config = self._store.config.load_config()
-            if "mcpServers" not in current_mcp_config:
-                current_mcp_config["mcpServers"] = {}
-
+            # 构建带后缀的服务配置字典
             from .agent_service_mapper import AgentServiceMapper
             mapper = AgentServiceMapper(agent_id)
-
+            
+            global_services = {}
             for local_name, service_config in services_to_add.items():
                 global_name = mapper.to_global_name(local_name)
-                current_mcp_config["mcpServers"][global_name] = service_config
-                logger.debug(f" [AGENT_SYNC] 添加到 mcp.json: {global_name}")
+                global_services[global_name] = service_config
+                logger.debug(f" [AGENT_SYNC] 准备添加到 mcp.json: {global_name}")
 
-            # 保存 mcp.json
-            success = self._store.config.save_config(current_mcp_config)
+            # 使用 UnifiedConfigManager 批量添加服务（一次性保存 + 自动刷新缓存）
+            success = self._store._unified_config.batch_add_services(global_services)
+            
             if success:
-                logger.info(f" [AGENT_SYNC] mcp.json 更新成功")
+                logger.info(f"✅ [AGENT_SYNC] mcp.json 更新成功：已添加 {len(global_services)} 个服务，缓存已同步")
             else:
-                logger.error(f" [AGENT_SYNC] mcp.json 更新失败")
+                logger.error(f"❌ [AGENT_SYNC] mcp.json 更新失败")
 
             # 单源模式：不再写分片文件，仅维护 mcp.json
             logger.info(f"ℹ️ [AGENT_SYNC] 单源模式下已禁用分片文件写入（agent_clients/client_services）")
@@ -1316,9 +1356,11 @@ class ServiceOperationsMixin:
                         cfg.pop(k, None)
             return cfg
 
-        if isinstance(config, dict) and "mcpServers" in config and isinstance(config["mcpServers"], dict):
+        # 兼容大小写不敏感的 mcpServers
+        key = self._find_mcp_servers_key(config) if isinstance(config, dict) else None
+        if key and isinstance(config[key], dict):
             final_config = {"mcpServers": {}}
-            for name, svc_cfg in config["mcpServers"].items():
+            for name, svc_cfg in config[key].items():
                 if isinstance(svc_cfg, dict):
                     final_config["mcpServers"][name] = _apply_to_service_cfg(svc_cfg)
                 else:

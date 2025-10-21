@@ -24,9 +24,10 @@ class ConfigManagementMixin:
         return self._unified_config
 
     def get_json_config(self, client_id: Optional[str] = None) -> ConfigResponse:
-        """查询服务配置，等价于 GET /register/json"""
+        """查询服务配置，等价于 GET /register/json（优化：使用缓存）"""
         if not client_id or client_id == self.client_manager.global_agent_store_id:
-            config = self.config.load_config()
+            # 使用 UnifiedConfigManager 读取配置（从缓存，更高效）
+            config = self._unified_config.get_mcp_config()
             return ConfigResponse(
                 success=True,
                 client_id=self.client_manager.global_agent_store_id,
@@ -45,12 +46,13 @@ class ConfigManagementMixin:
     def show_mcpjson(self) -> Dict[str, Any]:
         # TODO:show_mcpjson和get_json_config是否有一定程度的重合
         """
-        直接读取并返回 mcp.json 文件的内容
+        直接读取并返回 mcp.json 文件的内容（优化：使用缓存）
 
         Returns:
             Dict[str, Any]: mcp.json 文件的内容
         """
-        return self.config.load_config()
+        # 使用 UnifiedConfigManager 读取配置（从缓存，更高效）
+        return self._unified_config.get_mcp_config()
 
     async def _sync_discovered_agents_to_files(self, agents_discovered: set):
         """
