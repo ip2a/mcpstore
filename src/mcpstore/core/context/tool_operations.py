@@ -391,11 +391,11 @@ class ToolOperationsMixin:
             logger.info(f"[SMART_RESOLVE] input='{tool_name}' fastmcp='{fastmcp_tool_name}' service='{resolution.service_name}' method='{resolution.resolution_method}'")
 
         except ValueError as e:
-            # LLM可读错误：工具名解析失败，不抛异常，返回结构化错误供上层模型理解
+            # LLM-readable error: tool name resolution failed, return structured error for model understanding
             return {
                 "content": [{
                     "type": "text",
-                    "text": f"[LLM提示] 工具名称无法解析：{str(e)}。请检查工具名或补充服务前缀，例如 service_tool。"
+                    "text": f"[LLM Hint] Tool name resolution failed: {str(e)}. Please check the tool name or add service prefix, e.g. service_tool."
                 }],
                 "is_error": True
             }
@@ -426,13 +426,13 @@ class ToolOperationsMixin:
 
         response = await self._store.process_tool_request(request)
 
-        # 将执行阶段的错误转化为LLM可读的错误结果，避免异常导致代码中断
+        # Convert execution errors to LLM-readable format to avoid code interruption
         if hasattr(response, 'success') and not response.success:
-            msg = getattr(response, 'error', '工具执行失败')
+            msg = getattr(response, 'error', 'Tool execution failed')
             return {
                 "content": [{
                     "type": "text",
-                    "text": f"[LLM提示] 工具调用失败：{msg}"
+                    "text": f"[LLM Hint] Tool invocation failed: {msg}"
                 }],
                 "is_error": True
             }
@@ -576,16 +576,16 @@ class ToolOperationsMixin:
             str: 本地工具名
         """
         try:
-            # 如果工具名以全局服务名开头，替换为本地服务名
+            # If tool name starts with global service name, replace with local service name
             if global_tool_name.startswith(f"{global_service_name}_"):
                 tool_suffix = global_tool_name[len(global_service_name) + 1:]
                 return f"{local_service_name}_{tool_suffix}"
             else:
-                # 如果不符合预期格式，直接返回原工具名
+                # If format doesn't match, return original tool name
                 return global_tool_name
 
         except Exception as e:
-            logger.error(f" [TOOL_NAME_CONVERT] 工具名转换失败: {e}")
+            logger.error(f"[TOOL_NAME_CONVERT] Tool name conversion failed: {e}")
             return global_tool_name
 
     def _get_local_service_name_from_global(self, global_service_name: str) -> Optional[str]:
@@ -602,7 +602,7 @@ class ToolOperationsMixin:
             if not self._agent_id:
                 return None
 
-            # 检查映射关系
+            # Check mapping relationship
             agent_mappings = self._store.registry.agent_to_global_mappings.get(self._agent_id, {})
             for local_name, global_name in agent_mappings.items():
                 if global_name == global_service_name:
@@ -611,5 +611,5 @@ class ToolOperationsMixin:
             return None
 
         except Exception as e:
-            logger.error(f" [SERVICE_NAME_CONVERT] 服务名转换失败: {e}")
+            logger.error(f"[SERVICE_NAME_CONVERT] Service name conversion failed: {e}")
             return None
