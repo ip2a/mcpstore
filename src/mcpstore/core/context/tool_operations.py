@@ -391,7 +391,14 @@ class ToolOperationsMixin:
             logger.info(f"[SMART_RESOLVE] input='{tool_name}' fastmcp='{fastmcp_tool_name}' service='{resolution.service_name}' method='{resolution.resolution_method}'")
 
         except ValueError as e:
-            raise ValueError(f"智能工具解析失败: {e}")
+            # LLM可读错误：工具名解析失败，不抛异常，返回结构化错误供上层模型理解
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"[LLM提示] 工具名称无法解析：{str(e)}。请检查工具名或补充服务前缀，例如 service_tool。"
+                }],
+                "is_error": True
+            }
 
         # 构造标准化的工具执行请求
         from mcpstore.core.models.tool import ToolExecutionRequest
@@ -418,6 +425,17 @@ class ToolOperationsMixin:
             )
 
         response = await self._store.process_tool_request(request)
+
+        # 将执行阶段的错误转化为LLM可读的错误结果，避免异常导致代码中断
+        if hasattr(response, 'success') and not response.success:
+            msg = getattr(response, 'error', '工具执行失败')
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"[LLM提示] 工具调用失败：{msg}"
+                }],
+                "is_error": True
+            }
 
         if return_extracted:
             try:
