@@ -3,9 +3,12 @@
  * 统一的 API 配置和常量定义
  */
 
+import { getRequiredEnv, getRequiredEnvNumber } from '@/utils/env'
+
 // API 版本
 export const API_VERSION = '1.0.0'
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
+export const API_BASE_URL = getRequiredEnv('VITE_API_BASE_URL')
+export const API_TIMEOUT_MS = getRequiredEnvNumber('VITE_API_TIMEOUT')
 
 // API 端点路径
 export const API_ENDPOINTS = {
@@ -26,10 +29,11 @@ export const API_ENDPOINTS = {
     CHECK_SERVICES: '/for_store/check_services',
     HEALTH: '/for_store/health',
     SHOW_CONFIG: '/for_store/show_config',
+    SHOW_MCPJSON: '/for_store/show_mcpjson',
     UPDATE_CONFIG: '/for_store/update_config/{client_id_or_service_name}',
     RESET_CONFIG: '/for_store/reset_config',
+    RESET_MCPJSON: '/for_store/reset_mcpjson',
 
-    GET_STATS: '/for_store/get_stats',
     TOOL_RECORDS: '/for_store/tool_records',
     SYSTEM_RESOURCES: '/for_store/system_resources',
     NETWORK_CHECK: '/for_store/network_check',
@@ -67,7 +71,6 @@ export const API_ENDPOINTS = {
     RESET_CONFIG: '/for_agent/{agent_id}/reset_config',
     RESET_CLIENT_SERVICES: '/for_agent/{agent_id}/reset_client_services_file',
     RESET_AGENT_CLIENTS: '/for_agent/{agent_id}/reset_agent_clients_file',
-    GET_STATS: '/for_agent/{agent_id}/get_stats',
     TOOL_RECORDS: '/for_agent/{agent_id}/tool_records',
     USE_TOOL: '/for_agent/{agent_id}/use_tool' // 向后兼容
   },

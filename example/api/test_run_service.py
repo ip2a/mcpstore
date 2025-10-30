@@ -8,7 +8,7 @@ setup_import_path()
 
 from mcpstore import MCPStore
 # prod_store = MCPStore.setup_store('./prod_workspace/mcp.json')
-prod_store = MCPStore.setup_store(debug = True)
+prod_store = MCPStore.setup_store(debug = True,mcp_config_file=r'S:\BaiduSyncdisk\2025_6\mcpstore\src\mcpstore\data\mcp.json')
 # prod_store = MCPStore.setup_store(mcp_config_file=r'S:\BaiduSyncdisk\2025_6\mcpstore\test_workspaces\workspace1\mcp.json')
 # prod_store = MCPStore.setup_store(mcp_config_file=r'S:\BaiduSyncdisk\2025_6\mcpstore\test_workspaces\workspace1\mcp.json',debug = True)
 prod_store.start_api_server(

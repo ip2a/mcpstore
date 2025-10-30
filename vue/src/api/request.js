@@ -1,15 +1,14 @@
 import axios from 'axios'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { API_BASE_URL } from './config'
+import { API_BASE_URL, API_TIMEOUT_MS, API_VERSION } from './config'
 import { handleApiError } from './utils'
 
 // 创建axios实例
 const request = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000, // 增加到30秒以适应长时间操作
+  timeout: API_TIMEOUT_MS,
   headers: {
     'Content-Type': 'application/json',
-    'X-API-Version': '1.0.0'
+    'X-API-Version': API_VERSION
   }
 })
 

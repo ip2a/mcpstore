@@ -87,7 +87,7 @@ export const useSystemStore = defineStore('system', () => {
   const toolsByService = computed(() => {
     const grouped = {}
     tools.value.forEach(tool => {
-      const serviceName = tool.service_name || 'unknown'
+      const serviceName = tool.service || 'unknown'
       if (!grouped[serviceName]) {
         grouped[serviceName] = []
       }
@@ -339,7 +339,7 @@ export const useSystemStore = defineStore('system', () => {
       
       // 从本地状态中移除
       services.value = services.value.filter(s => s.name !== serviceName)
-      tools.value = tools.value.filter(t => t.service_name !== serviceName)
+      tools.value = tools.value.filter(t => t.service !== serviceName)
       
       updateStats()
       return true
@@ -461,7 +461,7 @@ export const useSystemStore = defineStore('system', () => {
       if (response.data.success) {
         // 从本地状态中移除
         services.value = services.value.filter(s => !serviceNames.includes(s.name))
-        tools.value = tools.value.filter(t => !serviceNames.includes(t.service_name))
+        tools.value = tools.value.filter(t => !serviceNames.includes(t.service))
         updateStats()
       }
 
@@ -646,7 +646,7 @@ export const useSystemStore = defineStore('system', () => {
     return tools.value.filter(tool => 
       tool.name.toLowerCase().includes(lowerQuery) ||
       (tool.description && tool.description.toLowerCase().includes(lowerQuery)) ||
-      (tool.service_name && tool.service_name.toLowerCase().includes(lowerQuery))
+      (tool.service && tool.service.toLowerCase().includes(lowerQuery))
     )
   }
   
@@ -655,7 +655,7 @@ export const useSystemStore = defineStore('system', () => {
   }
   
   const getToolsByService = (serviceName) => {
-    return tools.value.filter(tool => tool.service_name === serviceName)
+    return tools.value.filter(tool => tool.service === serviceName)
   }
   
   const clearData = () => {

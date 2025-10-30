@@ -96,7 +96,7 @@
             </div>
             <div class="info-item">
               <span class="info-label">所属服务</span>
-              <span class="info-value">{{ currentTool.service_name }}</span>
+              <span class="info-value">{{ currentTool.service }}</span>
             </div>
             <div class="info-item full-width">
               <span class="info-label">描述</span>
@@ -283,7 +283,7 @@
               </div>
               <div class="info-row">
                 <span class="label">服务:</span>
-                <span class="value">{{ currentTool.service_name }}</span>
+                <span class="value">{{ currentTool.service }}</span>
               </div>
               <div class="info-row" v-if="hasParameters">
                 <span class="label">参数:</span>
@@ -411,13 +411,13 @@ const paramsFormRef = ref()
 
 // 计算属性
 const serviceNames = computed(() => {
-  const names = new Set(systemStore.tools.map(tool => tool.service_name))
+  const names = new Set(systemStore.tools.map(tool => tool.service))
   return Array.from(names).sort()
 })
 
 const availableTools = computed(() => {
   if (!selectedService.value) return []
-  return systemStore.tools.filter(tool => tool.service_name === selectedService.value)
+  return systemStore.tools.filter(tool => tool.service === selectedService.value)
 })
 
 const currentTool = computed(() => {
@@ -426,8 +426,8 @@ const currentTool = computed(() => {
 })
 
 const toolParameters = computed(() => {
-  if (!currentTool.value?.inputSchema?.properties) return {}
-  return currentTool.value.inputSchema.properties
+  if (!currentTool.value?.input_schema?.properties) return {}
+  return currentTool.value.input_schema.properties
 })
 
 const hasParameters = computed(() => {
@@ -436,7 +436,7 @@ const hasParameters = computed(() => {
 
 const paramRules = computed(() => {
   const rules = {}
-  const required = currentTool.value?.inputSchema?.required || []
+  const required = currentTool.value?.input_schema?.required || []
   
   Object.keys(toolParameters.value).forEach(paramName => {
     if (required.includes(paramName)) {
@@ -455,12 +455,12 @@ const canExecute = computed(() => {
 
 // 新增：获取服务的工具数量
 const getServiceToolCount = (serviceName) => {
-  return systemStore.tools.filter(tool => tool.service_name === serviceName).length
+  return systemStore.tools.filter(tool => tool.service === serviceName).length
 }
 
 // 新增：检查参数是否必需
 const isRequired = (paramName) => {
-  const required = currentTool.value?.inputSchema?.required || []
+  const required = currentTool.value?.input_schema?.required || []
   return required.includes(paramName)
 }
 
@@ -605,7 +605,7 @@ watch(() => route.query.tool, (toolName) => {
   if (toolName) {
     const tool = systemStore.tools.find(t => t.name === toolName)
     if (tool) {
-      selectedService.value = tool.service_name
+      selectedService.value = tool.service
       selectedTool.value = tool.name
     }
   }
