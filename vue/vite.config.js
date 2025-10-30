@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 import AutoImport from 'unplugin-auto-import/vite'
@@ -7,9 +7,20 @@ import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
-  // 两种环境配置
-  const isDomain = mode === 'domain'
-  const base = isDomain ? '/web_demo/' : '/'  // 域名模式需要正确的base路径
+  const env = loadEnv(mode, process.cwd(), '')
+  const required = (name) => {
+    const value = env[name]
+    if (!value) {
+      throw new Error(`[VITE] Missing required environment variable: ${name}`)
+    }
+    return value
+  }
+
+  // 必填环境变量校验（开发环境也必须提供）
+  const port = Number(required('VITE_DEV_PORT'))
+  const host = required('VITE_DEV_HOST')
+  required('VITE_API_BASE_URL')
+  required('VITE_API_TIMEOUT')
 
   return {
     plugins: [
@@ -35,23 +46,16 @@ export default defineConfig(({ mode }) => {
         '@assets': resolve(__dirname, 'src/assets')
       }
     },
-    base,
+    base: '/',
     server: {
-      port: 5177,
-      host: true,  // 监听所有地址
-      open: !isDomain,
+      port,
+      host,  // 由环境变量控制
+      open: false,
       cors: true,
-
-      // 根据环境配置HMR
-      hmr: isDomain ? false : {  // 域名环境禁用HMR，避免复杂的代理问题
-        port: 5177,
+      hmr: {
+        port,
         host: 'localhost'
-      },
-
-      // 域名环境的额外配置
-      ...(isDomain && {
-        allowedHosts: ['mcpstore.wiki', 'localhost', '127.0.0.1']
-      })
+      }
     },
     build: {
       outDir: 'dist',
@@ -66,7 +70,7 @@ export default defineConfig(({ mode }) => {
       }
     },
     preview: {
-      port: 5177,
+      port,
       host: '0.0.0.0'
     },
     define: {

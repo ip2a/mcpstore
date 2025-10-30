@@ -1,6 +1,9 @@
 // MCPStore Vue Frontend - SCSS Variables
 // 基于 vue-element-admin 设计系统的现代化样式变量
 
+// 导入 Sass 模块（必须在最开头）
+@use 'sass:map';
+
 // 颜色系统 - 专业的企业级配色
 :root {
   // 主色调 - Element Plus 蓝色系
@@ -668,4 +671,262 @@ $card-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
   .items-center { align-items: center !important; }
   .items-baseline { align-items: baseline !important; }
   .items-stretch { align-items: stretch !important; }
+}
+
+// ============================================
+// 🎨 现代化视觉增强 - 渐进式美化
+// ============================================
+
+// 现代化渐变色 - 更丰富的渐变效果
+:root {
+  // 玻璃态渐变
+  --gradient-glass-primary: linear-gradient(135deg, rgba(64, 158, 255, 0.1) 0%, rgba(102, 177, 255, 0.05) 100%);
+  --gradient-glass-success: linear-gradient(135deg, rgba(103, 194, 58, 0.1) 0%, rgba(133, 206, 97, 0.05) 100%);
+  --gradient-glass-warning: linear-gradient(135deg, rgba(230, 162, 60, 0.1) 0%, rgba(243, 209, 158, 0.05) 100%);
+  --gradient-glass-danger: linear-gradient(135deg, rgba(245, 108, 108, 0.1) 0%, rgba(247, 137, 137, 0.05) 100%);
+
+  // 现代渐变 - 鲜艳活泼
+  --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --gradient-success: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+  --gradient-warning: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+  --gradient-danger: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  --gradient-info: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+
+  // 精选现代渐变调色板
+  --gradient-ocean: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --gradient-sunset: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+  --gradient-forest: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+  --gradient-sky: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  --gradient-fire: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+
+  // 玻璃态效果变量
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.3);
+  --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+  --glass-backdrop: blur(10px);
+}
+
+// 暗色模式的玻璃态效果
+:root.dark {
+  --glass-bg: rgba(20, 20, 20, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+}
+
+// 🎨 玻璃态效果 Mixin
+@mixin glass-morphism {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-backdrop);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+
+@mixin glass-card {
+  @include glass-morphism;
+  border-radius: var(--border-radius-xl);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  &:hover {
+    box-shadow: 0 8px 40px 0 rgba(31, 38, 135, 0.25);
+    transform: translateY(-2px);
+  }
+}
+
+// 🌈 现代渐变卡片
+@mixin gradient-card($gradient) {
+  background: $gradient;
+  border: none;
+  color: var(--text-inverse);
+  box-shadow: 0 8px 24px 0 rgba(0, 0, 0, 0.15);
+
+  &:hover {
+    box-shadow: 0 12px 32px 0 rgba(0, 0, 0, 0.25);
+    transform: translateY(-4px) scale(1.02);
+  }
+}
+
+// ✨ 微交互动画
+@mixin pulse-animation {
+  animation: pulse-effect 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse-effect {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@mixin bounce-in {
+  animation: bounce-in 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+@keyframes bounce-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  70% {
+    transform: scale(0.9);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@mixin scale-on-hover($scale: 1.05) {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  &:hover {
+    transform: scale($scale);
+  }
+}
+
+// 💫 Shimmer 加载效果
+@mixin shimmer-loading {
+  background: linear-gradient(
+    90deg,
+    var(--bg-color-secondary) 25%,
+    var(--bg-color-tertiary) 50%,
+    var(--bg-color-secondary) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+// 🎯 状态徽章增强版
+@mixin modern-badge($bg-color, $text-color) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  background: $bg-color;
+  color: $text-color;
+  box-shadow: 0 2px 8px rgba($text-color, 0.15);
+  transition: all 0.2s ease;
+
+  &:hover {
+    box-shadow: 0 4px 12px rgba($text-color, 0.25);
+    transform: translateY(-1px);
+  }
+}
+
+// 🎨 MCP 7状态色彩系统
+$mcp-status-colors: (
+  'initializing': (bg: #ECF5FF, text: #409EFF, dot: #409EFF),
+  'healthy': (bg: #F0F9FF, text: #67C23A, dot: #67C23A),
+  'warning': (bg: #FDF6EC, text: #E6A23C, dot: #E6A23C),
+  'reconnecting': (bg: #FDF6EC, text: #E6A23C, dot: #E6A23C),
+  'unreachable': (bg: #FEF0F0, text: #F56C6C, dot: #F56C6C),
+  'disconnecting': (bg: #F4F4F5, text: #909399, dot: #909399),
+  'disconnected': (bg: #F4F4F5, text: #909399, dot: #909399)
+);
+
+// 生成 MCP 状态徽章类
+@each $status, $colors in $mcp-status-colors {
+  .mcp-status-#{$status} {
+    @include modern-badge(map.get($colors, 'bg'), map.get($colors, 'text'));
+
+    &::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: map.get($colors, 'dot');
+
+      @if $status == 'reconnecting' {
+        animation: pulse-effect 2s infinite;
+      }
+    }
+  }
+}
+
+// 🌟 增强的工具类
+.glass-card {
+  @include glass-card;
+}
+
+.gradient-card-primary {
+  @include gradient-card(var(--gradient-primary));
+}
+
+.gradient-card-success {
+  @include gradient-card(var(--gradient-success));
+}
+
+.gradient-card-warning {
+  @include gradient-card(var(--gradient-warning));
+}
+
+.gradient-card-danger {
+  @include gradient-card(var(--gradient-danger));
+}
+
+.gradient-card-info {
+  @include gradient-card(var(--gradient-info));
+}
+
+// 特殊渐变卡片
+.gradient-card-ocean {
+  @include gradient-card(var(--gradient-ocean));
+}
+
+.gradient-card-sunset {
+  @include gradient-card(var(--gradient-sunset));
+}
+
+.gradient-card-forest {
+  @include gradient-card(var(--gradient-forest));
+}
+
+.gradient-card-sky {
+  @include gradient-card(var(--gradient-sky));
+}
+
+.gradient-card-fire {
+  @include gradient-card(var(--gradient-fire));
+}
+
+// 动画工具类
+.pulse {
+  @include pulse-animation;
+}
+
+.bounce-in {
+  @include bounce-in;
+}
+
+.shimmer {
+  @include shimmer-loading;
+}
+
+.hover-scale {
+  @include scale-on-hover;
+}
+
+.hover-scale-sm {
+  @include scale-on-hover(1.02);
+}
+
+.hover-scale-lg {
+  @include scale-on-hover(1.08);
 }

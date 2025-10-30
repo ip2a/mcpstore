@@ -20,9 +20,9 @@
         <p class="page-description">管理所有已注册的MCP服务</p>
       </div>
       <div class="header-right">
-        <el-button 
-          type="primary" 
-          :icon="Plus" 
+        <el-button
+          type="primary"
+          :icon="Plus"
           @click="$router.push('/services/add')"
         >
           添加服务
@@ -85,65 +85,75 @@
 
     <!-- 筛选和搜索 -->
     <el-card class="filter-card">
-      <el-row :gutter="20">
-        <el-col :xs="24" :sm="12" :md="8">
+      <el-row :gutter="16">
+        <el-col :xs="24" :sm="12" :md="6">
           <el-input
             v-model="searchQuery"
-            placeholder="搜索服务名称、URL或命令"
+            placeholder="Search by name"
             :prefix-icon="Search"
             clearable
             @input="handleSearch"
           />
         </el-col>
-        <el-col :xs="24" :sm="12" :md="6">
+        <el-col :xs="24" :sm="12" :md="5">
           <el-select
-            v-model="statusFilter"
-            placeholder="状态筛选"
+            v-model="typeFilter"
+            placeholder="Type filter"
             clearable
             @change="handleFilter"
           >
-            <el-option label="全部状态" value="" />
-            <el-option label="已激活服务" value="active" />
-            <el-option label="仅配置服务" value="config-only" />
-            <el-option label="健康" value="healthy" />
-            <el-option label="初始化中" value="initializing" />
-            <el-option label="重连中" value="reconnecting" />
-            <el-option label="不可达" value="unreachable" />
-            <el-option label="已断开" value="disconnected" />
+            <el-option label="All Types" value="" />
+            <el-option label="streamable_http" value="streamable_http" />
+            <el-option label="stdio" value="stdio" />
+            <el-option label="sse" value="sse" />
           </el-select>
         </el-col>
-        <el-col :xs="24" :sm="12" :md="6">
-          <el-select 
-            v-model="typeFilter" 
-            placeholder="类型筛选"
+        <el-col :xs="24" :sm="12" :md="5">
+          <el-select
+            v-model="statusFilter"
+            placeholder="Status filter"
             clearable
             @change="handleFilter"
           >
-            <el-option label="全部类型" value="" />
-            <el-option label="本地服务" value="local" />
-            <el-option label="远程服务" value="remote" />
+            <el-option label="All Status" value="" />
+            <el-option label="healthy" value="healthy" />
+            <el-option label="initializing" value="initializing" />
+            <el-option label="warning" value="warning" />
+            <el-option label="reconnecting" value="reconnecting" />
+            <el-option label="unreachable" value="unreachable" />
+            <el-option label="disconnecting" value="disconnecting" />
+            <el-option label="disconnected" value="disconnected" />
           </el-select>
         </el-col>
         <el-col :xs="24" :sm="12" :md="4">
-          <el-dropdown @command="handleBatchAction" :disabled="selectedServices.length === 0">
+          <el-button
+            type="primary"
+            :icon="Refresh"
+            @click="refreshServices"
+            :loading="refreshLoading"
+            style="width: 100%"
+          >
+            Refresh
+          </el-button>
+        </el-col>
+        <el-col :xs="24" :sm="12" :md="4">
+          <el-dropdown @command="handleBatchAction" :disabled="selectedServices.length === 0" style="width: 100%">
             <el-button
-              type="primary"
+              type="warning"
               :icon="Operation"
               :disabled="selectedServices.length === 0"
+              style="width: 100%"
             >
-              批量操作
+              Batch
               <el-icon class="el-icon--right"><ArrowDown /></el-icon>
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="batch-update" :icon="Edit">
-                  批量更新
-                </el-dropdown-item>
                 <el-dropdown-item command="batch-restart" :icon="Refresh">
-                  批量重启
+                  Batch Restart
                 </el-dropdown-item>
                 <el-dropdown-item command="batch-delete" :icon="Delete" divided>
-                  批量删除
+                  Batch Delete
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -172,7 +182,7 @@
       @batch-delete="handleBatchDelete"
       @selection-change="handleBatchSelectionChange"
     />
-    
+
     <!-- 服务表格 -->
     <el-card class="table-card">
       <el-table
@@ -183,203 +193,54 @@
         style="width: 100%"
       >
         <el-table-column type="selection" width="50" />
-        
-        <el-table-column prop="name" label="服务名称" width="200">
+        <el-table-column type="index" label="#" width="60" />
+
+        <el-table-column prop="name" label="Name" min-width="180" />
+
+        <el-table-column prop="type" label="Type" width="150" />
+
+        <el-table-column label="Status" width="120">
           <template #default="{ row }">
-            <div class="service-name clickable" @click="viewServiceTools(row)">
-              <!-- 🔧 改进：添加激活状态指示 -->
-              <div class="service-status-indicator">
-                <el-icon v-if="row.command" class="service-icon local">
-                  <FolderOpened />
-                </el-icon>
-                <el-icon v-else class="service-icon remote">
-                  <Link />
-                </el-icon>
-                <el-badge
-                  v-if="row.is_active"
-                  is-dot
-                  class="active-badge"
-                  type="success"
-                />
-                <el-badge
-                  v-else
-                  is-dot
-                  class="config-badge"
-                  type="info"
-                />
-              </div>
-              <div class="service-name-content">
-                <span class="service-name-text">{{ row.name }}</span>
-                <span v-if="!row.is_active" class="config-only-hint">仅配置</span>
-              </div>
-              <el-icon class="view-tools-icon"><View /></el-icon>
-            </div>
-          </template>
-        </el-table-column>
-        
-        <el-table-column label="类型" width="80">
-          <template #default="{ row }">
-            <el-tag 
-              :type="row.command ? 'success' : 'info'"
-              size="small"
-            >
-              {{ row.command ? '本地' : '远程' }}
+            <el-tag :type="getStatusType(row.status)" size="small">
+              {{ row.status }}
             </el-tag>
           </template>
         </el-table-column>
-        
-        <el-table-column label="连接信息" min-width="300">
+
+        <el-table-column label="KeepAlive" width="110" align="center">
           <template #default="{ row }">
-            <div v-if="row.url" class="connection-info">
-              <div class="url">{{ row.url }}</div>
-              <div class="transport">{{ row.transport || 'http' }}</div>
-            </div>
-            <div v-else-if="row.command" class="connection-info">
-              <div class="command">{{ row.command }} {{ (row.args || []).join(' ') }}</div>
-              <div class="working-dir" v-if="row.working_dir">{{ row.working_dir }}</div>
-            </div>
-          </template>
-        </el-table-column>
-        
-        <el-table-column label="状态" width="80">
-          <template #default="{ row }">
-            <el-tag
-              :type="getStatusType(row.status)"
-              size="small"
-            >
-              {{ getStatusText(row.status) }}
+            <el-tag :type="row.keep_alive ? 'success' : 'info'" size="small">
+              {{ row.keep_alive ? 'Yes' : 'No' }}
             </el-tag>
           </template>
         </el-table-column>
-        
-        <el-table-column label="工具数" width="80" align="center">
-          <template #default="{ row }">
-            <div class="tool-count-container" @click="viewServiceTools(row)">
-              <el-badge
-                :value="row.tool_count || 0"
-                :max="99"
-                class="tool-count-badge clickable"
-              >
-                <el-icon><Tools /></el-icon>
-              </el-badge>
-            </div>
-          </template>
-        </el-table-column>
-        
-        <!-- 🔧 增强：连接状态和健康度 -->
-        <el-table-column label="连接状态" width="180">
-          <template #default="{ row }">
-            <div v-if="row.is_active" class="connection-status">
-              <!-- 客户端ID -->
-              <div class="client-id">
-                <el-tag size="small" type="info">
-                  {{ row.client_id ? row.client_id.split('_').pop() : 'N/A' }}
-                </el-tag>
-              </div>
 
-              <!-- 连接统计 -->
-              <div class="connection-stats">
-                <el-tooltip content="连续成功次数" placement="top">
-                  <el-tag size="small" type="success" v-if="row.consecutive_successes > 0">
-                    ✓{{ row.consecutive_successes }}
-                  </el-tag>
-                </el-tooltip>
-                <el-tooltip content="连续失败次数" placement="top">
-                  <el-tag size="small" type="danger" v-if="row.consecutive_failures > 0">
-                    ✗{{ row.consecutive_failures }}
-                  </el-tag>
-                </el-tooltip>
-                <el-tooltip content="重连尝试次数" placement="top">
-                  <el-tag size="small" type="warning" v-if="row.reconnect_attempts > 0">
-                    🔄{{ row.reconnect_attempts }}
-                  </el-tag>
-                </el-tooltip>
-              </div>
+        <el-table-column prop="url" label="URL" min-width="220" show-overflow-tooltip />
 
-              <!-- 状态进入时间 -->
-              <div class="state-time" v-if="row.state_entered_time">
-                <small>{{ formatRelativeTime(row.state_entered_time) }}</small>
-              </div>
-            </div>
-            <div v-else class="config-only-info">
-              <el-tag size="small" type="info">未激活</el-tag>
-              <el-button
-                size="small"
-                type="primary"
-                link
-                @click="activateService(row)"
-                :loading="row.activating"
-              >
-                激活服务
-              </el-button>
-            </div>
+        <el-table-column prop="command" label="Command" width="120" />
+
+        <el-table-column label="Args" min-width="200" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.args && row.args.length">{{ (row.args || []).join(' ') }}</span>
+            <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
 
-        <!-- 🔧 新增：错误信息列 -->
-        <el-table-column label="错误信息" width="200">
+        <el-table-column prop="tools_count" label="Tools" width="100" align="center">
           <template #default="{ row }">
-            <div v-if="row.error_message" class="error-info">
-              <el-tooltip :content="row.error_message" placement="top" :show-after="500">
-                <el-tag size="small" type="danger" class="error-tag">
-                  <el-icon><Warning /></el-icon>
-                  错误详情
-                </el-tag>
-              </el-tooltip>
-            </div>
-            <div v-else-if="row.is_active" class="no-error">
-              <el-tag size="small" type="success">
-                <el-icon><Check /></el-icon>
-                正常
-              </el-tag>
-            </div>
-            <div v-else class="not-active">
-              <span class="text-muted">-</span>
-            </div>
+            <el-badge :value="row.tools_count ?? 0" :max="99" type="primary" />
           </template>
         </el-table-column>
-        
-        <el-table-column label="操作" width="300" fixed="right">
+
+        <el-table-column label="Actions" width="220" fixed="right" align="center">
           <template #default="{ row }">
-            <div class="action-buttons">
-              <el-button
-                size="small"
-                type="primary"
-                @click="viewServiceDetails(row)"
-                class="action-btn"
-              >
-                详情
-              </el-button>
-              <el-button
-                size="small"
-                type="success"
-                @click="editService(row)"
-                class="action-btn"
-              >
-                编辑
-              </el-button>
-              <el-button
-                size="small"
-                type="warning"
-                @click="restartService(row)"
-                :loading="row.restarting"
-                class="action-btn"
-              >
-                重启
-              </el-button>
-              <el-button
-                size="small"
-                type="danger"
-                @click="deleteService(row)"
-                class="action-btn"
-              >
-                删除
-              </el-button>
-            </div>
+            <el-button link type="primary" size="small" @click="viewServiceDetails(row)">Detail</el-button>
+            <el-button link type="warning" size="small" @click="restartService(row)" :loading="row.restarting">Restart</el-button>
+            <el-button link type="danger" size="small" @click="deleteService(row)">Delete</el-button>
           </template>
         </el-table-column>
       </el-table>
-      
+
       <!-- 空状态 -->
       <div v-if="filteredServices.length === 0 && !loading" class="empty-container">
         <el-icon class="empty-icon"><Connection /></el-icon>
@@ -387,16 +248,16 @@
         <div class="empty-description">
           {{ searchQuery || statusFilter || typeFilter ? '没有找到匹配的服务' : '还没有注册任何服务' }}
         </div>
-        <el-button 
+        <el-button
           v-if="!searchQuery && !statusFilter && !typeFilter"
-          type="primary" 
+          type="primary"
           @click="$router.push('/services/add')"
         >
           添加第一个服务
         </el-button>
       </div>
     </el-card>
-    
+
     <!-- 批量更新对话框 -->
     <BatchUpdateDialog
       v-model="batchUpdateDialogVisible"
@@ -619,17 +480,17 @@ const showErrorDetails = ref(false)
 // 计算属性
 const filteredServices = computed(() => {
   let services = systemStore.services
-  
+
   // 搜索过滤
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
-    services = services.filter(service => 
+    services = services.filter(service =>
       service.name.toLowerCase().includes(query) ||
       (service.url && service.url.toLowerCase().includes(query)) ||
       (service.command && service.command.toLowerCase().includes(query))
     )
   }
-  
+
   // 🔧 改进：状态过滤支持激活状态和7状态系统
   if (statusFilter.value) {
     services = services.filter(service => {
@@ -643,19 +504,12 @@ const filteredServices = computed(() => {
       }
     })
   }
-  
-  // 类型过滤
+
+  // 类型过滤（直接匹配 type 字段）
   if (typeFilter.value) {
-    services = services.filter(service => {
-      if (typeFilter.value === 'local') {
-        return !!service.command
-      } else if (typeFilter.value === 'remote') {
-        return !!service.url
-      }
-      return true
-    })
+    services = services.filter(service => service.type === typeFilter.value)
   }
-  
+
   return services
 })
 
@@ -790,14 +644,14 @@ const handleBatchEdit = async (data) => {
   try {
     const { items, field, value } = data
     const serviceNames = items.map(s => s.name)
-    
+
     // Prepare update data
     const updateData = {}
     updateData[field] = value
-    
+
     const { api } = await import('@/api')
     const response = await api.store.batchUpdateServices(serviceNames, updateData)
-    
+
     if (response.data.success) {
       ElMessage.success('批量更新成功')
       await refreshServices()
@@ -1283,26 +1137,26 @@ onMounted(async () => {
   .page-header {
     @include flex-between;
     margin-bottom: 20px;
-    
+
     .header-left {
       .page-title {
         margin: 0 0 4px 0;
         font-size: 24px;
         font-weight: var(--font-weight-medium);
       }
-      
+
       .page-description {
         margin: 0;
         color: var(--text-secondary);
       }
     }
-    
+
     .header-right {
       display: flex;
       gap: 12px;
     }
   }
-  
+
   .stats-card {
     margin-bottom: 20px;
 
@@ -1343,7 +1197,7 @@ onMounted(async () => {
   .filter-card {
     margin-bottom: 20px;
   }
-  
+
   .table-card {
     .service-name {
       display: flex;
@@ -1455,21 +1309,21 @@ onMounted(async () => {
       gap: 4px;
       align-items: flex-start;
     }
-    
+
     .connection-info {
       .url,
       .command {
         font-weight: var(--font-weight-medium);
         margin-bottom: 2px;
       }
-      
+
       .transport,
       .working-dir {
         font-size: var(--font-size-xs);
         color: var(--text-secondary);
       }
     }
-    
+
     .tool-count-container {
       display: inline-block;
       cursor: pointer;
@@ -1493,12 +1347,12 @@ onMounted(async () => {
         right: 8px;
       }
     }
-    
+
     .heartbeat-time {
       font-size: var(--font-size-sm);
       color: var(--text-regular);
     }
-    
+
     .action-buttons {
       display: flex;
       gap: 6px;
@@ -1518,11 +1372,11 @@ onMounted(async () => {
       }
     }
   }
-  
+
   .service-details {
     .env-section {
       margin-top: 20px;
-      
+
       h4 {
         margin-bottom: 12px;
         color: var(--text-primary);
@@ -1538,13 +1392,13 @@ onMounted(async () => {
       flex-direction: column;
       align-items: flex-start;
       gap: 16px;
-      
+
       .header-right {
         width: 100%;
         justify-content: flex-end;
       }
     }
-    
+
     .action-buttons {
       flex-direction: column;
       gap: 4px;

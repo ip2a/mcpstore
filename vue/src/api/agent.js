@@ -16,10 +16,19 @@ export const agentApi = {
   /**
    * 服务管理
    */
-  addService: (agentId, payload) => apiRequest.post(
-    formatApiPath(API_ENDPOINTS.AGENT.ADD_SERVICE, { agent_id: agentId }),
-    payload
-  ),
+  addService: (agentId, payload) => {
+    // 后端不再支持 wait，且必须提供有效配置
+    if (!payload || (typeof payload === 'object' && Object.keys(payload).length === 0)) {
+      throw new Error('agent.addService: 必须提供服务配置（后端不再支持空参数）')
+    }
+    if ('wait' in (payload || {}) || ('options' in (payload || {}) && payload.options && 'wait' in payload.options)) {
+      throw new Error('agent.addService: 后端不再支持 wait 参数，请移除后重试')
+    }
+    return apiRequest.post(
+      formatApiPath(API_ENDPOINTS.AGENT.ADD_SERVICE, { agent_id: agentId }),
+      payload
+    )
+  },
   
   listServices: (agentId) => apiRequest.get(
     formatApiPath(API_ENDPOINTS.AGENT.LIST_SERVICES, { agent_id: agentId })
@@ -166,11 +175,22 @@ export const agentApi = {
   ),
   
   /**
-   * 统计信息
+   * 统计信息 - Agent 级别使用 list_services 获取（后端没有 get_stats 接口）
    */
-  getStats: (agentId) => apiRequest.get(
-    formatApiPath(API_ENDPOINTS.AGENT.GET_STATS, { agent_id: agentId })
-  ).then(res => extractResponseData(res.data)),
+  getStats: async (agentId) => {
+    try {
+      const res = await apiRequest.get(
+        formatApiPath(API_ENDPOINTS.AGENT.LIST_SERVICES, { agent_id: agentId })
+      )
+      const data = extractResponseData(res.data, { services: [] })
+      return {
+        services_count: Array.isArray(data?.services) ? data.services.length : 0,
+        status: 'active'
+      }
+    } catch {
+      return { services_count: 0, status: 'unknown' }
+    }
+  },
   
   getToolRecords: (agentId, limit = 50) => apiRequest.get(
     formatApiPath(API_ENDPOINTS.AGENT.TOOL_RECORDS, { agent_id: agentId }),

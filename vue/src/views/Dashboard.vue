@@ -13,45 +13,24 @@
 
     <!-- 正常内容 -->
     <div v-else class="dashboard-content">
-      <!-- 第一行：统计卡片 -->
+      <!-- 第一行：使用新的 StatCard 组件替代原有的统计卡片 -->
       <div class="stats-grid">
-        <!-- 系统状态卡片 -->
-        <div class="stat-card system-status-card hover-lift">
-          <div class="stat-card-header">
-            <div class="stat-icon system-icon">
-              <el-icon><Monitor /></el-icon>
-            </div>
-            <div class="stat-info">
-              <h3 class="stat-title">系统状态</h3>
-              <p class="stat-subtitle">System Status</p>
-            </div>
-          </div>
-          <div class="stat-card-content">
-            <div class="status-indicator">
-              <span class="status-label">运行状态</span>
-              <el-tag 
-                :type="systemStatus.running ? 'success' : 'danger'" 
-                size="small"
-                :effect="systemStatus.running ? 'light' : 'plain'"
-                class="status-tag"
-              >
-                <el-icon class="status-tag-icon">
-                  <component :is="systemStatus.running ? 'CircleCheck' : 'CircleClose'" />
-                </el-icon>
-                {{ systemStatus.running ? '运行中' : '已停止' }}
-              </el-tag>
-            </div>
-            <div class="status-metric">
-              <span class="metric-label">运行时间</span>
-              <span class="metric-value">{{ systemInfo.uptime }}</span>
-            </div>
-          </div>
-        </div>
+        <!-- 系统状态卡片 - 使用 StatCard -->
+        <StatCard
+          title="系统状态"
+          :value="systemStatus.running ? '运行中' : '已停止'"
+          icon="Monitor"
+          card-style="gradient"
+          gradient-type="ocean"
+          :description="`运行时间: ${systemInfo.uptime}`"
+          :badge="systemStatus.running ? 'Running' : 'Stopped'"
+          :badge-type="systemStatus.running ? 'success' : 'danger'"
+        />
 
-        <!-- 快速操作卡片 -->
-        <div class="stat-card quick-actions-card hover-lift">
+        <!-- 快速操作卡片 - 保持原有设计但使用玻璃态效果 -->
+        <div class="stat-card glass-card quick-actions-card hover-lift">
           <div class="stat-card-header">
-            <div class="stat-icon actions-icon">
+            <div class="stat-icon">
               <el-icon><Operation /></el-icon>
             </div>
             <div class="stat-info">
@@ -60,38 +39,38 @@
             </div>
           </div>
           <div class="quick-actions-grid">
-            <el-button 
-              size="small" 
-              type="primary" 
+            <el-button
+              size="small"
+              type="primary"
               @click="$router.push('/services/add')"
-              class="action-btn primary-action"
+              class="action-btn glass-button"
             >
               <el-icon><Plus /></el-icon>
               添加服务
             </el-button>
-            <el-button 
-              size="small" 
-              type="success" 
+            <el-button
+              size="small"
+              type="success"
               @click="$router.push('/tools/execute')"
-              class="action-btn success-action"
+              class="action-btn glass-button"
             >
               <el-icon><VideoPlay /></el-icon>
               执行工具
             </el-button>
-            <el-button 
-              size="small" 
-              type="info" 
+            <el-button
+              size="small"
+              type="info"
               @click="$router.push('/agents/create')"
-              class="action-btn info-action"
+              class="action-btn glass-button"
             >
               <el-icon><UserFilled /></el-icon>
               创建Agent
             </el-button>
-            <el-button 
-              size="small" 
-              type="warning" 
+            <el-button
+              size="small"
+              type="warning"
               @click="refreshData"
-              class="action-btn warning-action"
+              class="action-btn glass-button"
             >
               <el-icon><Refresh /></el-icon>
               刷新数据
@@ -99,91 +78,49 @@
           </div>
         </div>
 
-        <!-- 工具统计卡片 -->
-        <div class="stat-card tools-stats-card hover-lift">
-          <div class="stat-card-header">
-            <div class="stat-icon tools-icon">
-              <el-icon><Tools /></el-icon>
-            </div>
-            <div class="stat-info">
-              <h3 class="stat-title">工具统计</h3>
-              <p class="stat-subtitle">Tools Statistics</p>
-            </div>
-          </div>
-          <div class="stat-card-content">
-            <div class="metric-row">
-              <span class="metric-label">可用工具</span>
-              <span class="metric-value highlight">{{ toolStats.available }}</span>
-            </div>
-            <div class="metric-row">
-              <span class="metric-label">今日调用</span>
-              <span class="metric-value success">{{ toolStats.todayCalls }}</span>
-            </div>
-          </div>
-        </div>
+        <!-- 工具统计卡片 - 使用 StatCard -->
+        <StatCard
+          title="工具统计"
+          :value="toolStats.available"
+          unit="个"
+          icon="Tools"
+          card-style="gradient"
+          gradient-type="sky"
+          :description="`今日调用: ${toolStats.todayCalls} 次`"
+          :loading="toolStatsLoading"
+        />
 
-        <!-- Agent统计卡片 -->
-        <div class="stat-card agents-stats-card hover-lift">
-          <div class="stat-card-header">
-            <div class="stat-icon agents-icon">
-              <el-icon><User /></el-icon>
-            </div>
-            <div class="stat-info">
-              <h3 class="stat-title">Agent统计</h3>
-              <p class="stat-subtitle">Agents Statistics</p>
-            </div>
-          </div>
-          <div class="stat-card-content">
-            <div class="metric-row">
-              <span class="metric-label">活跃Agent</span>
-              <span class="metric-value success">{{ agentStats.active }}</span>
-            </div>
-            <div class="metric-row">
-              <span class="metric-label">总Agent数</span>
-              <span class="metric-value">{{ agentStats.total }}</span>
-            </div>
-          </div>
-        </div>
+        <!-- Agent统计卡片 - 使用 StatCard -->
+        <StatCard
+          title="Agent统计"
+          :value="agentStats.active"
+          icon="User"
+          card-style="gradient"
+          gradient-type="forest"
+          :description="`总Agent数: ${agentStats.total}`"
+          :badge="agentStats.active > 0 ? 'Active' : null"
+          badge-type="success"
+        />
 
-        <!-- 服务统计卡片 -->
-        <div class="stat-card services-stats-card hover-lift">
-          <div class="stat-card-header">
-            <div class="stat-icon services-icon">
-              <el-icon><Connection /></el-icon>
-            </div>
-            <div class="stat-info">
-              <h3 class="stat-title">服务统计</h3>
-              <p class="stat-subtitle">Services Statistics</p>
-            </div>
-          </div>
-          <div class="services-stats-grid">
-            <div class="service-stat-item">
-              <div class="service-stat-value">{{ serviceStats.total }}</div>
-              <div class="service-stat-label">总服务数</div>
-            </div>
-            <div class="service-stat-item">
-              <div class="service-stat-value primary">{{ serviceStats.remote }}</div>
-              <div class="service-stat-label">远程服务</div>
-            </div>
-            <div class="service-stat-item">
-              <div class="service-stat-value info">{{ serviceStats.local }}</div>
-              <div class="service-stat-label">本地服务</div>
-            </div>
-            <div class="service-stat-item">
-              <div class="service-stat-value success">{{ serviceStats.healthy }}</div>
-              <div class="service-stat-label">健康服务</div>
-            </div>
-          </div>
-        </div>
+        <!-- 服务统计卡片 - 使用 StatCard -->
+        <StatCard
+          title="服务统计"
+          :value="serviceStats.total"
+          icon="Connection"
+          card-style="gradient"
+          gradient-type="sunset"
+          :description="`健康: ${serviceStats.healthy} | 远程: ${serviceStats.remote} | 本地: ${serviceStats.local}`"
+          :loading="servicesLoading"
+        />
       </div>
 
-      <!-- 第二行：详细数据展示 -->
+      <!-- 第二行：详细数据展示 - 使用玻璃态效果 -->
       <div class="data-section">
-        <!-- 工具使用日志 -->
-        <div class="data-card logs-card hover-lift">
+        <!-- 工具使用日志 - 使用玻璃态卡片 -->
+        <div class="data-card glass-card hover-lift">
           <div class="data-card-header">
             <div class="data-card-title">
-              <el-icon class="data-card-icon"><Tools /></el-icon>
+              <el-icon class="data-card-icon pulse"><Tools /></el-icon>
               <div class="title-content">
                 <h4 class="data-card-heading">工具使用日志</h4>
                 <p class="data-card-subtitle">Recent Tool Usage</p>
@@ -194,7 +131,7 @@
               :icon="Refresh"
               @click="refreshToolStats"
               :loading="toolStatsLoading"
-              class="refresh-btn"
+              class="refresh-btn glass-button"
             >
               刷新
             </el-button>
@@ -219,7 +156,12 @@
                     <div class="tool-time">{{ formatLastExecuted(tool.last_executed) }}</div>
                   </div>
                   <div class="tool-log-details">
-                    <el-tag size="small" type="primary" class="service-tag">
+                    <StatusBadge
+                      v-if="tool.status"
+                      :status="tool.status"
+                      size="small"
+                    />
+                    <el-tag v-else size="small" type="primary" class="service-tag glass-tag">
                       {{ tool.service_name }}
                     </el-tag>
                     <div class="metric-badge">
@@ -249,11 +191,11 @@
           </div>
         </div>
 
-        <!-- 健康服务状态 -->
-        <div class="data-card health-card hover-lift">
+        <!-- 健康服务状态 - 使用玻璃态卡片 -->
+        <div class="data-card glass-card hover-lift">
           <div class="data-card-header">
             <div class="data-card-title">
-              <el-icon class="data-card-icon health-icon"><CircleCheck /></el-icon>
+              <el-icon class="data-card-icon health-icon pulse"><CircleCheck /></el-icon>
               <div class="title-content">
                 <h4 class="data-card-heading">健康服务</h4>
                 <p class="data-card-subtitle">Healthy Services</p>
@@ -264,7 +206,7 @@
               :icon="Refresh"
               @click="refreshHealthyServices"
               :loading="servicesLoading"
-              class="refresh-btn"
+              class="refresh-btn glass-button"
             >
               刷新
             </el-button>
@@ -282,7 +224,10 @@
                   class="service-item hover-scale"
                 >
                   <div class="service-status-indicator">
-                    <el-icon class="status-icon healthy-pulse"><CircleCheck /></el-icon>
+                    <StatusBadge
+                      :status="service.status || 'healthy'"
+                      size="small"
+                    />
                   </div>
                   <div class="service-info">
                     <div class="service-name">{{ service.name }}</div>
@@ -304,69 +249,53 @@
           </div>
         </div>
 
-        <!-- 今日24小时趋势图 -->
-        <div class="data-card chart-card hover-lift">
-          <div class="data-card-header">
-            <div class="data-card-title">
-              <el-icon class="data-card-icon chart-icon"><TrendCharts /></el-icon>
-              <div class="title-content">
-                <h4 class="data-card-heading">今日趋势</h4>
-                <p class="data-card-subtitle">24-Hour Usage Trend</p>
-              </div>
-            </div>
+        <!-- 今日24小时趋势图 - 使用 ChartCard 组件 -->
+        <ChartCard
+          title="今日趋势"
+          subtitle="24-Hour Usage Trend"
+          :option="todayChartOption"
+          :loading="todayChartLoading"
+          height="300px"
+          card-style="glass"
+          ref="todayChartCard"
+        >
+          <template #actions>
             <el-button
               size="small"
               :icon="Refresh"
               @click="refreshTodayChart"
               :loading="todayChartLoading"
-              class="refresh-btn"
+              class="glass-button"
             >
               刷新
             </el-button>
-          </div>
-          <div class="data-card-content">
-            <div v-if="todayChartLoading" class="loading-container">
-              <el-icon class="loading-icon"><Loading /></el-icon>
-              <span class="loading-text">加载趋势数据...</span>
-            </div>
-            <div v-else class="chart-container today-chart">
-              <div ref="todayChart" class="trend-chart"></div>
-            </div>
-          </div>
-        </div>
+          </template>
+        </ChartCard>
       </div>
 
-      <!-- 第三行：30天趋势图 -->
+      <!-- 第三行：30天趋势图 - 使用 ChartCard 组件 -->
       <div class="data-section full-width">
-        <div class="data-card monthly-chart-card hover-lift">
-          <div class="data-card-header">
-            <div class="data-card-title">
-              <el-icon class="data-card-icon chart-icon"><TrendCharts /></el-icon>
-              <div class="title-content">
-                <h4 class="data-card-heading">最近30天工具使用趋势</h4>
-                <p class="data-card-subtitle">30-Day Usage Trend</p>
-              </div>
-            </div>
+        <ChartCard
+          title="最近30天工具使用趋势"
+          subtitle="30-Day Usage Trend"
+          :option="monthlyChartOption"
+          :loading="monthlyChartLoading"
+          height="350px"
+          card-style="glass"
+          ref="monthlyChartCard"
+        >
+          <template #actions>
             <el-button
               size="small"
               :icon="Refresh"
               @click="refreshMonthlyChart"
               :loading="monthlyChartLoading"
-              class="refresh-btn"
+              class="glass-button"
             >
               刷新
             </el-button>
-          </div>
-          <div class="data-card-content">
-            <div v-if="monthlyChartLoading" class="loading-container">
-              <el-icon class="loading-icon"><Loading /></el-icon>
-              <span class="loading-text">加载月度趋势数据...</span>
-            </div>
-            <div v-else class="chart-container monthly-chart">
-              <div ref="monthlyChart" class="trend-chart"></div>
-            </div>
-          </div>
-        </div>
+          </template>
+        </ChartCard>
       </div>
     </div>
   </div>
@@ -384,6 +313,11 @@ import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import ErrorState from '@/components/common/ErrorState.vue'
 import * as echarts from 'echarts'
+
+// 导入新组件
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import StatCard from '@/components/common/StatCard.vue'
+import ChartCard from '@/components/common/ChartCard.vue'
 
 // Store初始化
 const appStore = useAppStore()
@@ -2032,24 +1966,94 @@ onUnmounted(() => {
     background: linear-gradient(135deg, var(--bg-color) 0%, var(--bg-color-tertiary) 100%);
     border-color: var(--border-light);
   }
-  
+
   .data-card {
     background: var(--bg-color);
     border-color: var(--border-light);
   }
-  
+
   .data-card-header {
     background: linear-gradient(135deg, var(--bg-color) 0%, var(--bg-color-tertiary) 100%);
     border-color: var(--border-light);
   }
-  
+
   .tool-log-item,
   .service-item {
     border-color: var(--border-light);
-    
+
     &:hover {
       background: var(--bg-color-tertiary);
     }
+  }
+}
+
+// 新增的玻璃态和现代化样式
+.glass-button {
+  background: rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  transition: all 0.3s ease !important;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.2) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+}
+
+.glass-tag {
+  background: rgba(64, 158, 255, 0.1) !important;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(64, 158, 255, 0.2) !important;
+}
+
+// 增强的hover效果
+.hover-scale {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  &:hover {
+    transform: scale(1.02);
+  }
+}
+
+.hover-lift {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  &:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+// 脉冲动画增强
+.pulse {
+  animation: pulse-effect 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse-effect {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
+}
+
+// 渐进式动画入场
+.animate-fade-in {
+  animation: fadeInUp 0.6s ease-out;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 </style>

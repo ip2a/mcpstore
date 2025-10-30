@@ -605,7 +605,7 @@ const submitForm = async () => {
     await systemStore.addService(config)
     
     ElMessage.success('服务添加成功')
-    router.push('/services/list')
+    router.push('/services')
   } catch (error) {
     ElMessage.error('服务添加失败: ' + (error.message || error))
   } finally {
@@ -616,9 +616,16 @@ const submitForm = async () => {
 
 <style lang="scss" scoped>
 .service-add {
+  padding: 20px;
+  min-height: 100vh;
+  background: var(--el-bg-color-page, #f5f7fa);
+
   .page-header {
     @include flex-between;
-    margin-bottom: 24px;
+    margin-bottom: 32px;
+    max-width: 900px;
+    margin-left: auto;
+    margin-right: auto;
 
     .header-left {
       .page-title {
@@ -636,14 +643,18 @@ const submitForm = async () => {
   }
 
   .main-content {
-    max-width: 800px;
+    max-width: 900px;
     margin: 0 auto;
+    padding: 0 20px;
   }
 
   // 卡片样式
   .type-selection-card,
   .form-card {
     margin-bottom: 24px;
+    box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.08);
+    border-radius: 8px;
+    overflow: hidden;
 
     .card-header {
       display: flex;
@@ -660,8 +671,8 @@ const submitForm = async () => {
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-top: 12px;
-      padding: 12px 16px;
+      margin-top: 16px;
+      padding: 16px 20px;
       background: var(--el-fill-color-lighter);
       border-radius: 8px;
       color: var(--el-text-color-secondary);
@@ -670,15 +681,17 @@ const submitForm = async () => {
   }
 
   .service-form {
+    padding: 8px 0;
+
     .form-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 20px;
-      margin-bottom: 20px;
+      gap: 24px;
+      margin-bottom: 24px;
     }
 
     .optional-config {
-      margin-top: 20px;
+      margin-top: 24px;
 
       .config-section {
         .config-item {
@@ -714,17 +727,23 @@ const submitForm = async () => {
   }
 
   .submit-section {
-    margin-top: 32px;
-    padding: 20px 0;
+    margin-top: 40px;
+    padding: 24px 0;
     border-top: 1px solid var(--el-border-color-lighter);
-    text-align: center;
+    display: flex;
+    justify-content: center;
+    gap: 16px;
 
     .submit-btn {
-      min-width: 160px;
+      min-width: 180px;
       height: 48px;
       font-size: 16px;
       font-weight: 500;
-      margin-right: 16px;
+    }
+
+    .el-button {
+      height: 48px;
+      font-size: 16px;
     }
   }
 }
@@ -741,14 +760,22 @@ const submitForm = async () => {
 
 @include respond-to(sm) {
   .service-add {
+    padding: 16px;
+
     .page-header {
       flex-direction: column;
       align-items: flex-start;
       gap: 16px;
+      margin-bottom: 24px;
+
+      .header-left .page-title {
+        font-size: 24px;
+      }
     }
 
     .main-content {
       max-width: none;
+      padding: 0;
     }
 
     .config-item {
@@ -762,10 +789,12 @@ const submitForm = async () => {
     }
 
     .submit-section {
-      .submit-btn {
+      flex-direction: column;
+      
+      .submit-btn,
+      .el-button {
         width: 100%;
-        margin-right: 0;
-        margin-bottom: 12px;
+        margin: 0;
       }
     }
   }

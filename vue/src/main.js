@@ -8,6 +8,8 @@ import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import App from './App.vue'
 import router from './router'
 import './styles/index.scss'
+import './styles/theme.scss'
+
 
 // NProgress已移除，保持静默导航体验
 
@@ -71,6 +73,6 @@ console.log('='.repeat(60))
 // 开发环境下的调试信息
 if (import.meta.env.DEV) {
   console.log('🚀 MCPStore Vue Frontend Started')
-  console.log('📡 API Base URL:', import.meta.env.VITE_API_BASE_URL || 'http://localhost:18200')
+  console.log('📡 API Base URL:', import.meta.env.VITE_API_BASE_URL)
   console.log('🌐 Frontend Port:', 5177)
 }

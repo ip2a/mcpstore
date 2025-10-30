@@ -26,7 +26,7 @@
         </el-button>
       </div>
     </div>
-    
+
     <!-- 统计卡片 -->
     <el-row :gutter="20" class="stats-cards">
       <el-col :xs="24" :sm="8">
@@ -63,28 +63,28 @@
         </div>
       </el-col>
     </el-row>
-    
+
     <!-- 搜索和筛选 -->
     <el-card class="filter-card">
-      <el-row :gutter="20">
+      <el-row :gutter="16">
         <el-col :xs="24" :sm="12" :md="8">
           <el-input
             v-model="searchQuery"
-            placeholder="搜索工具名称或描述"
+            placeholder="Search by name or description"
             :prefix-icon="Search"
             clearable
             @input="handleSearch"
           />
         </el-col>
         <el-col :xs="24" :sm="12" :md="6">
-          <el-select 
-            v-model="serviceFilter" 
-            placeholder="按服务筛选"
+          <el-select
+            v-model="serviceFilter"
+            placeholder="Filter by service"
             clearable
             @change="handleFilter"
           >
-            <el-option label="全部服务" value="" />
-            <el-option 
+            <el-option label="All Services" value="" />
+            <el-option
               v-for="serviceName in serviceNames"
               :key="serviceName"
               :label="serviceName"
@@ -92,245 +92,113 @@
             />
           </el-select>
         </el-col>
-        <el-col :xs="24" :sm="12" :md="6">
-          <el-select 
-            v-model="viewMode" 
-            placeholder="视图模式"
-          >
-            <el-option label="列表视图" value="list" />
-            <el-option label="卡片视图" value="card" />
-            <el-option label="分组视图" value="group" />
-          </el-select>
-        </el-col>
         <el-col :xs="24" :sm="12" :md="4">
-          <el-dropdown @command="handleBatchAction" :disabled="selectedTools.length === 0">
-            <el-button
-              type="primary"
-              :icon="Operation"
-              :disabled="selectedTools.length === 0"
-            >
-              批量操作
-              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-            </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="batch-execute" :icon="VideoPlay">
-                  批量执行
-                </el-dropdown-item>
-                <el-dropdown-item command="batch-favorite" :icon="Star">
-                  添加收藏
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
+          <el-button
+            type="primary"
+            :icon="Refresh"
+            @click="refreshTools"
+            :loading="loading"
+            style="width: 100%"
+          >
+            Refresh
+          </el-button>
         </el-col>
       </el-row>
     </el-card>
-    
+
     <!-- 工具列表 -->
     <el-card class="tools-card">
-      <!-- Batch Operations Component -->
-      <BatchOperations
-        ref="batchOperationsRef"
-        :items="systemStore.tools"
-        item-key="name"
-        item-name="name"
-        :show-header="false"
-        :show-overlay="true"
-        @batch-edit="handleBatchEdit"
-        @batch-delete="handleBatchDelete"
-        @selection-change="handleBatchSelectionChange"
-      />
-      
-      <!-- 列表视图 -->
       <el-table
-        v-if="viewMode === 'list'"
         v-loading="loading"
         :data="filteredTools"
-        @selection-change="handleSelectionChange"
         stripe
         style="width: 100%"
       >
-        <el-table-column type="selection" width="50" />
-        <el-table-column prop="name" label="工具名称" min-width="200">
+        <el-table-column type="index" label="#" width="60" />
+
+        <el-table-column prop="name" label="Name" min-width="200" />
+
+        <el-table-column prop="service" label="Service" width="180" />
+
+        <el-table-column prop="description" label="Description" min-width="300" show-overflow-tooltip>
           <template #default="{ row }">
-            <div class="tool-name">
-              <el-icon class="tool-icon"><Tools /></el-icon>
-              <span>{{ row.name }}</span>
-            </div>
-          </template>
-        </el-table-column>
-        
-        <el-table-column prop="description" label="描述" min-width="300" show-overflow-tooltip>
-          <template #default="{ row }">
-            <el-tooltip
-              :content="row.description || '暂无描述'"
-              placement="top"
-              :disabled="!row.description || row.description.length <= 50"
-              :show-after="500"
-            >
-              <span class="tool-description">{{ row.description || '暂无描述' }}</span>
-            </el-tooltip>
+            <span>{{ row.description || '-' }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column prop="service_name" label="所属服务" width="200">
+        <el-table-column label="Inputs" min-width="260">
           <template #default="{ row }">
-            <el-tag size="small" class="service-tag">{{ row.service_name }}</el-tag>
+            <div class="inputs-wrap">
+              <template v-if="getInputsList(row).length">
+                <span
+                  v-for="(it, idx) in getInputsList(row)"
+                  :key="idx"
+                  class="input-chip"
+                >
+                  <span class="key" :title="it.key">
+                    {{ it.key }}<span v-if="it.required" class="req">*</span>
+                  </span>
+                  <span class="type">{{ it.type }}</span>
+                  <span v-if="it.extras" class="extras">{{ it.extras }}</span>
+                </span>
+              </template>
+              <span v-else class="input-chip empty">None</span>
+            </div>
           </template>
         </el-table-column>
-        
-        <el-table-column label="参数" width="100">
+
+        <el-table-column label="Actions" width="180" fixed="right" align="center">
           <template #default="{ row }">
-            <el-badge 
-              :value="getParameterCount(row)" 
-              :max="99"
-              class="param-badge"
-            >
-              <el-icon><Setting /></el-icon>
-            </el-badge>
-          </template>
-        </el-table-column>
-        
-        <el-table-column label="操作" width="150" fixed="right">
-          <template #default="{ row }">
-            <div class="action-buttons">
-              <el-button 
-                size="small" 
-                type="primary" 
-                @click="executeTool(row)"
-              >
-                执行
-              </el-button>
-              <el-button 
-                size="small" 
-                @click="viewToolDetails(row)"
-              >
-                详情
-              </el-button>
+            <div class="action-links">
+              <span class="action-link" @click="viewToolDetails(row)">Detail</span>
+              <span class="action-link" @click="executeTool(row)">Execute</span>
             </div>
           </template>
         </el-table-column>
       </el-table>
-      
-      <!-- 卡片视图 -->
-      <div v-else-if="viewMode === 'card'" class="card-view">
-        <el-row :gutter="20">
-          <el-col 
-            v-for="tool in filteredTools" 
-            :key="tool.name"
-            :xs="24" :sm="12" :lg="8"
-          >
-            <div class="tool-card">
-              <div class="tool-header">
-                <div class="tool-info">
-                  <div class="tool-name">{{ tool.name }}</div>
-                  <el-tag size="small">{{ tool.service_name }}</el-tag>
-                </div>
-                <div class="tool-actions">
-                  <el-button 
-                    type="primary" 
-                    size="small"
-                    @click="executeTool(tool)"
-                  >
-                    执行
-                  </el-button>
-                </div>
-              </div>
-              
-              <div class="tool-body">
-                <div class="tool-description">
-                  {{ tool.description || '暂无描述' }}
-                </div>
-                
-                <div class="tool-params">
-                  <span class="param-label">参数数量:</span>
-                  <span class="param-count">{{ getParameterCount(tool) }}</span>
-                </div>
-              </div>
-            </div>
-          </el-col>
-        </el-row>
-      </div>
-      
-      <!-- 分组视图 -->
-      <div v-else-if="viewMode === 'group'" class="group-view">
-        <div 
-          v-for="(tools, serviceName) in groupedTools" 
-          :key="serviceName"
-          class="service-group"
-        >
-          <div class="group-header">
-            <h3>{{ serviceName }}</h3>
-            <el-badge :value="tools.length" class="group-badge" />
-          </div>
-          
-          <div class="group-tools">
-            <div 
-              v-for="tool in tools" 
-              :key="tool.name"
-              class="group-tool-item"
-            >
-              <div class="tool-info">
-                <div class="tool-name">{{ tool.name }}</div>
-                <div class="tool-description">{{ tool.description || '暂无描述' }}</div>
-              </div>
-              <div class="tool-actions">
-                <el-button 
-                  size="small" 
-                  type="primary" 
-                  @click="executeTool(tool)"
-                >
-                  执行
-                </el-button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      
+
       <!-- 空状态 -->
       <div v-if="filteredTools.length === 0 && !loading" class="empty-container">
         <el-icon class="empty-icon"><Tools /></el-icon>
-        <div class="empty-text">暂无工具</div>
+        <div class="empty-text">No tools available</div>
         <div class="empty-description">
-          {{ searchQuery || serviceFilter ? '没有找到匹配的工具' : '还没有可用的工具' }}
+          {{ searchQuery || serviceFilter ? 'No matching tools found' : 'No tools available yet' }}
         </div>
       </div>
     </el-card>
-    
+
     <!-- 工具详情对话框 -->
     <el-dialog
       v-model="detailDialogVisible"
-      :title="`工具详情 - ${selectedTool?.name}`"
+      :title="`Tool Detail - ${selectedTool?.name}`"
       width="600px"
     >
       <div v-if="selectedTool" class="tool-details">
         <el-descriptions :column="1" border>
-          <el-descriptions-item label="工具名称">
+          <el-descriptions-item label="Tool Name">
             {{ selectedTool.name }}
           </el-descriptions-item>
-          <el-descriptions-item label="所属服务">
-            {{ selectedTool.service_name }}
+          <el-descriptions-item label="Service">
+            {{ selectedTool.service }}
           </el-descriptions-item>
-          <el-descriptions-item label="描述">
-            {{ selectedTool.description || '暂无描述' }}
+          <el-descriptions-item label="Description">
+            {{ selectedTool.description || 'No description' }}
           </el-descriptions-item>
-          <el-descriptions-item label="参数数量">
-            {{ getParameterCount(selectedTool) }}
+          <el-descriptions-item label="Parameters">
+            {{ getInputsList(selectedTool).length }}
           </el-descriptions-item>
         </el-descriptions>
-        
+
         <!-- 参数详情 -->
-        <div v-if="selectedTool.inputSchema" class="params-section">
-          <h4>参数详情</h4>
-          <pre>{{ JSON.stringify(selectedTool.inputSchema, null, 2) }}</pre>
+        <div v-if="selectedTool.input_schema" class="params-section">
+          <h4>Input Schema</h4>
+          <pre>{{ JSON.stringify(selectedTool.input_schema, null, 2) }}</pre>
         </div>
       </div>
-      
+
       <template #footer>
-        <el-button @click="detailDialogVisible = false">关闭</el-button>
-        <el-button type="primary" @click="executeTool(selectedTool)">执行工具</el-button>
+        <el-button @click="detailDialogVisible = false">Close</el-button>
+        <el-button type="primary" @click="executeTool(selectedTool)">Execute</el-button>
       </template>
     </el-dialog>
   </div>
@@ -340,74 +208,58 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useSystemStore } from '@/stores/system'
-import { ElMessage } from 'element-plus'
+import { summarizeInputs, schemaToList } from '@/utils/schema'
 import {
-  Refresh, Tools, Connection, Menu, Search, VideoPlay, Setting, Operation, Star, ArrowDown
+  Refresh, Tools, Connection, Menu, Search
 } from '@element-plus/icons-vue'
-import BatchOperations from '@/components/BatchOperations.vue'
 
 const router = useRouter()
 const route = useRoute()
 const systemStore = useSystemStore()
 
 // 响应式数据
-const batchOperationsRef = ref(null)
 const loading = ref(false)
 const searchQuery = ref('')
 const serviceFilter = ref('')
-const viewMode = ref('list')
 const detailDialogVisible = ref(false)
 const selectedTool = ref(null)
-const selectedTools = ref([])
 
 // 计算属性
 const filteredTools = computed(() => {
   let tools = systemStore.tools
-  
+
   // 搜索过滤
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
-    tools = tools.filter(tool => 
+    tools = tools.filter(tool =>
       tool.name.toLowerCase().includes(query) ||
       (tool.description && tool.description.toLowerCase().includes(query))
     )
   }
-  
-  // 服务过滤
+
+  // 服务过滤（直接匹配 service 字段）
   if (serviceFilter.value) {
-    tools = tools.filter(tool => tool.service_name === serviceFilter.value)
+    tools = tools.filter(tool => tool.service === serviceFilter.value)
   }
-  
+
   return tools
 })
 
 const serviceNames = computed(() => {
-  const names = new Set(systemStore.tools.map(tool => tool.service_name))
+  const names = new Set(systemStore.tools.map(tool => tool.service))
   return Array.from(names).sort()
 })
 
 const toolsByService = computed(() => systemStore.toolsByService)
-
-const groupedTools = computed(() => {
-  const grouped = {}
-  filteredTools.value.forEach(tool => {
-    const serviceName = tool.service_name || 'unknown'
-    if (!grouped[serviceName]) {
-      grouped[serviceName] = []
-    }
-    grouped[serviceName].push(tool)
-  })
-  return grouped
-})
 
 // 方法
 const refreshTools = async () => {
   loading.value = true
   try {
     await systemStore.fetchTools()
-    ElMessage.success('工具列表刷新成功')
+    ElMessage.success('Tools refreshed successfully')
   } catch (error) {
-    ElMessage.error('刷新失败')
+    ElMessage.error('Failed to refresh tools')
   } finally {
     loading.value = false
   }
@@ -421,61 +273,30 @@ const handleFilter = () => {
   // 过滤逻辑已在计算属性中处理
 }
 
-const clearServiceFilter = () => {
-  serviceFilter.value = ''
-  // 清除URL参数
-  router.replace({ path: '/tools/list' })
-}
-
-const handleSelectionChange = (selection) => {
-  selectedTools.value = selection
-  // Sync with batch operations component
-  if (batchOperationsRef.value) {
-    batchOperationsRef.value.selectedItems = selection
+// 基于 JSON Schema 的输入参数工具函数
+const getInputsSummary = (tool) => {
+  try {
+    return summarizeInputs(tool?.input_schema || {}) || 'None'
+  } catch {
+    return 'None'
   }
 }
 
-const handleBatchSelectionChange = (selection) => {
-  selectedTools.value = selection
-}
-
-const handleBatchAction = async (command) => {
-  if (selectedTools.value.length === 0) return
-
-  switch (command) {
-    case 'batch-execute':
-      // Navigate to execute page with selected tools
-      router.push({
-        path: '/tools/execute',
-        query: { tools: selectedTools.value.map(t => t.name).join(',') }
-      })
-      break
-    case 'batch-favorite':
-      ElMessage.success(`已将 ${selectedTools.value.length} 个工具添加到收藏`)
-      selectedTools.value = []
-      break
+const getInputsList = (tool) => {
+  try {
+    return schemaToList(tool?.input_schema || {})
+  } catch {
+    return []
   }
-}
-
-const handleBatchEdit = async (data) => {
-  // Handle batch edit if needed
-  console.log('Batch edit:', data)
-}
-
-const handleBatchDelete = async (tools) => {
-  // Handle batch delete if needed
-  console.log('Batch delete:', tools)
-}
-
-const getParameterCount = (tool) => {
-  if (!tool.inputSchema || !tool.inputSchema.properties) return 0
-  return Object.keys(tool.inputSchema.properties).length
 }
 
 const executeTool = (tool) => {
   router.push({
     path: '/tools/execute',
-    query: { tool: tool.name }
+    query: { 
+      toolName: tool.name,
+      serviceName: tool.service
+    }
   })
 }
 
@@ -498,251 +319,184 @@ onMounted(async () => {
 
 <style lang="scss" scoped>
 .tool-list {
+  padding: 20px;
+
   .page-header {
-    @include flex-between;
+    display: flex;
+    justify-content: space-between;
     margin-bottom: 20px;
-    
+
     .header-left {
       .page-title {
         margin: 0 0 4px 0;
         font-size: 24px;
-        font-weight: var(--font-weight-medium);
+        font-weight: 600;
       }
-      
+
       .page-description {
         margin: 0;
-        color: var(--text-secondary);
+        color: var(--el-text-color-secondary);
       }
     }
-    
+
     .header-right {
       display: flex;
       gap: 12px;
     }
   }
-  
+
   .stats-cards {
     margin-bottom: 20px;
-    
+
     .stat-card {
-      @include card-shadow;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
       padding: 20px;
       display: flex;
       align-items: center;
       gap: 16px;
-      
+      background: var(--el-bg-color);
+      border-radius: 8px;
+
       .stat-icon {
         width: 50px;
         height: 50px;
-        border-radius: var(--border-radius-large);
-        @include flex-center;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         color: white;
-        
+
         &.tools {
           background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
         }
-        
+
         &.services {
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
-        
+
         &.categories {
           background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
         }
       }
-      
+
       .stat-content {
         .stat-value {
           font-size: 24px;
-          font-weight: var(--font-weight-bold);
-          color: var(--text-primary);
+          font-weight: 600;
+          color: var(--el-text-color-primary);
         }
-        
+
         .stat-label {
-          font-size: var(--font-size-sm);
-          color: var(--text-secondary);
+          font-size: 14px;
+          color: var(--el-text-color-secondary);
         }
       }
     }
   }
-  
+
   .filter-card {
     margin-bottom: 20px;
   }
-  
+
   .tools-card {
-    .tool-name {
+    .inputs-wrap {
       display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .input-chip {
+      display: inline-flex;
       align-items: center;
-      gap: 8px;
-      
-      .tool-icon {
-        color: var(--primary-color);
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: var(--el-fill-color-light);
+      border: 1px solid var(--el-border-color-lighter);
+      color: var(--el-text-color-primary);
+      font-size: 12px;
+
+      .key {
+        font-weight: 600;
+      }
+
+      .req {
+        color: var(--el-color-danger);
+        margin-left: 2px;
+      }
+
+      .type {
+        color: var(--el-text-color-secondary);
+      }
+
+      .extras {
+        color: var(--el-text-color-secondary);
+      }
+
+      &.empty {
+        opacity: 0.7;
+        font-style: italic;
       }
     }
-    
-    .tool-description {
-      color: var(--text-regular);
-      font-size: var(--font-size-sm);
-      line-height: 1.4;
-      cursor: pointer;
 
-      // 文本截断样式
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-height: 2.8em; // 约2行的高度
-    }
-
-    .service-tag {
-      max-width: 180px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .param-badge {
-      :deep(.el-badge__content) {
-        top: 8px;
-        right: 8px;
-      }
-    }
-    
-    .action-buttons {
+    .action-links {
       display: flex;
-      gap: 4px;
+      gap: 12px;
+      justify-content: center;
     }
-    
-    .card-view {
-      .tool-card {
-        @include card-shadow;
-        padding: 16px;
-        margin-bottom: 16px;
-        
-        .tool-header {
-          @include flex-between;
-          margin-bottom: 12px;
-          
-          .tool-info {
-            .tool-name {
-              font-weight: var(--font-weight-medium);
-              margin-bottom: 4px;
-            }
-          }
-        }
-        
-        .tool-body {
-          .tool-description {
-            color: var(--text-regular);
-            margin-bottom: 8px;
-            font-size: var(--font-size-sm);
-          }
-          
-          .tool-params {
-            font-size: var(--font-size-sm);
-            
-            .param-label {
-              color: var(--text-secondary);
-            }
-            
-            .param-count {
-              color: var(--text-primary);
-              font-weight: var(--font-weight-medium);
-            }
-          }
-        }
+
+    .action-link {
+      color: var(--el-color-primary);
+      cursor: pointer;
+      user-select: none;
+
+      &:hover {
+        text-decoration: underline;
       }
     }
-    
-    .group-view {
-      .service-group {
-        margin-bottom: 24px;
-        
-        .group-header {
-          @include flex-between;
-          margin-bottom: 12px;
-          padding-bottom: 8px;
-          border-bottom: 1px solid var(--border-lighter);
-          
-          h3 {
-            margin: 0;
-            color: var(--text-primary);
-          }
-        }
-        
-        .group-tools {
-          .group-tool-item {
-            @include flex-between;
-            padding: 12px;
-            border: 1px solid var(--border-lighter);
-            border-radius: var(--border-radius-base);
-            margin-bottom: 8px;
-            
-            &:hover {
-              background: var(--bg-color-page);
-            }
-            
-            .tool-info {
-              .tool-name {
-                font-weight: var(--font-weight-medium);
-                margin-bottom: 4px;
-              }
-              
-              .tool-description {
-                font-size: var(--font-size-sm);
-                color: var(--text-secondary);
-              }
-            }
-          }
-        }
+
+    .empty-container {
+      padding: 60px 20px;
+      text-align: center;
+
+      .empty-icon {
+        font-size: 64px;
+        color: var(--el-text-color-placeholder);
+        margin-bottom: 16px;
+      }
+
+      .empty-text {
+        font-size: 18px;
+        color: var(--el-text-color-primary);
+        margin-bottom: 8px;
+      }
+
+      .empty-description {
+        color: var(--el-text-color-secondary);
+        font-size: 14px;
       }
     }
   }
-  
+
   .tool-details {
     .params-section {
       margin-top: 20px;
-      
+
       h4 {
         margin-bottom: 12px;
-        color: var(--text-primary);
+        color: var(--el-text-color-primary);
       }
-      
+
       pre {
-        background: var(--bg-color-page);
+        background: var(--el-fill-color-light);
         padding: 12px;
-        border-radius: var(--border-radius-base);
-        font-size: var(--font-size-sm);
+        border-radius: 8px;
+        font-size: 14px;
         max-height: 200px;
         overflow-y: auto;
       }
     }
   }
 }
-
-// 响应式适配
-@include respond-to(xs) {
-  .tool-list {
-    .page-header {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 16px;
-      
-      .header-right {
-        width: 100%;
-        justify-content: flex-end;
-      }
-    }
-    
-    .action-buttons {
-      flex-direction: column;
-      
-      .el-button {
-        width: 100%;
-      }
-    }
-  }
-}
 </style>
+
