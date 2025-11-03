@@ -42,35 +42,12 @@ class ToolRecordsResponse(BaseModel):
     executions: List[ToolExecutionRecordResponse] = Field(description="执行记录列表")
     summary: ToolRecordsSummaryResponse = Field(description="汇总统计")
 
-class NetworkEndpointResponse(BaseModel):
-    """网络端点响应"""
-    endpoint_name: str = Field(description="端点名称")
-    url: str = Field(description="端点URL")
-    status: str = Field(description="状态")
-    response_time: float = Field(description="响应时间")
-    last_checked: str = Field(description="最后检查时间")
-    uptime_percentage: float = Field(description="可用性百分比")
-
-class SystemResourceInfoResponse(BaseModel):
-    """系统资源信息响应"""
-    server_uptime: str = Field(description="服务器运行时间")
-    memory_total: int = Field(description="总内存")
-    memory_used: int = Field(description="已用内存")
-    memory_percentage: float = Field(description="内存使用率")
-    disk_usage_percentage: float = Field(description="磁盘使用率")
-    network_traffic_in: int = Field(description="网络入流量")
-    network_traffic_out: int = Field(description="网络出流量")
-
 class AddAlertRequest(BaseModel):
     """添加告警请求"""
     type: str = Field(description="告警类型: warning, error, info")
     title: str = Field(description="告警标题")
     message: str = Field(description="告警消息")
     service_name: Optional[str] = Field(None, description="相关服务名称")
-
-class NetworkEndpointCheckRequest(BaseModel):
-    """网络端点检查请求"""
-    endpoints: List[Dict[str, str]] = Field(description="端点列表")
 
 # === 健康状态相关响应模型 ===
 class ServiceHealthResponse(BaseModel):

@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional, List
 # Import existing configuration components
 from mcpstore.config.config import load_app_config
 from mcpstore.config.json_config import MCPConfig, ConfigError
-from mcpstore.core.client_manager import ClientManager
+from mcpstore.core.store.client_manager import ClientManager
 
 logger = logging.getLogger(__name__)
 

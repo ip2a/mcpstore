@@ -8,14 +8,11 @@ from typing import Dict, List, Optional, Any, TYPE_CHECKING
 
 from .agent_service_mapper import AgentServiceMapper
 from .tool_transformation import get_transformation_manager
-# 旧的认证系统已被新的auth模块替代，保持向后兼容
-# from ..auth_security import get_auth_manager
-from ..cache_performance import get_performance_optimizer
+from ..performance import get_performance_optimizer
 from ..integration.openapi_integration import get_openapi_manager
-from ..monitoring import MonitoringManager, NetworkEndpoint, SystemResourceInfo
-from ..monitoring.analytics import get_monitoring_manager
+from mcpstore.extensions.monitoring import MonitoringManager
+from mcpstore.extensions.monitoring.analytics import get_monitoring_manager
 from ..utils.async_sync_helper import get_global_helper
-from ..utils.component_control import get_component_manager
 
 # Create logger instance
 logger = logging.getLogger(__name__)
@@ -38,6 +35,7 @@ from .resources_prompts import ResourcesPromptsMixin
 from .agent_statistics import AgentStatisticsMixin
 from .service_proxy import ServiceProxy
 from .internal.context_kernel import create_kernel
+from .store_proxy import StoreProxy
 
 class MCPStoreContext(
     ServiceOperationsMixin,
@@ -69,10 +67,7 @@ class MCPStoreContext(
 
         # New feature manager
         self._transformation_manager = get_transformation_manager()
-        self._component_manager = get_component_manager()
         self._openapi_manager = get_openapi_manager()
-        # 旧认证管理器已被新的auth模块替代
-        # self._auth_manager = get_auth_manager()
         self._performance_optimizer = get_performance_optimizer()
         self._monitoring_manager = get_monitoring_manager()
 
@@ -112,6 +107,15 @@ class MCPStoreContext(
             self._kernel = create_kernel(self)
         except Exception:
             self._kernel = None
+
+    # ---- Objectified entries ----
+    def for_store(self) -> 'StoreProxy':
+        """Return StoreProxy for objectified store-view."""
+        return StoreProxy(self)
+
+    def find_agent(self, agent_id: str) -> 'AgentProxy':
+        from .agent_proxy import AgentProxy
+        return AgentProxy(self, agent_id)
 
     def for_langchain(self, response_format: str = "text") -> 'LangChainAdapter':
         """Return a LangChain adapter. If a session is active (within with_session),
@@ -191,7 +195,7 @@ class MCPStoreContext(
                 .filter_services(category="api")\\
                 .build()
         """
-        from ..hub.builder import HubServicesBuilder
+        from mcpstore.extensions.hub.builder import HubServicesBuilder
         return HubServicesBuilder(self, self._context_type.value, self._agent_id)
 
     def hub_tools(self) -> 'HubToolsBuilder':
@@ -207,14 +211,8 @@ class MCPStoreContext(
         Raises:
             NotImplementedError: 当前版本未实现此功能
         """
-        from ..hub.builder import HubToolsBuilder
+        from mcpstore.extensions.hub.builder import HubToolsBuilder
         return HubToolsBuilder(self, self._context_type.value, self._agent_id)
-
-    # === 认证功能扩展 ===
-    # 注意：复杂的认证构建器已移除，现在使用简化的 auth/headers 参数方式
-    # 如需复杂认证配置，请直接使用 FastMCP 的原生API
-
-    # TODO: 如果需要保留JWT相关功能，可以在后续版本中以更简单的方式实现
 
     def find_service(self, service_name: str) -> 'ServiceProxy':
         """
@@ -326,18 +324,6 @@ class MCPStoreContext(
 
     # === Monitoring and statistics functionality ===
 
-    async def check_network_endpoints(self, endpoints: List[Dict[str, str]]) -> List[NetworkEndpoint]:
-        """Check network endpoint status"""
-        return await self._monitoring.check_network_endpoints(endpoints)
-
-    def get_system_resource_info(self) -> SystemResourceInfo:
-        """Get system resource information"""
-        return self._monitoring.get_system_resource_info()
-
-    async def get_system_resource_info_async(self) -> SystemResourceInfo:
-        """Asynchronously get system resource information"""
-        return self.get_system_resource_info()
-
     def record_api_call(self, response_time: float):
         """Record API call"""
         self._monitoring.record_api_call(response_time)
@@ -402,7 +388,20 @@ class MCPStoreContext(
                 services = self._store.for_store().list_services()
             else:
                 services = self._store.for_agent(self._agent_id).list_services()
-            return [service.name for service in services]
+            names: List[str] = []
+            for service in services or []:
+                if isinstance(service, dict):
+                    name = service.get("name")
+                    if isinstance(name, str):
+                        names.append(name)
+                else:
+                    try:
+                        n = getattr(service, "name", None)
+                        if isinstance(n, str):
+                            names.append(n)
+                    except Exception:
+                        pass
+            return names
         except Exception:
             return []
 

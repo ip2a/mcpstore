@@ -7,6 +7,8 @@ import logging
 from typing import Dict, List, Optional
 
 from mcpstore.core.context import MCPStoreContext
+from mcpstore.core.context.store_proxy import StoreProxy
+from mcpstore.core.context.agent_proxy import AgentProxy
 
 logger = logging.getLogger(__name__)
 
@@ -26,16 +28,24 @@ class ContextFactoryMixin:
         """Create agent-level context"""
         return MCPStoreContext(self, agent_id)
 
-    def for_store(self) -> MCPStoreContext:
-        """Get store-level context"""
-        # global_agent_store as store agent_id
-        return self._store_context
+    def for_store(self) -> StoreProxy:
+        """Get store-level object (proxy)"""
+        return self._store_context.for_store()
 
-    def for_agent(self, agent_id: str) -> MCPStoreContext:
-        """Get agent-level context (with caching)"""
+    def for_agent(self, agent_id: str) -> AgentProxy:
+        """Get agent-level object (proxy) with caching"""
         if agent_id not in self._context_cache:
             self._context_cache[agent_id] = self._create_agent_context(agent_id)
-        return self._context_cache[agent_id]
+        return self._context_cache[agent_id].find_agent(agent_id)
+
+    # -- Objectified helpers (non-breaking) --
+    def for_store_proxy(self):
+        """Alias of for_store() for backward compatibility."""
+        return self.for_store()
+
+    def for_agent_proxy(self, agent_id: str):
+        """Alias of for_agent() for backward compatibility."""
+        return self.for_agent(agent_id)
 
     # 委托方法 - 保持向后兼容性
     async def add_service(self, service_names: List[str] = None, agent_id: Optional[str] = None, **kwargs) -> bool:

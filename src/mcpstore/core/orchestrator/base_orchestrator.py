@@ -11,7 +11,7 @@ from fastmcp import Client
 
 from mcpstore.config.json_config import MCPConfig
 from mcpstore.core.agents.session_manager import SessionManager
-from mcpstore.core.client_manager import ClientManager
+from mcpstore.core.store.client_manager import ClientManager
 from mcpstore.core.integration.local_service_adapter import get_local_service_manager
 from mcpstore.core.registry import ServiceRegistry
 # Import mixin classes
@@ -277,7 +277,7 @@ class MCPOrchestrator(
     def _setup_tools_update_monitor(self):
         """设置工具更新监控器"""
         try:
-            from mcpstore.core.monitoring import ToolsUpdateMonitor
+            from mcpstore.extensions.monitoring import ToolsUpdateMonitor
             self.tools_update_monitor = ToolsUpdateMonitor(self)
             logger.info("Tools update monitor initialized")
         except Exception as e:

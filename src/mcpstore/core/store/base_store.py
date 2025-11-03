@@ -47,10 +47,6 @@ class BaseMCPStore:
 
         #  新增：缓存管理器
         
-        # 市场管理器
-        from mcpstore.core.market.manager import MarketManager
-        self._market_manager = MarketManager()
-        
         # 缓存管理器
         from mcpstore.core.registry.cache_manager import ServiceCacheManager, CacheTransactionManager
         self.cache_manager = ServiceCacheManager(self.registry, self.orchestrator.lifecycle_manager)

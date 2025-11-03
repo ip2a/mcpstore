@@ -177,7 +177,7 @@ class ServiceQueryMixin:
 
         优先级：按client_id顺序返回第一个匹配的服务
         """
-        from mcpstore.core.client_manager import ClientManager
+        from mcpstore.core.store.client_manager import ClientManager
         client_manager: ClientManager = self.client_manager
 
         # 严格按上下文获取要查找的 client_ids
@@ -315,42 +315,48 @@ class ServiceQueryMixin:
         )
 
     async def get_health_status(self, id: Optional[str] = None, agent_mode: bool = False) -> Dict[str, Any]:
-        # TODO:该方法带完善 这个方法有一定的混乱 要分离面向用户的直观方法名 和面向业务的独立函数功能
+        # NOTE:
+        # 统一采用“按 Agent 命名空间存储服务”的约定：
+        # - store 视角：使用 global_agent_store 作为命名空间
+        # - agent 视角：使用指定 agent_id 作为命名空间
+        # client_id 仅用于标注归属与过滤，不作为生命周期与配置的读写命名空间
         """
         获取服务健康状态：
         - store未传id 或 id==global_agent_store：聚合 global_agent_store 下所有 client_id 的服务健康状态
         - store传普通 client_id：只查该 client_id 下的服务健康状态
         - agent级别：聚合 agent_id 下所有 client_id 的服务健康状态；如果 id 不是 agent_id，尝试作为 client_id 查
         """
-        from mcpstore.core.client_manager import ClientManager
+        from mcpstore.core.store.client_manager import ClientManager
         client_manager: ClientManager = self.client_manager
         services = []
         # 1. store未传id 或 id==global_agent_store，聚合 global_agent_store 下所有 client_id 的服务健康状态
         if not agent_mode and (not id or id == self.client_manager.global_agent_store_id):
-            client_ids = self.registry.get_agent_clients_from_cache(self.client_manager.global_agent_store_id)
-            for client_id in client_ids:
-                service_names = self.registry.get_all_service_names(client_id)
-                for name in service_names:
-                    config = self.config.get_service_config(name) or {}
+            agent_ns = self.client_manager.global_agent_store_id
+            # 在 Agent 命名空间读取所有服务，再标注其归属 client_id
+            service_names = self.registry.get_all_service_names(agent_ns)
+            for name in service_names:
+                config = self.config.get_service_config(name) or {}
+                # 生命周期与元数据：按 Agent 命名空间读取
+                service_state = self.registry.get_service_state(agent_ns, name)
+                state_metadata = self.registry.get_service_metadata(agent_ns, name)
+                # 标注该服务当前映射到哪个 client_id（若存在）
+                client_id = self.registry.get_service_client_id(agent_ns, name)
 
-                    # 🆕 事件驱动架构：直接从 registry 获取生命周期状态
-                    service_state = self.registry.get_service_state(client_id, name)
-                    state_metadata = self.registry.get_service_metadata(client_id, name)
-
-                    service_status = {
-                        "name": name,
-                        "url": config.get("url", ""),
-                        "transport_type": config.get("transport", ""),
-                        "status": service_state.value,  # 使用新的7状态枚举
-                        "command": config.get("command"),
-                        "args": config.get("args"),
-                        "package_name": config.get("package_name"),
-                        # 新增生命周期相关信息
-                        "response_time": state_metadata.response_time if state_metadata else None,
-                        "consecutive_failures": state_metadata.consecutive_failures if state_metadata else 0,
-                        "last_state_change": state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None
-                    }
-                    services.append(service_status)
+                service_status = {
+                    "name": name,
+                    "url": config.get("url", ""),
+                    "transport_type": config.get("transport", ""),
+                    "status": service_state.value if hasattr(service_state, "value") else str(service_state),
+                    "command": config.get("command"),
+                    "args": config.get("args"),
+                    "package_name": config.get("package_name"),
+                    "client_id": client_id,
+                    # 生命周期元数据
+                    "response_time": getattr(state_metadata, "response_time", None) if state_metadata else None,
+                    "consecutive_failures": getattr(state_metadata, "consecutive_failures", 0) if state_metadata else 0,
+                    "last_state_change": (state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None)
+                }
+                services.append(service_status)
             return {
                 "orchestrator_status": "running",
                 "active_services": len(services),
@@ -364,26 +370,28 @@ class ServiceQueryMixin:
                     "active_services": 0,
                     "services": []
                 }
-            service_names = self.registry.get_all_service_names(id)
-            for name in service_names:
+            # 仅返回当前 client_id 映射到的服务（仍按 Agent 命名空间读状态）
+            agent_ns = self.client_manager.global_agent_store_id
+            all_names = self.registry.get_all_service_names(agent_ns)
+            for name in all_names:
+                mapped = self.registry.get_service_client_id(agent_ns, name)
+                if mapped != id:
+                    continue
                 config = self.config.get_service_config(name) or {}
-
-                # 🆕 事件驱动架构：直接从 registry 获取生命周期状态
-                service_state = self.registry.get_service_state(id, name)
-                state_metadata = self.registry.get_service_metadata(id, name)
-
+                service_state = self.registry.get_service_state(agent_ns, name)
+                state_metadata = self.registry.get_service_metadata(agent_ns, name)
                 service_status = {
                     "name": name,
                     "url": config.get("url", ""),
                     "transport_type": config.get("transport", ""),
-                    "status": service_state.value,  # 使用新的7状态枚举
+                    "status": service_state.value if hasattr(service_state, "value") else str(service_state),
                     "command": config.get("command"),
                     "args": config.get("args"),
                     "package_name": config.get("package_name"),
-                    # 新增生命周期相关信息
-                    "response_time": state_metadata.response_time if state_metadata else None,
-                    "consecutive_failures": state_metadata.consecutive_failures if state_metadata else 0,
-                    "last_state_change": state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None
+                    "client_id": mapped,
+                    "response_time": getattr(state_metadata, "response_time", None) if state_metadata else None,
+                    "consecutive_failures": getattr(state_metadata, "consecutive_failures", 0) if state_metadata else 0,
+                    "last_state_change": (state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None)
                 }
                 services.append(service_status)
             return {
@@ -395,55 +403,57 @@ class ServiceQueryMixin:
         if agent_mode and id:
             client_ids = self.registry.get_agent_clients_from_cache(id)
             if client_ids:
-                for client_id in client_ids:
-                    service_names = self.registry.get_all_service_names(client_id)
-                    for name in service_names:
-                        config = self.config.get_service_config(name) or {}
-
-                        # 🆕 事件驱动架构：直接从 registry 获取生命周期状态
-                        service_state = self.registry.get_service_state(client_id, name)
-                        state_metadata = self.registry.get_service_metadata(client_id, name)
-
-                        service_status = {
-                            "name": name,
-                            "url": config.get("url", ""),
-                            "transport_type": config.get("transport", ""),
-                            "status": service_state.value,  # 使用新的7状态枚举
-                            "command": config.get("command"),
-                            "args": config.get("args"),
-                            "package_name": config.get("package_name"),
-                            # 新增生命周期相关信息
-                            "response_time": state_metadata.response_time if state_metadata else None,
-                            "consecutive_failures": state_metadata.consecutive_failures if state_metadata else 0,
-                            "last_state_change": state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None
-                        }
-                        services.append(service_status)
+                agent_ns = id
+                names = self.registry.get_all_service_names(agent_ns)
+                for name in names:
+                    config = self.config.get_service_config(name) or {}
+                    service_state = self.registry.get_service_state(agent_ns, name)
+                    state_metadata = self.registry.get_service_metadata(agent_ns, name)
+                    mapped_client = self.registry.get_service_client_id(agent_ns, name)
+                    if mapped_client not in (client_ids or []):
+                        continue
+                    service_status = {
+                        "name": name,
+                        "url": config.get("url", ""),
+                        "transport_type": config.get("transport", ""),
+                        "status": service_state.value if hasattr(service_state, "value") else str(service_state),
+                        "command": config.get("command"),
+                        "args": config.get("args"),
+                        "package_name": config.get("package_name"),
+                        "client_id": mapped_client,
+                        "response_time": getattr(state_metadata, "response_time", None) if state_metadata else None,
+                        "consecutive_failures": getattr(state_metadata, "consecutive_failures", 0) if state_metadata else 0,
+                        "last_state_change": (state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None)
+                    }
+                    services.append(service_status)
                 return {
                     "orchestrator_status": "running",
                     "active_services": len(services),
                     "services": services
                 }
             else:
-                service_names = self.registry.get_all_service_names(id)
-                for name in service_names:
+                # id 不是 agent_id，则视为 client_id：过滤 agent 命名空间下映射到该 client 的服务
+                agent_ns = self.client_manager.global_agent_store_id
+                names = self.registry.get_all_service_names(agent_ns)
+                for name in names:
+                    mapped_client = self.registry.get_service_client_id(agent_ns, name)
+                    if mapped_client != id:
+                        continue
                     config = self.config.get_service_config(name) or {}
-
-                    # 🆕 事件驱动架构：直接从 registry 获取生命周期状态
-                    service_state = self.registry.get_service_state(id, name)
-                    state_metadata = self.registry.get_service_metadata(id, name)
-
+                    service_state = self.registry.get_service_state(agent_ns, name)
+                    state_metadata = self.registry.get_service_metadata(agent_ns, name)
                     service_status = {
                         "name": name,
                         "url": config.get("url", ""),
                         "transport_type": config.get("transport", ""),
-                        "status": service_state.value,  # 使用新的7状态枚举
+                        "status": service_state.value if hasattr(service_state, "value") else str(service_state),
                         "command": config.get("command"),
                         "args": config.get("args"),
                         "package_name": config.get("package_name"),
-                        # 新增生命周期相关信息
-                        "response_time": state_metadata.response_time if state_metadata else None,
-                        "consecutive_failures": state_metadata.consecutive_failures if state_metadata else 0,
-                        "last_state_change": state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None
+                        "client_id": mapped_client,
+                        "response_time": getattr(state_metadata, "response_time", None) if state_metadata else None,
+                        "consecutive_failures": getattr(state_metadata, "consecutive_failures", 0) if state_metadata else 0,
+                        "last_state_change": (state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None)
                     }
                     services.append(service_status)
                 return {
