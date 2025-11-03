@@ -9,7 +9,7 @@
 
 ![GitHub stars](https://img.shields.io/github/stars/whillhill/mcpstore) ![GitHub forks](https://img.shields.io/github/forks/whillhill/mcpstore) ![GitHub license](https://img.shields.io/github/license/whillhill/mcpstore)  ![Python versions](https://img.shields.io/pypi/pyversions/mcpstore) ![PyPI downloads](https://img.shields.io/pypi/dm/mcpstore?label=downloads) 
 
-[English](README.md) | 简体中文
+[English](README_en.md) | 简体中文
 
 [在线体验](https://mcpstore.wiki/web_demo/dashboard) | [详细文档](https://doc.mcpstore.wiki/) | [快速使用](###简单示例)
 

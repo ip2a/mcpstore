@@ -9,7 +9,7 @@ An SDK for effortlessly managing MCP services, adapting to mainstream AI framewo
 
 ![GitHub stars](https://img.shields.io/github/stars/whillhill/mcpstore) ![GitHub forks](https://img.shields.io/github/forks/whillhill/mcpstore) ![GitHub license](https://img.shields.io/github/license/whillhill/mcpstore)  ![Python versions](https://img.shields.io/pypi/pyversions/mcpstore) ![PyPI downloads](https://img.shields.io/pypi/dm/mcpstore?label=downloads) 
 
-[English](README.md) | [简体中文](README_zh.md)
+[English](README_en.md) | [简体中文](README_zh.md)
 
 [Live Demo](https://mcpstore.wiki/web_demo/dashboard) | [Documentation](https://doc.mcpstore.wiki/) | [Quick Start](###simple-example)
 
