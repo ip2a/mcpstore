@@ -34,7 +34,8 @@ Now you have a `store`, and you can simply add or manage your services around th
 
 ```python
 # Add below the code above
-store.for_store().add_service({"mcpServers": {"mcpstore_wiki": {"url": "https://www.mcpstore.wiki/mcp"}}}); store.for_store().wait_service("mcpstore_wiki")
+store.for_store().add_service({"mcpServers": {"mcpstore_wiki": {"url": "https://www.mcpstore.wiki/mcp"}}})
+store.for_store().wait_service("mcpstore_wiki")
 ```
 
 Easily add services using the add method. The add_service method supports multiple MCP service configuration formats, and mainstream MCP configuration formats can be passed directly. The wait method is optional and synchronously waits for the service to be ready.
