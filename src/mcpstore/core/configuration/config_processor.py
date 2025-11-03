@@ -292,6 +292,34 @@ class ConfigProcessor:
         if "connection" in error_lower:
             return "Connection failed. Please verify the service is running and accessible."
 
+        # SSL/TLS 证书相关错误（英文提示）
+        if (
+            "certificate verify failed" in error_lower
+            or "ssl: certificate_verify_failed" in error_lower
+            or "certificate has expired" in error_lower
+            or ("ssl" in error_lower and "certificate" in error_lower)
+            or "sslerror" in error_lower
+        ):
+            return (
+                "SSL certificate verification failed: the certificate is expired or untrusted. "
+                "Please update the server certificate or configure a trusted CA bundle in development. "
+                "For internal testing, you may temporarily switch to HTTP to diagnose."
+            )
+
+        # TLS 握手失败（Node/undici 常见文案）
+        if "handshake failure" in error_lower or "sslv3 alert handshake failure" in error_lower:
+            return (
+                "TLS handshake failed. The upstream may require different TLS versions/ciphers or a proper CA trust store. "
+                "Please update Node/OpenSSL/CA bundle, verify the upstream URL, or temporarily test over HTTP in development."
+            )
+
+        # Node/undici fetch 错误（服务启动时上游拉取失败）
+        if "fetch failed" in error_lower and ("undici" in error_lower or "node" in error_lower or "typeerror" in error_lower):
+            return (
+                "Service failed to fetch upstream data during startup (Node/undici). "
+                "Check network connectivity, the upstream URL, and HTTPS/TLS requirements."
+            )
+
         # 文件系统相关错误
         if "no such file" in error_lower or "file not found" in error_lower:
             return "Required file not found. Please ensure all command files exist and are accessible."

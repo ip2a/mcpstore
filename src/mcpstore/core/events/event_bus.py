@@ -14,7 +14,7 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable, Dict, List, Type, Optional
+from typing import Callable, Dict, List, Type, Optional, Tuple
 
 from .service_events import (
     DomainEvent,
@@ -47,12 +47,13 @@ class EventBus:
     4. 事件历史记录（可选）
     """
 
-    def __init__(self, enable_history: bool = False, history_size: int = 1000):
+    def __init__(self, enable_history: bool = False, history_size: int = 1000, handler_timeout: Optional[float] = None):
         self._subscribers: Dict[Type[DomainEvent], List[EventSubscription]] = defaultdict(list)
         self._enable_history = enable_history
-        self._history: List[tuple[datetime, DomainEvent]] = []
+        self._history: List[Tuple[datetime, DomainEvent]] = []
         self._history_size = history_size
         self._lock = asyncio.Lock()
+        self._handler_timeout = handler_timeout
 
         logger.info(f"EventBus initialized id={hex(id(self))}")
         # 关键事件白名单：这些事件将被强制以同步方式派发（wait=True）
@@ -94,6 +95,16 @@ class EventBus:
         self._subscribers[event_type].sort(key=lambda s: s.priority, reverse=True)
 
         logger.debug(f"[BUS {hex(id(self))}] Subscribed {handler.__name__} to {event_type.__name__} (priority={priority})")
+
+    def unsubscribe(self, event_type: Type[DomainEvent], handler: Callable) -> bool:
+        """取消订阅指定 handler（精确移除）。"""
+        subs = self._subscribers.get(event_type, [])
+        before = len(subs)
+        self._subscribers[event_type] = [s for s in subs if s.handler is not handler]
+        removed = before != len(self._subscribers[event_type])
+        if removed:
+            logger.debug(f"[BUS {hex(id(self))}] Unsubscribed {getattr(handler,'__name__',repr(handler))} from {event_type.__name__}")
+        return removed
 
     async def publish(self, event: DomainEvent, wait: bool = False):
         """
@@ -153,7 +164,10 @@ class EventBus:
         安全地处理事件（隔离错误）
         """
         try:
-            await handler(event)
+            if self._handler_timeout and self._handler_timeout > 0:
+                await asyncio.wait_for(handler(event), timeout=self._handler_timeout)
+            else:
+                await handler(event)
             logger.debug(f"Handler {handler.__name__} completed for {event.__class__.__name__}")
         except asyncio.CancelledError as ce:
             logger.warning(f"Handler {handler.__name__} cancelled for {event.__class__.__name__}: {ce}")

@@ -49,25 +49,6 @@ async def store_sync_status():
             }
         )
 
-@store_router.post("/market/refresh", response_model=APIResponse)
-@timed_response
-async def market_refresh(payload: Optional[Dict[str, Any]] = None):
-    """手动触发市场远程刷新"""
-    store = get_store()
-    remote_url = None
-    force = False
-    if isinstance(payload, dict):
-        remote_url = payload.get("remote_url")
-        force = bool(payload.get("force", False))
-    if remote_url:
-        store._market_manager.add_remote_source(remote_url)
-    ok = await store._market_manager.refresh_from_remote_async(force=force)
-    
-    return ResponseBuilder.success(
-        message="Market refresh completed" if ok else "Market refresh failed",
-        data={"refreshed": ok}
-    )
-
 @store_router.post("/for_store/add_service", response_model=APIResponse)
 @timed_response
 async def store_add_service(
@@ -182,20 +163,20 @@ async def store_list_services(
     if status:
         filtered_services = [
             s for s in filtered_services
-            if s.status.value.lower() == status.lower()
+            if s.get("status", "").lower() == status.lower()
         ]
 
     if search:
         search_lower = search.lower()
         filtered_services = [
             s for s in filtered_services
-            if search_lower in s.name.lower()
+            if search_lower in s.get("name", "").lower()
         ]
 
     if service_type:
         filtered_services = [
             s for s in filtered_services
-            if s.transport_type.value == service_type
+            if s.get("type", "") == service_type
         ]
 
     filtered_count = len(filtered_services)
@@ -205,11 +186,11 @@ async def store_list_services(
         reverse = (sort_order == "desc") if sort_order else False
 
         if sort_by == "name":
-            filtered_services.sort(key=lambda s: s.name, reverse=reverse)
+            filtered_services.sort(key=lambda s: s.get("name", ""), reverse=reverse)
         elif sort_by == "status":
-            filtered_services.sort(key=lambda s: s.status.value, reverse=reverse)
+            filtered_services.sort(key=lambda s: s.get("status", ""), reverse=reverse)
         elif sort_by == "tools_count":
-            filtered_services.sort(key=lambda s: s.tool_count or 0, reverse=reverse)
+            filtered_services.sort(key=lambda s: s.get("tools_count", 0) or 0, reverse=reverse)
 
     # 4. 应用分页（如果有）
     if page is not None or limit is not None:
@@ -226,27 +207,55 @@ async def store_list_services(
     # 5. 构造服务数据
     def build_service_data(service) -> Dict[str, Any]:
         """构造单个服务的数据"""
-        service_data = {
-            "name": service.name,
-            "url": service.url or "",
-            "command": service.command or "",
-            "args": service.args or [],
-            "env": service.env or {},
-            "working_dir": service.working_dir or "",
-            "package_name": service.package_name or "",
-            "keep_alive": service.keep_alive,
-            "type": service.transport_type.value if service.transport_type else "unknown",
-            "status": service.status.value if service.status else "unknown",
-            "tools_count": service.tool_count or 0,
-            "last_check": None,
-            "client_id": service.client_id or "",
-        }
+        # service 已经是字典（从 StoreProxy.list_services 返回）
+        # 如果是对象，转换为字典访问
+        if isinstance(service, dict):
+            # 直接使用字典键访问
+            service_data = {
+                "name": service.get("name", ""),
+                "url": service.get("url", ""),
+                "command": service.get("command", ""),
+                "args": service.get("args", []),
+                "env": service.get("env", {}),
+                "working_dir": service.get("working_dir", ""),
+                "package_name": service.get("package_name", ""),
+                "keep_alive": service.get("keep_alive", False),
+                "type": service.get("type", "unknown"),
+                "status": service.get("status", "unknown"),
+                "tools_count": service.get("tools_count", 0) or service.get("tool_count", 0) or 0,
+                "last_check": None,
+                "client_id": service.get("client_id", ""),
+            }
 
-        if service.state_metadata:
-            service_data["last_check"] = (
-                service.state_metadata.last_ping_time.isoformat()
-                if service.state_metadata.last_ping_time else None
-            )
+            # 处理 state_metadata（如果存在）
+            state_metadata = service.get("state_metadata")
+            if state_metadata and isinstance(state_metadata, dict):
+                last_ping_time = state_metadata.get("last_ping_time")
+                if last_ping_time:
+                    service_data["last_check"] = last_ping_time if isinstance(last_ping_time, str) else None
+        else:
+            # 对象访问方式（向后兼容）
+            service_data = {
+                "name": service.name,
+                "url": service.url or "",
+                "command": service.command or "",
+                "args": service.args or [],
+                "env": service.env or {},
+                "working_dir": service.working_dir or "",
+                "package_name": service.package_name or "",
+                "keep_alive": service.keep_alive,
+                "type": service.transport_type.value if service.transport_type else "unknown",
+                "status": service.status.value if service.status else "unknown",
+                "tools_count": service.tool_count or 0,
+                "last_check": None,
+                "client_id": service.client_id or "",
+            }
+
+            if service.state_metadata:
+                service_data["last_check"] = (
+                    service.state_metadata.last_ping_time.isoformat()
+                    if service.state_metadata.last_ping_time else None
+                )
 
         return service_data
 
@@ -262,7 +271,7 @@ async def store_list_services(
     # 7. 构造响应数据（统一格式）
     response_data = {
         "services": services_data,
-        "pagination": pagination.dict()
+        "pagination": pagination.model_dump()
     }
 
     # 添加过滤信息（如果有）
@@ -271,14 +280,14 @@ async def store_list_services(
             status=status,
             search=search,
             service_type=service_type
-        ).dict(exclude_none=True)
+        ).model_dump(exclude_none=True)
 
     # 添加排序信息（如果有）
     if sort_by:
         response_data["sort"] = ListSortInfo(
             by=sort_by,
             order=sort_order or "asc"
-        ).dict()
+        ).model_dump()
 
     # 8. 返回统一格式的响应
     message_parts = [f"Retrieved {len(services_data)} services"]
@@ -399,14 +408,14 @@ async def store_list_tools(
         search_lower = search.lower()
         filtered_tools = [
             t for t in filtered_tools
-            if search_lower in t.name.lower() or
-               search_lower in (t.description or "").lower()
+            if search_lower in (t.get("name", "") if isinstance(t, dict) else t.name).lower() or
+               search_lower in (t.get("description", "") if isinstance(t, dict) else (t.description or "")).lower()
         ]
 
     if service_name:
         filtered_tools = [
             t for t in filtered_tools
-            if getattr(t, 'service_name', 'unknown') == service_name
+            if (t.get('service_name', 'unknown') if isinstance(t, dict) else getattr(t, 'service_name', 'unknown')) == service_name
         ]
 
     filtered_count = len(filtered_tools)
@@ -416,10 +425,10 @@ async def store_list_tools(
         reverse = (sort_order == "desc") if sort_order else False
 
         if sort_by == "name":
-            filtered_tools.sort(key=lambda t: t.name, reverse=reverse)
+            filtered_tools.sort(key=lambda t: t.get("name", "") if isinstance(t, dict) else t.name, reverse=reverse)
         elif sort_by == "service":
             filtered_tools.sort(
-                key=lambda t: getattr(t, 'service_name', 'unknown'),
+                key=lambda t: t.get('service_name', 'unknown') if isinstance(t, dict) else getattr(t, 'service_name', 'unknown'),
                 reverse=reverse
             )
 
@@ -437,13 +446,21 @@ async def store_list_tools(
 
     # 5. 构造工具数据
     def build_tool_data(tool) -> Dict[str, Any]:
-        """构造单个工具的数据"""
-        return {
-            "name": tool.name,
-            "service": getattr(tool, 'service_name', 'unknown'),
-            "description": tool.description or "",
-            "input_schema": tool.inputSchema if hasattr(tool, 'inputSchema') else {}
-        }
+        """构造单个工具的数据（兼容字典和对象）"""
+        if isinstance(tool, dict):
+            return {
+                "name": tool.get("name", ""),
+                "service": tool.get('service_name', 'unknown'),
+                "description": tool.get("description", ""),
+                "input_schema": tool.get("inputSchema", {}) or tool.get("input_schema", {})
+            }
+        else:
+            return {
+                "name": tool.name,
+                "service": getattr(tool, 'service_name', 'unknown'),
+                "description": tool.description or "",
+                "input_schema": tool.inputSchema if hasattr(tool, 'inputSchema') else {}
+            }
 
     tools_data = [build_tool_data(t) for t in paginated_tools]
 
@@ -457,7 +474,7 @@ async def store_list_tools(
     # 7. 构造响应数据（统一格式）
     response_data = {
         "tools": tools_data,
-        "pagination": pagination.dict()
+        "pagination": pagination.model_dump()
     }
 
     # 添加过滤信息（如果有）
@@ -474,7 +491,7 @@ async def store_list_tools(
         response_data["sort"] = ListSortInfo(
             by=sort_by,
             order=sort_order or "asc"
-        ).dict()
+        ).model_dump()
 
     # 8. 返回统一格式的响应
     message_parts = [f"Retrieved {len(tools_data)} tools"]
@@ -501,6 +518,38 @@ async def store_check_services():
     return ResponseBuilder.success(
         message=f"Health check completed for {len(health_status.get('services', []))} services",
         data=health_status
+    )
+
+@store_router.get("/for_store/list_agents", response_model=APIResponse)
+@timed_response
+async def store_list_agents():
+    """Store 级列出所有 Agents 概要信息（增强版，无分页）
+
+    返回统一结构，包含 agents 明细与汇总 summary。
+    """
+    store = get_store()
+    agents = store.for_store().list_agents()  # List[Dict[str, Any]]
+
+    total_agents = len(agents)
+    total_services = sum(int(a.get("service_count", 0)) for a in agents)
+    total_tools = sum(int(a.get("tool_count", 0)) for a in agents)
+    healthy_agents = sum(1 for a in agents if int(a.get("healthy_services", 0)) > 0)
+    unhealthy_agents = total_agents - healthy_agents
+
+    response_data = {
+        "agents": agents,
+        "summary": {
+            "total_agents": total_agents,
+            "total_services": total_services,
+            "total_tools": total_tools,
+            "healthy_agents": healthy_agents,
+            "unhealthy_agents": unhealthy_agents
+        }
+    }
+
+    return ResponseBuilder.success(
+        message=f"Retrieved {total_agents} agents",
+        data=response_data
     )
 
 @store_router.post("/for_store/call_tool", response_model=APIResponse)
@@ -877,19 +926,7 @@ async def store_wait_service(request: Request):
 # ===  Agent 相关端点已移除 ===
 # 使用 /for_agent/{agent_id}/list_services 来获取Agent的服务列表（推荐）
 
-@store_router.get("/for_store/list_all_agents", response_model=APIResponse)
-@timed_response
-async def store_list_all_agents():
-    """列出所有 Agent"""
-    store = get_store()
-    
-    # 获取所有Agent列表
-    agents = store.list_all_agents() if hasattr(store, 'list_all_agents') else []
-    
-    return ResponseBuilder.success(
-        message=f"Retrieved {len(agents)} agents",
-        data=agents if agents else []
-    )
+ 
 
 
 
@@ -918,7 +955,8 @@ async def store_get_service_info_detailed(service_name: str):
     all_services = context.list_services()
     service = None
     for s in all_services:
-        if s.name == service_name:
+        s_name = s.get("name") if isinstance(s, dict) else s.name
+        if s_name == service_name:
             service = s
             break
     
@@ -929,15 +967,25 @@ async def store_get_service_info_detailed(service_name: str):
             field="service_name"
         )
     
-    # 构建简化的服务信息
-    service_info = {
-        "name": service.name,
-        "status": service.status.value if service.status else "unknown",
-        "type": service.transport_type.value if service.transport_type else "unknown",
-        "client_id": service.client_id or "",
-        "url": service.url or "",
-        "tools_count": service.tool_count or 0
-    }
+    # 构建简化的服务信息（兼容字典和对象）
+    if isinstance(service, dict):
+        service_info = {
+            "name": service.get("name", ""),
+            "status": service.get("status", "unknown"),
+            "type": service.get("type", "unknown"),
+            "client_id": service.get("client_id", ""),
+            "url": service.get("url", ""),
+            "tools_count": service.get("tools_count", 0) or service.get("tool_count", 0) or 0
+        }
+    else:
+        service_info = {
+            "name": service.name,
+            "status": service.status.value if service.status else "unknown",
+            "type": service.transport_type.value if service.transport_type else "unknown",
+            "client_id": service.client_id or "",
+            "url": service.url or "",
+            "tools_count": service.tool_count or 0
+        }
     
     return ResponseBuilder.success(
         message=f"Service info retrieved for '{service_name}'",
@@ -955,7 +1003,8 @@ async def store_get_service_status(service_name: str):
     all_services = context.list_services()
     service = None
     for s in all_services:
-        if s.name == service_name:
+        s_name = s.get("name") if isinstance(s, dict) else s.name
+        if s_name == service_name:
             service = s
             break
     
@@ -966,12 +1015,19 @@ async def store_get_service_status(service_name: str):
             field="service_name"
         )
     
-    # 简化的状态信息
-    status_info = {
-        "name": service.name,
-        "status": service.status.value if service.status else "unknown",
-        "client_id": service.client_id or ""
-    }
+    # 简化的状态信息（兼容字典和对象）
+    if isinstance(service, dict):
+        status_info = {
+            "name": service.get("name", ""),
+            "status": service.get("status", "unknown"),
+            "client_id": service.get("client_id", "")
+        }
+    else:
+        status_info = {
+            "name": service.name,
+            "status": service.status.value if service.status else "unknown",
+            "client_id": service.client_id or ""
+        }
     
     return ResponseBuilder.success(
         message=f"Service status retrieved for '{service_name}'",

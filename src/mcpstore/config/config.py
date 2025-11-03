@@ -127,7 +127,7 @@ class LoggingConfig:
             'mcpstore.core.context',
             'mcpstore.core.orchestrator',
             'mcpstore.core.registry',
-            'mcpstore.core.client_manager',
+            'mcpstore.core.store.client_manager',
             'mcpstore.core.agents.session_manager',
             'mcpstore.core.tool_resolver',
             'mcpstore.plugins.json_mcp',

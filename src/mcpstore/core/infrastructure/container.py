@@ -54,7 +54,8 @@ class ServiceContainer:
         self._global_agent_store_id = global_agent_store_id
         
         # 创建事件总线（核心）
-        self._event_bus = EventBus(enable_history=enable_event_history)
+        # 事件总线：启用可选的 handler 超时（安全兜底）
+        self._event_bus = EventBus(enable_history=enable_event_history, handler_timeout=None)
         
         # 创建领域服务
         self._cache_manager = CacheManager(
@@ -90,7 +91,8 @@ class ServiceContainer:
             check_interval=lifecycle_config.normal_heartbeat_interval,
             timeout_threshold=lifecycle_config.initialization_timeout,
             ping_timeout=lifecycle_config.health_check_ping_timeout,
-            warning_interval=lifecycle_config.warning_heartbeat_interval
+            warning_interval=lifecycle_config.warning_heartbeat_interval,
+            global_agent_store_id=self._global_agent_store_id
         )
 
         # 🆕 创建重连调度器（统一从 ServiceLifecycleConfig 读取配置）

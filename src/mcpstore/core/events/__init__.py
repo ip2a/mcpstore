@@ -19,6 +19,11 @@ from .service_events import (
     ServiceStateChanged,
     ServicePersisted,
     ServiceOperationFailed,
+    HealthCheckRequested,
+    HealthCheckCompleted,
+    ServiceTimeout,
+    ReconnectionRequested,
+    ReconnectionScheduled,
 )
 
 __all__ = [
@@ -38,5 +43,11 @@ __all__ = [
     "ServiceStateChanged",
     "ServicePersisted",
     "ServiceOperationFailed",
+    # 健康与重连事件
+    "HealthCheckRequested",
+    "HealthCheckCompleted",
+    "ServiceTimeout",
+    "ReconnectionRequested",
+    "ReconnectionScheduled",
 ]
 

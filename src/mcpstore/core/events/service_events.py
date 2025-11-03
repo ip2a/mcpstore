@@ -42,7 +42,7 @@ class ServiceAddRequested(DomainEvent):
     service_name: str = ""
     service_config: Dict[str, Any] = field(default_factory=dict)
     client_id: str = ""
-    source: str = "user"  # user, system, market
+    source: str = "user"  # user, system
     wait_timeout: float = 0.0
 
     def __post_init__(self):

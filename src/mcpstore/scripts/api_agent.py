@@ -34,20 +34,32 @@ async def agent_add_service(
     store = get_store()
     context = store.for_agent(agent_id)
     
-    # 使用 add_service_with_details_async 获取可序列化的结果
-    result = await context.add_service_with_details_async(payload)
-    
-    if not result.get("success", False):
+    # 调用 add_service 后手动聚合详情
+    try:
+        await context.add_service_async(payload)
+        
+        # 聚合详细信息
+        services = context.list_services()
+        tools = context.list_tools()
+        
+        result = {
+            "success": True,
+            "message": f"Service added successfully for agent '{agent_id}'",
+            "added_services": [s.get("name") if isinstance(s, dict) else getattr(s, "name", "unknown") for s in services],
+            "total_services": len(services),
+            "total_tools": len(tools)
+        }
+        
+        return ResponseBuilder.success(
+            message=result["message"],
+            data=result
+        )
+    except Exception as e:
         return ResponseBuilder.error(
             code=ErrorCode.SERVICE_INITIALIZATION_FAILED,
-            message=result.get("message", f"Service operation failed for agent '{agent_id}'"),
-            details=result
+            message=f"Service operation failed for agent '{agent_id}': {str(e)}",
+            details={"error": str(e)}
         )
-    
-    return ResponseBuilder.success(
-        message=result.get("message", f"Service operation completed for agent '{agent_id}'"),
-        data=result
-    )
 
 @agent_router.get("/for_agent/{agent_id}/list_services", response_model=APIResponse)
 @timed_response
@@ -170,6 +182,19 @@ async def agent_list_services(
     return ResponseBuilder.success(
         message=f"Retrieved {len(paginated)} of {filtered_count} services for agent '{agent_id}'",
         data=response_data
+    )
+
+@agent_router.get("/for_agent/{agent_id}/summary", response_model=APIResponse)
+@timed_response
+async def agent_summary(agent_id: str):
+    """返回 Agent 级统计摘要（对象化入口封装）。"""
+    validate_agent_id(agent_id)
+    store = get_store()
+    proxy = store.for_agent_proxy(agent_id)
+    stats = proxy.get_stats()
+    return ResponseBuilder.success(
+        message=f"Agent '{agent_id}' summary returned",
+        data=stats
     )
 
 @agent_router.post("/for_agent/{agent_id}/reset_service", response_model=APIResponse)

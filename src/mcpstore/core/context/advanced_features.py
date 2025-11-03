@@ -4,7 +4,10 @@ Implementation of advanced feature-related operations
 """
 
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .base_context import MCPStoreContext
 
 logger = logging.getLogger(__name__)
 
@@ -60,45 +63,6 @@ class AdvancedFeaturesMixin:
             logger.error(f"[{self._context_type.value}] Failed to create safe tool {original_tool}: {e}")
             return self
 
-    def switch_environment(self, environment: str) -> 'MCPStoreContext':
-        """
-        切换运行环境
-        
-        Args:
-            environment: 环境名称（如 "development", "production"）
-            
-        Returns:
-            MCPStoreContext: 支持链式调用
-        """
-        try:
-            result = self._component_manager.switch_environment(environment)
-            logger.info(f"[{self._context_type.value}] Switched to environment: {environment}")
-            return self
-        except Exception as e:
-            logger.error(f"[{self._context_type.value}] Failed to switch environment to {environment}: {e}")
-            return self
-
-    def create_custom_environment(self, name: str, allowed_categories: List[str]) -> 'MCPStoreContext':
-        """
-        创建自定义环境
-        
-        Args:
-            name: 环境名称
-            allowed_categories: 允许的工具类别
-            
-        Returns:
-            MCPStoreContext: 支持链式调用
-        """
-        try:
-            result = self._component_manager.create_custom_environment(
-                name=name,
-                allowed_categories=allowed_categories
-            )
-            logger.info(f"[{self._context_type.value}] Created custom environment: {name}")
-            return self
-        except Exception as e:
-            logger.error(f"[{self._context_type.value}] Failed to create custom environment {name}: {e}")
-            return self
 
     def import_api(self, api_url: str, api_name: str = None) -> 'MCPStoreContext':
         """
@@ -137,66 +101,11 @@ class AdvancedFeaturesMixin:
             logger.error(f"[{self._context_type.value}] Failed to import API {api_url}: {e}")
             return self
 
-    def enable_caching(self, patterns: Dict[str, int] = None) -> 'MCPStoreContext':
-        """
-        启用缓存（工具结果缓存功能已移除）
 
-        Args:
-            patterns: 缓存模式配置（已废弃，工具结果缓存已移除）
-
-        Returns:
-            MCPStoreContext: 支持链式调用
-        """
-        try:
-            import warnings
-            warnings.warn(
-                "enable_caching() is deprecated: tool result caching has been removed; "
-                "only service discovery caching remains.",
-                DeprecationWarning,
-                stacklevel=2
-            )
-            logger.warning(f"[{self._context_type.value}] Tool result caching has been removed. This method is deprecated.")
-            logger.info(f"[{self._context_type.value}] Only service discovery caching is still available.")
-            result = self._performance_optimizer.enable_caching(patterns)
-            return self
-        except Exception as e:
-            logger.error(f"[{self._context_type.value}] Failed to enable caching: {e}")
-            return self
-
-    def get_performance_report(self) -> Dict[str, Any]:
-        """
-        获取性能报告
-        
-        Returns:
-            Dict: 性能统计信息
-        """
-        try:
-            return self._performance_optimizer.get_performance_report()
-        except Exception as e:
-            logger.error(f"[{self._context_type.value}] Failed to get performance report: {e}")
-            return {"error": str(e)}
-
+    # Deprecated: auth subsystem removed
+    # Keeping the name for compatibility but make it explicit unsupported to avoid hidden AttributeError
     def setup_auth(self, auth_type: str = "bearer", enabled: bool = True) -> 'MCPStoreContext':
-        """
-        设置认证
-        
-        Args:
-            auth_type: 认证类型
-            enabled: 是否启用
-            
-        Returns:
-            MCPStoreContext: 支持链式调用
-        """
-        try:
-            result = self._auth_manager.setup_auth(
-                auth_type=auth_type,
-                enabled=enabled
-            )
-            logger.info(f"[{self._context_type.value}] Setup auth: {auth_type}, enabled: {enabled}")
-            return self
-        except Exception as e:
-            logger.error(f"[{self._context_type.value}] Failed to setup auth: {e}")
-            return self
+        raise NotImplementedError("setup_auth is no longer supported; the auth subsystem was removed")
 
     def get_usage_stats(self) -> Dict[str, Any]:
         """

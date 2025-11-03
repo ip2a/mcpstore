@@ -42,7 +42,8 @@ class HealthMonitor:
         check_interval: float = 30.0,  # 正常健康检查间隔（秒）
         timeout_threshold: float = 300.0,  # 初始化超时（秒）
         ping_timeout: float = 10.0,  # ping 调用超时（秒）
-        warning_interval: float = 10.0  # 警告状态下的检查间隔（秒）
+        warning_interval: float = 10.0,  # 警告状态下的检查间隔（秒）
+        global_agent_store_id: str = "global_agent_store",
     ):
         self._event_bus = event_bus
         self._registry = registry
@@ -50,6 +51,7 @@ class HealthMonitor:
         self._warning_interval = warning_interval
         self._timeout_threshold = timeout_threshold
         self._ping_timeout = ping_timeout
+        self._global_agent_store_id = global_agent_store_id
 
         # 健康检查任务跟踪
         self._health_check_tasks: Dict[Tuple[str, str], asyncio.Task] = {}  # (agent_id, service_name) -> task
@@ -115,7 +117,9 @@ class HealthMonitor:
         """
         处理健康检查请求 - 立即执行健康检查
         """
-        current_state = self._registry.get_service_state(event.agent_id, event.service_name)
+        # 统一使用全局命名空间读取状态
+        global_name = self._to_global_name(event.agent_id, event.service_name)
+        current_state = self._registry.get_service_state(self._global_agent_store_id, global_name)
         logger.info(f"[HEALTH] Manual health check requested: {event.service_name} (state={getattr(current_state,'value',str(current_state))}, bus={hex(id(self._event_bus))})")
 
         # 执行一次健康检查（关键路径使用同步派发，确保状态及时收敛）
@@ -145,7 +149,8 @@ class HealthMonitor:
         try:
             while self._is_running:
                 # 根据当前状态选择检查间隔
-                current_state = self._registry.get_service_state(agent_id, service_name)
+                global_name = self._to_global_name(agent_id, service_name)
+                current_state = self._registry.get_service_state(self._global_agent_store_id, global_name)
                 interval = self._warning_interval if current_state == ServiceConnectionState.WARNING else self._check_interval
                 await asyncio.sleep(interval)
 
@@ -165,7 +170,8 @@ class HealthMonitor:
 
         try:
             # 如果服务已不存在，跳过检查，且停止周期任务
-            if not self._registry.has_service(agent_id, service_name):
+            global_name = self._to_global_name(agent_id, service_name)
+            if not self._registry.has_service(self._global_agent_store_id, global_name):
                 logger.info(f"[HEALTH] Skip check for removed service: {service_name}")
                 task_key = (agent_id, service_name)
                 if task_key in self._health_check_tasks:
@@ -175,8 +181,8 @@ class HealthMonitor:
                 return
 
             # 获取服务配置（优先缓存）
-            service_config = self._registry.get_service_config_from_cache(agent_id, service_name) \
-                or self._registry.get_service_config(agent_id, service_name)
+            service_config = self._registry.get_service_config_from_cache(self._global_agent_store_id, global_name) \
+                or self._registry.get_service_config(self._global_agent_store_id, global_name)
             if not service_config:
                 logger.warning(f"[HEALTH] No service config found: {service_name} (skip without state change)")
                 return
@@ -185,7 +191,7 @@ class HealthMonitor:
             try:
                 # 设置超时并使用临时 client 进行健康检查
                 async with asyncio.timeout(self._ping_timeout):
-                    async with temp_client_for_service(service_name, service_config) as client:
+                    async with temp_client_for_service(global_name, service_config) as client:
                         await client.ping()
                     response_time = time.time() - start_time
 
@@ -194,13 +200,13 @@ class HealthMonitor:
 
                     # 发布健康检查成功事件（手动检查使用同步派发）
                     await self._publish_health_check_success(
-                        agent_id, service_name, response_time, wait=wait
+                        agent_id, global_name, response_time, wait=wait
                     )
             except asyncio.TimeoutError:
                 response_time = time.time() - start_time
                 logger.warning(f"[HEALTH] Check timeout: {service_name}")
                 await self._publish_health_check_failed(
-                    agent_id, service_name, response_time, "Health check timeout", wait=wait
+                    agent_id, global_name, response_time, "Health check timeout", wait=wait
                 )
             except Exception as e:
                 response_time = time.time() - start_time
@@ -219,15 +225,15 @@ class HealthMonitor:
                 except Exception:
                     pass
                 try:
-                    metadata = self._registry.get_service_metadata(agent_id, service_name)
+                    metadata = self._registry.get_service_metadata(self._global_agent_store_id, global_name)
                     if metadata:
                         metadata.failure_reason = failure_reason
                         metadata.error_message = error_message
-                        self._registry.set_service_metadata(agent_id, service_name, metadata)
+                        self._registry.set_service_metadata(self._global_agent_store_id, global_name, metadata)
                 except Exception:
                     pass
                 await self._publish_health_check_failed(
-                    agent_id, service_name, response_time, error_message, wait=wait
+                    agent_id, global_name, response_time, error_message, wait=wait
                 )
         except Exception as e:
             logger.error(f"[HEALTH] Execute health check error: {service_name} - {e}", exc_info=True)
@@ -267,6 +273,14 @@ class HealthMonitor:
             suggested_state=None
         )
         await self._event_bus.publish(event, wait=wait)
+
+    def _to_global_name(self, agent_id: str, service_name: str) -> str:
+        """将本地服务名映射为全局服务名（映射失败则返回原名）。"""
+        try:
+            mapping = self._registry.get_global_name_from_agent_service(agent_id, service_name)
+            return mapping or service_name
+        except Exception:
+            return service_name
 
     async def check_timeouts(self):
         """

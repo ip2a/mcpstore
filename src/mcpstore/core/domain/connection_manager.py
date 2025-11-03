@@ -16,6 +16,7 @@ from mcpstore.core.events.service_events import (
     ServiceInitialized, ServiceConnectionRequested,
     ServiceConnected, ServiceConnectionFailed
 )
+from mcpstore.core.configuration.config_processor import ConfigProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -126,24 +127,30 @@ class ConnectionManager:
             )
 
         except Exception as e:
-            # Demote expected network/connectivity errors to WARNING to avoid implying global failure
+            # Demote expected network/connectivity errors to WARNING and show friendly message
             network_error = False
             try:
                 import httpx  # type: ignore
                 if isinstance(e, getattr(httpx, "ConnectError", tuple())) or isinstance(e, getattr(httpx, "ReadTimeout", tuple())):
                     network_error = True
             except Exception:
-                # Fallback to message-based detection
                 pass
             text = str(e)
-            if ("All connection attempts failed" in text) or ("timed out" in text.lower()):
+            if ("all connection attempts failed" in text.lower()) or ("timed out" in text.lower()) or ("certificate" in text.lower()) or ("handshake failure" in text.lower()):
                 network_error = True
+
+            # Convert to user-friendly message
+            try:
+                friendly = ConfigProcessor.get_user_friendly_error(text)
+            except Exception:
+                friendly = text
+
             if network_error:
-                logger.warning(f"[CONNECTION] Failed: {event.service_name} - {e}")
+                logger.warning(f"[CONNECTION] Failed: {event.service_name} - {friendly}")
             else:
-                logger.error(f"[CONNECTION] Failed: {event.service_name} - {e}", exc_info=True)
+                logger.error(f"[CONNECTION] Failed: {event.service_name} - {friendly}", exc_info=True)
             await self._publish_connection_failed(
-                event, str(e), "connection_error", 0
+                event, text, "connection_error", 0
             )
 
     async def _connect_local_service(
@@ -248,10 +255,14 @@ class ConnectionManager:
         retry_count: int
     ):
         """发布连接失败事件"""
+        try:
+            friendly_message = ConfigProcessor.get_user_friendly_error(error_message or "")
+        except Exception:
+            friendly_message = error_message
         failed_event = ServiceConnectionFailed(
             agent_id=event.agent_id,
             service_name=event.service_name,
-            error_message=error_message,
+            error_message=friendly_message,
             error_type=error_type,
             retry_count=retry_count
         )
