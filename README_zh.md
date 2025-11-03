@@ -34,7 +34,8 @@ store = MCPStore.setup_store()
 
 ```python
 #在上面的代码下面加入
-store.for_store().add_service({"mcpServers": {"mcpstore_wiki": {"url": "https://www.mcpstore.wiki/mcp"}}}); store.for_store().wait_service("mcpstore_wiki")
+store.for_store().add_service({"mcpServers": {"mcpstore_wiki": {"url": "https://www.mcpstore.wiki/mcp"}}})
+store.for_store().wait_service("mcpstore_wiki")
 ```
 
 通过add方法便捷添加服务，add_service方法支持多种mcp服务配置格式，主流的mcp配置格式都可以直接传入。wait方法可选，是否同步等待服务就绪。
