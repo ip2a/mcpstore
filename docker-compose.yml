@@ -1,0 +1,20 @@
+# MCPStore Docker Compose - 单容器前后端一体化
+
+version: '3.8'
+
+services:
+  mcpstore:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: mcpstore
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - mcpstore-data:/app/data
+      - mcpstore-config:/app/config
+
+volumes:
+  mcpstore-data:
+  mcpstore-config:

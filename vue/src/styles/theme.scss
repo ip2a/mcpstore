@@ -1,0 +1,15 @@
+/* Minimal theme variables for Element Plus primary color. Extend as needed. */
+:root {
+  /* Primary brand color */
+  --el-color-primary: #409EFF;
+  /* Unified subtle radius (slightly rounded, closer to square) */
+  --el-border-radius-base: 3px;
+  --el-border-radius-small: 2px;
+}
+
+/* Optional: add dark-mode specific overrides here if desired */
+html.dark {
+  /* Example: tweak primary shade in dark if needed */
+  /* --el-color-primary: #66b1ff; */
+}
+
