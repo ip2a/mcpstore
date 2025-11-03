@@ -1,0 +1,265 @@
+// SCSS混入文件
+// 提供常用的样式混入和工具函数
+
+// 卡片样式混入
+@mixin card-shadow {
+  background: var(--el-bg-color);
+  border-radius: var(--border-radius-md);
+  box-shadow: var(--box-shadow-light);
+  transition: var(--transition-base);
+
+  &:hover {
+    box-shadow: var(--box-shadow-medium);
+  }
+}
+
+// 响应式混入
+@mixin mobile {
+  @media (max-width: 768px) {
+    @content;
+  }
+}
+
+@mixin tablet {
+  @media (max-width: 1024px) {
+    @content;
+  }
+}
+
+@mixin desktop {
+  @media (min-width: 1025px) {
+    @content;
+  }
+}
+
+// 响应式断点混入
+@mixin respond-to($breakpoint) {
+  @if $breakpoint == xs {
+    @media (max-width: 575px) {
+      @content;
+    }
+  }
+  @if $breakpoint == sm {
+    @media (min-width: 576px) and (max-width: 767px) {
+      @content;
+    }
+  }
+  @if $breakpoint == md {
+    @media (min-width: 768px) and (max-width: 991px) {
+      @content;
+    }
+  }
+  @if $breakpoint == lg {
+    @media (min-width: 992px) and (max-width: 1199px) {
+      @content;
+    }
+  }
+  @if $breakpoint == xl {
+    @media (min-width: 1200px) {
+      @content;
+    }
+  }
+}
+
+// 文本省略混入
+@mixin text-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@mixin text-ellipsis-multiline($lines: 2) {
+  display: -webkit-box;
+  -webkit-line-clamp: $lines;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// Flex布局混入
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@mixin flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+@mixin flex-start {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+@mixin flex-end {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+@mixin flex-column {
+  display: flex;
+  flex-direction: column;
+}
+
+@mixin flex-column-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+// 按钮样式混入
+@mixin button-variant($color, $background, $border) {
+  color: $color;
+  background-color: $background;
+  border-color: $border;
+
+  &:hover {
+    color: darken($color, 10%);
+    background-color: darken($background, 10%);
+    border-color: darken($border, 10%);
+  }
+
+  &:active {
+    color: darken($color, 15%);
+    background-color: darken($background, 15%);
+    border-color: darken($border, 15%);
+  }
+}
+
+// 输入框样式混入
+@mixin input-focus($color: var(--el-color-primary)) {
+  &:focus {
+    border-color: $color;
+    box-shadow: 0 0 0 2px rgba($color, 0.2);
+  }
+}
+
+// 滚动条样式混入
+@mixin custom-scrollbar($width: 6px, $track-color: var(--el-fill-color-lighter), $thumb-color: var(--el-border-color-darker)) {
+  &::-webkit-scrollbar {
+    width: $width;
+    height: $width;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: $track-color;
+    border-radius: calc($width / 2);
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: $thumb-color;
+    border-radius: calc($width / 2);
+
+    &:hover {
+      background: darken($thumb-color, 10%);
+    }
+  }
+}
+
+// 动画混入
+@mixin fade-in($duration: 0.3s) {
+  animation: fadeIn $duration ease-in-out;
+}
+
+@mixin slide-in-up($duration: 0.3s) {
+  animation: slideInUp $duration ease-out;
+}
+
+@mixin slide-in-down($duration: 0.3s) {
+  animation: slideInDown $duration ease-out;
+}
+
+// 阴影混入
+@mixin box-shadow-light {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+@mixin box-shadow-medium {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+@mixin box-shadow-heavy {
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+}
+
+// 边框混入
+@mixin border-radius($radius: var(--border-radius-md)) {
+  border-radius: $radius;
+}
+
+// 过渡动画混入
+@mixin transition($property: all, $duration: 0.3s, $timing: ease) {
+  transition: $property $duration $timing;
+}
+
+// 清除浮动混入
+@mixin clearfix {
+  &::after {
+    content: "";
+    display: table;
+    clear: both;
+  }
+}
+
+// 绝对定位居中混入
+@mixin absolute-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+// 固定宽高比混入
+@mixin aspect-ratio($width, $height) {
+  position: relative;
+  
+  &::before {
+    content: "";
+    display: block;
+    padding-top: percentage($height / $width);
+  }
+  
+  > * {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+  }
+}
+
+// 隐藏文本混入
+@mixin hide-text {
+  text-indent: -9999px;
+  overflow: hidden;
+  text-decoration: none;
+  text-align: left;
+  font-size: 0;
+  white-space: nowrap;
+}
+
+// 重置列表样式混入
+@mixin reset-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+// 重置按钮样式混入
+@mixin reset-button {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-decoration: none;
+  outline: none;
+}

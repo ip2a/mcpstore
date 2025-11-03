@@ -1,0 +1,425 @@
+// 组件样式文件
+// 包含自定义组件样式和Element Plus组件样式覆盖
+
+// 导入变量和混入
+@import './variables.scss';
+@import './mixins.scss';
+
+// 页面布局样式
+.page-header {
+  @include flex-between;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  
+  .header-left {
+    .page-title {
+      margin: 0 0 4px 0;
+      font-size: 24px;
+      font-weight: var(--font-weight-medium);
+      color: var(--el-text-color-primary);
+    }
+    
+    .page-description {
+      margin: 0;
+      font-size: 14px;
+      color: var(--el-text-color-secondary);
+    }
+  }
+  
+  .header-right {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+}
+
+// 统计卡片样式
+.stats-cards {
+  margin-bottom: 20px;
+  
+  .stat-card {
+    @include card-shadow;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    
+    .stat-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 8px;
+      @include flex-center;
+      
+      &.services {
+        background: linear-gradient(135deg, var(--el-color-primary-light-7), var(--el-color-primary-light-5));
+        color: var(--el-color-primary);
+      }
+      
+      &.tools {
+        background: linear-gradient(135deg, var(--el-color-success-light-7), var(--el-color-success-light-5));
+        color: var(--el-color-success);
+      }
+      
+      &.agents {
+        background: linear-gradient(135deg, var(--el-color-warning-light-7), var(--el-color-warning-light-5));
+        color: var(--el-color-warning);
+      }
+      
+      &.monitoring {
+        background: linear-gradient(135deg, var(--el-color-info-light-7), var(--el-color-info-light-5));
+        color: var(--el-color-info);
+      }
+    }
+    
+    .stat-content {
+      flex: 1;
+      
+      .stat-value {
+        font-size: 24px;
+        font-weight: var(--font-weight-bold);
+        color: var(--el-text-color-primary);
+        margin-bottom: 4px;
+      }
+      
+      .stat-label {
+        font-size: 14px;
+        color: var(--el-text-color-secondary);
+      }
+    }
+  }
+}
+
+// 筛选卡片样式
+.filter-card {
+  margin-bottom: 20px;
+  
+  .el-card__body {
+    padding: 16px 20px;
+  }
+}
+
+// 表格卡片样式
+.table-card {
+  .el-card__body {
+    padding: 0;
+  }
+  
+  .el-table {
+    border: none;
+    
+    .el-table__header {
+      th {
+        background-color: var(--el-fill-color-lighter);
+        border-bottom: 1px solid var(--el-border-color);
+      }
+    }
+    
+    .el-table__body {
+      tr:hover {
+        background-color: var(--el-fill-color-light);
+      }
+    }
+  }
+}
+
+// 工具卡片样式
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+  
+  .tool-card {
+    @include card-shadow;
+    padding: 20px;
+    border: 1px solid var(--el-border-color-lighter);
+    transition: all 0.3s ease;
+    
+    &:hover {
+      border-color: var(--el-color-primary-light-5);
+      transform: translateY(-2px);
+    }
+    
+    .tool-header {
+      @include flex-between;
+      margin-bottom: 12px;
+      
+      h3 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: var(--font-weight-medium);
+        color: var(--el-text-color-primary);
+      }
+      
+      .el-tag {
+        font-size: 12px;
+      }
+    }
+    
+    .tool-description {
+      color: var(--el-text-color-regular);
+      font-size: 14px;
+      line-height: 1.5;
+      margin-bottom: 16px;
+      min-height: 42px;
+      @include text-ellipsis-multiline(3);
+    }
+    
+    .tool-meta {
+      @include flex-between;
+      margin-bottom: 16px;
+      font-size: 12px;
+      color: var(--el-text-color-secondary);
+      
+      .param-count {
+        @include flex-center;
+        gap: 4px;
+      }
+    }
+    
+    .tool-actions {
+      @include flex-between;
+      gap: 8px;
+      
+      .el-button {
+        flex: 1;
+      }
+    }
+  }
+}
+
+// 服务分组样式
+.service-group {
+  margin-bottom: 24px;
+  
+  .group-header {
+    @include flex-between;
+    padding: 12px 16px;
+    background-color: var(--el-fill-color-lighter);
+    border-radius: 6px 6px 0 0;
+    border: 1px solid var(--el-border-color-lighter);
+    border-bottom: none;
+    
+    .group-title {
+      font-weight: var(--font-weight-medium);
+      color: var(--el-text-color-primary);
+      
+      .service-icon {
+        margin-right: 8px;
+        
+        &.local {
+          color: var(--el-color-success);
+        }
+        
+        &.remote {
+          color: var(--el-color-info);
+        }
+      }
+    }
+    
+    .group-count {
+      font-size: 12px;
+      color: var(--el-text-color-secondary);
+      background-color: var(--el-fill-color);
+      padding: 2px 8px;
+      border-radius: 10px;
+    }
+  }
+  
+  .group-content {
+    border: 1px solid var(--el-border-color-lighter);
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+  }
+}
+
+// 执行结果样式
+.execution-result {
+  .result-header {
+    @include flex-between;
+    margin-bottom: 12px;
+    
+    .result-status {
+      @include flex-center;
+      gap: 8px;
+      font-weight: var(--font-weight-medium);
+      
+      &.success {
+        color: var(--el-color-success);
+      }
+      
+      &.error {
+        color: var(--el-color-danger);
+      }
+    }
+  }
+  
+  .result-content {
+    background-color: var(--el-fill-color-light);
+    border-radius: 6px;
+    padding: 16px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    max-height: 400px;
+    overflow-y: auto;
+    @include custom-scrollbar;
+    
+    pre {
+      margin: 0;
+      padding: 0;
+      background: none;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+  }
+}
+
+// 监控图表样式
+.monitoring-charts {
+  .chart-container {
+    height: 300px;
+    margin-bottom: 20px;
+  }
+  
+  .chart-title {
+    font-size: 16px;
+    font-weight: var(--font-weight-medium);
+    margin-bottom: 12px;
+    color: var(--el-text-color-primary);
+  }
+}
+
+// 系统日志样式
+.system-logs {
+  .log-entry {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--el-border-color-lighter);
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 12px;
+    
+    &:last-child {
+      border-bottom: none;
+    }
+    
+    .log-time {
+      color: var(--el-text-color-secondary);
+      margin-right: 12px;
+    }
+    
+    .log-level {
+      margin-right: 12px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: var(--font-weight-medium);
+      
+      &.info {
+        background-color: var(--el-color-info-light-8);
+        color: var(--el-color-info);
+      }
+      
+      &.warning {
+        background-color: var(--el-color-warning-light-8);
+        color: var(--el-color-warning);
+      }
+      
+      &.error {
+        background-color: var(--el-color-danger-light-8);
+        color: var(--el-color-danger);
+      }
+      
+      &.success {
+        background-color: var(--el-color-success-light-8);
+        color: var(--el-color-success);
+      }
+    }
+    
+    .log-message {
+      color: var(--el-text-color-primary);
+    }
+  }
+}
+
+// Element Plus 组件样式覆盖
+.el-card {
+  border: 1px solid var(--el-border-color-lighter);
+  box-shadow: var(--box-shadow-light);
+  
+  .el-card__header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--el-border-color-lighter);
+    background-color: var(--el-fill-color-lighter);
+  }
+  
+  .el-card__body {
+    padding: 20px;
+  }
+}
+
+.el-button {
+  transition: all 0.2s ease;
+  
+  &:hover {
+    transform: translateY(-1px);
+  }
+  
+  &:active {
+    transform: translateY(0);
+  }
+}
+
+.el-table {
+  .el-table__cell {
+    padding: 12px 0;
+  }
+}
+
+.el-dialog {
+  .el-dialog__header {
+    padding: 20px 20px 10px;
+    border-bottom: 1px solid var(--el-border-color-lighter);
+  }
+  
+  .el-dialog__body {
+    padding: 20px;
+  }
+  
+  .el-dialog__footer {
+    padding: 10px 20px 20px;
+    border-top: 1px solid var(--el-border-color-lighter);
+  }
+}
+
+// 响应式适配
+@include respond-to(xs) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+    
+    .header-right {
+      width: 100%;
+      justify-content: flex-end;
+    }
+  }
+  
+  .stats-cards {
+    .stat-card {
+      padding: 16px;
+      
+      .stat-icon {
+        width: 40px;
+        height: 40px;
+      }
+      
+      .stat-content .stat-value {
+        font-size: 20px;
+      }
+    }
+  }
+  
+  .tools-grid {
+    grid-template-columns: 1fr;
+  }
+}
