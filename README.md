@@ -5,15 +5,77 @@
 # McpStore
 
 
-轻松管理MCP服务的SDK,适配主流AI框架,Agent快速调用MCP服务
+轻松管理 MCP 服务的 SDK，适配主流 AI 框架，Agent 快速调用 MCP 工具
 
-![GitHub stars](https://img.shields.io/github/stars/whillhill/mcpstore) ![GitHub forks](https://img.shields.io/github/forks/whillhill/mcpstore) ![GitHub issues](https://img.shields.io/github/issues/whillhill/mcpstore) ![GitHub license](https://img.shields.io/github/license/whillhill/mcpstore) ![PyPI version](https://img.shields.io/pypi/v/mcpstore) ![Python versions](https://img.shields.io/pypi/pyversions/mcpstore) ![PyPI downloads](https://img.shields.io/pypi/dm/mcpstore?label=downloads) ![PyPI - Wheel](https://img.shields.io/pypi/wheel/mcpstore) ![code style: black](https://img.shields.io/badge/code%20style-black-000000.svg) ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
+![GitHub stars](https://img.shields.io/github/stars/whillhill/mcpstore) ![GitHub forks](https://img.shields.io/github/forks/whillhill/mcpstore) ![GitHub license](https://img.shields.io/github/license/whillhill/mcpstore)  ![Python versions](https://img.shields.io/pypi/pyversions/mcpstore) ![PyPI downloads](https://img.shields.io/pypi/dm/mcpstore?label=downloads) 
 
 [English](README.md) | 简体中文
 
-🚀 [在线体验](https://mcpstore.wiki/web_demo/dashboard) | 📖 [详细文档](https://doc.mcpstore.wiki/) | 🎯 [快速开始](#快速开始)
+[在线体验](https://mcpstore.wiki/web_demo/dashboard) | [详细文档](https://doc.mcpstore.wiki/) | [快速使用](###简单示例)
 
 </div>
+
+### mcpstore 是什么？
+
+mcpstore 是面向开发者的开箱即用的 MCP 服务编排层：用一个 Store 统一管理服务，并将 MCP 适配给 AI 框架`LangChain等`使用。
+
+### 简单示例
+
+首先只需要需要初始化一个store
+
+```python
+from mcpstore import MCPStore
+store = MCPStore.setup_store()
+```
+
+现在就有了一个 `store`，后续只需要围绕这个`store`去添加或者操作你的服务，`store` 会维护和管理这些 MCP 服务。
+
+#### 给store添加第一个服务
+
+```python
+#在上面的代码下面加入
+store.for_store().add_service({"mcpServers": {"mcpstore_wiki": {"url": "https://www.mcpstore.wiki/mcp"}}}); store.for_store().wait_service("mcpstore_wiki")
+```
+
+通过add方法便捷添加服务，add_service方法支持多种mcp服务配置格式，主流的mcp配置格式都可以直接传入。wait方法可选，是否同步等待服务就绪。
+
+#### 将mcp适配转为langchain需要的对象
+
+```python
+tools = store.for_store().for_langchain().list_tools()
+print("loaded langchain tools:", len(tools))
+```
+
+简单链上即可直观的将mcp适配为langchain直接使用的tools列表
+
+##### 框架适配
+
+会逐渐支持更多的框架
+
+| 已支持框架 | 获取工具 |
+| --- | --- |
+| LangChain | `tools = store.for_store().for_langchain().list_tools()` |
+| LangGraph | `tools = store.for_store().for_langgraph().list_tools()` |
+| AutoGen | `tools = store.for_store().for_autogen().list_tools()` |
+| CrewAI | `tools = store.for_store().for_crewai().list_tools()` |
+| LlamaIndex | `tools = store.for_store().for_llamaindex().list_tools()` |
+
+#### 现在就可以正常的使用langchain了
+
+```python
+#添加上面的代码
+from langchain.agents import create_agent
+from langchain_openai import ChatOpenAI
+llm = ChatOpenAI(
+    temperature=0, 
+    model="deepseek-chat",
+    api_key="sk-*****",
+    base_url="https://api.deepseek.com"
+)
+agent = create_agent(model=llm, tools=tools, system_prompt="你是一个助手，回答的时候带上表情")
+events = agent.invoke({"messages": [{"role": "user", "content": "mcpstore怎么添加服务？"}]})
+print(events)
+```
 
 ### 快速开始
 
@@ -21,205 +83,118 @@
 pip install mcpstore
 ```
 
+#### Agent 分组
 
-### mcpstore是什么？
-
-用户友好的mcp服务管理sdk，方便快速集成MCP服务，并集成了主流agent框架的适配器，简单几行代码就将MCP服务转为agent框架格式的tools对象
-
-
-### LangChain 示例
+使用 `for_agent(agent_id)`  实现对mcp服务进行分组
 
 ```python
-from mcpstore import MCPStore
-store = MCPStore.setup_store()
-store.for_store().add_service({"name":"mcpstore-wiki","url":"https://mcpstore.wiki/mcp"})
-tools = store.for_store().for_langchain().list_tools()
+agent_id1 = "agent1"
+store.for_agent(agent_id1).add_service({"name": "mcpstore_wiki", "url": "https://www.mcpstore.wiki/mcp"})
+
+agent_id2 = "agent2"
+store.for_agent(agent_id2).add_service({"name": "playwright", "command": "npx", "args": ["@playwright/mcp"]})
+
+agent1_tools = store.for_agent(agent_id1).list_tools()
+agent2_tools = store.for_agent(agent_id2).list_tools()
 ```
-到这里我们将一个mcp服务做成了langchain可以直接使用的tools对象 基于上面的代码 我们可以添加下面的代码运行
 
-```python
-#需要添加上面的代码块
-from langchain.agents import create_tool_calling_agent, AgentExecutor
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
-llm = ChatOpenAI(
-    temperature=0, model="deepseek-chat",
-    openai_api_key="****",
-    openai_api_base="https://api.deepseek.com"
-)
-prompt = ChatPromptTemplate.from_messages([
-    ("system", "你是一个助手，回答的时候带上表情"),
-    ("human", "{input}"),
-    ("placeholder", "{agent_scratchpad}"),
-])
-agent = create_tool_calling_agent(llm, tools, prompt)
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-# ===
-query = "北京的天气怎么样？"
-print(f"\n   🤔: {query}")
-response = agent_executor.invoke({"input": query})
-print(f"   🤖 : {response['output']}")
-```
-同时也适配了多种agent框架，比如langgraph autogen等等，通过for_XXX()方法可以快速获取对应的工具对象
+`store.for_agent(agent_id)` 与 `store.for_store()` 共享大部分函数接口，本质上是通过分组机制在全局范围内创建了一个逻辑子集。
+
+通过为不同 Agent 分配专属服务实现服务的有效隔离，避免上下文过长。
+
+与聚合服务`hub_service`(实验性)和快速生成 A2A Agent Card (计划支持)配合较好。
 
 
-### 缓存/Redis 后端
-支持使用 Redis 作为共享缓存后端，用于跨进程/多实例共享服务与工具元数据。
 
-安装额外依赖：
+#### 常用操作
+
+| 动作          | 命令示例                                                                                   |
+|-------------|----------------------------------------------------------------------------------------|
+| 定位服务        | `store.for_store().find_service("service_name")`                                       |
+| 更新服务        | `store.for_store().update_service("service_name", new_config)`                         |
+| 增量更新        | `store.for_store().patch_service("service_name", {"headers": {"X-API-Key": "..."}})`   |
+| 删除服务        | `store.for_store().delete_service("service_name")`                                     |
+| 重启服务        | `store.for_store().restart_service("service_name")`                                    |
+| 断开服务        | `store.for_store().disconnect_service("service_name")`                                 |
+| 健康检查        | `store.for_store().check_services()`                                                   |
+| 查看配置        | `store.for_store().show_config()`                                                      |
+| 服务详情        | `store.for_store().get_service_info("service_name")`                                   |
+| 等待就绪        | `store.for_store().wait_service("service_name", timeout=30)`                           |
+| 聚合服务        | `store.for_agent(agent_id).hub_services()`                                             |
+| 列出Agent     | `store.for_store().list_agents()` |
+| 列出服务        | `store.for_store().list_services()` |
+| 列出工具        | `store.for_store().list_tools()` |
+| 定位工具        | `store.for_store().find_tool("tool_name")` |
+| 执行工具 | `store.for_store().call_tool("tool_name", {"k": "v"})` |
+
+#### 缓存/Redis 后端
+
+支持使用 Redis 作为共享缓存后端，用于跨进程/多实例共享服务与工具元数据。安装额外依赖：
 
 ```bash
 pip install mcpstore[redis]
+#或直接 单独 pip install redis
 ```
 
-使用方式（通过 `external_db` 传入缓存模块配置）：
+使用方式:在store初始化的时候通过 `external_db` 参数传入：
 
 ```python
 from mcpstore import MCPStore
-
 store = MCPStore.setup_store(
     external_db={
         "cache": {
             "type": "redis",
-            "url": "redis://localhost:6379/0",   # 必填
-            "password": None,                      # 可选
-            "namespace": "demo_namespace"      # 可选；
+            "url": "redis://localhost:6379/0",
+            "password": None,
+            "namespace": "demo_namespace"
         }
     }
 )
 ```
+更多的`setup_store`配置见文档
 
-## 在线体验
+### API 模式
 
-简单开源的Vue，支持通过SDK或API方式直观管理MCP服务
+#### 启动api
 
-![image-20250721212359929](http://www.text2mcp.com/img/image-20250721212359929.png)
-
-快速启动后端服务：
-
+通过SDK快速启动
 ```python
 from mcpstore import MCPStore
 prod_store = MCPStore.setup_store()
-prod_store.start_api_server(host='0.0.0.0', port=18200)
+prod_store.start_api_server(host="0.0.0.0", port=18200)
 ```
 
-###  你也可以直接调用工具
-
-```python
-store = MCPStore.setup_store()
-store.for_store().add_service({"name":"mcpstore-wiki","url":"https://mcpstore.wiki/mcp"})
-tools = store.for_store().list_tools()
-store.for_store().call_tool(tools[0].name, {"query":'hi!'})
-```
-
-
-
-![image-20250721212658085](http://www.text2mcp.com/img/image-20250721212658085.png)
-
-
-
-### MCP服务分组
-
-使用for_agent(agent_id)可以将mcp分组 方便不同的agent获取精确的有限上下文工具集
-即将支持根据分组 一键生成a2a协议的card
-
-- `store.for_store()` - 全局store空间
-- `store.for_agent("agent_id")` - 为指定Agent创建隔离空间
-
-```python
-# 初始化Store
-store = MCPStore.setup_store()
-
-# 为“知识管理Agent”分配专用的Wiki工具
-# 该操作在"knowledge" agent的私有上下文中进行
-agent_id1 = "my-knowledge-agent"
-knowledge_agent_context = store.for_agent(agent_id1).add_service(
-    {"name": "mcpstore-wiki", "url": "http://mcpstore.wiki/mcp"}
-)
-
-# 为“开发支持Agent”分配专用的开发工具
-# 该操作在"development" agent的私有上下文中进行
-agent_id2 = "my-development-agent"
-dev_agent_context = store.for_agent(agent_id2).add_service(
-    {"name": "mcpstore-demo", "url": "http://mcpstore.wiki/mcp"}
-)
-
-# 各Agent的工具集完全隔离，互不影响
-knowledge_tools = store.for_agent(agent_id1).list_tools()
-dev_tools = store.for_agent(agent_id2).list_tools()
-```
-很直观的，你可以通过 `store.for_store()` 和 `store.for_agent("agent_id")` 使用几乎所有的函数 ✨
-
-
-### API接口
-
-提供完整的RESTful API，一行命令启动Web服务：
-
+或者使用CLI快速启动
 ```bash
-pip install mcpstore
 mcpstore run api
 ```
+![image-20250721212359929](http://www.text2mcp.com/img/image-20250721212359929.png)
 
-### 部分API接口
-详细的接口文档看网页
+示例页面：[在线体验](https://web.mcpstore.wiki) 
+
+
+#### 常用接口
 
 ```bash
 # 服务管理
-POST /for_store/add_service          # 添加服务
-GET  /for_store/list_services        # 获取服务列表
-POST /for_store/delete_service       # 删除服务
+POST /for_store/add_service
+GET  /for_store/list_services
+POST /for_store/delete_service
 
 # 工具操作
-GET  /for_store/list_tools           # 获取工具列表
-POST /for_store/use_tool             # 执行工具
+GET  /for_store/list_tools
+POST /for_store/use_tool
 
-# 监控统计
-GET  /for_store/get_stats            # 系统统计
-GET  /for_store/health               # 健康检查
+# 运行状态
+GET  /for_store/get_stats
+GET  /for_store/health
 ```
-
-### 重要变更（保持与后端最新一致）
-
-- add_service 不再支持 wait 参数；且不支持空参数（必须提供服务配置或 json_file）
-- add_service 调用后不等待连接完成，如需等待请在 Agent 级别使用 `/for_agent/{agent_id}/wait_service`，或轮询 `service_status`
-- 请求体示例（Store 级别）：
-
-```json
-{
-  "name": "weather",
-  "url": "https://weather.example.com/mcp",
-  "transport": "streamable_http",
-  "headers": {"Authorization": "Bearer ..."}
-}
-```
-
-```json
-{
-  "name": "assistant",
-  "command": "python",
-  "args": ["./assistant_server.py"],
-  "env": {"DEBUG": "true"}
-}
-```
-
-```json
-{
-  "mcpServers": {
-    "weather": { "url": "https://weather.example.com/mcp" }
-  }
-}
-```
+更多见接口文档： [详细文档](https://doc.mcpstore.wiki/)
 
 
+### docker部署 
 
-## 参与贡献
 
-欢迎社区贡献：
-
-- ⭐ 给项目点Star
-- 🐛 提交Issues报告问题
-- 🔧 提交Pull Requests贡献代码
-- 💬 分享使用经验和最佳实践
 
 ## Star History
 
@@ -231,5 +206,4 @@ GET  /for_store/health               # 健康检查
 
 ---
 
-**McpStore是一个还在频繁的更新的项目，恳求大家给小星并来指点**
-
+McpStore 仍在高频更新中，欢迎反馈与建议。
