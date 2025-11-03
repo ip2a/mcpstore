@@ -1,0 +1,209 @@
+
+
+<div align="center">
+
+# McpStore
+
+
+An SDK for effortlessly managing MCP services, adapting to mainstream AI frameworks, enabling Agents to quickly invoke MCP tools
+
+![GitHub stars](https://img.shields.io/github/stars/whillhill/mcpstore) ![GitHub forks](https://img.shields.io/github/forks/whillhill/mcpstore) ![GitHub license](https://img.shields.io/github/license/whillhill/mcpstore)  ![Python versions](https://img.shields.io/pypi/pyversions/mcpstore) ![PyPI downloads](https://img.shields.io/pypi/dm/mcpstore?label=downloads) 
+
+[English](README.md) | [简体中文](README_zh.md)
+
+[Live Demo](https://mcpstore.wiki/web_demo/dashboard) | [Documentation](https://doc.mcpstore.wiki/) | [Quick Start](###simple-example)
+
+</div>
+
+### What is mcpstore?
+
+mcpstore is a ready-to-use MCP service orchestration layer for developers: manage services with a unified Store and adapt MCP for use with AI frameworks like `LangChain` and others.
+
+### Simple Example
+
+First, initialize a store
+
+```python
+from mcpstore import MCPStore
+store = MCPStore.setup_store()
+```
+
+Now you have a `store`, and you can simply add or manage your services around this `store`. The `store` will maintain and manage these MCP services.
+
+#### Add Your First Service to the Store
+
+```python
+# Add below the code above
+store.for_store().add_service({"mcpServers": {"mcpstore_wiki": {"url": "https://www.mcpstore.wiki/mcp"}}}); store.for_store().wait_service("mcpstore_wiki")
+```
+
+Easily add services using the add method. The add_service method supports multiple MCP service configuration formats, and mainstream MCP configuration formats can be passed directly. The wait method is optional and synchronously waits for the service to be ready.
+
+#### Adapt MCP to Objects Required by LangChain
+
+```python
+tools = store.for_store().for_langchain().list_tools()
+print("loaded langchain tools:", len(tools))
+```
+
+Simply chain methods to intuitively adapt MCP to a tools list directly usable by LangChain.
+
+##### Framework Adapters
+
+More frameworks will be supported gradually.
+
+| Supported Frameworks | Get Tools |
+| --- | --- |
+| LangChain | `tools = store.for_store().for_langchain().list_tools()` |
+| LangGraph | `tools = store.for_store().for_langgraph().list_tools()` |
+| AutoGen | `tools = store.for_store().for_autogen().list_tools()` |
+| CrewAI | `tools = store.for_store().for_crewai().list_tools()` |
+| LlamaIndex | `tools = store.for_store().for_llamaindex().list_tools()` |
+
+#### Now You Can Use LangChain Normally
+
+```python
+# Add the code above
+from langchain.agents import create_agent
+from langchain_openai import ChatOpenAI
+llm = ChatOpenAI(
+    temperature=0, 
+    model="deepseek-chat",
+    api_key="sk-*****",
+    base_url="https://api.deepseek.com"
+)
+agent = create_agent(model=llm, tools=tools, system_prompt="You are an assistant, include emoji in your responses")
+events = agent.invoke({"messages": [{"role": "user", "content": "How to add services in mcpstore?"}]})
+print(events)
+```
+
+### Quick Start
+
+```bash
+pip install mcpstore
+```
+
+#### Agent Grouping
+
+Use `for_agent(agent_id)` to group MCP services
+
+```python
+agent_id1 = "agent1"
+store.for_agent(agent_id1).add_service({"name": "mcpstore_wiki", "url": "https://www.mcpstore.wiki/mcp"})
+
+agent_id2 = "agent2"
+store.for_agent(agent_id2).add_service({"name": "playwright", "command": "npx", "args": ["@playwright/mcp"]})
+
+agent1_tools = store.for_agent(agent_id1).list_tools()
+agent2_tools = store.for_agent(agent_id2).list_tools()
+```
+
+`store.for_agent(agent_id)` shares most functional interfaces with `store.for_store()`. Essentially, it creates a logical subset within the global scope through a grouping mechanism.
+
+Effectively isolate services by assigning dedicated services to different Agents, avoiding overly long contexts.
+
+Works well with aggregated service `hub_service` (experimental) and quick generation of A2A Agent Cards (planned support).
+
+
+
+#### Common Operations
+
+| Action          | Command Example                                                                                   |
+|-------------|----------------------------------------------------------------------------------------|
+| Find Service        | `store.for_store().find_service("service_name")`                                       |
+| Update Service        | `store.for_store().update_service("service_name", new_config)`                         |
+| Patch Service        | `store.for_store().patch_service("service_name", {"headers": {"X-API-Key": "..."}})`   |
+| Delete Service        | `store.for_store().delete_service("service_name")`                                     |
+| Restart Service        | `store.for_store().restart_service("service_name")`                                    |
+| Disconnect Service        | `store.for_store().disconnect_service("service_name")`                                 |
+| Health Check        | `store.for_store().check_services()`                                                   |
+| Show Config        | `store.for_store().show_config()`                                                      |
+| Service Info        | `store.for_store().get_service_info("service_name")`                                   |
+| Wait for Ready        | `store.for_store().wait_service("service_name", timeout=30)`                           |
+| Hub Services        | `store.for_agent(agent_id).hub_services()`                                             |
+| List Agents     | `store.for_store().list_agents()` |
+| List Services        | `store.for_store().list_services()` |
+| List Tools        | `store.for_store().list_tools()` |
+| Find Tool        | `store.for_store().find_tool("tool_name")` |
+| Execute Tool | `store.for_store().call_tool("tool_name", {"k": "v"})` |
+
+#### Cache/Redis Backend
+
+Supports using Redis as a shared cache backend for sharing service and tool metadata across processes/multiple instances. Install additional dependencies:
+
+```bash
+pip install mcpstore[redis]
+# Or install separately: pip install redis
+```
+
+Usage: Pass in the `external_db` parameter during store initialization:
+
+```python
+from mcpstore import MCPStore
+store = MCPStore.setup_store(
+    external_db={
+        "cache": {
+            "type": "redis",
+            "url": "redis://localhost:6379/0",
+            "password": None,
+            "namespace": "demo_namespace"
+        }
+    }
+)
+```
+For more `setup_store` configurations, see the documentation.
+
+### API Mode
+
+#### Start API
+
+Quick start via SDK
+```python
+from mcpstore import MCPStore
+prod_store = MCPStore.setup_store()
+prod_store.start_api_server(host="0.0.0.0", port=18200)
+```
+
+Or quick start using CLI
+```bash
+mcpstore run api
+```
+![image-20250721212359929](http://www.text2mcp.com/img/image-20250721212359929.png)
+
+Example page: [Live Demo](https://web.mcpstore.wiki) 
+
+
+#### Common API Endpoints
+
+```bash
+# Service Management
+POST /for_store/add_service
+GET  /for_store/list_services
+POST /for_store/delete_service
+
+# Tool Operations
+GET  /for_store/list_tools
+POST /for_store/use_tool
+
+# Runtime Status
+GET  /for_store/get_stats
+GET  /for_store/health
+```
+For more, see API documentation: [Documentation](https://doc.mcpstore.wiki/)
+
+
+### Docker Deployment 
+
+
+
+## Star History
+
+<div align="center">
+
+[![Star History Chart](https://api.star-history.com/svg?repos=whillhill/mcpstore&type=Date)](https://star-history.com/#whillhill/mcpstore&Date)
+
+</div>
+
+---
+
+McpStore is still under active development. Feedback and suggestions are welcome.
