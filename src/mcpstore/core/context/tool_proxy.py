@@ -426,19 +426,84 @@ class ToolProxy:
                             continue
                     
                     # 构建工具信息
-                    self._tool_info = {
+                    info: Dict[str, Any] = {
                         'name': tool.name,
                         'description': tool.description,
                         'inputSchema': tool.inputSchema,
                         'service_name': tool.service_name,
                         'client_id': tool.client_id,
-                        'tags': [],  # 将从 FastMCP meta 中提取
-                        'meta': {},  # 将从 FastMCP 中获取
+                        'tags': [],
+                        'meta': {},
                         'scope': self._scope
                     }
-                    
-                    # T 从 FastMCP 的 list_tools() 获取 meta 信息
-                    # 这需要访问底层的 FastMCP 客户端
+                    # 1) 从快照中尝试补充 original_name/display_name/tags/meta（若可用）
+                    try:
+                        agent_id = self._context._agent_id if self._context_type == ContextType.AGENT else None
+                        snapshot = self._context._sync_helper.run_async(
+                            self._context._store.orchestrator.tools_snapshot(agent_id)
+                        )
+                        matched = None
+                        for item in snapshot or []:
+                            if not isinstance(item, dict):
+                                continue
+                            if item.get('name') == tool.name and item.get('service_name') == tool.service_name:
+                                matched = item
+                                break
+                        if matched:
+                            # 部分实现可能包含 original_name/display_name/tags/meta
+                            if 'original_name' in matched and 'original_name' not in info:
+                                info['original_name'] = matched.get('original_name')
+                            if 'display_name' in matched and 'display_name' not in info:
+                                info['display_name'] = matched.get('display_name')
+                            if isinstance(matched.get('tags'), list):
+                                info['tags'] = list(matched.get('tags') or [])
+                            # 若存在服务端提供的 meta，合并之
+                            if isinstance(matched.get('meta'), dict):
+                                meta_from_snapshot = matched.get('meta') or {}
+                                if isinstance(info.get('meta'), dict):
+                                    merged = dict(info['meta'])
+                                    merged.update(meta_from_snapshot)
+                                    info['meta'] = merged
+                                else:
+                                    info['meta'] = meta_from_snapshot
+                    except Exception as e:
+                        logger.debug(f"[TOOL_PROXY] snapshot enrichment failed: {e}")
+
+                    # 2) 从转换管理器补充 tags（如有）
+                    try:
+                        tm = getattr(self._context, '_transformation_manager', None)
+                        if tm and hasattr(tm, 'transformer') and hasattr(tm.transformer, 'get_transformation_config'):
+                            # 优先使用显示名（tool.name），其次 original_name
+                            cfg = tm.transformer.get_transformation_config(tool.name)
+                            if not cfg and isinstance(info.get('original_name'), str):
+                                cfg = tm.transformer.get_transformation_config(info.get('original_name'))
+                            if cfg and hasattr(cfg, 'tags') and isinstance(cfg.tags, list):
+                                # 合并且去重
+                                existing = set(info.get('tags') or [])
+                                for t in cfg.tags:
+                                    if isinstance(t, str):
+                                        existing.add(t)
+                                info['tags'] = list(existing)
+                    except Exception as e:
+                        logger.debug(f"[TOOL_PROXY] transformation tags enrichment failed: {e}")
+
+                    # 3) 将 tags 写入 meta._fastmcp.tags，以兼容“FastMCP meta._fastmcp.tags”读取预期
+                    try:
+                        tags = info.get('tags') or []
+                        meta = info.get('meta') or {}
+                        if not isinstance(meta, dict):
+                            meta = {}
+                        fm = meta.get('_fastmcp') or {}
+                        if not isinstance(fm, dict):
+                            fm = {}
+                        if isinstance(tags, list):
+                            fm['tags'] = tags
+                        meta['_fastmcp'] = fm
+                        info['meta'] = meta
+                    except Exception as e:
+                        logger.debug(f"[TOOL_PROXY] meta/_fastmcp tags merge failed: {e}")
+
+                    self._tool_info = info
                     
                     break
             

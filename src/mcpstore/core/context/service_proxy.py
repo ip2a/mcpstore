@@ -223,8 +223,6 @@ class ServiceProxy:
             bool: 是否成功
         """
         return self._context.patch_service(self._service_name, updates)
-
-        return self._context.delete_service(self._service_name)
     def remove_service(self) -> bool:
         """
         移除服务（两个单词方法）
