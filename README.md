@@ -2,8 +2,7 @@
 
 <div align="center">
 
-# McpStore
-
+<img src="assets/logo.svg" alt="McpStore" width="400"/>
 
 轻松管理 MCP 服务的 SDK，适配主流 AI 框架，Agent 快速调用 MCP 工具
 
