@@ -4,6 +4,8 @@
 
 <img src="assets/logo.svg" alt="McpStore" width="400"/>
 
+-----
+
 轻松管理 MCP 服务的 SDK，适配主流 AI 框架，Agent 快速调用 MCP 工具
 
 ![GitHub stars](https://img.shields.io/github/stars/whillhill/mcpstore) ![GitHub forks](https://img.shields.io/github/forks/whillhill/mcpstore) ![GitHub license](https://img.shields.io/github/license/whillhill/mcpstore)  ![Python versions](https://img.shields.io/pypi/pyversions/mcpstore) ![PyPI downloads](https://img.shields.io/pypi/dm/mcpstore?label=downloads) 
