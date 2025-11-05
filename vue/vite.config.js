@@ -44,6 +44,10 @@ export default defineConfig(({ mode }) => {
       host,  // 由环境变量控制
       open: false,
       cors: true,
+      allowedHosts: [
+        'web.mcpstore.wiki',
+        '.mcpstore.wiki'  // 允许所有 mcpstore.wiki 的子域名
+      ],
       hmr: {
         port,
         host: 'localhost'
