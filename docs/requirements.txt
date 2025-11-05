@@ -1,0 +1,14 @@
+# MkDocs 核心
+mkdocs>=1.5.0
+
+# Material 主题
+mkdocs-material>=9.4.0
+
+# 插件
+mkdocs-minify-plugin>=0.7.0
+pymdown-extensions>=10.0.0
+
+# 可选插件（根据需要启用）
+# mkdocs-pdf-export-plugin>=0.5.10
+# mkdocs-with-pdf>=0.9.3
+# mkdocs-mermaid2-plugin>=1.1.0
