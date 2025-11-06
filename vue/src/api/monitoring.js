@@ -57,6 +57,12 @@ export const monitoringApi = {
     .then(res => extractResponseData(res.data)),
   
   /**
+   * 系统资源（为完整性提供，当前 store 走的是 storeApi）
+   */
+  getSystemResources: () => apiRequest.get(API_ENDPOINTS.STORE.SYSTEM_RESOURCES)
+    .then(res => extractResponseData(res.data)),
+  
+  /**
    * 内容快照
    */
   getServiceContentSnapshot: (serviceName, agentId = null) => {

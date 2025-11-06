@@ -12,7 +12,7 @@
 
 [English](README_en.md) | [简体中文](README_zh.md)
 
-[在线体验](https://mcpstore.wiki/web_demo/dashboard) | [详细文档](https://doc.mcpstore.wiki/) | [快速使用](###简单示例)
+[在线体验](https://web.mcpstore.wiki) | [详细文档](https://doc.mcpstore.wiki/) | [快速使用](###简单示例)
 
 </div>
 

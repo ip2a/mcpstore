@@ -2,8 +2,8 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { api } from '@/api'
 import { useAppStore } from './app'
-import { SERVICE_LIFECYCLE_STATES } from '@/api/config'
 import { useErrorHandler, useLoadingState, LOADING_KEYS } from '@/composables'
+import { logger } from '@/utils/logger'
 
 export const useServicesStore = defineStore('services', () => {
   const appStore = useAppStore()
@@ -145,81 +145,25 @@ export const useServicesStore = defineStore('services', () => {
     try {
       appStore?.setLoadingState('services', true)
 
-      const response = await api.store.listServices()
+      const servicesArr = await api.store.listServices()
 
-      // 🔍 调试：检查API返回的数据格式
-      console.log('🔍 [DEBUG] API返回的原始数据:', response)
-      console.log('🔍 [DEBUG] response.data类型:', typeof response.data)
-      console.log('🔍 [DEBUG] response.data是否为数组:', Array.isArray(response.data))
-
-      // 🔧 改进：处理新的API响应格式和数据结构
-      let rawServices = []
-
-      console.log('🔍 [DEBUG] 完整API响应:', response)
-      console.log('🔍 [DEBUG] response.data:', response.data)
-
-      // 处理不同的响应格式
-      if (response.data && response.data.success && response.data.data && response.data.data.services) {
-        // 新格式：{ success: true, data: { services: [...], total_services: 2 } }
-        rawServices = response.data.data.services
-        console.log('✅ [DEBUG] 使用新格式 response.data.data.services')
-      } else if (response.data && response.data.success && Array.isArray(response.data.data)) {
-        // 兼容旧格式：data直接是数组
-        rawServices = response.data.data
-        console.log('✅ [DEBUG] 使用旧格式 response.data.data (数组)')
-      } else if (Array.isArray(response.data)) {
-        rawServices = response.data
-        console.log('✅ [DEBUG] 使用 response.data (直接数组)')
-      } else if (Array.isArray(response)) {
-        rawServices = response
-        console.log('✅ [DEBUG] 使用 response (直接数组)')
-      } else if (response.data && Array.isArray(response.data.services)) {
-        rawServices = response.data.services
-        console.log('✅ [DEBUG] 使用 response.data.services')
-      } else {
-        console.warn('⚠️ API返回的数据格式不正确，使用空数组')
-        console.warn('实际响应结构:', {
-          hasData: !!response.data,
-          hasSuccess: !!(response.data && response.data.success),
-          hasDataData: !!(response.data && response.data.data),
-          hasServices: !!(response.data && response.data.data && response.data.data.services),
-          dataType: typeof response.data,
-          dataDataType: response.data && typeof response.data.data
-        })
-        rawServices = []
-      }
-
-      console.log('🔍 [DEBUG] 提取的rawServices:', rawServices)
-      console.log('🔍 [DEBUG] rawServices长度:', rawServices.length)
-
-      // 🔧 处理新的数据结构，确保所有服务都有必要的字段
-      services.value = rawServices.map(service => ({
+      // 处理数据结构，确保必要字段存在
+      services.value = (Array.isArray(servicesArr) ? servicesArr : []).map(service => ({
         ...service,
-        // 确保激活状态字段存在
         is_active: service.is_active !== undefined ? service.is_active : (service.state_metadata !== null),
-        // 确保生命周期字段存在
         consecutive_successes: service.consecutive_successes || 0,
         consecutive_failures: service.consecutive_failures || 0,
         last_ping_time: service.last_ping_time || null,
         error_message: service.error_message || null,
         reconnect_attempts: service.reconnect_attempts || 0,
         state_entered_time: service.state_entered_time || null,
-        // 添加UI状态字段
         activating: false,
         restarting: false
       }))
 
-      // 统计激活和配置服务数量
-      const activeServices = services.value.filter(s => s.is_active).length
-      const configOnlyServices = services.value.length - activeServices
-
-      console.log(`✅ [Store] 成功获取 ${services.value.length} 个服务 (已激活: ${activeServices}, 仅配置: ${configOnlyServices})`)
-      console.log('🔍 [DEBUG] 处理后的services.value:', services.value)
-
       updateStats()
       lastUpdateTime.value = new Date()
 
-      console.log(`📋 Loaded ${services.value.length} services`)
       return services.value
     } catch (error) {
       console.error('获取服务列表失败:', error)
@@ -399,10 +343,10 @@ export const useServicesStore = defineStore('services', () => {
     try {
       setLoadingState('checking', true)
 
-      const response = await api.store.checkServices()
+      const data = await api.store.checkServices()
       // 更新服务状态
-      if (response.data && Array.isArray(response.data)) {
-        response.data.forEach(healthInfo => {
+      if (Array.isArray(data)) {
+        data.forEach(healthInfo => {
           const service = services.value.find(s => s.name === healthInfo.name)
           if (service) {
             service.status = healthInfo.status
@@ -418,7 +362,7 @@ export const useServicesStore = defineStore('services', () => {
         })
         updateStats()
       }
-      return response.data
+      return data
     } catch (error) {
       console.error('健康检查失败:', error)
       addError({
@@ -451,14 +395,8 @@ export const useServicesStore = defineStore('services', () => {
   // 获取系统资源信息
   const fetchSystemResources = async () => {
     try {
-      const response = await api.monitoring.getSystemResources()
-
-      if (response.success && response.data) {
-        return response.data
-      } else {
-        throw new Error(response.message || 'Failed to fetch system resources')
-      }
-
+      const data = await api.store.getSystemResources()
+      return data
     } catch (error) {
       console.error('Failed to fetch system resources:', error)
       addError({
@@ -469,7 +407,7 @@ export const useServicesStore = defineStore('services', () => {
       return null
     }
   }
-
+  
   // 刷新所有数据
   const refreshAll = async () => {
     try {
@@ -504,7 +442,7 @@ export const useServicesStore = defineStore('services', () => {
   const updateStats = () => {
     // 安全检查：确保services.value是数组
     if (!Array.isArray(services.value)) {
-      console.warn('⚠️ updateStats: services.value不是数组，跳过统计更新')
+      logger.warn('⚠️ updateStats: services.value不是数组，跳过统计更新')
       return
     }
 
@@ -547,7 +485,7 @@ export const useServicesStore = defineStore('services', () => {
     loadingState.resetAll()
     loading.value = false
 
-    console.log('🔄 Services store reset')
+    logger.debug('🔄 Services store reset')
   }
   
   return {

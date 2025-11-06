@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { api } from '@/api'
 import { useAppStore } from './app'
+import { logger } from '@/utils/logger'
 
 export const useSystemStore = defineStore('system', () => {
   const appStore = useAppStore()
@@ -178,7 +179,7 @@ export const useSystemStore = defineStore('system', () => {
     if ((loading.value || loadingStates.value.services) && !force) return
 
     try {
-      console.log('🔍 [STORE] 开始获取服务列表...')
+      logger.debug('🔍 [STORE] 开始获取服务列表...')
       loading.value = true
       setLoadingState('services', true)
       appStore?.setLoadingState('services', true)
@@ -186,12 +187,12 @@ export const useSystemStore = defineStore('system', () => {
       const servicesArr = await api.store.listServices()
       services.value = Array.isArray(servicesArr) ? servicesArr : []
 
-      console.log('🔍 [STORE] 解析后的服务数据:', services.value)
-      console.log('🔍 [STORE] 服务数量:', services.value.length)
+      logger.debug('🔍 [STORE] 解析后的服务数据:', services.value)
+      logger.debug('🔍 [STORE] 服务数量:', services.value.length)
       updateStats()
       lastUpdateTime.value = new Date()
 
-      console.log(`📋 Loaded ${services.value.length} services`)
+      logger.debug(`📋 Loaded ${services.value.length} services`)
       return services.value
     } catch (error) {
       console.error('❌ [STORE] 获取服务列表失败:', error)
@@ -221,7 +222,7 @@ export const useSystemStore = defineStore('system', () => {
       updateStats()
       lastUpdateTime.value = new Date()
 
-      console.log(`🛠️ Loaded ${tools.value.length} tools`)
+      logger.debug(`🛠️ Loaded ${tools.value.length} tools`)
       return tools.value
     } catch (error) {
       console.error('Failed to fetch tools:', error)
@@ -251,7 +252,7 @@ export const useSystemStore = defineStore('system', () => {
       updateStats()
       lastUpdateTime.value = new Date()
 
-      console.log(`🤖 Loaded ${agents.value.length} agents`)
+      logger.debug(`🤖 Loaded ${agents.value.length} agents`)
       return agents.value
     } catch (error) {
       console.error('Failed to fetch agents:', error)
@@ -270,13 +271,13 @@ export const useSystemStore = defineStore('system', () => {
   
   const fetchSystemStatus = async () => {
     try {
-      console.log('🔍 [STORE] 开始检查服务状态...')
+      logger.debug('🔍 [STORE] 开始检查服务状态...')
       loading.value = true
       const data = await api.store.checkServices()
-      console.log('🔍 [STORE] 服务状态响应:', data)
+      logger.debug('🔍 [STORE] 服务状态响应:', data)
       // 修复：checkServices 已返回 data 段，直接赋值
       healthStatus.value = data || {}
-      console.log('🔍 [STORE] 解析后的健康状态:', healthStatus.value)
+      logger.debug('🔍 [STORE] 解析后的健康状态:', healthStatus.value)
       updateStats()
       lastUpdateTime.value = new Date()
       return healthStatus.value
@@ -305,7 +306,7 @@ export const useSystemStore = defineStore('system', () => {
       await fetchSystemStatus()
     } catch (error) {
       // 静默失败，不抛出错误
-      console.warn('System status check failed silently:', error.message)
+      logger.warn('System status check failed silently:', error.message)
     }
   }
   
@@ -519,16 +520,15 @@ export const useSystemStore = defineStore('system', () => {
     try {
       setLoadingState('resources', true)
 
-      const response = await api.store.getToolRecords(limit)
-      console.log('API响应:', response) // 调试日志
+      const data = await api.store.getToolRecords(limit)
+      logger.debug('API响应:', data) // 调试日志
 
-      // API返回格式: { data: { success: true, data: { executions: [...], summary: {...} }, message: "..." } }
-      const apiData = response.data
-      if (apiData && apiData.success && apiData.data) {
-        console.log(`📊 Loaded ${apiData.data.executions.length} tool execution records`)
-        return apiData.data
+      // 期望格式: { executions: [...], summary: {...} }
+      if (data && Array.isArray(data.executions)) {
+        logger.debug(`📊 Loaded ${data.executions.length} tool execution records`)
+        return data
       } else {
-        console.warn('API响应格式异常:', response)
+        logger.warn('API响应格式异常:', data)
         return { executions: [], summary: { total_executions: 0, by_tool: {}, by_service: {} } }
       }
     } catch (error) {
@@ -549,35 +549,31 @@ export const useSystemStore = defineStore('system', () => {
     try {
       setLoadingState('resources', true)
 
-      const response = await api.monitoring.getSystemResources()
+      const data = await api.store.getSystemResources()
 
-      if (response.success && response.data) {
-        systemResources.value = {
-          memory: {
-            total: response.data.memory_total || 0,
-            used: response.data.memory_used || 0,
-            percentage: response.data.memory_percentage || 0
-          },
-          disk: {
-            total: response.data.disk_total || 0,
-            used: response.data.disk_used || 0,
-            percentage: response.data.disk_usage_percentage || 0
-          },
-          cpu: {
-            usage: response.data.cpu_usage || 0,
-            cores: response.data.cpu_cores || 0
-          },
-          network: {
-            in: response.data.network_traffic_in || 0,
-            out: response.data.network_traffic_out || 0
-          }
+      systemResources.value = {
+        memory: {
+          total: data.memory_total || 0,
+          used: data.memory_used || 0,
+          percentage: data.memory_percentage || 0
+        },
+        disk: {
+          total: data.disk_total || 0,
+          used: data.disk_used || 0,
+          percentage: data.disk_usage_percentage || 0
+        },
+        cpu: {
+          usage: data.cpu_usage || 0,
+          cores: data.cpu_cores || 0
+        },
+        network: {
+          in: data.network_traffic_in || 0,
+          out: data.network_traffic_out || 0
         }
-
-        console.log('📊 System resources updated')
-        return systemResources.value
-      } else {
-        throw new Error(response.message || 'Failed to fetch system resources')
       }
+
+      logger.debug('📊 System resources updated')
+      return systemResources.value
 
     } catch (error) {
       console.error('Failed to fetch system resources:', error)
@@ -613,7 +609,7 @@ export const useSystemStore = defineStore('system', () => {
         type: 'success'
       })
 
-      console.log('🔄 All system data refreshed')
+      logger.debug('🔄 All system data refreshed')
     } catch (error) {
       console.error('Failed to refresh data:', error)
       addError({
@@ -775,7 +771,7 @@ export const useSystemStore = defineStore('system', () => {
       loading.value = false
       lastUpdateTime.value = null
 
-      console.log('🔄 System store reset')
+      logger.debug('🔄 System store reset')
     },
 
     // 新增方法

@@ -409,7 +409,8 @@ export function usePaginationApi(apiFn, options = {}) {
     loadingStateInstance.setLoading('pagination', true)
 
     try {
-      const response = await apiFn({ page, pageSize: size })
+      const params = { page, page_size: size, pageSize: size }
+      const response = await apiFn(params)
       let result = response?.data ?? response
 
       if (transform) {
