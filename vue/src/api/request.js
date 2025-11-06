@@ -161,9 +161,19 @@ export const downloadRequest = async (url, params = {}, filename = null) => {
     let defaultFilename = filename || 'download'
     
     if (contentDisposition) {
-      const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
-      if (filenameMatch && filenameMatch[1]) {
-        defaultFilename = filenameMatch[1].replace(/['"]/g, '')
+      // RFC 6266/5987: filename*=UTF-8''encoded
+      const filenameStarMatch = contentDisposition.match(/filename\*=(?:UTF-8'')?([^;\n]*)/i)
+      if (filenameStarMatch && filenameStarMatch[1]) {
+        try {
+          defaultFilename = decodeURIComponent(filenameStarMatch[1].replace(/['"]/g, ''))
+        } catch (_) {
+          defaultFilename = filenameStarMatch[1].replace(/['"]/g, '')
+        }
+      } else {
+        const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/i)
+        if (filenameMatch && filenameMatch[1]) {
+          defaultFilename = filenameMatch[1].replace(/['"]/g, '')
+        }
       }
     }
     
@@ -193,7 +203,13 @@ export const batchRequest = async (requests, concurrency = 5) => {
     const batchResults = await Promise.allSettled(
       batch.map(req => {
         const { method, url, data, params, config = {} } = req
-        return request[method](url, method === 'get' ? { ...config, params } : { ...config, data })
+        const m = String(method || 'get').toLowerCase()
+        if (m === 'get' || m === 'delete') {
+          return request[m](url, { ...config, params })
+        } else if (m === 'post' || m === 'put' || m === 'patch') {
+          return request[m](url, data, { ...config, params })
+        }
+        return Promise.reject(new Error(`Unsupported method in batchRequest: ${method}`))
       })
     )
     results.push(...batchResults)
@@ -225,12 +241,17 @@ export const retryRequest = async (requestFn, maxRetries = 3, baseDelay = 1000) 
   throw lastError
 }
 
-// 取消请求控制器
+// 取消请求控制器（使用 AbortController）
+export const createAbortController = () => {
+  return new AbortController()
+}
+
+// 兼容旧命名（不再使用 CancelToken）
 export const createCancelToken = () => {
-  const source = axios.CancelToken.source()
+  const controller = new AbortController()
   return {
-    token: source.token,
-    cancel: source.cancel
+    token: controller.signal,
+    cancel: () => controller.abort()
   }
 }
 
@@ -260,7 +281,8 @@ export const createWebSocket = (url, options = {}) => {
     // 自动重连
     if (options.reconnect !== false) {
       setTimeout(() => {
-        createWebSocket(url, options)
+        const newWs = createWebSocket(url, options)
+        options.onReconnect?.(newWs)
       }, options.reconnectDelay || 3000)
     }
   }

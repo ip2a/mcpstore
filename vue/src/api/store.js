@@ -112,7 +112,7 @@ export const storeApi = {
   /**
    * 统计信息 - 使用 /health 接口（后端没有 get_stats 接口）
    */
-  getStats: () => apiRequest.get('/health')
+  getStats: () => apiRequest.get(API_ENDPOINTS.STORE.HEALTH)
     .then(res => {
       const health = extractResponseData(res.data, {})
       // 转换为前端需要的格式

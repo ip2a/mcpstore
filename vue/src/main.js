@@ -21,11 +21,8 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
   app.component(key, component)
 }
 
-// 全局属性
-app.config.globalProperties.$ELEMENT = {
-  size: 'default',
-  zIndex: 3000
-}
+// 全局属性（Element Plus 全局配置已通过 app.use(ElementPlus, { ... }) 注入）
+// 移除过时的 $ELEMENT 配置
 
 // 全局错误处理
 app.config.errorHandler = (err, vm, info) => {
@@ -37,8 +34,6 @@ app.config.errorHandler = (err, vm, info) => {
 // 全局未捕获的Promise错误处理
 window.addEventListener('unhandledrejection', (event) => {
   console.error('Unhandled Promise Rejection:', event.reason)
-  // 防止默认的控制台错误输出
-  event.preventDefault()
 })
 
 // 全局错误处理

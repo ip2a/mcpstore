@@ -73,6 +73,11 @@ export function validateApiResponse(response) {
 export function extractResponseData(response, defaultValue = null) {
   const validated = validateApiResponse(response)
   
+  // 若没有 success 字段，直接返回整体响应（兼容多种后端格式）
+  if (!('success' in validated)) {
+    return validated ?? defaultValue
+  }
+  
   if (validated.success) {
     return validated.data ?? defaultValue
   } else {

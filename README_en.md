@@ -14,7 +14,7 @@
 [English](README_en.md) | [简体中文](README_zh.md)
 
 
-[Live Demo](https://mcpstore.wiki/web_demo/dashboard) | [Documentation](https://doc.mcpstore.wiki/) | [Quick Start](###simple-example)
+[Live Demo](https://web.mcpstore.wiki) | [Documentation](https://doc.mcpstore.wiki/) | [Quick Start](###simple-example)
 
 </div>
 
