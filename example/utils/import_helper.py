@@ -23,10 +23,10 @@ def setup_import_path():
         if src_path.exists():
             # 将 src 路径插入到 sys.path 最前面
             sys.path.insert(0, str(src_path))
-            print(f"✅ 使用本地 mcpstore: {src_path}")
+            print(f"使用本地 mcpstore: {src_path}")
             return True
         else:
-            print("⚠️ 本地 src/mcpstore 不存在，使用环境中的 mcpstore")
+            print("⚠本地 src/mcpstore 不存在，使用环境中的 mcpstore")
             return False
     except Exception as e:
         print(f"⚠️ 路径配置警告: {e}")

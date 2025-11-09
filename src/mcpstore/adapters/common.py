@@ -5,7 +5,9 @@ import inspect
 import json
 from typing import TYPE_CHECKING, Callable, Any, Type
 
-from pydantic import BaseModel, create_model, Field
+from pydantic import BaseModel, create_model, Field, ConfigDict
+import warnings
+import re
 
 if TYPE_CHECKING:
     from ..core.context.base_context import MCPStoreContext
@@ -32,11 +34,48 @@ def create_args_schema(tool_info: 'ToolInfo') -> Type[BaseModel]:
         "string": str, "number": float, "integer": int,
         "boolean": bool, "array": list, "object": dict
     }
+
+    # Build reserved names set (avoid BaseModel attributes like 'schema')
+    reserved_names = set(dir(BaseModel)) | {
+        "schema", "model_json_schema", "model_dump", "dict", "json",
+        "copy", "parse_obj", "parse_raw", "construct", "validate",
+        "schema_json", "__fields__", "__root__", "Config", "model_config",
+    }
+
+    def sanitize_name(original: str) -> str:
+        safe = original
+        if not safe.isidentifier() or safe in reserved_names or safe.startswith("_"):
+            safe = f"{safe}_"
+        return safe
+
     fields: dict[str, tuple[type, Any]] = {}
-    for name, prop in props.items():
+    for original_name, prop in props.items():
         field_type = type_mapping.get(prop.get("type", "string"), str)
         default_value = prop.get("default", ...)
-        if name not in required and default_value == ...:
+
+        # Detect JSON Schema nullability/Optional
+        def _is_nullable(p: dict) -> bool:
+            try:
+                if p.get("nullable") is True:
+                    return True
+                t = p.get("type")
+                if isinstance(t, list) and "null" in t:
+                    return True
+                any_of = p.get("anyOf") or []
+                if isinstance(any_of, list) and any((isinstance(x, dict) and x.get("type") == "null") for x in any_of):
+                    return True
+                one_of = p.get("oneOf") or []
+                if isinstance(one_of, list) and any((isinstance(x, dict) and x.get("type") == "null") for x in one_of):
+                    return True
+                if default_value is None:
+                    return True
+            except Exception:
+                pass
+            return False
+
+        is_nullable = _is_nullable(prop)
+
+        if original_name not in required and default_value == ...:
             if field_type == bool:
                 default_value = False
             elif field_type == str:
@@ -47,13 +86,63 @@ def create_args_schema(tool_info: 'ToolInfo') -> Type[BaseModel]:
                 default_value = []
             elif field_type == dict:
                 default_value = {}
+
+        # If schema is nullable and no explicit default provided, prefer None
+        if is_nullable and default_value == ...:
+            default_value = None
+
+        # Apply Optional typing if nullable
+        try:
+            if is_nullable and field_type is not Any:
+                from typing import Optional as _Optional
+                field_type = _Optional[field_type]  # type: ignore
+        except Exception:
+            pass
+
+        safe_name = sanitize_name(original_name)
+        field_kwargs = {"description": prop.get("description", "")}
+        # If we renamed, keep external alias stable
+        if safe_name != original_name:
+            field_kwargs["validation_alias"] = original_name
+            field_kwargs["serialization_alias"] = original_name
+
         if default_value != ...:
-            fields[name] = (field_type, Field(default=default_value, description=prop.get("description", "")))
+            fields[safe_name] = (field_type, Field(default=default_value, **field_kwargs))
         else:
-            fields[name] = (field_type, ...)
+            fields[safe_name] = (field_type, Field(**field_kwargs))
+
+    # Detect whether schema allows additionalProperties
+    additional_properties = tool_info.inputSchema.get("additionalProperties", False)
+    allow_extra = bool(additional_properties)  # dict/True both视为允许
+
+    if not fields and allow_extra:
+        # No declared fields but open object: create permissive model with extra=allow
+        base = type("OpenArgsBase", (BaseModel,), {"model_config": ConfigDict(extra="allow")})
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=re.compile(r"Field name \"schema\" in \".*\" shadows an attribute in parent \"BaseModel\""),
+                category=UserWarning,
+                module="pydantic",
+            )
+            return create_model(f"{tool_info.name.capitalize().replace('_', '')}Input", __base__=base)
+
     if not fields:
         fields["input"] = (str, Field(description="Tool input"))
-    return create_model(f"{tool_info.name.capitalize().replace('_', '')}Input", **fields)
+
+    # Suppress specific Pydantic warning about shadowing BaseModel attributes
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=re.compile(r"Field name \"schema\" in \".*\" shadows an attribute in parent \"BaseModel\""),
+            category=UserWarning,
+            module="pydantic",
+        )
+        # Create model; if open schema, allow extras
+        base = BaseModel
+        if allow_extra:
+            base = type("OpenArgsBase", (BaseModel,), {"model_config": ConfigDict(extra="allow")})
+        return create_model(f"{tool_info.name.capitalize().replace('_', '')}Input", __base__=base, **fields)
 
 
 def build_sync_executor(context: 'MCPStoreContext', tool_name: str, args_schema: Type[BaseModel]) -> Callable[..., Any]:
@@ -63,13 +152,17 @@ def build_sync_executor(context: 'MCPStoreContext', tool_name: str, args_schema:
             schema_info = args_schema.model_json_schema()
             schema_fields = schema_info.get('properties', {})
             field_names = list(schema_fields.keys())
-            tool_input = {k: v for k, v in kwargs.items() if k in field_names}
+            allow_extra = bool(schema_info.get('additionalProperties', False))
+            tool_input = dict(kwargs) if allow_extra else {k: v for k, v in kwargs.items() if k in field_names}
             try:
                 validated = args_schema(**tool_input)
             except Exception:
                 filtered = {k: kwargs[k] for k in field_names if k in kwargs}
                 validated = args_schema(**filtered)
-            result = context.call_tool(tool_name, validated.model_dump())
+            result = context.call_tool(
+                tool_name,
+                validated.model_dump(exclude_none=True, exclude_unset=True, exclude_defaults=True)
+            )
             actual = getattr(result, 'result', None)
             if actual is None and getattr(result, 'success', False):
                 actual = getattr(result, 'data', str(result))
@@ -86,7 +179,10 @@ def build_sync_executor(context: 'MCPStoreContext', tool_name: str, args_schema:
 def build_async_executor(context: 'MCPStoreContext', tool_name: str, args_schema: Type[BaseModel]) -> Callable[..., Any]:
     async def _executor(**kwargs):
         validated = args_schema(**kwargs)
-        result = await context.call_tool_async(tool_name, validated.model_dump())
+        result = await context.call_tool_async(
+            tool_name,
+            validated.model_dump(exclude_none=True, exclude_unset=True, exclude_defaults=True)
+        )
         actual = getattr(result, 'result', None)
         if actual is None and getattr(result, 'success', False):
             actual = getattr(result, 'data', str(result))
