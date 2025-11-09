@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+"""
+基础示例：更新服务 (Agent 级别)
+功能：演示如何更新 Agent 的服务配置
+"""
+
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils.import_helper import setup_import_path
+setup_import_path()
+
+from mcpstore import MCPStore
+
+# 初始化store
+store = MCPStore.setup_store(debug=False)
+
+# 为Agent添加服务
+store.for_agent("demo_agent").add_service({
+    "mcpServers": {
+        "mcpstore": {
+            "url": "https://www.mcpstore.wiki/mcp"
+        }
+    }
+})
+
+# 等待服务就绪
+store.for_agent("demo_agent").wait_service("mcpstore")
+
+# 更新前查看配置
+service_info_before = store.for_agent("demo_agent").find_service("mcpstore").service_info()
+print(f"更新前URL: {service_info_before.url}")
+
+# 更新Agent服务配置
+store.for_agent("demo_agent").find_service("mcpstore").update_config({
+    "url": "https://mcp.context7.com/mcp"
+})
+
+# 更新后查看配置
+config = store.config.load_config()
+agent_service_name = "mcpstore_byagent_demo_agent"
+if agent_service_name in config.get("mcpServers", {}):
+    weather_config = config["mcpServers"][agent_service_name]
+    print(f"更新后URL: {weather_config.get('url')}")
+
+# 清空配置方便下次演示
+store.for_store().reset_config()
