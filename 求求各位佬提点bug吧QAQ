@@ -1,0 +1,45 @@
+断开删除服务的区别
+服务状态确认
+数据一致性确认
+redis协作确认
+数据空间接口
+
+参考claude 的cli添加服务的方式 
+添加sqllite 
+有导出文件》？
+
+
+docker
+setup
+vue2
+tool代理
+redis和缓存都做了什么
+redis添加传递示例的方法
+hub
+认证
+doc首页添加langchain的使用记录
+分析session的调用实质
+agent的调用的是本地的call方法吗 
+还有哪些没有封装fastmcp客户端
+
+agent的id是否是唯一的 是否是唯一哈希
+
+vue的数据返回格式
+vue精简无用的组件
+
+
+vue的配置 各个env bulid的作用 各个文件的作用 ts区别  npmn的区别
+添加动图 完善redeam
+
+重置服务问题
+为什么有的waring的模式
+
+wait服务的时候是否应该保持不让他失败 持续尝试等待  
+就是如果我的服务响应的慢 哪怕我wait也不会让他成功吗？
+
+findservice 和 listservice的数据不一致
+
+
+清空服务的 时候我的 工具快照没有标注脏数据  重置服务  更新服务 重置json 清空缓存 这些时候是否都应该
+
+/for_agent/{agent_id}/summary 文档待删除

@@ -73,14 +73,45 @@ class OpenAIAdapter:
             "properties": {},
             "required": required
         }
+
+        # 透传顶层 additionalProperties（如允许开放字段）
+        if "additionalProperties" in input_schema:
+            openai_parameters["additionalProperties"] = input_schema["additionalProperties"]
         
         # 处理每个参数
+        def _is_nullable(p: Dict[str, Any]) -> bool:
+            try:
+                if p.get("nullable") is True:
+                    return True
+                t = p.get("type")
+                if isinstance(t, list) and "null" in t:
+                    return True
+                any_of = p.get("anyOf") or []
+                if isinstance(any_of, list) and any((isinstance(x, dict) and x.get("type") == "null") for x in any_of):
+                    return True
+                one_of = p.get("oneOf") or []
+                if isinstance(one_of, list) and any((isinstance(x, dict) and x.get("type") == "null") for x in one_of):
+                    return True
+                if p.get("default", object()) is None:
+                    return True
+            except Exception:
+                pass
+            return False
+
         for param_name, param_info in properties.items():
             # OpenAI支持的类型映射
-            openai_param = {
-                "type": param_info.get("type", "string"),
+            declared_type = param_info.get("type", "string")
+            openai_param: Dict[str, Any] = {
                 "description": param_info.get("description", "")
             }
+
+            nullable = _is_nullable(param_info)
+            if nullable:
+                # 使用 anyOf 以兼容更多客户端
+                base_type = declared_type if isinstance(declared_type, str) else next((t for t in declared_type if t != "null"), "string")
+                openai_param["anyOf"] = [{"type": base_type}, {"type": "null"}]
+            else:
+                openai_param["type"] = declared_type
             
             # 处理枚举值
             if "enum" in param_info:
@@ -91,14 +122,18 @@ class OpenAIAdapter:
                 openai_param["default"] = param_info["default"]
                 
             # 处理数组类型的items
-            if param_info.get("type") == "array" and "items" in param_info:
+            if (param_info.get("type") == "array" or (isinstance(param_info.get("type"), list) and "array" in param_info.get("type"))) and "items" in param_info:
                 openai_param["items"] = param_info["items"]
             
             # 处理对象类型的properties
-            if param_info.get("type") == "object" and "properties" in param_info:
+            is_object_type = param_info.get("type") == "object" or (isinstance(param_info.get("type"), list) and "object" in param_info.get("type"))
+            if is_object_type and "properties" in param_info:
                 openai_param["properties"] = param_info["properties"]
                 if "required" in param_info:
                     openai_param["required"] = param_info["required"]
+                # 透传子对象 additionalProperties
+                if "additionalProperties" in param_info:
+                    openai_param["additionalProperties"] = param_info["additionalProperties"]
             
             openai_parameters["properties"][param_name] = openai_param
         

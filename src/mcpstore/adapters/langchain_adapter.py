@@ -5,7 +5,9 @@ import logging
 from typing import Type, List, TYPE_CHECKING
 
 from langchain_core.tools import Tool, StructuredTool, ToolException
-from pydantic import BaseModel, create_model, Field
+from pydantic import BaseModel, create_model, Field, ConfigDict
+import warnings
+import re
 
 from ..core.utils.async_sync_helper import get_global_helper
 
@@ -69,7 +71,7 @@ class LangChainAdapter:
         return enhanced_desc
 
     def _create_args_schema(self, tool_info: 'ToolInfo') -> Type[BaseModel]:
-        """(Data Conversion) Dynamically create Pydantic model based on ToolInfo's inputSchema, intelligently handle various parameter cases."""
+        """(Data Conversion) Create Pydantic model from ToolInfo, avoiding BaseModel attribute name collisions (e.g., 'schema')."""
         schema_properties = tool_info.inputSchema.get("properties", {})
         required_fields = tool_info.inputSchema.get("required", [])
 
@@ -78,40 +80,99 @@ class LangChainAdapter:
             "boolean": bool, "array": list, "object": dict
         }
 
-        # Intelligently build field definitions
+        # Reserved names that should not be used as field identifiers
+        reserved_names = set(dir(BaseModel)) | {
+            "schema", "model_json_schema", "model_dump", "dict", "json",
+            "copy", "parse_obj", "parse_raw", "construct", "validate",
+            "schema_json", "__fields__", "__root__", "Config", "model_config",
+        }
+
+        def sanitize_name(original: str) -> str:
+            safe = original
+            if not safe.isidentifier() or safe in reserved_names or safe.startswith("_"):
+                safe = f"{safe}_"
+            return safe
+
+        # Intelligently build field definitions with alias mapping
         fields = {}
-        for name, prop in schema_properties.items():
+        for original_name, prop in schema_properties.items():
             field_type = type_mapping.get(prop.get("type", "string"), str)
 
             # Handle default values
             default_value = prop.get("default", ...)
-            if name not in required_fields and default_value == ...:
-                # Provide reasonable default values for non-required fields
-                if field_type == bool:
-                    default_value = False
-                elif field_type == str:
-                    default_value = ""
-                elif field_type in (int, float):
-                    default_value = 0
-                elif field_type == list:
-                    default_value = []
-                elif field_type == dict:
-                    default_value = {}
+            if original_name not in required_fields and default_value == ...:
+                # Prefer omission; if needed, default to None (will be excluded on dump)
+                default_value = None
+
+            # Detect JSON Schema nullability/Optional
+            def _is_nullable(p: dict) -> bool:
+                try:
+                    if p.get("nullable") is True:
+                        return True
+                    t = p.get("type")
+                    if isinstance(t, list) and "null" in t:
+                        return True
+                    any_of = p.get("anyOf") or []
+                    if isinstance(any_of, list) and any((isinstance(x, dict) and x.get("type") == "null") for x in any_of):
+                        return True
+                    one_of = p.get("oneOf") or []
+                    if isinstance(one_of, list) and any((isinstance(x, dict) and x.get("type") == "null") for x in one_of):
+                        return True
+                    if default_value is None:
+                        return True
+                except Exception:
+                    pass
+                return False
+
+            is_nullable = _is_nullable(prop)
+
+            # If nullable and no explicit default, prefer None
+            if is_nullable and default_value == ...:
+                default_value = None
+
+            safe_name = sanitize_name(original_name)
+            field_kwargs = {"description": prop.get("description", "")}
+            if safe_name != original_name:
+                field_kwargs["validation_alias"] = original_name
+                field_kwargs["serialization_alias"] = original_name
+
+            # Apply Optional typing if nullable
+            try:
+                if is_nullable and field_type is not Any:
+                    from typing import Optional as _Optional
+                    field_type = _Optional[field_type]  # type: ignore
+            except Exception:
+                pass
 
             # Build field definition
             if default_value != ...:
-                fields[name] = (field_type, Field(default=default_value, description=prop.get("description", "")))
+                fields[safe_name] = (field_type, Field(default=default_value, **field_kwargs))
             else:
-                fields[name] = (field_type, ...)
+                fields[safe_name] = (field_type, Field(**field_kwargs))
 
         # Ensure at least one field to avoid empty model
         if not fields:
             fields["input"] = (str, Field(description="Tool input"))
 
-        return create_model(
-            f'{tool_info.name.capitalize().replace("_", "")}Input',
-            **fields
-        )
+        # Determine open schema (additionalProperties)
+        additional_properties = tool_info.inputSchema.get("additionalProperties", False)
+        allow_extra = bool(additional_properties)
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=re.compile(r"Field name \"schema\" in \".*\" shadows an attribute in parent \"BaseModel\""),
+                category=UserWarning,
+                module="pydantic",
+            )
+            base = BaseModel
+            if allow_extra:
+                base = type("OpenArgsBase", (BaseModel,), {"model_config": ConfigDict(extra="allow")})
+            return create_model(
+                f'{tool_info.name.capitalize().replace("_", "")}Input',
+                __base__=base,
+                **fields
+            )
 
     def _create_tool_function(self, tool_name: str, args_schema: Type[BaseModel]):
         """
@@ -147,15 +208,8 @@ class LangChainAdapter:
 
                 # Intelligently fill missing required parameters
                 for field_name, field_info in schema_fields.items():
-                    if field_name not in tool_input:
-                        # Check if there's a default value
-                        if 'default' in field_info:
-                            tool_input[field_name] = field_info['default']
-                        # Provide intelligent default values for common optional parameters
-                        elif field_name.lower() in ['retry', 'retry_on_error', 'retry_on_auth_error']:
-                            tool_input[field_name] = True
-                        elif field_name.lower() in ['timeout', 'max_retries']:
-                            tool_input[field_name] = 30 if 'timeout' in field_name.lower() else 3
+                    if field_name not in tool_input and 'default' in field_info:
+                        tool_input[field_name] = field_info['default']
 
                 # Use Pydantic model to validate parameters
                 try:
@@ -169,7 +223,10 @@ class LangChainAdapter:
                     validated_args = args_schema(**filtered_input)
 
                 # Call mcpstore's core method
-                result = self._context.call_tool(tool_name, validated_args.model_dump())
+                result = self._context.call_tool(
+                    tool_name,
+                    validated_args.model_dump(exclude_none=True, exclude_unset=True, exclude_defaults=True)
+                )
 
                 # Bridge FastMCP -> LangChain: extract TextContent into string
                 # If tool signals error, raise ToolException with textual message
@@ -238,13 +295,8 @@ class LangChainAdapter:
 
                 # 智能填充缺失的必需参数
                 for field_name, field_info in schema_fields.items():
-                    if field_name not in tool_input:
-                        if 'default' in field_info:
-                            tool_input[field_name] = field_info['default']
-                        elif field_name.lower() in ['retry', 'retry_on_error', 'retry_on_auth_error']:
-                            tool_input[field_name] = True
-                        elif field_name.lower() in ['timeout', 'max_retries']:
-                            tool_input[field_name] = 30 if 'timeout' in field_name.lower() else 3
+                    if field_name not in tool_input and 'default' in field_info:
+                        tool_input[field_name] = field_info['default']
 
                 # 使用 Pydantic 模型验证参数
                 try:
@@ -257,7 +309,10 @@ class LangChainAdapter:
                     validated_args = args_schema(**filtered_input)
 
                 # 调用 mcpstore 的核心方法（异步版本）
-                result = await self._context.call_tool_async(tool_name, validated_args.model_dump())
+                result = await self._context.call_tool_async(
+                    tool_name,
+                    validated_args.model_dump(exclude_none=True, exclude_unset=True, exclude_defaults=True)
+                )
 
                 # Bridge FastMCP -> LangChain (async): extract TextContent into string
                 is_error = bool(getattr(result, 'is_error', False) or getattr(result, 'isError', False))
@@ -351,7 +406,7 @@ class LangChainAdapter:
             except Exception:
                 return_direct_flag = False
 
-            if param_count > 1:
+            if param_count >= 1:
                 # Multi-parameter tools use StructuredTool
                 lc_tool = StructuredTool(
                     name=tool_info.name,
@@ -443,13 +498,8 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
 
                 # Intelligently fill missing required parameters (same as parent)
                 for field_name, field_info in schema_fields.items():
-                    if field_name not in tool_input:
-                        if 'default' in field_info:
-                            tool_input[field_name] = field_info['default']
-                        elif field_name.lower() in ['retry', 'retry_on_error', 'retry_on_auth_error']:
-                            tool_input[field_name] = True
-                        elif field_name.lower() in ['timeout', 'max_retries']:
-                            tool_input[field_name] = 30 if 'timeout' in field_name.lower() else 3
+                    if field_name not in tool_input and 'default' in field_info:
+                        tool_input[field_name] = field_info['default']
 
                 # Validate parameters (same as parent)
                 try:
@@ -463,7 +513,10 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
 
                 # 🎯 KEY DIFFERENCE: Use session-bound execution instead of context.call_tool
                 logger.debug(f"[SESSION_LANGCHAIN] Executing tool '{tool_name}' via session '{self._session.session_id}'")
-                result = self._session.use_tool(tool_name, validated_args.model_dump())
+                result = self._session.use_tool(
+                    tool_name,
+                    validated_args.model_dump(exclude_none=True, exclude_unset=True, exclude_defaults=True)
+                )
 
                 # Bridge FastMCP -> LangChain (session sync)
                 is_error = bool(getattr(result, 'is_error', False) or getattr(result, 'isError', False))
@@ -526,13 +579,8 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                                 tool_input[field_names[i]] = arg_value
 
                 for field_name, field_info in schema_fields.items():
-                    if field_name not in tool_input:
-                        if 'default' in field_info:
-                            tool_input[field_name] = field_info['default']
-                        elif field_name.lower() in ['retry', 'retry_on_error', 'retry_on_auth_error']:
-                            tool_input[field_name] = True
-                        elif field_name.lower() in ['timeout', 'max_retries']:
-                            tool_input[field_name] = 30 if 'timeout' in field_name.lower() else 3
+                    if field_name not in tool_input and 'default' in field_info:
+                        tool_input[field_name] = field_info['default']
 
                 try:
                     validated_args = args_schema(**tool_input)
@@ -545,7 +593,10 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
 
                 # 🎯 KEY DIFFERENCE: Use session-bound async execution
                 logger.debug(f"[SESSION_LANGCHAIN] Executing tool '{tool_name}' via session '{self._session.session_id}' (async)")
-                result = await self._session.use_tool_async(tool_name, validated_args.model_dump())
+                result = await self._session.use_tool_async(
+                    tool_name,
+                    validated_args.model_dump(exclude_none=True, exclude_unset=True, exclude_defaults=True)
+                )
 
                 # Bridge FastMCP -> LangChain (session async)
                 is_error = bool(getattr(result, 'is_error', False) or getattr(result, 'isError', False))
