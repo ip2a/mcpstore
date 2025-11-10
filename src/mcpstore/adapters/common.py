@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import inspect
 import json
+import keyword
+import re
 from typing import TYPE_CHECKING, Callable, Any, Type
 
 from pydantic import BaseModel, create_model, Field, ConfigDict
 import warnings
-import re
 
 if TYPE_CHECKING:
     from ..core.context.base_context import MCPStoreContext
@@ -43,15 +44,32 @@ def create_args_schema(tool_info: 'ToolInfo') -> Type[BaseModel]:
     }
 
     def sanitize_name(original: str) -> str:
-        safe = original
-        if not safe.isidentifier() or safe in reserved_names or safe.startswith("_"):
+        """
+        Convert any parameter name to a valid Python identifier.
+        - Replace non-alphanumeric/underscore characters with underscores
+        - Add prefix if starts with digit
+        - Add suffix if Python keyword or reserved name
+        """
+        # 1. Replace all invalid characters with underscores
+        safe = re.sub(r'[^a-zA-Z0-9_]', '_', original)
+
+        # 2. If starts with digit, add prefix
+        if safe and safe[0].isdigit():
+            safe = f"param_{safe}"
+
+        # 3. If Python keyword or reserved name, add suffix
+        if keyword.iskeyword(safe) or safe in reserved_names or safe.startswith("_"):
             safe = f"{safe}_"
+
+        # 4. Ensure not empty and is valid identifier
+        if not safe or not safe.isidentifier():
+            safe = "param_"
+
         return safe
 
     fields: dict[str, tuple[type, Any]] = {}
     for original_name, prop in props.items():
         field_type = type_mapping.get(prop.get("type", "string"), str)
-        default_value = prop.get("default", ...)
 
         # Detect JSON Schema nullability/Optional
         def _is_nullable(p: dict) -> bool:
@@ -67,29 +85,26 @@ def create_args_schema(tool_info: 'ToolInfo') -> Type[BaseModel]:
                 one_of = p.get("oneOf") or []
                 if isinstance(one_of, list) and any((isinstance(x, dict) and x.get("type") == "null") for x in one_of):
                     return True
-                if default_value is None:
-                    return True
             except Exception:
                 pass
             return False
 
         is_nullable = _is_nullable(prop)
+        is_required = original_name in required
 
-        if original_name not in required and default_value == ...:
-            if field_type == bool:
-                default_value = False
-            elif field_type == str:
-                default_value = ""
-            elif field_type in (int, float):
-                default_value = 0
-            elif field_type == list:
-                default_value = []
-            elif field_type == dict:
-                default_value = {}
+        # Handle default values with proper required+nullable distinction
+        default_value = prop.get("default", ...)
 
-        # If schema is nullable and no explicit default provided, prefer None
-        if is_nullable and default_value == ...:
-            default_value = None
+        if is_required:
+            # Required field: keep ... (must be provided) unless schema has explicit default
+            # Even if nullable, don't auto-set default=None for required fields
+            pass
+        else:
+            # Optional field: set reasonable default
+            if default_value == ...:
+                if is_nullable:
+                    default_value = None
+                # Otherwise keep ... to allow omission
 
         # Apply Optional typing if nullable
         try:
@@ -161,7 +176,12 @@ def build_sync_executor(context: 'MCPStoreContext', tool_name: str, args_schema:
                 validated = args_schema(**filtered)
             result = context.call_tool(
                 tool_name,
-                validated.model_dump(exclude_none=True, exclude_unset=True, exclude_defaults=True)
+                validated.model_dump(
+                    by_alias=True,          # Use original parameter names
+                    exclude_unset=True,     # Don't send unset parameters
+                    exclude_none=False,     # Preserve explicit None values
+                    exclude_defaults=False  # Preserve default values (service may require them)
+                )
             )
             actual = getattr(result, 'result', None)
             if actual is None and getattr(result, 'success', False):
@@ -181,7 +201,12 @@ def build_async_executor(context: 'MCPStoreContext', tool_name: str, args_schema
         validated = args_schema(**kwargs)
         result = await context.call_tool_async(
             tool_name,
-            validated.model_dump(exclude_none=True, exclude_unset=True, exclude_defaults=True)
+            validated.model_dump(
+                by_alias=True,          # Use original parameter names
+                exclude_unset=True,     # Don't send unset parameters
+                exclude_none=False,     # Preserve explicit None values
+                exclude_defaults=False  # Preserve default values (service may require them)
+            )
         )
         actual = getattr(result, 'result', None)
         if actual is None and getattr(result, 'success', False):
