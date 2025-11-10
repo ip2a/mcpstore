@@ -98,43 +98,46 @@ class OpenAIAdapter:
                 pass
             return False
 
-        for param_name, param_info in properties.items():
-            # OpenAI支持的类型映射
-            declared_type = param_info.get("type", "string")
-            openai_param: Dict[str, Any] = {
-                "description": param_info.get("description", "")
-            }
-
-            nullable = _is_nullable(param_info)
+        def _process_schema(p: Dict[str, Any]) -> Dict[str, Any]:
+            """Recursively process JSON Schema node into OpenAI-compatible schema."""
+            out: Dict[str, Any] = {}
+            declared_type = p.get("type", "string")
+            nullable = _is_nullable(p)
             if nullable:
-                # 使用 anyOf 以兼容更多客户端
                 base_type = declared_type if isinstance(declared_type, str) else next((t for t in declared_type if t != "null"), "string")
-                openai_param["anyOf"] = [{"type": base_type}, {"type": "null"}]
+                out["anyOf"] = [{"type": base_type}, {"type": "null"}]
             else:
-                openai_param["type"] = declared_type
-            
-            # 处理枚举值
-            if "enum" in param_info:
-                openai_param["enum"] = param_info["enum"]
-            
-            # 处理默认值
-            if "default" in param_info:
-                openai_param["default"] = param_info["default"]
-                
-            # 处理数组类型的items
-            if (param_info.get("type") == "array" or (isinstance(param_info.get("type"), list) and "array" in param_info.get("type"))) and "items" in param_info:
-                openai_param["items"] = param_info["items"]
-            
-            # 处理对象类型的properties
-            is_object_type = param_info.get("type") == "object" or (isinstance(param_info.get("type"), list) and "object" in param_info.get("type"))
-            if is_object_type and "properties" in param_info:
-                openai_param["properties"] = param_info["properties"]
-                if "required" in param_info:
-                    openai_param["required"] = param_info["required"]
-                # 透传子对象 additionalProperties
-                if "additionalProperties" in param_info:
-                    openai_param["additionalProperties"] = param_info["additionalProperties"]
-            
+                out["type"] = declared_type
+            if "enum" in p:
+                out["enum"] = p["enum"]
+            if "default" in p:
+                out["default"] = p["default"]
+            # Arrays
+            if (declared_type == "array" or (isinstance(declared_type, list) and "array" in declared_type)) and "items" in p:
+                out["items"] = _process_schema(p["items"]) if isinstance(p["items"], dict) else p["items"]
+                for k in ("minItems", "maxItems", "uniqueItems"):
+                    if k in p:
+                        out[k] = p[k]
+            # Objects
+            is_object_type = declared_type == "object" or (isinstance(declared_type, list) and "object" in declared_type)
+            if is_object_type and "properties" in p:
+                out["properties"] = {}
+                for child_name, child_schema in p["properties"].items():
+                    if isinstance(child_schema, dict):
+                        out["properties"][child_name] = _process_schema(child_schema)
+                    else:
+                        out["properties"][child_name] = child_schema
+                if "required" in p:
+                    out["required"] = p["required"]
+                if "additionalProperties" in p:
+                    out["additionalProperties"] = p["additionalProperties"]
+            return out
+
+        for param_name, param_info in properties.items():
+            declared_type = param_info.get("type", "string")
+            openai_param: Dict[str, Any] = {"description": param_info.get("description", "")}
+            # Merge processed schema (type/anyOf, enum/default, nested items/properties)
+            openai_param.update(_process_schema(param_info))
             openai_parameters["properties"][param_name] = openai_param
         
         # 如果没有参数，创建一个空的参数结构
