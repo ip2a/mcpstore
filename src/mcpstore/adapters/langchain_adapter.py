@@ -1,7 +1,9 @@
 # src/mcpstore/adapters/langchain_adapter.py
 
 import json
+import keyword
 import logging
+import re
 from typing import Type, List, TYPE_CHECKING
 
 from langchain_core.tools import Tool, StructuredTool, ToolException
@@ -87,21 +89,33 @@ class LangChainAdapter:
         }
 
         def sanitize_name(original: str) -> str:
-            safe = original
-            if not safe.isidentifier() or safe in reserved_names or safe.startswith("_"):
+            """
+            Convert any parameter name to a valid Python identifier.
+            - Replace non-alphanumeric/underscore characters with underscores
+            - Add prefix if starts with digit
+            - Add suffix if Python keyword or reserved name
+            """
+            # 1. Replace all invalid characters with underscores
+            safe = re.sub(r'[^a-zA-Z0-9_]', '_', original)
+
+            # 2. If starts with digit, add prefix
+            if safe and safe[0].isdigit():
+                safe = f"param_{safe}"
+
+            # 3. If Python keyword or reserved name, add suffix
+            if keyword.iskeyword(safe) or safe in reserved_names or safe.startswith("_"):
                 safe = f"{safe}_"
+
+            # 4. Ensure not empty and is valid identifier
+            if not safe or not safe.isidentifier():
+                safe = "param_"
+
             return safe
 
         # Intelligently build field definitions with alias mapping
         fields = {}
         for original_name, prop in schema_properties.items():
             field_type = type_mapping.get(prop.get("type", "string"), str)
-
-            # Handle default values
-            default_value = prop.get("default", ...)
-            if original_name not in required_fields and default_value == ...:
-                # Prefer omission; if needed, default to None (will be excluded on dump)
-                default_value = None
 
             # Detect JSON Schema nullability/Optional
             def _is_nullable(p: dict) -> bool:
@@ -117,17 +131,26 @@ class LangChainAdapter:
                     one_of = p.get("oneOf") or []
                     if isinstance(one_of, list) and any((isinstance(x, dict) and x.get("type") == "null") for x in one_of):
                         return True
-                    if default_value is None:
-                        return True
                 except Exception:
                     pass
                 return False
 
             is_nullable = _is_nullable(prop)
+            is_required = original_name in required_fields
 
-            # If nullable and no explicit default, prefer None
-            if is_nullable and default_value == ...:
-                default_value = None
+            # Handle default values with proper required+nullable distinction
+            default_value = prop.get("default", ...)
+
+            if is_required:
+                # Required field: keep ... (must be provided) unless schema has explicit default
+                # Even if nullable, don't auto-set default=None for required fields
+                pass
+            else:
+                # Optional field: set reasonable default
+                if default_value == ...:
+                    if is_nullable:
+                        default_value = None
+                    # Otherwise keep ... to allow omission
 
             safe_name = sanitize_name(original_name)
             field_kwargs = {"description": prop.get("description", "")}
@@ -224,7 +247,12 @@ class LangChainAdapter:
                 # Call mcpstore's core method
                 result = self._context.call_tool(
                     tool_name,
-                    validated_args.model_dump(exclude_none=True, exclude_unset=True, exclude_defaults=True)
+                    validated_args.model_dump(
+                        by_alias=True,          # Use original parameter names
+                        exclude_unset=True,     # Don't send unset parameters
+                        exclude_none=False,     # Preserve explicit None values
+                        exclude_defaults=False  # Preserve default values (service may require them)
+                    )
                 )
 
                 # Bridge FastMCP -> LangChain: extract TextContent into string
@@ -310,7 +338,12 @@ class LangChainAdapter:
                 # 调用 mcpstore 的核心方法（异步版本）
                 result = await self._context.call_tool_async(
                     tool_name,
-                    validated_args.model_dump(exclude_none=True, exclude_unset=True, exclude_defaults=True)
+                    validated_args.model_dump(
+                        by_alias=True,          # Use original parameter names
+                        exclude_unset=True,     # Don't send unset parameters
+                        exclude_none=False,     # Preserve explicit None values
+                        exclude_defaults=False  # Preserve default values (service may require them)
+                    )
                 )
 
                 # Bridge FastMCP -> LangChain (async): extract TextContent into string
@@ -514,7 +547,12 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                 logger.debug(f"[SESSION_LANGCHAIN] Executing tool '{tool_name}' via session '{self._session.session_id}'")
                 result = self._session.use_tool(
                     tool_name,
-                    validated_args.model_dump(exclude_none=True, exclude_unset=True, exclude_defaults=True)
+                    validated_args.model_dump(
+                        by_alias=True,          # Use original parameter names
+                        exclude_unset=True,     # Don't send unset parameters
+                        exclude_none=False,     # Preserve explicit None values
+                        exclude_defaults=False  # Preserve default values (service may require them)
+                    )
                 )
 
                 # Bridge FastMCP -> LangChain (session sync)
@@ -594,7 +632,12 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                 logger.debug(f"[SESSION_LANGCHAIN] Executing tool '{tool_name}' via session '{self._session.session_id}' (async)")
                 result = await self._session.use_tool_async(
                     tool_name,
-                    validated_args.model_dump(exclude_none=True, exclude_unset=True, exclude_defaults=True)
+                    validated_args.model_dump(
+                        by_alias=True,          # Use original parameter names
+                        exclude_unset=True,     # Don't send unset parameters
+                        exclude_none=False,     # Preserve explicit None values
+                        exclude_defaults=False  # Preserve default values (service may require them)
+                    )
                 )
 
                 # Bridge FastMCP -> LangChain (session async)
