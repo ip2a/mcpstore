@@ -63,9 +63,22 @@ class LangChainAdapter:
         for param_name, param_info in schema_properties.items():
             param_type = param_info.get("type", "string")
             param_desc = param_info.get("description", "")
-            param_descriptions.append(
-                f"- {param_name} ({param_type}): {param_desc}"
-            )
+            line = f"- {param_name} ({param_type}): {param_desc}"
+            # If array of objects, describe nested shape to help the LLM
+            try:
+                if (param_type == "array" or (isinstance(param_type, list) and "array" in param_type)) and isinstance(param_info.get("items"), dict):
+                    items = param_info["items"]
+                    if items.get("type") == "object" and "properties" in items:
+                        nested = []
+                        for nkey, nprop in items["properties"].items():
+                            ntype = nprop.get("type", "string")
+                            ndesc = nprop.get("description", "")
+                            nested.append(f"    - {param_name}[].{nkey} ({ntype}) {ndesc}")
+                        if nested:
+                            line += "\n" + "\n".join(nested)
+            except Exception:
+                pass
+            param_descriptions.append(line)
 
         # Append parameter descriptions to main description
         enhanced_desc = base_description + "\n\nParameter descriptions:\n" + "\n".join(param_descriptions)
@@ -138,19 +151,10 @@ class LangChainAdapter:
             is_nullable = _is_nullable(prop)
             is_required = original_name in required_fields
 
-            # Handle default values with proper required+nullable distinction
+            # Make non-required fields truly optional by defaulting to None (sentinel)
             default_value = prop.get("default", ...)
-
-            if is_required:
-                # Required field: keep ... (must be provided) unless schema has explicit default
-                # Even if nullable, don't auto-set default=None for required fields
-                pass
-            else:
-                # Optional field: set reasonable default
-                if default_value == ...:
-                    if is_nullable:
-                        default_value = None
-                    # Otherwise keep ... to allow omission
+            if not is_required and default_value == ...:
+                default_value = None
 
             safe_name = sanitize_name(original_name)
             field_kwargs = {"description": prop.get("description", "")}
@@ -163,6 +167,28 @@ class LangChainAdapter:
                 if is_nullable and field_type is not Any:
                     from typing import Optional as _Optional
                     field_type = _Optional[field_type]  # type: ignore
+            except Exception:
+                pass
+
+            # Preserve nested schema hints (arrays/objects) so model_json_schema() includes them
+            try:
+                declared_type = prop.get("type")
+                is_array = declared_type == "array" or (isinstance(declared_type, list) and "array" in declared_type)
+                is_object = declared_type == "object" or (isinstance(declared_type, list) and "object" in declared_type)
+                json_extra: dict[str, Any] = {}
+                if is_array and "items" in prop:
+                    json_extra["items"] = prop["items"]
+                    for k in ("minItems", "maxItems", "uniqueItems"):
+                        if k in prop:
+                            json_extra[k] = prop[k]
+                if is_object and "properties" in prop:
+                    json_extra["properties"] = prop["properties"]
+                    if "required" in prop:
+                        json_extra["required"] = prop["required"]
+                    if "additionalProperties" in prop:
+                        json_extra["additionalProperties"] = prop["additionalProperties"]
+                if json_extra:
+                    field_kwargs["json_schema_extra"] = json_extra
             except Exception:
                 pass
 

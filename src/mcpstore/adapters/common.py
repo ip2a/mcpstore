@@ -24,7 +24,22 @@ def enhance_description(tool_info: 'ToolInfo') -> str:
     for name, info in schema_properties.items():
         param_type = info.get("type", "string")
         param_desc = info.get("description", "")
-        param_lines.append(f"- {name} ({param_type}): {param_desc}")
+        line = f"- {name} ({param_type}): {param_desc}"
+        # If this is an array of objects, append nested shape hints
+        try:
+            if (param_type == "array" or (isinstance(param_type, list) and "array" in param_type)) and isinstance(info.get("items"), dict):
+                items = info["items"]
+                if items.get("type") == "object" and "properties" in items:
+                    nested = []
+                    for nkey, nprop in items["properties"].items():
+                        ntype = nprop.get("type", "string")
+                        ndesc = nprop.get("description", "")
+                        nested.append(f"    - {name}[].{nkey} ({ntype}) {ndesc}")
+                    if nested:
+                        line += "\n" + "\n".join(nested)
+        except Exception:
+            pass
+        param_lines.append(line)
     return base_description + ("\n\nParameter descriptions:\n" + "\n".join(param_lines))
 
 
@@ -92,19 +107,12 @@ def create_args_schema(tool_info: 'ToolInfo') -> Type[BaseModel]:
         is_nullable = _is_nullable(prop)
         is_required = original_name in required
 
-        # Handle default values with proper required+nullable distinction
+        # Handle default values: make non-required fields truly optional
         default_value = prop.get("default", ...)
-
-        if is_required:
-            # Required field: keep ... (must be provided) unless schema has explicit default
-            # Even if nullable, don't auto-set default=None for required fields
-            pass
-        else:
-            # Optional field: set reasonable default
-            if default_value == ...:
-                if is_nullable:
-                    default_value = None
-                # Otherwise keep ... to allow omission
+        if not is_required and default_value == ...:
+            # Use None as a sentinel default so Pydantic treats field as optional
+            # Combined with exclude_unset=True, unset optionals won't be sent
+            default_value = None
 
         # Apply Optional typing if nullable
         try:
@@ -120,6 +128,28 @@ def create_args_schema(tool_info: 'ToolInfo') -> Type[BaseModel]:
         if safe_name != original_name:
             field_kwargs["validation_alias"] = original_name
             field_kwargs["serialization_alias"] = original_name
+
+        # Preserve nested schema hints for arrays/objects so model_json_schema() retains details
+        try:
+            declared_type = prop.get("type")
+            is_array = declared_type == "array" or (isinstance(declared_type, list) and "array" in declared_type)
+            is_object = declared_type == "object" or (isinstance(declared_type, list) and "object" in declared_type)
+            json_extra: dict[str, Any] = {}
+            if is_array and "items" in prop:
+                json_extra["items"] = prop["items"]
+                for k in ("minItems", "maxItems", "uniqueItems"):
+                    if k in prop:
+                        json_extra[k] = prop[k]
+            if is_object and "properties" in prop:
+                json_extra["properties"] = prop["properties"]
+                if "required" in prop:
+                    json_extra["required"] = prop["required"]
+                if "additionalProperties" in prop:
+                    json_extra["additionalProperties"] = prop["additionalProperties"]
+            if json_extra:
+                field_kwargs["json_schema_extra"] = json_extra
+        except Exception:
+            pass
 
         if default_value != ...:
             fields[safe_name] = (field_type, Field(default=default_value, **field_kwargs))
