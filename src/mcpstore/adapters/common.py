@@ -119,9 +119,9 @@ def create_args_schema(tool_info: 'ToolInfo') -> Type[BaseModel]:
         # No declared fields but open object: create permissive model with extra=allow
         base = type("OpenArgsBase", (BaseModel,), {"model_config": ConfigDict(extra="allow")})
         with warnings.catch_warnings():
+            # 忽略 pydantic 关于字段名冲突的警告（已通过 sanitize_name 处理）
             warnings.filterwarnings(
                 "ignore",
-                message=re.compile(r"Field name \"schema\" in \".*\" shadows an attribute in parent \"BaseModel\""),
                 category=UserWarning,
                 module="pydantic",
             )
@@ -132,9 +132,9 @@ def create_args_schema(tool_info: 'ToolInfo') -> Type[BaseModel]:
 
     # Suppress specific Pydantic warning about shadowing BaseModel attributes
     with warnings.catch_warnings():
+        # 忽略 pydantic 关于字段名冲突的警告（已通过 sanitize_name 处理）
         warnings.filterwarnings(
             "ignore",
-            message=re.compile(r"Field name \"schema\" in \".*\" shadows an attribute in parent \"BaseModel\""),
             category=UserWarning,
             module="pydantic",
         )
