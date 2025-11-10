@@ -4,19 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcpstore"
-version = "1.5.2"
+version = "1.5.4"
 description = "A composable, ready-to-use MCP toolkit for agents and rapid integration."
 readme = "README.md"
 requires-python = ">=3.10"
 
-# 🎯 核心依赖（最小可用）
+ 
 dependencies = [
     "fastapi>=0.115.12",
     "fastmcp>=2.7.1",
-    "httpx>=0.28.1",        # 统一HTTP客户端（替代aiohttp）
+    "httpx>=0.28.1",        
     "pydantic>=2.11.5",
     "uvicorn>=0.30.0",
-    "typer>=0.9.0",         # CLI核心功能
+    "typer>=0.9.0",         
 ]
 
 authors = [

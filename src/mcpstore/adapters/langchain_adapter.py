@@ -7,7 +7,6 @@ from typing import Type, List, TYPE_CHECKING
 from langchain_core.tools import Tool, StructuredTool, ToolException
 from pydantic import BaseModel, create_model, Field, ConfigDict
 import warnings
-import re
 
 from ..core.utils.async_sync_helper import get_global_helper
 
@@ -159,9 +158,9 @@ class LangChainAdapter:
         allow_extra = bool(additional_properties)
 
         with warnings.catch_warnings():
+            # 忽略 pydantic 关于字段名冲突的警告（已通过 sanitize_name 处理）
             warnings.filterwarnings(
                 "ignore",
-                message=re.compile(r"Field name \"schema\" in \".*\" shadows an attribute in parent \"BaseModel\""),
                 category=UserWarning,
                 module="pydantic",
             )
