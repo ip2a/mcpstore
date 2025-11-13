@@ -198,9 +198,8 @@ class LangChainAdapter:
             else:
                 fields[safe_name] = (field_type, Field(**field_kwargs))
 
-        # Ensure at least one field to avoid empty model
-        if not fields:
-            fields["input"] = (str, Field(description="Tool input"))
+        # 🎯 修复：允许空模型，不强制添加字段
+        # 对于真正无参数的工具，创建空的BaseModel
 
         # Determine open schema (additionalProperties)
         additional_properties = tool_info.inputSchema.get("additionalProperties", False)
@@ -234,30 +233,35 @@ class LangChainAdapter:
                 schema_fields = schema_info.get('properties', {})
                 field_names = list(schema_fields.keys())
 
-                # Intelligent parameter processing
-                if kwargs:
-                    # Keyword argument method (recommended)
-                    tool_input = kwargs
-                elif args:
-                    if len(args) == 1:
-                        # Single parameter processing
-                        if isinstance(args[0], dict):
-                            # Dictionary parameter
-                            tool_input = args[0]
+                # 🎯 修复：处理无参数工具的情况
+                if not field_names:
+                    # 真正无参数的工具，忽略所有输入参数
+                    tool_input = {}
+                else:
+                    # Intelligent parameter processing for tools with parameters
+                    if kwargs:
+                        # Keyword argument method (recommended)
+                        tool_input = kwargs
+                    elif args:
+                        if len(args) == 1:
+                            # Single parameter processing
+                            if isinstance(args[0], dict):
+                                # Dictionary parameter
+                                tool_input = args[0]
+                            else:
+                                # Single value parameter, map to first field
+                                if field_names:
+                                    tool_input = {field_names[0]: args[0]}
                         else:
-                            # Single value parameter, map to first field
-                            if field_names:
-                                tool_input = {field_names[0]: args[0]}
-                    else:
-                        # Multiple positional parameters, map to fields in order
-                        for i, arg_value in enumerate(args):
-                            if i < len(field_names):
-                                tool_input[field_names[i]] = arg_value
+                            # Multiple positional parameters, map to fields in order
+                            for i, arg_value in enumerate(args):
+                                if i < len(field_names):
+                                    tool_input[field_names[i]] = arg_value
 
-                # Intelligently fill missing required parameters
-                for field_name, field_info in schema_fields.items():
-                    if field_name not in tool_input and 'default' in field_info:
-                        tool_input[field_name] = field_info['default']
+                    # Intelligently fill missing required parameters
+                    for field_name, field_info in schema_fields.items():
+                        if field_name not in tool_input and 'default' in field_info:
+                            tool_input[field_name] = field_info['default']
 
                 # Use Pydantic model to validate parameters
                 try:
@@ -331,25 +335,30 @@ class LangChainAdapter:
                 schema_fields = schema_info.get('properties', {})
                 field_names = list(schema_fields.keys())
 
-                # 智能参数处理（与同步版本相同的逻辑）
-                if kwargs:
-                    tool_input = kwargs
-                elif args:
-                    if len(args) == 1:
-                        if isinstance(args[0], dict):
-                            tool_input = args[0]
+                # 🎯 修复：处理无参数工具的情况（与同步版本相同的逻辑）
+                if not field_names:
+                    # 真正无参数的工具，忽略所有输入参数
+                    tool_input = {}
+                else:
+                    # 智能参数处理
+                    if kwargs:
+                        tool_input = kwargs
+                    elif args:
+                        if len(args) == 1:
+                            if isinstance(args[0], dict):
+                                tool_input = args[0]
+                            else:
+                                if field_names:
+                                    tool_input = {field_names[0]: args[0]}
                         else:
-                            if field_names:
-                                tool_input = {field_names[0]: args[0]}
-                    else:
-                        for i, arg_value in enumerate(args):
-                            if i < len(field_names):
-                                tool_input[field_names[i]] = arg_value
+                            for i, arg_value in enumerate(args):
+                                if i < len(field_names):
+                                    tool_input[field_names[i]] = arg_value
 
-                # 智能填充缺失的必需参数
-                for field_name, field_info in schema_fields.items():
-                    if field_name not in tool_input and 'default' in field_info:
-                        tool_input[field_name] = field_info['default']
+                    # 智能填充缺失的必需参数
+                    for field_name, field_info in schema_fields.items():
+                        if field_name not in tool_input and 'default' in field_info:
+                            tool_input[field_name] = field_info['default']
 
                 # 使用 Pydantic 模型验证参数
                 try:
@@ -454,9 +463,9 @@ class LangChainAdapter:
             sync_func = self._create_tool_function(tool_info.name, args_schema)
             async_coroutine = await self._create_tool_coroutine(tool_info.name, args_schema)
 
-            # Intelligently select Tool type
+            # 🎯 修复：基于原始schema判断参数数量，而不是转换后的
             schema_properties = tool_info.inputSchema.get("properties", {})
-            param_count = len(schema_properties)
+            original_param_count = len(schema_properties)
 
             # Read per-tool overrides (e.g., return_direct) from context
             try:
@@ -464,7 +473,10 @@ class LangChainAdapter:
             except Exception:
                 return_direct_flag = False
 
-            if param_count >= 1:
+            # 🎯 关键修复：对于无参数工具，也应该使用StructuredTool
+            # 虽然它们没有参数，但StructuredTool的参数处理更可靠
+            # Tool类型对空字典{}有特殊的处理逻辑，可能导致参数转换问题
+            if original_param_count >= 1:
                 # Multi-parameter tools use StructuredTool
                 lc_tool = StructuredTool(
                     name=tool_info.name,
@@ -473,26 +485,23 @@ class LangChainAdapter:
                     coroutine=async_coroutine,
                     args_schema=args_schema,
                 )
-                # Set return_direct if supported
-                try:
-                    setattr(lc_tool, 'return_direct', bool(return_direct_flag))
-                except Exception:
-                    pass
-                langchain_tools.append(lc_tool)
             else:
-                # Single-parameter or no-parameter tools use regular Tool
-                lc_tool = Tool(
+                # 🎯 修复：无参数工具也使用StructuredTool以避免参数转换问题
+                # 这样可以确保{}被正确处理，而不会被转换为[]
+                lc_tool = StructuredTool(
                     name=tool_info.name,
                     description=enhanced_description,
                     func=sync_func,
                     coroutine=async_coroutine,
                     args_schema=args_schema,
                 )
-                try:
-                    setattr(lc_tool, 'return_direct', bool(return_direct_flag))
-                except Exception:
-                    pass
-                langchain_tools.append(lc_tool)
+
+            # Set return_direct if supported
+            try:
+                setattr(lc_tool, 'return_direct', bool(return_direct_flag))
+            except Exception:
+                pass
+            langchain_tools.append(lc_tool)
         return langchain_tools
 
 
@@ -539,25 +548,30 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                 schema_fields = schema_info.get('properties', {})
                 field_names = list(schema_fields.keys())
 
-                # Intelligent parameter processing (same as parent)
-                if kwargs:
-                    tool_input = kwargs
-                elif args:
-                    if len(args) == 1:
-                        if isinstance(args[0], dict):
-                            tool_input = args[0]
+                # 🎯 修复：处理无参数工具的情况（与父类相同的逻辑）
+                if not field_names:
+                    # 真正无参数的工具，忽略所有输入参数
+                    tool_input = {}
+                else:
+                    # Intelligent parameter processing (same as parent)
+                    if kwargs:
+                        tool_input = kwargs
+                    elif args:
+                        if len(args) == 1:
+                            if isinstance(args[0], dict):
+                                tool_input = args[0]
+                            else:
+                                if field_names:
+                                    tool_input = {field_names[0]: args[0]}
                         else:
-                            if field_names:
-                                tool_input = {field_names[0]: args[0]}
-                    else:
-                        for i, arg_value in enumerate(args):
-                            if i < len(field_names):
-                                tool_input[field_names[i]] = arg_value
+                            for i, arg_value in enumerate(args):
+                                if i < len(field_names):
+                                    tool_input[field_names[i]] = arg_value
 
-                # Intelligently fill missing required parameters (same as parent)
-                for field_name, field_info in schema_fields.items():
-                    if field_name not in tool_input and 'default' in field_info:
-                        tool_input[field_name] = field_info['default']
+                    # Intelligently fill missing required parameters (same as parent)
+                    for field_name, field_info in schema_fields.items():
+                        if field_name not in tool_input and 'default' in field_info:
+                            tool_input[field_name] = field_info['default']
 
                 # Validate parameters (same as parent)
                 try:
@@ -627,23 +641,28 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                 schema_fields = schema_info.get('properties', {})
                 field_names = list(schema_fields.keys())
 
-                if kwargs:
-                    tool_input = kwargs
-                elif args:
-                    if len(args) == 1:
-                        if isinstance(args[0], dict):
-                            tool_input = args[0]
+                # 🎯 修复：处理无参数工具的情况（与同步版本相同的逻辑）
+                if not field_names:
+                    # 真正无参数的工具，忽略所有输入参数
+                    tool_input = {}
+                else:
+                    if kwargs:
+                        tool_input = kwargs
+                    elif args:
+                        if len(args) == 1:
+                            if isinstance(args[0], dict):
+                                tool_input = args[0]
+                            else:
+                                if field_names:
+                                    tool_input = {field_names[0]: args[0]}
                         else:
-                            if field_names:
-                                tool_input = {field_names[0]: args[0]}
-                    else:
-                        for i, arg_value in enumerate(args):
-                            if i < len(field_names):
-                                tool_input[field_names[i]] = arg_value
+                            for i, arg_value in enumerate(args):
+                                if i < len(field_names):
+                                    tool_input[field_names[i]] = arg_value
 
-                for field_name, field_info in schema_fields.items():
-                    if field_name not in tool_input and 'default' in field_info:
-                        tool_input[field_name] = field_info['default']
+                    for field_name, field_info in schema_fields.items():
+                        if field_name not in tool_input and 'default' in field_info:
+                            tool_input[field_name] = field_info['default']
 
                 try:
                     validated_args = args_schema(**tool_input)
