@@ -95,3 +95,40 @@ class BaseMCPStore:
     def _create_store_context(self) -> MCPStoreContext:
         """Create store-level context"""
         return MCPStoreContext(self)
+    
+    async def cleanup(self):
+        """
+        Cleanup resources on shutdown.
+        
+        This method handles proper cleanup of Redis clients and health check tasks.
+        It follows the lifecycle management rules:
+        - Only close system-created Redis clients
+        - Do not close user-provided Redis clients
+        - Stop health check tasks gracefully
+        """
+        logger.info("Starting MCPStore cleanup...")
+        
+        # Stop health check task if running
+        health_check_task = getattr(self, "_health_check_task", None)
+        if health_check_task:
+            try:
+                await health_check_task.stop()
+                logger.debug("Health check task stopped")
+            except Exception as e:
+                logger.warning(f"Error stopping health check task: {e}")
+        
+        # Close system-created Redis client (but not user-provided)
+        system_redis_client = getattr(self, "_system_created_redis_client", None)
+        if system_redis_client:
+            try:
+                await system_redis_client.close()
+                logger.debug("System-created Redis client closed")
+            except Exception as e:
+                logger.warning(f"Error closing Redis client: {e}")
+        
+        # Do NOT close user-provided Redis client
+        user_redis_client = getattr(self, "_user_provided_redis_client", None)
+        if user_redis_client:
+            logger.debug("User-provided Redis client not closed (managed by user)")
+        
+        logger.info("MCPStore cleanup completed")

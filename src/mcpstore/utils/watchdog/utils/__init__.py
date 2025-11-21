@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from types import ModuleType
 
-    from watchdog.tricks import Trick
+    from mcpstore.utils.watchdog.tricks import Trick
 
 
 class UnsupportedLibcError(Exception):

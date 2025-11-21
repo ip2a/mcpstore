@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from watchdog.utils import BaseThread
+from mcpstore.utils.watchdog.utils import BaseThread
 
 if TYPE_CHECKING:
     import subprocess

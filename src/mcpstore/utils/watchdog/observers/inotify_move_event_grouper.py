@@ -11,12 +11,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, NamedTuple, Union, cast
 
-from watchdog.utils.delayed_queue import DelayedQueue
+from mcpstore.utils.watchdog.utils.delayed_queue import DelayedQueue
 
 if TYPE_CHECKING:
     from typing import TypeAlias
 
-    from watchdog.observers.inotify_c import InotifyEvent
+    from mcpstore.utils.watchdog.observers.inotify_c import InotifyEvent
 
 logger = logging.getLogger(__name__)
 

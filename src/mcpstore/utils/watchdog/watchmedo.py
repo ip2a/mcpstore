@@ -17,16 +17,16 @@ from io import StringIO
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 
-from watchdog.utils import WatchdogShutdownError, load_class, platform
-from watchdog.version import VERSION_STRING
+from mcpstore.utils.watchdog.utils import WatchdogShutdownError, load_class, platform
+from mcpstore.utils.watchdog.version import VERSION_STRING
 
 if TYPE_CHECKING:
     from argparse import Namespace, _SubParsersAction
     from typing import Callable
 
-    from watchdog.events import FileSystemEventHandler
-    from watchdog.observers import ObserverType
-    from watchdog.observers.api import BaseObserver
+    from mcpstore.utils.watchdog.events import FileSystemEventHandler
+    from mcpstore.utils.watchdog.observers import ObserverType
+    from mcpstore.utils.watchdog.observers.api import BaseObserver
 
 
 logging.basicConfig(level=logging.INFO)
@@ -264,29 +264,29 @@ def tricks_from(args: Namespace) -> None:
     """Command to execute tricks from a tricks configuration file."""
     observer_cls: ObserverType
     if args.debug_force_polling:
-        from watchdog.observers.polling import PollingObserver
+        from mcpstore.utils.watchdog.observers.polling import PollingObserver
 
         observer_cls = PollingObserver
     elif args.debug_force_kqueue:
-        from watchdog.observers.kqueue import KqueueObserver
+        from mcpstore.utils.watchdog.observers.kqueue import KqueueObserver
 
         observer_cls = KqueueObserver
     elif (not TYPE_CHECKING and args.debug_force_winapi) or (TYPE_CHECKING and platform.is_windows()):
-        from watchdog.observers.read_directory_changes import WindowsApiObserver
+        from mcpstore.utils.watchdog.observers.read_directory_changes import WindowsApiObserver
 
         observer_cls = WindowsApiObserver
     elif args.debug_force_inotify:
-        from watchdog.observers.inotify import InotifyObserver
+        from mcpstore.utils.watchdog.observers.inotify import InotifyObserver
 
         observer_cls = InotifyObserver
     elif args.debug_force_fsevents:
-        from watchdog.observers.fsevents import FSEventsObserver
+        from mcpstore.utils.watchdog.observers.fsevents import FSEventsObserver
 
         observer_cls = FSEventsObserver
     else:
         # Automatically picks the most appropriate observer for the platform
         # on which it is running.
-        from watchdog.observers import Observer
+        from mcpstore.utils.watchdog.observers import Observer
 
         observer_cls = Observer
 
@@ -456,7 +456,7 @@ def tricks_generate_yaml(args: Namespace) -> None:
 )
 def log(args: Namespace) -> None:
     """Command to log file system events to the console."""
-    from watchdog.tricks import LoggerTrick
+    from mcpstore.utils.watchdog.tricks import LoggerTrick
 
     patterns, ignore_patterns = parse_patterns(args.patterns, args.ignore_patterns)
     handler = LoggerTrick(
@@ -467,29 +467,29 @@ def log(args: Namespace) -> None:
 
     observer_cls: ObserverType
     if args.debug_force_polling:
-        from watchdog.observers.polling import PollingObserver
+        from mcpstore.utils.watchdog.observers.polling import PollingObserver
 
         observer_cls = PollingObserver
     elif args.debug_force_kqueue:
-        from watchdog.observers.kqueue import KqueueObserver
+        from mcpstore.utils.watchdog.observers.kqueue import KqueueObserver
 
         observer_cls = KqueueObserver
     elif (not TYPE_CHECKING and args.debug_force_winapi) or (TYPE_CHECKING and platform.is_windows()):
-        from watchdog.observers.read_directory_changes import WindowsApiObserver
+        from mcpstore.utils.watchdog.observers.read_directory_changes import WindowsApiObserver
 
         observer_cls = WindowsApiObserver
     elif args.debug_force_inotify:
-        from watchdog.observers.inotify import InotifyObserver
+        from mcpstore.utils.watchdog.observers.inotify import InotifyObserver
 
         observer_cls = InotifyObserver
     elif args.debug_force_fsevents:
-        from watchdog.observers.fsevents import FSEventsObserver
+        from mcpstore.utils.watchdog.observers.fsevents import FSEventsObserver
 
         observer_cls = FSEventsObserver
     else:
         # Automatically picks the most appropriate observer for the platform
         # on which it is running.
-        from watchdog.observers import Observer
+        from mcpstore.utils.watchdog.observers import Observer
 
         observer_cls = Observer
 
@@ -584,18 +584,18 @@ def log(args: Namespace) -> None:
 )
 def shell_command(args: Namespace) -> None:
     """Command to execute shell commands in response to file system events."""
-    from watchdog.tricks import ShellCommandTrick
+    from mcpstore.utils.watchdog.tricks import ShellCommandTrick
 
     if not args.command:
         args.command = None
 
     observer_cls: ObserverType
     if args.debug_force_polling:
-        from watchdog.observers.polling import PollingObserver
+        from mcpstore.utils.watchdog.observers.polling import PollingObserver
 
         observer_cls = PollingObserver
     else:
-        from watchdog.observers import Observer
+        from mcpstore.utils.watchdog.observers import Observer
 
         observer_cls = Observer
 
@@ -708,17 +708,17 @@ def auto_restart(args: Namespace) -> None:
     """Command to start a long-running subprocess and restart it on matched events."""
     observer_cls: ObserverType
     if args.debug_force_polling:
-        from watchdog.observers.polling import PollingObserver
+        from mcpstore.utils.watchdog.observers.polling import PollingObserver
 
         observer_cls = PollingObserver
     else:
-        from watchdog.observers import Observer
+        from mcpstore.utils.watchdog.observers import Observer
 
         observer_cls = Observer
 
     import signal
 
-    from watchdog.tricks import AutoRestartTrick
+    from mcpstore.utils.watchdog.tricks import AutoRestartTrick
 
     if not args.directories:
         args.directories = ["."]

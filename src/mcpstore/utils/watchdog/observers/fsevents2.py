@@ -44,7 +44,7 @@ from FSEvents import (
     kFSEventStreamEventIdSinceNow,
 )
 
-from watchdog.events import (
+from mcpstore.utils.watchdog.events import (
     DirCreatedEvent,
     DirDeletedEvent,
     DirModifiedEvent,
@@ -55,12 +55,12 @@ from watchdog.events import (
     FileMovedEvent,
     FileSystemEvent,
 )
-from watchdog.observers.api import DEFAULT_EMITTER_TIMEOUT, DEFAULT_OBSERVER_TIMEOUT, BaseObserver, EventEmitter
+from mcpstore.utils.watchdog.observers.api import DEFAULT_EMITTER_TIMEOUT, DEFAULT_OBSERVER_TIMEOUT, BaseObserver, EventEmitter
 
 if TYPE_CHECKING:
     from typing import Callable
 
-    from watchdog.observers.api import EventQueue, ObservedWatch
+    from mcpstore.utils.watchdog.observers.api import EventQueue, ObservedWatch
 
 logger = logging.getLogger(__name__)
 

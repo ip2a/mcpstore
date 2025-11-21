@@ -75,7 +75,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, cast
 
-from watchdog.events import (
+from mcpstore.utils.watchdog.events import (
     DirCreatedEvent,
     DirDeletedEvent,
     DirModifiedEvent,
@@ -91,8 +91,8 @@ from watchdog.events import (
     generate_sub_created_events,
     generate_sub_moved_events,
 )
-from watchdog.observers.api import DEFAULT_EMITTER_TIMEOUT, DEFAULT_OBSERVER_TIMEOUT, BaseObserver, EventEmitter
-from watchdog.observers.inotify_c import (
+from mcpstore.utils.watchdog.observers.api import DEFAULT_EMITTER_TIMEOUT, DEFAULT_OBSERVER_TIMEOUT, BaseObserver, EventEmitter
+from mcpstore.utils.watchdog.observers.inotify_c import (
     WATCHDOG_ALL_EVENTS,
     CallbackId,
     InotifyConstants,
@@ -102,14 +102,14 @@ from watchdog.observers.inotify_c import (
     WatchCallback,
     WatchDescriptor,
 )
-from watchdog.observers.inotify_move_event_grouper import (
+from mcpstore.utils.watchdog.observers.inotify_move_event_grouper import (
     GroupedInotifyEvent,
     InotifyMoveEventGrouper,
     PathedInotifyEvent,
 )
 
 if TYPE_CHECKING:
-    from watchdog.observers.api import EventQueue, ObservedWatch
+    from mcpstore.utils.watchdog.observers.api import EventQueue, ObservedWatch
 
 logger = logging.getLogger(__name__)
 

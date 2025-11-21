@@ -88,6 +88,9 @@ class LifecycleManager:
             
             self._registry.set_service_metadata(event.agent_id, event.service_name, metadata)
             
+            # 验证配置是否正确保存
+            logger.debug(f"[LIFECYCLE] Metadata saved with config keys: {list(service_config.keys()) if service_config else 'None'}")
+            
             logger.info(f"[LIFECYCLE] Lifecycle initialized: {event.service_name} -> INITIALIZING")
             
             # 发布初始化完成事件
@@ -282,6 +285,85 @@ class LifecycleManager:
                 self._registry.set_service_metadata(event.agent_id, event.service_name, metadata)
         except Exception as e:
             logger.error(f"[LIFECYCLE] Failed to update reconnection metadata: {e}")
+    
+    def initialize_service(self, agent_id: str, service_name: str, service_config: dict) -> bool:
+        """
+        初始化服务 - 触发完整的事件流程
+        
+        这是添加服务的主入口，确保所有必要的事件被触发。
+        
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+            service_config: 服务配置
+            
+        Returns:
+            bool: 是否成功初始化
+        """
+        try:
+            logger.info(f"[LIFECYCLE] initialize_service called: agent={agent_id}, service={service_name}")
+            logger.debug(f"[LIFECYCLE] Service config: {service_config}")
+            
+            # 生成 client_id
+            from mcpstore.core.utils.id_generator import ClientIDGenerator
+            client_id = ClientIDGenerator.generate_deterministic_id(
+                agent_id=agent_id,
+                service_name=service_name,
+                service_config=service_config,
+                global_agent_store_id=agent_id  # 使用 agent_id 作为 global ID
+            )
+            logger.debug(f"[LIFECYCLE] Generated client_id: {client_id}")
+            
+            # 检查是否已存在映射
+            existing_client_id = self._registry.get_service_client_id(agent_id, service_name)
+            if existing_client_id:
+                logger.debug(f"[LIFECYCLE] Found existing client_id mapping: {existing_client_id}")
+                client_id = existing_client_id
+            
+            # 发布 ServiceAddRequested 事件，触发完整流程
+            from mcpstore.core.events.service_events import ServiceAddRequested
+            import asyncio
+            
+            event = ServiceAddRequested(
+                agent_id=agent_id,
+                service_name=service_name,
+                service_config=service_config,
+                client_id=client_id,
+                source="lifecycle_manager",
+                wait_timeout=0
+            )
+            
+            logger.info(f"[LIFECYCLE] Publishing ServiceAddRequested event for {service_name}")
+            
+            # 同步发布事件（在当前事件循环中）
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 如果事件循环正在运行，创建任务
+                    task = asyncio.create_task(self._event_bus.publish(event, wait=True))
+                    # 不等待任务完成，让它在后台运行
+                    logger.debug(f"[LIFECYCLE] Event published as background task")
+                else:
+                    # 如果事件循环未运行，同步运行
+                    loop.run_until_complete(self._event_bus.publish(event, wait=True))
+                    logger.debug(f"[LIFECYCLE] Event published synchronously")
+            except RuntimeError as e:
+                # 处理没有事件循环的情况
+                logger.warning(f"[LIFECYCLE] No event loop available, creating new one: {e}")
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    new_loop.run_until_complete(self._event_bus.publish(event, wait=True))
+                    logger.debug(f"[LIFECYCLE] Event published in new event loop")
+                finally:
+                    new_loop.close()
+            
+            logger.info(f"[LIFECYCLE] Service {service_name} initialization triggered successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"[LIFECYCLE] Failed to initialize service {service_name}: {e}", exc_info=True)
+            return False
     
     async def graceful_disconnect(self, agent_id: str, service_name: str, reason: str = "user_requested"):
         """优雅断开服务连接（不修改配置/注册表实体，仅生命周期断链）。

@@ -4,12 +4,12 @@ import logging
 import threading
 from typing import TYPE_CHECKING
 
-from watchdog.utils import BaseThread
+from mcpstore.utils.watchdog.utils import BaseThread
 
 if TYPE_CHECKING:
     from typing import Callable
 
-    from watchdog.events import FileSystemEvent
+    from mcpstore.utils.watchdog.events import FileSystemEvent
 
 logger = logging.getLogger(__name__)
 

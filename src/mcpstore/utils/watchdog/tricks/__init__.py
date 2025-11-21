@@ -34,10 +34,10 @@ import subprocess
 import threading
 import time
 
-from watchdog.events import EVENT_TYPE_CLOSED_NO_WRITE, EVENT_TYPE_OPENED, FileSystemEvent, PatternMatchingEventHandler
-from watchdog.utils import echo, platform
-from watchdog.utils.event_debouncer import EventDebouncer
-from watchdog.utils.process_watcher import ProcessWatcher
+from mcpstore.utils.watchdog.events import EVENT_TYPE_CLOSED_NO_WRITE, EVENT_TYPE_OPENED, FileSystemEvent, PatternMatchingEventHandler
+from mcpstore.utils.watchdog.utils import echo, platform
+from mcpstore.utils.watchdog.utils.event_debouncer import EventDebouncer
+from mcpstore.utils.watchdog.utils.process_watcher import ProcessWatcher
 
 logger = logging.getLogger(__name__)
 echo_events = functools.partial(echo.echo, write=lambda msg: logger.info(msg))

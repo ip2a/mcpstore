@@ -291,15 +291,49 @@ class ConnectionManager:
 
     def _get_service_config(self, agent_id: str, service_name: str) -> Dict[str, Any]:
         """从缓存中获取服务配置"""
+        logger.debug(f"[CONNECTION] Getting config for {agent_id}:{service_name}")
+        
         # 通过 client_id 获取配置
         client_id = self._registry.get_service_client_id(agent_id, service_name)
         if not client_id:
+            logger.warning(f"[CONNECTION] No client_id found for {agent_id}:{service_name}")
+            
+            # 尝试从 service_metadata 获取配置作为回退
+            metadata = self._registry.get_service_metadata(agent_id, service_name)
+            if metadata and hasattr(metadata, 'service_config') and metadata.service_config:
+                logger.info(f"[CONNECTION] Using config from metadata for {service_name}")
+                return metadata.service_config
+            
+            logger.error(f"[CONNECTION] No config found in client mapping or metadata for {service_name}")
             return {}
 
+        logger.debug(f"[CONNECTION] Found client_id: {client_id}")
+        
         client_config = self._registry.get_client_config_from_cache(client_id)
         if not client_config:
+            logger.warning(f"[CONNECTION] No client config found for client_id: {client_id}")
+            
+            # 尝试从 metadata 回退
+            metadata = self._registry.get_service_metadata(agent_id, service_name)
+            if metadata and hasattr(metadata, 'service_config') and metadata.service_config:
+                logger.info(f"[CONNECTION] Using config from metadata as fallback for {service_name}")
+                return metadata.service_config
+            
             return {}
 
         mcp_servers = client_config.get("mcpServers", {})
-        return mcp_servers.get(service_name, {})
+        service_config = mcp_servers.get(service_name, {})
+        
+        if not service_config:
+            logger.warning(f"[CONNECTION] Service {service_name} not found in client config")
+            
+            # 最后尝试从 metadata
+            metadata = self._registry.get_service_metadata(agent_id, service_name)
+            if metadata and hasattr(metadata, 'service_config') and metadata.service_config:
+                logger.info(f"[CONNECTION] Using config from metadata as last resort for {service_name}")
+                return metadata.service_config
+        else:
+            logger.debug(f"[CONNECTION] Found config for {service_name}: {list(service_config.keys())}")
+        
+        return service_config
 

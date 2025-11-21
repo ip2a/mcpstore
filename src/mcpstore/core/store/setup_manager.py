@@ -6,7 +6,7 @@
 import logging
 import os
 from hashlib import sha1
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 from copy import deepcopy
 
 logger = logging.getLogger(__name__)
@@ -16,11 +16,30 @@ class StoreSetupManager:
     """设置管理器 - 仅保留单一的 setup_store 接口"""
 
     @staticmethod
+    def _generate_namespace(mcpjson_path: str) -> str:
+        """
+        基于 mcp.json 路径自动生成命名空间
+        
+        Args:
+            mcpjson_path: mcp.json 文件路径
+            
+        Returns:
+            生成的命名空间字符串
+        """
+        # Use SHA1 hash of the absolute path to generate a unique namespace
+        abs_path = os.path.abspath(mcpjson_path)
+        hash_obj = sha1(abs_path.encode('utf-8'))
+        hash_hex = hash_obj.hexdigest()[:12]  # Use first 12 characters
+        return f"mcpstore_{hash_hex}"
+
+    @staticmethod
     def setup_store(
         mcpjson_path: str | None = None,
         debug: bool | str = False,
+        cache: Optional[Union["MemoryConfig", "RedisConfig"]] = None,
         external_db: Optional[Dict[str, Any]] = None,
         static_config: Optional[Dict[str, Any]] = None,
+        cache_mode: str = "auto",
         **deprecated_kwargs,
     ):
         """
@@ -28,8 +47,14 @@ class StoreSetupManager:
         Args:
             mcpjson_path: mcp.json 文件路径；None 则使用默认
             debug: False=OFF（完全静默）；True=DEBUG；字符串=对应等级
-            external_db: 外挂数据库模块配置字典（当前仅支持 cache.redis）
+            cache: 缓存配置对象（MemoryConfig 或 RedisConfig），默认为 None（使用 MemoryConfig）
+            external_db: 外挂数据库模块配置字典（当前仅支持 cache.redis）- 已弃用，使用 cache 参数
             static_config: 静态配置注入（monitoring/network/features/local_service）
+            cache_mode: 缓存工作模式 ("auto" | "local" | "hybrid" | "shared")
+                - "auto": 自动检测模式（默认）
+                - "local": 本地模式（JSON + Memory）
+                - "hybrid": 混合模式（JSON + Redis）
+                - "shared": 共享模式（Redis Only）
             **deprecated_kwargs: 历史兼容参数（mcp_json / mcp_config_file），将触发警告
         """
         # Backward-compatible parameter aliases with warnings
@@ -91,23 +116,120 @@ class StoreSetupManager:
 
         # 4) 注册表与缓存后端
         from mcpstore.core.registry import ServiceRegistry
-        registry = ServiceRegistry()
-        cache_mod = (external_db or {}).get("cache") if isinstance(external_db, dict) else None
-        if isinstance(cache_mod, dict) and cache_mod.get("type") == "redis":
-            # Redis backend configuration (Fail-Fast on connection errors)
-            cache_cfg = {
-                "backend": "redis",
-                "redis": {
-                    "url": cache_mod.get("url"),
-                    "password": cache_mod.get("password"),
-                    "namespace": cache_mod.get("namespace"),  # Optional, auto-generated if None
-                    "socket_timeout": cache_mod.get("socket_timeout"),
-                    "healthcheck_interval": cache_mod.get("healthcheck_interval"),
-                    "max_connections": cache_mod.get("max_connections"),
-                    "_mcp_json_path": getattr(config, "json_path", None),  # For namespace auto-generation
-                },
-            }
-            registry.configure_cache_backend(cache_cfg)
+        from mcpstore.config import (
+            MemoryConfig, RedisConfig, detect_strategy, 
+            create_kv_store, get_namespace, start_health_check
+        )
+        
+        # Handle cache configuration
+        # Priority: cache parameter > external_db (deprecated) > default MemoryConfig
+        if cache is None:
+            # Check if external_db is provided (deprecated path)
+            cache_mod = (external_db or {}).get("cache") if isinstance(external_db, dict) else None
+            if isinstance(cache_mod, dict) and cache_mod.get("type") == "redis":
+                # Convert old external_db format to new RedisConfig
+                logger.warning(
+                    "external_db parameter is deprecated. "
+                    "Please use cache=RedisConfig(...) instead."
+                )
+                cache = RedisConfig(
+                    url=cache_mod.get("url"),
+                    password=cache_mod.get("password"),
+                    namespace=cache_mod.get("namespace"),
+                    socket_timeout=cache_mod.get("socket_timeout", 5.0),
+                    health_check_interval=cache_mod.get("healthcheck_interval", 30),
+                    max_connections=cache_mod.get("max_connections", 50),
+                )
+            else:
+                # Default to MemoryConfig
+                cache = MemoryConfig()
+                logger.debug("Using default MemoryConfig for cache")
+        
+        # Detect data source strategy
+        strategy = detect_strategy(cache, mcpjson_path)
+        logger.info(f"Cache initialization: type={cache.cache_type.value}, strategy={strategy.value}")
+        
+        # Set default namespace for RedisConfig if not provided
+        if isinstance(cache, RedisConfig):
+            if cache.namespace is None:
+                if mcpjson_path:
+                    # Auto-generate namespace based on mcp.json path
+                    cache.namespace = StoreSetupManager._generate_namespace(mcpjson_path)
+                    logger.info(f"Generated namespace from JSON path: {cache.namespace}")
+                else:
+                    # Use default namespace
+                    cache.namespace = "mcpstore"
+                    logger.info(f"Using default namespace: {cache.namespace}")
+            else:
+                logger.info(f"Using user-provided namespace: {cache.namespace}")
+        
+        # Create KV store using create_kv_store
+        kv_store = create_kv_store(cache)
+        logger.info(f"Created KV store: {type(kv_store).__name__}")
+        
+        # Initialize ServiceRegistry with KV store
+        registry = ServiceRegistry(kv_store=kv_store)
+        
+        # Track Redis client lifecycle (for cleanup)
+        _user_provided_redis_client = None
+        _system_created_redis_client = None
+        _health_check_task = None
+        
+        # Start health check for Redis if configured
+        if isinstance(cache, RedisConfig):
+            # Get the Redis client from the store
+            try:
+                from key_value.aio.stores.redis import RedisStore
+                if isinstance(kv_store, RedisStore):
+                    # Access the private _client attribute (py-key-value doesn't expose public client)
+                    redis_client = kv_store._client
+                    
+                    # Track whether client was user-provided or system-created
+                    if cache.client is not None:
+                        _user_provided_redis_client = redis_client
+                        logger.info("Redis connection: using user-provided client (lifecycle managed by user)")
+                    else:
+                        _system_created_redis_client = redis_client
+                        # Log connection details (mask password)
+                        conn_info = []
+                        if cache.url:
+                            # Mask password in URL
+                            masked_url = cache.url
+                            if '@' in masked_url and '://' in masked_url:
+                                parts = masked_url.split('://', 1)
+                                if len(parts) == 2 and '@' in parts[1]:
+                                    auth_part = parts[1].split('@')[0]
+                                    if ':' in auth_part:
+                                        masked_url = masked_url.replace(auth_part.split(':')[1], '***')
+                            conn_info.append(f"url={masked_url}")
+                        else:
+                            conn_info.append(f"host={cache.host or 'localhost'}")
+                            conn_info.append(f"port={cache.port or 6379}")
+                            conn_info.append(f"db={cache.db or 0}")
+                        
+                        conn_info.append(f"namespace={cache.namespace}")
+                        conn_info.append(f"max_connections={cache.max_connections}")
+                        logger.info(f"Redis connection established: {', '.join(conn_info)}")
+                    
+                    # Start health check
+                    _health_check_task = start_health_check(cache, redis_client)
+                    if _health_check_task:
+                        logger.info(
+                            f"Redis health check started: interval={cache.health_check_interval}s"
+                        )
+            except Exception as e:
+                logger.error(f"Failed to initialize Redis connection: {e}", exc_info=True)
+        
+        # Detect cache mode if set to "auto" (for backward compatibility)
+        if cache_mode == "auto":
+            # Map strategy to cache_mode
+            if strategy.value == "json_memory":
+                cache_mode = "local"
+            elif strategy.value == "json_custom":
+                cache_mode = "hybrid"
+            elif strategy.value == "custom_only":
+                cache_mode = "shared"
+            logger.debug(f"Mapped strategy {strategy.value} to cache_mode: {cache_mode}")
 
         # 5) 编排器
         from mcpstore.core.orchestrator import MCPOrchestrator
@@ -162,9 +284,18 @@ class StoreSetupManager:
             "debug_level": level_name,
             "external_db": deepcopy(external_db or {}),
             "static_config": deepcopy(stat),
+            "cache_config": cache,  # Store cache configuration
         }
         try:
             setattr(store, "_setup_snapshot", snapshot)
+        except Exception:
+            pass
+        
+        # 10) Store Redis client lifecycle tracking for cleanup
+        try:
+            setattr(store, "_user_provided_redis_client", _user_provided_redis_client)
+            setattr(store, "_system_created_redis_client", _system_created_redis_client)
+            setattr(store, "_health_check_task", _health_check_task)
         except Exception:
             pass
 

@@ -6,7 +6,7 @@ Provides a comprehensive exception hierarchy for both SDK and API usage
 import logging
 import traceback
 import uuid
-from datetime import datetime
+from datetime import datetime, UTC
 from enum import Enum
 from typing import Optional, Dict, Any, Union
 
@@ -131,7 +131,7 @@ class MCPStoreException(Exception):
         self.field = field
         self.details = details or {}
         self.cause = cause
-        self.timestamp = datetime.utcnow()
+        self.timestamp = datetime.now(UTC)
         self.error_id = str(uuid.uuid4())[:8]
         
         # Capture stack trace if cause is provided
@@ -324,6 +324,105 @@ class AgentNotFoundException(MCPStoreException):
             error_code=ErrorCode.AGENT_NOT_FOUND,
             field="agent_id",
             details={"agent_id": agent_id, **kwargs.get("details", {})},
+            **{k: v for k, v in kwargs.items() if k != "details"}
+        )
+
+
+# === Cache-Related Exceptions (for py-key-value integration) ===
+
+class CacheOperationError(MCPStoreException):
+    """Cache operation error
+    
+    This exception is raised when a cache operation fails.
+    It is typically used to wrap py-key-value KeyValueOperationError exceptions.
+    
+    Validates: Requirements 6.4 (Exception and Error Handling)
+    """
+    
+    def __init__(self, message: str, operation: Optional[str] = None, **kwargs):
+        details = {}
+        if operation:
+            details["operation"] = operation
+        details.update(kwargs.get("details", {}))
+        
+        super().__init__(
+            message=message,
+            error_code=ErrorCode.INTERNAL_ERROR,
+            details=details,
+            **{k: v for k, v in kwargs.items() if k != "details"}
+        )
+
+
+class CacheConnectionError(MCPStoreException):
+    """Cache connection error
+    
+    This exception is raised when unable to connect to the cache backend.
+    It is typically used to wrap py-key-value StoreConnectionError exceptions.
+    
+    Validates: Requirements 6.4 (Exception and Error Handling)
+    """
+    
+    def __init__(self, message: str, backend_type: Optional[str] = None, **kwargs):
+        details = {}
+        if backend_type:
+            details["backend_type"] = backend_type
+        details.update(kwargs.get("details", {}))
+        
+        super().__init__(
+            message=message,
+            error_code=ErrorCode.SERVICE_CONNECTION_ERROR,
+            details=details,
+            **{k: v for k, v in kwargs.items() if k != "details"}
+        )
+
+
+class CacheValidationError(MCPStoreException):
+    """Cache validation error
+    
+    This exception is raised when cache data validation fails.
+    It is typically used to wrap py-key-value validation-related exceptions
+    such as SerializationError, DeserializationError, or InvalidKeyError.
+    
+    Validates: Requirements 6.4 (Exception and Error Handling)
+    """
+    
+    def __init__(self, message: str, validation_type: Optional[str] = None, **kwargs):
+        details = {}
+        if validation_type:
+            details["validation_type"] = validation_type
+        details.update(kwargs.get("details", {}))
+        
+        super().__init__(
+            message=message,
+            error_code=ErrorCode.INVALID_PARAMETER,
+            details=details,
+            **{k: v for k, v in kwargs.items() if k != "details"}
+        )
+
+
+class SessionSerializationError(MCPStoreException):
+    """Session serialization error
+    
+    This exception is raised when attempting to serialize a Session object
+    that contains non-serializable references (e.g., connection objects).
+    
+    Session objects should always remain in memory and never be serialized
+    to py-key-value storage.
+    
+    Validates: Requirements 3.2 (Session Object Serialization Issues)
+    """
+    
+    def __init__(self, message: str, session_info: Optional[Dict[str, Any]] = None, **kwargs):
+        details = {}
+        if session_info:
+            details.update(session_info)
+        details.update(kwargs.get("details", {}))
+        
+        super().__init__(
+            message=message,
+            error_code=ErrorCode.INVALID_PARAMETER,
+            severity=ErrorSeverity.ERROR,
+            details=details,
             **{k: v for k, v in kwargs.items() if k != "details"}
         )
 

@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from functools import reduce
 from typing import TYPE_CHECKING, Callable, ClassVar, NewType, Protocol, cast
 
-from watchdog.utils import BaseThread, UnsupportedLibcError
+from mcpstore.utils.watchdog.utils import BaseThread, UnsupportedLibcError
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Sequence

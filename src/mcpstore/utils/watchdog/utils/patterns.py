@@ -18,7 +18,7 @@ import re
 from pathlib import PurePath, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING
 
-from watchdog.utils.backwards_compat import translate  # type: ignore[attr-defined]
+from mcpstore.utils.watchdog.utils.backwards_compat import translate  # type: ignore[attr-defined]
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
