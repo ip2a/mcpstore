@@ -1,12 +1,12 @@
 """
-配置加载模块
+Configuration loading module
 
-根据工作模式从不同的源加载配置：
-- 本地模式: 从 JSON 文件加载
-- 混合模式: 从 JSON 文件加载并同步到 Redis
-- 共享模式: 从 Redis 加载
+Load configuration from different sources based on work mode:
+- Local mode: Load from JSON file
+- Hybrid mode: Load from JSON file and sync to Redis
+- Shared mode: Load from Redis
 
-支持配置的导入和导出功能。
+Supports configuration import and export functionality.
 """
 
 import json

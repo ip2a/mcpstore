@@ -43,11 +43,11 @@ class ConnectionManager:
         self._config_processor = config_processor
         self._local_service_manager = local_service_manager
 
-        # 订阅事件
+        # Subscribe to events
         self._event_bus.subscribe(ServiceInitialized, self._on_service_initialized, priority=80)
         self._event_bus.subscribe(ServiceConnectionRequested, self._on_connection_requested, priority=100)
 
-        # 🆕 订阅重连请求事件
+        # New: subscribe to reconnection request events
         from mcpstore.core.events.service_events import ReconnectionRequested
         self._event_bus.subscribe(ReconnectionRequested, self._on_reconnection_requested, priority=100)
 
@@ -55,11 +55,11 @@ class ConnectionManager:
 
     async def _on_service_initialized(self, event: ServiceInitialized):
         """
-        处理服务初始化完成 - 触发连接
+        Handle service initialization completion - trigger connection
         """
         logger.info(f"[CONNECTION] Triggering connection for: {event.service_name}")
 
-        # 获取服务配置
+        # Get service configuration
         service_config = self._get_service_config(event.agent_id, event.service_name)
         if not service_config:
             logger.error(f"[CONNECTION] No config found for {event.service_name}")
@@ -72,7 +72,7 @@ class ConnectionManager:
         except Exception as e:
             logger.debug(f"[CONNECTION] Subscriber count check failed: {e}")
 
-        # 发布连接请求事件（解耦）
+        # Publish connection request event (decoupled)
         connection_request = ServiceConnectionRequested(
             agent_id=event.agent_id,
             service_name=event.service_name,
@@ -84,21 +84,21 @@ class ConnectionManager:
 
     async def _on_connection_requested(self, event: ServiceConnectionRequested):
         """
-        处理连接请求 - 执行实际连接
+        Handle connection request - execute actual connection
         """
         logger.info(f"[CONNECTION] Connecting to: {event.service_name} (bus={hex(id(self._event_bus))})")
 
         start_time = asyncio.get_event_loop().time()
 
         try:
-            # 判断服务类型
+            # Determine service type
             if "command" in event.service_config:
-                # 本地服务
+                # Local service
                 session, tools = await self._connect_local_service(
                     event.service_name, event.service_config, event.timeout
                 )
             else:
-                # 远程服务
+                # Remote service
                 session, tools = await self._connect_remote_service(
                     event.service_name, event.service_config, event.timeout
                 )
@@ -110,7 +110,7 @@ class ConnectionManager:
                 f"({len(tools)} tools, {connection_time:.2f}s)"
             )
 
-            # 发布连接成功事件
+            # Publish connection success event
             connected_event = ServiceConnected(
                 agent_id=event.agent_id,
                 service_name=event.service_name,
@@ -159,22 +159,22 @@ class ConnectionManager:
         service_config: Dict[str, Any],
         timeout: float
     ) -> Tuple[Any, List[Tuple[str, Dict[str, Any]]]]:
-        """连接本地服务"""
+        """Connect to local service"""
         from fastmcp import Client
 
-        # 1. 启动本地进程
+        # 1. Start local process
         success, message = await self._local_service_manager.start_local_service(
             service_name, service_config
         )
         if not success:
             raise RuntimeError(f"Failed to start local service: {message}")
 
-        # 2. 处理配置
+        # 2. Process configuration
         processed_config = self._config_processor.process_user_config_for_fastmcp({
             "mcpServers": {service_name: service_config}
         })
 
-        # 3. 创建客户端并连接
+        # 3. Create client and connect
         client = Client(processed_config)
 
         async with asyncio.timeout(timeout):
@@ -189,15 +189,15 @@ class ConnectionManager:
         service_config: Dict[str, Any],
         timeout: float
     ) -> Tuple[Any, List[Tuple[str, Dict[str, Any]]]]:
-        """连接远程服务"""
+        """Connect to remote service"""
         from fastmcp import Client
 
-        # 1. 处理配置
+        # 1. Process configuration
         processed_config = self._config_processor.process_user_config_for_fastmcp({
             "mcpServers": {service_name: service_config}
         })
 
-        # 2. 创建客户端并连接
+        # 2. Create client and connect
         client = Client(processed_config)
 
         async with asyncio.timeout(timeout):
@@ -211,7 +211,7 @@ class ConnectionManager:
         service_name: str,
         tools_list: List[Any]
     ) -> List[Tuple[str, Dict[str, Any]]]:
-        """处理工具列表"""
+        """Process tool list"""
         processed_tools = []
 
         for tool in tools_list:
@@ -219,7 +219,7 @@ class ConnectionManager:
                 original_name = tool.name
                 display_name = f"{service_name}_{original_name}"
 
-                # 处理参数
+                # Process parameters
                 parameters = {}
                 if hasattr(tool, 'inputSchema') and tool.inputSchema:
                     if hasattr(tool.inputSchema, 'model_dump'):
@@ -227,7 +227,7 @@ class ConnectionManager:
                     elif isinstance(tool.inputSchema, dict):
                         parameters = tool.inputSchema
 
-                # 构建工具定义
+                # Build tool definition
                 tool_def = {
                     "type": "function",
                     "function": {
@@ -254,7 +254,7 @@ class ConnectionManager:
         error_type: str,
         retry_count: int
     ):
-        """发布连接失败事件"""
+        """Publish connection failed event"""
         try:
             friendly_message = ConfigProcessor.get_user_friendly_error(error_message or "")
         except Exception:
@@ -270,64 +270,64 @@ class ConnectionManager:
 
     async def _on_reconnection_requested(self, event: 'ReconnectionRequested'):
         """
-        处理重连请求 - 重新触发连接
+        Handle reconnection request - trigger connection again
         """
         logger.info(f"[CONNECTION] Reconnection requested: {event.service_name} (retry={event.retry_count})")
 
-        # 获取服务配置
+        # Get service configuration
         service_config = self._get_service_config(event.agent_id, event.service_name)
         if not service_config:
             logger.error(f"[CONNECTION] No config found for reconnection: {event.service_name}")
             return
 
-        # 发布连接请求事件（复用现有连接逻辑）
+        # Publish connection request event (reuse existing connection logic)
         connection_request = ServiceConnectionRequested(
             agent_id=event.agent_id,
             service_name=event.service_name,
             service_config=service_config,
-            timeout=5.0  # 重连时使用更长的超时
+            timeout=5.0  # Use longer timeout for reconnection
         )
         await self._event_bus.publish(connection_request, wait=True)
 
     def _get_service_config(self, agent_id: str, service_name: str) -> Dict[str, Any]:
-        """从缓存中获取服务配置"""
+        """Get service configuration from cache"""
         logger.debug(f"[CONNECTION] Getting config for {agent_id}:{service_name}")
-        
-        # 通过 client_id 获取配置
+
+        # Get configuration through client_id
         client_id = self._registry.get_service_client_id(agent_id, service_name)
         if not client_id:
             logger.warning(f"[CONNECTION] No client_id found for {agent_id}:{service_name}")
-            
-            # 尝试从 service_metadata 获取配置作为回退
+
+            # Try to get configuration from service_metadata as fallback
             metadata = self._registry.get_service_metadata(agent_id, service_name)
             if metadata and hasattr(metadata, 'service_config') and metadata.service_config:
                 logger.info(f"[CONNECTION] Using config from metadata for {service_name}")
                 return metadata.service_config
-            
+
             logger.error(f"[CONNECTION] No config found in client mapping or metadata for {service_name}")
             return {}
 
         logger.debug(f"[CONNECTION] Found client_id: {client_id}")
-        
+
         client_config = self._registry.get_client_config_from_cache(client_id)
         if not client_config:
             logger.warning(f"[CONNECTION] No client config found for client_id: {client_id}")
-            
-            # 尝试从 metadata 回退
+
+            # Try fallback from metadata
             metadata = self._registry.get_service_metadata(agent_id, service_name)
             if metadata and hasattr(metadata, 'service_config') and metadata.service_config:
                 logger.info(f"[CONNECTION] Using config from metadata as fallback for {service_name}")
                 return metadata.service_config
-            
+
             return {}
 
         mcp_servers = client_config.get("mcpServers", {})
         service_config = mcp_servers.get(service_name, {})
-        
+
         if not service_config:
             logger.warning(f"[CONNECTION] Service {service_name} not found in client config")
-            
-            # 最后尝试从 metadata
+
+            # Last attempt from metadata
             metadata = self._registry.get_service_metadata(agent_id, service_name)
             if metadata and hasattr(metadata, 'service_config') and metadata.service_config:
                 logger.info(f"[CONNECTION] Using config from metadata as last resort for {service_name}")

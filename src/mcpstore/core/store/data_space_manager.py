@@ -1,6 +1,6 @@
 """
-数据空间管理模块
-负责处理 MCPStore 的数据空间相关功能
+Data Space Management Module
+Handles data space related functionality for MCPStore
 """
 
 import logging
@@ -13,14 +13,14 @@ from pathlib import Path
 import json
 
 class DataSpaceManagerMixin:
-    """数据空间管理 Mixin"""
+    """Data Space Management Mixin"""
 
     def get_data_space_info(self) -> Optional[Dict[str, Any]]:
         """
-        获取数据空间信息
+        Get data space information
 
         Returns:
-            Dict: 数据空间信息，如果未使用数据空间则返回None
+            Dict: Data space information, returns None if data space is not used
         """
         if self._data_space_manager:
             return self._data_space_manager.get_workspace_info()
@@ -28,10 +28,10 @@ class DataSpaceManagerMixin:
 
     def get_workspace_dir(self) -> Optional[str]:
         """
-        获取工作空间目录路径
+        Get workspace directory path
 
         Returns:
-            str: 工作空间目录路径，如果未使用数据空间则返回None
+            str: Workspace directory path, returns None if data space is not used
         """
         if self._data_space_manager:
             return str(self._data_space_manager.workspace_dir)
@@ -39,27 +39,27 @@ class DataSpaceManagerMixin:
 
     def is_using_data_space(self) -> bool:
         """
-        检查是否使用了数据空间
+        Check if data space is being used
 
         Returns:
-            bool: 是否使用数据空间
+            bool: Whether data space is being used
         """
         return self._data_space_manager is not None
 
     async def _add_service(self, service_names: List[str], agent_id: Optional[str]) -> bool:
-        """内部方法：批量添加服务，store级别支持全量注册，agent级别支持指定服务注册"""
-        # store级别
+        """Internal method: batch add services, store level supports full registration, agent level supports specified service registration"""
+        # store level
         if agent_id is None:
             if not service_names:
-                # 全量注册：使用统一同步机制
+                # Full registration: use unified synchronization mechanism
                 if hasattr(self.orchestrator, 'sync_manager') and self.orchestrator.sync_manager:
                     sync_results = await self.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
                     return bool(sync_results.get("added") or sync_results.get("updated"))
                 else:
-                    logger.warning("统一同步管理器不可用，跳过全量注册")
+                    logger.warning("Unified sync manager not available, skipping full registration")
                     return False
             else:
-                # 从缓存读取服务配置并走统一缓存优先流程
+                # Read service configuration from cache and follow unified cache-first process
                 try:
                     mcp_config = {"mcpServers": {}}
                     cache_agent_id = self.client_manager.global_agent_store_id
@@ -71,7 +71,7 @@ class DataSpaceManagerMixin:
                         else:
                             mcp_config["mcpServers"][name] = svc_cfg
                     if missing:
-                        logger.error(f"以下服务未在缓存中找到配置: {missing}")
+                        logger.error(f"The following services were not found in cache configuration: {missing}")
                         return False
                     await self.for_store().add_service_async(mcp_config)
                     return True

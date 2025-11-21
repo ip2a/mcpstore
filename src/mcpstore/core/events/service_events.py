@@ -1,7 +1,7 @@
 """
-服务相关的领域事件定义
+Service-related domain event definitions
 
-所有事件都是不可变的（frozen=True），确保事件的完整性。
+All events are immutable (frozen=True) to ensure event integrity.
 """
 
 import uuid
@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional, List, Tuple
 
 
 class EventPriority(Enum):
-    """事件优先级"""
+    """Event priority"""
     LOW = 1
     NORMAL = 2
     HIGH = 3
@@ -22,9 +22,9 @@ class EventPriority(Enum):
 @dataclass(frozen=True)
 class DomainEvent:
     """
-    领域事件基类
+    Domain event base class
 
-    注意：所有子类的必需参数必须在基类的默认参数之前定义
+    Note: Required parameters of all subclasses must be defined before base class default parameters
     """
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime = field(default_factory=datetime.now)

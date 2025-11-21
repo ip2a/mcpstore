@@ -106,7 +106,7 @@ class LifecycleManager:
     
     async def _on_service_connected(self, event: ServiceConnected):
         """
-        处理服务连接成功 - 转换状态为 HEALTHY
+        Handle successful service connection - transition state to HEALTHY
         """
         logger.info(f"[LIFECYCLE] Service connected: {event.service_name}")
         
@@ -119,7 +119,7 @@ class LifecycleManager:
                 source="ConnectionManager"
             )
             
-            # 重置失败计数
+            # Reset failure counts
             metadata = self._registry.get_service_metadata(event.agent_id, event.service_name)
             if metadata:
                 metadata.consecutive_failures = 0
@@ -134,12 +134,12 @@ class LifecycleManager:
     
     async def _on_service_connection_failed(self, event: ServiceConnectionFailed):
         """
-        处理服务连接失败 - 转换状态为 RECONNECTING
+        Handle service connection failure - transition state to RECONNECTING
         """
         logger.warning(f"[LIFECYCLE] Service connection failed: {event.service_name} ({event.error_message})")
         
         try:
-            # 更新元数据
+            # Update metadata
             metadata = self._registry.get_service_metadata(event.agent_id, event.service_name)
             if metadata:
                 metadata.consecutive_failures += 1
@@ -147,15 +147,15 @@ class LifecycleManager:
                 metadata.last_failure_time = datetime.now()
                 self._registry.set_service_metadata(event.agent_id, event.service_name, metadata)
             
-            # 根据当前状态决定目标状态
+            # Determine target state based on current state
             current_state = self._registry.get_service_state(event.agent_id, event.service_name)
             
             if current_state == ServiceConnectionState.INITIALIZING:
-                # 初次连接失败 -> RECONNECTING
+                # First connection failure -> RECONNECTING
                 new_state = ServiceConnectionState.RECONNECTING
                 reason = "initial_connection_failed"
             else:
-                # 其他情况也转到 RECONNECTING
+                # Other cases also transition to RECONNECTING
                 new_state = ServiceConnectionState.RECONNECTING
                 reason = "connection_failed"
             
@@ -172,12 +172,12 @@ class LifecycleManager:
 
     async def _on_health_check_completed(self, event: 'HealthCheckCompleted'):
         """
-        处理健康检查完成 - 根据健康状态转换服务状态
+        Handle health check completion - transition service state based on health status
         """
         logger.debug(f"[LIFECYCLE] Health check completed: {event.service_name} (success={event.success})")
 
         try:
-            # 更新元数据
+            # Update metadata
             metadata = self._registry.get_service_metadata(event.agent_id, event.service_name)
             if metadata:
                 metadata.last_health_check = datetime.now()
@@ -192,13 +192,13 @@ class LifecycleManager:
 
                 self._registry.set_service_metadata(event.agent_id, event.service_name, metadata)
 
-            # 基于失败计数与当前状态的转换规则（忽略 suggested_state）
+            # Transition rules based on failure count and current state (ignore suggested_state)
             current_state = self._registry.get_service_state(event.agent_id, event.service_name)
             failures = 0
             if metadata:
                 failures = metadata.consecutive_failures
 
-            # 成功：从 INITIALIZING/WARNING 回到 HEALTHY；HEALTHY 保持
+            # Success: return from INITIALIZING/WARNING to HEALTHY; HEALTHY stays
             if event.success:
                 if current_state in (ServiceConnectionState.INITIALIZING, ServiceConnectionState.WARNING):
                     await self._transition_state(
@@ -210,11 +210,11 @@ class LifecycleManager:
                     )
                 return
 
-            # 失败：按阈值推进 WARNING/RECONNECTING
+            # Failure: advance to WARNING/RECONNECTING based on thresholds
             warn_th = self._config.warning_failure_threshold
             rec_th = self._config.reconnecting_failure_threshold
 
-            # 达到重连阈值：进入 RECONNECTING
+            # Reached reconnection threshold: enter RECONNECTING
             if failures >= rec_th:
                 if current_state != ServiceConnectionState.RECONNECTING:
                     await self._transition_state(
@@ -226,7 +226,7 @@ class LifecycleManager:
                     )
                 return
 
-            # 从 HEALTHY 进入 WARNING（首次失败）
+            # Enter WARNING from HEALTHY (first failure)
             if current_state == ServiceConnectionState.HEALTHY and failures >= warn_th:
                 await self._transition_state(
                     agent_id=event.agent_id,
@@ -242,7 +242,7 @@ class LifecycleManager:
 
     async def _on_service_timeout(self, event: 'ServiceTimeout'):
         """
-        处理服务超时 - 转换状态为 UNREACHABLE
+        Handle service timeout - transition state to UNREACHABLE
         """
         logger.warning(
             f"[LIFECYCLE] Service timeout: {event.service_name} "
@@ -250,7 +250,7 @@ class LifecycleManager:
         )
 
         try:
-            # 更新元数据
+            # Update metadata
             metadata = self._registry.get_service_metadata(event.agent_id, event.service_name)
             if metadata:
                 metadata.error_message = f"Timeout: {event.timeout_type} ({event.elapsed_time:.1f}s)"
@@ -277,7 +277,7 @@ class LifecycleManager:
             f"(retry={event.retry_count}, reason={event.reason})"
         )
 
-        # 更新元数据中的重连尝试次数
+        # Update metadata中的重连尝试次数
         try:
             metadata = self._registry.get_service_metadata(event.agent_id, event.service_name)
             if metadata:
@@ -428,7 +428,7 @@ class LifecycleManager:
         # 更新状态
         self._registry.set_service_state(agent_id, service_name, new_state)
         
-        # 更新元数据
+        # Update metadata
         metadata = self._registry.get_service_metadata(agent_id, service_name)
         if metadata:
             metadata.state_entered_time = datetime.now()

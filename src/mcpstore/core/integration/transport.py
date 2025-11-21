@@ -50,7 +50,7 @@ class StreamableHTTPTransport:
         Send initialization request, establish session, and return server response.
         
         Returns:
-            Dict[str, Any]: 服务器的初始化响应
+            Dict[str, Any]: Server initialization response
         """
         headers = {
             "Accept": "application/json, text/event-stream",
@@ -58,7 +58,7 @@ class StreamableHTTPTransport:
         }
         
         request_id = str(uuid.uuid4())
-        # 确保使用正确的方法名（initialize 不需要映射，但为了一致性，我们仍然从映射中获取）
+        # Ensure using correct method name (initialize doesn't need mapping, but for consistency we still get from mapping)
         method = "initialize"
         server_method = self.METHOD_MAPPING.get(method, method)
         
@@ -70,8 +70,8 @@ class StreamableHTTPTransport:
                     "name": "mcp-client",
                     "version": "1.0.0"
                 },
-                "protocolVersion": "2024-11-05",  #  修复：使用标准MCP协议版本
-                "capabilities": {                 #  修复：使用标准MCP能力格式
+                "protocolVersion": "2024-11-05",  #  Fixed: Use standard MCP protocol version
+                "capabilities": {                 #  Fixed: Use standard MCP capability format
                     "tools": {}
                 }
             },
@@ -87,23 +87,23 @@ class StreamableHTTPTransport:
             )
             response.raise_for_status()
             
-            # 获取并保存会话ID
+            # Get and save session ID
             session_id = response.headers.get(self.config.session_id_header)
             if session_id:
                 self.config.session_id = session_id
                 logger.debug(f"Session established with ID: {session_id}")
             
-            # 处理响应内容
+            # Handle response content
             if response.content:
                 try:
                     return response.json()
                 except json.JSONDecodeError:
                     logger.warning(f"Failed to parse response as JSON: {response.content}")
-                    # 返回一个默认的成功响应，避免中断流程
+                    # Return a default success response to avoid interrupting the process
                     return {"status": "connected", "session_id": session_id or "unknown"}
             else:
                 logger.warning("Empty response received from server")
-                # 返回一个默认的成功响应，避免中断流程
+                # Return a default success response to avoid interrupting the process
                 return {"status": "connected", "session_id": session_id or "unknown"}
             
         except httpx.HTTPStatusError as e:
@@ -114,30 +114,30 @@ class StreamableHTTPTransport:
             raise
     
     async def call_tool(self, tool_name: str, tool_args: Dict[str, Any]) -> Any:
-        """调用工具方法
-        
-        使用Streamable HTTP协议调用指定的工具，并返回结果。
-        此方法与registry.py中定义的SessionProtocol接口兼容。
-        
+        """Call tool method
+
+        Use Streamable HTTP protocol to call specified tool and return result.
+        This method is compatible with SessionProtocol interface defined in registry.py.
+
         Args:
-            tool_name: 工具名称
-            tool_args: 工具参数
-            
+            tool_name: Tool name
+            tool_args: Tool arguments
+
         Returns:
-            Any: 工具执行结果
+            Any: Tool execution result
         """
         logger.debug(f"Calling tool '{tool_name}' with args: {type(tool_args).__name__}")
         
         try:
-            # 发送工具调用请求
+            # Send tool call request
             responses = []
-            # 使用 call_tool 作为方法名，会被映射到 tools/call
+            # Use call_tool as method name, will be mapped to tools/call
             method = "call_tool"
             params = {"name": tool_name, "arguments": tool_args}
             
             async for response in self.send_request(method, params):
                 responses.append(response)
-                # 只获取第一个响应
+                # Only get first response
                 break
                 
             if not responses:
@@ -146,16 +146,16 @@ class StreamableHTTPTransport:
                 
             result = responses[0]
             
-            # 格式化响应为兼容格式
+            # Format response for compatibility
             if isinstance(result, dict) and "result" in result:
-                # 如果响应中有result字段，将其作为文本内容返回
+                # If response has result field, return it as text content
                 return {"content": [{"text": str(result["result"])}]}
             elif isinstance(result, dict) and "error" in result:
-                # 如果响应中有error字段，将其作为错误信息返回
+                # If response has error field, return it as error message
                 error_msg = result.get("error", {}).get("message", "Unknown error")
                 return {"content": [{"text": f"Error: {error_msg}"}]}
             else:
-                # 其他情况，直接返回响应
+                # Other cases, return response directly
                 return {"content": [{"text": str(result)}]}
                 
         except Exception as e:
@@ -163,14 +163,14 @@ class StreamableHTTPTransport:
             return {"content": [{"text": f"Error calling tool '{tool_name}': {str(e)}"}]}
         
     async def send_request(self, method: str, params: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any], None]:
-        """发送请求并处理流式响应
-        
+        """Send request and handle streaming response
+
         Args:
-            method: 请求方法名
-            params: 请求参数
-            
+            method: Request method name
+            params: Request parameters
+
         Yields:
-            Dict[str, Any]: 服务器响应数据流
+            Dict[str, Any]: Server response data stream
         """
         headers = {
             "Accept": "application/json, text/event-stream",
@@ -183,7 +183,7 @@ class StreamableHTTPTransport:
         if self.last_event_id:
             headers[self.config.event_id_header] = self.last_event_id
         
-        # 将简化的方法名转换为服务器期望的格式
+        # Convert simplified method name to server-expected format
         server_method = self.METHOD_MAPPING.get(method, method)
         if server_method != method:
             logger.debug(f"Mapping method name from '{method}' to '{server_method}'")
@@ -209,7 +209,7 @@ class StreamableHTTPTransport:
                 content_type = response.headers.get("Content-Type", "")
                 
                 if "text/event-stream" in content_type:
-                    # 处理SSE流
+                    # Handle SSE stream
                     buffer = ""
                     async for chunk in response.aiter_text():
                         buffer += chunk
@@ -220,11 +220,11 @@ class StreamableHTTPTransport:
                             
                             for line in message.split("\n"):
                                 if not line or line.startswith(":"):
-                                    continue  # 忽略注释和空行
+                                    continue  # Ignore comments and empty lines
                                     
                                 if ":" in line:
                                     field, value = line.split(":", 1)
-                                    value = value.lstrip()  # 移除前导空格
+                                    value = value.lstrip()  # Remove leading spaces
                                     
                                     if field == "id":
                                         self.last_event_id = value
@@ -237,9 +237,9 @@ class StreamableHTTPTransport:
                             if event_data:
                                 yield event_data
                 else:
-                    # 处理普通JSON响应 - 修复方法，读取完整响应内容
+                    # Handle regular JSON response - Fixed method, read complete response content
                     try:
-                        # 读取完整响应内容而不是直接调用response.json()
+                        # Read complete response content instead of calling response.json() directly
                         content = await response.aread()
                         data = json.loads(content)
                         yield data
@@ -255,11 +255,11 @@ class StreamableHTTPTransport:
             raise
     
     async def send_notification(self, method: str, params: Dict[str, Any]) -> None:
-        """发送通知（不需要响应的请求）
-        
+        """Send notification (request that doesn't need response)
+
         Args:
-            method: 通知方法名
-            params: 通知参数
+            method: Notification method name
+            params: Notification parameters
         """
         headers = {
             "Accept": "application/json",
@@ -290,12 +290,12 @@ class StreamableHTTPTransport:
             raise
     
     async def listen_server(self) -> AsyncGenerator[Dict[str, Any], None]:
-        """监听服务器发送的消息
-        
-        打开GET连接以接收服务器主动发送的消息。
-        
+        """Listen for messages sent by server
+
+        Open GET connection to receive messages actively sent by server.
+
         Yields:
-            Dict[str, Any]: 服务器发送的消息
+            Dict[str, Any]: Messages sent by server
         """
         headers = {
             "Accept": "text/event-stream"
@@ -329,11 +329,11 @@ class StreamableHTTPTransport:
                         
                         for line in message.split("\n"):
                             if not line or line.startswith(":"):
-                                continue  # 忽略注释和空行
+                                continue  # Ignore comments and empty lines
                                 
                             if ":" in line:
                                 field, value = line.split(":", 1)
-                                value = value.lstrip()  # 移除前导空格
+                                value = value.lstrip()  # Remove leading spaces
                                 
                                 if field == "id":
                                     self.last_event_id = value
@@ -357,9 +357,9 @@ class StreamableHTTPTransport:
             raise
                 
     async def close(self) -> None:
-        """关闭连接并清理资源
-        
-        如果有会话ID，尝试显式终止会话。
+        """Close connection and cleanup resources
+
+        If session ID exists, try to explicitly terminate session.
         """
         if self.config.session_id:
             try:

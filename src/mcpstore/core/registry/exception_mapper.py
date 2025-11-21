@@ -4,7 +4,7 @@ Exception Mapper for py-key-value Integration
 This module provides utilities to map py-key-value exceptions to MCPStore exceptions,
 ensuring consistent error handling across the codebase.
 
-Validates: Requirements 6.4 (异常和错误处理)
+Validates: Requirements 6.4 (Exception and error handling)
 """
 
 import logging
@@ -53,7 +53,7 @@ def map_kv_exception(func: Callable[P, T]) -> Callable[P, T]:
             collection = self._get_collection(agent_id, "tools")
             return await self._kv_store.get(collection=collection)
     
-    Validates: Requirements 6.4 (异常和错误处理)
+    Validates: Requirements 6.4 (Exception and error handling)
     """
     @wraps(func)
     async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
@@ -166,7 +166,7 @@ def validate_session_serializable(session: Any, agent_id: str, service_name: str
     Raises:
         SessionSerializationError: If the session contains non-serializable references
         
-    Validates: Requirements 3.2 (Session 对象的序列化问题)
+    Validates: Requirements 3.2 (Session object serialization issues)
     """
     from ..exceptions import SessionSerializationError
     
@@ -237,7 +237,7 @@ def safe_session_operation(func: Callable[P, T]) -> Callable[P, T]:
                 self.sessions[agent_id] = {}
             self.sessions[agent_id][service_name] = session
     
-    Validates: Requirements 3.2 (Session 对象的序列化问题)
+    Validates: Requirements 3.2 (Session object serialization issues)
     """
     @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:

@@ -58,11 +58,11 @@ class MCPStoreContext(
         # Async/sync compatibility helper
         self._sync_helper = get_global_helper()
 
-        #  修复：初始化等待策略（来自ServiceOperationsMixin）
+        # Initialize wait strategy for service operations
         from .service_operations import AddServiceWaitStrategy
         self.wait_strategy = AddServiceWaitStrategy()
 
-        # 🆕 初始化会话管理（来自SessionManagementMixin）
+        # Initialize session management
         SessionManagementMixin.__init__(self)
 
         # New feature manager
@@ -71,11 +71,12 @@ class MCPStoreContext(
         self._performance_optimizer = get_performance_optimizer()
         self._monitoring_manager = get_monitoring_manager()
 
-        # Monitoring manager - use data space manager or default path
+        # Monitoring manager - unified behavior for both branches
         from pathlib import Path
         if hasattr(self._store, '_data_space_manager') and self._store._data_space_manager:
-            # Use data space manager path
-            data_dir = self._store._data_space_manager.get_file_path("monitoring").parent
+            # Use data space manager path - consistent with fallback branch
+            workspace_dir = self._store._data_space_manager.workspace_dir
+            data_dir = workspace_dir / "monitoring"
         else:
             # Use default path (backward compatibility)
             config_dir = Path(self._store.config.json_path).parent
@@ -88,7 +89,7 @@ class MCPStoreContext(
         )
 
         # Agent service name mapper
-        #  [REFACTOR] global_agent_store不使用服务映射器，因为它使用原始服务名
+        # global_agent_store does not use service mapper as it uses original service names
         if agent_id and agent_id != "global_agent_store":
             self._service_mapper = AgentServiceMapper(agent_id)
         else:
@@ -170,26 +171,26 @@ class MCPStoreContext(
         from ...adapters.openai_adapter import OpenAIAdapter
         return OpenAIAdapter(self)
 
-    # === Hub 功能扩展 ===
+    # === Hub Services Extension ===
 
     def hub_services(self) -> 'HubServicesBuilder':
         """
-        创建Hub服务打包构建器
+        Create Hub services packaging builder
 
-        将当前上下文中已缓存的服务打包为独立的Hub服务进程。
-        基于现有服务数据，不进行新的服务注册。
+        Packages cached services in current context as independent Hub service processes.
+        Based on existing service data without new service registration.
 
         Returns:
-            HubServicesBuilder: Hub服务构建器，支持链式调用
+            HubServicesBuilder: Hub services builder with chainable method calls
 
         Example:
-            # Store级别Hub
+            # Store-level Hub
             hub = store.for_store().hub_services()\\
                 .with_name("global-hub")\\
-                .with_description("全局服务Hub")\\
+                .with_description("Global services hub")\\
                 .build()
 
-            # Agent级别Hub
+            # Agent-level Hub
             hub = store.for_agent("team1").hub_services()\\
                 .with_name("team-hub")\\
                 .filter_services(category="api")\\
@@ -200,43 +201,45 @@ class MCPStoreContext(
 
     def hub_tools(self) -> 'HubToolsBuilder':
         """
-        创建Hub工具打包构建器
+        Create Hub tools packaging builder
 
-        将工具级别打包为Hub服务。
-        注意：此功能在当前版本中为占位实现，后期版本将提供完整功能。
+        Packages tools at tool level as Hub services.
+        Note: This feature is a placeholder implementation in current version,
+        full functionality will be available in later versions.
 
         Returns:
-            HubToolsBuilder: Hub工具构建器
+            HubToolsBuilder: Hub tools builder
 
         Raises:
-            NotImplementedError: 当前版本未实现此功能
+            NotImplementedError: Feature not implemented in current version
         """
         from mcpstore.extensions.hub.builder import HubToolsBuilder
         return HubToolsBuilder(self, self._context_type.value, self._agent_id)
 
     def find_service(self, service_name: str) -> 'ServiceProxy':
         """
-        查找指定服务并返回服务代理对象
+        Find specified service and return service proxy object
 
-        进一步缩小作用域到具体服务，提供该服务的所有操作方法。
+        Further narrows scope to specific service, providing all operation methods
+        for that service.
 
         Args:
-            service_name: 服务名称
+            service_name: Service name
 
         Returns:
-            ServiceProxy: 服务代理对象，包含该服务的所有操作方法
+            ServiceProxy: Service proxy object containing all operation methods for the service
 
         Example:
-            # Store级别使用
+            # Store-level usage
             weather_service = store.for_store().find_service('weather')
-            weather_service.service_info()      # 获取服务详情
-            weather_service.list_tools()       # 列出工具
-            weather_service.check_health()     # 检查健康状态
+            weather_service.service_info()      # Get service details
+            weather_service.list_tools()       # List tools
+            weather_service.check_health()     # Check health status
 
-            # Agent级别使用
+            # Agent-level usage
             demo_service = store.for_agent('demo1').find_service('service1')
-            demo_service.service_info()        # 获取服务详情
-            demo_service.restart_service()     # 重启服务
+            demo_service.service_info()        # Get service details
+            demo_service.restart_service()     # Restart service
         """
         from .service_proxy import ServiceProxy
         try:
@@ -250,29 +253,29 @@ class MCPStoreContext(
 
     def find_tool(self, tool_name: str) -> 'ToolProxy':
         """
-        查找指定工具并返回工具代理对象
+        Find specified tool and return tool proxy object
 
-        在当前上下文范围内查找工具：
-        - Store 上下文: 搜索全局所有服务的工具
-        - Agent 上下文: 搜索该 Agent 的所有服务的工具
+        Search for tools within current context scope:
+        - Store context: Search tools from all global services
+        - Agent context: Search tools from all services of that Agent
 
         Args:
-            tool_name: 工具名称
+            tool_name: Tool name
 
         Returns:
-            ToolProxy: 工具代理对象，包含该工具的所有操作方法
+            ToolProxy: Tool proxy object containing all operation methods for the tool
 
         Example:
-            # Store级别使用
+            # Store-level usage
             weather_tool = store.for_store().find_tool('get_current_weather')
-            weather_tool.tool_info()        # 获取工具详情
-            weather_tool.call_tool({...})   # 调用工具
-            weather_tool.usage_stats()      # 使用统计
+            weather_tool.tool_info()        # Get tool details
+            weather_tool.call_tool({...})   # Call tool
+            weather_tool.usage_stats()      # Usage statistics
 
-            # Agent级别使用
+            # Agent-level usage
             demo_tool = store.for_agent('demo1').find_tool('search_tool')
-            demo_tool.tool_info()           # 获取工具详情
-            demo_tool.test_call({...})      # 测试调用
+            demo_tool.tool_info()           # Get tool details
+            demo_tool.test_call({...})      # Test call
         """
         from .tool_proxy import ToolProxy
         return ToolProxy(self, tool_name, scope='context')

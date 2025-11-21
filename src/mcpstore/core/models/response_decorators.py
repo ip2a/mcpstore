@@ -1,12 +1,12 @@
 """
-响应装饰器（改进建议1-3的实现）
+Response decorators (implementation of improvements #1-3)
 
-提供三大核心装饰器：
-1. @timed_response - 自动计时和包装响应
-2. @paginated - 自动分页处理
-3. @handle_errors - 统一错误处理
+Provides three core decorators:
+1. @timed_response - Automatic timing and response wrapping
+2. @paginated - Automatic pagination handling
+3. @handle_errors - Unified error handling
 
-创建日期: 2025-10-01
+Created: 2025-10-01
 """
 
 import time
@@ -23,19 +23,19 @@ logger = logging.getLogger(__name__)
 
 
 def timed_response(func: Callable) -> Callable:
-    """自动计时响应装饰器（改进建议 #1）
-    
-    功能：
-    - 自动计算执行时间
-    - 自动生成request_id
-    - 自动注入meta信息
-    - 支持同步和异步函数
-    
-    使用示例：
+    """Automatic timing response decorator (improvement #1)
+
+    Features:
+    - Automatic execution time calculation
+    - Automatic request_id generation
+    - Automatic meta information injection
+    - Support for both sync and async functions
+
+    Usage example:
         @timed_response
         async def my_api():
             result = do_work()
-            # 直接返回数据，装饰器自动包装
+            # Return data directly, decorator auto-wraps
             return {"result": result}
         
         # 或返回完整响应

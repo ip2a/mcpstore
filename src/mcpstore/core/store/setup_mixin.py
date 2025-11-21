@@ -1,6 +1,6 @@
 """
-设置 Mixin 模块
-负责处理 MCPStore 的实例级别初始化方法
+Setup Mixin Module
+Handles instance-level initialization methods for MCPStore
 """
 
 import logging
@@ -9,23 +9,23 @@ logger = logging.getLogger(__name__)
 
 
 class SetupMixin:
-    """设置 Mixin - 包含实例级别的初始化方法"""
+    """Setup Mixin - contains instance-level initialization methods"""
     
     async def initialize_cache_from_files(self):
-        """启动时从文件初始化缓存"""
+        """Initialize cache from files on startup"""
         try:
-            logger.info(" [INIT_CACHE] 开始从持久化文件初始化缓存...")
+            logger.info(" [INIT_CACHE] Starting cache initialization from persistent files...")
 
-            # 单源模式：不再从 ClientManager 分片文件初始化
-            logger.info(" [INIT_CACHE] 单源模式：跳过从分片文件初始化基础数据")
+            # Single source mode: no longer initialize from ClientManager shard files
+            logger.info(" [INIT_CACHE] Single source mode: skipping basic data initialization from shard files")
 
-            # 2. 从 mcp.json 解析所有服务（包括 Agent 服务）
+            # 2. Parse all services from mcp.json (including Agent services)
             import os
             config_path = getattr(self.config, 'config_path', None) or getattr(self.config, 'json_path', None)
             if config_path and os.path.exists(config_path):
                 await self._initialize_services_from_mcp_config()
 
-            # 3. 标记缓存已初始化
+            # 3. Mark cache as initialized
             from datetime import datetime
             self.registry.cache_sync_status["initialized"] = datetime.now()
 
@@ -37,7 +37,7 @@ class SetupMixin:
 
     def _find_existing_client_id_for_agent_service(self, agent_id: str, service_name: str) -> str:
         """
-        查找Agent服务是否已有对应的client_id
+        Find if Agent service already has corresponding client_id
 
         Args:
             agent_id: Agent ID

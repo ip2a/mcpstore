@@ -49,7 +49,7 @@ class ServiceStateMachine:
     async def handle_failure_transition(self, agent_id: str, service_name: str,
                                        current_state: ServiceConnectionState,
                                        get_metadata_func, transition_func):
-        """处理失败时的状态转换"""
+        """Handle state transition on failure"""
         logger.debug(f"[FAILURE_TRANSITION] start service='{service_name}' current_state={current_state}")
 
         metadata = get_metadata_func(agent_id, service_name)
@@ -78,7 +78,7 @@ class ServiceStateMachine:
 
         elif current_state == ServiceConnectionState.INITIALIZING:
             logger.debug(f"[FAILURE_TRANSITION] initializing_processing")
-            # 初次连接失败应当直接进入 RECONNECTING，而不是等待阈值
+            # First connection failure should directly enter RECONNECTING, not wait for threshold
             logger.debug(f"[FAILURE_TRANSITION] transition INITIALIZING->RECONNECTING reason='first_failure'")
             await transition_func(agent_id, service_name, ServiceConnectionState.RECONNECTING)
 
@@ -105,7 +105,7 @@ class ServiceStateMachine:
                                  new_state: ServiceConnectionState,
                                  get_state_func, get_metadata_func, 
                                  set_state_func, on_state_entered_func):
-        """执行状态转换"""
+        """Execute state transition"""
         old_state = get_state_func(agent_id, service_name)
         logger.debug(f"[STATE_TRANSITION] attempting service='{service_name}' from={old_state} to={new_state}")
 
@@ -113,7 +113,7 @@ class ServiceStateMachine:
             logger.debug(f"⏸️ [STATE_TRANSITION] No change needed for {service_name}: already in {new_state}")
             return
 
-        # 更新状态
+        # Update state
         logger.debug(f"[STATE_TRANSITION] updating service='{service_name}' from={old_state} to={new_state}")
         set_state_func(agent_id, service_name, new_state)
         metadata = get_metadata_func(agent_id, service_name)
@@ -123,7 +123,7 @@ class ServiceStateMachine:
         else:
             logger.warning(f"[STATE_TRANSITION] no_metadata service='{service_name}' during_transition=True")
 
-        # 执行状态进入处理
+        # Execute state entry handling
         logger.debug(f"[STATE_TRANSITION] calling_on_state_entered service='{service_name}'")
         await on_state_entered_func(agent_id, service_name, new_state, old_state)
 
@@ -133,7 +133,7 @@ class ServiceStateMachine:
                               new_state: ServiceConnectionState, old_state: ServiceConnectionState,
                               enter_reconnecting_func, enter_unreachable_func,
                               enter_disconnecting_func, enter_healthy_func):
-        """状态进入时的处理逻辑"""
+        """State entry handling logic"""
         if new_state == ServiceConnectionState.RECONNECTING:
             await enter_reconnecting_func(agent_id, service_name)
         elif new_state == ServiceConnectionState.UNREACHABLE:
@@ -144,13 +144,13 @@ class ServiceStateMachine:
             await enter_healthy_func(agent_id, service_name)
     
     def calculate_reconnect_delay(self, reconnect_attempts: int) -> float:
-        """计算重连延迟（指数退避）"""
+        """Calculate reconnection delay (exponential backoff)"""
         delay = min(self.config.base_reconnect_delay * (2 ** reconnect_attempts), 
                    self.config.max_reconnect_delay)
         return delay
     
     def should_retry_now(self, metadata: ServiceStateMetadata) -> bool:
-        """判断是否应该立即重试"""
+        """Determine if should retry immediately"""
         if not metadata.next_retry_time:
             return True
         return datetime.now() >= metadata.next_retry_time

@@ -15,12 +15,12 @@ logger = logging.getLogger(__name__)
 
 class ClientIDGenerator:
     """
-    统一的Client ID生成器
+    Unified Client ID Generator
 
-    提供确定性的client_id生成算法，确保：
-    1. 相同的输入总是产生相同的ID
-    2. 不同的Agent/Service组合产生不同的ID
-    3. 支持Store和Agent两种模式
+    Provides deterministic client_id generation algorithm, ensuring:
+    1. Same input always produces same ID
+    2. Different Agent/Service combinations produce different IDs
+    3. Supports both Store and Agent modes
     """
 
     @staticmethod
@@ -28,33 +28,33 @@ class ClientIDGenerator:
                                   service_config: Dict[str, Any],
                                   global_agent_store_id: str) -> str:
         """
-        生成确定性的client_id
+        Generate deterministic client_id
 
         Args:
             agent_id: Agent ID
-            service_name: 服务名称
-            service_config: 服务配置（用于生成hash）
-            global_agent_store_id: 全局Agent Store ID
+            service_name: Service name
+            service_config: Service configuration (used to generate hash)
+            global_agent_store_id: Global Agent Store ID
 
         Returns:
-            str: 确定性的client_id
+            str: Deterministic client_id
 
-        格式说明：
-        - Store服务: client_store_{service_name}_{config_hash}
-        - Agent服务: client_{agent_id}_{service_name}_{config_hash}
+        Format description:
+        - Store service: client_store_{service_name}_{config_hash}
+        - Agent service: client_{agent_id}_{service_name}_{config_hash}
         """
         try:
-            # 生成配置哈希（确保确定性）
+            # Generate configuration hash (ensure deterministic)
             config_str = str(sorted(service_config.items())) if service_config else ""
             config_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]
 
-            # 根据agent类型生成不同格式的client_id
+            # Generate different format client_id based on agent type
             if agent_id == global_agent_store_id:
-                # Store服务格式
+                # Store service format
                 client_id = f"client_store_{service_name}_{config_hash}"
                 logger.debug(f" [ID_GEN] Generated Store client_id: {service_name} -> {client_id}")
             else:
-                # Agent服务格式
+                # Agent service format
                 client_id = f"client_{agent_id}_{service_name}_{config_hash}"
                 logger.debug(f" [ID_GEN] Generated Agent client_id: {agent_id}:{service_name} -> {client_id}")
 
@@ -62,7 +62,7 @@ class ClientIDGenerator:
 
         except Exception as e:
             logger.error(f" [ID_GEN] Failed to generate client_id for {agent_id}:{service_name}: {e}")
-            # 回退到简单格式
+            # Fallback to simple format
             fallback_id = f"client_{agent_id}_{service_name}_fallback"
             logger.warning(f"⚠️ [ID_GEN] Using fallback client_id: {fallback_id}")
             return fallback_id

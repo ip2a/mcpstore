@@ -158,10 +158,10 @@ class SessionManagementMixin:
 
                 return None
 
-            # 🎯 常规本地会话查找
+            # Regular local session lookup
             effective_agent_id = self._get_effective_agent_id()
 
-            # 🎯 检查缓存
+            # Check cache
             cache_key = f"{effective_agent_id}:{session_id}"
             if cache_key in self._session_cache:
                 session = self._session_cache[cache_key]
@@ -172,7 +172,7 @@ class SessionManagementMixin:
                     # 清理失效的缓存
                     del self._session_cache[cache_key]
 
-            # 🎯 使用增强的 SessionManager 查找命名会话
+            # Use enhanced SessionManager to find named session
             if hasattr(self._store.session_manager, 'get_named_session'):
                 agent_session = self._store.session_manager.get_named_session(effective_agent_id, session_id)
             else:
@@ -228,7 +228,7 @@ class SessionManagementMixin:
             sessions = []
             effective_agent_id = self._get_effective_agent_id()
 
-            # 🎯 获取当前上下文的 AgentSession
+            # Get AgentSession for current context
             agent_session = self._store.session_manager.get_session(effective_agent_id)
             if agent_session:
                 # 为这个 AgentSession 创建一个默认的 Session 包装器
@@ -236,7 +236,7 @@ class SessionManagementMixin:
                 default_session = Session(self, "default", agent_session)
                 sessions.append(default_session)
 
-            # 🎯 如果有自动会话，也包含在内
+            # Include auto session if available
             if self._auto_session_enabled and self._auto_session:
                 if self._auto_session not in sessions:
                     sessions.append(self._auto_session)
@@ -276,7 +276,7 @@ class SessionManagementMixin:
             result2 = store.for_store().use_tool("browser_click", {"selector": "#search"})
         """
         try:
-            # 🎯 保存配置
+            # Save configuration
             self._auto_session_config = {
                 "session_id": session_id,
                 "default_timeout": default_timeout,
@@ -284,11 +284,11 @@ class SessionManagementMixin:
                 "session_prefix": session_prefix
             }
 
-            # 🎯 创建或获取自动会话
+            # Create or get auto session
             if not self._auto_session:
                 self._auto_session = self.get_session(session_id)
 
-            # 🎯 启用自动会话模式
+            # Enable auto session mode
             self._auto_session_enabled = True
 
             logger.info(f"[SESSION_MANAGEMENT] Auto session mode enabled with session '{session_id}'")
@@ -393,17 +393,17 @@ class SessionManagementMixin:
             store.for_store().close_all_sessions()
         """
         try:
-            # 🎯 关闭所有缓存的 Session 对象
+            # Close all cached Session objects
             for session in list(self._session_cache.values()):
                 try:
                     session.close_session()
                 except Exception as e:
                     logger.warning(f"[SESSION_MANAGEMENT] Error closing session {session.session_id}: {e}")
 
-            # 🎯 清理缓存
+            # Clear cache
             self._session_cache.clear()
 
-            # 🎯 关闭自动会话
+            # Close auto session
             if self._auto_session:
                 try:
                     self._auto_session.close_session()
@@ -411,7 +411,7 @@ class SessionManagementMixin:
                     logger.warning(f"[SESSION_MANAGEMENT] Error closing auto session: {e}")
                 self._auto_session = None
 
-            # 🎯 禁用自动会话模式
+            # Disable auto session mode
             self._auto_session_enabled = False
 
             logger.info("[SESSION_MANAGEMENT] All sessions closed")

@@ -21,18 +21,18 @@ logger = logging.getLogger(__name__)
 @langchain_router.get("/for_store/langchain_tools", response_model=APIResponse)
 @handle_exceptions
 async def store_get_langchain_tools():
-    """Store 级别获取 LangChain 工具列表"""
+    """Get LangChain tools list at store level"""
     try:
         store = get_store()
         context = store.for_store()
         
-        # 获取 LangChain 适配器
+        # Get LangChain adapter
         langchain_adapter = context.for_langchain()
         
-        # 获取工具列表
+        # Get tools list
         tools = await langchain_adapter.list_tools_async()
         
-        # 转换为可序列化的格式
+        # Convert to serializable format
         tools_data = []
         for tool in tools:
             tool_info = {
@@ -65,12 +65,12 @@ async def store_get_langchain_tools():
 @langchain_router.get("/for_store/langchain_tools/{service_name}", response_model=APIResponse)
 @handle_exceptions
 async def store_get_langchain_tools_by_service(service_name: str):
-    """Store 级别获取指定服务的 LangChain 工具"""
+    """Get LangChain tools for specific service at store level"""
     try:
         store = get_store()
         context = store.for_store()
         
-        # 首先检查服务是否存在
+        # First check if service exists
         all_services = context.list_services()
         service_exists = any(s.name == service_name for s in all_services)
         
@@ -81,18 +81,18 @@ async def store_get_langchain_tools_by_service(service_name: str):
                 message=f"Service '{service_name}' not found"
             )
         
-        # 获取所有工具并筛选
+        # Get all tools and filter
         langchain_adapter = context.for_langchain()
         all_tools = await langchain_adapter.list_tools_async()
         
-        # 获取该服务的工具列表
+        # Get tools list for this service
         tools_info = context.get_tools_with_stats()
         service_tool_names = [tool["name"] for tool in tools_info["tools"] if tool.get("service_name") == service_name]
         
-        # 筛选对应的 LangChain 工具
+        # Filter corresponding LangChain tools
         service_tools = [tool for tool in all_tools if tool.name in service_tool_names]
         
-        # 转换为可序列化的格式
+        # Convert to serializable format
         tools_data = []
         for tool in service_tools:
             tool_info = {
@@ -126,13 +126,13 @@ async def store_get_langchain_tools_by_service(service_name: str):
 @langchain_router.post("/for_store/langchain_tool_execute", response_model=APIResponse)
 @handle_exceptions
 async def store_execute_langchain_tool(payload: Dict[str, Any]):
-    """Store 级别执行 LangChain 工具
-    
+    """Execute LangChain tool at store level
+
     Request Body:
     {
-        "tool_name": "tool_name",  # 工具名称
-        "args": {},               # 工具参数（可选）
-        "kwargs": {}              # 关键字参数（可选）
+        "tool_name": "tool_name",  # Tool name
+        "args": {},               # Tool parameters (optional)
+        "kwargs": {}              # Keyword parameters (optional)
     }
     """
     try:
@@ -146,10 +146,10 @@ async def store_execute_langchain_tool(payload: Dict[str, Any]):
         store = get_store()
         context = store.for_store()
         
-        # 使用 LangChain 适配器执行工具
+        # Use LangChain adapter to execute tool
         langchain_adapter = context.for_langchain()
         
-        # 获取工具列表以找到对应的工具
+        # Get tools list to find corresponding tool
         tools = await langchain_adapter.list_tools_async()
         target_tool = None
         
@@ -165,12 +165,12 @@ async def store_execute_langchain_tool(payload: Dict[str, Any]):
                 message=f"Tool '{tool_name}' not found"
             )
         
-        # 执行工具
+        # Execute tool
         if hasattr(target_tool, 'coroutine') and target_tool.coroutine:
-            # 优先使用异步执行
+            # Prefer async execution
             result = await target_tool.coroutine(*args, **kwargs)
         else:
-            # 使用同步执行
+            # Use sync execution
             result = target_tool.func(*args, **kwargs)
         
         return APIResponse(
@@ -196,19 +196,19 @@ async def store_execute_langchain_tool(payload: Dict[str, Any]):
 @langchain_router.get("/for_agent/{agent_id}/langchain_tools", response_model=APIResponse)
 @handle_exceptions
 async def agent_get_langchain_tools(agent_id: str):
-    """Agent 级别获取 LangChain 工具列表"""
+    """Get LangChain tools list at agent level"""
     try:
         validate_agent_id(agent_id)
         store = get_store()
         context = store.for_agent(agent_id)
         
-        # 获取 LangChain 适配器
+        # Get LangChain adapter
         langchain_adapter = context.for_langchain()
         
-        # 获取工具列表
+        # Get tools list
         tools = await langchain_adapter.list_tools_async()
         
-        # 转换为可序列化的格式
+        # Convert to serializable format
         tools_data = []
         for tool in tools:
             tool_info = {
@@ -242,13 +242,13 @@ async def agent_get_langchain_tools(agent_id: str):
 @langchain_router.get("/for_agent/{agent_id}/langchain_tools/{service_name}", response_model=APIResponse)
 @handle_exceptions
 async def agent_get_langchain_tools_by_service(agent_id: str, service_name: str):
-    """Agent 级别获取指定服务的 LangChain 工具"""
+    """Get LangChain tools for specific service at agent level"""
     try:
         validate_agent_id(agent_id)
         store = get_store()
         context = store.for_agent(agent_id)
         
-        # 首先检查服务是否存在
+        # First check if service exists
         all_services = await context.list_services_async()
         service_exists = any(s.name == service_name for s in all_services)
         
@@ -259,18 +259,18 @@ async def agent_get_langchain_tools_by_service(agent_id: str, service_name: str)
                 message=f"Service '{service_name}' not found for agent '{agent_id}'"
             )
         
-        # 获取所有工具并筛选
+        # Get all tools and filter
         langchain_adapter = context.for_langchain()
         all_tools = await langchain_adapter.list_tools_async()
         
-        # 获取该服务的工具列表
+        # Get tools list for this service
         tools_info = context.get_tools_with_stats()
         service_tool_names = [tool["name"] for tool in tools_info["tools"] if tool.get("service_name") == service_name]
         
-        # 筛选对应的 LangChain 工具
+        # Filter corresponding LangChain tools
         service_tools = [tool for tool in all_tools if tool.name in service_tool_names]
         
-        # 转换为可序列化的格式
+        # Convert to serializable format
         tools_data = []
         for tool in service_tools:
             tool_info = {
@@ -305,13 +305,13 @@ async def agent_get_langchain_tools_by_service(agent_id: str, service_name: str)
 @langchain_router.post("/for_agent/{agent_id}/langchain_tool_execute", response_model=APIResponse)
 @handle_exceptions
 async def agent_execute_langchain_tool(agent_id: str, payload: Dict[str, Any]):
-    """Agent 级别执行 LangChain 工具
-    
+    """Execute LangChain tool at agent level
+
     Request Body:
     {
-        "tool_name": "tool_name",  # 工具名称
-        "args": {},               # 工具参数（可选）
-        "kwargs": {}              # 关键字参数（可选）
+        "tool_name": "tool_name",  # Tool name
+        "args": {},               # Tool parameters (optional)
+        "kwargs": {}              # Keyword parameters (optional)
     }
     """
     try:
@@ -326,10 +326,10 @@ async def agent_execute_langchain_tool(agent_id: str, payload: Dict[str, Any]):
         store = get_store()
         context = store.for_agent(agent_id)
         
-        # 使用 LangChain 适配器执行工具
+        # Use LangChain adapter to execute tool
         langchain_adapter = context.for_langchain()
         
-        # 获取工具列表以找到对应的工具
+        # Get tools list to find corresponding tool
         tools = await langchain_adapter.list_tools_async()
         target_tool = None
         
@@ -345,12 +345,12 @@ async def agent_execute_langchain_tool(agent_id: str, payload: Dict[str, Any]):
                 message=f"Tool '{tool_name}' not found for agent '{agent_id}'"
             )
         
-        # 执行工具
+        # Execute tool
         if hasattr(target_tool, 'coroutine') and target_tool.coroutine:
-            # 优先使用异步执行
+            # Prefer async execution
             result = await target_tool.coroutine(*args, **kwargs)
         else:
-            # 使用同步执行
+            # Use sync execution
             result = target_tool.func(*args, **kwargs)
         
         return APIResponse(
@@ -372,21 +372,21 @@ async def agent_execute_langchain_tool(agent_id: str, payload: Dict[str, Any]):
             message=f"Failed to execute LangChain tool for agent '{agent_id}': {str(e)}"
         )
 
-# === LangChain 工具信息 API ===
+# === LangChain Tool Info APIs ===
 
 @langchain_router.get("/for_store/langchain_tool_info/{tool_name}", response_model=APIResponse)
 @handle_exceptions
 async def store_get_langchain_tool_info(tool_name: str):
-    """Store 级别获取 LangChain 工具详细信息"""
+    """Get detailed LangChain tool information at store level"""
     try:
         store = get_store()
         context = store.for_store()
         
-        # 获取 LangChain 适配器和工具列表
+        # Get LangChain adapter and tools list
         langchain_adapter = context.for_langchain()
         tools = await langchain_adapter.list_tools_async()
         
-        # 查找目标工具
+        # Find target tool
         target_tool = None
         for tool in tools:
             if tool.name == tool_name:
@@ -400,7 +400,7 @@ async def store_get_langchain_tool_info(tool_name: str):
                 message=f"Tool '{tool_name}' not found"
             )
         
-        # 构建工具信息
+        # Build tool information
         tool_info = {
             "name": target_tool.name,
             "description": target_tool.description,
@@ -409,10 +409,10 @@ async def store_get_langchain_tool_info(tool_name: str):
             "has_coroutine": hasattr(target_tool, 'coroutine') and target_tool.coroutine is not None
         }
         
-        # 添加参数模式信息
+        # Add parameter schema information
         if hasattr(target_tool, 'args_schema') and target_tool.args_schema:
             tool_info["args_schema"] = target_tool.args_schema.model_json_schema()
-            # 提取参数信息
+            # Extract parameter information
             schema = target_tool.args_schema.model_json_schema()
             properties = schema.get("properties", {})
             required = schema.get("required", [])
@@ -429,7 +429,7 @@ async def store_get_langchain_tool_info(tool_name: str):
                 "total_count": 0
             }
         
-        # 获取原始工具信息
+        # Get original tool information
         try:
             original_tools = context.get_tools_with_stats()
             original_tool = next((t for t in original_tools["tools"] if t["name"] == tool_name), None)

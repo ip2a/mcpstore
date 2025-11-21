@@ -1,7 +1,7 @@
 """
 MCPOrchestrator Types
-编排器相关的类型定义
+Orchestrator-related type definitions
 """
 
-# 这里可以添加编排器相关的类型定义
-# 目前保持简单，为未来扩展预留
+# Orchestrator-related type definitions can be added here
+# Currently kept simple, reserved for future expansion

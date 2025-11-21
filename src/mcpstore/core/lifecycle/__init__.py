@@ -8,7 +8,7 @@ Responsible for service lifecycle, health monitoring, content management and int
 from .config import ServiceLifecycleConfig
 from .content_manager import ServiceContentManager
 
-# 事件驱动架构统一导出：仅保留核心组件
+# Event-driven architecture unified export: only keep core components
 __all__ = [
     'ServiceContentManager',
     'ServiceLifecycleConfig',

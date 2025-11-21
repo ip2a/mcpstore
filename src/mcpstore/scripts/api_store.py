@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Request, Query
 
 from mcpstore import MCPStore
 from mcpstore.core.models import ResponseBuilder, ErrorCode, timed_response
-from mcpstore.core.models.common import APIResponse  # 保留用于 response_model
+from mcpstore.core.models.common import APIResponse  # Keep for response_model
 from .api_decorators import handle_exceptions, get_store
 from .api_models import (
     ToolExecutionRecordResponse, ToolRecordsResponse, ToolRecordsSummaryResponse,
@@ -24,14 +24,14 @@ store_router = APIRouter()
 
 # === Store-level operations ===
 
-# Note: sync_services 接口已删除（v0.6.0）
-# 原因：文件监听机制已自动化配置同步，无需手动触发
-# 迁移：直接修改 mcp.json 文件，系统将在1秒内自动同步
+# Note: sync_services endpoint removed (v0.6.0)
+# Reason: File monitoring mechanism automates config sync, no manual trigger needed
+# Migration: Directly modify mcp.json file, system will auto-sync within 1 second
 
 @store_router.get("/for_store/sync_status", response_model=APIResponse)
 @timed_response
 async def store_sync_status():
-    """获取同步状态信息"""
+    """Get sync status information"""
     store = get_store()
     
     if hasattr(store.orchestrator, 'sync_manager') and store.orchestrator.sync_manager:

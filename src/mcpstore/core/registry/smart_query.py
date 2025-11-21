@@ -8,26 +8,26 @@ logger = logging.getLogger(__name__)
 
 
 class SmartCacheQuery:
-    """智能缓存查询接口"""
+    """Smart cache query interface"""
     
     def __init__(self, registry):
         self.registry = registry
     
     def services(self, agent_id: str) -> 'ServiceQueryBuilder':
-        """创建服务查询构建器"""
+        """Create service query builder"""
         return ServiceQueryBuilder(self.registry, agent_id)
     
     def agents(self) -> 'AgentQueryBuilder':
-        """创建Agent查询构建器"""
+        """Create Agent query builder"""
         return AgentQueryBuilder(self.registry)
     
     def clients(self, agent_id: str) -> 'ClientQueryBuilder':
-        """创建Client查询构建器"""
+        """Create Client query builder"""
         return ClientQueryBuilder(self.registry, agent_id)
 
 
 class ServiceQueryBuilder:
-    """服务查询构建器"""
+    """Service query builder"""
     
     def __init__(self, registry, agent_id: str):
         self.registry = registry

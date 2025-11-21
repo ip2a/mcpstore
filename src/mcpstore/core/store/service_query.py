@@ -1,6 +1,6 @@
 """
-服务查询模块
-负责处理 MCPStore 的服务查询相关功能
+Service Query Module
+Handles service query related functionality for MCPStore
 """
 
 import logging
@@ -12,19 +12,19 @@ logger = logging.getLogger(__name__)
 
 
 class ServiceQueryMixin:
-    """服务查询 Mixin"""
+    """Service Query Mixin"""
     
     def check_services(self, agent_id: Optional[str] = None) -> Dict[str, str]:
-        """兼容旧版API"""
+        """Legacy API compatibility"""
         context = self.for_agent(agent_id) if agent_id else self.for_store()
         return context.check_services()
 
     def _infer_transport_type(self, service_config: Dict[str, Any]) -> TransportType:
-        """推断服务的传输类型"""
+        """Infer transport type of service"""
         if not service_config:
             return TransportType.STREAMABLE_HTTP
-            
-        # 优先使用 transport 字段
+
+        # Prefer transport field first
         transport = service_config.get("transport")
         if transport:
             try:
@@ -32,19 +32,19 @@ class ServiceQueryMixin:
             except ValueError:
                 pass
                 
-        # 其次根据 url 判断
+        # Then check based on url
         if service_config.get("url"):
             return TransportType.STREAMABLE_HTTP
             
-        # 根据 command/args 判断
+        # Check based on command/args
         cmd = (service_config.get("command") or "").lower()
         args = " ".join(service_config.get("args", [])).lower()
         
-        # 检查是否为 Node.js 包
+        # Check if it's a Node.js package
         if "npx" in cmd or "node" in cmd or "npm" in cmd:
             return TransportType.STDIO
         
-        # 检查是否为 Python 包
+        # Check if it's a Python package
         if "python" in cmd or "pip" in cmd or ".py" in args:
             return TransportType.STDIO
             

@@ -1,11 +1,11 @@
 """
-配置模块
+Configuration module
 """
 
-# 直接导入原始的config模块
+# Direct import of original config module
 from .config import LoggingConfig, load_app_config
 
-# 导入缓存配置类
+# Import cache configuration classes
 from .cache_config import (
     CacheType,
     DataSourceStrategy,
@@ -18,13 +18,13 @@ from .cache_config import (
     create_kv_store_async
 )
 
-# 导入健康检查功能
+# Import health check functionality
 from .health_check import (
     RedisHealthCheck,
     start_health_check
 )
 
-# 导入错误处理
+# Import error handling
 from .redis_errors import (
     RedisConnectionFailure,
     mask_password_in_url,

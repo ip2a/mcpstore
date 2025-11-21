@@ -51,13 +51,13 @@ class RegistryTypes:
     SessionProtocol = SessionProtocol
     SessionType = SessionType
     
-    # 数据结构类型
+    # Data structure types
     SessionsDict = SessionsDict
     ToolCacheDict = ToolCacheDict
     ToolToSessionDict = ToolToSessionDict
     ServiceHealthDict = ServiceHealthDict
     
-    # 模型类型
+    # Model types
     ServiceConnectionState = ServiceConnectionState
     ServiceStateMetadata = ServiceStateMetadata
 

@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 @data_space_router.get("/data_space/info", response_model=APIResponse)
 @handle_exceptions
 async def get_data_space_info():
-    """获取当前数据空间信息"""
+    """Get current data space information"""
     try:
         store = get_store()
         info = store.get_data_space_info()
@@ -37,15 +37,15 @@ async def get_data_space_info():
 @data_space_router.get("/workspace/list", response_model=APIResponse)
 @handle_exceptions
 async def list_workspaces():
-    """列出所有可用的工作空间"""
+    """List all available workspaces"""
     try:
         store = get_store()
-        # 获取当前数据空间目录的父目录
+        # Get parent directory of current data space directory
         if store.is_using_data_space():
             current_workspace = store.get_workspace_dir()
             parent_dir = os.path.dirname(current_workspace)
             
-            # 查找所有包含 mcp.json 的工作空间
+            # Find all workspaces containing mcp.json
             workspaces = []
             if os.path.exists(parent_dir):
                 for item in os.listdir(parent_dir):
@@ -85,12 +85,12 @@ async def list_workspaces():
 @data_space_router.post("/workspace/switch", response_model=APIResponse)
 @handle_exceptions
 async def switch_workspace(payload: Dict[str, Any]):
-    """切换到指定的工作空间
-    
+    """Switch to specified workspace
+
     Expected payload:
     {
-        "workspace_path": "/path/to/workspace",  # 可选，如果不提供则切换到默认配置
-        "mcp_config_file": "/path/to/mcp.json"  # 可选，指定配置文件路径
+        "workspace_path": "/path/to/workspace",  # Optional, switch to default config if not provided
+        "mcp_config_file": "/path/to/mcp.json"  # Optional, specify config file path
     }
     """
     try:

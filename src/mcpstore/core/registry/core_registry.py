@@ -74,45 +74,46 @@ class ServiceRegistry:
         self.tool_to_session_map: Dict[str, Dict[str, Any]] = {}
         # agent_id -> {tool_name: service_name} (hard mapping)
         self.tool_to_service: Dict[str, Dict[str, str]] = {}
-        # 长连接服务标记 - agent_id:service_name
+        # Long-lived connection service markers - agent_id:service_name
         self.long_lived_connections: Set[str] = set()
 
-        # 新增：生命周期状态支持
+        # Lifecycle state support
         # agent_id -> {service_name: ServiceConnectionState}
         self.service_states: Dict[str, Dict[str, ServiceConnectionState]] = {}
         # agent_id -> {service_name: ServiceStateMetadata}
         self.service_metadata: Dict[str, Dict[str, ServiceStateMetadata]] = {}
 
-        #  新增：Agent-Client 映射缓存
+        # Agent-Client mapping cache
         self.agent_clients: Dict[str, List[str]] = {}
-        # 结构：{agent_id: [client_id1, client_id2, ...]}
+        # Structure: {agent_id: [client_id1, client_id2, ...]}
 
-        #  新增：Client 配置缓存
+        # Client configuration cache
         self.client_configs: Dict[str, Dict[str, Any]] = {}
-        # 结构：{client_id: {"mcpServers": {...}}}
+        # Structure: {client_id: {"mcpServers": {...}}}
 
-        #  新增：Service 到 Client 的反向映射
+        # Service to Client reverse mapping
         self.service_to_client: Dict[str, Dict[str, str]] = {}
-        # 结构：{agent_id: {service_name: client_id}}
+        # Structure: {agent_id: {service_name: client_id}}
 
-        #  新增：缓存同步状态
+        # Cache synchronization status
         from datetime import datetime
         self.cache_sync_status: Dict[str, datetime] = {}
 
-        #  新增：Agent 服务映射关系
+        # Agent service mapping relationships
         # agent_id -> {local_name: global_name}
         self.agent_to_global_mappings: Dict[str, Dict[str, str]] = {}
         # global_name -> (agent_id, local_name)
         self.global_to_agent_mappings: Dict[str, Tuple[str, str]] = {}
 
-        #  新增：状态同步管理器（延迟初始化）
+        # State synchronization manager (lazy initialization)
         self._state_sync_manager = None
 
         # === Snapshot (A+B+D): immutable bundle and versioning ===
-        # 当前有效的快照包（不可变结构）；读路径只读此指针，发布通过原子指针交换
+        # Current effective snapshot bundle (immutable structure); read paths only read this pointer,
+        # publishing happens through atomic pointer exchange
         self._tools_snapshot_bundle: Optional[Dict[str, Any]] = None
         self._tools_snapshot_version: int = 0
-        # 快照脏标记：当缓存发生变化（添加/移除/清理）时设置为 True
+        # Snapshot dirty flag: set to True when cache changes (add/remove/clear)
         self._tools_snapshot_dirty: bool = True
 
         # Initialize AsyncSyncHelper for sync-to-async conversion
@@ -187,10 +188,10 @@ class ServiceRegistry:
             parameters will always return the same Collection name.
             
         Validates:
-            - Requirements 3.1: Agent 隔离语义的保留
-            - Requirements 11.1: Store 模式的 Agent 隔离
-            - Requirements 15.1: Collection 命名规范
-            - Requirements 15.3: Collection 生成逻辑
+            - Requirements 3.1: Agent isolation semantics preservation
+            - Requirements 11.1: Store mode Agent isolation
+            - Requirements 15.1: Collection naming conventions
+            - Requirements 15.3: Collection generation logic
         """
         return f"agent:{agent_id}:{data_type}"
 
@@ -812,8 +813,8 @@ class ServiceRegistry:
     # === Snapshot building and publishing API ===
     def get_tools_snapshot_bundle(self) -> Optional[Dict[str, Any]]:
         """
-        返回当前已发布的工具快照包（只读指针）。
-        结构（示例）：
+        Return current published tools snapshot bundle (read-only pointer).
+        Structure (example):
         {
             "tools": {
                 "services": { "weather": [ToolItem, ...], ... },
@@ -841,16 +842,17 @@ class ServiceRegistry:
 
     def rebuild_tools_snapshot(self, global_agent_id: str) -> Dict[str, Any]:
         """
-        重建不可变的工具快照包，并使用原子指针交换发布（Copy-On-Write）。
-        仅依据 global_agent_id 下的缓存构建全局真源快照；Agent 视图由上层基于映射做投影。
-        
+        Rebuild immutable tools snapshot bundle and publish using atomic pointer swap (Copy-On-Write).
+        Build global source-of-truth snapshot based only on cache under global_agent_id;
+        Agent views are projected by upper layer based on mappings.
+
         Note:
             This method is synchronous for backward compatibility, but internally uses
             async batch operations for better performance with py-key-value.
-            
+
         Validates:
-            - Requirements 3.3: 快照机制的兼容性
-            - Requirements 4.3: 保持快照 API 向后兼容
+            - Requirements 3.3: Snapshot mechanism compatibility
+            - Requirements 4.3: Snapshot API backward compatibility
         """
         import asyncio
         from time import time
@@ -882,7 +884,7 @@ class ServiceRegistry:
                 self._rebuild_tools_snapshot_async(global_agent_id)
             )
 
-        # 原子发布（指针交换）
+        # Atomic publish (pointer swap)
         self._tools_snapshot_bundle = new_bundle
         self._tools_snapshot_version += 1
         
@@ -895,7 +897,7 @@ class ServiceRegistry:
         logger.debug(f"Tools bundle published: v{self._tools_snapshot_version}, services={len(services_index)}")
         logger.info(f"[SNAPSHOT] rebuild done (registry_id={id(self)}) version={self._tools_snapshot_version} services={len(services_index)} tools_total={total_tools}")
         
-        # 重建完成后清除脏标记
+        # Clear dirty flag after rebuild completion
         self._tools_snapshot_dirty = False
         return new_bundle
     
@@ -917,11 +919,11 @@ class ServiceRegistry:
         """
         from time import time
         
-        # 构建全局工具索引
+        # Build global tools index
         services_index: Dict[str, List[Dict[str, Any]]] = {}
         tools_by_fullname: Dict[str, Dict[str, Any]] = {}
 
-        # 遍历 global_agent_id 下的所有服务名
+        # Iterate through all service names under global_agent_id
         service_names = self.get_all_service_names(global_agent_id)
         
         # Use batch operations to get all tool data at once
@@ -947,7 +949,7 @@ class ServiceRegistry:
             all_tools_data = self.tool_cache.get(global_agent_id, {})
         
         for service_name in service_names:
-            # 获取该服务的工具名列表
+            # Get tool name list for this service
             tool_names = self.get_tools_for_service(global_agent_id, service_name)
             if not tool_names:
                 services_index[service_name] = []
@@ -967,9 +969,9 @@ class ServiceRegistry:
                 if not info:
                     continue
                     
-                # 规范化为快照条目
-                # 统一：对外稳定键使用带前缀全名（info.name / tool_name）
-                # 展示：display_name 作为纯名称提供给前端
+                # Normalize to snapshot entry
+                # Unified: Use prefixed full name for stable external keys (info.name / tool_name)
+                # Display: display_name provided as pure name to frontend
                 full_name = info.get("name", tool_name)
                 item = {
                     "name": full_name,
@@ -984,7 +986,7 @@ class ServiceRegistry:
                 tools_by_fullname[full_name] = item
             services_index[service_name] = items
 
-        # 复制映射快照（只读）
+        # Copy mapping snapshot (read-only)
         agent_to_global = {aid: dict(mapping) for aid, mapping in self.agent_to_global_mappings.items()}
         global_to_agent = dict(self.global_to_agent_mappings)
 
@@ -1046,7 +1048,7 @@ class ServiceRegistry:
             }
 
     def mark_tools_snapshot_dirty(self) -> None:
-        """标记工具快照为脏，提示读取方下一次应重建。"""
+        """Mark tools snapshot as dirty, indicating readers should rebuild on next access."""
         try:
             self._tools_snapshot_dirty = True
             logger.debug(f"[SNAPSHOT] marked dirty (registry_id={id(self)})")
@@ -1209,7 +1211,7 @@ class ServiceRegistry:
 
         added_tool_names = []
         for tool_name, tool_definition in tools:
-            # 🆕 使用新的工具归属判断逻辑
+            # Use new tool ownership determination logic
             # 检查工具定义中的服务归属
             tool_service_name = None
             if "function" in tool_definition:
@@ -1899,7 +1901,7 @@ class ServiceRegistry:
     def update_service_health(self, agent_id: str, name: str):
         """
         更新指定 agent_id 下某服务的心跳时间。
-        ⚠️ 已废弃：此方法已被ServiceLifecycleManager替代
+        Deprecated: This method has been replaced by ServiceLifecycleManager
         """
         logger.debug(f"update_service_health is deprecated for service: {name} (agent_id={agent_id})")
         pass
@@ -1907,7 +1909,7 @@ class ServiceRegistry:
     def get_last_heartbeat(self, agent_id: str, name: str) -> Optional[datetime]:
         """
         获取指定 agent_id 下某服务的最后心跳时间。
-        ⚠️ 已废弃：此方法已被ServiceLifecycleManager替代
+        Deprecated: This method has been replaced by ServiceLifecycleManager
         """
         logger.debug(f"get_last_heartbeat is deprecated for service: {name} (agent_id={agent_id})")
         return None

@@ -30,15 +30,15 @@ class StandaloneConfig:
     # === File path configuration ===
     config_dir: Optional[str] = None  # If None, use in-memory configuration
     mcp_config_file: Optional[str] = None
-    #  单一数据源架构：分片文件配置已废弃
-    # client_services_file: Optional[str] = None  # 已废弃
-    # agent_clients_file: Optional[str] = None    # 已废弃
+    # Single data source architecture: shard file configuration deprecated
+    # client_services_file: Optional[str] = None  # Deprecated
+    # agent_clients_file: Optional[str] = None    # Deprecated
     
     # === Service configuration ===
     known_services: Dict[str, Dict[str, Any]] = field(default_factory=lambda: {})
     
     # === Environment configuration removed ===
-    # 环境变量处理现在完全由FastMCP处理，不再需要这些配置
+    # Environment variable handling is now completely handled by FastMCP, no longer need these configurations
 
     # === Logging configuration ===
     log_level: str = "INFO"
@@ -46,27 +46,27 @@ class StandaloneConfig:
     enable_debug: bool = False
 
 class StandaloneConfigManager:
-    """独立配置管理器 - 完全不依赖环境变量"""
+    """Standalone configuration manager - completely independent of environment variables"""
     
     def __init__(self, config: Optional[StandaloneConfig] = None):
         """
-        初始化独立配置管理器
-        
+        Initialize standalone configuration manager
+
         Args:
-            config: 自定义配置，如果为None则使用默认配置
+            config: Custom configuration, if None use default configuration
         """
         self.config = config or StandaloneConfig()
         self._runtime_config: Dict[str, Any] = {}
         self._service_configs: Dict[str, Dict[str, Any]] = {}
         
-        # 初始化默认配置
+        # Initialize default configuration
         self._initialize_default_configs()
         
         logger.info("StandaloneConfigManager initialized without environment dependencies")
     
     def _initialize_default_configs(self):
-        """初始化默认配置"""
-        # 设置运行时配置
+        """Initialize default configuration"""
+        # Set up runtime configuration
         self._runtime_config = {
             "timing": {
                 "heartbeat_interval_seconds": self.config.heartbeat_interval_seconds,

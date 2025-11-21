@@ -82,56 +82,56 @@ class ToolNameResolver:
         user_input = user_input.strip()
         logger.debug(f"[SMART_RESOLVE] start input='{user_input}' multi_server={self.is_multi_server}")
 
-        # 构建工具映射表
+        # Build tool mapping table
         tool_mappings = self._build_smart_tool_mappings(available_tools or [])
 
-        # 🎯 智能解析流程
+        # Smart resolution process
         resolution = None
 
-        # 1. 精确匹配（最高优先级）
+        # 1. Exact match (highest priority)
         resolution = self._try_exact_match(user_input, tool_mappings)
         if resolution:
             logger.debug(f"[EXACT_MATCH] {user_input} -> {resolution.service_name}::{resolution.original_tool_name}")
             return resolution
 
-        # 2. 前缀智能匹配
+        # 2. Smart prefix match
         resolution = self._try_prefix_match(user_input, tool_mappings)
         if resolution:
             logger.debug(f"[PREFIX_MATCH] {user_input} -> {resolution.service_name}::{resolution.original_tool_name}")
             return resolution
 
-        # 3. 无前缀智能匹配（单服务优化）
+        # 3. No prefix smart match (single service optimization)
         resolution = self._try_no_prefix_match(user_input, tool_mappings)
         if resolution:
             logger.debug(f"[NO_PREFIX_MATCH] {user_input} -> {resolution.service_name}::{resolution.original_tool_name}")
             return resolution
 
-        # 4. 模糊智能匹配
+        # 4. Smart fuzzy match
         resolution = self._try_fuzzy_match(user_input, tool_mappings)
         if resolution:
             logger.debug(f"[FUZZY_MATCH] {user_input} -> {resolution.service_name}::{resolution.original_tool_name}")
             return resolution
 
-        # 5. 失败处理：提供智能建议
+        # 5. Failure handling: provide smart suggestions
         suggestions = self._get_smart_suggestions(user_input, tool_mappings)
         if suggestions:
-            raise ValueError(f"工具 '{user_input}' 未找到。你是否想要: {', '.join(suggestions[:3])}?")
+            raise ValueError(f"Tool '{user_input}' not found. Did you mean: {', '.join(suggestions[:3])}?")
         else:
-            raise ValueError(f"工具 '{user_input}' 未找到，且无相似建议")
+            raise ValueError(f"Tool '{user_input}' not found and no similar suggestions available")
 
     def resolve_tool_name(self, user_input: str, available_tools: List[Dict[str, Any]] = None) -> ToolResolution:
         """
-        解析用户输入的工具名称
+        Resolve user-input tool name
 
         Args:
-            user_input: 用户输入的工具名称
-            available_tools: 可用工具列表 [{"name": "display_name", "original_name": "tool", "service_name": "service"}]
+            user_input: User-input tool name
+            available_tools: Available tools list [{"name": "display_name", "original_name": "tool", "service_name": "service"}]
 
         Returns:
-            ToolResolution: 解析结果
+            ToolResolution: Resolution result
 
         Raises:
-            ValueError: 无法解析工具名称
+            ValueError: Cannot resolve tool name
         """
         if not user_input or not isinstance(user_input, str):
             raise ValueError("Tool name cannot be empty")
@@ -139,14 +139,14 @@ class ToolNameResolver:
         user_input = user_input.strip()
         available_tools = available_tools or []
 
-        # 构建工具映射（支持显示名称和原始名称）
-        display_to_original = {}  # 显示名称 -> (原始名称, 服务名)
-        original_to_service = {}  # 原始名称 -> 服务名
-        service_tools = {}        # 服务名 -> [原始工具名列表]
+        # Build tool mapping (support display names and original names)
+        display_to_original = {}  # display_name -> (original_name, service_name)
+        original_to_service = {}  # original_name -> service_name
+        service_tools = {}        # service_name -> [original_tool_name_list]
 
         for tool in available_tools:
-            display_name = tool.get("name", "")  # 显示名称
-            original_name = tool.get("original_name") or tool.get("name", "")  # 原始名称
+            display_name = tool.get("name", "")  # display name
+            original_name = tool.get("original_name") or tool.get("name", "")  # original name
             service_name = tool.get("service_name", "")
 
             display_to_original[display_name] = (original_name, service_name)
@@ -160,7 +160,7 @@ class ToolNameResolver:
         logger.debug(f"Resolving tool: {user_input}")
         logger.debug(f"Available services: {list(service_tools.keys())}")
 
-        # 1. 精确匹配：显示名称
+        # 1. Exact match: display name
         if user_input in display_to_original:
             original_name, service_name = display_to_original[user_input]
             return ToolResolution(
@@ -170,7 +170,7 @@ class ToolNameResolver:
                 resolution_method="exact_display_match"
             )
 
-        # 2. 精确匹配：原始名称
+        # 2. Exact match: original name
         if user_input in original_to_service:
             return ToolResolution(
                 service_name=original_to_service[user_input],
@@ -179,15 +179,15 @@ class ToolNameResolver:
                 resolution_method="exact_original_match"
             )
 
-        # 3. 单下划线格式解析：service_tool（精确服务名匹配）
+        # 3. Single underscore format parsing: service_tool (exact service name match)
         if "_" in user_input and "__" not in user_input:
-            # 尝试所有可能的分割点
+            # Try all possible split points
             for i in range(1, len(user_input)):
                 if user_input[i] == "_":
                     potential_service = user_input[:i]
                     potential_tool = user_input[i+1:]
 
-                    # 检查是否有匹配的服务（支持原始名称和标准化名称）
+                    # Check if there's a matching service (support original names and normalized names)
                     matched_service = None
                     if potential_service in service_tools:
                         matched_service = potential_service
@@ -203,7 +203,7 @@ class ToolNameResolver:
                             resolution_method="single_underscore_match"
                         )
 
-        # 4. 检查是否使用了废弃的双下划线格式
+        # 4. Check if deprecated double underscore format is used
         if "__" in user_input:
             parts = user_input.split("__", 1)
             if len(parts) == 2:
@@ -214,7 +214,7 @@ class ToolNameResolver:
                     f"Please use single underscore format: '{single_underscore_format}'"
                 )
 
-        # 5. 模糊匹配：在所有工具中查找相似名称
+        # 5. Fuzzy match: find similar names in all tools
         fuzzy_matches = []
         for display_name, (original_name, service_name) in display_to_original.items():
             if self._is_fuzzy_match(user_input, display_name) or self._is_fuzzy_match(user_input, original_name):
@@ -229,11 +229,11 @@ class ToolNameResolver:
                 resolution_method="fuzzy_match"
             )
         elif len(fuzzy_matches) > 1:
-            # 多个匹配，提供建议
+            # Multiple matches, provide suggestions
             suggestions = [display_name for _, _, display_name in fuzzy_matches[:3]]
             raise ValueError(f"Ambiguous tool name '{user_input}'. Did you mean: {', '.join(suggestions)}?")
 
-        # 6. 无法解析，提供建议
+        # 6. Cannot resolve, provide suggestions
         if available_tools:
             all_display_names = list(display_to_original.keys())
             suggestions = self._get_suggestions(user_input, all_display_names)
@@ -244,81 +244,81 @@ class ToolNameResolver:
     
     def create_user_friendly_name(self, service_name: str, tool_name: str) -> str:
         """
-        创建用户友好的工具名称（用于显示）
+        Create user-friendly tool name (for display)
 
-        使用单下划线格式，保持服务名的原始形式
+        Uses single underscore format, keeping service name in original form
 
         Args:
-            service_name: 服务名称（保持原始格式）
-            tool_name: 原始工具名称
+            service_name: Service name (keep original format)
+            tool_name: Original tool name
 
         Returns:
-            用户友好的工具名称
+            User-friendly tool name
         """
-        # 使用单下划线，保持服务名原始格式
+        # Use single underscore, keep service name in original format
         return f"{service_name}_{tool_name}"
     
     def _normalize_service_name(self, service_name: str) -> str:
-        """标准化服务名称"""
-        # 移除特殊字符，转换为下划线
+        """Normalize service name"""
+        # Remove special characters, convert to underscores
         normalized = re.sub(r'[^a-zA-Z0-9_]', '_', service_name)
-        # 移除连续下划线
+        # Remove consecutive underscores
         normalized = re.sub(r'_+', '_', normalized)
-        # 移除首尾下划线
+        # Remove leading and trailing underscores
         normalized = normalized.strip('_')
         return normalized or "unnamed"
-    
+
     def _is_fuzzy_match(self, user_input: str, tool_name: str) -> bool:
-        """检查是否为模糊匹配"""
+        """Check if it's a fuzzy match"""
         user_lower = user_input.lower()
         tool_lower = tool_name.lower()
-        
-        # 完全包含
+
+        # Complete containment
         if user_lower in tool_lower or tool_lower in user_lower:
             return True
-        
-        # 去除下划线后匹配
+
+        # Match after removing underscores
         user_clean = user_lower.replace('_', '').replace('-', '')
         tool_clean = tool_lower.replace('_', '').replace('-', '')
-        
+
         if user_clean in tool_clean or tool_clean in user_clean:
             return True
-        
+
         return False
     
     def _get_suggestions(self, user_input: str, available_names: List[str]) -> List[str]:
-        """获取建议的工具名称"""
+        """Get suggested tool names"""
         suggestions = []
         user_lower = user_input.lower()
-        
+
         for name in available_names:
             name_lower = name.lower()
-            # 前缀匹配
+            # Prefix match
             if name_lower.startswith(user_lower) or user_lower.startswith(name_lower):
                 suggestions.append(name)
-            # 包含匹配
+            # Containment match
             elif user_lower in name_lower or name_lower in user_lower:
                 suggestions.append(name)
-        
+
         return sorted(suggestions, key=lambda x: len(x))[:5]
 
     def _build_smart_tool_mappings(self, available_tools: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        构建智能工具映射表
+        Build smart tool mapping table
 
         Returns:
-            包含多种映射关系的字典：
-            - exact_matches: 精确匹配映射
-            - prefix_matches: 前缀匹配映射
-            - no_prefix_matches: 无前缀匹配映射
-            - fuzzy_candidates: 模糊匹配候选
+            Dictionary containing multiple mapping relationships:
+            - exact_matches: Exact match mapping
+            - prefix_matches: Prefix match mapping
+            - no_prefix_matches: No prefix match mapping
+            - fuzzy_candidates: Fuzzy match candidates
         """
         mappings = {
             "exact_matches": {},      # {user_input: (service, original_tool)}
             "prefix_matches": {},     # {prefix_removed: [(service, original_tool, full_name)]}
             "no_prefix_matches": {},  # {tool_name: [(service, original_tool, full_name)]}
             "fuzzy_candidates": [],   # [(service, original_tool, full_name, display_name)]
-            "all_tools": []          # 所有工具的完整信息
+            "all_tools": []          # Complete information for all tools
         }
 
         for tool in available_tools:
@@ -329,23 +329,23 @@ class ToolNameResolver:
             if not service_name or not original_name:
                 continue
 
-            # 记录所有工具
+            # Record all tools
             tool_info = (service_name, original_name, display_name)
             mappings["all_tools"].append(tool_info)
             mappings["fuzzy_candidates"].append(tool_info + (display_name,))
 
-            # 精确匹配：显示名称和原始名称
+            # Exact matches: display names and original names
             mappings["exact_matches"][display_name] = (service_name, original_name)
             mappings["exact_matches"][original_name] = (service_name, original_name)
 
-            # 前缀匹配：移除服务名前缀后的工具名
+            # Prefix matches: tool name after removing service name prefix
             if display_name.startswith(f"{service_name}_"):
                 tool_suffix = display_name[len(service_name) + 1:]
                 if tool_suffix not in mappings["prefix_matches"]:
                     mappings["prefix_matches"][tool_suffix] = []
                 mappings["prefix_matches"][tool_suffix].append((service_name, original_name, display_name))
 
-            # 无前缀匹配：纯工具名
+            # No prefix matches: pure tool name
             if original_name not in mappings["no_prefix_matches"]:
                 mappings["no_prefix_matches"][original_name] = []
             mappings["no_prefix_matches"][original_name].append((service_name, original_name, display_name))
@@ -354,7 +354,7 @@ class ToolNameResolver:
         return mappings
 
     def _try_exact_match(self, user_input: str, mappings: Dict[str, Any]) -> Optional[ToolResolution]:
-        """尝试精确匹配"""
+        """Try exact match"""
         if user_input in mappings["exact_matches"]:
             service_name, original_name = mappings["exact_matches"][user_input]
             return ToolResolution(
@@ -366,14 +366,14 @@ class ToolNameResolver:
         return None
 
     def _try_prefix_match(self, user_input: str, mappings: Dict[str, Any]) -> Optional[ToolResolution]:
-        """尝试前缀匹配：用户输入包含服务名前缀"""
-        # 检查是否包含服务名前缀
+        """Try prefix match: user input contains service name prefix"""
+        # Check if it contains service name prefix
         for service_name in self.available_services:
             if user_input.startswith(f"{service_name}_"):
                 tool_suffix = user_input[len(service_name) + 1:]
                 if tool_suffix in mappings["prefix_matches"]:
                     candidates = mappings["prefix_matches"][tool_suffix]
-                    # 优先匹配相同服务的工具
+                    # Prioritize matching tools from the same service
                     for candidate_service, original_name, display_name in candidates:
                         if candidate_service == service_name:
                             return ToolResolution(
@@ -385,12 +385,12 @@ class ToolNameResolver:
         return None
 
     def _try_no_prefix_match(self, user_input: str, mappings: Dict[str, Any]) -> Optional[ToolResolution]:
-        """尝试无前缀匹配：用户输入不包含服务名前缀"""
+        """Try no prefix match: user input does not contain service name prefix"""
         if user_input in mappings["no_prefix_matches"]:
             candidates = mappings["no_prefix_matches"][user_input]
 
             if len(candidates) == 1:
-                # 唯一匹配
+                # Unique match
                 service_name, original_name, display_name = candidates[0]
                 return ToolResolution(
                     service_name=service_name,
@@ -399,7 +399,7 @@ class ToolNameResolver:
                     resolution_method="no_prefix_match"
                 )
             elif len(candidates) > 1:
-                # 多个匹配，在单服务模式下选择第一个，多服务模式下报错
+                # Multiple matches, select first in single service mode, error in multi service mode
                 if not self.is_multi_server:
                     service_name, original_name, display_name = candidates[0]
                     return ToolResolution(
@@ -409,17 +409,17 @@ class ToolNameResolver:
                         resolution_method="no_prefix_match_single_server"
                     )
                 else:
-                    # 多服务模式下有歧义，返回None让后续处理
+                    # Ambiguous in multi service mode, return None for subsequent processing
                     logger.debug(f"[NO_PREFIX] ambiguous user_input='{user_input}' candidates={len(candidates)}")
         return None
 
     def _try_fuzzy_match(self, user_input: str, mappings: Dict[str, Any]) -> Optional[ToolResolution]:
-        """尝试模糊匹配：智能相似度匹配"""
+        """Try fuzzy match: smart similarity matching"""
         fuzzy_matches = []
         user_clean = self._clean_for_fuzzy_match(user_input)
 
         for service_name, original_name, display_name, _ in mappings["fuzzy_candidates"]:
-            # 检查显示名称和原始名称的模糊匹配
+            # Check fuzzy matching of display names and original names
             if self._is_smart_fuzzy_match(user_clean, display_name) or \
                self._is_smart_fuzzy_match(user_clean, original_name):
                 fuzzy_matches.append((service_name, original_name, display_name))
@@ -438,48 +438,48 @@ class ToolNameResolver:
         return None
 
     def _get_smart_suggestions(self, user_input: str, mappings: Dict[str, Any]) -> List[str]:
-        """获取智能建议"""
+        """Get smart suggestions"""
         suggestions = []
         user_lower = user_input.lower()
         user_clean = self._clean_for_fuzzy_match(user_input)
 
-        # 收集所有可能的建议
+        # Collect all possible suggestions
         candidates = []
         for service_name, original_name, display_name, _ in mappings["fuzzy_candidates"]:
             score = self._calculate_similarity_score(user_clean, display_name, original_name)
             if score > 0:
                 candidates.append((score, display_name))
 
-        # 按相似度排序并返回前几个
+        # Sort by similarity and return top few
         candidates.sort(key=lambda x: x[0], reverse=True)
         return [name for score, name in candidates[:5] if score > 0.3]
 
     def _clean_for_fuzzy_match(self, text: str) -> str:
-        """清理文本用于模糊匹配"""
+        """Clean text for fuzzy matching"""
         return re.sub(r'[^a-zA-Z0-9]', '', text.lower())
 
     def _is_smart_fuzzy_match(self, user_clean: str, target: str) -> bool:
-        """智能模糊匹配判断"""
+        """Smart fuzzy match judgment"""
         target_clean = self._clean_for_fuzzy_match(target)
 
-        # 完全包含
+        # Complete containment
         if user_clean in target_clean or target_clean in user_clean:
             return True
 
-        # 前缀匹配（至少3个字符）
+        # Prefix match (at least 3 characters)
         if len(user_clean) >= 3 and (target_clean.startswith(user_clean) or user_clean.startswith(target_clean)):
             return True
 
         return False
 
     def _calculate_similarity_score(self, user_clean: str, display_name: str, original_name: str) -> float:
-        """计算相似度分数"""
+        """Calculate similarity score"""
         display_clean = self._clean_for_fuzzy_match(display_name)
         original_clean = self._clean_for_fuzzy_match(original_name)
 
         max_score = 0.0
 
-        # 检查显示名称
+        # Check display name
         if user_clean == display_clean:
             max_score = max(max_score, 1.0)
         elif user_clean in display_clean:
@@ -487,7 +487,7 @@ class ToolNameResolver:
         elif display_clean.startswith(user_clean) or user_clean.startswith(display_clean):
             max_score = max(max_score, 0.6)
 
-        # 检查原始名称
+        # Check original name
         if user_clean == original_clean:
             max_score = max(max_score, 1.0)
         elif user_clean in original_clean:
@@ -499,41 +499,41 @@ class ToolNameResolver:
 
     def to_fastmcp_format(self, resolution: ToolResolution, available_tools: List[Dict[str, Any]] = None) -> str:
         """
-        转换为FastMCP标准格式的工具名称
+        Convert to FastMCP standard format tool name
 
-         重要发现：
-        - MCPStore内部：工具名称带前缀 "mcpstore-demo-weather_get_current_weather"
-        - FastMCP原生：工具名称不带前缀 "get_current_weather"
-        - 我们需要返回FastMCP原生期望的格式！
+         Important discovery:
+        - MCPStore internal: tool names with prefix "mcpstore-demo-weather_get_current_weather"
+        - FastMCP native: tool names without prefix "get_current_weather"
+        - We need to return the format expected by FastMCP native!
 
         Args:
-            resolution: 工具解析结果
-            available_tools: 可用工具列表（用于查找原始名称）
+            resolution: Tool resolution result
+            available_tools: Available tools list (for finding original names)
 
         Returns:
-            FastMCP原生期望的工具名称（不带前缀的原始名称）
+            Tool name expected by FastMCP native (original name without prefix)
         """
-        # 关键修正：FastMCP执行时需要原始工具名称，不是MCPStore内部的带前缀名称
+        # Key correction: FastMCP execution needs original tool name, not MCPStore internal prefixed name
         logger.debug(f"[FASTMCP] native_tool_name={resolution.original_tool_name}")
         return resolution.original_tool_name
 
     def resolve_and_format_for_fastmcp(self, user_input: str, available_tools: List[Dict[str, Any]] = None) -> tuple[str, ToolResolution]:
         """
-        🚀 一站式解析：用户输入 → FastMCP标准格式
+        One-stop resolution: user input → FastMCP standard format
 
-        这是对外的主要接口，完成从用户友好输入到FastMCP标准格式的完整转换
+        This is the main external interface, completing the full conversion from user-friendly input to FastMCP standard format
 
         Args:
-            user_input: 用户输入的工具名称（任何格式）
-            available_tools: 可用工具列表
+            user_input: User-input tool name (any format)
+            available_tools: Available tools list
 
         Returns:
             tuple: (fastmcp_format_name, resolution_details)
         """
-        # 1. 智能解析用户输入
+        # 1. Smart resolution of user input
         resolution = self.resolve_tool_name_smart(user_input, available_tools)
 
-        # 2. 转换为FastMCP标准格式（传入available_tools用于查找实际名称）
+        # 2. Convert to FastMCP standard format (pass available_tools for finding actual names)
         fastmcp_name = self.to_fastmcp_format(resolution, available_tools)
 
         logger.info(f"[RESOLVE_SUCCESS] input='{user_input}' fastmcp='{fastmcp_name}' service='{resolution.service_name}' method='{resolution.resolution_method}'")
@@ -542,16 +542,16 @@ class ToolNameResolver:
 
 class FastMCPToolExecutor:
     """
-    FastMCP 标准工具执行器
-    严格按照官网标准执行工具调用
+    FastMCP standard tool executor
+    Strictly executes tool calls according to official website standards
     """
-    
+
     def __init__(self, default_timeout: float = 30.0):
         """
-        初始化执行器
-        
+        Initialize executor
+
         Args:
-            default_timeout: 默认超时时间（秒）
+            default_timeout: Default timeout time (seconds)
         """
         self.default_timeout = default_timeout
     
@@ -565,21 +565,21 @@ class FastMCPToolExecutor:
         raise_on_error: bool = True
     ) -> 'CallToolResult':
         """
-        执行工具（严格按照 FastMCP 官网标准）
+        Execute tool (strictly according to FastMCP official website standards)
 
-        仅使用 FastMCP 官方客户端的 call_tool 返回对象，不做任何自定义“等价对象”封装，
-        不再回退到 call_tool_mcp 进行字段映射，确保结果形态与官方一致。
+        Only use FastMCP official client's call_tool return object, without any custom "equivalent object" wrapping,
+        no longer fallback to call_tool_mcp for field mapping, ensuring result format matches official standards.
 
         Args:
-            client: FastMCP 客户端实例（必须实现 call_tool）
-            tool_name: 工具名称（FastMCP 原始名称）
-            arguments: 工具参数
-            timeout: 超时时间（秒）
-            progress_handler: 进度处理器
-            raise_on_error: 是否在错误时抛出异常
+            client: FastMCP client instance (must implement call_tool)
+            tool_name: Tool name (FastMCP original name)
+            arguments: Tool parameters
+            timeout: Timeout time (seconds)
+            progress_handler: Progress handler
+            raise_on_error: Whether to raise exception on error
 
         Returns:
-            CallToolResult: FastMCP 标准结果对象
+            CallToolResult: FastMCP standard result object
         """
         arguments = arguments or {}
         timeout = timeout or self.default_timeout
@@ -602,7 +602,7 @@ class FastMCPToolExecutor:
             logger.error(f"Tool '{tool_name}' execution failed: {e}")
             if raise_on_error:
                 raise
-            # 返回与 FastMCP 形态兼容的错误信号：直接向上传播异常已被关闭时，按空 content + is_error=True 返回
+            # Return FastMCP-compatible error signal: when direct exception propagation is disabled, return empty content + is_error=True
             try:
                 from types import SimpleNamespace
                 return SimpleNamespace(
@@ -613,49 +613,49 @@ class FastMCPToolExecutor:
                     error=str(e),
                 )
             except Exception:
-                # 最后兜底：仍然抛出原始异常
+                # Final fallback: still raise original exception
                 raise
     
     def extract_result_data(self, result: 'CallToolResult') -> Any:
         """
-        提取结果数据（严格按照 FastMCP 官网标准）
+        Extract result data (strictly according to FastMCP official website standards)
 
-        根据官方文档的优先级顺序：
-        1. .data - FastMCP 独有的完全水合 Python 对象
-        2. .structured_content - 标准 MCP 结构化 JSON 数据
-        3. .content - 标准 MCP 内容块
+        Priority order according to official documentation:
+        1. .data - FastMCP unique fully hydrated Python object
+        2. .structured_content - Standard MCP structured JSON data
+        3. .content - Standard MCP content blocks
 
         Args:
-            result: FastMCP 调用结果
+            result: FastMCP call result
 
         Returns:
-            提取的数据
+            Extracted data
         """
         import logging
         logger = logging.getLogger(__name__)
 
-        # 检查错误状态
+        # Check error status
         if hasattr(result, 'is_error') and result.is_error:
             logger.warning(f"Tool execution failed, extracting error content")
-            # 即使是错误，也尝试提取内容
+            # Even for errors, try to extract content
 
-        # 1. 优先使用 .data 属性（FastMCP 独有特性）
+        # 1. Prioritize .data property (FastMCP unique feature)
         if hasattr(result, 'data') and result.data is not None:
             logger.debug(f"Using FastMCP .data property: {type(result.data)}")
             return result.data
 
-        # 2. 回退到 .structured_content（标准 MCP 结构化数据）
+        # 2. Fallback to .structured_content (standard MCP structured data)
         if hasattr(result, 'structured_content') and result.structured_content is not None:
             logger.debug(f"Using MCP .structured_content: {result.structured_content}")
             return result.structured_content
 
-        # 3. 最后使用 .content（标准 MCP 内容块）
+        # 3. Finally use .content (standard MCP content blocks)
         if hasattr(result, 'content') and result.content:
             logger.debug(f"Using MCP .content blocks: {len(result.content)} items")
 
-            # 按照官方文档，content 是 ContentBlock 列表
+            # According to official documentation, content is a ContentBlock list
             if isinstance(result.content, list) and result.content:
-                # 提取所有内容块的数据
+                # Extract data from all content blocks
                 extracted_content = []
 
                 for content_block in result.content:
@@ -666,27 +666,27 @@ class FastMCPToolExecutor:
                         logger.debug(f"Found binary content: {len(content_block.data)} bytes")
                         extracted_content.append(content_block.data)
                     else:
-                        # 对于其他类型的内容块，保留原始对象
+                        # For other types of content blocks, keep original object
                         logger.debug(f"Found other content block type: {type(content_block)}")
                         extracted_content.append(content_block)
 
-                # 根据提取到的内容数量决定返回格式
+                # Decide return format based on extracted content count
                 if len(extracted_content) == 0:
-                    # 没有提取到任何内容，返回第一个原始内容块
+                    # No extractable content, return first original content block
                     logger.debug(f"No extractable content found, returning first content block")
                     return result.content[0]
                 elif len(extracted_content) == 1:
-                    # 只有一个内容块，直接返回内容（保持向后兼容）
+                    # Only one content block, return content directly (maintain backward compatibility)
                     logger.debug(f"Single content block extracted, returning content directly")
                     return extracted_content[0]
                 else:
-                    # 多个内容块，返回列表
+                    # Multiple content blocks, return list
                     logger.debug(f"Multiple content blocks extracted ({len(extracted_content)}), returning as list")
                     return extracted_content
 
-            # 如果 content 不是列表，直接返回
+            # If content is not a list, return directly
             return result.content
 
-        # 4. 如果以上都没有数据，返回 None（符合官方文档的 fallback 行为）
+        # 4. If no data from above, return None (matches official documentation fallback behavior)
         logger.debug("No extractable data found in any standard properties, returning None")
         return None

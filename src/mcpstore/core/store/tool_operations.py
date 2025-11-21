@@ -1,6 +1,6 @@
 """
-工具操作模块
-负责处理 MCPStore 的工具相关功能
+Tool Operations Module
+Handles MCPStore tool-related functionality
 """
 
 import logging
@@ -14,22 +14,22 @@ logger = logging.getLogger(__name__)
 
 
 class ToolOperationsMixin:
-    """工具操作 Mixin"""
-    
+    """Tool operations Mixin"""
+
     async def process_tool_request(self, request: ToolExecutionRequest) -> ExecutionResponse:
         """
-        处理工具执行请求（FastMCP 标准）
+        Process tool execution request (FastMCP standard)
 
         Args:
-            request: 工具执行请求
+            request: Tool execution request
 
         Returns:
-            ExecutionResponse: 工具执行响应
+            ExecutionResponse: Tool execution response
         """
         start_time = time.time()
 
         try:
-            # 验证请求参数
+            # Validate request parameters
             if not request.tool_name:
                 raise ValueError("Tool name cannot be empty")
             if not request.service_name:
@@ -37,19 +37,19 @@ class ToolOperationsMixin:
 
             logger.debug(f"Processing tool request: {request.service_name}::{request.tool_name}")
 
-            # 检查服务生命周期状态
-            #  对于 Agent 透明代理，全局服务存在于 global_agent_store 中
+            # Check service lifecycle state
+            # For Agent transparent proxy, global services exist in global_agent_store
             if request.agent_id and "_byagent_" in request.service_name:
-                # Agent 透明代理：全局服务在 global_agent_store 中
+                # Agent transparent proxy: global services are in global_agent_store
                 state_check_agent_id = self.client_manager.global_agent_store_id
             else:
-                # Store 模式或普通 Agent 服务
+                # Store mode or normal Agent services
                 state_check_agent_id = request.agent_id or self.client_manager.global_agent_store_id
 
-            # 🆕 事件驱动架构：直接从 registry 获取状态（不再通过 lifecycle_manager）
+            # Event-driven architecture: get state directly from registry (no longer through lifecycle_manager)
             service_state = self.registry.get_service_state(state_check_agent_id, request.service_name)
 
-            # 如果服务处于不可用状态，返回错误
+            # If service is in unavailable state, return error
             from mcpstore.core.models.service import ServiceConnectionState
             if service_state in [ServiceConnectionState.RECONNECTING, ServiceConnectionState.UNREACHABLE,
                                ServiceConnectionState.DISCONNECTING, ServiceConnectionState.DISCONNECTED]:
@@ -65,7 +65,7 @@ class ToolOperationsMixin:
                     agent_id=request.agent_id
                 )
 
-            # 执行工具（使用 FastMCP 标准）
+            # Execute tool (using FastMCP standard)
             result = await self.orchestrator.execute_tool_fastmcp(
                 service_name=request.service_name,
                 tool_name=request.tool_name,
@@ -134,51 +134,51 @@ class ToolOperationsMixin:
 
     async def call_tool(self, tool_name: str, args: Dict[str, Any]) -> Any:
         """
-        调用工具（通用接口）
+        Call tool (generic interface)
 
         Args:
-            tool_name: 工具名称，格式为 service_toolname
-            args: 工具参数
+            tool_name: Tool name, format: service_toolname
+            args: Tool parameters
 
         Returns:
-            Any: 工具执行结果
+            Any: Tool execution result
         """
         from mcpstore.core.models.tool import ToolExecutionRequest
 
-        # 构造请求
+        # Build request
         request = ToolExecutionRequest(
             tool_name=tool_name,
             args=args
         )
 
-        # 处理工具请求
+        # Process tool request
         return await self.process_tool_request(request)
 
     async def use_tool(self, tool_name: str, args: Dict[str, Any]) -> Any:
         """
-        使用工具（通用接口）- 向后兼容别名
+        Use tool (generic interface) - backward compatibility alias
 
-        注意：此方法是 call_tool 的别名，保持向后兼容性。
-        推荐使用 call_tool 方法，与 FastMCP 命名保持一致。
+        Note: This method is an alias for call_tool, maintaining backward compatibility.
+        It is recommended to use the call_tool method to remain consistent with FastMCP naming.
         """
         return await self.call_tool(tool_name, args)
 
     def _get_client_id_for_service(self, agent_id: str, service_name: str) -> str:
-        """获取服务对应的client_id"""
+        """Get the client_id corresponding to the service"""
         try:
-            # 1. 从agent_clients映射中查找
+            # 1. Look up from agent_clients mapping
             client_ids = self.registry.get_agent_clients_from_cache(agent_id)
             if not client_ids:
                 self.logger.warning(f"No client_ids found for agent {agent_id}")
                 return ""
 
-            # 2. 遍历每个client_id，查找包含该服务的client
+            # 2. Iterate through each client_id to find the client containing this service
             for client_id in client_ids:
                 client_config = self.registry.client_configs.get(client_id, {})
                 if service_name in client_config.get("mcpServers", {}):
                     return client_id
 
-            # 3. 如果没找到，返回第一个client_id作为默认值
+            # 3. If not found, return the first client_id as default value
             if client_ids:
                 self.logger.warning(f"Service {service_name} not found in any client config, using first client_id: {client_ids[0]}")
                 return client_ids[0]
