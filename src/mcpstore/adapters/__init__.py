@@ -1,10 +1,11 @@
 """
-Adapters module - 所有适配器的统一导出
+Adapters module - Unified export of all adapters
 
-提供各种AI框架的适配器，方便将MCPStore集成到不同的AI Agent框架中。
+Provides adapters for various AI frameworks, facilitating integration of MCPStore
+into different AI Agent frameworks.
 """
 
-# ===== 所有适配器直接导出 =====
+# ===== Direct export of all adapters =====
 from .langchain_adapter import LangChainAdapter
 from .openai_adapter import OpenAIAdapter
 from .autogen_adapter import AutoGenAdapter
@@ -12,7 +13,7 @@ from .llamaindex_adapter import LlamaIndexAdapter
 from .crewai_adapter import CrewAIAdapter
 from .semantic_kernel_adapter import SemanticKernelAdapter
 
-# ===== 公开所有导出 =====
+# ===== Public exports =====
 __all__ = [
     "LangChainAdapter",
     "OpenAIAdapter",

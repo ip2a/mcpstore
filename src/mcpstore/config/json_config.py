@@ -1,8 +1,11 @@
-import json
-import logging
 import os
-from typing import List, Dict, Any, Optional
-
+import json
+import shutil
+import logging
+from typing import Dict, Any, Optional, List
+from datetime import datetime
+from pathlib import Path
+from .path_utils import get_user_default_mcp_path
 from pydantic import BaseModel, model_validator, ConfigDict
 
 logger = logging.getLogger(__name__)
@@ -79,7 +82,7 @@ class MCPConfig:
             json_path: Path to the configuration file
             client_id: Client identifier for multi-client support
         """
-        self._json_path = json_path or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "mcp.json")
+        self._json_path = json_path or str(get_user_default_mcp_path())
         self.client_id = client_id
         logger.info(f"[CONFIG] MCP configuration initialized for client {client_id}, using file path: {self._json_path}")
 

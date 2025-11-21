@@ -59,26 +59,26 @@ class OpenAIAdapter:
             }
         }
         """
-        # 增强描述信息
+        # Enhance description
         enhanced_description = enhance_description(tool_info)
-        
-        # 获取输入参数schema
+
+        # Get input parameter schema
         input_schema = tool_info.inputSchema or {}
         properties = input_schema.get("properties", {})
         required = input_schema.get("required", [])
-        
-        # 转换参数schema到OpenAI格式
+
+        # Convert parameter schema to OpenAI format
         openai_parameters = {
             "type": "object",
             "properties": {},
             "required": required
         }
 
-        # 透传顶层 additionalProperties（如允许开放字段）
+        # Pass through top-level additionalProperties (e.g., to allow open fields)
         if "additionalProperties" in input_schema:
             openai_parameters["additionalProperties"] = input_schema["additionalProperties"]
         
-        # 处理每个参数
+        # Process each parameter
         def _is_nullable(p: Dict[str, Any]) -> bool:
             try:
                 if p.get("nullable") is True:
@@ -140,15 +140,15 @@ class OpenAIAdapter:
             openai_param.update(_process_schema(param_info))
             openai_parameters["properties"][param_name] = openai_param
         
-        # 如果没有参数，创建一个空的参数结构
+        # If no parameters, create an empty parameter structure
         if not properties:
             openai_parameters = {
                 "type": "object",
                 "properties": {},
                 "required": []
             }
-        
-        # 构建OpenAI function格式
+
+        # Build OpenAI function format
         openai_tool = {
             "type": "function",
             "function": {
@@ -175,13 +175,13 @@ class OpenAIAdapter:
         callable_tools = []
         
         for tool_info in mcp_tools_info:
-            # 转换为OpenAI格式
+            # Convert to OpenAI format
             openai_tool = self._convert_to_openai_format(tool_info)
-            
-            # 创建参数schema
+
+            # Create parameter schema
             args_schema = create_args_schema(tool_info)
-            
-            # 创建可调用函数
+
+            # Create callable functions
             sync_executor = build_sync_executor(self._context, tool_info.name, args_schema)
             async_executor = build_async_executor(self._context, tool_info.name, args_schema)
             
@@ -243,25 +243,25 @@ class OpenAIAdapter:
             if not tool_name:
                 raise ValueError("Tool name not found in tool_call")
             
-            # 如果arguments是字符串，尝试解析为JSON
+            # If arguments is a string, try to parse as JSON
             if isinstance(arguments, str):
                 try:
                     arguments = json.loads(arguments)
                 except json.JSONDecodeError:
                     arguments = {}
-            
-            # 调用工具
+
+            # Call tool
             result = await self._context.call_tool_async(tool_name, arguments)
-            
-            # 提取实际结果
+
+            # Extract actual result
             if hasattr(result, 'result') and result.result is not None:
                 actual_result = result.result
             elif hasattr(result, 'success') and result.success:
                 actual_result = getattr(result, 'data', str(result))
             else:
                 actual_result = str(result)
-            
-            # 格式化输出
+
+            # Format output
             if isinstance(actual_result, (dict, list)):
                 return json.dumps(actual_result, ensure_ascii=False)
             return str(actual_result)
