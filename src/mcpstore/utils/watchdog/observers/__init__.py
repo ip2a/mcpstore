@@ -40,10 +40,10 @@ import contextlib
 import warnings
 from typing import TYPE_CHECKING, Protocol
 
-from watchdog.utils import UnsupportedLibcError, platform
+from mcpstore.utils.watchdog.utils import UnsupportedLibcError, platform
 
 if TYPE_CHECKING:
-    from watchdog.observers.api import BaseObserver
+    from mcpstore.utils.watchdog.observers.api import BaseObserver
 
 
 class ObserverType(Protocol):
@@ -53,15 +53,15 @@ class ObserverType(Protocol):
 def _get_observer_cls() -> ObserverType:
     if platform.is_linux():
         with contextlib.suppress(UnsupportedLibcError):
-            from watchdog.observers.inotify import InotifyObserver
+            from mcpstore.utils.watchdog.observers.inotify import InotifyObserver
 
             return InotifyObserver
     elif platform.is_darwin():
         try:
-            from watchdog.observers.fsevents import FSEventsObserver
+            from mcpstore.utils.watchdog.observers.fsevents import FSEventsObserver
         except Exception:
             try:
-                from watchdog.observers.kqueue import KqueueObserver
+                from mcpstore.utils.watchdog.observers.kqueue import KqueueObserver
             except Exception:
                 warnings.warn("Failed to import fsevents and kqueue. Fall back to polling.", stacklevel=1)
             else:
@@ -71,17 +71,17 @@ def _get_observer_cls() -> ObserverType:
             return FSEventsObserver
     elif platform.is_windows():
         try:
-            from watchdog.observers.read_directory_changes import WindowsApiObserver
+            from mcpstore.utils.watchdog.observers.read_directory_changes import WindowsApiObserver
         except Exception:
             warnings.warn("Failed to import `read_directory_changes`. Fall back to polling.", stacklevel=1)
         else:
             return WindowsApiObserver
     elif platform.is_bsd():
-        from watchdog.observers.kqueue import KqueueObserver
+        from mcpstore.utils.watchdog.observers.kqueue import KqueueObserver
 
         return KqueueObserver
 
-    from watchdog.observers.polling import PollingObserver
+    from mcpstore.utils.watchdog.observers.polling import PollingObserver
 
     return PollingObserver
 

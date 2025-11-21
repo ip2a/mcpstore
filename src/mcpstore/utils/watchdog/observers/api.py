@@ -7,11 +7,11 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from watchdog.utils import BaseThread
-from watchdog.utils.bricks import SkipRepeatsQueue
+from mcpstore.utils.watchdog.utils import BaseThread
+from mcpstore.utils.watchdog.utils.bricks import SkipRepeatsQueue
 
 if TYPE_CHECKING:
-    from watchdog.events import FileSystemEvent, FileSystemEventHandler
+    from mcpstore.utils.watchdog.events import FileSystemEvent, FileSystemEventHandler
 
 DEFAULT_EMITTER_TIMEOUT = 1.0  # in seconds
 DEFAULT_OBSERVER_TIMEOUT = 1.0  # in seconds

@@ -22,7 +22,7 @@ import threading
 from functools import partial
 from typing import TYPE_CHECKING
 
-from watchdog.events import (
+from mcpstore.utils.watchdog.events import (
     DirCreatedEvent,
     DirDeletedEvent,
     DirModifiedEvent,
@@ -32,15 +32,15 @@ from watchdog.events import (
     FileModifiedEvent,
     FileMovedEvent,
 )
-from watchdog.observers.api import DEFAULT_EMITTER_TIMEOUT, DEFAULT_OBSERVER_TIMEOUT, BaseObserver, EventEmitter
-from watchdog.utils.dirsnapshot import DirectorySnapshot, DirectorySnapshotDiff, EmptyDirectorySnapshot
+from mcpstore.utils.watchdog.observers.api import DEFAULT_EMITTER_TIMEOUT, DEFAULT_OBSERVER_TIMEOUT, BaseObserver, EventEmitter
+from mcpstore.utils.watchdog.utils.dirsnapshot import DirectorySnapshot, DirectorySnapshotDiff, EmptyDirectorySnapshot
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from typing import Callable
 
-    from watchdog.events import FileSystemEvent
-    from watchdog.observers.api import EventQueue, ObservedWatch
+    from mcpstore.utils.watchdog.events import FileSystemEvent
+    from mcpstore.utils.watchdog.observers.api import EventQueue, ObservedWatch
 
 
 class PollingEmitter(EventEmitter):

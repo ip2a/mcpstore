@@ -66,7 +66,7 @@ import threading
 from stat import S_ISDIR
 from typing import TYPE_CHECKING
 
-from watchdog.events import (
+from mcpstore.utils.watchdog.events import (
     EVENT_TYPE_CREATED,
     EVENT_TYPE_DELETED,
     EVENT_TYPE_MOVED,
@@ -80,16 +80,16 @@ from watchdog.events import (
     FileMovedEvent,
     generate_sub_moved_events,
 )
-from watchdog.observers.api import DEFAULT_EMITTER_TIMEOUT, DEFAULT_OBSERVER_TIMEOUT, BaseObserver, EventEmitter
-from watchdog.utils import platform
-from watchdog.utils.dirsnapshot import DirectorySnapshot
+from mcpstore.utils.watchdog.observers.api import DEFAULT_EMITTER_TIMEOUT, DEFAULT_OBSERVER_TIMEOUT, BaseObserver, EventEmitter
+from mcpstore.utils.watchdog.utils import platform
+from mcpstore.utils.watchdog.utils.dirsnapshot import DirectorySnapshot
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from typing import Callable
 
-    from watchdog.events import FileSystemEvent
-    from watchdog.observers.api import EventQueue, ObservedWatch
+    from mcpstore.utils.watchdog.events import FileSystemEvent
+    from mcpstore.utils.watchdog.observers.api import EventQueue, ObservedWatch
 
 # Maximum number of events to process.
 MAX_EVENTS = 4096

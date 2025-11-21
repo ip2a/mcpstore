@@ -10,6 +10,7 @@ from .data_space_manager import DataSpaceManagerMixin
 from .api_server import APIServerMixin
 from .context_factory import ContextFactoryMixin
 from .setup_mixin import SetupMixin
+from .config_export_mixin import ConfigExportMixin
 
 
 class MCPStore(
@@ -20,6 +21,7 @@ class MCPStore(
     APIServerMixin,
     ContextFactoryMixin,
     SetupMixin,
+    ConfigExportMixin,
     BaseMCPStore,
 ):
     """Final composed Store class"""

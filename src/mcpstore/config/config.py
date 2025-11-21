@@ -1,9 +1,9 @@
 import os
-import sys
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import logging
 from typing import Dict, Any, Union
+
+# 移除 sys.path.append() 操作以提升导入性能
+# 如果需要导入其他模块，请使用相对导入或正确的包结构
 
 logger = logging.getLogger(__name__)
 

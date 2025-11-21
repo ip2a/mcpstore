@@ -73,6 +73,8 @@ class CacheManager:
         处理服务添加请求 - 立即添加到缓存
         """
         logger.info(f"[CACHE] Processing ServiceAddRequested: {event.service_name}")
+        logger.debug(f"[CACHE] Event details: agent_id={event.agent_id}, client_id={event.client_id}")
+        logger.debug(f"[CACHE] Service config keys: {list(event.service_config.keys()) if event.service_config else 'None'}")
         
         transaction = CacheTransaction(agent_id=event.agent_id)
         
@@ -124,6 +126,13 @@ class CacheManager:
             
             logger.info(f"[CACHE] Service cached: {event.service_name}")
             
+            # 验证映射是否成功建立
+            verify_client_id = self._registry.get_service_client_id(event.agent_id, event.service_name)
+            logger.debug(f"[CACHE] Verification - client_id mapping: {verify_client_id}")
+            
+            verify_config = self._registry.get_client_config_from_cache(event.client_id)
+            logger.debug(f"[CACHE] Verification - client config exists: {verify_config is not None}")
+            
             # 发布成功事件
             cached_event = ServiceCached(
                 agent_id=event.agent_id,
@@ -136,6 +145,7 @@ class CacheManager:
                     f"service_client:{event.agent_id}:{event.service_name}"
                 ]
             )
+            logger.info(f"[CACHE] Publishing ServiceCached event for {event.service_name}")
             await self._event_bus.publish(cached_event)
             
         except Exception as e:

@@ -49,15 +49,15 @@ class SessionManager:
     - Session mapping and discovery capabilities
     """
     def __init__(self, session_timeout: int = 3600):
-        # 🎯 Original storage (backward compatibility)
+        # [LEGACY] Original storage (backward compatibility)
         self.sessions: Dict[str, AgentSession] = {}
         self.session_timeout = timedelta(seconds=session_timeout)
         
-        # 🆕 Enhanced storage for multi-session support
+        # [NEW] Enhanced storage for multi-session support
         # Format: {agent_id: {session_name: AgentSession}}
         self.named_sessions: Dict[str, Dict[str, AgentSession]] = {}
         
-        # 🆕 User session mapping for cross-context access
+        # [NEW] User session mapping for cross-context access
         # Format: {user_session_id: (agent_id, session_name)}
         self.user_session_mapping: Dict[str, tuple[str, str]] = {}
         

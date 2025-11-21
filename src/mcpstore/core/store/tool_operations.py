@@ -74,20 +74,20 @@ class ToolOperationsMixin:
                 timeout=request.timeout,
                 progress_handler=request.progress_handler,
                 raise_on_error=request.raise_on_error,
-                session_id=getattr(request, 'session_id', None)  # 🆕 传递会话ID（如果有）
+                session_id=getattr(request, 'session_id', None)  # [NEW] Pass session ID if available
             )
 
-            # 📊 记录成功的工具执行
+            # [MONITORING] Record successful tool execution
             try:
                 duration_ms = (time.time() - start_time) * 1000
 
-                # 获取对应的Context来记录监控数据
+                # Get corresponding Context to record monitoring data
                 if request.agent_id:
                     context = self.for_agent(request.agent_id)
                 else:
                     context = self.for_store()
 
-                # 使用新的详细记录方法
+                # Use new detailed recording method
                 context._monitoring.record_tool_execution_detailed(
                     tool_name=request.tool_name,
                     service_name=request.service_name,
@@ -104,17 +104,17 @@ class ToolOperationsMixin:
                 result=result
             )
         except Exception as e:
-            # 📊 记录失败的工具执行
+            # [MONITORING] Record failed tool execution
             try:
                 duration_ms = (time.time() - start_time) * 1000
 
-                # 获取对应的Context来记录监控数据
+                # Get corresponding Context to record monitoring data
                 if request.agent_id:
                     context = self.for_agent(request.agent_id)
                 else:
                     context = self.for_store()
 
-                # 使用新的详细记录方法
+                # Use new detailed recording method
                 context._monitoring.record_tool_execution_detailed(
                     tool_name=request.tool_name,
                     service_name=request.service_name,

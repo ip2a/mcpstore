@@ -87,7 +87,7 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from watchdog.utils.patterns import match_any_paths
+from mcpstore.utils.watchdog.utils.patterns import match_any_paths
 
 if TYPE_CHECKING:
     from collections.abc import Generator

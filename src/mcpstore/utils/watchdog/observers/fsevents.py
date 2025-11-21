@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 import _watchdog_fsevents as _fsevents
 
-from watchdog.events import (
+from mcpstore.utils.watchdog.events import (
     DirCreatedEvent,
     DirDeletedEvent,
     DirModifiedEvent,
@@ -28,14 +28,14 @@ from watchdog.events import (
     generate_sub_created_events,
     generate_sub_moved_events,
 )
-from watchdog.observers.api import DEFAULT_EMITTER_TIMEOUT, DEFAULT_OBSERVER_TIMEOUT, BaseObserver, EventEmitter
-from watchdog.utils.dirsnapshot import DirectorySnapshot
+from mcpstore.utils.watchdog.observers.api import DEFAULT_EMITTER_TIMEOUT, DEFAULT_OBSERVER_TIMEOUT, BaseObserver, EventEmitter
+from mcpstore.utils.watchdog.utils.dirsnapshot import DirectorySnapshot
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from watchdog.events import FileSystemEvent, FileSystemEventHandler
-    from watchdog.observers.api import EventQueue, ObservedWatch
+    from mcpstore.utils.watchdog.events import FileSystemEvent, FileSystemEventHandler
+    from mcpstore.utils.watchdog.observers.api import EventQueue, ObservedWatch
 
 
 logger = logging.getLogger("fsevents")
