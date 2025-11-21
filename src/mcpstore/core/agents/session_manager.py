@@ -61,7 +61,7 @@ class SessionManager:
         # Format: {user_session_id: (agent_id, session_name)}
         self.user_session_mapping: Dict[str, tuple[str, str]] = {}
         
-        # 🆕 Global session registry for cross-context discovery
+        # [NEW] Global session registry for cross-context discovery
         # Format: {global_session_id: (agent_id, session_name)}
         self.global_session_registry: Dict[str, tuple[str, str]] = {}
         
@@ -76,7 +76,7 @@ class SessionManager:
         return session
         
     def get_session(self, agent_id: str) -> Optional[AgentSession]:
-        """获取会话"""
+        """Get session"""
         session = self.sessions.get(agent_id)
         if session:
             # 检查会话是否过期

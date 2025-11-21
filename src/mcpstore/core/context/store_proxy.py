@@ -279,6 +279,14 @@ class StoreProxy:
     def show_config(self, scope: str = "all") -> Dict[str, Any]:
         return self._context.show_config(scope)
 
+    def switch_cache(self, cache_config: Any) -> bool:
+        """Runtime cache backend switching (synchronous version)."""
+        return bool(self._context.switch_cache(cache_config))
+
+    async def switch_cache_async(self, cache_config: Any) -> bool:
+        """Runtime cache backend switching (asynchronous version)."""
+        return await self._context.switch_cache_async(cache_config)
+
     # ---- Statistics ----
     def get_agents_summary(self) -> Any:
         summary = getattr(self._context, "get_agents_summary", None)

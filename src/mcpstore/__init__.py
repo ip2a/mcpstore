@@ -9,6 +9,9 @@ __version__ = "1.5.7"
 from mcpstore.config.config import LoggingConfig
 from mcpstore.core.store import MCPStore
 
+# ===== Cache Config Classes =====
+from mcpstore.config import MemoryConfig, RedisConfig
+
 # ===== Core Model Classes =====
 from mcpstore.core.models.service import ServiceInfo, ServiceConnectionState
 from mcpstore.core.models.tool import ToolInfo, ToolExecutionRequest
@@ -59,6 +62,10 @@ __all__ = [
     # Core Classes
     "MCPStore",
     "LoggingConfig",
+
+    # Cache Config
+    "MemoryConfig",
+    "RedisConfig",
 
     # Model Classes
     "ServiceInfo",

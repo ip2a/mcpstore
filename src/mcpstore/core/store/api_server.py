@@ -71,7 +71,7 @@ class APIServerMixin:
             logger.info(f"Starting API server for store: data_space={self.is_using_data_space()}")
 
             if show_startup_info:
-                print("🚀 Starting MCPStore API Server...")
+                print("[START] Starting MCPStore API Server...")
                 print(f"   Host: {host}:{port}")
 
                 if url_prefix:

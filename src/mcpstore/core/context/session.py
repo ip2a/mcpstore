@@ -163,13 +163,13 @@ class Session:
         if not self.is_active:
             raise RuntimeError(f"Session {self._session_id} is not active")
 
-        # 🎯 TIMING: Add precise timing to locate 30s delay
+        # [TIMING] Add precise timing to locate 30s delay
         import time
         t_start = time.perf_counter()
         logger.debug(f"[TIMING] Session.use_tool START: {tool_name}")
 
         # Use context's sync helper for async execution
-        # 🎯 FIX: Remove force_background=True to avoid cross-thread race conditions
+        # [FIX] Remove force_background=True to avoid cross-thread race conditions
         # Use the same simple waiting mechanism as the regular LangChain adapter
         # Allow long startup for local stdio services (e.g., first npx run)
         wrapper_timeout = kwargs.get('timeout', 180.0)

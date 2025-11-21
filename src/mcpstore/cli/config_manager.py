@@ -299,20 +299,20 @@ def show_config(path: Optional[str] = None):
 
     if not servers:
         typer.echo("   No services configured")
-        typer.echo("\n💡 Tip: Use 'mcpstore config add-example' to add example services")
+        typer.echo("\n[TIP] Use 'mcpstore config add-example' to add example services")
     else:
         for name, server_config in servers.items():
             _format_service_info(name, server_config)
 
 def init_config(path: Optional[str] = None, force: bool = False, with_examples: bool = False):
-    """初始化配置文件"""
+    """Initialize configuration file"""
     if path:
         config_path = Path(path)
     else:
         config_path = get_default_config_path()
 
     if config_path.exists() and not force:
-        typer.echo(f"⚠️  Configuration file already exists: {config_path}")
+        typer.echo(f"[WARNING] Configuration file already exists: {config_path}")
         typer.echo("Use --force to overwrite")
         return
 
@@ -326,16 +326,16 @@ def init_config(path: Optional[str] = None, force: bool = False, with_examples: 
     # 如果需要示例，添加示例服务
     if with_examples:
         config["mcpServers"] = get_example_services()
-        typer.echo("📝 Including example services in configuration")
+        typer.echo("[CONFIG] Including example services in configuration")
 
     if save_config(config, str(config_path)):
-        typer.echo("🎉 Configuration initialized successfully!")
+        typer.echo("[SUCCESS] Configuration initialized successfully!")
         typer.echo(f" Location: {config_path}")
 
         if with_examples:
-            typer.echo("\n💡 Example services have been added. Edit the file to customize them.")
+            typer.echo("\n[TIP] Example services have been added. Edit the file to customize them.")
         else:
-            typer.echo("\n💡 Empty configuration created. Add services using 'mcpstore config add' or edit the file manually.")
+            typer.echo("\n[TIP] Empty configuration created. Add services using 'mcpstore config add' or edit the file manually.")
 
 def add_example_services(path: Optional[str] = None):
     """向现有配置添加示例服务"""
@@ -359,9 +359,9 @@ def add_example_services(path: Optional[str] = None):
     if added_count > 0:
         config["mcpServers"] = servers
         if save_config(config, path):
-            typer.echo(f"\n🎉 Added {added_count} example services!")
+            typer.echo(f"\n[SUCCESS] Added {added_count} example services!")
     else:
-        typer.echo("\n💡 No new services were added.")
+        typer.echo("\n[INFO] No new services were added.")
 
 def handle_config(action: str, path: Optional[str] = None, **kwargs):
     """处理配置命令（改进版）"""
@@ -407,7 +407,7 @@ def _show_config_path(path: Optional[str] = None):
         config_path = get_default_config_path()
 
     typer.echo(f" Configuration file path: {config_path}")
-    typer.echo(f"📊 Exists: {'Yes' if config_path.exists() else 'No'}")
+    typer.echo(f"[INFO] Exists: {'Yes' if config_path.exists() else 'No'}")
 
     if config_path.exists():
         stat = config_path.stat()
