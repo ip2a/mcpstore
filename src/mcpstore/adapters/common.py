@@ -158,13 +158,13 @@ def create_args_schema(tool_info: 'ToolInfo') -> Type[BaseModel]:
 
     # Detect whether schema allows additionalProperties
     additional_properties = tool_info.inputSchema.get("additionalProperties", False)
-    allow_extra = bool(additional_properties)  # dict/True both视为允许
+    allow_extra = bool(additional_properties)  # dict/True both considered as allowed
 
     if not fields and allow_extra:
         # No declared fields but open object: create permissive model with extra=allow
         base = type("OpenArgsBase", (BaseModel,), {"model_config": ConfigDict(extra="allow")})
         with warnings.catch_warnings():
-            # 忽略 pydantic 关于字段名冲突的警告（已通过 sanitize_name 处理）
+            # Ignore pydantic warnings about field name conflicts (handled via sanitize_name)
             warnings.filterwarnings(
                 "ignore",
                 category=UserWarning,
@@ -177,7 +177,7 @@ def create_args_schema(tool_info: 'ToolInfo') -> Type[BaseModel]:
 
     # Suppress specific Pydantic warning about shadowing BaseModel attributes
     with warnings.catch_warnings():
-        # 忽略 pydantic 关于字段名冲突的警告（已通过 sanitize_name 处理）
+        # Ignore pydantic warnings about field name conflicts (already handled by sanitize_name)
         warnings.filterwarnings(
             "ignore",
             category=UserWarning,

@@ -50,16 +50,16 @@ class OpenAPIServiceConfig:
     route_mappings: List[RouteMapping] = field(default_factory=list)
     custom_names: Dict[str, str] = field(default_factory=dict)  # operation_id -> custom_name
     global_tags: List[str] = field(default_factory=list)
-    auto_sync: bool = False  # 是否自动同步 API 变更
+    auto_sync: bool = False  # Whether to auto-sync API changes
 
 class OpenAPIAnalyzer:
-    """OpenAPI 规范分析器"""
+    """OpenAPI Specification Analyzer"""
     
     def __init__(self):
         self._spec_cache: Dict[str, Dict[str, Any]] = {}
     
     async def fetch_spec(self, spec_url: str) -> Dict[str, Any]:
-        """获取 OpenAPI 规范"""
+        """Get OpenAPI specification"""
         if spec_url in self._spec_cache:
             return self._spec_cache[spec_url]
         
@@ -76,7 +76,7 @@ class OpenAPIAnalyzer:
             raise
     
     def analyze_endpoints(self, spec: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """分析 API 端点"""
+        """Analyze API endpoints"""
         endpoints = []
         paths = spec.get("paths", {})
         
@@ -102,49 +102,49 @@ class OpenAPIAnalyzer:
         return endpoints
     
     def suggest_mcp_type(self, endpoint: Dict[str, Any]) -> MCPComponentType:
-        """建议 MCP 组件类型"""
+        """Suggest MCP component type"""
         method = endpoint["method"]
         path = endpoint["path"]
         
-        # GET 请求通常映射为 Resource
+        # GET requests usually map to Resource
         if method == "GET":
-            # 如果路径包含参数，映射为 ResourceTemplate
+            # If path contains parameters, map to ResourceTemplate
             if "{" in path and "}" in path:
                 return MCPComponentType.RESOURCE_TEMPLATE
             else:
                 return MCPComponentType.RESOURCE
         
-        # 其他方法映射为 Tool
+        # Other methods map to Tool
         return MCPComponentType.TOOL
     
     def generate_component_name(self, endpoint: Dict[str, Any], custom_names: Dict[str, str] = None) -> str:
-        """生成 MCP 组件名称"""
+        """Generate MCP component name"""
         if custom_names and endpoint.get("operation_id") in custom_names:
             return custom_names[endpoint["operation_id"]]
         
-        # 优先使用 operationId
+        # Prioritize using operationId
         operation_id = endpoint.get("operation_id")
         if operation_id:
             name = operation_id
         else:
-            # 否则使用 method + path 组合
+            # Otherwise use method + path combination
             method = endpoint.get("method", "GET").lower()
             path = endpoint.get("path", "/")
             name = f"{method}_{path.strip('/').replace('/', '_')}"
         
-        # 清理非法字符
+        # Clean up invalid characters
         name = re.sub(r"[^a-zA-Z0-9_]+", "_", name)
         name = re.sub(r"_+", "_", name).strip("_")
         
         return name
 
 class RouteMapper:
-    """路由映射器"""
+    """Route Mapper"""
     
     def apply_mappings(self, endpoint: Dict[str, Any], mappings: List[RouteMapping] = None) -> Tuple[MCPComponentType, List[str]]:
-        """应用路由映射，返回 (MCP组件类型, 标签列表)"""
+        """Apply route mappings, return (MCP component type, tag list)"""
         if not mappings:
-            # 未配置映射，使用默认建议
+            # No mapping configured, use default suggestion
             return OpenAPIAnalyzer().suggest_mcp_type(endpoint), endpoint.get("tags", [])
         
         for mapping in mappings:
@@ -154,13 +154,13 @@ class RouteMapper:
         return OpenAPIAnalyzer().suggest_mcp_type(endpoint), endpoint.get("tags", [])
     
     def _match_endpoint(self, endpoint: Dict[str, Any], mapping: RouteMapping) -> bool:
-        """判断端点是否匹配映射规则"""
+        """Determine if endpoint matches mapping rule"""
         path_match = re.match(mapping.path_pattern, endpoint["path"]) is not None
         method_match = (mapping.method is None) or (endpoint["method"] == mapping.method.value)
         return path_match and method_match
 
 class OpenAPIIntegrationManager:
-    """OpenAPI 集成管理器"""
+    """OpenAPI Integration Manager"""
     
     def __init__(self):
         self.analyzer = OpenAPIAnalyzer()
@@ -168,7 +168,7 @@ class OpenAPIIntegrationManager:
         self._services: Dict[str, OpenAPIServiceConfig] = {}
     
     def register_openapi_service(self, config: OpenAPIServiceConfig):
-        """注册 OpenAPI 服务"""
+        """Register OpenAPI service"""
         self._services[config.name] = config
         logger.info(f"Registered OpenAPI service: {config.name}")
     
@@ -180,21 +180,21 @@ class OpenAPIIntegrationManager:
         route_mappings: List[RouteMapping] = None,
         custom_names: Dict[str, str] = None
     ) -> Dict[str, Any]:
-        """导入 OpenAPI 服务"""
+        """Import OpenAPI service"""
         
-        # 获取规范
+        # Get specification
         spec = await self.analyzer.fetch_spec(spec_url)
-        
-        # 分析端点
+
+        # Analyze endpoints
         endpoints = self.analyzer.analyze_endpoints(spec)
         
-        # 生成 MCP 组件
+        # Generate MCP components
         components = []
         for endpoint in endpoints:
-            # 应用路由映射
+            # Apply route mappings
             mcp_type, tags = self.route_mapper.apply_mappings(endpoint, route_mappings)
             
-            # 生成组件名称
+            # Generate component name
             component_name = self.analyzer.generate_component_name(endpoint, custom_names)
             
             component = {
@@ -207,7 +207,7 @@ class OpenAPIIntegrationManager:
             }
             components.append(component)
         
-        # 创建服务配置
+        # Create service configuration
         service_config = OpenAPIServiceConfig(
             name=name,
             spec_url=spec_url,
@@ -237,17 +237,17 @@ class OpenAPIIntegrationManager:
         return result
     
     async def sync_service_changes(self, service_name: str) -> Dict[str, Any]:
-        """同步服务变更"""
+        """Sync service changes"""
         if service_name not in self._services:
             raise ValueError(f"Service {service_name} not found")
         
         config = self._services[service_name]
         
-        # 重新获取规范
+        # Re-fetch specification
         new_spec = await self.analyzer.fetch_spec(config.spec_url)
         new_endpoints = self.analyzer.analyze_endpoints(new_spec)
         
-        # 比较变更（简化）
+        # Compare changes (simplified)
         return {
             "service_name": service_name,
             "changes_detected": True,
@@ -255,17 +255,17 @@ class OpenAPIIntegrationManager:
         }
     
     def _extract_base_url(self, spec: Dict[str, Any]) -> str:
-        """从OpenAPI规范中提取基础URL"""
+        """Extract base URL from OpenAPI specification"""
         servers = spec.get("servers", [])
         if servers and isinstance(servers, list) and servers[0].get("url"):
             return servers[0]["url"]
         return ""
 
-# 全局实例
+# Global instance
 _global_openapi_manager = None
 
 def get_openapi_manager() -> OpenAPIIntegrationManager:
-    """获取全局 OpenAPI 集成管理器"""
+    """Get global OpenAPI integration manager"""
     global _global_openapi_manager
     if _global_openapi_manager is None:
         _global_openapi_manager = OpenAPIIntegrationManager()

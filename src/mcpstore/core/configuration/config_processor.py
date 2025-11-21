@@ -49,10 +49,10 @@ class ConfigProcessor:
             logger.warning("Invalid config format, returning as-is")
             return user_config
 
-        # 深拷贝避免修改原配置
+        # Deep copy to avoid modifying original configuration
         fastmcp_config = deepcopy(user_config)
 
-        # 处理每个服务
+        # Process each service
         services_to_remove = []
         for service_name, service_config in fastmcp_config["mcpServers"].items():
             try:
@@ -61,7 +61,7 @@ class ConfigProcessor:
                 logger.debug(f"Successfully processed service '{service_name}' for FastMCP")
             except Exception as e:
                 logger.error(f"Failed to process service '{service_name}': {e}")
-                # 提供更详细的错误信息
+                # Provide more detailed error information
                 if "missing" in str(e).lower():
                     logger.warning(f"Service '{service_name}' has missing required fields - removing from FastMCP config")
                 elif "url" in str(e).lower() and "command" in str(e).lower():
@@ -72,7 +72,7 @@ class ConfigProcessor:
                 services_to_remove.append(service_name)
                 continue
 
-        # 移除有问题的服务
+        # Remove problematic services
         for service_name in services_to_remove:
             del fastmcp_config["mcpServers"][service_name]
 
@@ -81,26 +81,26 @@ class ConfigProcessor:
     @classmethod
     def _process_single_service(cls, service_config: Dict[str, Any]) -> Dict[str, Any]:
         """
-        处理单个服务配置
-        
+        Process single service configuration
+
         Args:
-            service_config: 单个服务的配置
-            
+            service_config: Configuration of single service
+
         Returns:
-            处理后的服务配置
+            Processed service configuration
         """
         if not isinstance(service_config, dict):
             return service_config
         
-        # 深拷贝避免修改原配置
+        # Deep copy to avoid modifying original configuration
         processed = deepcopy(service_config)
         
-        # 判断服务类型
+        # Determine service type
         if "url" in processed:
-            # 远程服务
+            # Remote service
             processed = cls._process_remote_service(processed)
         elif "command" in processed:
-            # 本地服务
+            # Local service
             processed = cls._process_local_service(processed)
         else:
             logger.warning("Service config missing both 'url' and 'command', keeping as-is")
@@ -110,29 +110,29 @@ class ConfigProcessor:
     @classmethod
     def _process_remote_service(cls, config: Dict[str, Any]) -> Dict[str, Any]:
         """
-        处理远程服务配置
-        
+        Process remote service configuration
+
         Args:
-            config: 远程服务配置
-            
+            config: Remote service configuration
+
         Returns:
-            处理后的配置
+            Processed configuration
         """
-        # 1. 智能推断transport字段
+        # 1. Intelligently infer transport field
         config = cls._infer_transport(config)
-        
-        # 2. 清理非FastMCP字段（保留用户自定义字段在日志中）
+
+        # 2. Clean non-FastMCP fields (keep user-defined fields in logs)
         user_fields = set(config.keys()) - cls.FASTMCP_REMOTE_FIELDS
         if user_fields:
             logger.debug(f"Removing user-defined fields for FastMCP: {user_fields}")
-        
-        # 3. 只保留FastMCP支持的字段
+
+        # 3. Keep only FastMCP supported fields
         fastmcp_config = {
-            key: value for key, value in config.items() 
+            key: value for key, value in config.items()
             if key in cls.FASTMCP_REMOTE_FIELDS
         }
-        
-        # 4. 确保必要字段存在
+
+        # 4. Ensure required fields exist
         if "url" not in fastmcp_config:
             raise ValueError("Remote service missing required 'url' field")
         
@@ -141,32 +141,32 @@ class ConfigProcessor:
     @classmethod
     def _process_local_service(cls, config: Dict[str, Any]) -> Dict[str, Any]:
         """
-        处理本地服务配置
-        
+        Process local service configuration
+
         Args:
-            config: 本地服务配置
-            
+            config: Local service configuration
+
         Returns:
-            处理后的配置
+            Processed configuration
         """
-        # 1. 移除transport字段（本地服务不需要）
+        # 1. Remove transport field (local services don't need it)
         if "transport" in config:
             logger.debug("Removing 'transport' field from local service (not needed)")
             config = deepcopy(config)
             del config["transport"]
-        
-        # 2. 清理非FastMCP字段
+
+        # 2. Clean non-FastMCP fields
         user_fields = set(config.keys()) - cls.FASTMCP_LOCAL_FIELDS
         if user_fields:
             logger.debug(f"Removing user-defined fields for FastMCP: {user_fields}")
-        
-        # 3. 只保留FastMCP支持的字段
+
+        # 3. Keep only FastMCP supported fields
         fastmcp_config = {
-            key: value for key, value in config.items() 
+            key: value for key, value in config.items()
             if key in cls.FASTMCP_LOCAL_FIELDS
         }
-        
-        # 4. 确保必要字段存在
+
+        # 4. Ensure required fields exist
         if "command" not in fastmcp_config:
             raise ValueError("Local service missing required 'command' field")
         

@@ -1,18 +1,18 @@
 """
 MCPStore Hub Module
-Hub模块 - 分布式服务打包和管理功能
+Hub module - Distributed service packaging and management functionality
 
-实现方案1：Hub 服务功能（基础分布式架构）
-- 服务打包：将现有缓存的服务打包为独立Hub服务
-- 分布式架构：每个Hub运行在独立的进程中
-- 基础路由：支持 /mcp 全局访问
-- 进程管理：Hub进程的启动、停止、监控
+Implementation Plan 1: Hub Service Functionality (Basic Distributed Architecture)
+- Service packaging: Package cached services into independent Hub services
+- Distributed architecture: Each Hub runs in an independent process
+- Basic routing: Support /mcp global access
+- Process management: Hub process startup, stop, monitoring
 
-设计原则：
-- 基于现有服务缓存，不重复实现服务注册
-- 使用FastMCP作为MCP服务器实现
-- 完全独立的进程隔离
-- 与现有MCPStore架构无缝集成
+Design principles:
+- Based on existing service cache, no duplicate service registration
+- Use FastMCP as MCP server implementation
+- Complete process isolation
+- Seamless integration with existing MCPStore architecture
 """
 
 from .builder import HubServicesBuilder, HubToolsBuilder

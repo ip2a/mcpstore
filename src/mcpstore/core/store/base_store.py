@@ -1,6 +1,6 @@
 """
-基础 MCPStore 类
-包含核心初始化逻辑和基础属性
+Base MCPStore class
+Contains core initialization logic and basic properties
 """
 
 import logging
@@ -27,7 +27,7 @@ class BaseMCPStore:
         self.registry = orchestrator.registry
         self.client_manager = orchestrator.client_manager
 
-        #  修复：添加LocalServiceManager访问属性
+        # [FIX] Add LocalServiceManager access attribute
         self.local_service_manager = orchestrator.local_service_manager
         self.session_manager = orchestrator.session_manager
         self.logger = logging.getLogger(__name__)
@@ -45,22 +45,22 @@ class BaseMCPStore:
         # Data space manager (optional, only set when using data spaces)
         self._data_space_manager = None
 
-        #  新增：缓存管理器
-        
-        # 缓存管理器
+        # [NEW] Cache manager
+
+        # Cache manager
         from mcpstore.core.registry.cache_manager import ServiceCacheManager, CacheTransactionManager
         self.cache_manager = ServiceCacheManager(self.registry, self.orchestrator.lifecycle_manager)
         self.transaction_manager = CacheTransactionManager(self.registry)
 
-        # 写锁：per-agent 原子写区
+        # Write locks: per-agent atomic write areas
         from mcpstore.core.registry.agent_locks import AgentLocks
         self.agent_locks = AgentLocks()
 
-        #  新增：智能查询接口
+        # [NEW] Smart query interface
         from mcpstore.core.registry.smart_query import SmartCacheQuery
         self.query = SmartCacheQuery(self.registry)
 
-        # 🆕 事件驱动架构：初始化 ServiceContainer
+        # [NEW] Event-driven architecture: Initialize ServiceContainer
         from mcpstore.core.infrastructure.container import ServiceContainer
         from mcpstore.core.configuration.config_processor import ConfigProcessor
 
@@ -71,17 +71,17 @@ class BaseMCPStore:
             config_processor=ConfigProcessor,
             local_service_manager=self.local_service_manager,
             global_agent_store_id=self.client_manager.global_agent_store_id,
-            enable_event_history=False  # 生产环境关闭事件历史
+            enable_event_history=False  # Disable event history in production
         )
 
-        # 统一：将 orchestrator.lifecycle_manager 指向容器内的 lifecycle_manager
+        # [UNIFIED] Point orchestrator.lifecycle_manager to container's lifecycle_manager
         try:
             self.orchestrator.lifecycle_manager = self.container.lifecycle_manager
         except Exception as e:
             logger.debug(f"Link lifecycle_manager failed: {e}")
 
-        # 🆕 解除循环依赖：将 container 和 context_factory 传递给 orchestrator
-        # 而不是让 orchestrator 持有 store 引用（必须在 container 初始化之后）
+        # Break circular dependency: pass container and context_factory to orchestrator
+        # instead of letting orchestrator hold store reference (must be after container initialization)
         orchestrator.container = self.container
         orchestrator._context_factory = lambda: self.for_store()
         # Ensure sync manager can reference store for batch registration path

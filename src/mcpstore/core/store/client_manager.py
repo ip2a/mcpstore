@@ -6,34 +6,34 @@ logger = logging.getLogger(__name__)
 
 class ClientManager:
     """
-    简化的Client管理器 - 单一数据源架构
-    
-    在新的架构中，ClientManager只负责提供global_agent_store_id，
-    所有的配置和映射关系都通过缓存管理，mcp.json作为唯一持久化数据源。
-    
-    废弃功能（已移除）：
-    - 分片文件操作（client_services.json, agent_clients.json）
-    - 客户端配置的文件读写
-    - Agent-Client映射的文件管理
+    Simplified Client Manager - Single data source architecture
+
+    In the new architecture, ClientManager is only responsible for providing global_agent_store_id,
+    all configurations and mappings are managed through cache, with mcp.json as the only persistence data source.
+
+    Deprecated features (removed):
+    - Sharded file operations (client_services.json, agent_clients.json)
+    - Client configuration file read/write
+    - Agent-Client mapping file management
     """
     
     def __init__(self, global_agent_store_id: Optional[str] = None):
         """
-        初始化客户端管理器
+        Initialize client manager
 
         Args:
-            global_agent_store_id: 全局Agent Store ID
+            global_agent_store_id: Global Agent Store ID
         """
-        #  单一数据源架构：只需要global_agent_store_id
+        # Single data source architecture: only need global_agent_store_id
         self.global_agent_store_id = global_agent_store_id or self._generate_data_space_client_id()
         logger.info(f"ClientManager initialized with global_agent_store_id: {self.global_agent_store_id}")
 
     def _generate_data_space_client_id(self) -> str:
         """
-        生成global_agent_store_id
+        Generate global_agent_store_id
 
         Returns:
-            str: 固定返回 "global_agent_store"
+            str: Fixed return "global_agent_store"
         """
-        # Store级别的Agent固定为global_agent_store
+        # Store-level Agent is fixed to global_agent_store
         return "global_agent_store"

@@ -1,6 +1,6 @@
 """
-服务内容管理器 - 定期更新工具、资源和提示词
-负责监控和更新服务的所有内容，确保缓存与实际服务保持同步
+Service Content Manager - Periodically updates tools, resources and prompts
+Responsible for monitoring and updating all service content, ensuring cache stays synchronized with actual services
 """
 
 import asyncio
@@ -19,15 +19,15 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ServiceContentSnapshot:
-    """服务内容快照"""
+    """Service content snapshot"""
     service_name: str
     agent_id: str
     tools_count: int
-    tools_hash: str  # 工具列表的哈希值，用于快速比较
-    resources_count: int = 0  # 预留：资源数量
-    resources_hash: str = ""  # 预留：资源哈希
-    prompts_count: int = 0    # 预留：提示词数量
-    prompts_hash: str = ""    # 预留：提示词哈希
+    tools_hash: str  # Hash value of tool list for fast comparison
+    resources_count: int = 0  # Reserved: resource count
+    resources_hash: str = ""  # Reserved: resource hash
+    prompts_count: int = 0    # Reserved: prompt count
+    prompts_hash: str = ""    # Reserved: prompt hash
     last_updated: datetime = None
 
     def __post_init__(self):
@@ -171,7 +171,7 @@ class ServiceContentManager:
         logger.info(f"Removed service {service_name} from content monitoring (agent_id={agent_id})")
 
     async def force_update_service_content(self, agent_id: str, service_name: str) -> bool:
-        """强制更新指定服务的内容"""
+        """Force update content of specified service"""
         try:
             return await self._update_service_content(agent_id, service_name)
         except Exception as e:
@@ -179,17 +179,17 @@ class ServiceContentManager:
             return False
 
     def get_service_snapshot(self, agent_id: str, service_name: str) -> Optional[ServiceContentSnapshot]:
-        """获取服务内容快照"""
+        """Get service content snapshot"""
         return self.content_snapshots.get(agent_id, {}).get(service_name)
 
     async def _content_update_loop(self):
-        """内容更新主循环"""
+        """Content update main loop"""
         consecutive_failures = 0
         max_consecutive_failures = 5
 
         while self.is_running:
             try:
-                await asyncio.sleep(30)  # 每30秒检查一次
+                await asyncio.sleep(30)  # Check every 30 seconds
                 await self._process_content_updates()
                 consecutive_failures = 0
 
@@ -204,25 +204,25 @@ class ServiceContentManager:
                     logger.critical("Too many consecutive content update failures, stopping loop")
                     break
 
-                # 指数退避延迟
-                backoff_delay = min(60 * (2 ** consecutive_failures), 300)  # 最大5分钟
+                # Exponential backoff delay
+                backoff_delay = min(60 * (2 ** consecutive_failures), 300)  # Max 5 minutes
                 await asyncio.sleep(backoff_delay)
 
     async def _process_content_updates(self):
-        """处理内容更新队列"""
+        """Process content update queue"""
         if not self.update_queue:
-            # 事件驱动：无待处理则直接返回
+            # Event-driven: return directly if no pending tasks
             return
 
-        # 限制并发更新数量
+        # Limit concurrent update count
         available_slots = self.config.max_concurrent_updates - len(self.updating_services)
         if available_slots <= 0:
             return
 
-        # 获取待更新的服务
+        # Get services to be updated
         services_to_update = list(self.update_queue)[:available_slots]
 
-        # 并发更新
+        # Concurrent updates
         update_tasks = []
         for agent_id, service_name in services_to_update:
             self.update_queue.discard((agent_id, service_name))

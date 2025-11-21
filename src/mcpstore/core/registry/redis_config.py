@@ -5,8 +5,8 @@ This module provides utilities for parsing and validating Redis connection
 configuration from user-provided config dictionaries.
 
 Validates:
-    - Requirements 18.1: 基础连接配置
-    - Requirements 18.2: 连接池配置
+    - Requirements 18.1: Basic connection configuration
+    - Requirements 18.2: Connection pool configuration
 """
 
 from __future__ import annotations
@@ -33,8 +33,8 @@ class RedisConfig:
         healthcheck_interval: Health check interval in seconds
     
     Validates:
-        - Requirements 18.1: 基础连接配置
-        - Requirements 18.2: 连接池配置
+        - Requirements 18.1: Basic connection configuration
+        - Requirements 18.2: Connection pool configuration
     """
     
     # Default values
@@ -164,8 +164,8 @@ class RedisConfig:
             ... })
         
         Validates:
-            - Requirements 18.1: 解析 URL、密码、超时等基础配置
-            - Requirements 18.2: 解析连接池配置
+            - Requirements 18.1: Parse basic configuration such as URL, password, timeout
+            - Requirements 18.2: Parse connection pool configuration
         """
         # Validate required fields
         url = config.get("url")
@@ -294,7 +294,7 @@ def parse_redis_config(config: Dict[str, Any]) -> RedisConfig:
         redis://localhost:6379/0
     
     Validates:
-        - Requirements 18.1: 解析 URL、密码、超时等基础配置
-        - Requirements 18.2: 解析连接池配置
+        - Requirements 18.1: Parse basic configuration such as URL, password, timeout
+        - Requirements 18.2: Parse connection pool configuration
     """
     return RedisConfig.from_dict(config)

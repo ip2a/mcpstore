@@ -1,27 +1,27 @@
 """
-服务生命周期配置
+Service Lifecycle Configuration
 """
 
 from dataclasses import dataclass
 
 @dataclass
 class ServiceLifecycleConfig:
-    """服务生命周期配置（唯一配置源）"""
-    # 状态转换阈值（失败次数）
-    warning_failure_threshold: int = 1          # HEALTHY 首次失败即进入 WARNING
-    reconnecting_failure_threshold: int = 2     # WARNING 下连续两次失败进入 RECONNECTING
-    max_reconnect_attempts: int = 10            # 最大重连尝试次数
+    """Service lifecycle configuration (single source of truth)"""
+    # State transition thresholds (failure count)
+    warning_failure_threshold: int = 1          # First failure in HEALTHY enters WARNING
+    reconnecting_failure_threshold: int = 2     # Two consecutive failures in WARNING enter RECONNECTING
+    max_reconnect_attempts: int = 10            # Maximum reconnection attempts
 
-    # 重连退避
-    base_reconnect_delay: float = 1.0           # 基础重连延迟（秒）
-    max_reconnect_delay: float = 60.0           # 最大重连延迟（秒）
-    long_retry_interval: float = 300.0          # 长周期重试间隔（秒）
+    # Reconnection backoff
+    base_reconnect_delay: float = 1.0           # Base reconnection delay (seconds)
+    max_reconnect_delay: float = 60.0           # Maximum reconnection delay (seconds)
+    long_retry_interval: float = 300.0          # Long retry interval (seconds)
 
-    # 健康检查（周期/阈值/超时）
-    normal_heartbeat_interval: float = 30.0     # 正常心跳间隔（秒）
-    warning_heartbeat_interval: float = 10.0    # 警告状态心跳间隔（秒）
-    health_check_ping_timeout: float = 10.0     # 健康检查 ping 超时（秒）
+    # Health check (period/threshold/timeout)
+    normal_heartbeat_interval: float = 30.0     # Normal heartbeat interval (seconds)
+    warning_heartbeat_interval: float = 10.0    # Warning state heartbeat interval (seconds)
+    health_check_ping_timeout: float = 10.0     # Health check ping timeout (seconds)
 
-    # 超时配置
-    initialization_timeout: float = 300.0       # 初始化超时（秒）
-    disconnection_timeout: float = 10.0         # 断连超时（秒）
+    # Timeout configuration
+    initialization_timeout: float = 300.0       # Initialization timeout (seconds)
+    disconnection_timeout: float = 10.0         # Disconnection timeout (seconds)

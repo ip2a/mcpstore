@@ -1,6 +1,6 @@
 """
-设置管理器模块（最新：单一路径）
-负责处理 MCPStore 的统一初始化逻辑
+Setup Manager module (latest: single path)
+Handles unified initialization logic for MCPStore
 """
 
 import logging
@@ -13,18 +13,18 @@ logger = logging.getLogger(__name__)
 
 
 class StoreSetupManager:
-    """设置管理器 - 仅保留单一的 setup_store 接口"""
+    """Setup Manager - Keep only single setup_store interface"""
 
     @staticmethod
     def _generate_namespace(mcpjson_path: str) -> str:
         """
-        基于 mcp.json 路径自动生成命名空间
-        
+        Automatically generate namespace based on mcp.json path
+
         Args:
-            mcpjson_path: mcp.json 文件路径
-            
+            mcpjson_path: mcp.json file path
+
         Returns:
-            生成的命名空间字符串
+            Generated namespace string
         """
         # Use SHA1 hash of the absolute path to generate a unique namespace
         abs_path = os.path.abspath(mcpjson_path)
@@ -43,19 +43,19 @@ class StoreSetupManager:
         **deprecated_kwargs,
     ):
         """
-        统一初始化 MCPStore（无隐式后台副作用）
+        Unified MCPStore initialization (no implicit background side effects)
         Args:
-            mcpjson_path: mcp.json 文件路径；None 则使用默认
-            debug: False=OFF（完全静默）；True=DEBUG；字符串=对应等级
-            cache: 缓存配置对象（MemoryConfig 或 RedisConfig），默认为 None（使用 MemoryConfig）
-            external_db: 外挂数据库模块配置字典（当前仅支持 cache.redis）- 已弃用，使用 cache 参数
-            static_config: 静态配置注入（monitoring/network/features/local_service）
-            cache_mode: 缓存工作模式 ("auto" | "local" | "hybrid" | "shared")
-                - "auto": 自动检测模式（默认）
-                - "local": 本地模式（JSON + Memory）
-                - "hybrid": 混合模式（JSON + Redis）
-                - "shared": 共享模式（Redis Only）
-            **deprecated_kwargs: 历史兼容参数（mcp_json / mcp_config_file），将触发警告
+            mcpjson_path: mcp.json file path; None uses default
+            debug: False=OFF (completely silent); True=DEBUG; string=corresponding level
+            cache: Cache configuration object (MemoryConfig or RedisConfig), default None (use MemoryConfig)
+            external_db: External database module configuration dict (currently only supports cache.redis) - deprecated, use cache parameter
+            static_config: Static configuration injection (monitoring/network/features/local_service)
+            cache_mode: Cache working mode ("auto" | "local" | "hybrid" | "shared")
+                - "auto": Auto detection mode (default)
+                - "local": Local mode (JSON + Memory)
+                - "hybrid": Hybrid mode (JSON + Redis)
+                - "shared": Shared mode (Redis Only)
+            **deprecated_kwargs: Historical compatibility parameters (mcp_json / mcp_config_file), will trigger warning
         """
         # Backward-compatible parameter aliases with warnings
         if deprecated_kwargs:
@@ -69,29 +69,29 @@ class StoreSetupManager:
                     except Exception:
                         pass
                     logger.warning(f"Parameter `{_old}` is deprecated; use `mcpjson_path`")
-        # 1) 日志
+        # 1) Logging
         from mcpstore.config.config import LoggingConfig
         LoggingConfig.setup_logging(debug=debug)
 
-        # 2) 数据空间 & 配置
+        # 2) Data space & configuration
         from mcpstore.config.json_config import MCPConfig
+        from mcpstore.config.path_utils import get_user_default_mcp_path
         from mcpstore.core.store.data_space_manager import DataSpaceManager
 
-        if mcpjson_path:
-            dsm = DataSpaceManager(mcpjson_path)
-            if not dsm.initialize_workspace():
-                raise RuntimeError(f"Failed to initialize workspace for: {mcpjson_path}")
-            config = MCPConfig(json_path=mcpjson_path)
-            workspace_dir = str(dsm.workspace_dir)
-        else:
-            dsm = None
-            config = MCPConfig()
-            workspace_dir = None
+        # Always use DataSpaceManager for both explicit and default paths
+        resolved_mcp_path = mcpjson_path or str(get_user_default_mcp_path())
+        
+        dsm = DataSpaceManager(resolved_mcp_path)
+        if not dsm.initialize_workspace():
+            raise RuntimeError(f"Failed to initialize workspace for: {resolved_mcp_path}")
+        
+        config = MCPConfig(json_path=resolved_mcp_path)
+        workspace_dir = str(dsm.workspace_dir)
 
-        # 3) 注入静态配置（仅注入，不启动后台）
+        # 3) Inject static configuration (only injection, no background startup)
         base_cfg = config.load_config()
         stat = static_config or {}
-        # 映射 network.http_timeout_seconds -> timing.http_timeout_seconds（orchestrator依赖该字段）
+        # Map network.http_timeout_seconds -> timing.http_timeout_seconds (orchestrator depends on this field)
         timing = {}
         try:
             http_timeout = stat.get("network", {}).get("http_timeout_seconds")
@@ -101,12 +101,12 @@ class StoreSetupManager:
             pass
         if timing:
             base_cfg.setdefault("timing", {}).update(timing)
-        # 直接注入其他配置段，供后续模块使用
+        # Directly inject other configuration sections for use by subsequent modules
         for key in ("monitoring", "network", "features", "local_service"):
             if key in stat and isinstance(stat[key], dict):
                 base_cfg[key] = deepcopy(stat[key])
 
-        # 若指定了本地服务工作目录，则设置适配器工作目录
+        # If local service work directory is specified, set adapter work directory
         if stat.get("local_service", {}).get("work_dir"):
             from mcpstore.core.integration.local_service_adapter import set_local_service_manager_work_dir
             set_local_service_manager_work_dir(stat["local_service"]["work_dir"])
@@ -114,7 +114,7 @@ class StoreSetupManager:
             from mcpstore.core.integration.local_service_adapter import set_local_service_manager_work_dir
             set_local_service_manager_work_dir(workspace_dir)
 
-        # 4) 注册表与缓存后端
+        # 4) Registry and cache backend
         from mcpstore.core.registry import ServiceRegistry
         from mcpstore.config import (
             MemoryConfig, RedisConfig, detect_strategy, 
@@ -238,8 +238,8 @@ class StoreSetupManager:
         # 6) 实例化 Store（固定组合类）
         from mcpstore.core.store.composed_store import MCPStore as _MCPStore
         store = _MCPStore(orchestrator, config)
-        if dsm:
-            store._data_space_manager = dsm
+        # Always set data space manager since we always create it now
+        store._data_space_manager = dsm
 
         # 7) 同步初始化 orchestrator（无后台副作用）
         from mcpstore.core.utils.async_sync_helper import AsyncSyncHelper

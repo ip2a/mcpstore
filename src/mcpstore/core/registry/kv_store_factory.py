@@ -5,11 +5,11 @@ This module provides the _build_kv_store factory function that creates
 AsyncKeyValue instances with appropriate wrappers based on configuration.
 
 Validates:
-    - Requirements 2.1: py-key-value 的核心优势
-    - Requirements 17.1: 统计包装器配置
-    - Requirements 17.2: 大小限制包装器配置
-    - Requirements 17.3: 压缩包装器配置
-    - Requirements 17.4: 包装器组合
+    - Requirements 2.1: Core advantages of py-key-value
+    - Requirements 17.1: Statistics wrapper configuration
+    - Requirements 17.2: Size limit wrapper configuration
+    - Requirements 17.3: Compression wrapper configuration
+    - Requirements 17.4: Wrapper combination
 """
 
 from __future__ import annotations

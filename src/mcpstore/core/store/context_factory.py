@@ -63,21 +63,21 @@ class ContextFactoryMixin:
         """
         context = self.for_agent(agent_id) if agent_id else self.for_store()
 
-        # 如果提供了 service_names，转换为新的格式
+        # If service_names is provided, convert to new format
         if service_names:
-            # 兼容旧版 API，将 service_names 转换为配置格式
+            # Compatible with old API, convert service_names to config format
             config = {"service_names": service_names}
             await context.add_service_async(config, **kwargs)
         else:
-            # 新版 API，直接传递参数
+            # New API, pass parameters directly
             await context.add_service_async(**kwargs)
 
         return True
 
     def check_services(self, agent_id: Optional[str] = None) -> Dict[str, str]:
         """
-        委托给 Context 层的 check_services 方法
-        兼容旧版API
+        Delegate to Context layer check_services method
+        Compatible with old API
         """
         context = self.for_agent(agent_id) if agent_id else self.for_store()
         return context.check_services()

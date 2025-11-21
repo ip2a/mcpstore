@@ -1,12 +1,12 @@
 """
-工作模式检测和管理模块
+Work mode detection and management module
 
-支持三种工作模式：
-1. 本地模式 (local): JSON + Memory
-2. 混合模式 (hybrid): JSON + Redis
-3. 共享模式 (shared): Redis Only
+Supports three work modes:
+1. Local mode (local): JSON + Memory
+2. Hybrid mode (hybrid): JSON + Redis
+3. Shared mode (shared): Redis Only
 
-根据 mcpjson_path 和 external_db 参数自动检测工作模式。
+Automatically detects work mode based on mcpjson_path and external_db parameters.
 """
 
 import logging
@@ -14,7 +14,7 @@ from typing import Optional, Dict, Any, Literal
 
 logger = logging.getLogger(__name__)
 
-# 工作模式类型定义
+# Work mode type definition
 WorkMode = Literal["local", "hybrid", "shared"]
 
 
@@ -23,20 +23,20 @@ def detect_cache_mode(
     external_db: Optional[Dict[str, Any]]
 ) -> WorkMode:
     """
-    自动检测缓存工作模式
-    
+    Automatically detect cache work mode
+
     Args:
-        mcpjson_path: mcp.json 配置文件路径，None 表示无配置文件
-        external_db: 外部数据库配置字典，包含 cache 配置
-    
+        mcpjson_path: mcp.json configuration file path, None means no config file
+        external_db: External database configuration dictionary, contains cache config
+
     Returns:
-        检测到的工作模式: "local" | "hybrid" | "shared"
-    
-    检测逻辑:
-        - 无 JSON + Redis → 共享模式 (shared)
-        - 有 JSON + Redis → 混合模式 (hybrid)
-        - 有 JSON + 无 Redis → 本地模式 (local)
-        - 默认 → 本地模式 (local)
+        Detected work mode: "local" | "hybrid" | "shared"
+
+    Detection logic:
+        - No JSON + Redis → Shared mode (shared)
+        - JSON + Redis → Hybrid mode (hybrid)
+        - JSON + No Redis → Local mode (local)
+        - Default → Local mode (local)
     
     Examples:
         >>> # 场景 1: 共享模式

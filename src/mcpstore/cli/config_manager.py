@@ -129,7 +129,7 @@ def save_config(config: Dict[str, Any], path: Optional[str] = None) -> bool:
         config_path = get_default_config_path()
     
     try:
-        # 确保目录存在
+        # Ensure directory exists
         config_path.parent.mkdir(parents=True, exist_ok=True)
         
         with open(config_path, 'w', encoding='utf-8') as f:
@@ -142,7 +142,7 @@ def save_config(config: Dict[str, Any], path: Optional[str] = None) -> bool:
         return False
 
 def _detect_service_type(server_config: Dict[str, Any]) -> str:
-    """检测服务类型"""
+    """Detect service type"""
     if "url" in server_config:
         return "url"
     elif "command" in server_config:
@@ -151,7 +151,7 @@ def _detect_service_type(server_config: Dict[str, Any]) -> str:
         return "unknown"
 
 def _validate_service_config(name: str, server_config: Dict[str, Any]) -> List[str]:
-    """验证单个服务配置"""
+    """Validate single service configuration"""
     errors = []
 
     if not isinstance(server_config, dict):
@@ -164,13 +164,13 @@ def _validate_service_config(name: str, server_config: Dict[str, Any]) -> List[s
         errors.append(f"Service '{name}' must have either 'url' or 'command' field")
         return errors
 
-    # 验证必需字段
+    # Validate required fields
     required_fields = ConfigConstants.REQUIRED_FIELDS.get(service_type, [])
     for field in required_fields:
         if field not in server_config:
             errors.append(f"Service '{name}' missing required field '{field}' for {service_type} type")
 
-    # 验证字段类型
+    # Validate field types
     type_validations = {
         "args": (list, "must be a list"),
         "env": (dict, "must be an object"),
@@ -185,7 +185,7 @@ def _validate_service_config(name: str, server_config: Dict[str, Any]) -> List[s
         if field in server_config and not isinstance(server_config[field], expected_type):
             errors.append(f"Service '{name}' field '{field}' {error_msg}")
 
-    # 验证transport值
+    # Validate transport value
     if "transport" in server_config:
         transport = server_config["transport"]
         if transport not in ConfigConstants.SUPPORTED_TRANSPORTS:
@@ -194,10 +194,10 @@ def _validate_service_config(name: str, server_config: Dict[str, Any]) -> List[s
     return errors
 
 def validate_config(config: Dict[str, Any]) -> bool:
-    """验证配置文件格式"""
+    """Validate configuration file format"""
     errors = []
 
-    # 检查根级必需字段
+    # Check root-level required fields
     if "mcpServers" not in config:
         errors.append("Missing 'mcpServers' field")
         typer.echo(" Configuration validation failed:")
@@ -209,12 +209,12 @@ def validate_config(config: Dict[str, Any]) -> bool:
     if not isinstance(servers, dict):
         errors.append("'mcpServers' must be an object")
     else:
-        # 验证每个服务配置
+        # Validate each service configuration
         for name, server_config in servers.items():
             service_errors = _validate_service_config(name, server_config)
             errors.extend(service_errors)
 
-    # 输出结果
+    # Output results
     if errors:
         typer.echo(" Configuration validation failed:")
         for error in errors:
@@ -225,11 +225,11 @@ def validate_config(config: Dict[str, Any]) -> bool:
         return True
 
 def _format_service_info(name: str, server_config: Dict[str, Any]) -> None:
-    """格式化并显示单个服务信息"""
+    """Format and display single service information"""
     service_type = _detect_service_type(server_config)
     desc = server_config.get("description", "No description")
 
-    # 服务类型图标
+    # Service type icon
     type_icons = {
         "url": "🌐",
         "command": "📦",
@@ -240,7 +240,7 @@ def _format_service_info(name: str, server_config: Dict[str, Any]) -> None:
     typer.echo(f"\n   {icon} {name} ({service_type} service)")
     typer.echo(f"      Description: {desc}")
 
-    # 根据服务类型显示不同信息
+    # Show different information based on service type
     if service_type == "url":
         url = server_config.get("url", "")
         transport = server_config.get("transport", "streamable-http")
@@ -264,7 +264,7 @@ def _format_service_info(name: str, server_config: Dict[str, Any]) -> None:
         if working_dir:
             typer.echo(f"      Working Dir: {working_dir}")
 
-        # 显示环境变量
+        # Show environment variables
         env = server_config.get("env", {})
         if env:
             typer.echo(f"      Environment:")
@@ -272,7 +272,7 @@ def _format_service_info(name: str, server_config: Dict[str, Any]) -> None:
                 typer.echo(f"        {key}={value}")
 
 def show_config(path: Optional[str] = None):
-    """显示配置文件内容"""
+    """Display configuration file content"""
     config = load_config(path)
 
     if not config:
@@ -284,7 +284,7 @@ def show_config(path: Optional[str] = None):
     typer.echo("\n📋 Current Configuration:")
     typer.echo(separator)
 
-    # 显示基本信息
+    # Show basic information
     version = config.get("version", "unknown")
     description = config.get("description", "No description")
     created_by = config.get("created_by", "Unknown")
@@ -293,7 +293,7 @@ def show_config(path: Optional[str] = None):
     typer.echo(f"Description: {description}")
     typer.echo(f"Created by: {created_by}")
 
-    # 显示服务列表
+    # Show service list
     servers = config.get("mcpServers", {})
     typer.echo(f"\n MCP Services ({len(servers)} configured):")
 
@@ -316,14 +316,14 @@ def init_config(path: Optional[str] = None, force: bool = False, with_examples: 
         typer.echo("Use --force to overwrite")
         return
 
-    # 获取基础配置
+    # Get basic configuration
     config = get_default_config()
 
-    # 添加创建时间
+    # Add creation time
     from datetime import datetime
     config["created_at"] = datetime.now().isoformat()
 
-    # 如果需要示例，添加示例服务
+    # Add example services if needed
     if with_examples:
         config["mcpServers"] = get_example_services()
         typer.echo("[CONFIG] Including example services in configuration")
@@ -338,7 +338,7 @@ def init_config(path: Optional[str] = None, force: bool = False, with_examples: 
             typer.echo("\n[TIP] Empty configuration created. Add services using 'mcpstore config add' or edit the file manually.")
 
 def add_example_services(path: Optional[str] = None):
-    """向现有配置添加示例服务"""
+    """Add example services to existing configuration"""
     config = load_config(path)
     if not config:
         typer.echo(" No configuration found. Use 'init' first.")
@@ -364,7 +364,7 @@ def add_example_services(path: Optional[str] = None):
         typer.echo("\n[INFO] No new services were added.")
 
 def handle_config(action: str, path: Optional[str] = None, **kwargs):
-    """处理配置命令（改进版）"""
+    """Handle configuration command (improved version)"""
     actions = {
         "show": lambda: show_config(path),
         "validate": lambda: _handle_validate(path),
@@ -380,7 +380,7 @@ def handle_config(action: str, path: Optional[str] = None, **kwargs):
         typer.echo(f"Available actions: {', '.join(actions.keys())}")
 
 def _handle_validate(path: Optional[str] = None):
-    """处理验证命令"""
+    """Handle validation command"""
     config = load_config(path)
     if config:
         validate_config(config)
@@ -388,11 +388,11 @@ def _handle_validate(path: Optional[str] = None):
         typer.echo(" No configuration to validate")
 
 def _handle_init(path: Optional[str] = None, **kwargs):
-    """处理初始化命令"""
+    """Handle initialization command"""
     force = kwargs.get('force', False)
     with_examples = kwargs.get('with_examples', False)
 
-    # 如果文件存在且没有force标志，询问用户
+    # If file exists and no force flag, ask user
     config_path = Path(path) if path else get_default_config_path()
     if config_path.exists() and not force:
         force = typer.confirm("Configuration file exists. Overwrite?")

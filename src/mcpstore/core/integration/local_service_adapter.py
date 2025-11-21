@@ -13,30 +13,30 @@ logger = logging.getLogger(__name__)
 
 class LocalServiceManagerAdapter:
     """
-    LocalServiceManager适配器
-    
-    提供与原LocalServiceManager相同的接口，但内部使用FastMCP实现。
-    这确保了向后兼容性，同时逐步迁移到FastMCP。
+    LocalServiceManager Adapter
+
+    Provides the same interface as the original LocalServiceManager, but internally uses FastMCP implementation.
+    This ensures backward compatibility while gradually migrating to FastMCP.
     """
     
     def __init__(self, base_work_dir: str = None):
         """
-        初始化适配器
-        
+        Initialize adapter
+
         Args:
-            base_work_dir: 基础工作目录
+            base_work_dir: Base working directory
         """
         self.base_work_dir = Path(base_work_dir or Path.cwd())
         
-        # 使用FastMCP服务管理器作为底层实现
+        # Use FastMCP service manager as underlying implementation
         self.fastmcp_manager = FastMCPServiceManager(self.base_work_dir)
         
-        # 健康检查配置
+        # Health check configuration
         self.health_check_interval = 30
         self.max_restart_attempts = 3
         self.restart_delay = 5
 
-        # 监控任务
+        # Monitoring tasks
         self._health_check_task = None
         self._monitor_started = False
         
@@ -44,49 +44,49 @@ class LocalServiceManagerAdapter:
     
     async def start_local_service(self, name: str, config: Dict[str, Any]) -> Tuple[bool, str]:
         """
-        启动本地服务（兼容LocalServiceManager接口）
+        Start local service (compatible with LocalServiceManager interface)
         
         Args:
-            name: 服务名称
-            config: 服务配置
+            name: Service name
+            config: Service configuration
             
         Returns:
-            Tuple[bool, str]: (是否成功, 消息)
+            Tuple[bool, str]: (Success, message)
         """
         logger.info(f"[Adapter] Starting local service {name} via FastMCP")
         
-        # 委托给FastMCP管理器
+        # Delegate to FastMCP manager
         return await self.fastmcp_manager.start_local_service(name, config)
     
     async def stop_local_service(self, name: str) -> Tuple[bool, str]:
         """
-        停止本地服务（兼容LocalServiceManager接口）
+        Stop local service (compatible with LocalServiceManager interface)
         
         Args:
-            name: 服务名称
+            name: Service name
             
         Returns:
-            Tuple[bool, str]: (是否成功, 消息)
+            Tuple[bool, str]: (Success, message)
         """
         logger.info(f"[Adapter] Stopping local service {name} via FastMCP")
         
-        # 委托给FastMCP管理器
+        # Delegate to FastMCP manager
         return await self.fastmcp_manager.stop_local_service(name)
     
     def get_service_status(self, name: str) -> Dict[str, Any]:
         """
-        获取服务状态（兼容LocalServiceManager接口）
+        Get service status (compatible with LocalServiceManager interface)
         
         Args:
-            name: 服务名称
+            name: Service name
             
         Returns:
-            Dict[str, Any]: 服务状态信息
+            Dict[str, Any]: Service status information
         """
-        # 委托给FastMCP管理器
+        # Delegate to FastMCP manager
         status = self.fastmcp_manager.get_service_status(name)
         
-        # 转换为原LocalServiceManager的状态格式
+        # Convert to original LocalServiceManager status format
         if status.get("status") == "not_found":
             return {"status": "not_found"}
         elif status.get("status") == "error":
@@ -94,24 +94,24 @@ class LocalServiceManagerAdapter:
         else:
             return {
                 "status": "running",
-                "pid": 0,  # FastMCP管理的进程，不暴露PID
+                "pid": 0,  # Process managed by FastMCP, PID not exposed
                 "start_time": status.get("start_time", 0),
-                "restart_count": 0,  # FastMCP自动处理重启
+                "restart_count": 0,  # FastMCP handles restarts automatically
                 "uptime": status.get("uptime", 0),
                 "managed_by": "fastmcp"
             }
     
     def list_services(self) -> Dict[str, Dict[str, Any]]:
         """
-        列出所有服务状态（兼容LocalServiceManager接口）
+        List all service statuses (compatible with LocalServiceManager interface)
         
         Returns:
-            Dict[str, Dict[str, Any]]: 所有服务的状态信息
+            Dict[str, Dict[str, Any]]: Status information of all services
         """
-        # 委托给FastMCP管理器，并转换格式
+        # Delegate to FastMCP manager and convert format
         fastmcp_services = self.fastmcp_manager.list_services()
         
-        # 转换为原LocalServiceManager的格式
+        # Convert to original LocalServiceManager format
         result = {}
         for name, status in fastmcp_services.items():
             result[name] = self.get_service_status(name)
@@ -120,40 +120,40 @@ class LocalServiceManagerAdapter:
     
     async def cleanup(self):
         """
-        清理所有服务（兼容LocalServiceManager接口）
+        Clean up all services (compatible with LocalServiceManager interface)
         """
         logger.info("[Adapter] Cleaning up services via FastMCP")
         
-        # 停止健康监控（兼容性）
+        # Stop health monitoring (compatibility)
         if self._health_check_task:
             self._health_check_task.cancel()
         
-        # 委托给FastMCP管理器
+        # Delegate to FastMCP manager
         await self.fastmcp_manager.cleanup()
     
-    # 健康监控、进程检查、服务重启等功能现在完全由FastMCP自动处理
+    # Health monitoring, process checking, service restart and other features are now fully handled by FastMCP automatically
 
     async def start_health_monitoring(self):
-        """启动健康监控（FastMCP自动处理）"""
+        """Start health monitoring (FastMCP handles automatically)"""
         logger.info("[Adapter] Health monitoring delegated to FastMCP")
         self._monitor_started = True
     
-    # _prepare_environment和_resolve_working_dir方法已删除
-    # 环境变量和工作目录处理现在完全由FastMCP配置规范化处理
+    # _prepare_environment and _resolve_working_dir methods have been removed
+    # Environment variable and working directory handling are now fully handled by FastMCP configuration normalization
 
-# 全局实例（保持与原LocalServiceManager相同的接口）
+# Global instance (maintains same interface as original LocalServiceManager)
 _local_service_manager_adapter: Optional[LocalServiceManagerAdapter] = None
 
 
 def get_local_service_manager() -> LocalServiceManagerAdapter:
     """
-    获取全局本地服务管理器实例（适配器版本）
-    
-    这个函数替代了原来的get_local_service_manager，但返回适配器实例。
-    适配器提供相同的接口，但内部使用FastMCP实现。
-    
+    Get global local service manager instance (adapter version)
+
+    This function replaces the original get_local_service_manager but returns an adapter instance.
+    The adapter provides the same interface but uses FastMCP implementation internally.
+
     Returns:
-        LocalServiceManagerAdapter: 全局适配器实例
+        LocalServiceManagerAdapter: Global adapter instance
     """
     global _local_service_manager_adapter
     if _local_service_manager_adapter is None:
@@ -163,19 +163,19 @@ def get_local_service_manager() -> LocalServiceManagerAdapter:
 
 def set_local_service_manager_work_dir(base_work_dir: str):
     """
-    设置本地服务管理器的工作目录（用于数据空间模式）
-    
+    Set working directory for local service manager (used for data space mode)
+
     Args:
-        base_work_dir: 基础工作目录
+        base_work_dir: Base working directory
     """
     global _local_service_manager_adapter
     _local_service_manager_adapter = LocalServiceManagerAdapter(base_work_dir)
     logger.info(f"LocalServiceManagerAdapter work directory set to: {base_work_dir}")
 
-# 导出适配器类
+# Export adapter class
 LocalServiceManager = LocalServiceManagerAdapter
 
-# LocalServiceProcess类（用于类型兼容）
+# LocalServiceProcess class (for type compatibility)
 from dataclasses import dataclass
 import subprocess
 

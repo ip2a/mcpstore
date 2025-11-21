@@ -33,7 +33,7 @@ def run_command(
     port: Annotated[int, typer.Option("--port", "-p", help="Port to bind to")] = 18200,
     reload: Annotated[bool, typer.Option("--reload", "-r", help="Enable auto-reload")] = False,
     log_level: Annotated[str, typer.Option("--log-level", "-l", help="Log level")] = "info",
-    prefix: Annotated[str, typer.Option("--prefix", help="URL prefix (e.g., /api/v1)")] = "",  # 🆕 新增
+    prefix: Annotated[str, typer.Option("--prefix", help="URL prefix (e.g., /api/v1)")] = "",
 ):
     """
     Run MCPStore services
@@ -43,14 +43,14 @@ def run_command(
 
     Examples:
 
-    # 基本启动（无前缀）
+    # Basic startup (no prefix)
     mcpstore run api
 
-    # 使用 URL 前缀
+    # Use URL prefix
     mcpstore run api --prefix /api/v1
-    # 访问: http://localhost:18200/api/v1/for_store/list_services
+    # Access: http://localhost:18200/api/v1/for_store/list_services
 
-    # 开发模式 + 前缀
+    # Development mode + prefix
     mcpstore run api --reload --prefix /api
     """
     if service == "api":
@@ -79,8 +79,8 @@ def run_api(host: str, port: int, reload: bool, log_level: str, url_prefix: str)
         typer.echo("   Press Ctrl+C to stop")
         typer.echo()
 
-        # 🆕 启动时传入 URL 前缀配置
-        # 通过环境变量传递给应用工厂
+        # Pass URL prefix configuration at startup
+        # Pass to application factory via environment variables
         import os
         if url_prefix:
             os.environ["MCPSTORE_URL_PREFIX"] = url_prefix

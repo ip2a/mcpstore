@@ -5,8 +5,8 @@ This module provides utilities for validating Redis connections and
 implementing health checks with automatic reconnection.
 
 Validates:
-    - Requirements 18.3: 故障处理配置
-    - Requirements 18.4: Fail-Fast 错误处理
+    - Requirements 18.3: Fault handling configuration
+    - Requirements 18.4: Fail-Fast error handling
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ class RedisConnectionError(Exception):
     clear error messages about connection failures.
     
     Validates:
-        - Requirements 18.4: Fail-Fast 错误处理
+        - Requirements 18.4: Fail-Fast error handling
     """
     pass
 
@@ -60,7 +60,7 @@ async def validate_redis_connection(
         # Raises RedisConnectionError if connection fails
     
     Validates:
-        - Requirements 18.4: Redis 连接失败时立即抛出异常
+        - Requirements 18.4: Throw exception immediately when Redis connection fails
     """
     try:
         # Attempt to ping Redis with timeout
@@ -124,8 +124,8 @@ class RedisHealthChecker:
         backoff_factor: Exponential backoff factor for retries
     
     Validates:
-        - Requirements 18.3: 定期健康检查
-        - Requirements 18.3: 自动重连（带退避策略）
+        - Requirements 18.3: Periodic health checks
+        - Requirements 18.3: Automatic reconnection (with backoff strategy)
     """
     
     def __init__(
@@ -162,7 +162,7 @@ class RedisHealthChecker:
         and attempts reconnection if needed.
         
         Validates:
-            - Requirements 18.3: 定期健康检查
+            - Requirements 18.3: Periodic health checks
         """
         if self._health_check_task is not None:
             logger.warning("Health checker already started")
@@ -210,7 +210,7 @@ class RedisHealthChecker:
         it attempts reconnection with exponential backoff.
         
         Validates:
-            - Requirements 18.3: 自动重连（带退避策略）
+            - Requirements 18.3: Automatic reconnection (with backoff strategy)
         """
         self._last_check_time = time.time()
         
@@ -248,7 +248,7 @@ class RedisHealthChecker:
         Attempt to reconnect to Redis with exponential backoff.
         
         Validates:
-            - Requirements 18.3: 自动重连（带退避策略）
+            - Requirements 18.3: Automatic reconnection (with backoff strategy)
         """
         # Calculate backoff delay
         delay = min(
@@ -301,7 +301,7 @@ class RedisCircuitBreaker:
     - HALF_OPEN: Testing if Redis has recovered
     
     Validates:
-        - Requirements 18.3: 熔断器机制
+        - Requirements 18.3: Circuit breaker mechanism
     """
     
     # Circuit breaker states
@@ -349,7 +349,7 @@ class RedisCircuitBreaker:
             Exception: Any exception raised by func
         
         Validates:
-            - Requirements 18.3: 熔断器机制
+            - Requirements 18.3: Circuit breaker mechanism
         """
         # Check if circuit should transition to half-open
         if self._state == self.STATE_OPEN:

@@ -1,6 +1,6 @@
 """
-配置导出 Mixin 模块
-负责处理 MCPStore 的配置导出功能
+Configuration export Mixin module
+Responsible for handling MCPStore configuration export functionality
 """
 
 import json
@@ -11,11 +11,11 @@ logger = logging.getLogger(__name__)
 
 
 class ConfigExportMixin:
-    """配置导出 Mixin - 包含配置导出方法"""
+    """Configuration export Mixin - Contains configuration export methods"""
     
     async def exportjson(self, filepath: Optional[str] = None) -> Dict[str, Any]:
         """
-        将缓存数据导出为标准 MCP JSON 格式
+        Export cache data to standard MCP JSON format
         
         This method reads all services from the cache and converts them to the
         standard MCP JSON format with mcpServers structure. It can optionally
@@ -110,15 +110,15 @@ class ConfigExportMixin:
     
     async def export_to_json(self, output_path: str, include_sessions: bool = False) -> None:
         """
-        从缓存导出配置到 JSON 文件
-        
+        Export configuration from cache to JSON file
+
         Args:
-            output_path: 输出 JSON 文件路径
-            include_sessions: 是否包含 Session 数据（默认 False，因为 Session 不可序列化）
-            
+            output_path: Output JSON file path
+            include_sessions: Whether to include Session data (default False, as Session is not serializable)
+
         Raises:
-            ValueError: 如果 include_sessions=True（Session 数据不可序列化）
-            RuntimeError: 如果导出过程失败
+            ValueError: If include_sessions=True (Session data is not serializable)
+            RuntimeError: If export process fails
         """
         if include_sessions:
             raise ValueError(
@@ -144,10 +144,10 @@ class ConfigExportMixin:
     
     async def _export_config_from_cache(self) -> dict:
         """
-        从缓存导出配置数据（不包括 Session）
-        
+        Export configuration data from cache (excluding Sessions)
+
         Returns:
-            配置字典，格式与 mcp.json 兼容
+            Configuration dictionary compatible with mcp.json format
         """
         try:
             # Get all agent IDs from registry
@@ -192,10 +192,10 @@ class ConfigExportMixin:
     
     async def _get_all_agent_ids_from_cache(self) -> list:
         """
-        从缓存获取所有 Agent ID
-        
+        Get all Agent IDs from cache
+
         Returns:
-            Agent ID 列表
+            List of Agent IDs
         """
         try:
             # Get all agent IDs from agent_clients mapping

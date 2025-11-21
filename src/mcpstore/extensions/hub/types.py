@@ -10,12 +10,12 @@ from typing import Dict, List, Any, Optional
 
 
 class HubStatus(Enum):
-    """Hub状态枚举"""
-    INITIALIZING = "initializing"  # 初始化中
-    RUNNING = "running"           # 运行中
-    STOPPING = "stopping"         # 停止中
-    STOPPED = "stopped"           # 已停止
-    ERROR = "error"               # 错误状态
+    """Hub status enum"""
+    INITIALIZING = "initializing"  # Initializing
+    RUNNING = "running"           # Running
+    STOPPING = "stopping"         # Stopping
+    STOPPED = "stopped"           # Stopped
+    ERROR = "error"               # Error state
 
 
 @dataclass
