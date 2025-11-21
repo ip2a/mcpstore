@@ -1,11 +1,11 @@
 """
-生命周期管理器 - 负责服务状态管理
+Lifecycle Manager - Responsible for service state management
 
-职责:
-1. 监听 ServiceCached 事件，初始化生命周期状态
-2. 监听 ServiceConnected/ServiceConnectionFailed 事件，转换状态
-3. 发布 ServiceStateChanged 事件
-4. 管理状态元数据
+Responsibilities:
+1. Listen to ServiceCached events, initialize lifecycle state
+2. Listen to ServiceConnected/ServiceConnectionFailed events, transition states
+3. Publish ServiceStateChanged events
+4. Manage state metadata
 """
 
 import logging
@@ -23,30 +23,30 @@ logger = logging.getLogger(__name__)
 
 class LifecycleManager:
     """
-    生命周期管理器
-    
-    职责:
-    1. 监听 ServiceCached 事件，初始化生命周期状态
-    2. 监听 ServiceConnected/ServiceConnectionFailed 事件，转换状态
-    3. 发布 ServiceStateChanged 事件
-    4. 管理状态元数据
+    Lifecycle Manager
+
+    Responsibilities:
+    1. Listen to ServiceCached events, initialize lifecycle state
+    2. Listen to ServiceConnected/ServiceConnectionFailed events, transition states
+    3. Publish ServiceStateChanged events
+    4. Manage state metadata
     """
     
     def __init__(self, event_bus: EventBus, registry: 'CoreRegistry', lifecycle_config: 'ServiceLifecycleConfig' = None):
         self._event_bus = event_bus
         self._registry = registry
-        # 配置（阈值/心跳间隔）
+        # Configuration (thresholds/heartbeat intervals)
         if lifecycle_config is None:
             from mcpstore.core.lifecycle.config import ServiceLifecycleConfig
             lifecycle_config = ServiceLifecycleConfig()
         self._config = lifecycle_config
 
-        # 订阅事件
+        # Subscribe to events
         self._event_bus.subscribe(ServiceCached, self._on_service_cached, priority=90)
         self._event_bus.subscribe(ServiceConnected, self._on_service_connected, priority=40)
         self._event_bus.subscribe(ServiceConnectionFailed, self._on_service_connection_failed, priority=40)
 
-        # 🆕 订阅健康检查和超时事件
+        # [NEW] Subscribe to health check and timeout events
         from mcpstore.core.events.service_events import HealthCheckCompleted, ServiceTimeout, ReconnectionRequested
         self._event_bus.subscribe(HealthCheckCompleted, self._on_health_check_completed, priority=50)
         self._event_bus.subscribe(ServiceTimeout, self._on_service_timeout, priority=50)
@@ -56,25 +56,25 @@ class LifecycleManager:
     
     async def _on_service_cached(self, event: ServiceCached):
         """
-        处理服务已缓存事件 - 初始化生命周期状态
+        Handle service cached event - initialize lifecycle state
         """
         logger.info(f"[LIFECYCLE] Initializing lifecycle for: {event.service_name}")
         
         try:
-            # 🔧 修复：检查是否已有 metadata（CacheManager 可能已创建）
+            # [FIX] Check if metadata already exists (CacheManager might have created it)
             existing_metadata = self._registry.get_service_metadata(event.agent_id, event.service_name)
             
             if existing_metadata and existing_metadata.service_config:
-                # 如果已有 metadata 且包含配置，保留原有配置
+                # If metadata already exists and contains configuration, preserve existing configuration
                 service_config = existing_metadata.service_config
                 logger.debug(f"[LIFECYCLE] Preserving existing service_config for: {event.service_name}")
             else:
-                # 否则，尝试从客户端配置中读取
+                # Otherwise, try to read from client configuration
                 client_config = self._registry.get_client_config_from_cache(event.client_id)
                 service_config = client_config.get("mcpServers", {}).get(event.service_name, {}) if client_config else {}
                 logger.debug(f"[LIFECYCLE] Loading service_config from client config for: {event.service_name}")
             
-            # 创建或更新元数据（保留配置信息）
+            # Create or update metadata (preserve configuration information)
             metadata = ServiceStateMetadata(
                 service_name=event.service_name,
                 agent_id=event.agent_id,
@@ -83,17 +83,17 @@ class LifecycleManager:
                 reconnect_attempts=0,
                 next_retry_time=None,
                 error_message=None,
-                service_config=service_config  # 🔧 修复：使用正确的配置
+                service_config=service_config  # [FIX] Use correct configuration
             )
             
             self._registry.set_service_metadata(event.agent_id, event.service_name, metadata)
             
-            # 验证配置是否正确保存
+            # Verify configuration is correctly saved
             logger.debug(f"[LIFECYCLE] Metadata saved with config keys: {list(service_config.keys()) if service_config else 'None'}")
             
             logger.info(f"[LIFECYCLE] Lifecycle initialized: {event.service_name} -> INITIALIZING")
             
-            # 发布初始化完成事件
+            # Publish initialization completion event
             initialized_event = ServiceInitialized(
                 agent_id=event.agent_id,
                 service_name=event.service_name,

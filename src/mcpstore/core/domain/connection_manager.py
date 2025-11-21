@@ -1,10 +1,10 @@
 """
-连接管理器 - 负责实际的服务连接
+Connection Manager - Responsible for actual service connections
 
-职责:
-1. 监听 ServiceInitialized 事件，触发连接
-2. 执行实际的服务连接（本地/远程）
-3. 发布 ServiceConnected/ServiceConnectionFailed 事件
+Responsibilities:
+1. Listen to ServiceInitialized events, trigger connections
+2. Execute actual service connections (local/remote)
+3. Publish ServiceConnected/ServiceConnectionFailed events
 """
 
 import asyncio
@@ -23,12 +23,12 @@ logger = logging.getLogger(__name__)
 
 class ConnectionManager:
     """
-    连接管理器
+    Connection Manager
 
-    职责:
-    1. 监听 ServiceInitialized 事件，触发连接
-    2. 执行实际的服务连接（本地/远程）
-    3. 发布 ServiceConnected/ServiceConnectionFailed 事件
+    Responsibilities:
+    1. Listen to ServiceInitialized events, trigger connections
+    2. Execute actual service connections (local/remote)
+    3. Publish ServiceConnected/ServiceConnectionFailed events
     """
 
     def __init__(

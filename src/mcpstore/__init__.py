@@ -2,62 +2,107 @@
 MCPStore - Model Context Protocol Service Management SDK
 A composable, ready-to-use MCP toolkit for AI Agents and rapid integration.
 """
-
+ 
 __version__ = "1.5.7"
 
-# ===== Core Classes =====
-from mcpstore.config.config import LoggingConfig
-from mcpstore.core.store import MCPStore
 
-# ===== Cache Config Classes =====
-from mcpstore.config import MemoryConfig, RedisConfig
+# ===== Lazy loading implementation =====
+def __getattr__(name: str):
+    """Lazy-load public objects on first access to reduce import overhead."""
 
-# ===== Core Model Classes =====
-from mcpstore.core.models.service import ServiceInfo, ServiceConnectionState
-from mcpstore.core.models.tool import ToolInfo, ToolExecutionRequest
-from mcpstore.core.models.response import APIResponse, ErrorDetail, ResponseMeta, Pagination
-from mcpstore.core.models.response_builder import ResponseBuilder
-from mcpstore.core.models.error_codes import ErrorCode
+    # Core classes
+    if name in ("LoggingConfig", "MCPStore"):
+        from mcpstore.config.config import LoggingConfig
+        from mcpstore.core.store import MCPStore
 
-# ===== Core Exception Classes =====
-from mcpstore.core.exceptions import (
-    MCPStoreException,
-    ServiceNotFoundException,
-    ToolExecutionError,
-)
+        globals().update({
+            "LoggingConfig": LoggingConfig,
+            "MCPStore": MCPStore,
+        })
+        return globals()[name]
 
-# ===== Adapter Classes (Direct Passthrough) =====
-try:
-    from mcpstore.adapters.langchain_adapter import LangChainAdapter
-except ImportError:
-    LangChainAdapter = None
+    # Cache config classes
+    if name in ("MemoryConfig", "RedisConfig"):
+        from mcpstore.config import MemoryConfig, RedisConfig
 
-try:
-    from mcpstore.adapters.openai_adapter import OpenAIAdapter
-except ImportError:
-    OpenAIAdapter = None
+        globals().update({
+            "MemoryConfig": MemoryConfig,
+            "RedisConfig": RedisConfig,
+        })
+        return globals()[name]
 
-try:
-    from mcpstore.adapters.autogen_adapter import AutoGenAdapter
-except ImportError:
-    AutoGenAdapter = None
+    # Core model classes
+    if name in ("ServiceInfo", "ServiceConnectionState", "ToolInfo", "ToolExecutionRequest"):
+        from mcpstore.core.models.service import ServiceInfo, ServiceConnectionState
+        from mcpstore.core.models.tool import ToolInfo, ToolExecutionRequest
 
-try:
-    from mcpstore.adapters.llamaindex_adapter import LlamaIndexAdapter
-except ImportError:
-    LlamaIndexAdapter = None
+        globals().update({
+            "ServiceInfo": ServiceInfo,
+            "ServiceConnectionState": ServiceConnectionState,
+            "ToolInfo": ToolInfo,
+            "ToolExecutionRequest": ToolExecutionRequest,
+        })
+        return globals()[name]
 
-try:
-    from mcpstore.adapters.crewai_adapter import CrewAIAdapter
-except ImportError:
-    CrewAIAdapter = None
+    if name in ("APIResponse", "ErrorDetail", "ResponseMeta", "Pagination", "ResponseBuilder"):
+        from mcpstore.core.models.response import APIResponse, ErrorDetail, ResponseMeta, Pagination
+        from mcpstore.core.models.response_builder import ResponseBuilder
 
-try:
-    from mcpstore.adapters.semantic_kernel_adapter import SemanticKernelAdapter
-except ImportError:
-    SemanticKernelAdapter = None
+        globals().update({
+            "APIResponse": APIResponse,
+            "ErrorDetail": ErrorDetail,
+            "ResponseMeta": ResponseMeta,
+            "Pagination": Pagination,
+            "ResponseBuilder": ResponseBuilder,
+        })
+        return globals()[name]
 
-# ===== Public Exports =====
+    if name == "ErrorCode":
+        from mcpstore.core.models.error_codes import ErrorCode
+
+        globals()["ErrorCode"] = ErrorCode
+        return ErrorCode
+
+    # Core exception classes
+    if name in ("MCPStoreException", "ServiceNotFoundException", "ToolExecutionError"):
+        from mcpstore.core.exceptions import (
+            MCPStoreException,
+            ServiceNotFoundException,
+            ToolExecutionError,
+        )
+
+        globals().update({
+            "MCPStoreException": MCPStoreException,
+            "ServiceNotFoundException": ServiceNotFoundException,
+            "ToolExecutionError": ToolExecutionError,
+        })
+        return globals()[name]
+
+    # Adapter classes (lazy import, fall back to None if adapter is not installed)
+    adapters_mapping = {
+        "LangChainAdapter": "langchain_adapter",
+        "OpenAIAdapter": "openai_adapter",
+        "AutoGenAdapter": "autogen_adapter",
+        "LlamaIndexAdapter": "llamaindex_adapter",
+        "CrewAIAdapter": "crewai_adapter",
+        "SemanticKernelAdapter": "semantic_kernel_adapter",
+    }
+
+    if name in adapters_mapping:
+        module_name = adapters_mapping[name]
+        try:
+            module = __import__(f"mcpstore.adapters.{module_name}", fromlist=[name])
+            adapter_class = getattr(module, name)
+        except ImportError:
+            adapter_class = None
+
+        globals()[name] = adapter_class
+        return adapter_class
+
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
+
+# ===== Public Exports (API surface) =====
 __all__ = [
     # Core Classes
     "MCPStore",

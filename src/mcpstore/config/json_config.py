@@ -81,7 +81,7 @@ class MCPConfig:
         """
         self._json_path = json_path or os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "mcp.json")
         self.client_id = client_id
-        logger.info(f"MCP configuration initialized for client {client_id}, using file path: {self._json_path}")
+        logger.info(f"[CONFIG] MCP configuration initialized for client {client_id}, using file path: {self._json_path}")
 
     @property
     def json_path(self) -> str:
@@ -98,9 +98,9 @@ class MCPConfig:
         try:
             with open(self._json_path, 'rb') as src, open(backup_path, 'wb') as dst:
                 dst.write(src.read())
-            logger.info(f"Backup created: {backup_path}")
+            logger.info(f"[BACKUP] Backup created: {backup_path}")
         except Exception as e:
-            logger.error(f"Backup failed: {e}")
+            logger.error(f"[BACKUP] Backup failed: {e}")
             raise ConfigIOError(f"Failed to create backup: {e}")
     
     def load_config(self) -> Dict[str, Any]:
@@ -114,7 +114,7 @@ class MCPConfig:
             ConfigValidationError: If configuration is invalid
         """
         if not os.path.exists(self._json_path):
-            logger.warning(f"Configuration file does not exist: {self._json_path}, creating empty file")
+            logger.warning(f"[CONFIG] Configuration file does not exist: {self._json_path}, creating empty file")
             self.save_config({"mcpServers": {}})
             return {"mcpServers": {}}
 
