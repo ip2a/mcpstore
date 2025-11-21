@@ -436,22 +436,22 @@ class LangChainAdapter:
             services = await self._context.list_services_async()
             if not services:
                 raise RuntimeError(
-                    "无可用工具：没有已添加的MCP服务。"
-                    "请先使用 add_service() 添加服务。"
+                    "No available tools: No MCP services have been added. "
+                    "Please add services using add_service() first."
                 )
             else:
-                # 有服务但没有工具，说明服务未成功连接
+                # Services exist but no tools, indicates services failed to connect
                 failed_services = [s.name for s in services if s.status.value != 'healthy']
                 if failed_services:
                     raise RuntimeError(
-                        f"无可用工具：以下服务未成功连接: {', '.join(failed_services)}。"
-                        f"请检查服务配置和依赖是否正确，或使用 wait_service() 等待服务就绪。"
-                        f"\n提示：可以使用 list_services() 查看服务状态详情。"
+                        f"No available tools: The following services failed to connect: {', '.join(failed_services)}. "
+                        f"Please check service configuration and dependencies, or use wait_service() to wait for services to be ready. "
+                        f"\nTip: You can use list_services() to view detailed service status."
                     )
                 else:
                     raise RuntimeError(
-                        "无可用工具：服务已连接但未提供工具。"
-                        "请检查服务是否正常工作。"
+                        "No available tools: Services are connected but provide no tools. "
+                        "Please check if services are working properly."
                     )
 
         langchain_tools = []
