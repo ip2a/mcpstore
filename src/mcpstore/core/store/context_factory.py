@@ -1,6 +1,6 @@
 """
-上下文工厂模块
-负责处理 MCPStore 的上下文创建和管理功能
+Context factory module
+Responsible for handling MCPStore context creation and management functionality
 """
 
 import logging
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class ContextFactoryMixin:
-    """上下文工厂 Mixin"""
+    """Context factory Mixin"""
     
     def _create_store_context(self) -> MCPStoreContext:
         """Create store-level context"""
@@ -47,19 +47,19 @@ class ContextFactoryMixin:
         """Alias of for_agent() for backward compatibility."""
         return self.for_agent(agent_id)
 
-    # 委托方法 - 保持向后兼容性
+    # Delegation methods - maintain backward compatibility
     async def add_service(self, service_names: List[str] = None, agent_id: Optional[str] = None, **kwargs) -> bool:
         """
-        委托给 Context 层的 add_service 方法
-        保持向后兼容性
+        Delegate to Context layer add_service method
+        Maintain backward compatibility
 
         Args:
-            service_names: 服务名称列表（兼容旧版API）
-            agent_id: Agent ID（可选）
-            **kwargs: 其他参数传递给 Context 层
+            service_names: List of service names (compatible with old API)
+            agent_id: Agent ID (optional)
+            **kwargs: Other parameters passed to Context layer
 
         Returns:
-            bool: 操作是否成功
+            bool: Whether operation succeeded
         """
         context = self.for_agent(agent_id) if agent_id else self.for_store()
 

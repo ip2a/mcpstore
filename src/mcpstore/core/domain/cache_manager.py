@@ -1,11 +1,11 @@
 """
-缓存管理器 - 负责所有缓存操作
+Cache Manager - Responsible for all cache operations
 
-职责:
-1. 监听 ServiceAddRequested 事件
-2. 添加服务到缓存（事务性）
-3. 发布 ServiceCached 事件
-4. 监听 ServiceConnected 事件，更新缓存
+Responsibilities:
+1. Listen to ServiceAddRequested events
+2. Add services to cache (transactional)
+3. Publish ServiceCached events
+4. Listen to ServiceConnected events, update cache
 """
 
 import asyncio
@@ -24,16 +24,16 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class CacheTransaction:
-    """缓存事务 - 支持回滚"""
+    """Cache transaction - supports rollback"""
     agent_id: str
     operations: List[tuple[str, Callable, tuple]] = field(default_factory=list)
     
     def record(self, operation_name: str, rollback_func: Callable, *args):
-        """记录操作（用于回滚）"""
+        """Record operation (for rollback)"""
         self.operations.append((operation_name, rollback_func, args))
     
     async def rollback(self):
-        """回滚所有操作"""
+        """Rollback all operations"""
         logger.warning(f"Rolling back {len(self.operations)} cache operations for agent {self.agent_id}")
         for op_name, rollback_func, args in reversed(self.operations):
             try:
@@ -48,13 +48,13 @@ class CacheTransaction:
 
 class CacheManager:
     """
-    缓存管理器
-    
-    职责:
-    1. 监听 ServiceAddRequested 事件
-    2. 添加服务到缓存（事务性）
-    3. 发布 ServiceCached 事件
-    4. 监听 ServiceConnected 事件，更新缓存
+    Cache Manager
+
+    Responsibilities:
+    1. Listen to ServiceAddRequested events
+    2. Add services to cache (transactional)
+    3. Publish ServiceCached events
+    4. Listen to ServiceConnected events, update cache
     """
     
     def __init__(self, event_bus: EventBus, registry: 'CoreRegistry', agent_locks: 'AgentLocks'):
@@ -62,7 +62,7 @@ class CacheManager:
         self._registry = registry
         self._agent_locks = agent_locks
         
-        # 订阅事件
+        # Subscribe to events
         self._event_bus.subscribe(ServiceAddRequested, self._on_service_add_requested, priority=100)
         self._event_bus.subscribe(ServiceConnected, self._on_service_connected, priority=50)
         
@@ -70,7 +70,7 @@ class CacheManager:
     
     async def _on_service_add_requested(self, event: ServiceAddRequested):
         """
-        处理服务添加请求 - 立即添加到缓存
+        Handle service add request - immediately add to cache
         """
         logger.info(f"[CACHE] Processing ServiceAddRequested: {event.service_name}")
         logger.debug(f"[CACHE] Event details: agent_id={event.agent_id}, client_id={event.client_id}")

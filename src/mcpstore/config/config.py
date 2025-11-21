@@ -1,9 +1,13 @@
+"""
+Optimized configuration module
+Remove sys.path operations to improve import performance
+"""
 import os
 import logging
 from typing import Dict, Any, Union
 
-# 移除 sys.path.append() 操作以提升导入性能
-# 如果需要导入其他模块，请使用相对导入或正确的包结构
+# Remove sys.path.append() operations to improve import performance
+# If you need to import other modules, please use relative imports or correct package structure
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +150,7 @@ class LoggingConfig:
     def enable_debug(cls):
         """Enable debug mode"""
         cls.setup_logging(debug=True, force_reconfigure=True)
-        # 降噪第三方logger
+        # Reduce noise from third-party loggers
         import logging as _logging
         for _name in ("asyncio", "watchfiles", "uvicorn"):
             try:
@@ -172,26 +176,7 @@ HTTP_TIMEOUT_SECONDS = 10        # HTTP request timeout (seconds)
 RECONNECTION_INTERVAL_SECONDS = 60  # Reconnection attempt interval (seconds)
 
 # HTTP endpoint configuration
-STREAMABLE_HTTP_ENDPOINT = "/mcp"  # 流式HTTP端点路径
-
-# @dataclass
-# class LLMConfig:
-#     provider: str = "openai_compatible"
-#     api_key: str = ""
-#     model: str = ""
-#     base_url: Optional[str] = None
-
-# def load_llm_config() -> LLMConfig:
-#     """Load LLM configuration from environment variables (only supports openai compatible interfaces)"""
-#     api_key = os.environ.get("OPENAI_API_KEY", "")
-#     model = os.environ.get("OPENAI_MODEL", "")
-#     base_url = os.environ.get("OPENAI_BASE_URL")
-#     provider = "openai_compatible"
-#     if not api_key:
-#         logger.warning("OPENAI_API_KEY not set in environment.")
-#     if not model:
-#         logger.warning("OPENAI_MODEL not set in environment.")
-#     return LLMConfig(provider=provider, api_key=api_key, model=model, base_url=base_url)
+STREAMABLE_HTTP_ENDPOINT = "/mcp"  # Streamable HTTP endpoint path
 
 def _get_env_int(var: str, default: int) -> int:
     try:
