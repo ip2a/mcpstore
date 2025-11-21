@@ -198,15 +198,15 @@ class LangChainAdapter:
             else:
                 fields[safe_name] = (field_type, Field(**field_kwargs))
 
-        # 🎯 修复：允许空模型，不强制添加字段
-        # 对于真正无参数的工具，创建空的BaseModel
+        # [FIX] Allow empty model, don't force adding fields
+        # For truly no-parameter tools, create empty BaseModel
 
         # Determine open schema (additionalProperties)
         additional_properties = tool_info.inputSchema.get("additionalProperties", False)
         allow_extra = bool(additional_properties)
 
         with warnings.catch_warnings():
-            # 忽略 pydantic 关于字段名冲突的警告（已通过 sanitize_name 处理）
+            # Ignore pydantic warnings about field name conflicts (handled via sanitize_name)
             warnings.filterwarnings(
                 "ignore",
                 category=UserWarning,
@@ -233,9 +233,9 @@ class LangChainAdapter:
                 schema_fields = schema_info.get('properties', {})
                 field_names = list(schema_fields.keys())
 
-                # 🎯 修复：处理无参数工具的情况
+                # [FIX] Handle no-parameter tools
                 if not field_names:
-                    # 真正无参数的工具，忽略所有输入参数
+                    # Truly no-parameter tools, ignore all input parameters
                     tool_input = {}
                 else:
                     # Intelligent parameter processing for tools with parameters
@@ -330,17 +330,17 @@ class LangChainAdapter:
         async def _tool_executor(*args, **kwargs):
             tool_input = {}
             try:
-                # 获取模型字段信息
+                # Get model field information
                 schema_info = args_schema.model_json_schema()
                 schema_fields = schema_info.get('properties', {})
                 field_names = list(schema_fields.keys())
 
-                # 🎯 修复：处理无参数工具的情况（与同步版本相同的逻辑）
+                # [FIX] Handle no-parameter tools (same logic as sync version)
                 if not field_names:
-                    # 真正无参数的工具，忽略所有输入参数
+                    # Truly no-parameter tools, ignore all input parameters
                     tool_input = {}
                 else:
-                    # 智能参数处理
+                    # Intelligent parameter processing
                     if kwargs:
                         tool_input = kwargs
                     elif args:
@@ -355,12 +355,12 @@ class LangChainAdapter:
                                 if i < len(field_names):
                                     tool_input[field_names[i]] = arg_value
 
-                    # 智能填充缺失的必需参数
+                    # Intelligently fill missing required parameters
                     for field_name, field_info in schema_fields.items():
                         if field_name not in tool_input and 'default' in field_info:
                             tool_input[field_name] = field_info['default']
 
-                # 使用 Pydantic 模型验证参数
+                # Use Pydantic model to validate parameters
                 try:
                     validated_args = args_schema(**tool_input)
                 except Exception as validation_error:
@@ -370,7 +370,7 @@ class LangChainAdapter:
                             filtered_input[field_name] = tool_input[field_name]
                     validated_args = args_schema(**filtered_input)
 
-                # 调用 mcpstore 的核心方法（异步版本）
+                # Call mcpstore core method (async version)
                 result = await self._context.call_tool_async(
                     tool_name,
                     validated_args.model_dump(
@@ -408,11 +408,11 @@ class LangChainAdapter:
 
                 return output
             except Exception as e:
-                error_msg = f"工具 '{tool_name}' 执行失败: {str(e)}"
+                error_msg = f"Tool '{tool_name}' execution failed: {str(e)}"
                 if args or kwargs:
-                    error_msg += f"\n参数信息: args={args}, kwargs={kwargs}"
+                    error_msg += f"\nParameter info: args={args}, kwargs={kwargs}"
                 if tool_input:
-                    error_msg += f"\n处理后参数: {tool_input}"
+                    error_msg += f"\nProcessed parameters: {tool_input}"
                 return error_msg
         return _tool_executor
 
@@ -425,14 +425,14 @@ class LangChainAdapter:
         Get all available mcpstore tools and convert them to LangChain Tool list (asynchronous version).
 
         Raises:
-            RuntimeError: 如果没有可用的工具（所有服务都未连接成功）
+            RuntimeError: If no tools available (all services failed to connect)
         """
         mcp_tools_info = await self._context.list_tools_async()
 
-        # 🆕 检查工具是否为空，提供友好的错误提示
+        # [CHECK] If tools are empty, provide friendly error message
         if not mcp_tools_info:
             logger.warning("[LIST_TOOLS] empty=True")
-            # 检查服务状态，给出更详细的提示
+            # Check service status, provide more detailed hints
             services = await self._context.list_services_async()
             if not services:
                 raise RuntimeError(
@@ -463,7 +463,7 @@ class LangChainAdapter:
             sync_func = self._create_tool_function(tool_info.name, args_schema)
             async_coroutine = await self._create_tool_coroutine(tool_info.name, args_schema)
 
-            # 🎯 修复：基于原始schema判断参数数量，而不是转换后的
+            # [FIX] Determine parameter count based on original schema, not converted
             schema_properties = tool_info.inputSchema.get("properties", {})
             original_param_count = len(schema_properties)
 
@@ -473,9 +473,9 @@ class LangChainAdapter:
             except Exception:
                 return_direct_flag = False
 
-            # 🎯 关键修复：对于无参数工具，也应该使用StructuredTool
-            # 虽然它们没有参数，但StructuredTool的参数处理更可靠
-            # Tool类型对空字典{}有特殊的处理逻辑，可能导致参数转换问题
+            # [CRITICAL FIX] For no-parameter tools, also use StructuredTool
+            # Although they have no parameters, StructuredTool's parameter processing is more reliable
+            # Tool type has special handling for empty dict {}, which may cause parameter conversion issues
             if original_param_count >= 1:
                 # Multi-parameter tools use StructuredTool
                 lc_tool = StructuredTool(
@@ -486,8 +486,8 @@ class LangChainAdapter:
                     args_schema=args_schema,
                 )
             else:
-                # 🎯 修复：无参数工具也使用StructuredTool以避免参数转换问题
-                # 这样可以确保{}被正确处理，而不会被转换为[]
+                # [FIX] No-parameter tools also use StructuredTool to avoid parameter conversion issues
+                # This ensures {} is correctly handled and not converted to []
                 lc_tool = StructuredTool(
                     name=tool_info.name,
                     description=enhanced_description,
@@ -543,14 +543,14 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
         def _session_tool_executor(*args, **kwargs):
             tool_input = {}
             try:
-                # 🎯 Reuse parent's intelligent parameter processing
+                # [REUSE] Parent's intelligent parameter processing
                 schema_info = args_schema.model_json_schema()
                 schema_fields = schema_info.get('properties', {})
                 field_names = list(schema_fields.keys())
 
-                # 🎯 修复：处理无参数工具的情况（与父类相同的逻辑）
+                # [FIX] Handle no-parameter tools (same logic as parent class)
                 if not field_names:
-                    # 真正无参数的工具，忽略所有输入参数
+                    # Truly no-parameter tools, ignore all input parameters
                     tool_input = {}
                 else:
                     # Intelligent parameter processing (same as parent)
@@ -583,7 +583,7 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                             filtered_input[field_name] = tool_input[field_name]
                     validated_args = args_schema(**filtered_input)
 
-                # 🎯 KEY DIFFERENCE: Use session-bound execution instead of context.call_tool
+                # [KEY] Use session-bound execution instead of context.call_tool
                 logger.debug(f"[SESSION_LANGCHAIN] Executing tool '{tool_name}' via session '{self._session.session_id}'")
                 result = self._session.use_tool(
                     tool_name,
@@ -636,14 +636,14 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
         async def _session_async_tool_executor(*args, **kwargs):
             tool_input = {}
             try:
-                # 🎯 Same parameter processing as sync version
+                # [SAME] Parameter processing as sync version
                 schema_info = args_schema.model_json_schema()
                 schema_fields = schema_info.get('properties', {})
                 field_names = list(schema_fields.keys())
 
-                # 🎯 修复：处理无参数工具的情况（与同步版本相同的逻辑）
+                # [FIX] Handle no-parameter tools (same logic as sync version)
                 if not field_names:
-                    # 真正无参数的工具，忽略所有输入参数
+                    # Truly no-parameter tools, ignore all input parameters
                     tool_input = {}
                 else:
                     if kwargs:
@@ -673,7 +673,7 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                             filtered_input[field_name] = tool_input[field_name]
                     validated_args = args_schema(**filtered_input)
 
-                # 🎯 KEY DIFFERENCE: Use session-bound async execution
+                # [KEY] Use session-bound async execution
                 logger.debug(f"[SESSION_LANGCHAIN] Executing tool '{tool_name}' via session '{self._session.session_id}' (async)")
                 result = await self._session.use_tool_async(
                     tool_name,
@@ -739,7 +739,7 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
             # Enhance description (same as parent)
             enhanced_description = self._enhance_description(tool_info)
 
-            # 🎯 Create session-bound functions
+            # [CREATE] Session-bound functions
             sync_func = self._create_tool_function(tool_info.name, args_schema)
             async_coroutine = self._create_async_tool_function(tool_info.name, args_schema)
 

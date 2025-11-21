@@ -11,8 +11,8 @@ from fastmcp import Client
 logger = logging.getLogger(__name__)
 
 
-# 基于langchain_mcp_adapters源码分析的正确会话实现
-# 使用FastMCP Client的内置可重入上下文管理器特性
+# Correct session implementation based on langchain_mcp_adapters source code analysis
+# Use built-in reentrant context manager features of FastMCP Client
 
 class ToolExecutionMixin:
     """Tool execution mixin class"""
@@ -42,24 +42,24 @@ class ToolExecutionMixin:
         Strictly execute tool calls according to FastMCP official standards
 
         Args:
-            service_name: 服务名称
-            tool_name: 工具名称（FastMCP 原始名称）
-            arguments: 工具参数
-            agent_id: Agent ID（可选）
-            timeout: 超时时间（秒）
-            progress_handler: 进度处理器
-            raise_on_error: 是否在错误时抛出异常
-            session_id: 会话ID（可选，用于会话感知执行）
+            service_name: Service name
+            tool_name: Tool name (FastMCP original name)
+            arguments: Tool parameters
+            agent_id: Agent ID (optional)
+            timeout: Timeout in seconds
+            progress_handler: Progress handler
+            raise_on_error: Whether to raise exception on error
+            session_id: Session ID (optional, for session-aware execution)
 
         Returns:
-            FastMCP CallToolResult 或提取的数据
+            FastMCP CallToolResult or extracted data
         """
         from mcpstore.core.registry.tool_resolver import FastMCPToolExecutor
 
         arguments = arguments or {}
         executor = FastMCPToolExecutor(default_timeout=timeout or 30.0)
 
-        # 🎯 会话模式：使用缓存的 FastMCP Client
+        # [SESSION MODE] Use cached FastMCP Client
         if session_id:
             logger.info(f"[SESSION_EXECUTION] Using session mode for tool '{tool_name}' in service '{service_name}'")
             return await self._execute_tool_with_session(
@@ -67,7 +67,7 @@ class ToolExecutionMixin:
                 executor, timeout, progress_handler, raise_on_error
             )
 
-        # 🎯 传统模式：保持原有逻辑，确保向后兼容
+        # [TRADITIONAL MODE] Maintain original logic, ensure backward compatibility
         logger.debug(f"[TRADITIONAL_EXECUTION] Using traditional mode for tool '{tool_name}' in service '{service_name}'")
 
         try:

@@ -63,7 +63,7 @@ def run_command(
 def run_api(host: str, port: int, reload: bool, log_level: str, url_prefix: str):
     """Start MCPStore API service"""
     try:
-        typer.echo("🚀 Starting MCPStore API Server...")
+        typer.echo("[START] Starting MCPStore API Server...")
         typer.echo(f"   Host: {host}:{port}")
 
         if url_prefix:

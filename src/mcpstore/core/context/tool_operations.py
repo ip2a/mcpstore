@@ -20,12 +20,12 @@ class ToolOperationsMixin:
         - store context: aggregate tools from all client_ids under global_agent_store
         - agent context: aggregate tools from all client_ids under agent_id
 
-        智能等待机制：
-        - 远程服务：最多等待1.5秒
-        - 本地服务：最多等待5秒
-        - 状态确定后立即返回
+        Intelligent waiting mechanism:
+        - Remote services: wait up to 1.5s
+        - Local services: wait up to 5s
+        - Return immediately once status is determined
         """
-        # 统一等待策略：从 orchestrator 获取一致性快照，避免在 context 层做临时等待
+        # Unified waiting strategy: Get consistent snapshot from orchestrator, avoid temporary waits at context layer
         logger.info(f"[LIST_TOOLS] start (snapshot)")
         try:
             agent_id = self._agent_id if self._context_type == ContextType.AGENT else None
@@ -33,7 +33,7 @@ class ToolOperationsMixin:
                 self._store.orchestrator.tools_snapshot(agent_id),
                 force_background=True
             )
-            # 映射为 ToolInfo
+            # Map to ToolInfo
             result = [ToolInfo(**t) for t in snapshot if isinstance(t, dict)]
         except Exception as e:
             logger.error(f"[LIST_TOOLS] snapshot error: {e}")
@@ -51,26 +51,26 @@ class ToolOperationsMixin:
         - store context: aggregate tools from all client_ids under global_agent_store
         - agent context: aggregate tools from all client_ids under agent_id (show local names)
         """
-        # 统一改为读取 orchestrator 快照（无回退、无旧路径）
+        # Unified to read orchestrator snapshot (no fallback, no old paths)
         agent_id = self._agent_id if self._context_type == ContextType.AGENT else None
         snapshot = await self._store.orchestrator.tools_snapshot(agent_id)
         return [ToolInfo(**t) for t in snapshot if isinstance(t, dict)]
 
     def get_tools_with_stats(self) -> Dict[str, Any]:
         """
-        获取工具列表及统计信息（同步版本）
+        Get tool list and statistics (synchronous version)
 
         Returns:
-            Dict: 包含工具列表和统计信息
+            Dict: Tool list and statistics
         """
         return self._sync_helper.run_async(self.get_tools_with_stats_async(), force_background=True)
 
     async def get_tools_with_stats_async(self) -> Dict[str, Any]:
         """
-        获取工具列表及统计信息（异步版本）
+        Get tool list and statistics (asynchronous version)
 
         Returns:
-            Dict: 包含工具列表和统计信息
+            Dict: Tool list and statistics
         """
         try:
             tools = await self.list_tools_async()
@@ -347,7 +347,7 @@ class ToolOperationsMixin:
         except Exception as e:
             logger.warning(f"Failed to get available tools for resolution: {e}")
 
-        # 🚀 使用新的智能用户友好型解析器
+        # [NEW] Use new intelligent user-friendly resolver
         from mcpstore.core.registry.tool_resolver import ToolNameResolver
 
         # 检测是否为多服务场景（从已获取的工具列表推导，避免同步→异步桥导致的30s超时）
@@ -406,21 +406,21 @@ class ToolOperationsMixin:
         if self._context_type == ContextType.STORE:
             logger.info(f"[STORE] call tool='{tool_name}' fastmcp='{fastmcp_tool_name}' service='{resolution.service_name}'")
             request = ToolExecutionRequest(
-                tool_name=fastmcp_tool_name,  # 🚀 使用FastMCP标准格式
+                tool_name=fastmcp_tool_name,  # [FASTMCP] Use FastMCP standard format
                 service_name=resolution.service_name,
                 args=args,
                 **kwargs
             )
         else:
-            # Agent模式：透明代理 - 将本地服务名映射到全局服务名
+            # Agent mode: Transparent proxy - map local service name to global service name
             global_service_name = await self._map_agent_tool_to_global_service(resolution.service_name, fastmcp_tool_name)
 
             logger.info(f"[AGENT:{self._agent_id}] call tool='{tool_name}' fastmcp='{fastmcp_tool_name}' service_local='{resolution.service_name}' service_global='{global_service_name}'")
             request = ToolExecutionRequest(
-                tool_name=fastmcp_tool_name,  # 🚀 使用FastMCP标准格式
-                service_name=global_service_name,  # 使用全局服务名称
+                tool_name=fastmcp_tool_name,  # [FASTMCP] Use FastMCP standard format
+                service_name=global_service_name,  # Use global service name
                 args=args,
-                agent_id=self._store.client_manager.global_agent_store_id,  #  使用全局 Agent ID
+                agent_id=self._store.client_manager.global_agent_store_id,  # Use global Agent ID
                 **kwargs
             )
 

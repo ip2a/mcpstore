@@ -1,10 +1,10 @@
 """
-配置管理模块
-负责处理 MCPStore 的配置相关功能
+Configuration management module
+Responsible for handling MCPStore configuration related functionality
 """
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 
 from mcpstore.core.configuration.unified_config import UnifiedConfigManager
 from mcpstore.core.models.common import ConfigResponse
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class ConfigManagementMixin:
-    """配置管理 Mixin"""
+    """Configuration management Mixin"""
     
     def get_unified_config(self) -> UnifiedConfigManager:
         """Get unified configuration manager
@@ -24,9 +24,9 @@ class ConfigManagementMixin:
         return self._unified_config
 
     def get_json_config(self, client_id: Optional[str] = None) -> ConfigResponse:
-        """查询服务配置，等价于 GET /register/json（优化：使用缓存）"""
+        """Query service configuration, equivalent to GET /register/json (optimized: use cache)"""
         if not client_id or client_id == self.client_manager.global_agent_store_id:
-            # 使用 UnifiedConfigManager 读取配置（从缓存，更高效）
+            # Use UnifiedConfigManager to read config (from cache, more efficient)
             config = self._unified_config.get_mcp_config()
             return ConfigResponse(
                 success=True,
@@ -44,28 +44,75 @@ class ConfigManagementMixin:
             )
 
     def show_mcpjson(self) -> Dict[str, Any]:
-        # TODO:show_mcpjson和get_json_config是否有一定程度的重合
+        # TODO: Whether show_mcpjson and get_json_config have some overlap
         """
-        直接读取并返回 mcp.json 文件的内容（优化：使用缓存）
+        Directly read and return mcp.json file content (optimized: use cache)
 
         Returns:
-            Dict[str, Any]: mcp.json 文件的内容
+            Dict[str, Any]: Content of mcp.json file
         """
-        # 使用 UnifiedConfigManager 读取配置（从缓存，更高效）
+        # Use UnifiedConfigManager to read config (from cache, more efficient)
         return self._unified_config.get_mcp_config()
 
     async def _sync_discovered_agents_to_files(self, agents_discovered: set):
         """
-         单一数据源架构：不再同步到分片文件
-        
-        新架构下，Agent发现只需要更新缓存，所有持久化通过mcp.json完成
+        Single data source architecture: no longer sync to sharded files
+
+        In new architecture, Agent discovery only needs to update cache, all persistence done through mcp.json
         """
         try:
-            # logger.info(f" [SYNC_AGENTS] 单一数据源模式：跳过分片文件同步，已发现 {len(agents_discovered)} 个 Agent")
+            # logger.info(f" [SYNC_AGENTS] Single data source mode: Skip sharded file sync, discovered {len(agents_discovered)} agents")
             
-            # 单一数据源模式：不再写入分片文件，仅维护缓存和mcp.json
-            # logger.info(" [SYNC_AGENTS] 单一数据源模式：Agent发现完成，缓存已更新")
+            # Single data source mode: No longer write to sharded files, only maintain cache and mcp.json
+            # logger.info(" [SYNC_AGENTS] Single data source mode: Agent discovery completed, cache updated")
             pass
         except Exception as e:
-            # logger.error(f" [SYNC_AGENTS] Agent 同步失败: {e}")
+            # logger.error(f" [SYNC_AGENTS] Agent sync failed: {e}")
             raise
+
+    async def _switch_cache_backend(self, cache_config: Union["MemoryConfig", "RedisConfig", str, Dict[str, Any]]) -> None:
+        from mcpstore.config.cache_config import MemoryConfig, RedisConfig, create_kv_store_async
+
+        parsed_config = self._parse_cache_config(cache_config, MemoryConfig, RedisConfig)
+        new_kv_store = await create_kv_store_async(parsed_config, test_connection=True)
+        await self.registry.switch_backend(new_kv_store)
+
+    def _parse_cache_config(
+        self,
+        cache_config: Union["MemoryConfig", "RedisConfig", str, Dict[str, Any]],
+        memory_cls,
+        redis_cls,
+    ) -> Union["MemoryConfig", "RedisConfig"]:
+        if isinstance(cache_config, (memory_cls, redis_cls)):
+            return cache_config
+
+        if isinstance(cache_config, str):
+            if cache_config.lower() == "memory":
+                return memory_cls()
+            raise ValueError(f"Unsupported cache type string: {cache_config}")
+
+        if isinstance(cache_config, dict):
+            cache_type = str(cache_config.get("type", "")).lower()
+
+            if cache_type == "memory":
+                return memory_cls(
+                    max_size=cache_config.get("max_size"),
+                    cleanup_interval=cache_config.get("cleanup_interval", 300),
+                )
+
+            if cache_type == "redis":
+                return redis_cls(
+                    url=cache_config.get("url"),
+                    host=cache_config.get("host"),
+                    port=cache_config.get("port"),
+                    db=cache_config.get("db"),
+                    password=cache_config.get("password"),
+                    namespace=cache_config.get("namespace"),
+                    max_connections=cache_config.get("max_connections", 50),
+                    socket_timeout=cache_config.get("socket_timeout", 5.0),
+                    health_check_interval=cache_config.get("health_check_interval", 30),
+                )
+
+            raise ValueError(f"Unsupported cache type: {cache_type}")
+
+        raise ValueError(f"Invalid cache_config type: {type(cache_config)}")

@@ -19,33 +19,33 @@ class UpdateServiceAuthHelper:
 
     def __init__(self, context: 'MCPStoreContext', service_name: str, config: Dict[str, Any] = None):
         self._context = context
-        self._service_name = service_name  # 🎯 明确的服务名，不会混乱
+        self._service_name = service_name  # [CONFIG] Clear service name to avoid confusion
         self._config = config.copy() if config else {}
 
     def bearer_auth(self, auth: str) -> 'MCPStoreContext':
-        """为指定服务更新 Bearer Token 认证（兼容历史）"""
-        # 统一标准化为 Authorization 头
+        """Update Bearer Token authentication for specified service (backward compatible)"""
+        # Standardize to Authorization header
         if "headers" not in self._config:
             self._config["headers"] = {}
         self._config["headers"]["Authorization"] = f"Bearer {auth}"
         return self._execute_update()
 
     def token(self, token: str) -> 'MCPStoreContext':
-        """推荐：设置 Bearer Token（等价于 bearer_auth）"""
+        """Recommended: Set Bearer Token (equivalent to bearer_auth)"""
         if "headers" not in self._config:
             self._config["headers"] = {}
         self._config["headers"]["Authorization"] = f"Bearer {token}"
         return self._execute_update()
 
     def api_key(self, api_key: str) -> 'MCPStoreContext':
-        """推荐：设置 API Key（标准化为 X-API-Key）"""
+        """Recommended: Set API Key (standardized to X-API-Key)"""
         if "headers" not in self._config:
             self._config["headers"] = {}
         self._config["headers"]["X-API-Key"] = api_key
         return self._execute_update()
 
     def custom_headers(self, headers: Dict[str, str]) -> 'MCPStoreContext':
-        """为指定服务更新自定义请求头（显式覆盖）"""
+        """Update custom headers for specified service (explicit override)"""
         if "headers" not in self._config:
             self._config["headers"] = {}
         self._config["headers"].update(headers)
@@ -442,6 +442,30 @@ class ServiceManagementMixin:
                 - "global_agent_store": 只重置global_agent_store
         """
         return self._sync_helper.run_async(self.reset_config_async(scope), timeout=60.0, force_background=True)
+
+    def switch_cache(self, cache_config: Any) -> bool:
+        """运行时切换缓存后端（同步版本）。
+
+        仅支持 Store 上下文；Agent 上下文会抛出 ValueError。
+        """
+        return self._sync_helper.run_async(
+            self.switch_cache_async(cache_config),
+            timeout=120.0,
+            force_background=True,
+        )
+
+    async def switch_cache_async(self, cache_config: Any) -> bool:
+        """运行时切换缓存后端（异步版本）。"""
+        try:
+            if self._context_type != ContextType.STORE:
+                raise ValueError("Cache switching is only supported in STORE context")
+
+            # 委托给 Store 层的封装方法，内部会进行配置解析和连接测试
+            await self._store._switch_cache_backend(cache_config)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to switch cache backend: {e}")
+            return False
 
     async def reset_config_async(self, scope: str = "all") -> bool:
         """

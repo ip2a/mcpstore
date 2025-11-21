@@ -21,34 +21,34 @@ class ToolResolution:
 
 class ToolNameResolver:
     """
-    智能用户友好型工具名称解析器 - FastMCP 2.0 标准
+    Intelligent user-friendly tool name resolver - FastMCP 2.0 standard
 
-    🎯 核心特性：
-    1. 极度宽松的用户输入：支持任何合理格式
-    2. 严格的FastMCP标准：内部完全符合官网规范
-    3. 智能无歧义识别：自动处理单/多服务场景
-    4. 完美向后兼容：保持现有功能不变
+    [FEATURES] Core features:
+    1. Extremely loose user input: supports any reasonable format
+    2. Strict FastMCP standard: fully compliant with official specifications internally
+    3. Intelligent unambiguous recognition: automatically handles single/multi-service scenarios
+    4. Perfect backward compatibility: maintains existing functionality unchanged
 
-    📝 支持的输入格式：
-    - 原始工具名：get_current_weather
-    - 带前缀：mcpstore-demo-weather_get_current_weather
-    - 部分匹配：current_weather, weather
-    - 模糊匹配：getcurrentweather, get-current-weather
+    [SUPPORTED] Input formats:
+    - Original tool name: get_current_weather
+    - With prefix: mcpstore-demo-weather_get_current_weather
+    - Partial match: current_weather, weather
+    - Fuzzy match: getcurrentweather, get-current-weather
     """
 
     def __init__(self, available_services: List[str] = None, is_multi_server: bool = None):
         """
-        初始化智能解析器
+        Initialize intelligent resolver
 
         Args:
-            available_services: 可用服务列表
-            is_multi_server: 是否为多服务场景（None=自动检测）
+            available_services: List of available services
+            is_multi_server: Whether it's a multi-service scenario (None=auto-detect)
         """
         self.available_services = available_services or []
         self.is_multi_server = is_multi_server if is_multi_server is not None else len(self.available_services) > 1
         self._service_tools_cache: Dict[str, List[str]] = {}
 
-        # 预处理服务名映射
+        # Preprocess service name mapping
         self._service_name_mapping = {}
         for service in self.available_services:
             normalized = self._normalize_service_name(service)
@@ -59,25 +59,25 @@ class ToolNameResolver:
     
     def resolve_tool_name_smart(self, user_input: str, available_tools: List[Dict[str, Any]] = None) -> ToolResolution:
         """
-        🚀 智能用户友好型工具名称解析（新版本）
+        [SMART] Intelligent user-friendly tool name resolution (new version)
 
-        支持极度宽松的用户输入，自动转换为FastMCP标准格式：
+        Supports extremely loose user input, automatically converts to FastMCP standard format:
 
-        输入示例：
-        - "get_current_weather" → 自动识别服务并添加前缀（多服务时）
-        - "mcpstore-demo-weather_get_current_weather" → 解析并验证
-        - "weather" → 智能匹配最相似的工具
-        - "getcurrentweather" → 模糊匹配并建议
+        Input examples:
+        - "get_current_weather" → Auto-detect service and add prefix (multi-service)
+        - "mcpstore-demo-weather_get_current_weather" → Parse and validate
+        - "weather" → Intelligently match most similar tool
+        - "getcurrentweather" → Fuzzy match and suggest
 
         Args:
-            user_input: 用户输入的工具名称（任何格式）
-            available_tools: 可用工具列表
+            user_input: User input tool name (any format)
+            available_tools: List of available tools
 
         Returns:
-            ToolResolution: 包含FastMCP标准格式的解析结果
+            ToolResolution: Resolution result containing FastMCP standard format
         """
         if not user_input or not isinstance(user_input, str):
-            raise ValueError("工具名称不能为空")
+            raise ValueError("Tool name cannot be empty")
 
         user_input = user_input.strip()
         logger.debug(f"[SMART_RESOLVE] start input='{user_input}' multi_server={self.is_multi_server}")

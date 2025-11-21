@@ -36,15 +36,15 @@ class SessionManagementMixin:
 
         This will be called as part of MCPStoreContext.__init__()
         """
-        # 🎯 自动会话模式状态
+        # [AUTO] Auto session mode state
         self._auto_session_enabled = False
         self._auto_session: Optional['Session'] = None
         self._auto_session_config: Dict[str, Any] = {}
 
-        # 🎯 会话缓存（避免重复创建 Session 对象）
+        # [CACHE] Session cache (avoid creating Session objects repeatedly)
         self._session_cache: Dict[str, 'Session'] = {}
 
-        # 🎯 当前激活会话（隐式会话路由用）
+        # [ACTIVE] Current active session (for implicit session routing)
         self._active_session: Optional['Session'] = None
 
 
@@ -75,10 +75,10 @@ class SessionManagementMixin:
             # Can be accessed from any context via user_session_id
         """
         try:
-            # 🎯 获取有效的 agent_id
+            # [AGENT] Get effective agent_id
             effective_agent_id = self._get_effective_agent_id()
 
-            # 🎯 使用增强的 SessionManager 创建命名会话
+            # [SESSION] Use enhanced SessionManager to create named session
             if hasattr(self._store.session_manager, 'create_named_session'):
                 # Enhanced SessionManager - use named sessions
                 agent_session = self._store.session_manager.create_named_session(
@@ -88,15 +88,15 @@ class SessionManagementMixin:
                 # Fallback to original SessionManager
                 agent_session = self._store.session_manager.create_session(effective_agent_id)
 
-            # 🎯 创建用户友好的 Session 对象
+            # [CREATE] User-friendly Session object
             from .session import Session
             session = Session(self, session_id, agent_session)
 
-            # 🎯 缓存 Session 对象
+            # [CACHE] Session object
             cache_key = f"{effective_agent_id}:{session_id}"
             self._session_cache[cache_key] = session
 
-            # 🎯 如果有 user_session_id，也缓存这个映射
+            # [MAPPING] If user_session_id exists, also cache this mapping
             if user_session_id:
                 self._session_cache[f"user:{user_session_id}"] = session
 
@@ -131,13 +131,13 @@ class SessionManagementMixin:
             auto_session = store.for_store().find_session()
         """
         try:
-            # 🎯 如果没有指定 session_id，返回自动会话
+            # [AUTO] If no session_id specified, return auto session
             if session_id is None:
                 return self._auto_session if self._auto_session_enabled else None
 
-            # 🎯 如果是跨上下文访问
+            # [CROSS-CONTEXT] If cross-context access
             if is_user_session_id:
-                # 先检查用户会话缓存
+                # First check user session cache
                 user_cache_key = f"user:{session_id}"
                 if user_cache_key in self._session_cache:
                     session = self._session_cache[user_cache_key]
