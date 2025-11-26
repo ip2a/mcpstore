@@ -200,7 +200,7 @@ async def agent_summary(agent_id: str):
 @agent_router.post("/for_agent/{agent_id}/reset_service", response_model=APIResponse)
 @timed_response
 async def agent_reset_service(agent_id: str, request: Request):
-    """Reset service status at agent level"""
+    """Reset service status at agent level (via Application Service)"""
     validate_agent_id(agent_id)
     body = await request.json()
     
@@ -221,12 +221,32 @@ async def agent_reset_service(agent_id: str, request: Request):
             field="service_name"
         )
 
-    # Call init_service method to reset status
-    await context.init_service_async(
-        client_id_or_service_name=identifier,
-        client_id=client_id,
-        service_name=service_name
+    # 解析到全局服务名（Agent 视角 → Store 全局命名空间）
+    raw = service_name or identifier or client_id
+    try:
+        resolved_client_id, resolved_service_name = context._resolve_client_id(raw, agent_id)
+    except Exception as e:
+        return ResponseBuilder.error(
+            code=ErrorCode.VALIDATION_ERROR,
+            message=str(e),
+            field="service_name"
+        )
+
+    global_agent_id = store.client_manager.global_agent_store_id
+    app_service = store.container.service_application_service
+
+    ok = await app_service.reset_service(
+        agent_id=global_agent_id,
+        service_name=resolved_service_name,
+        wait_timeout=0.0,
     )
+
+    if not ok:
+        return ResponseBuilder.error(
+            code=ErrorCode.SERVICE_OPERATION_FAILED,
+            message=f"Failed to reset service '{used_identifier}' for agent '{agent_id}'",
+            field="service_name"
+        )
     
     return ResponseBuilder.success(
         message=f"Service '{used_identifier}' reset successfully for agent '{agent_id}'",
@@ -623,19 +643,35 @@ async def agent_restart_service(agent_id: str, request: Request):
             field="service_name"
         )
 
-    # Call SDK
     store = get_store()
     context = store.for_agent(agent_id)
-    
-    result = await context.restart_service_async(service_name)
-    
+
+    # 使用 Agent 解析逻辑将本地服务名解析为全局服务名
+    try:
+        _, global_service_name = context._resolve_client_id(service_name, agent_id)
+    except Exception as e:
+        return ResponseBuilder.error(
+            code=ErrorCode.SERVICE_NOT_FOUND,
+            message=str(e),
+            field="service_name"
+        )
+
+    global_agent_id = store.client_manager.global_agent_store_id
+    app_service = store.container.service_application_service
+
+    result = await app_service.restart_service(
+        service_name=global_service_name,
+        agent_id=global_agent_id,
+        wait_timeout=0.0,
+    )
+
     if not result:
         return ResponseBuilder.error(
             code=ErrorCode.SERVICE_OPERATION_FAILED,
             message=f"Failed to restart service '{service_name}' for agent '{agent_id}'",
             field="service_name"
         )
-    
+
     return ResponseBuilder.success(
         message=f"Service '{service_name}' restarted for agent '{agent_id}'",
         data={"agent_id": agent_id, "service_name": service_name, "restarted": True}
@@ -683,28 +719,42 @@ async def agent_get_service_status(agent_id: str, service_name: str):
     store = get_store()
     context = store.for_agent(agent_id)
 
-    # Find service
-    service = None
-    all_services = await context.list_services_async()
-    for s in all_services:
-        if s.name == service_name:
-            service = s
-            break
+    # 使用 Agent 解析逻辑将本地服务名解析为全局服务名
+    try:
+        _, global_service_name = context._resolve_client_id(service_name, agent_id)
+    except Exception as e:
+        return ResponseBuilder.error(
+            code=ErrorCode.SERVICE_NOT_FOUND,
+            message=str(e),
+            field="service_name"
+        )
 
-    if not service:
+    global_agent_id = store.client_manager.global_agent_store_id
+    app_service = store.container.service_application_service
+
+    status = await app_service.get_service_status(
+        agent_id=global_agent_id,
+        service_name=global_service_name,
+    )
+
+    # 如果状态为 unknown 且没有 client_id，视为服务不存在或已移除
+    if status.get("status") == "unknown" and not status.get("client_id"):
         return ResponseBuilder.error(
             code=ErrorCode.SERVICE_NOT_FOUND,
             message=f"Service '{service_name}' not found for agent '{agent_id}'",
             field="service_name"
         )
 
-    # Simplify status information
+    # 保持原有返回结构：name/status/is_active
+    effective_status = status.get("status", "unknown")
+    is_active = effective_status not in {"disconnected", "unknown", "error"}
+
     status_info = {
-        "name": service.name,
-        "status": service.status.value if hasattr(service.status, 'value') else str(service.status),
-        "is_active": getattr(service, 'state_metadata', None) is not None
+        "name": service_name,
+        "status": effective_status,
+        "is_active": is_active,
     }
-    
+
     return ResponseBuilder.success(
         message=f"Service status retrieved for '{service_name}' in agent '{agent_id}'",
         data=status_info

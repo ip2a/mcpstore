@@ -104,6 +104,7 @@ class ServiceContainer:
         self._service_app_service = ServiceApplicationService(
             event_bus=self._event_bus,
             registry=self._registry,
+            lifecycle_manager=self._lifecycle_manager,
             global_agent_store_id=self._global_agent_store_id
         )
 

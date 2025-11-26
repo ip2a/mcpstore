@@ -311,35 +311,80 @@ async def store_reset_service(request: Request):
     重置已存在服务的状态到 INITIALIZING，清除所有错误计数和历史记录
     """
     body = await request.json()
-    
+
     store = get_store()
-    context = store.for_store()
-    
+
     # 提取参数
     identifier = body.get("identifier")
     client_id = body.get("client_id")
     service_name = body.get("service_name")
-    
-    # 确定使用的标识符
+
     used_identifier = service_name or identifier or client_id
-    
+
     if not used_identifier:
         return ResponseBuilder.error(
             code=ErrorCode.VALIDATION_ERROR,
             message="Missing service identifier",
             field="service_name"
         )
-    
-    # 调用 init_service 方法重置状态
-    await context.init_service_async(
-        client_id_or_service_name=identifier,
-        client_id=client_id,
-        service_name=service_name
+
+    agent_id = store.client_manager.global_agent_store_id
+    registry = store.registry
+
+    # 尝试解析最终的 service_name（Store 级别只处理全局服务名/确定性 client_id）
+    resolved_service_name = None
+
+    # 优先显式 service_name
+    if service_name:
+        resolved_service_name = service_name
+    else:
+        raw = identifier or client_id
+        if raw:
+            try:
+                from mcpstore.core.utils.id_generator import ClientIDGenerator
+
+                if ClientIDGenerator.is_deterministic_format(raw):
+                    parsed = ClientIDGenerator.parse_client_id(raw)
+                    if parsed.get("type") == "store":
+                        resolved_service_name = parsed.get("service_name")
+                    else:
+                        return ResponseBuilder.error(
+                            code=ErrorCode.VALIDATION_ERROR,
+                            message="Client ID type is not supported for store reset",
+                            field="client_id"
+                        )
+            except Exception:
+                # 解析失败时退化为直接视为服务名（与原实现中将 identifier 视为名称的行为对齐）
+                resolved_service_name = raw
+
+    if not resolved_service_name:
+        resolved_service_name = used_identifier
+
+    # 校验服务是否存在
+    if not registry.has_service(agent_id, resolved_service_name):
+        return ResponseBuilder.error(
+            code=ErrorCode.SERVICE_NOT_FOUND,
+            message=f"Service '{resolved_service_name}' not found",
+            field="service_name"
+        )
+
+    app_service = store.container.service_application_service
+    ok = await app_service.reset_service(
+        agent_id=agent_id,
+        service_name=resolved_service_name,
+        wait_timeout=0.0,
     )
-    
+
+    if not ok:
+        return ResponseBuilder.error(
+            code=ErrorCode.SERVICE_OPERATION_FAILED,
+            message=f"Failed to reset service '{resolved_service_name}'",
+            field="service_name"
+        )
+
     return ResponseBuilder.success(
-        message=f"Service '{used_identifier}' reset successfully",
-        data={"service_name": used_identifier, "status": "initializing"}
+        message=f"Service '{resolved_service_name}' reset successfully",
+        data={"service_name": resolved_service_name, "status": "initializing"}
     )
 
 @store_router.get("/for_store/list_tools", response_model=APIResponse)
@@ -837,11 +882,17 @@ async def store_restart_service(request: Request):
             field="service_name"
         )
     
-    # 调用 SDK
+    # 调用应用服务（通过 ServiceApplicationService 收敛生命周期操作）
     store = get_store()
-    context = store.for_store()
-    
-    result = await context.restart_service_async(service_name)
+
+    app_service = store.container.service_application_service
+    agent_id = store.client_manager.global_agent_store_id
+
+    result = await app_service.restart_service(
+        service_name=service_name,
+        agent_id=agent_id,
+        wait_timeout=0.0,  # 与原实现保持一致：不等待收敛
+    )
     
     if not result:
         return ResponseBuilder.error(
@@ -967,38 +1018,25 @@ async def store_get_service_info_detailed(service_name: str):
 async def store_get_service_status(service_name: str):
     """获取服务状态（轻量级，纯缓存读取）"""
     store = get_store()
-    context = store.for_store()
-    
-    # 查找服务
-    all_services = context.list_services()
-    service = None
-    for s in all_services:
-        s_name = s.get("name") if isinstance(s, dict) else s.name
-        if s_name == service_name:
-            service = s
-            break
-    
-    if not service:
+    agent_id = store.client_manager.global_agent_store_id
+
+    # 先按 Registry 视角检查服务是否存在
+    if not store.registry.has_service(agent_id, service_name):
         return ResponseBuilder.error(
             code=ErrorCode.SERVICE_NOT_FOUND,
             message=f"Service '{service_name}' not found",
             field="service_name"
         )
-    
-    # 简化的状态信息（兼容字典和对象）
-    if isinstance(service, dict):
-        status_info = {
-            "name": service.get("name", ""),
-            "status": service.get("status", "unknown"),
-            "client_id": service.get("client_id", "")
-        }
-    else:
-        status_info = {
-            "name": service.name,
-            "status": service.status.value if service.status else "unknown",
-            "client_id": service.client_id or ""
-        }
-    
+
+    app_service = store.container.service_application_service
+    status = await app_service.get_service_status(agent_id=agent_id, service_name=service_name)
+
+    status_info = {
+        "name": service_name,
+        "status": status.get("status", "unknown"),
+        "client_id": status.get("client_id", "") or "",
+    }
+
     return ResponseBuilder.success(
         message=f"Service status retrieved for '{service_name}'",
         data=status_info
