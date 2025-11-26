@@ -19,6 +19,7 @@ from mcpstore.core.events.service_events import (
     ServiceTimeout, ServiceStateChanged
 )
 from mcpstore.core.models.service import ServiceConnectionState
+from mcpstore.core.lifecycle.config import ServiceLifecycleConfig
 from mcpstore.core.utils.mcp_client_helpers import temp_client_for_service
 
 logger = logging.getLogger(__name__)
@@ -39,19 +40,19 @@ class HealthMonitor:
         self,
         event_bus: EventBus,
         registry: 'CoreRegistry',
-        check_interval: float = 30.0,  # 正常健康检查间隔（秒）
-        timeout_threshold: float = 300.0,  # 初始化超时（秒）
-        ping_timeout: float = 10.0,  # ping 调用超时（秒）
-        warning_interval: float = 10.0,  # 警告状态下的检查间隔（秒）
+        lifecycle_config: 'ServiceLifecycleConfig',
         global_agent_store_id: str = "global_agent_store",
     ):
         self._event_bus = event_bus
         self._registry = registry
-        self._check_interval = check_interval
-        self._warning_interval = warning_interval
-        self._timeout_threshold = timeout_threshold
-        self._ping_timeout = ping_timeout
+        self._config = lifecycle_config
         self._global_agent_store_id = global_agent_store_id
+
+        # 从统一生命周期配置中读取参数
+        self._check_interval = lifecycle_config.normal_heartbeat_interval
+        self._warning_interval = lifecycle_config.warning_heartbeat_interval
+        self._timeout_threshold = lifecycle_config.initialization_timeout
+        self._ping_timeout = lifecycle_config.health_check_ping_timeout
 
         # 健康检查任务跟踪
         self._health_check_tasks: Dict[Tuple[str, str], asyncio.Task] = {}  # (agent_id, service_name) -> task
@@ -63,8 +64,9 @@ class HealthMonitor:
         self._event_bus.subscribe(ServiceStateChanged, self._on_state_changed, priority=20)
 
         logger.info(
-            f"HealthMonitor initialized (bus={hex(id(self._event_bus))}, normal_interval={check_interval}s, warning_interval={warning_interval}s, "
-            f"timeout={timeout_threshold}s, ping_timeout={ping_timeout}s)"
+            f"HealthMonitor initialized (bus={hex(id(self._event_bus))}, "
+            f"normal_interval={self._check_interval}s, warning_interval={self._warning_interval}s, "
+            f"timeout={self._timeout_threshold}s, ping_timeout={self._ping_timeout}s)"
         )
 
     async def start(self):

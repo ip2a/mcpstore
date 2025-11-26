@@ -15,7 +15,6 @@ from mcpstore.core.store.client_manager import ClientManager
 from mcpstore.core.integration.local_service_adapter import get_local_service_manager
 from mcpstore.core.registry import ServiceRegistry
 # Import mixin classes
-from .monitoring_tasks import MonitoringTasksMixin
 from .network_utils import NetworkUtilsMixin
 from .resources_prompts import ResourcesPromptsMixin
 from .service_connection import ServiceConnectionMixin
@@ -26,7 +25,6 @@ from .tool_execution import ToolExecutionMixin
 logger = logging.getLogger(__name__)
 
 class MCPOrchestrator(
-    MonitoringTasksMixin,
     ServiceConnectionMixin,
     ToolExecutionMixin,
     ServiceManagementMixin,

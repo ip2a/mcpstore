@@ -198,17 +198,8 @@ class ConfigExportMixin:
             List of Agent IDs
         """
         try:
-            # Get all agent IDs from agent_clients mapping
-            agent_ids = set()
-            
-            # Access agent_clients from registry
-            if hasattr(self.registry, 'agent_clients'):
-                agent_ids.update(self.registry.agent_clients.keys())
-            
-            # Also check service_to_client mapping
-            if hasattr(self.registry, 'service_to_client'):
-                agent_ids.update(self.registry.service_to_client.keys())
-            
+            # Use Registry API to get all Agent IDs from cache
+            agent_ids = self.registry.get_all_agent_ids()
             return list(agent_ids)
             
         except Exception as e:

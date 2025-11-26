@@ -18,89 +18,6 @@ class ServiceStateMachine:
     def __init__(self, config: ServiceLifecycleConfig):
         self.config = config
     
-    async def handle_success_transition(self, agent_id: str, service_name: str,
-                                       current_state: ServiceConnectionState,
-                                       get_metadata_func, transition_func):
-        """Handle state transitions on success"""
-        logger.debug(f"[SUCCESS_TRANSITION] processing service='{service_name}' current_state={current_state}")
-
-        if current_state in [ServiceConnectionState.INITIALIZING,
-                           ServiceConnectionState.WARNING,
-                           ServiceConnectionState.RECONNECTING,
-                           ServiceConnectionState.UNREACHABLE]:  #  Added: UNREACHABLE can also recover to HEALTHY
-            #  Fix: Reset all failure-related counters on successful transition
-            metadata = get_metadata_func(agent_id, service_name)
-            if metadata:
-                metadata.consecutive_failures = 0
-                metadata.reconnect_attempts = 0
-                metadata.next_retry_time = None
-                metadata.error_message = None
-                logger.debug(f"[SUCCESS_TRANSITION] reset_counters service='{service_name}'")
-            await transition_func(agent_id, service_name, ServiceConnectionState.HEALTHY)
-        elif current_state == ServiceConnectionState.HEALTHY:
-            logger.debug(f"[SUCCESS_TRANSITION] already_healthy service='{service_name}'")
-        elif current_state in [ServiceConnectionState.DISCONNECTING, ServiceConnectionState.DISCONNECTED]:
-            logger.debug(f"[SUCCESS_TRANSITION] no_transition service='{service_name}' reason='disconnecting/disconnected'")
-        else:
-            logger.debug(f"[SUCCESS_TRANSITION] no_rules state={current_state}")
-
-        logger.debug(f"[SUCCESS_TRANSITION] completed service='{service_name}'")
-    
-    async def handle_failure_transition(self, agent_id: str, service_name: str,
-                                       current_state: ServiceConnectionState,
-                                       get_metadata_func, transition_func):
-        """Handle state transition on failure"""
-        logger.debug(f"[FAILURE_TRANSITION] start service='{service_name}' current_state={current_state}")
-
-        metadata = get_metadata_func(agent_id, service_name)
-        if not metadata:
-            logger.error(f"[FAILURE_TRANSITION] no_metadata service='{service_name}'")
-            return
-
-        logger.debug(f"[FAILURE_TRANSITION] metadata failures={metadata.consecutive_failures} reconnect_attempts={metadata.reconnect_attempts}")
-        logger.debug(f"[FAILURE_TRANSITION] thresholds warning={self.config.warning_failure_threshold} reconnecting={self.config.reconnecting_failure_threshold} max_reconnect={self.config.max_reconnect_attempts}")
-
-        if current_state == ServiceConnectionState.HEALTHY:
-            logger.debug(f"[FAILURE_TRANSITION] healthy_processing")
-            if metadata.consecutive_failures >= self.config.warning_failure_threshold:
-                logger.debug(f"[FAILURE_TRANSITION] transition HEALTHY->WARNING failures={metadata.consecutive_failures} threshold={self.config.warning_failure_threshold}")
-                await transition_func(agent_id, service_name, ServiceConnectionState.WARNING)
-            else:
-                logger.debug(f"[FAILURE_TRANSITION] not_enough_failures failures={metadata.consecutive_failures} threshold={self.config.warning_failure_threshold}")
-
-        elif current_state == ServiceConnectionState.WARNING:
-            logger.debug(f"[FAILURE_TRANSITION] warning_processing")
-            if metadata.consecutive_failures >= self.config.reconnecting_failure_threshold:
-                logger.debug(f"[FAILURE_TRANSITION] transition WARNING->RECONNECTING failures={metadata.consecutive_failures} threshold={self.config.reconnecting_failure_threshold}")
-                await transition_func(agent_id, service_name, ServiceConnectionState.RECONNECTING)
-            else:
-                logger.debug(f"[FAILURE_TRANSITION] not_enough_failures failures={metadata.consecutive_failures} threshold={self.config.reconnecting_failure_threshold}")
-
-        elif current_state == ServiceConnectionState.INITIALIZING:
-            logger.debug(f"[FAILURE_TRANSITION] initializing_processing")
-            # First connection failure should directly enter RECONNECTING, not wait for threshold
-            logger.debug(f"[FAILURE_TRANSITION] transition INITIALIZING->RECONNECTING reason='first_failure'")
-            await transition_func(agent_id, service_name, ServiceConnectionState.RECONNECTING)
-
-        elif current_state == ServiceConnectionState.RECONNECTING:
-            logger.debug(f"[FAILURE_TRANSITION] reconnecting_processing")
-            if metadata.reconnect_attempts >= self.config.max_reconnect_attempts:
-                logger.debug(f"[FAILURE_TRANSITION] transition RECONNECTING->UNREACHABLE attempts={metadata.reconnect_attempts} threshold={self.config.max_reconnect_attempts}")
-                await transition_func(agent_id, service_name, ServiceConnectionState.UNREACHABLE)
-            else:
-                logger.debug(f"[FAILURE_TRANSITION] not_enough_attempts attempts={metadata.reconnect_attempts} threshold={self.config.max_reconnect_attempts}")
-
-        elif current_state == ServiceConnectionState.UNREACHABLE:
-            logger.debug(f"[FAILURE_TRANSITION] unreachable_final_state=True")
-
-        elif current_state in [ServiceConnectionState.DISCONNECTING, ServiceConnectionState.DISCONNECTED]:
-            logger.debug(f"[FAILURE_TRANSITION] no_transition service='{service_name}' reason='disconnecting/disconnected'")
-
-        else:
-            logger.debug(f"⏸️ [FAILURE_TRANSITION] No transition rules for state {current_state}")
-
-        logger.debug(f"[FAILURE_TRANSITION] completed service='{service_name}'")
-    
     async def transition_to_state(self, agent_id: str, service_name: str,
                                  new_state: ServiceConnectionState,
                                  get_state_func, get_metadata_func, 
@@ -142,12 +59,6 @@ class ServiceStateMachine:
             await enter_disconnecting_func(agent_id, service_name)
         elif new_state == ServiceConnectionState.HEALTHY:
             await enter_healthy_func(agent_id, service_name)
-    
-    def calculate_reconnect_delay(self, reconnect_attempts: int) -> float:
-        """Calculate reconnection delay (exponential backoff)"""
-        delay = min(self.config.base_reconnect_delay * (2 ** reconnect_attempts), 
-                   self.config.max_reconnect_delay)
-        return delay
     
     def should_retry_now(self, metadata: ServiceStateMetadata) -> bool:
         """Determine if should retry immediately"""

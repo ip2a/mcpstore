@@ -174,7 +174,7 @@ class ToolOperationsMixin:
 
             # 2. Iterate through each client_id to find the client containing this service
             for client_id in client_ids:
-                client_config = self.registry.client_configs.get(client_id, {})
+                client_config = self.registry.get_client_config_from_cache(client_id) or {}
                 if service_name in client_config.get("mcpServers", {}):
                     return client_id
 

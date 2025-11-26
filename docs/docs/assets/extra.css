@@ -1,0 +1,10 @@
+/* Hide site title text next to the logo but keep flex container for right alignment */
+.md-header__title .md-ellipsis {
+  display: none;
+}
+
+/* Optional: remove extra gap after the logo */
+.md-header__title {
+  margin-left: 0;
+}
+

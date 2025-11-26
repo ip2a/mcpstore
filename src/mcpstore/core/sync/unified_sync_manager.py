@@ -198,9 +198,15 @@ class UnifiedMCPSyncManager:
 
                 logger.info("Starting global_agent_store sync from mcp.json")
 
-                # 读取最新配置
                 config = self.orchestrator.mcp_config.load_config()
                 services = config.get("mcpServers", {})
+
+                sync_manager = getattr(self.orchestrator, "config_sync_manager", None)
+                if sync_manager is not None:
+                    try:
+                        await sync_manager.sync_json_to_cache(self.mcp_json_path, overwrite=True)
+                    except Exception as e:
+                        logger.warning(f"JSON to KV sync failed during global sync: {e}")
 
                 logger.debug(f"Found {len(services)} services in mcp.json")
 
@@ -448,20 +454,25 @@ class UnifiedMCPSyncManager:
                 )
                 logger.debug(f" 生成新client_id: {service_name} -> {client_id}")
 
-            # 更新缓存映射1：Agent-Client映射
-            if agent_id not in registry.agent_clients:
-                registry.agent_clients[agent_id] = []
-            if client_id not in registry.agent_clients[agent_id]:
-                registry.agent_clients[agent_id].append(client_id)
+            # 更新缓存映射1：Agent-Client映射（通过Registry公共API）
+            try:
+                registry.add_agent_client_mapping(agent_id, client_id)
+            except Exception as e:
+                logger.error(f"Failed to add agent-client mapping for {agent_id}/{client_id}: {e}")
+                return False
 
-            # 更新缓存映射2：Client配置映射
-            registry.client_configs[client_id] = {
-                "mcpServers": {service_name: service_config}
-            }
+            # 更新缓存映射2：Client配置映射（通过Registry公共API）
+            try:
+                registry.add_client_config(client_id, {
+                    "mcpServers": {service_name: service_config}
+                })
+            except Exception as e:
+                logger.error(f"Failed to add client config for {client_id}: {e}")
+                return False
 
             logger.debug(f"缓存映射更新成功: {service_name} -> {client_id}")
-            logger.debug(f"   - agent_clients[{agent_id}] 已更新")
-            logger.debug(f"   - client_configs[{client_id}] 已更新")
+            logger.debug(f"   - agent_clients[{agent_id}] 已通过Registry API更新")
+            logger.debug(f"   - client_configs[{client_id}] 已通过Registry API更新")
             return True
 
         except Exception as e:
@@ -484,12 +495,12 @@ class UnifiedMCPSyncManager:
             if not registry:
                 return None
 
-            # 获取该agent的所有client_id
-            client_ids = registry.agent_clients.get(agent_id, [])
+            # 获取该agent的所有client_id（通过Registry公共API）
+            client_ids = registry.get_agent_clients_from_cache(agent_id)
 
             # 遍历每个client_id，检查是否包含目标服务
             for client_id in client_ids:
-                client_config = registry.client_configs.get(client_id, {})
+                client_config = registry.get_client_config_from_cache(client_id) or {}
                 if service_name in client_config.get("mcpServers", {}):
                     logger.debug(f" 找到现有client_id: {service_name} -> {client_id}")
                     return client_id

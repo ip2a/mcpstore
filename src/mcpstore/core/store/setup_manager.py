@@ -120,6 +120,7 @@ class StoreSetupManager:
             MemoryConfig, RedisConfig, detect_strategy, 
             create_kv_store, get_namespace, start_health_check
         )
+        from mcpstore.core.registry.config_sync_manager import ConfigSyncManager
         
         # Handle cache configuration
         # Priority: cache parameter > external_db (deprecated) > default MemoryConfig
@@ -167,8 +168,14 @@ class StoreSetupManager:
         kv_store = create_kv_store(cache)
         logger.info(f"Created KV store: {type(kv_store).__name__}")
         
-        # Initialize ServiceRegistry with KV store
         registry = ServiceRegistry(kv_store=kv_store)
+
+        config_sync_manager = None
+        if strategy.value == "json_custom":
+            namespace = None
+            if isinstance(cache, RedisConfig):
+                namespace = get_namespace(cache)
+            config_sync_manager = ConfigSyncManager(kv_store, namespace=namespace)
         
         # Track Redis client lifecycle (for cleanup)
         _user_provided_redis_client = None
@@ -235,6 +242,12 @@ class StoreSetupManager:
         from mcpstore.core.orchestrator import MCPOrchestrator
         orchestrator = MCPOrchestrator(base_cfg, registry, mcp_config=config)
 
+        if config_sync_manager is not None:
+            try:
+                orchestrator.config_sync_manager = config_sync_manager
+            except Exception:
+                pass
+
         # 6) 实例化 Store（固定组合类）
         from mcpstore.core.store.composed_store import MCPStore as _MCPStore
         store = _MCPStore(orchestrator, config)
@@ -246,6 +259,15 @@ class StoreSetupManager:
         helper = AsyncSyncHelper()
         # 保持后台事件循环常驻，避免组件启动后立即被清理导致状态无法收敛
         helper.run_async(orchestrator.setup(), force_background=True)
+
+        if config_sync_manager is not None:
+            try:
+                helper.run_async(
+                    config_sync_manager.sync_json_to_cache(config.json_path, overwrite=True),
+                    force_background=False,
+                )
+            except Exception as e:
+                logger.warning(f"Initial JSON to KV config sync failed: {e}")
         try:
             setattr(store, "_background_helper", helper)
         except Exception:
