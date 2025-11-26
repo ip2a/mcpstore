@@ -10,6 +10,7 @@ from ..models.service import ServiceConnectionState, ServiceStateMetadata
 
 from .atomic import atomic_write
 from .exception_mapper import map_kv_exception
+from .state_backend import KVRegistryStateBackend, RegistryStateBackend
 
 if TYPE_CHECKING:
     from key_value.aio.protocols import AsyncKeyValue
@@ -53,6 +54,8 @@ class ServiceRegistry:
         
         # Store the py-key-value instance
         self._kv_store: 'AsyncKeyValue' = kv_store
+        # Initialize KV-backed state backend
+        self._state_backend: RegistryStateBackend = KVRegistryStateBackend(self._kv_store)
         
         # Create a no-op cache_backend for backward compatibility with @atomic_write decorator
         # The decorator expects begin(), commit(), rollback() methods
@@ -426,31 +429,9 @@ class ServiceRegistry:
             CacheConnectionError: If cache connection fails
             CacheValidationError: If data validation fails
         """
-        collection = self._get_collection(agent_id, "tools")
-        
-        # Get all keys in the collection
-        if hasattr(self._kv_store, 'keys'):
-            keys = await self._kv_store.keys(collection=collection)
-        else:
-            # Fallback: return empty dict if keys() not supported
-            logger.warning(f"Store does not support keys() method for collection {collection}")
-            return {}
-        
-        if not keys:
-            return {}
-        
-        # Get all tool definitions
-        if hasattr(self._kv_store, 'get_many'):
-            values = await self._kv_store.get_many(keys, collection=collection)
-            return dict(zip(keys, values))
-        else:
-            # Fallback: get one by one
-            result = {}
-            for key in keys:
-                value = await self._kv_store.get(key, collection=collection)
-                if value is not None:
-                    result[key] = value
-            return result
+        # Delegate to KV-backed state backend
+        tools = await self._state_backend.list_tools(agent_id)
+        return tools
     
     @map_kv_exception
     async def set_tool_cache_async(self, agent_id: str, tool_name: str, tool_def: Dict[str, Any]) -> None:
@@ -470,14 +451,9 @@ class ServiceRegistry:
             CacheConnectionError: If cache connection fails
             CacheValidationError: If data validation fails
         """
-        collection = self._get_collection(agent_id, "tools")
-        
-        await self._kv_store.put(
-            key=tool_name,
-            value=tool_def,
-            collection=collection
-        )
-        
+        # Delegate to KV-backed state backend
+        await self._state_backend.set_tool(agent_id, tool_name, tool_def)
+
         # Also update in-memory cache for backward compatibility
         if agent_id not in self.tool_cache:
             self.tool_cache[agent_id] = {}
@@ -505,10 +481,9 @@ class ServiceRegistry:
             CacheConnectionError: If cache connection fails
             CacheValidationError: If data validation fails
         """
-        collection = self._get_collection(agent_id, "tools")
-        
-        await self._kv_store.delete(key=tool_name, collection=collection)
-        
+        # Delegate to KV-backed state backend
+        await self._state_backend.delete_tool(agent_id, tool_name)
+
         # Also update in-memory cache for backward compatibility
         if agent_id in self.tool_cache and tool_name in self.tool_cache[agent_id]:
             del self.tool_cache[agent_id][tool_name]
@@ -541,27 +516,8 @@ class ServiceRegistry:
             CacheConnectionError: If cache connection fails
             CacheValidationError: If data validation fails
         """
-        collection = self._get_collection(agent_id, "states")
-        
-        state_data = await self._kv_store.get(key=service_name, collection=collection)
-        
-        if state_data is None:
-            return None
-        
-        # Convert stored data back to ServiceConnectionState
-        if isinstance(state_data, dict):
-            state_value = state_data.get("state")
-        else:
-            state_value = state_data
-        
-        # Handle both string and enum values
-        if isinstance(state_value, str):
-            return ServiceConnectionState(state_value)
-        elif isinstance(state_value, ServiceConnectionState):
-            return state_value
-        else:
-            logger.warning(f"Invalid state data for {agent_id}/{service_name}: {state_data}")
-            return None
+        # Delegate to KV-backed state backend
+        return await self._state_backend.get_service_state(agent_id, service_name)
     
     @map_kv_exception
     async def set_service_state_async(self, agent_id: str, service_name: str, state: ServiceConnectionState) -> None:
@@ -581,26 +537,20 @@ class ServiceRegistry:
             CacheConnectionError: If cache connection fails
             CacheValidationError: If data validation fails
         """
-        collection = self._get_collection(agent_id, "states")
-        
-        # Store state as a dict with metadata
-        state_data = {
-            "state": state.value if hasattr(state, 'value') else str(state),
-            "updated_at": datetime.now().isoformat()
-        }
-        
-        await self._kv_store.put(
-            key=service_name,
-            value=state_data,
-            collection=collection
-        )
-        
+        # Delegate to KV-backed state backend
+        await self._state_backend.set_service_state(agent_id, service_name, state)
+
         # Also update in-memory cache for backward compatibility
         if agent_id not in self.service_states:
             self.service_states[agent_id] = {}
         self.service_states[agent_id][service_name] = state
         
         logger.debug(f"Set service state: agent={agent_id}, service={service_name}, state={state}")
+
+    @map_kv_exception
+    async def delete_service_state_async(self, agent_id: str, service_name: str) -> None:
+        # Delegate to KV-backed state backend
+        await self._state_backend.delete_service_state(agent_id, service_name)
 
     # === Async Service Metadata Access Methods ===
     
@@ -625,39 +575,8 @@ class ServiceRegistry:
             CacheConnectionError: If cache connection fails
             CacheValidationError: If data validation fails
         """
-        collection = self._get_collection(agent_id, "metadata")
-        
-        metadata_data = await self._kv_store.get(key=service_name, collection=collection)
-        
-        if metadata_data is None:
-            return None
-        
-        # Convert stored dict back to ServiceStateMetadata
-        if isinstance(metadata_data, dict):
-            # Reconstruct ServiceStateMetadata from dict
-            from datetime import datetime
-            
-            # Parse datetime fields
-            state_entered_time = metadata_data.get("state_entered_time")
-            if isinstance(state_entered_time, str):
-                state_entered_time = datetime.fromisoformat(state_entered_time)
-            
-            last_ping_time = metadata_data.get("last_ping_time")
-            if isinstance(last_ping_time, str):
-                last_ping_time = datetime.fromisoformat(last_ping_time)
-            
-            return ServiceStateMetadata(
-                service_name=metadata_data.get("service_name", service_name),
-                agent_id=metadata_data.get("agent_id", agent_id),
-                state_entered_time=state_entered_time or datetime.now(),
-                service_config=metadata_data.get("service_config", {}),
-                consecutive_failures=metadata_data.get("consecutive_failures", 0),
-                error_message=metadata_data.get("error_message"),
-                last_ping_time=last_ping_time
-            )
-        else:
-            logger.warning(f"Invalid metadata format for {agent_id}/{service_name}")
-            return None
+        # Delegate to KV-backed state backend
+        return await self._state_backend.get_service_metadata(agent_id, service_name)
     
     @map_kv_exception
     async def set_service_metadata_async(self, agent_id: str, service_name: str, metadata: ServiceStateMetadata) -> None:
@@ -677,31 +596,20 @@ class ServiceRegistry:
             CacheConnectionError: If cache connection fails
             CacheValidationError: If data validation fails
         """
-        collection = self._get_collection(agent_id, "metadata")
-        
-        # Convert ServiceStateMetadata to dict for storage
-        metadata_data = {
-            "service_name": metadata.service_name,
-            "agent_id": metadata.agent_id,
-            "state_entered_time": metadata.state_entered_time.isoformat() if metadata.state_entered_time else None,
-            "service_config": metadata.service_config,
-            "consecutive_failures": metadata.consecutive_failures,
-            "error_message": metadata.error_message,
-            "last_ping_time": metadata.last_ping_time.isoformat() if metadata.last_ping_time else None
-        }
-        
-        await self._kv_store.put(
-            key=service_name,
-            value=metadata_data,
-            collection=collection
-        )
-        
+        # Delegate to KV-backed state backend
+        await self._state_backend.set_service_metadata(agent_id, service_name, metadata)
+
         # Also update in-memory cache for backward compatibility
         if agent_id not in self.service_metadata:
             self.service_metadata[agent_id] = {}
         self.service_metadata[agent_id][service_name] = metadata
         
         logger.debug(f"Set service metadata: agent={agent_id}, service={service_name}")
+
+    @map_kv_exception
+    async def delete_service_metadata_async(self, agent_id: str, service_name: str) -> None:
+        # Delegate to KV-backed state backend
+        await self._state_backend.delete_service_metadata(agent_id, service_name)
 
     # === Async Tool Mapping Access Methods ===
     
@@ -728,15 +636,8 @@ class ServiceRegistry:
             CacheConnectionError: If cache connection fails
             CacheValidationError: If data validation fails
         """
-        collection = self._get_collection(agent_id, "mappings")
-        
-        wrapped_value = await self._kv_store.get(key=tool_name, collection=collection)
-        
-        if wrapped_value is None:
-            return None
-        
-        # Unwrap value (handles both new wrapped and legacy unwrapped formats)
-        return self._unwrap_scalar_value(wrapped_value)
+        # Delegate to KV-backed state backend
+        return await self._state_backend.get_tool_service(agent_id, tool_name)
     
     @map_kv_exception
     async def set_tool_to_service_mapping_async(self, agent_id: str, tool_name: str, service_name: str) -> None:
@@ -759,23 +660,20 @@ class ServiceRegistry:
             CacheConnectionError: If cache connection fails
             CacheValidationError: If data validation fails
         """
-        collection = self._get_collection(agent_id, "mappings")
-        
-        # Wrap scalar value before storage to satisfy py-key-value type requirements
-        wrapped_value = self._wrap_scalar_value(service_name)
-        
-        await self._kv_store.put(
-            key=tool_name,
-            value=wrapped_value,  # Now dict[str, Any] as expected by py-key-value
-            collection=collection
-        )
-        
+        # Delegate to KV-backed state backend
+        await self._state_backend.set_tool_service(agent_id, tool_name, service_name)
+
         # Also update in-memory cache for backward compatibility
         if agent_id not in self.tool_to_service:
             self.tool_to_service[agent_id] = {}
         self.tool_to_service[agent_id][tool_name] = service_name
         
         logger.debug(f"Set tool mapping: agent={agent_id}, tool={tool_name} -> service={service_name}")
+
+    @map_kv_exception
+    async def delete_tool_to_service_mapping_async(self, agent_id: str, tool_name: str) -> None:
+        # Delegate to KV-backed state backend
+        await self._state_backend.delete_tool_service(agent_id, tool_name)
 
     def list_tools(self, agent_id: str) -> List[Dict[str, Any]]:
         """Return a list-like snapshot of tools for the given agent_id.
@@ -932,21 +830,12 @@ class ServiceRegistry:
         # Get all tool definitions using batch operation
         all_tools_data = {}
         try:
-            if hasattr(self._kv_store, 'keys') and hasattr(self._kv_store, 'get_many'):
-                # Batch operation: get all keys first
-                all_tool_keys = await self._kv_store.keys(collection=collection)
-                if all_tool_keys:
-                    # Batch operation: get all values at once
-                    all_tool_values = await self._kv_store.get_many(all_tool_keys, collection=collection)
-                    all_tools_data = dict(zip(all_tool_keys, all_tool_values))
-                    logger.debug(f"[SNAPSHOT] Batch loaded {len(all_tools_data)} tools from py-key-value")
-            else:
-                # Fallback: use in-memory cache if batch operations not supported
-                all_tools_data = self.tool_cache.get(global_agent_id, {})
-                logger.debug(f"[SNAPSHOT] Fallback to in-memory cache, {len(all_tools_data)} tools")
+            all_tools_data = await self._state_backend.list_tools(global_agent_id)
+            logger.debug(f"[SNAPSHOT] Batch loaded {len(all_tools_data)} tools from backend")
         except Exception as e:
-            logger.warning(f"[SNAPSHOT] Batch operation failed, falling back to in-memory: {e}")
+            logger.warning(f"[SNAPSHOT] Backend list_tools failed, falling back to in-memory: {e}")
             all_tools_data = self.tool_cache.get(global_agent_id, {})
+            logger.debug(f"[SNAPSHOT] Fallback to in-memory cache, {len(all_tools_data)} tools")
         
         for service_name in service_names:
             # Get tool name list for this service
@@ -1089,6 +978,14 @@ class ServiceRegistry:
         清空指定 agent_id 的所有注册服务和工具。
         只影响该 agent_id 下的服务、工具、会话，不影响其它 agent。
         """
+        service_names = set(self.sessions.get(agent_id, {}).keys())
+        service_names.update(self.service_states.get(agent_id, {}).keys())
+        for service_name in list(service_names):
+            try:
+                self.remove_service(agent_id, service_name)
+            except Exception as e:
+                logger.warning(f"Failed to remove service {service_name} during clear for agent {agent_id}: {e}")
+
         self.sessions.pop(agent_id, None)
         self.tool_cache.pop(agent_id, None)
         self.tool_to_session_map.pop(agent_id, None)
@@ -1109,6 +1006,30 @@ class ServiceRegistry:
             )
             if not is_used_by_others:
                 self.client_configs.pop(client_id, None)
+
+    def _remove_service_tools(self, agent_id: str, service_name: str):
+        tools_to_remove = [
+            tool_name
+            for tool_name, mapped_service in self.tool_to_service.get(agent_id, {}).items()
+            if mapped_service == service_name
+        ]
+        for tool_name in tools_to_remove:
+            if tool_name in self.tool_cache.get(agent_id, {}):
+                del self.tool_cache[agent_id][tool_name]
+            if tool_name in self.tool_to_session_map.get(agent_id, {}):
+                del self.tool_to_session_map[agent_id][tool_name]
+            if agent_id in self.tool_to_service and tool_name in self.tool_to_service[agent_id]:
+                del self.tool_to_service[agent_id][tool_name]
+            self._sync_to_kv(
+                self.delete_tool_cache_async(agent_id, tool_name),
+                f"tool_cache:{agent_id}:{tool_name}"
+            )
+            self._sync_to_kv(
+                self.delete_tool_to_service_mapping_async(agent_id, tool_name),
+                f"tool_mapping:{agent_id}:{tool_name}"
+            )
+        if tools_to_remove:
+            self._tools_snapshot_dirty = True
 
     @atomic_write(agent_id_param="agent_id", use_lock=True)
     def add_service(self, agent_id: str, name: str, session: Any = None, tools: List[Tuple[str, Dict[str, Any]]] = None,
@@ -1380,22 +1301,12 @@ class ServiceRegistry:
         session = self.sessions.get(agent_id, {}).pop(name, None)
         if not session:
             logger.debug(f"Service {name} has no active session for agent {agent_id}. Cleaning up cache data only.")
-            # 即使session不存在，也要清理可能存在的缓存数据
+            self._remove_service_tools(agent_id, name)
             self._cleanup_service_cache_data(agent_id, name)
             return None
 
-        # Remove associated tools efficiently
-        tools_to_remove = [tool_name for tool_name, owner_session in self.tool_to_session_map.get(agent_id, {}).items() if owner_session is session]
-        for tool_name in tools_to_remove:
-            if tool_name in self.tool_cache.get(agent_id, {}): del self.tool_cache[agent_id][tool_name]
-            if tool_name in self.tool_to_session_map.get(agent_id, {}): del self.tool_to_session_map[agent_id][tool_name]
-            # Remove tool-to-service mapping in memory
-            if agent_id in self.tool_to_service and tool_name in self.tool_to_service[agent_id]:
-                del self.tool_to_service[agent_id][tool_name]
-        # Mark snapshot as dirty
-        self._tools_snapshot_dirty = True
+        self._remove_service_tools(agent_id, name)
 
-        #  清理新增的缓存字段
         self._cleanup_service_cache_data(agent_id, name)
 
         # 标记并重建快照（强一致）
@@ -1478,6 +1389,15 @@ class ServiceRegistry:
             self.service_states[agent_id].pop(service_name, None)
         if agent_id in self.service_metadata:
             self.service_metadata[agent_id].pop(service_name, None)
+
+        self._sync_to_kv(
+            self.delete_service_state_async(agent_id, service_name),
+            f"service_state:{agent_id}:{service_name}"
+        )
+        self._sync_to_kv(
+            self.delete_service_metadata_async(agent_id, service_name),
+            f"service_metadata:{agent_id}:{service_name}"
+        )
 
         # 清理Service-Client映射
         client_id = self.get_service_client_id(agent_id, service_name)
@@ -1898,22 +1818,6 @@ class ServiceRegistry:
             logger.debug(f"获取服务信息时出现异常: {e}")
             return None
 
-    def update_service_health(self, agent_id: str, name: str):
-        """
-        更新指定 agent_id 下某服务的心跳时间。
-        Deprecated: This method has been replaced by ServiceLifecycleManager
-        """
-        logger.debug(f"update_service_health is deprecated for service: {name} (agent_id={agent_id})")
-        pass
-
-    def get_last_heartbeat(self, agent_id: str, name: str) -> Optional[datetime]:
-        """
-        获取指定 agent_id 下某服务的最后心跳时间。
-        Deprecated: This method has been replaced by ServiceLifecycleManager
-        """
-        logger.debug(f"get_last_heartbeat is deprecated for service: {name} (agent_id={agent_id})")
-        return None
-
     def has_service(self, agent_id: str, name: str) -> bool:
         """
         判断指定 agent_id 下是否存在某服务。
@@ -2009,6 +1913,16 @@ class ServiceRegistry:
 
     def get_service_state(self, agent_id: str, service_name: str) -> ServiceConnectionState:
         """获取服务生命周期状态"""
+        try:
+            helper = self._ensure_sync_helper()
+            state = helper.run_async(
+                self.get_service_state_async(agent_id, service_name),
+                timeout=5.0
+            )
+            if state is not None:
+                return state
+        except Exception as e:
+            logger.warning(f"[REGISTRY] get_service_state async fallback for {agent_id}/{service_name}: {e}")
         return self.service_states.get(agent_id, {}).get(service_name, ServiceConnectionState.DISCONNECTED)
 
     def set_service_metadata(self, agent_id: str, service_name: str, metadata: Optional[ServiceStateMetadata]):
@@ -2034,6 +1948,16 @@ class ServiceRegistry:
 
     def get_service_metadata(self, agent_id: str, service_name: str) -> Optional[ServiceStateMetadata]:
         """获取服务状态元数据"""
+        try:
+            helper = self._ensure_sync_helper()
+            metadata = helper.run_async(
+                self.get_service_metadata_async(agent_id, service_name),
+                timeout=5.0
+            )
+            if metadata is not None:
+                return metadata
+        except Exception as e:
+            logger.warning(f"[REGISTRY] get_service_metadata async fallback for {agent_id}/{service_name}: {e}")
         return self.service_metadata.get(agent_id, {}).get(service_name)
 
     def remove_service_lifecycle_data(self, agent_id: str, service_name: str):
@@ -2097,6 +2021,10 @@ class ServiceRegistry:
         """添加 Client 配置到缓存"""
         # Use in-memory cache for now (backward compatibility)
         self.client_configs[client_id] = config
+        self._sync_to_kv(
+            self.set_client_config_async(client_id, config),
+            f"client_config:{client_id}"
+        )
         logger.debug(f"Added client config for {client_id} to cache")
 
     def get_client_config_from_cache(self, client_id: str) -> Optional[Dict[str, Any]]:
@@ -2111,12 +2039,20 @@ class ServiceRegistry:
             self.client_configs[client_id].update(updates)
         else:
             self.client_configs[client_id] = updates
+        self._sync_to_kv(
+            self.set_client_config_async(client_id, self.client_configs[client_id]),
+            f"client_config:{client_id}"
+        )
 
     def remove_client_config(self, client_id: str):
         """从缓存移除 Client 配置"""
         # Use in-memory cache for now (backward compatibility)
         if client_id in self.client_configs:
             del self.client_configs[client_id]
+        self._sync_to_kv(
+            self.delete_client_config_async(client_id),
+            f"client_config:{client_id}"
+        )
 
     # ===  新增：Service-Client 映射管理 ===
 
@@ -2127,6 +2063,10 @@ class ServiceRegistry:
             self.service_to_client[agent_id] = {}
         self.service_to_client[agent_id][service_name] = client_id
         logger.debug(f"Mapped service {service_name} to client {client_id} for agent {agent_id}")
+        self._sync_to_kv(
+            self.set_service_client_mapping_async(agent_id, service_name, client_id),
+            f"service_client:{agent_id}:{service_name}"
+        )
 
     def get_service_client_id(self, agent_id: str, service_name: str) -> Optional[str]:
         """获取服务对应的 Client ID"""
@@ -2138,6 +2078,26 @@ class ServiceRegistry:
         # Use in-memory cache for now (backward compatibility)
         if agent_id in self.service_to_client and service_name in self.service_to_client[agent_id]:
             del self.service_to_client[agent_id][service_name]
+        self._sync_to_kv(
+            self.delete_service_client_mapping_async(agent_id, service_name),
+            f"service_client:{agent_id}:{service_name}"
+        )
+
+    @map_kv_exception
+    async def set_client_config_async(self, client_id: str, config: Dict[str, Any]) -> None:
+        await self._state_backend.set_client_config(client_id, config)
+
+    @map_kv_exception
+    async def delete_client_config_async(self, client_id: str) -> None:
+        await self._state_backend.delete_client_config(client_id)
+
+    @map_kv_exception
+    async def set_service_client_mapping_async(self, agent_id: str, service_name: str, client_id: str) -> None:
+        await self._state_backend.set_service_client(agent_id, service_name, client_id)
+
+    @map_kv_exception
+    async def delete_service_client_mapping_async(self, agent_id: str, service_name: str) -> None:
+        await self._state_backend.delete_service_client(agent_id, service_name)
 
 
     def get_repository(self):

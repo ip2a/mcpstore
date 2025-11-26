@@ -495,17 +495,16 @@ class ServiceManagementMixin:
             if scope == "all":
                 logger.debug("Store level: resetting all caches and JSON files")
 
-                # 1. 清空所有缓存
-                self._store.registry.agent_clients.clear()
-                self._store.registry.client_configs.clear()
-
-                # 清空其他缓存字段
-                self._store.registry.sessions.clear()
-                self._store.registry.tool_cache.clear()
-                self._store.registry.tool_to_session_map.clear()
-                self._store.registry.service_states.clear()
-                self._store.registry.service_metadata.clear()
-                self._store.registry.service_to_client.clear()
+                # 1. 清空所有Agent在缓存中的数据（通过Registry公共API）
+                try:
+                    agent_ids = self._store.registry.get_all_agent_ids()
+                except Exception:
+                    agent_ids = []
+                for agent_id in agent_ids:
+                    try:
+                        self._store.registry.clear(agent_id)
+                    except Exception:
+                        pass
 
                 # 2. 重置mcp.json文件（使用 UnifiedConfigManager 自动刷新缓存）
                 default_config = {"mcpServers": {}}
@@ -1186,7 +1185,13 @@ class ServiceManagementMixin:
 
             # 3. 设置服务状态为INITIALIZING并更新元数据
             from mcpstore.core.models.service import ServiceConnectionState
-            self._store.registry.set_service_state(global_agent_store_id, service_name, ServiceConnectionState.INITIALIZING)
+            await self._store.orchestrator.lifecycle_manager._transition_state(
+                agent_id=global_agent_store_id,
+                service_name=service_name,
+                new_state=ServiceConnectionState.INITIALIZING,
+                reason="config_updated",
+                source="ServiceManagement",
+            )
 
             # 更新服务元数据中的配置
             metadata = self._store.registry.get_service_metadata(global_agent_store_id, service_name)
@@ -1265,7 +1270,13 @@ class ServiceManagementMixin:
 
             # 3. 设置服务状态为INITIALIZING并更新元数据
             from mcpstore.core.models.service import ServiceConnectionState
-            self._store.registry.set_service_state(self._agent_id, service_name, ServiceConnectionState.INITIALIZING)
+            await self._store.orchestrator.lifecycle_manager._transition_state(
+                agent_id=self._agent_id,
+                service_name=service_name,
+                new_state=ServiceConnectionState.INITIALIZING,
+                reason="agent_config_updated",
+                source="ServiceManagement",
+            )
 
             # 更新服务元数据中的配置
             metadata = self._store.registry.get_service_metadata(self._agent_id, service_name)

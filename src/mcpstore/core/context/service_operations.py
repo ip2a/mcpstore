@@ -789,34 +789,50 @@ class ServiceOperationsMixin:
                 # 连接成功，缓存会自动更新（通过现有的连接逻辑）
             else:
                 logger.warning(f" Service '{service_name}' connection failed: {message}")
-                # 更新缓存状态为失败（不重复添加服务，只更新状态）
-                from mcpstore.core.models.service import ServiceConnectionState
-                # 单源生命周期规则：初次失败进入 RECONNECTING，由生命周期器继续收敛
-                self._store.registry.set_service_state(agent_id, service_name, ServiceConnectionState.RECONNECTING)
+                # 将连接失败交给生命周期管理器处理（事件驱动）
+                try:
+                    from mcpstore.core.events.service_events import ServiceConnectionFailed
 
-                # 更新错误信息
-                metadata = self._store.registry.get_service_metadata(agent_id, service_name)
-                if metadata:
-                    metadata.error_message = message
-                    metadata.consecutive_failures += 1
+                    bus = getattr(self._store.orchestrator, "event_bus", None)
+                    if bus:
+                        failed_event = ServiceConnectionFailed(
+                            agent_id=agent_id,
+                            service_name=service_name,
+                            error_message=message or "",
+                            error_type="connection_failed",
+                            retry_count=0,
+                        )
+                        await bus.publish(failed_event, wait=True)
+                        logger.debug(f"🔗 [CONNECT_SERVICE] Published ServiceConnectionFailed for '{service_name}'")
+                    else:
+                        logger.warning("🔗 [CONNECT_SERVICE] EventBus not available; cannot publish ServiceConnectionFailed")
+                except Exception as event_err:
+                    logger.warning(f"🔗 [CONNECT_SERVICE] Failed to publish ServiceConnectionFailed: {event_err}")
 
         except Exception as e:
             logger.error(f"🔗 [CONNECT_SERVICE] 整个连接过程发生异常: {e}")
             import traceback
             logger.error(f"🔗 [CONNECT_SERVICE] 异常堆栈: {traceback.format_exc()}")
 
-            # 更新缓存状态为错误（不重复添加服务，只更新状态）
-            from mcpstore.core.models.service import ServiceConnectionState
-            # 异常情况下先进入 RECONNECTING，由生命周期重试策略接管
-            self._store.registry.set_service_state(agent_id, service_name, ServiceConnectionState.RECONNECTING)
+            # 通过事件驱动方式通知生命周期管理器异常结果
+            try:
+                from mcpstore.core.events.service_events import ServiceConnectionFailed
 
-            # 更新错误信息
-            metadata = self._store.registry.get_service_metadata(agent_id, service_name)
-            if metadata:
-                metadata.error_message = str(e)
-                metadata.consecutive_failures += 1
-
-            logger.error(f"🔗 [CONNECT_SERVICE] 服务状态已更新为RECONNECTING: {service_name}")
+                bus = getattr(self._store.orchestrator, "event_bus", None)
+                if bus:
+                    failed_event = ServiceConnectionFailed(
+                        agent_id=agent_id,
+                        service_name=service_name,
+                        error_message=str(e),
+                        error_type="connection_exception",
+                        retry_count=0,
+                    )
+                    await bus.publish(failed_event, wait=True)
+                    logger.error(f"🔗 [CONNECT_SERVICE] Published ServiceConnectionFailed after exception for '{service_name}'")
+                else:
+                    logger.warning("🔗 [CONNECT_SERVICE] EventBus not available; cannot publish ServiceConnectionFailed after exception")
+            except Exception as event_err:
+                logger.warning(f"🔗 [CONNECT_SERVICE] Failed to publish ServiceConnectionFailed after exception: {event_err}")
 
     async def _persist_to_files_with_lock(self, mcp_config: Dict[str, Any], services_to_add: Dict[str, Dict[str, Any]]):
         """带锁的异步持久化到文件（防止并发冲突）"""

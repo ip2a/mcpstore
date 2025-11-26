@@ -84,7 +84,6 @@ class ToolExecutionMixin:
 
                 client_ids = self.registry.get_agent_clients_from_cache(global_agent_id)
                 logger.debug(f" [TOOL_EXECUTION] Registry缓存中的client_ids: {client_ids}")
-                logger.debug(f" [TOOL_EXECUTION] Registry完整agent_clients缓存: {dict(self.registry.agent_clients)}")
 
                 if not client_ids:
                     # 单源模式：不再回退到分片文件

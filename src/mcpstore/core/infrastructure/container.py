@@ -88,10 +88,7 @@ class ServiceContainer:
         self._health_monitor = HealthMonitor(
             event_bus=self._event_bus,
             registry=self._registry,
-            check_interval=lifecycle_config.normal_heartbeat_interval,
-            timeout_threshold=lifecycle_config.initialization_timeout,
-            ping_timeout=lifecycle_config.health_check_ping_timeout,
-            warning_interval=lifecycle_config.warning_heartbeat_interval,
+            lifecycle_config=lifecycle_config,
             global_agent_store_id=self._global_agent_store_id
         )
 
@@ -99,10 +96,8 @@ class ServiceContainer:
         self._reconnection_scheduler = ReconnectionScheduler(
             event_bus=self._event_bus,
             registry=self._registry,
+            lifecycle_config=lifecycle_config,
             scan_interval=1.0,  # 扫描间隔固定1秒
-            base_delay=lifecycle_config.base_reconnect_delay,
-            max_delay=lifecycle_config.max_reconnect_delay,
-            max_retries=lifecycle_config.max_reconnect_attempts
         )
 
         # 创建应用服务

@@ -526,7 +526,8 @@ class ServiceConnectionMixin:
                 logger.warning(f"Failed to remove service {name_to_remove} from configuration file")
 
             # ?registry???
-            self.registry.remove_service(name_to_remove)
+            agent_id = self.client_manager.global_agent_store_id
+            self.registry.remove_service(agent_id, name_to_remove)
 
             # ????global_agent_store
             if self.global_agent_store_config.get("mcpServers"):

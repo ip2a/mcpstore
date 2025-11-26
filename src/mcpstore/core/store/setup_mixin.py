@@ -91,15 +91,14 @@ class SetupMixin:
             现有的client_id，如果不存在则返回None
         """
         try:
-            # 检查service_to_client映射
-            if agent_id in self.registry.service_to_client:
-                if service_name in self.registry.service_to_client[agent_id]:
-                    existing_client_id = self.registry.service_to_client[agent_id][service_name]
-                    logger.debug(f" [INIT_MCP] 找到现有Store client_id: {service_name} -> {existing_client_id}")
-                    return existing_client_id
+            # 优先：通过 Registry 提供的映射API 获取
+            existing_client_id = self.registry.get_service_client_id(agent_id, service_name)
+            if existing_client_id:
+                logger.debug(f" [INIT_MCP] 找到现有Store client_id: {service_name} -> {existing_client_id}")
+                return existing_client_id
 
-            # 检查agent_clients中是否有匹配的client_id
-            client_ids = self.registry.agent_clients.get(agent_id, [])
+            # 其次：检查 agent 的所有 client_ids（通过 Registry API）
+            client_ids = self.registry.get_agent_clients_from_cache(agent_id)
             for client_id in client_ids:
                 # 统一的确定性ID格式匹配：优先尝试解析
                 try:

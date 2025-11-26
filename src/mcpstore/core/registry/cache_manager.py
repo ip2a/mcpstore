@@ -190,7 +190,7 @@ class CacheTransactionManager:
                 snap for snap in self.transaction_stack 
                 if snap["transaction_id"] != transaction_id
             ]
-            
+
             logger.info(f"Rolled back cache transaction: {transaction_id}")
             return True
             

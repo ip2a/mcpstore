@@ -119,53 +119,24 @@ class ServiceManagementMixin:
         """
         return self.agent_clients.get(agent_id)
 
-    async def filter_healthy_services(self, services: List[str], client_id: Optional[str] = None) -> List[str]:
-        """
-        Filter healthy service list - using lifecycle manager
-
-        Args:
-            services: List of service names
-            client_id: Optional client ID for multi-client environments
-
-        Returns:
-            List[str]: List of healthy service names
-        """
-        healthy_services = []
-        agent_id = client_id or self.client_manager.global_agent_store_id
-
-        for name in services:
-            try:
-                # [NEW] Event-driven architecture: Get service state directly from registry
-                service_state = self.registry.get_service_state(agent_id, name)
-
-                # [FIX] New services (state=None) should also be handled
-                if service_state is None:
-                    healthy_services.append(name)
-                    logger.debug(f"Service {name} has no state (new service), included in processable list")
-                else:
-                    # Services in healthy and initializing states are considered processable
-                    processable_states = [
-                        ServiceConnectionState.HEALTHY,
-                        ServiceConnectionState.WARNING,
-                        ServiceConnectionState.INITIALIZING  # [NEW] Initializing state also needs handling
-                    ]
-                    if service_state in processable_states:
-                        healthy_services.append(name)
-                        logger.debug(f"Service {name} is {service_state.value}, included in processable list")
-                    else:
-                        logger.debug(f"Service {name} is {service_state.value}, excluded from processable list")
-
-            except Exception as e:
-                logger.warning(f"Failed to check service state for {name}: {e}")
-                continue
-
-        logger.debug(f"Filtered {len(healthy_services)} healthy services from {len(services)} total")
-        return healthy_services
-
     async def start_global_agent_store(self, config: Dict[str, Any]):
         """Start global_agent_store async with lifecycle, register services and tools (healthy services only)"""
         # Get list of healthy services
-        healthy_services = await self.filter_healthy_services(list(config.get("mcpServers", {}).keys()))
+        # 直接查询健康服务（基于当前生命周期状态）
+        processable_states = [
+            ServiceConnectionState.HEALTHY,
+            ServiceConnectionState.WARNING,
+            ServiceConnectionState.INITIALIZING,
+        ]
+        healthy_services: List[str] = []
+        agent_id = self.client_manager.global_agent_store_id
+
+        for name in config.get("mcpServers", {}).keys():
+            state = self.registry.get_service_state(agent_id, name)
+
+            # 新服务（state=None）也应纳入处理范围
+            if state is None or state in processable_states:
+                healthy_services.append(name)
 
         # Create new configuration containing only healthy services
         healthy_config = {
@@ -224,7 +195,7 @@ class ServiceManagementMixin:
             if current_state is None:
                 logger.warning(f"Service {service_name} not found in lifecycle manager for agent {agent_key}")
                 # Check if it exists in the registry
-                if agent_key not in self.registry.sessions or service_name not in self.registry.sessions[agent_key]:
+                if not self.registry.has_service(agent_key, service_name):
                     logger.warning(f"Service {service_name} not found in registry for agent {agent_key}, skipping removal")
                     return
                 else:
@@ -345,8 +316,14 @@ class ServiceManagementMixin:
                 logger.error(f" [RESTART_SERVICE] No metadata found for service '{service_name}'")
                 return False
 
-            # Reset service state to INITIALIZING
-            self.registry.set_service_state(agent_key, service_name, ServiceConnectionState.INITIALIZING)
+            # Reset service state to INITIALIZING（通过 LifecycleManager 统一入口）
+            await self.lifecycle_manager._transition_state(
+                agent_id=agent_key,
+                service_name=service_name,
+                new_state=ServiceConnectionState.INITIALIZING,
+                reason="restart_service",
+                source="ServiceManagement",
+            )
             logger.debug(f" [RESTART_SERVICE] Set state to INITIALIZING for '{service_name}'")
 
             # Reset metadata

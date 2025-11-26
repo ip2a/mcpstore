@@ -569,15 +569,6 @@ async def get_agent_tool_records(agent_id: str, limit: int = 50):
     )
 
 # === Backward Compatibility Routes ===
-
-@agent_router.post("/for_agent/{agent_id}/use_tool", response_model=APIResponse)
-async def agent_use_tool(agent_id: str, request: SimpleToolExecutionRequest):
-    """Tool execution at agent level - backward compatibility alias
-
-    Recommended to use /for_agent/{agent_id}/call_tool endpoint
-    """
-    return await agent_call_tool(agent_id, request)
-
 @agent_router.post("/for_agent/{agent_id}/wait_service", response_model=APIResponse)
 @timed_response
 async def agent_wait_service(agent_id: str, request: Request):

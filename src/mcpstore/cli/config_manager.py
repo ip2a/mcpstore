@@ -416,37 +416,3 @@ def _show_config_path(path: Optional[str] = None):
         modified_time = datetime.fromtimestamp(stat.st_mtime)
         typer.echo(f"🕒 Last modified: {modified_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-# 改进的命令行接口
-if __name__ == "__main__":
-    app = typer.Typer(help="MCPStore Configuration Manager")
-
-    @app.command()
-    def show(path: Optional[str] = typer.Option(None, help="Configuration file path")):
-        """Show current configuration"""
-        show_config(path)
-
-    @app.command()
-    def validate(path: Optional[str] = typer.Option(None, help="Configuration file path")):
-        """Validate configuration file"""
-        _handle_validate(path)
-
-    @app.command()
-    def init(
-        path: Optional[str] = typer.Option(None, help="Configuration file path"),
-        force: bool = typer.Option(False, "--force", help="Overwrite existing file"),
-        with_examples: bool = typer.Option(False, "--examples", help="Include example services")
-    ):
-        """Initialize configuration file"""
-        _handle_init(path, force=force, with_examples=with_examples)
-
-    @app.command("add-examples")
-    def add_examples(path: Optional[str] = typer.Option(None, help="Configuration file path")):
-        """Add example services to existing configuration"""
-        add_example_services(path)
-
-    @app.command()
-    def path(path: Optional[str] = typer.Option(None, help="Configuration file path")):
-        """Show configuration file path and info"""
-        _show_config_path(path)
-
-    app()

@@ -175,15 +175,16 @@ class AdvancedFeaturesMixin:
                 # 重置整个mcp.json
                 logger.info(" [MCP_RESET] Clearing all services from mcp.json")
                 
-                # 1. 清空所有缓存
-                self._store.registry.agent_clients.clear()
-                self._store.registry.client_configs.clear()
-                self._store.registry.sessions.clear()
-                self._store.registry.tool_cache.clear()
-                self._store.registry.tool_to_session_map.clear()
-                self._store.registry.service_states.clear()
-                self._store.registry.service_metadata.clear()
-                self._store.registry.service_to_client.clear()
+                # 1. 清空所有缓存（通过Registry公共API）
+                try:
+                    agent_ids = self._store.registry.get_all_agent_ids()
+                except Exception:
+                    agent_ids = []
+                for agent_id in agent_ids:
+                    try:
+                        self._store.registry.clear(agent_id)
+                    except Exception:
+                        pass
                 
                 # 2. 重置mcp.json为空
                 new_config = {"mcpServers": {}}

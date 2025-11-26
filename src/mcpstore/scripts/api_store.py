@@ -778,27 +778,6 @@ async def store_reset_config(scope: str = "all"):
         data={"scope": scope, "reset": True}
     )
 
-@store_router.post("/for_store/reset_mcpjson", response_model=APIResponse)
-@timed_response
-async def store_reset_mcpjson():
-    """重置 mcp.json 配置文件
-    
-    ⚠️ 建议使用 /for_store/reset_config 替代
-    """
-    store = get_store()
-    success = await store.for_store().reset_mcp_json_file_async()
-    
-    if not success:
-        return ResponseBuilder.error(
-            code=ErrorCode.CONFIGURATION_ERROR,
-            message="Failed to reset MCP JSON file"
-        )
-    
-    return ResponseBuilder.success(
-        message="MCP JSON file and cache reset successfully",
-        data={"reset": True}
-    )
-
 # Removed shard-file reset APIs (client_services.json / agent_clients.json) in single-source mode
 
 @store_router.get("/for_store/setup_config", response_model=APIResponse)
@@ -843,15 +822,6 @@ async def get_store_tool_records(limit: int = 50):
     )
 
 # === 向后兼容性路由 ===
-
-@store_router.post("/for_store/use_tool", response_model=APIResponse)
-async def store_use_tool(request: SimpleToolExecutionRequest):
-    """Store 级别工具执行 - 向后兼容别名
-    
-    推荐使用 /for_store/call_tool 接口
-    """
-    return await store_call_tool(request)
-
 @store_router.post("/for_store/restart_service", response_model=APIResponse)
 @timed_response
 async def store_restart_service(request: Request):
