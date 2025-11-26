@@ -153,8 +153,8 @@ async def store_list_services(
     store = get_store()
     context = store.for_store()
 
-    # 1. 获取所有服务
-    all_services = context.list_services()
+    # 1. 获取所有服务（使用 async 版本）
+    all_services = await context.list_services_async()
     original_count = len(all_services)
 
     # 2. 应用过滤
@@ -442,8 +442,8 @@ async def store_list_tools(
     store = get_store()
     context = store.for_store()
 
-    # 1. 获取所有工具
-    all_tools = context.list_tools()
+    # 1. 获取所有工具（使用 async 版本）
+    all_tools = await context.list_tools_async()
     original_count = len(all_tools)
 
     # 2. 应用过滤
@@ -558,7 +558,7 @@ async def store_check_services():
     """Store 级别批量健康检查"""
     store = get_store()
     context = store.for_store()
-    health_status = context.check_services()
+    health_status = await context.check_services_async()
     
     return ResponseBuilder.success(
         message=f"Health check completed for {len(health_status.get('services', []))} services",
@@ -972,8 +972,8 @@ async def store_get_service_info_detailed(service_name: str):
     store = get_store()
     context = store.for_store()
     
-    # 查找服务
-    all_services = context.list_services()
+    # 查找服务（使用 async 版本）
+    all_services = await context.list_services_async()
     service = None
     for s in all_services:
         s_name = s.get("name") if isinstance(s, dict) else s.name

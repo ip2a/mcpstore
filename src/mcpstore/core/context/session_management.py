@@ -684,6 +684,8 @@ class SessionManagementMixin:
                 raise ValueError(f"Session '{session_id}' not found and create_if_not_exists=False")
 
             # 🎯 Create session-aware adapter
+            # Note: 这是一个桥接方法，存在 core → adapters 的向上依赖
+            # 但为了 API 便利性保留，使用延迟导入减少影响
             from mcpstore.adapters.langchain_adapter import SessionAwareLangChainAdapter
             adapter = SessionAwareLangChainAdapter(self, session)
 
@@ -718,6 +720,7 @@ class SessionManagementMixin:
         if not self._auto_session_enabled or not self._auto_session:
             raise RuntimeError("Auto session mode is not enabled. Call session_auto() first.")
 
+        # Note: 桥接方法，延迟导入减少向上依赖影响
         from mcpstore.adapters.langchain_adapter import SessionAwareLangChainAdapter
         adapter = SessionAwareLangChainAdapter(self, self._auto_session)
 
@@ -745,6 +748,7 @@ class SessionManagementMixin:
             if not session:
                 raise ValueError(f"Shared session '{shared_id}' not found")
 
+            # Note: 桥接方法，延迟导入减少向上依赖影响
             from mcpstore.adapters.langchain_adapter import SessionAwareLangChainAdapter
             adapter = SessionAwareLangChainAdapter(self, session)
 
