@@ -38,9 +38,9 @@ async def agent_add_service(
     try:
         await context.add_service_async(payload)
         
-        # Aggregate detailed information
-        services = context.list_services()
-        tools = context.list_tools()
+        # Aggregate detailed information（使用 async 版本）
+        services = await context.list_services_async()
+        tools = await context.list_tools_async()
         
         result = {
             "success": True,
@@ -288,8 +288,8 @@ async def agent_list_tools(
     store = get_store()
     context = store.for_agent(agent_id)
 
-    # 1. Get all tools
-    all_tools = context.list_tools()
+    # 1. Get all tools（使用 async 版本）
+    all_tools = await context.list_tools_async()
 
     # 2. Build tool data
     tools_data = [
@@ -485,7 +485,7 @@ async def agent_show_mcpconfig(agent_id: str):
     validate_agent_id(agent_id)
     store = get_store()
     context = store.for_agent(agent_id)
-    config = context.show_mcpconfig()
+    config = await context.show_mcpconfig_async()
     
     return ResponseBuilder.success(
         message=f"MCP configuration retrieved for agent '{agent_id}'",
@@ -688,8 +688,8 @@ async def agent_get_service_info_detailed(agent_id: str, service_name: str):
     store = get_store()
     context = store.for_agent(agent_id)
 
-    # Use SDK to get service information
-    info = context.get_service_info(service_name)
+    # Use SDK to get service information（使用 async 版本）
+    info = await context.get_service_info_async(service_name)
     if not info or not getattr(info, 'success', False):
         return ResponseBuilder.error(
             code=ErrorCode.SERVICE_NOT_FOUND,

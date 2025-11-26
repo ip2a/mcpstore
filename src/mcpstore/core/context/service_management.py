@@ -15,49 +15,49 @@ logger = logging.getLogger(__name__)
 
 
 class UpdateServiceAuthHelper:
-    """更新服务认证助手 - 明确的服务名，避免状态混乱"""
+    """更新服务认证助手 - 明确的服务名，避免状态混乱
+    
+    Note: 这是一个内部助手类，为了符合 async-only 约束，
+    所有方法都改为 async，外部调用者需要 await。
+    """
 
     def __init__(self, context: 'MCPStoreContext', service_name: str, config: Dict[str, Any] = None):
         self._context = context
         self._service_name = service_name  # [CONFIG] Clear service name to avoid confusion
         self._config = config.copy() if config else {}
 
-    def bearer_auth(self, auth: str) -> 'MCPStoreContext':
+    async def bearer_auth(self, auth: str) -> 'MCPStoreContext':
         """Update Bearer Token authentication for specified service (backward compatible)"""
         # Standardize to Authorization header
         if "headers" not in self._config:
             self._config["headers"] = {}
         self._config["headers"]["Authorization"] = f"Bearer {auth}"
-        return self._execute_update()
+        return await self._execute_update()
 
-    def token(self, token: str) -> 'MCPStoreContext':
+    async def token(self, token: str) -> 'MCPStoreContext':
         """Recommended: Set Bearer Token (equivalent to bearer_auth)"""
         if "headers" not in self._config:
             self._config["headers"] = {}
         self._config["headers"]["Authorization"] = f"Bearer {token}"
-        return self._execute_update()
+        return await self._execute_update()
 
-    def api_key(self, api_key: str) -> 'MCPStoreContext':
+    async def api_key(self, api_key: str) -> 'MCPStoreContext':
         """Recommended: Set API Key (standardized to X-API-Key)"""
         if "headers" not in self._config:
             self._config["headers"] = {}
         self._config["headers"]["X-API-Key"] = api_key
-        return self._execute_update()
+        return await self._execute_update()
 
-    def custom_headers(self, headers: Dict[str, str]) -> 'MCPStoreContext':
+    async def custom_headers(self, headers: Dict[str, str]) -> 'MCPStoreContext':
         """Update custom headers for specified service (explicit override)"""
         if "headers" not in self._config:
             self._config["headers"] = {}
         self._config["headers"].update(headers)
-        return self._execute_update()
+        return await self._execute_update()
 
-    def _execute_update(self) -> 'MCPStoreContext':
-        """执行更新服务"""
-        self._context._sync_helper.run_async(
-            self._context.update_service_async(self._service_name, self._config),
-            timeout=60.0,
-            force_background=True
-        )
+    async def _execute_update(self) -> 'MCPStoreContext':
+        """执行更新服务（内部 async-only）"""
+        await self._context.update_service_async(self._service_name, self._config)
         return self._context
 
 

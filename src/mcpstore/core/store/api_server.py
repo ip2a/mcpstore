@@ -115,6 +115,7 @@ class APIServerMixin:
                 threading.Thread(target=open_browser, daemon=True).start()
 
             # 🆕 创建 app 实例并传入当前 store 和 URL 前缀
+            # Note: 延迟导入避免 core 层在模块加载时就依赖 scripts 层
             from mcpstore.scripts.api_app import create_app
             app = create_app(store=self, url_prefix=url_prefix)
 
