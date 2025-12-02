@@ -1,6 +1,7 @@
 """
-Service Query Module
-Handles service query related functionality for MCPStore
+MCPStore Service Query Module
+服务查询相关功能实现，提供服务列表、详情查询、健康检查等核心功能
+支持 Store 和 Agent 两种上下文模式，实现严格的服务隔离和透明代理
 """
 
 import logging
@@ -12,10 +13,10 @@ logger = logging.getLogger(__name__)
 
 
 class ServiceQueryMixin:
-    """Service Query Mixin"""
+    """服务查询混入类，提供服务列表、详情查询、健康检查等功能"""
     
     def check_services(self, agent_id: Optional[str] = None) -> Dict[str, str]:
-        """Legacy API compatibility"""
+        """兼容性API，委托给上下文执行健康检查"""
         context = self.for_agent(agent_id) if agent_id else self.for_store()
         return context.check_services()
 
@@ -66,7 +67,7 @@ class ServiceQueryMixin:
             agent_id = self.client_manager.global_agent_store_id
 
             #  关键：纯缓存获取
-            service_names = self.registry.get_all_service_names(agent_id)
+            service_names = self.registry._service_state_service.get_all_service_names(agent_id)
 
             if not service_names:
                 # 缓存为空，可能需要初始化
@@ -223,7 +224,7 @@ class ServiceQueryMixin:
         except Exception:
             pass
 
-        service_names = self.registry.get_all_service_names(agent_id_for_query)
+        service_names = self.registry._service_state_service.get_all_service_names(agent_id_for_query)
 
         # 遍历候选名称，找到第一个匹配的（在 agent 命名空间）
         match_name = next((qn for qn in query_names if qn in service_names), None)
@@ -253,14 +254,14 @@ class ServiceQueryMixin:
             tools_service = global_name if agent_id else match_name
 
             # 找到服务，需要确定它属于哪个client_id（保持 agent 视角）
-            service_client_id = self.registry.get_service_client_id(agent_id_for_query, match_name)
+            service_client_id = self.registry._agent_client_service.get_service_client_id(agent_id_for_query, match_name)
             if service_client_id and service_client_id in client_ids:
                 # 找到服务，获取详细信息
                 # 从 mcp.json 读取（使用全局名）
                 config = self.config.get_service_config(config_key) or {}
 
                 # 🆕 事件驱动架构：直接从 registry 获取生命周期状态（优先全局命名空间）
-                service_state = self.registry.get_service_state(lifecycle_agent, lifecycle_name)
+                service_state = self.registry._service_state_service.get_service_state(lifecycle_agent, lifecycle_name)
 
                 # 获取工具信息（优先全局命名空间）
                 tool_names = self.registry.get_tools_for_service(tools_agent, tools_service)
@@ -275,7 +276,7 @@ class ServiceQueryMixin:
                 connected = service_state in [ServiceConnectionState.HEALTHY, ServiceConnectionState.WARNING]
 
                 # 🆕 事件驱动架构：直接从 registry 获取元数据（不再通过 lifecycle_manager）
-                service_metadata = self.registry.get_service_metadata(lifecycle_agent, lifecycle_name)
+                service_metadata = self.registry._service_state_service.get_service_metadata(lifecycle_agent, lifecycle_name)
 
                 # 构建ServiceInfo（Agent 视图下 name 使用本地名展示）
                 service_info = ServiceInfo(
@@ -333,14 +334,14 @@ class ServiceQueryMixin:
         if not agent_mode and (not id or id == self.client_manager.global_agent_store_id):
             agent_ns = self.client_manager.global_agent_store_id
             # 在 Agent 命名空间读取所有服务，再标注其归属 client_id
-            service_names = self.registry.get_all_service_names(agent_ns)
+            service_names = self.registry._service_state_service.get_all_service_names(agent_ns)
             for name in service_names:
                 config = self.config.get_service_config(name) or {}
                 # 生命周期与元数据：按 Agent 命名空间读取
-                service_state = self.registry.get_service_state(agent_ns, name)
-                state_metadata = self.registry.get_service_metadata(agent_ns, name)
+                service_state = self.registry._service_state_service.get_service_state(agent_ns, name)
+                state_metadata = self.registry._service_state_service.get_service_metadata(agent_ns, name)
                 # 标注该服务当前映射到哪个 client_id（若存在）
-                client_id = self.registry.get_service_client_id(agent_ns, name)
+                client_id = self.registry._agent_client_service.get_service_client_id(agent_ns, name)
 
                 service_status = {
                     "name": name,
@@ -372,14 +373,14 @@ class ServiceQueryMixin:
                 }
             # 仅返回当前 client_id 映射到的服务（仍按 Agent 命名空间读状态）
             agent_ns = self.client_manager.global_agent_store_id
-            all_names = self.registry.get_all_service_names(agent_ns)
+            all_names = self.registry._service_state_service.get_all_service_names(agent_ns)
             for name in all_names:
-                mapped = self.registry.get_service_client_id(agent_ns, name)
+                mapped = self.registry._agent_client_service.get_service_client_id(agent_ns, name)
                 if mapped != id:
                     continue
                 config = self.config.get_service_config(name) or {}
-                service_state = self.registry.get_service_state(agent_ns, name)
-                state_metadata = self.registry.get_service_metadata(agent_ns, name)
+                service_state = self.registry._service_state_service.get_service_state(agent_ns, name)
+                state_metadata = self.registry._service_state_service.get_service_metadata(agent_ns, name)
                 service_status = {
                     "name": name,
                     "url": config.get("url", ""),
@@ -404,12 +405,12 @@ class ServiceQueryMixin:
             client_ids = self.registry.get_agent_clients_from_cache(id)
             if client_ids:
                 agent_ns = id
-                names = self.registry.get_all_service_names(agent_ns)
+                names = self.registry._service_state_service.get_all_service_names(agent_ns)
                 for name in names:
                     config = self.config.get_service_config(name) or {}
-                    service_state = self.registry.get_service_state(agent_ns, name)
-                    state_metadata = self.registry.get_service_metadata(agent_ns, name)
-                    mapped_client = self.registry.get_service_client_id(agent_ns, name)
+                    service_state = self.registry._service_state_service.get_service_state(agent_ns, name)
+                    state_metadata = self.registry._service_state_service.get_service_metadata(agent_ns, name)
+                    mapped_client = self.registry._agent_client_service.get_service_client_id(agent_ns, name)
                     if mapped_client not in (client_ids or []):
                         continue
                     service_status = {
@@ -434,14 +435,14 @@ class ServiceQueryMixin:
             else:
                 # id 不是 agent_id，则视为 client_id：过滤 agent 命名空间下映射到该 client 的服务
                 agent_ns = self.client_manager.global_agent_store_id
-                names = self.registry.get_all_service_names(agent_ns)
+                names = self.registry._service_state_service.get_all_service_names(agent_ns)
                 for name in names:
-                    mapped_client = self.registry.get_service_client_id(agent_ns, name)
+                    mapped_client = self.registry._agent_client_service.get_service_client_id(agent_ns, name)
                     if mapped_client != id:
                         continue
                     config = self.config.get_service_config(name) or {}
-                    service_state = self.registry.get_service_state(agent_ns, name)
-                    state_metadata = self.registry.get_service_metadata(agent_ns, name)
+                    service_state = self.registry._service_state_service.get_service_state(agent_ns, name)
+                    state_metadata = self.registry._service_state_service.get_service_metadata(agent_ns, name)
                     service_status = {
                         "name": name,
                         "url": config.get("url", ""),

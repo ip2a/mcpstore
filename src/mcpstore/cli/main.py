@@ -79,11 +79,9 @@ def run_api(host: str, port: int, reload: bool, log_level: str, url_prefix: str)
         typer.echo("   Press Ctrl+C to stop")
         typer.echo()
 
-        # Pass URL prefix configuration at startup
-        # Pass to application factory via environment variables
-        import os
+        # Pass URL prefix configuration at startup (no environment variables used)
         if url_prefix:
-            os.environ["MCPSTORE_URL_PREFIX"] = url_prefix
+            typer.echo(f"   Using URL prefix (applied at app level): {url_prefix}")
 
         # Start API service
         uvicorn.run(

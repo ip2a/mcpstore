@@ -226,7 +226,7 @@ class ToolManagementService:
                 Tool info dict compatible with get_tool_info format
             """
             # Get Client ID
-            client_id = self._registry.get_service_client_id(agent_id, service_name) if service_name else None
+            client_id = self._registry._agent_client_service.get_service_client_id(agent_id, service_name) if service_name else None
 
             # Handle different tool definition formats
             if "function" in tool_def:
@@ -422,7 +422,7 @@ class ToolManagementService:
         tools_by_fullname: Dict[str, Dict[str, Any]] = {}
         
         # Iterate through all service names under global_agent_id
-        service_names = self._registry.get_all_service_names(global_agent_id)
+        service_names = self._registry._service_state_service.get_all_service_names(global_agent_id)
         
         # Use batch operations to get all tool data at once
         collection = self._registry._kv_adapter.get_collection(global_agent_id, "tools")

@@ -644,7 +644,7 @@ class ServiceOperationsMixin:
 
             while time.time() - start_time < timeout:
                 try:
-                    current_state = self._store.registry.get_service_state(agent_id, service_name)
+                    current_state = self._store.registry._service_state_service.get_service_state(agent_id, service_name)
 
                     # 如果状态已确定（不再是INITIALIZING），返回结果
                     if current_state and current_state != ServiceConnectionState.INITIALIZING:
@@ -661,7 +661,7 @@ class ServiceOperationsMixin:
 
             # 超时，返回当前状态或超时状态
             try:
-                current_state = self._store.registry.get_service_state(agent_id, service_name)
+                current_state = self._store.registry._service_state_service.get_service_state(agent_id, service_name)
                 final_state = current_state.value if current_state else 'timeout'
             except Exception:
                 final_state = 'timeout'
@@ -868,7 +868,7 @@ class ServiceOperationsMixin:
             if not success:
                 raise Exception("Failed to persist services to mcp.json")
             
-            logger.info(f"✅ Store模式：已添加 {len(services_to_add)} 个服务到 mcp.json，缓存已同步")
+            logger.info(f" Store模式：已添加 {len(services_to_add)} 个服务到 mcp.json，缓存已同步")
 
         except Exception as e:
             logger.error(f"Failed to persist to mcp.json: {e}")
@@ -907,7 +907,7 @@ class ServiceOperationsMixin:
 
                 # 使用统一API更新缓存映射，避免直访底层字典
                 async with self._store.agent_locks.write(agent_id):
-                    self._store.registry.add_agent_client_mapping(agent_id, client_id)
+                    self._store.registry._agent_client_service.add_agent_client_mapping(agent_id, client_id)
                     self._store.registry.add_client_config(client_id, {
                         "mcpServers": {service_name: service_config}
                     })
@@ -1191,10 +1191,10 @@ class ServiceOperationsMixin:
                     logger.debug(f" [AGENT_PROXY] 建立映射关系: {agent_id}:{local_name} ↔ {global_name}")
 
                 # 6. 设置共享 Client ID 映射（新服务和同名服务都需要）
-                self._store.registry.add_service_client_mapping(
+                self._store.registry._agent_client_service.add_service_client_mapping(
                     self._store.client_manager.global_agent_store_id, global_name, client_id
                 )
-                self._store.registry.add_service_client_mapping(agent_id, local_name, client_id)
+                self._store.registry._agent_client_service.add_service_client_mapping(agent_id, local_name, client_id)
                 logger.debug(f" [AGENT_PROXY] 设置共享 Client ID 映射: {client_id}")
 
                 # 7. 使用事件驱动架构添加服务（新服务和同名服务都需要）
@@ -1243,7 +1243,7 @@ class ServiceOperationsMixin:
             success = self._store._unified_config.batch_add_services(global_services)
             
             if success:
-                logger.info(f"✅ [AGENT_SYNC] mcp.json 更新成功：已添加 {len(global_services)} 个服务，缓存已同步")
+                logger.info(f" [AGENT_SYNC] mcp.json 更新成功：已添加 {len(global_services)} 个服务，缓存已同步")
             else:
                 logger.error(f"❌ [AGENT_SYNC] mcp.json 更新失败")
 
@@ -1293,8 +1293,8 @@ class ServiceOperationsMixin:
                 # 状态转换
                 # 额外诊断：记录全局与Agent缓存的状态对比
                 try:
-                    global_state_dbg = self._store.registry.get_service_state(global_agent_id, global_name)
-                    agent_state_dbg = self._store.registry.get_service_state(agent_id, local_name)
+                    global_state_dbg = self._store.registry._service_state_service.get_service_state(global_agent_id, global_name)
+                    agent_state_dbg = self._store.registry._service_state_service.get_service_state(agent_id, local_name)
                     logger.debug(f"[AGENT_VIEW] state_compare local='{local_name}' global='{global_name}' global_state='{getattr(global_state_dbg,'value',global_state_dbg)}' agent_state='{getattr(agent_state_dbg,'value',agent_state_dbg)}'")
                 except Exception:
                     pass

@@ -2,14 +2,18 @@
 Optimized configuration module
 Remove sys.path operations to improve import performance
 """
-import os
 import logging
 from typing import Dict, Any, Union
+
+from .config_defaults import StandaloneConfigDefaults
+from .toml_config import get_standalone_config_with_defaults
 
 # Remove sys.path.append() operations to improve import performance
 # If you need to import other modules, please use relative imports or correct package structure
 
 logger = logging.getLogger(__name__)
+
+_standalone_defaults = StandaloneConfigDefaults()
 
 class LoggingConfig:
     """Logging configuration manager"""
@@ -171,36 +175,43 @@ class LoggingConfig:
 
 # --- Configuration Constants (default values) ---
 # Core monitoring configuration
-HEARTBEAT_INTERVAL_SECONDS = 60  # Heartbeat check interval (seconds)
-HTTP_TIMEOUT_SECONDS = 10        # HTTP request timeout (seconds)
-RECONNECTION_INTERVAL_SECONDS = 60  # Reconnection attempt interval (seconds)
+HEARTBEAT_INTERVAL_SECONDS = int(_standalone_defaults.heartbeat_interval_seconds)  # Heartbeat check interval (seconds)
+HTTP_TIMEOUT_SECONDS = int(_standalone_defaults.http_timeout_seconds)        # HTTP request timeout (seconds)
+RECONNECTION_INTERVAL_SECONDS = int(_standalone_defaults.reconnection_interval_seconds)  # Reconnection attempt interval (seconds)
 
 # HTTP endpoint configuration
 STREAMABLE_HTTP_ENDPOINT = "/mcp"  # Streamable HTTP endpoint path
 
-def _get_env_int(var: str, default: int) -> int:
-    try:
-        return int(os.environ.get(var, default))
-    except Exception:
-        logger.warning(f"Environment variable {var} format error, using default value {default}")
-        return default
-
-def _get_env_bool(var: str, default: bool) -> bool:
-    val = os.environ.get(var)
-    if val is None:
-        return default
-    return val.lower() in ("1", "true", "yes", "on")
-
 def load_app_config() -> Dict[str, Any]:
-    """Load global configuration from environment variables"""
+    """Load global configuration"""
+    try:
+        standalone_config = get_standalone_config_with_defaults()
+    except Exception as e:
+        logger.warning("Failed to load standalone config from MCPStoreConfig, using defaults: %s", e)
+        standalone_config = None
+
+    def _get_value(obj: Any, attr_name: str, default: Any) -> Any:
+        if obj is None:
+            return default
+        if hasattr(obj, attr_name):
+            try:
+                value = getattr(obj, attr_name)
+                return value if value is not None else default
+            except Exception:
+                return default
+        if isinstance(obj, dict):
+            value = obj.get(attr_name, default)
+            return value if value is not None else default
+        return default
+
     config_data = {
         # Core monitoring configuration
-        "heartbeat_interval": _get_env_int("HEARTBEAT_INTERVAL_SECONDS", HEARTBEAT_INTERVAL_SECONDS),
-        "http_timeout": _get_env_int("HTTP_TIMEOUT_SECONDS", HTTP_TIMEOUT_SECONDS),
-        "reconnection_interval": _get_env_int("RECONNECTION_INTERVAL_SECONDS", RECONNECTION_INTERVAL_SECONDS),
+        "heartbeat_interval": _get_value(standalone_config, "heartbeat_interval_seconds", HEARTBEAT_INTERVAL_SECONDS),
+        "http_timeout": _get_value(standalone_config, "http_timeout_seconds", HTTP_TIMEOUT_SECONDS),
+        "reconnection_interval": _get_value(standalone_config, "reconnection_interval_seconds", RECONNECTION_INTERVAL_SECONDS),
 
         # HTTP endpoint configuration
-        "streamable_http_endpoint": os.environ.get("STREAMABLE_HTTP_ENDPOINT", STREAMABLE_HTTP_ENDPOINT),
+        "streamable_http_endpoint": _get_value(standalone_config, "streamable_http_endpoint", STREAMABLE_HTTP_ENDPOINT),
     }
     # Load LLM configuration
     # config_data["llm_config"] = load_llm_config()

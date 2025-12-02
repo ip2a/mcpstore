@@ -97,40 +97,40 @@ class CacheManager:
                 )
                 
                 # 2. 添加 Agent-Client 映射
-                self._registry.add_agent_client_mapping(event.agent_id, event.client_id)
+                self._registry._agent_client_service.add_agent_client_mapping(event.agent_id, event.client_id)
                 transaction.record(
                     "add_agent_client_mapping",
-                    self._registry.remove_agent_client_mapping,
+                    self._registry._agent_client_service.remove_agent_client_mapping,
                     event.agent_id, event.client_id
                 )
                 
                 # 3. 添加 Client 配置
-                self._registry.add_client_config(event.client_id, {
+                self._registry._client_config_service.add_client_config(event.client_id, {
                     "mcpServers": {event.service_name: event.service_config}
                 })
                 transaction.record(
                     "add_client_config",
-                    self._registry.remove_client_config,
+                    self._registry._client_config_service.remove_client_config,
                     event.client_id
                 )
                 
                 # 4. 添加 Service-Client 映射
-                self._registry.add_service_client_mapping(
+                self._registry._agent_client_service.add_service_client_mapping(
                     event.agent_id, event.service_name, event.client_id
                 )
                 transaction.record(
                     "add_service_client_mapping",
-                    self._registry.remove_service_client_mapping,
+                    self._registry._agent_client_service.remove_service_client_mapping,
                     event.agent_id, event.service_name
                 )
             
             logger.info(f"[CACHE] Service cached: {event.service_name}")
             
             # 验证映射是否成功建立
-            verify_client_id = self._registry.get_service_client_id(event.agent_id, event.service_name)
+            verify_client_id = self._registry._agent_client_service.get_service_client_id(event.agent_id, event.service_name)
             logger.debug(f"[CACHE] Verification - client_id mapping: {verify_client_id}")
             
-            verify_config = self._registry.get_client_config_from_cache(event.client_id)
+            verify_config = self._registry._client_config_service.get_client_config_from_cache(event.client_id)
             logger.debug(f"[CACHE] Verification - client config exists: {verify_config is not None}")
             
             # 发布成功事件

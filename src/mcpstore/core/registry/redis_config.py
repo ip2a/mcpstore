@@ -14,7 +14,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
+from ...config.config_defaults import CacheRedisConfigDefaults
+
 logger = logging.getLogger(__name__)
+
+_redis_defaults = CacheRedisConfigDefaults()
 
 
 class RedisConfig:
@@ -38,10 +42,10 @@ class RedisConfig:
     """
     
     # Default values
-    DEFAULT_SOCKET_TIMEOUT = 2.0  # seconds
-    DEFAULT_SOCKET_CONNECT_TIMEOUT = 2.0  # seconds
-    DEFAULT_MAX_CONNECTIONS = 50
-    DEFAULT_HEALTHCHECK_INTERVAL = 30  # seconds
+    DEFAULT_SOCKET_TIMEOUT = _redis_defaults.socket_timeout  # seconds
+    DEFAULT_SOCKET_CONNECT_TIMEOUT = _redis_defaults.socket_connect_timeout  # seconds
+    DEFAULT_MAX_CONNECTIONS = _redis_defaults.max_connections
+    DEFAULT_HEALTHCHECK_INTERVAL = _redis_defaults.health_check_interval  # seconds
     
     def __init__(
         self,

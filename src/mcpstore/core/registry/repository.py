@@ -49,8 +49,10 @@ class CacheRepository:
         for tool_name, tool_def in tools.items():
             be.map_tool_to_service(agent_id, tool_name, service_name)
             be.upsert_tool_def(agent_id, tool_name, tool_def)
-        be.add_agent_client_mapping(agent_id, client_id)
-        be.add_service_client_mapping(agent_id, service_name, client_id)
+        # 使用新的 AgentClientMappingService
+        self.registry._agent_client_service.add_agent_client_mapping(agent_id, client_id)
+        # 使用新的 AgentClientMappingService
+        self.registry._agent_client_service.add_service_client_mapping(agent_id, service_name, client_id)
 
     @atomic_write(agent_id_param="agent_id", use_lock=True)
     async def clear_service_tools(self, agent_id: str, service_name: str, tool_names: Iterable[str]) -> None:
@@ -72,11 +74,13 @@ class CacheRepository:
 
     @atomic_write(agent_id_param="agent_id", use_lock=True)
     async def map_service_client(self, agent_id: str, service_name: str, client_id: str) -> None:
-        self.cache_backend.add_service_client_mapping(agent_id, service_name, client_id)
+        # 使用新的 AgentClientMappingService
+        self.registry._agent_client_service.add_service_client_mapping(agent_id, service_name, client_id)
 
     @atomic_write(agent_id_param="agent_id", use_lock=True)
     async def add_agent_client(self, agent_id: str, client_id: str) -> None:
-        self.cache_backend.add_agent_client_mapping(agent_id, client_id)
+        # 使用新的 AgentClientMappingService
+        self.registry._agent_client_service.add_agent_client_mapping(agent_id, client_id)
 
     @atomic_write(agent_id_param="agent_id", use_lock=True)
     async def upsert_tool(self, agent_id: str, service_name: str, tool_name: str, tool_def: Dict[str, Any]) -> None:

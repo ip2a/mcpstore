@@ -9,6 +9,9 @@ from hashlib import sha1
 from typing import Optional, Dict, Any, Union
 from copy import deepcopy
 
+from mcpstore.core.utils.async_sync_helper import run_async_sync
+from mcpstore.config.toml_config import init_config
+
 logger = logging.getLogger(__name__)
 
 
@@ -73,6 +76,12 @@ class StoreSetupManager:
         from mcpstore.config.config import LoggingConfig
         LoggingConfig.setup_logging(debug=debug)
 
+        # 1.5) Initialize TOML-based global configuration (config.toml + MCPStoreConfig)
+        try:
+            run_async_sync(init_config())
+        except Exception as e:
+            logger.warning(f"Failed to initialize TOML configuration system, continuing with defaults: {e}")
+
         # 2) Data space & configuration
         from mcpstore.config.json_config import MCPConfig
         from mcpstore.config.path_utils import get_user_default_mcp_path
@@ -116,6 +125,7 @@ class StoreSetupManager:
 
         # 4) Registry and cache backend
         from mcpstore.core.registry import ServiceRegistry
+        from mcpstore.core.registry.registry_factory import create_registry_from_kv_store
         from mcpstore.config import (
             MemoryConfig, RedisConfig, detect_strategy, 
             create_kv_store, get_namespace, start_health_check
@@ -168,7 +178,8 @@ class StoreSetupManager:
         kv_store = create_kv_store(cache)
         logger.info(f"Created KV store: {type(kv_store).__name__}")
         
-        registry = ServiceRegistry(kv_store=kv_store)
+        # Use factory pattern for zero delegation
+        registry = create_registry_from_kv_store(kv_store, test_mode=False)
 
         config_sync_manager = None
         if strategy.value == "json_custom":

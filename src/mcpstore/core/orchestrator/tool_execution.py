@@ -406,5 +406,5 @@ class ToolExecutionMixin:
         logger.info("Legacy monitoring tasks were already disabled")
 
         # 重新启动监控（现在由ServiceLifecycleManager处理）
-        await self.start_monitoring()
+        await self._start_monitoring()
         logger.info("Monitoring tasks restarted successfully")

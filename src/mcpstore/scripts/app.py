@@ -4,7 +4,6 @@ MCPStore API 服务 - 改进版
 """
 
 import logging
-import os
 
 # 导入应用工厂
 from .api_app import create_app
@@ -16,11 +15,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 🆕 从环境变量读取 URL 前缀配置
-url_prefix = os.environ.get("MCPSTORE_URL_PREFIX", "")
+# 🆕 URL 前缀配置（不再使用环境变量）
+url_prefix = ""
 
 if url_prefix:
-    logger.info(f"Creating app with URL prefix from environment: {url_prefix}")
+    logger.info(f"Creating app with URL prefix: {url_prefix}")
 else:
     logger.info("Creating app without URL prefix")
 

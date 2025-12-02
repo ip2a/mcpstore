@@ -3,7 +3,6 @@
 MCPStore Configuration Manager - Configuration file management tool
 """
 import json
-import os
 import platform
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -37,8 +36,8 @@ def _get_system_config_dir() -> Path:
     system = platform.system().lower()
 
     if system == "windows":
-        # Windows: %PROGRAMDATA%\mcpstore
-        program_data = os.environ.get('PROGRAMDATA', 'C:\\ProgramData')
+        # Windows: C:\\ProgramData\\mcpstore (fixed path)
+        program_data = "C:\\ProgramData"
         return Path(program_data) / ConfigConstants.APP_NAME
     elif system == "darwin":
         # macOS: /Library/Application Support/mcpstore

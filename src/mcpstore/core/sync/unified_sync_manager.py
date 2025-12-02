@@ -335,7 +335,7 @@ class UnifiedMCPSyncManager:
             # single-source: derive current services from registry cache only
             agent_id = self.orchestrator.client_manager.global_agent_store_id
             current_services = {}
-            for service_name in self.orchestrator.registry.get_all_service_names(agent_id):
+            for service_name in self.orchestrator.registry._service_state_service.get_all_service_names(agent_id):
                 config = self.orchestrator.mcp_config.get_service_config(service_name) or {}
                 if config:
                     current_services[service_name] = config
@@ -456,7 +456,7 @@ class UnifiedMCPSyncManager:
 
             # 更新缓存映射1：Agent-Client映射（通过Registry公共API）
             try:
-                registry.add_agent_client_mapping(agent_id, client_id)
+                registry._agent_client_service.add_agent_client_mapping(agent_id, client_id)
             except Exception as e:
                 logger.error(f"Failed to add agent-client mapping for {agent_id}/{client_id}: {e}")
                 return False

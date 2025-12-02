@@ -97,7 +97,7 @@ class StoreProxy:
             for gname in global_service_names:
                 tools = registry.get_tools_for_service(global_agent_id, gname) or []
                 tool_count += len(tools)
-                state = registry.get_service_state(global_agent_id, gname)
+                state = registry._service_state_service.get_service_state(global_agent_id, gname)
                 state_value = getattr(state, "value", str(state))
                 if state_value in ("healthy", "warning"):
                     healthy += 1

@@ -188,7 +188,7 @@ class MCPOrchestrator(
 
         # 启动监控任务（仅启动保留的工具更新监控器）
         try:
-            await self.start_monitoring()
+            await self._start_monitoring()
         except Exception as e:
             logger.warning(f"Failed to start monitoring tasks: {e}")
 
@@ -280,5 +280,30 @@ class MCPOrchestrator(
             logger.info("Tools update monitor initialized")
         except Exception as e:
             logger.error(f"Failed to setup tools update monitor: {e}")
+
+    async def _start_monitoring(self):
+        """启动监控任务"""
+        try:
+            # 工具更新监控现在由ContentManager在ServiceContainer中处理
+            # 这里只做一些基础的监控设置
+            logger.info("Starting monitoring tasks...")
+
+            # 如果有工具更新监控器，可以在这里启动
+            if hasattr(self, 'tools_update_monitor') and self.tools_update_monitor:
+                try:
+                    # 启动工具更新监控（如果可用）
+                    if hasattr(self.tools_update_monitor, 'start'):
+                        await self.tools_update_monitor.start()
+                        logger.info("Tools update monitor started")
+                except Exception as e:
+                    logger.debug(f"Tools update monitor start failed: {e}")
+
+            # 监控任务现在主要由ServiceContainer中的各个管理器处理
+            # HealthMonitor, LifecycleManager等在ServiceContainer.start()中已启动
+            logger.info("Monitoring tasks setup completed")
+
+        except Exception as e:
+            logger.error(f"Failed to setup monitoring tasks: {e}")
+            raise
 
     # _create_standalone_mcp_config 方法现在在 StandaloneConfigMixin 中实现
