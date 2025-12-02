@@ -1,9 +1,7 @@
-version: '3.8'
-
 services:
   web:
     build:
-      context: ..
+      context: ../..
       dockerfile: docker/web/Dockerfile
     container_name: mcpstore-web
     restart: unless-stopped

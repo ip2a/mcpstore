@@ -1,9 +1,7 @@
-version: '3.8'
-
 services:
   api:
     build:
-      context: ..
+      context: ../..
       dockerfile: docker/api/Dockerfile
     container_name: mcpstore-api
     restart: unless-stopped
