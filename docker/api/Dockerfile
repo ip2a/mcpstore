@@ -19,12 +19,12 @@ RUN pip install --no-cache-dir uv
 WORKDIR /app
 
 # Copy project files
-COPY ../../src ./src
-COPY ../../pyproject.toml .
-COPY ../../README.md .
+COPY src ./src
+COPY pyproject.toml .
+COPY README.md .
 
 # Copy startup script
-COPY start_api.py .
+COPY docker/api/start_api.py .
 
 # Install project dependencies using uv
 RUN uv pip install --system -e .

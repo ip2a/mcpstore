@@ -1,6 +1,11 @@
 # MkDocs Multi-stage Build
 FROM python:3.11-slim
 
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Set working directory
 WORKDIR /app
 
@@ -8,15 +13,15 @@ WORKDIR /app
 RUN pip install --no-cache-dir uv
 
 # Copy requirements file
-COPY ../docs/requirements.txt .
+COPY docs/requirements.txt .
 
 # Install dependencies using uv
 RUN uv pip install --system -r requirements.txt
 
 # Copy documentation files
-COPY ../docs/mkdocs.yml ./mkdocs.yml
-COPY ../docs/docs ./docs
-COPY ../docs/assets ./assets
+COPY docs/mkdocs.yml ./mkdocs.yml
+COPY docs/docs ./docs
+COPY docs/assets ./assets
 
 # Create logs directory
 RUN mkdir -p /app/logs

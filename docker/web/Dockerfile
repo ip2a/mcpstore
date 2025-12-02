@@ -8,19 +8,22 @@ WORKDIR /build
 RUN npm install -g pnpm
 
 # Copy package.json and lock files
-COPY ../vue/package*.json ./
+COPY vue/package.json vue/pnpm-lock.yaml ./
 
 # Install dependencies
 RUN pnpm install --frozen-lockfile
 
 # Copy source code
-COPY ../vue/ .
+COPY vue/ .
 
 # Build application
 RUN pnpm build
 
 # Production stage - Serve static files with nginx
 FROM nginx:alpine
+
+# Install curl for health checks
+RUN apk add --no-cache curl
 
 # Copy build artifacts
 COPY --from=builder /build/dist /usr/share/nginx/html
