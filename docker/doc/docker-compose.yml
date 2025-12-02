@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  doc:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mcpstore-doc
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MKDOCS_CONFIG=/app/mkdocs.yml
+      - LOG_LEVEL=INFO
+    volumes:
+      - ../docs:/app/docs:ro
+      - ../docs/mkdocs.yml:/app/mkdocs.yml:ro
+      - ../docs/assets:/app/assets:ro
+      - doc-logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - mcpstore-network
+
+volumes:
+  doc-logs:
+    driver: local
+
+networks:
+  mcpstore-network:
+    driver: bridge

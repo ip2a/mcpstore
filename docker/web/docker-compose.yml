@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: docker/web/Dockerfile
+    container_name: mcpstore-web
+    restart: unless-stopped
+    ports:
+      - "5177:5177"
+    environment:
+      - NODE_ENV=production
+      - VITE_API_BASE=http://localhost:18200
+      - VITE_APP_TITLE=MCPStore
+    volumes:
+      - web-logs:/var/log/nginx
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5177/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - mcpstore-network
+    # 开发模式可以选择性地挂载源码进行热重载
+    # volumes:
+    #   - ../vue/src:/usr/share/nginx/html/src:ro
+    #   - ../vue/public:/usr/share/nginx/html/public:ro
+
+volumes:
+  web-logs:
+    driver: local
+
+networks:
+  mcpstore-network:
+    driver: bridge

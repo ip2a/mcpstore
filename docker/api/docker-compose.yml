@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/api/Dockerfile
+    container_name: mcpstore-api
+    restart: unless-stopped
+    ports:
+      - "18200:18200"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - DEBUG=false
+      - LOG_LEVEL=info
+      - MCPSTORE_CONFIG_DIR=/app/config
+      - MCPSTORE_DATA_DIR=/app/data
+    volumes:
+      - api-data:/app/data
+      - api-config:/app/config
+      - api-logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:18200/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - mcpstore-network
+
+volumes:
+  api-data:
+    driver: local
+  api-config:
+    driver: local
+  api-logs:
+    driver: local
+
+networks:
+  mcpstore-network:
+    driver: bridge

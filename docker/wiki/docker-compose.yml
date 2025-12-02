@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  wiki:
+    build:
+      context: ..
+      dockerfile: docker/wiki/Dockerfile
+    container_name: mcpstore-wiki
+    restart: unless-stopped
+    ports:
+      - "21923:21923"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - LOG_LEVEL=INFO
+      - LOG_DIR=/app/logs
+    volumes:
+      - wiki-logs:/app/logs
+      - wiki-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:21923/mcp"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - mcpstore-network
+
+volumes:
+  wiki-logs:
+    driver: local
+  wiki-data:
+    driver: local
+
+networks:
+  mcpstore-network:
+    driver: bridge
