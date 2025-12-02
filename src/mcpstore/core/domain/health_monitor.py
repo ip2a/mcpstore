@@ -121,7 +121,7 @@ class HealthMonitor:
         """
         # 统一使用全局命名空间读取状态
         global_name = self._to_global_name(event.agent_id, event.service_name)
-        current_state = self._registry.get_service_state(self._global_agent_store_id, global_name)
+        current_state = self._registry._service_state_service.get_service_state(self._global_agent_store_id, global_name)
         logger.info(f"[HEALTH] Manual health check requested: {event.service_name} (state={getattr(current_state,'value',str(current_state))}, bus={hex(id(self._event_bus))})")
 
         # 执行一次健康检查（关键路径使用同步派发，确保状态及时收敛）
@@ -152,7 +152,7 @@ class HealthMonitor:
             while self._is_running:
                 # 根据当前状态选择检查间隔
                 global_name = self._to_global_name(agent_id, service_name)
-                current_state = self._registry.get_service_state(self._global_agent_store_id, global_name)
+                current_state = self._registry._service_state_service.get_service_state(self._global_agent_store_id, global_name)
                 interval = self._warning_interval if current_state == ServiceConnectionState.WARNING else self._check_interval
                 await asyncio.sleep(interval)
 
@@ -292,10 +292,10 @@ class HealthMonitor:
 
         # 遍历所有服务，检查超时
         for agent_id in self._registry.service_states.keys():
-            service_names = self._registry.get_all_service_names(agent_id)
+            service_names = self._registry._service_state_service.get_all_service_names(agent_id)
 
             for service_name in service_names:
-                metadata = self._registry.get_service_metadata(agent_id, service_name)
+                metadata = self._registry._service_state_service.get_service_metadata(agent_id, service_name)
                 if not metadata:
                     continue
 

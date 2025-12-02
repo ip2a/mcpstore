@@ -115,10 +115,10 @@ class ReconnectionScheduler:
         
         # 遍历所有 agent
         for agent_id in self._registry.service_states.keys():
-            service_names = self._registry.get_all_service_names(agent_id)
+            service_names = self._registry._service_state_service.get_all_service_names(agent_id)
             
             for service_name in service_names:
-                state = self._registry.get_service_state(agent_id, service_name)
+                state = self._registry._service_state_service.get_service_state(agent_id, service_name)
                 
                 # 只处理 RECONNECTING 状态的服务
                 if state != ServiceConnectionState.RECONNECTING:

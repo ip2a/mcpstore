@@ -31,17 +31,24 @@ class ServiceStateService:
     def __init__(self, kv_store: 'AsyncKeyValue', state_backend: 'RegistryStateBackend', kv_adapter, sync_helper):
         """
         Initialize Service State service.
-        
+
         Args:
             kv_store: AsyncKeyValue instance for data storage
             state_backend: Registry state backend for KV operations
             kv_adapter: KV storage adapter for sync operations
-            sync_helper: AsyncSyncHelper for sync-to-async conversion
+            sync_helper: AsyncSyncHelper for sync-to-async conversion (or lambda that returns it)
         """
         self._kv_store = kv_store
         self._state_backend = state_backend
         self._kv_adapter = kv_adapter
-        self._sync_helper = sync_helper
+        # Handle both direct object and lambda for backward compatibility
+        self._sync_helper_provider = sync_helper
+        if callable(sync_helper) and not hasattr(sync_helper, 'run_async'):
+            # It's a lambda, not an AsyncSyncHelper object
+            self._sync_helper = None
+        else:
+            # It's already an AsyncSyncHelper object
+            self._sync_helper = sync_helper
         
         # Lifecycle state support
         # agent_id -> {service_name: ServiceConnectionState}
@@ -52,7 +59,16 @@ class ServiceStateService:
         
         # State synchronization manager (lazy initialization)
         self._state_sync_manager = None
-    
+
+    def _get_sync_helper(self):
+        """Get the sync_helper, handling lambda provider"""
+        if self._sync_helper is None:
+            if callable(self._sync_helper_provider):
+                self._sync_helper = self._sync_helper_provider()
+            else:
+                raise RuntimeError("sync_helper provider is not callable")
+        return self._sync_helper
+
     # === Service State Management Methods ===
     
     def set_service_state(self, agent_id: str, service_name: str, state: Optional[ServiceConnectionState]):
@@ -91,7 +107,8 @@ class ServiceStateService:
     def get_service_state(self, agent_id: str, service_name: str) -> ServiceConnectionState:
         """获取服务生命周期状态"""
         try:
-            state = self._sync_helper.run_async(
+            sync_helper = self._get_sync_helper()
+            state = sync_helper.run_async(
                 self.get_service_state_async(agent_id, service_name),
                 timeout=5.0
             )
@@ -125,7 +142,8 @@ class ServiceStateService:
     def get_service_metadata(self, agent_id: str, service_name: str) -> Optional[ServiceStateMetadata]:
         """获取服务状态元数据"""
         try:
-            metadata = self._sync_helper.run_async(
+            sync_helper = self._get_sync_helper()
+            metadata = sync_helper.run_async(
                 self.get_service_metadata_async(agent_id, service_name),
                 timeout=5.0
             )

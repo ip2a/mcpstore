@@ -13,6 +13,7 @@ from fastmcp import Client
 
 from mcpstore.core.configuration.config_processor import ConfigProcessor
 from mcpstore.core.models.service import ServiceConnectionState
+from mcpstore.config.config_dataclasses import ContentUpdateConfig
 
 logger = logging.getLogger(__name__)
 
@@ -35,21 +36,7 @@ class ServiceContentSnapshot:
             self.last_updated = datetime.now()
 
 
-@dataclass
-class ContentUpdateConfig:
-    """内容更新配置"""
-    # 更新间隔
-    tools_update_interval: float = 300.0      # 工具更新间隔（5分钟）
-    resources_update_interval: float = 600.0  # 资源更新间隔（10分钟）
-    prompts_update_interval: float = 600.0    # 提示词更新间隔（10分钟）
-
-    # 批量处理配置
-    max_concurrent_updates: int = 3           # 最大并发更新数
-    update_timeout: float = 30.0              # 单次更新超时（秒）
-
-    # 错误处理
-    max_consecutive_failures: int = 3         # 最大连续失败次数
-    failure_backoff_multiplier: float = 2.0  # 失败退避倍数
+# ContentUpdateConfig is now imported from mcpstore.config.toml_config
 
 
 class ServiceContentManager:
@@ -59,7 +46,15 @@ class ServiceContentManager:
         self.orchestrator = orchestrator
         self.registry = orchestrator.registry
         self.lifecycle_manager = orchestrator.lifecycle_manager
-        self.config = ContentUpdateConfig()
+
+        # 使用 MCPStoreConfig 获取内容更新配置 - 延迟导入避免循环依赖
+        try:
+            from mcpstore.config.toml_config import get_content_update_config_with_defaults
+            self.config = get_content_update_config_with_defaults()
+        except Exception as e:
+            logger.warning(f"Failed to get content update config, using defaults: {e}")
+            self.config = ContentUpdateConfig()
+        logger.debug(f"ContentManager initialized with config from MCPStoreConfig: tools_update_interval={self.config.tools_update_interval}s")
 
         # 事件总线（可选）
         self.event_bus = None
@@ -67,16 +62,6 @@ class ServiceContentManager:
             self.event_bus = getattr(getattr(orchestrator, 'store', None), 'container', None).event_bus  # type: ignore
         except Exception:
             self.event_bus = None
-
-        # 对齐全局监控配置的工具更新时间间隔（如配置存在则覆盖默认值）
-        try:
-            timing_config = orchestrator.config.get("timing", {}) if isinstance(getattr(orchestrator, "config", None), dict) else {}
-            interval = timing_config.get("tools_update_interval_seconds")
-            if isinstance(interval, (int, float)) and interval > 0:
-                self.config.tools_update_interval = float(interval)
-                logger.debug(f"Tools update interval set to {self.config.tools_update_interval}s")
-        except Exception as e:
-            logger.debug(f"Failed to read tools_update_interval from orchestrator config: {e}")
 
         # 内容快照缓存：agent_id -> service_name -> snapshot
         self.content_snapshots: Dict[str, Dict[str, ServiceContentSnapshot]] = {}

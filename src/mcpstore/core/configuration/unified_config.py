@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 class ConfigType(Enum):
     """Configuration type enumeration"""
-    ENVIRONMENT = "environment"  # 环境变量配置
+    STANDALONE = "standalone"  # Standalone/TOML 配置（来自 config.toml + MCPStoreConfig）
     MCP_SERVICES = "mcp_services"  # MCP服务配置
     CLIENT_SERVICES = "client_services"  # 客户端服务配置
     AGENT_CLIENTS = "agent_clients"  # Agent-Client映射配置
@@ -50,7 +50,8 @@ class UnifiedConfigManager:
         self.logger = logger
 
         # 初始化各个配置组件
-        self.env_config = None
+        # standalone_config: 来自 config.toml + MCPStoreConfig 的全局非敏感配置
+        self.standalone_config = None
         self.mcp_config = mcp_config if mcp_config is not None else MCPConfig()
         self.client_manager = ClientManager()
 
@@ -69,10 +70,10 @@ class UnifiedConfigManager:
     def _initialize_configs(self):
         """初始化所有配置"""
         try:
-            # 加载环境变量配置
-            self.env_config = load_app_config()
-            self._config_cache[ConfigType.ENVIRONMENT] = self.env_config
-            self._cache_valid[ConfigType.ENVIRONMENT] = True
+            # 加载 Standalone/TOML 配置（来自 config.toml + MCPStoreConfig）
+            self.standalone_config = load_app_config()
+            self._config_cache[ConfigType.STANDALONE] = self.standalone_config
+            self._cache_valid[ConfigType.STANDALONE] = True
             
             # 预加载配置到缓存（单一数据源：仅加载 MCP_SERVICES；其余返回空映射）
             self._refresh_cache(ConfigType.MCP_SERVICES)
@@ -112,17 +113,17 @@ class UnifiedConfigManager:
             配置字典
         """
         if force_reload or not self._cache_valid.get(config_type, False):
-            if config_type == ConfigType.ENVIRONMENT:
-                self.env_config = load_app_config()
-                self._config_cache[config_type] = self.env_config
+            if config_type == ConfigType.STANDALONE:
+                self.standalone_config = load_app_config()
+                self._config_cache[config_type] = self.standalone_config
             else:
                 self._refresh_cache(config_type)
         
         return self._config_cache.get(config_type, {})
     
-    def get_env_config(self) -> Dict[str, Any]:
-        """获取环境变量配置"""
-        return self.get_config(ConfigType.ENVIRONMENT)
+    def get_standalone_config(self) -> Dict[str, Any]:
+        """获取 Standalone/TOML 全局配置（来自 config.toml + MCPStoreConfig）"""
+        return self.get_config(ConfigType.STANDALONE)
     
     def get_mcp_config(self) -> Dict[str, Any]:
         """获取MCP服务配置"""
@@ -218,10 +219,10 @@ class UnifiedConfigManager:
             包含所有配置类型的字典
         """
         return {
-            "environment": self.get_env_config(),
+            "standalone": self.get_standalone_config(),
             "mcp_services": self.get_mcp_config(),
             "client_services": self.get_config(ConfigType.CLIENT_SERVICES),
-            "agent_clients": self.get_config(ConfigType.AGENT_CLIENTS)
+            "agent_clients": self.get_config(ConfigType.AGENT_CLIENTS),
         }
     
     def get_config_info(self) -> List[ConfigInfo]:
@@ -232,11 +233,11 @@ class UnifiedConfigManager:
         """
         configs = []
         
-        # 环境变量配置信息
+        # Standalone/TOML 配置信息
         configs.append(ConfigInfo(
-            config_type=ConfigType.ENVIRONMENT,
-            source="Environment Variables",
-            is_valid=self._cache_valid.get(ConfigType.ENVIRONMENT, False)
+            config_type=ConfigType.STANDALONE,
+            source="config.toml (Standalone/TOML)",
+            is_valid=self._cache_valid.get(ConfigType.STANDALONE, False),
         ))
         
         # MCP服务配置信息
@@ -340,7 +341,7 @@ class UnifiedConfigManager:
             result = self.update_mcp_config(current_config)
             
             if result:
-                logger.debug(f"✅ 服务 '{service_name}' 配置已添加，缓存已同步")
+                logger.debug(f" 服务 '{service_name}' 配置已添加，缓存已同步")
             
             return result
             
@@ -368,7 +369,7 @@ class UnifiedConfigManager:
                 result = self.update_mcp_config(current_config)
                 
                 if result:
-                    logger.debug(f"✅ 服务 '{service_name}' 配置已删除，缓存已同步")
+                    logger.debug(f" 服务 '{service_name}' 配置已删除，缓存已同步")
                 
                 return result
             else:
@@ -408,7 +409,7 @@ class UnifiedConfigManager:
             result = self.update_mcp_config(current_config)
             
             if result:
-                logger.debug(f"✅ 批量添加 {len(services)} 个服务成功，缓存已同步")
+                logger.debug(f" 批量添加 {len(services)} 个服务成功，缓存已同步")
             
             return result
             
@@ -444,7 +445,7 @@ class UnifiedConfigManager:
             result = self.update_mcp_config(current_config)
             
             if result:
-                logger.debug(f"✅ 批量删除 {removed_count}/{len(service_names)} 个服务成功，缓存已同步")
+                logger.debug(f" 批量删除 {removed_count}/{len(service_names)} 个服务成功，缓存已同步")
             
             return result
             
@@ -466,7 +467,7 @@ class UnifiedConfigManager:
                 result = self.mcp_config.save_config(config)
                 if result:
                     self._refresh_cache(ConfigType.MCP_SERVICES)
-                    logger.debug("✅ MCP配置已更新（异步），缓存已同步")
+                    logger.debug(" MCP配置已更新（异步），缓存已同步")
                 return result
             except Exception as e:
                 logger.error(f"Failed to update MCP config (async): {e}")

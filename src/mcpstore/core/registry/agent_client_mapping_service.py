@@ -90,15 +90,23 @@ class AgentClientMappingService:
     
     def add_service_client_mapping(self, agent_id: str, service_name: str, client_id: str):
         """添加 Service-Client 映射到缓存"""
-        # Use in-memory cache for now (backward compatibility)
+        # 1. 立即更新内存缓存（不依赖 KV 同步）
         if agent_id not in self.service_to_client:
             self.service_to_client[agent_id] = {}
         self.service_to_client[agent_id][service_name] = client_id
         logger.debug(f"Mapped service {service_name} to client {client_id} for agent {agent_id}")
-        self._kv_adapter.sync_to_kv(
-            self.set_service_client_mapping_async(agent_id, service_name, client_id),
-            f"service_client:{agent_id}:{service_name}"
-        )
+        # 立即验证内存缓存更新
+        logger.debug(f"Memory cache verification for {agent_id}: {self.service_to_client.get(agent_id, {})}")
+
+        # 2. 异步同步到 KV（失败不影响内存缓存）
+        try:
+            self._kv_adapter.sync_to_kv(
+                self.set_service_client_mapping_async(agent_id, service_name, client_id),
+                f"service_client:{agent_id}:{service_name}"
+            )
+        except Exception as e:
+            logger.warning(f"KV sync failed for service_client mapping {agent_id}:{service_name} -> {client_id}: {e}")
+            # 内存缓存已经更新，不影响功能
     
     def remove_service_client_mapping(self, agent_id: str, service_name: str):
         """移除 Service-Client 映射"""
@@ -127,8 +135,8 @@ class AgentClientMappingService:
     
     async def set_service_client_mapping_async(self, agent_id: str, service_name: str, client_id: str) -> None:
         """异步设置 Service-Client 映射到 KV 存储"""
-        await self._state_backend.set_service_client_mapping(agent_id, service_name, client_id)
+        await self._state_backend.set_service_client(agent_id, service_name, client_id)
     
     async def delete_service_client_mapping_async(self, agent_id: str, service_name: str) -> None:
         """异步删除 Service-Client 映射从 KV 存储"""
-        await self._state_backend.delete_service_client_mapping(agent_id, service_name)
+        await self._state_backend.delete_service_client(agent_id, service_name)

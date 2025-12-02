@@ -37,8 +37,10 @@ class LifecycleManager:
         self._registry = registry
         # Configuration (thresholds/heartbeat intervals)
         if lifecycle_config is None:
-            from mcpstore.core.lifecycle.config import ServiceLifecycleConfig
-            lifecycle_config = ServiceLifecycleConfig()
+            # 从 MCPStoreConfig 获取配置（有默认回退）
+            from mcpstore.config.toml_config import get_lifecycle_config_with_defaults
+            lifecycle_config = get_lifecycle_config_with_defaults()
+            logger.info(f"LifecycleManager using config from {'MCPStoreConfig' if hasattr(lifecycle_config, 'warning_failure_threshold') else 'defaults'}")
         self._config = lifecycle_config
 
         # Subscribe to events
@@ -62,7 +64,7 @@ class LifecycleManager:
         
         try:
             # [FIX] Check if metadata already exists (CacheManager might have created it)
-            existing_metadata = self._registry.get_service_metadata(event.agent_id, event.service_name)
+            existing_metadata = self._registry._service_state_service.get_service_metadata(event.agent_id, event.service_name)
             
             if existing_metadata and existing_metadata.service_config:
                 # If metadata already exists and contains configuration, preserve existing configuration
@@ -120,7 +122,7 @@ class LifecycleManager:
             )
             
             # Reset failure counts
-            metadata = self._registry.get_service_metadata(event.agent_id, event.service_name)
+            metadata = self._registry._service_state_service.get_service_metadata(event.agent_id, event.service_name)
             if metadata:
                 metadata.consecutive_failures = 0
                 metadata.reconnect_attempts = 0
@@ -140,7 +142,7 @@ class LifecycleManager:
         
         try:
             # Update metadata
-            metadata = self._registry.get_service_metadata(event.agent_id, event.service_name)
+            metadata = self._registry._service_state_service.get_service_metadata(event.agent_id, event.service_name)
             if metadata:
                 metadata.consecutive_failures += 1
                 metadata.error_message = event.error_message
@@ -148,7 +150,7 @@ class LifecycleManager:
                 self._registry.set_service_metadata(event.agent_id, event.service_name, metadata)
             
             # Determine target state based on current state
-            current_state = self._registry.get_service_state(event.agent_id, event.service_name)
+            current_state = self._registry._service_state_service.get_service_state(event.agent_id, event.service_name)
             
             if current_state == ServiceConnectionState.INITIALIZING:
                 # First connection failure -> RECONNECTING
@@ -178,7 +180,7 @@ class LifecycleManager:
 
         try:
             # Update metadata
-            metadata = self._registry.get_service_metadata(event.agent_id, event.service_name)
+            metadata = self._registry._service_state_service.get_service_metadata(event.agent_id, event.service_name)
             if metadata:
                 metadata.last_health_check = datetime.now()
                 metadata.last_response_time = event.response_time
@@ -193,7 +195,7 @@ class LifecycleManager:
                 self._registry.set_service_metadata(event.agent_id, event.service_name, metadata)
 
             # Transition rules based on failure count and current state (ignore suggested_state)
-            current_state = self._registry.get_service_state(event.agent_id, event.service_name)
+            current_state = self._registry._service_state_service.get_service_state(event.agent_id, event.service_name)
             failures = 0
             if metadata:
                 failures = metadata.consecutive_failures
@@ -251,7 +253,7 @@ class LifecycleManager:
 
         try:
             # Update metadata
-            metadata = self._registry.get_service_metadata(event.agent_id, event.service_name)
+            metadata = self._registry._service_state_service.get_service_metadata(event.agent_id, event.service_name)
             if metadata:
                 metadata.error_message = f"Timeout: {event.timeout_type} ({event.elapsed_time:.1f}s)"
                 self._registry.set_service_metadata(event.agent_id, event.service_name, metadata)
@@ -279,7 +281,7 @@ class LifecycleManager:
 
         # Update metadata中的重连尝试次数
         try:
-            metadata = self._registry.get_service_metadata(event.agent_id, event.service_name)
+            metadata = self._registry._service_state_service.get_service_metadata(event.agent_id, event.service_name)
             if metadata:
                 metadata.reconnect_attempts = event.retry_count
                 self._registry.set_service_metadata(event.agent_id, event.service_name, metadata)
@@ -315,7 +317,7 @@ class LifecycleManager:
             logger.debug(f"[LIFECYCLE] Generated client_id: {client_id}")
             
             # 检查是否已存在映射
-            existing_client_id = self._registry.get_service_client_id(agent_id, service_name)
+            existing_client_id = self._registry._agent_client_service.get_service_client_id(agent_id, service_name)
             if existing_client_id:
                 logger.debug(f"[LIFECYCLE] Found existing client_id mapping: {existing_client_id}")
                 client_id = existing_client_id
@@ -374,7 +376,7 @@ class LifecycleManager:
         """
         try:
             # 更新断开原因
-            metadata = self._registry.get_service_metadata(agent_id, service_name)
+            metadata = self._registry._service_state_service.get_service_metadata(agent_id, service_name)
             if metadata:
                 try:
                     metadata.disconnect_reason = reason
@@ -413,7 +415,7 @@ class LifecycleManager:
         """
         执行状态转换（唯一入口）
         """
-        old_state = self._registry.get_service_state(agent_id, service_name)
+        old_state = self._registry._service_state_service.get_service_state(agent_id, service_name)
         
         if old_state == new_state:
             logger.debug(f"[LIFECYCLE] State unchanged: {service_name} already in {new_state.value}")
@@ -429,7 +431,7 @@ class LifecycleManager:
         self._registry.set_service_state(agent_id, service_name, new_state)
         
         # Update metadata
-        metadata = self._registry.get_service_metadata(agent_id, service_name)
+        metadata = self._registry._service_state_service.get_service_metadata(agent_id, service_name)
         if metadata:
             metadata.state_entered_time = datetime.now()
             self._registry.set_service_metadata(agent_id, service_name, metadata)

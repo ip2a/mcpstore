@@ -2,12 +2,15 @@
 Cache configuration classes for MCPStore.
 
 This module provides type-safe configuration classes for different cache backends.
+Non-sensitive configuration is loaded from MCPStoreConfig, sensitive configuration from environment variables.
 """
 
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Literal, Union
 from redis.asyncio import Redis
+
+from .cache_environment import get_sensitive_redis_config, get_cache_type_from_env
 
 
 class CacheType(Enum):
@@ -45,7 +48,7 @@ class MemoryConfig(BaseCacheConfig):
 @dataclass
 class RedisConfig(BaseCacheConfig):
     """Redis cache configuration with validation."""
-    
+
     # Basic connection configuration
     url: Optional[str] = None
     host: Optional[str] = None
@@ -53,10 +56,10 @@ class RedisConfig(BaseCacheConfig):
     db: Optional[int] = None
     password: Optional[str] = None
     namespace: Optional[str] = None
-    
+
     # Redis client object (Method 1: pass directly)
     client: Optional[Redis] = None
-    
+
     # Connection pool configuration
     max_connections: int = 50
     retry_on_timeout: bool = True
@@ -64,13 +67,16 @@ class RedisConfig(BaseCacheConfig):
     socket_connect_timeout: float = 5.0
     socket_timeout: float = 5.0
     health_check_interval: int = 30
-    
+
+    # Allow partial configuration for testing/default scenarios
+    allow_partial: bool = False
+
     cache_type: Literal[CacheType.REDIS] = CacheType.REDIS
-    
+
     def __post_init__(self):
         """Validate configuration parameters."""
-        # If no client provided, must provide URL or host
-        if self.client is None:
+        # If no client provided, must provide URL or host (unless partial allowed)
+        if self.client is None and not self.allow_partial:
             if not self.url and not self.host:
                 raise ValueError(
                     "Redis configuration requires either 'client', 'url', or 'host'. "
@@ -355,3 +361,104 @@ def create_kv_store(cache_config: Union[MemoryConfig, RedisConfig], test_connect
             raise handle_redis_connection_error(e, cache_config)
     
     raise ValueError(f"Unsupported cache config type: {type(cache_config)}")
+
+
+def create_cache_config_from_mcpstore(cache_type: Optional[str] = None) -> Union[MemoryConfig, RedisConfig]:
+    """
+    Create cache configuration from MCPStoreConfig and environment variables.
+
+    This function combines non-sensitive configuration from MCPStoreConfig with
+    sensitive configuration from environment variables to create a complete cache config.
+
+    Args:
+        cache_type: Cache type ("memory" or "redis"), if None will read from env
+
+    Returns:
+        MemoryConfig or RedisConfig instance
+
+    Raises:
+        ImportError: If MCPStoreConfig is not available
+        ValueError: If Redis configuration is invalid
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Determine cache type
+    if cache_type is None:
+        cache_type = get_cache_type_from_env()
+
+    logger.info(f"Creating {cache_type} cache configuration from MCPStoreConfig + environment")
+
+    try:
+        from .toml_config import get_cache_memory_config_with_defaults, get_cache_redis_config_with_defaults
+    except ImportError as e:
+        logger.warning(f"MCPStoreConfig not available, using defaults: {e}")
+        # Fallback to defaults if MCPStoreConfig not available
+        if cache_type == "redis":
+            sensitive_config = get_sensitive_redis_config()
+            # Add allow_partial if no sensitive connection info provided
+            if not any(key in sensitive_config for key in ['url', 'host', 'client']):
+                sensitive_config['allow_partial'] = True
+            return RedisConfig(**sensitive_config)
+        else:
+            return MemoryConfig()
+
+    if cache_type == "memory":
+        # Get memory config from MCPStoreConfig
+        memory_config = get_cache_memory_config_with_defaults()
+        logger.debug(f"Memory cache config from MCPStoreConfig: timeout={memory_config.timeout}, retry_attempts={memory_config.retry_attempts}")
+        return memory_config
+
+    elif cache_type == "redis":
+        # Get non-sensitive config from MCPStoreConfig
+        redis_config = get_cache_redis_config_with_defaults()
+
+        # Get sensitive config from environment variables
+        sensitive_config = get_sensitive_redis_config()
+
+        # Combine configurations (sensitive takes precedence)
+        combined_config = {
+            # Non-sensitive from MCPStoreConfig
+            "timeout": redis_config.timeout,
+            "retry_attempts": redis_config.retry_attempts,
+            "health_check": redis_config.health_check,
+            "max_connections": redis_config.max_connections,
+            "retry_on_timeout": redis_config.retry_on_timeout,
+            "socket_keepalive": redis_config.socket_keepalive,
+            "socket_connect_timeout": redis_config.socket_connect_timeout,
+            "socket_timeout": redis_config.socket_timeout,
+            "health_check_interval": redis_config.health_check_interval,
+
+            # Sensitive from environment
+            **sensitive_config
+        }
+
+        logger.debug(f"Redis cache config combined: timeout={combined_config["timeout"]}, max_connections={combined_config["max_connections"]}")
+        logger.info(f"Redis sensitive config loaded: has_url={bool(combined_config.get("url"))}, has_password={bool(combined_config.get("password"))}")
+
+        return RedisConfig(**combined_config)
+
+    else:
+        raise ValueError(f"Unsupported cache type: {cache_type}")
+
+
+def get_cache_config_summary(config: Union[MemoryConfig, RedisConfig]) -> str:
+    """
+    Get a safe summary of cache configuration (excludes sensitive data).
+
+    Args:
+        config: Cache configuration object
+
+    Returns:
+        Safe configuration summary string
+    """
+    if isinstance(config, MemoryConfig):
+        return f"MemoryCache(timeout={config.timeout}, retry_attempts={config.retry_attempts}, max_size={config.max_size})"
+    elif isinstance(config, RedisConfig):
+        # Only include non-sensitive information
+        return (f"RedisCache(timeout={config.timeout}, retry_attempts={config.retry_attempts}, "
+                f"max_connections={config.max_connections}, retry_on_timeout={config.retry_on_timeout}, "
+                f"health_check_interval={config.health_check_interval}, url_set={bool(config.url)})")
+    else:
+        return f"UnknownCache(type={type(config).__name__})"
+

@@ -9,23 +9,26 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, Union
 
+from ...config.config_defaults import StandaloneConfigDefaults
 from ..registry.schema_manager import get_schema_manager
 
 logger = logging.getLogger(__name__)
+
+_standalone_defaults = StandaloneConfigDefaults()
 
 @dataclass
 class StandaloneConfig:
     """Standalone configuration class - does not depend on any environment variables"""
 
     # === Core configuration ===
-    heartbeat_interval_seconds: int = 60
-    http_timeout_seconds: int = 30
-    reconnection_interval_seconds: int = 300
-    cleanup_interval_seconds: int = 3600
+    heartbeat_interval_seconds: int = int(_standalone_defaults.heartbeat_interval_seconds)
+    http_timeout_seconds: int = int(_standalone_defaults.http_timeout_seconds)
+    reconnection_interval_seconds: int = int(_standalone_defaults.reconnection_interval_seconds)
+    cleanup_interval_seconds: int = int(_standalone_defaults.cleanup_interval_seconds)
     
     # === Network configuration ===
     streamable_http_endpoint: str = "/mcp"
-    default_transport: str = "http"
+    default_transport: str = _standalone_defaults.default_transport
     
     # === File path configuration ===
     config_dir: Optional[str] = None  # If None, use in-memory configuration
@@ -41,9 +44,9 @@ class StandaloneConfig:
     # Environment variable handling is now completely handled by FastMCP, no longer need these configurations
 
     # === Logging configuration ===
-    log_level: str = "INFO"
+    log_level: str = _standalone_defaults.log_level
     log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    enable_debug: bool = False
+    enable_debug: bool = _standalone_defaults.enable_debug
 
 class StandaloneConfigManager:
     """Standalone configuration manager - completely independent of environment variables"""

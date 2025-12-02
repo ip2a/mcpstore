@@ -34,15 +34,26 @@ class ServiceRegistry:
     All operations must include agent_id, store level uses global_agent_store, agent level uses actual agent_id.
     """
 
-    def __init__(self, kv_store: Optional['AsyncKeyValue'] = None):
+    def __init__(self,
+                 kv_store: Optional['AsyncKeyValue'] = None,
+                 service_state_service: Optional[ServiceStateService] = None,
+                 agent_client_service: Optional[AgentClientMappingService] = None,
+                 client_config_service: Optional[ClientConfigService] = None,
+                 tool_management_service: Optional[ToolManagementService] = None):
         """
-        Initialize ServiceRegistry with py-key-value storage backend.
-        
+        Initialize ServiceRegistry with dependency injection support.
+
         Args:
             kv_store: AsyncKeyValue instance for data storage. If None, uses MemoryStore.
                      Session data is always kept in memory regardless of kv_store type.
-        
+            service_state_service: Optional pre-initialized ServiceStateService (dependency injection)
+            agent_client_service: Optional pre-initialized AgentClientMappingService (dependency injection)
+            client_config_service: Optional pre-initialized ClientConfigService (dependency injection)
+            tool_management_service: Optional pre-initialized ToolManagementService (dependency injection)
+
         Note:
+            - When all services are provided: zero delegation factory mode
+            - When no services provided: legacy backward compatibility mode
             - Sessions are stored in memory (not serializable)
             - All other data (tools, states, metadata, mappings) use kv_store
             - Maintains backward compatibility with existing code
@@ -70,15 +81,33 @@ class ServiceRegistry:
         # Initialize AsyncSyncHelper for sync-to-async conversion
         self._sync_helper: Optional[Any] = None  # Lazy initialization
 
-        # Initialize service modules (God Object refactoring)
-        self._agent_client_service = AgentClientMappingService(self._kv_store, self._state_backend, self._kv_adapter)
-        self._client_config_service = ClientConfigService(self._kv_store, self._state_backend, self._kv_adapter)
-        # Note: ServiceStateService needs access to _sync_helper which is lazy-initialized
-        # We pass a lambda that will access it when needed
-        self._service_state_service = ServiceStateService(self._kv_store, self._state_backend, self._kv_adapter,
-                                                          lambda: self._ensure_sync_helper())
-        self._tool_management_service = ToolManagementService(self._kv_store, self._state_backend, self._kv_adapter,
-                                                              self)
+        # Factory mode vs Legacy mode detection
+        factory_mode = all([
+            service_state_service is not None,
+            agent_client_service is not None,
+            client_config_service is not None
+        ])
+
+        if factory_mode:
+            # Zero delegation factory mode - inject all dependencies
+            logger.debug("ServiceRegistry initializing in factory mode (zero delegation)")
+            self._service_state_service = service_state_service
+            self._agent_client_service = agent_client_service
+            self._client_config_service = client_config_service
+            # ToolManagementService needs registry reference, create it after registry initialization
+            self._tool_management_service = tool_management_service
+        else:
+            # Legacy backward compatibility mode - create services internally
+            logger.debug("ServiceRegistry initializing in legacy mode (self-created services)")
+            # Initialize service modules (God Object refactoring)
+            self._agent_client_service = AgentClientMappingService(self._kv_store, self._state_backend, self._kv_adapter)
+            self._client_config_service = ClientConfigService(self._kv_store, self._state_backend, self._kv_adapter)
+            # Note: ServiceStateService needs access to _sync_helper which is lazy-initialized
+            # We pass a lambda that will access it when needed
+            self._service_state_service = ServiceStateService(self._kv_store, self._state_backend, self._kv_adapter,
+                                                              lambda: self._ensure_sync_helper())
+            self._tool_management_service = ToolManagementService(self._kv_store, self._state_backend, self._kv_adapter,
+                                                                 self)
 
         # Create a no-op cache_backend for backward compatibility with @atomic_write decorator
         # The decorator expects begin(), commit(), rollback() methods
@@ -90,6 +119,27 @@ class ServiceRegistry:
             def rollback(self): pass
 
         self.cache_backend = NoOpBackend()
+
+        # Initialize service mapping for dynamic proxy (zero delegation mode)
+        if factory_mode:
+            # ToolManagementService needs registry reference, create it now
+            from .tool_management_service import ToolManagementService
+            self._tool_management_service = ToolManagementService(
+                self._kv_store,
+                self._state_backend,
+                self._kv_adapter,
+                self
+            )
+
+            self._service_mapping = {
+                'service_state': self._service_state_service,
+                'agent_client': self._agent_client_service,
+                'client_config': self._client_config_service,
+                'tool_management': self._tool_management_service
+            }
+            logger.info("Dynamic proxy service mapping initialized for zero delegation mode")
+        else:
+            self._service_mapping = {}
 
         # Sessions remain in memory (not serializable)
         # agent_id -> {service_name: session}
@@ -869,11 +919,11 @@ class ServiceRegistry:
             self.service_metadata[agent_id].pop(service_name, None)
 
         self._sync_to_kv(
-            self.delete_service_state_async(agent_id, service_name),
+            self._service_state_service.delete_service_state_async(agent_id, service_name),
             f"service_state:{agent_id}:{service_name}"
         )
         self._sync_to_kv(
-            self.delete_service_metadata_async(agent_id, service_name),
+            self._service_state_service.delete_service_metadata_async(agent_id, service_name),
             f"service_metadata:{agent_id}:{service_name}"
         )
 
@@ -1323,6 +1373,46 @@ class ServiceRegistry:
         except Exception as e:
             logger.warning(f"[REGISTRY] get_service_config error: {e}")
             return None
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    def __getattr__(self, name: str):
+        """
+        动态方法代理 - 零委托模式的核心实现
+
+        当访问不存在的方法时，自动查找并调用对应的服务方法
+        这样就无需编写任何委托代码，实现了真正的零委托
+        """
+        if not hasattr(self, '_service_mapping') or not self._service_mapping:
+            # Legacy mode - 可能是在升级过程中访问
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}' (legacy mode)")
+
+        # 在所有服务中查找方法
+        for service_name, service in self._service_mapping.items():
+            if hasattr(service, name):
+                method = getattr(service, name)
+                logger.debug(f"[REGISTRY] Method '{name}' dynamically proxied to {service_name} service")
+                return method
+
+        # 如果没有找到，提供清晰的错误信息
+        available_methods = []
+        for service_name, service in self._service_mapping.items():
+            methods = [f"{service_name}.{m}" for m in dir(service) if not m.startswith('_') and callable(getattr(service, m))]
+            available_methods.extend(methods[:5])  # 每个服务只显示前5个方法
+
+        raise AttributeError(
+            f"Method '{name}' not found in any service. "
+            f"Available methods (sample): {available_methods[:15]}..."
+        )
 
     def mark_as_long_lived(self, agent_id: str, service_name: str):
         """标记服务为长连接服务"""

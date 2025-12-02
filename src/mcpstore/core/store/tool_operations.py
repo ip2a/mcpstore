@@ -47,7 +47,7 @@ class ToolOperationsMixin:
                 state_check_agent_id = request.agent_id or self.client_manager.global_agent_store_id
 
             # Event-driven architecture: get state directly from registry (no longer through lifecycle_manager)
-            service_state = self.registry.get_service_state(state_check_agent_id, request.service_name)
+            service_state = self.registry._service_state_service.get_service_state(state_check_agent_id, request.service_name)
 
             # If service is in unavailable state, return error
             from mcpstore.core.models.service import ServiceConnectionState

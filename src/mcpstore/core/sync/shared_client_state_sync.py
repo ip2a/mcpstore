@@ -53,7 +53,7 @@ class SharedClientStateSyncManager:
             self._syncing.add(sync_key)
             
             # 获取服务的 client_id
-            client_id = self.registry.get_service_client_id(agent_id, service_name)
+            client_id = self.registry._agent_client_service.get_service_client_id(agent_id, service_name)
             if not client_id:
                 logger.debug(f" [STATE_SYNC] No client_id found for {agent_id}:{service_name}")
                 return
@@ -70,7 +70,7 @@ class SharedClientStateSyncManager:
             for target_agent_id, target_service_name in shared_services:
                 if (target_agent_id, target_service_name) != (agent_id, service_name):
                     # 获取目标服务的当前状态
-                    current_state = self.registry.get_service_state(target_agent_id, target_service_name)
+                    current_state = self.registry._service_state_service.get_service_state(target_agent_id, target_service_name)
                     
                     if current_state != new_state:
                         # 直接设置状态，避免触发递归同步
@@ -137,7 +137,7 @@ class SharedClientStateSyncManager:
             共享服务信息字典，如果没有共享服务则返回 None
         """
         try:
-            client_id = self.registry.get_service_client_id(agent_id, service_name)
+            client_id = self.registry._agent_client_service.get_service_client_id(agent_id, service_name)
             if not client_id:
                 return None
             
@@ -148,7 +148,7 @@ class SharedClientStateSyncManager:
             # 收集所有共享服务的状态信息
             services_info = []
             for svc_agent_id, svc_service_name in shared_services:
-                state = self.registry.get_service_state(svc_agent_id, svc_service_name)
+                state = self.registry._service_state_service.get_service_state(svc_agent_id, svc_service_name)
                 services_info.append({
                     "agent_id": svc_agent_id,
                     "service_name": svc_service_name,
@@ -179,7 +179,7 @@ class SharedClientStateSyncManager:
                 logger.debug(f" [ATOMIC_SYNC] Starting atomic state update: {agent_id}:{service_name} -> {new_state.value}")
                 
                 # 获取服务的 client_id
-                client_id = self.registry.get_service_client_id(agent_id, service_name)
+                client_id = self.registry._agent_client_service.get_service_client_id(agent_id, service_name)
                 if not client_id:
                     logger.debug(f" [ATOMIC_SYNC] No client_id found for {agent_id}:{service_name}")
                     return
@@ -238,7 +238,7 @@ class SharedClientStateSyncManager:
             state_groups = {}
             
             for agent_id, service_name in shared_services:
-                state = self.registry.get_service_state(agent_id, service_name)
+                state = self.registry._service_state_service.get_service_state(agent_id, service_name)
                 state_value = state.value if state else "unknown"
                 
                 service_states.append({
@@ -310,7 +310,7 @@ class SharedClientStateSyncManager:
                 # 批量更新所有服务状态
                 updated_count = 0
                 for agent_id, service_name in shared_services:
-                    current_state = self.registry.get_service_state(agent_id, service_name)
+                    current_state = self.registry._service_state_service.get_service_state(agent_id, service_name)
                     if current_state != target_state:
                         self._set_state_directly(agent_id, service_name, target_state)
                         updated_count += 1

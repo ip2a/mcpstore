@@ -132,7 +132,7 @@ class ServiceManagementMixin:
         agent_id = self.client_manager.global_agent_store_id
 
         for name in config.get("mcpServers", {}).keys():
-            state = self.registry.get_service_state(agent_id, name)
+            state = self.registry._service_state_service.get_service_state(agent_id, name)
 
             # 新服务（state=None）也应纳入处理范围
             if state is None or state in processable_states:
@@ -191,7 +191,7 @@ class ServiceManagementMixin:
                 logger.debug(f"Using provided agent_id: {agent_key}")
 
             # 🆕 Event-driven architecture: directly check service status from registry
-            current_state = self.registry.get_service_state(agent_key, service_name)
+            current_state = self.registry._service_state_service.get_service_state(agent_key, service_name)
             if current_state is None:
                 logger.warning(f"Service {service_name} not found in lifecycle manager for agent {agent_key}")
                 # Check if it exists in the registry
@@ -457,8 +457,8 @@ class ServiceManagementMixin:
             agent_key = client_id or self.client_manager.global_agent_store_id
 
             # Get service status from cache
-            state = self.registry.get_service_state(agent_key, service_name)
-            metadata = self.registry.get_service_metadata(agent_key, service_name)
+            state = self.registry._service_state_service.get_service_state(agent_key, service_name)
+            metadata = self.registry._service_state_service.get_service_metadata(agent_key, service_name)
 
             # Build status response
             status_response = {

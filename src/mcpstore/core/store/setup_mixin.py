@@ -48,7 +48,7 @@ class SetupMixin:
         """
         try:
             # 检查service_to_client映射（统一通过Registry API）
-            existing_client_id = self.registry.get_service_client_id(agent_id, service_name)
+            existing_client_id = self.registry._agent_client_service.get_service_client_id(agent_id, service_name)
             if existing_client_id:
                 logger.debug(f" [INIT_MCP] 找到现有Agent client_id: {service_name} -> {existing_client_id}")
                 return existing_client_id
@@ -92,7 +92,7 @@ class SetupMixin:
         """
         try:
             # 优先：通过 Registry 提供的映射API 获取
-            existing_client_id = self.registry.get_service_client_id(agent_id, service_name)
+            existing_client_id = self.registry._agent_client_service.get_service_client_id(agent_id, service_name)
             if existing_client_id:
                 logger.debug(f" [INIT_MCP] 找到现有Store client_id: {service_name} -> {existing_client_id}")
                 return existing_client_id
@@ -191,10 +191,10 @@ class SetupMixin:
                         self.registry.add_client_config(client_id, client_config)
 
                         # 建立 Agent -> Client 映射
-                        self.registry.add_agent_client_mapping(agent_id, client_id)
+                        self.registry._agent_client_service.add_agent_client_mapping(agent_id, client_id)
 
                         # 建立 服务 -> Client 映射（统一API）
-                        self.registry.add_service_client_mapping(agent_id, local_name, client_id)
+                        self.registry._agent_client_service.add_service_client_mapping(agent_id, local_name, client_id)
 
                         logger.debug(f" [INIT_MCP] Agent 服务映射完成: {agent_id}:{local_name} -> {client_id}")
                     
@@ -226,10 +226,10 @@ class SetupMixin:
                         self.registry.add_client_config(client_id, client_config)
 
                         # 建立 global_agent_store -> Client 映射
-                        self.registry.add_agent_client_mapping(global_agent_store_id, client_id)
+                        self.registry._agent_client_service.add_agent_client_mapping(global_agent_store_id, client_id)
 
                         # 建立服务 -> Client 映射（统一API）
-                        self.registry.add_service_client_mapping(global_agent_store_id, service_name, client_id)
+                        self.registry._agent_client_service.add_service_client_mapping(global_agent_store_id, service_name, client_id)
 
                         logger.debug(f" [INIT_MCP] Store 服务映射完成: {service_name} -> {client_id}")
 

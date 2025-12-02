@@ -253,7 +253,7 @@ class ServiceConnectionMixin:
                 except Exception:
                     pass
                 try:
-                    metadata = self.registry.get_service_metadata(agent_id, name)
+                    metadata = self.registry._service_state_service.get_service_metadata(agent_id, name)
                     if metadata:
                         metadata.failure_reason = failure_reason
                         metadata.error_message = error_msg
@@ -301,7 +301,7 @@ class ServiceConnectionMixin:
             except Exception:
                 pass
             try:
-                metadata = self.registry.get_service_metadata(agent_id, name)
+                metadata = self.registry._service_state_service.get_service_metadata(agent_id, name)
                 if metadata:
                     metadata.failure_reason = failure_reason
                     metadata.error_message = error_msg
@@ -393,9 +393,9 @@ class ServiceConnectionMixin:
                 if self._is_long_lived_service(service_config):
                     self.registry.mark_as_long_lived(agent_id, service_name)
 
-                client_id = self.registry.get_service_client_id(agent_id, service_name)
+                client_id = self.registry._agent_client_service.get_service_client_id(agent_id, service_name)
                 if client_id:
-                    self.registry.add_agent_client_mapping(agent_id, client_id)
+                    self.registry._agent_client_service.add_agent_client_mapping(agent_id, client_id)
                     logger.debug(f" [CLIENT_REGISTER] ????? {client_id} ? Agent {agent_id}")
                 else:
                     logger.warning(f" [CLIENT_REGISTER] ?????? {service_name} ? Client ID")
@@ -426,9 +426,9 @@ class ServiceConnectionMixin:
                         self.registry.mark_as_long_lived(agent_id, service_name)
 
                     # ?????? Agent ?????
-                    client_id = self.registry.get_service_client_id(agent_id, service_name)
+                    client_id = self.registry._agent_client_service.get_service_client_id(agent_id, service_name)
                     if client_id:
-                        self.registry.add_agent_client_mapping(agent_id, client_id)
+                        self.registry._agent_client_service.add_agent_client_mapping(agent_id, client_id)
                         logger.debug(f" [CLIENT_REGISTER] ????? {client_id} ? Agent {agent_id}")
                     else:
                         logger.warning(f" [CLIENT_REGISTER] ?????? {service_name} ? Client ID")
@@ -574,7 +574,7 @@ class ServiceConnectionMixin:
             bool: True ?????? HEALTHY/WARNING ??
         """
         agent_key = client_id or self.client_manager.global_agent_store_id
-        state = self.registry.get_service_state(agent_key, name)
+        state = self.registry._service_state_service.get_service_state(agent_key, name)
         return state in (ServiceConnectionState.HEALTHY, ServiceConnectionState.WARNING)
 
     def _normalize_service_config(self, service_config: Dict[str, Any]) -> Dict[str, Any]:

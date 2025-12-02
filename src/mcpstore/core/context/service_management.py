@@ -244,7 +244,7 @@ class ServiceManagementMixin:
                 try:
                     # 将元数据更新到全局命名空间，保持与生命周期/工具缓存一致
                     global_agent = self._store.client_manager.global_agent_store_id
-                    metadata = self._store.registry.get_service_metadata(global_agent, global_name)
+                    metadata = self._store.registry._service_state_service.get_service_metadata(global_agent, global_name)
                     if metadata:
                         # 将变更合并到缓存元数据中
                         metadata.service_config = _deep_merge(metadata.service_config or {}, config)
@@ -336,7 +336,7 @@ class ServiceManagementMixin:
                 try:
                     # 将元数据更新到全局命名空间，保持与生命周期/工具缓存一致
                     global_agent = self._store.client_manager.global_agent_store_id
-                    metadata = self._store.registry.get_service_metadata(global_agent, global_name)
+                    metadata = self._store.registry._service_state_service.get_service_metadata(global_agent, global_name)
                     if metadata:
                         metadata.service_config.update(updates)
                         self._store.registry.set_service_metadata(global_agent, global_name, metadata)
@@ -640,7 +640,7 @@ class ServiceManagementMixin:
                     agent_client_count = 0
 
                     # 获取该Agent的所有服务
-                    service_names = self._store.registry.get_all_service_names(agent_id)
+                    service_names = self._store.registry._service_state_service.get_all_service_names(agent_id)
 
                     for service_name in service_names:
                         complete_info = self._store.registry.get_complete_service_info(agent_id, service_name)
@@ -726,7 +726,7 @@ class ServiceManagementMixin:
             client_count = 0
 
             # 获取该Agent的所有服务
-            service_names = self._store.registry.get_all_service_names(agent_id)
+            service_names = self._store.registry._service_state_service.get_all_service_names(agent_id)
 
             for service_name in service_names:
                 complete_info = self._store.registry.get_complete_service_info(agent_id, service_name)
@@ -889,7 +889,7 @@ class ServiceManagementMixin:
                 return False
 
             # 检查service_name是否存在于Registry中
-            existing_client_id = self._store.registry.get_service_client_id(agent_id, service_name)
+            existing_client_id = self._store.registry._agent_client_service.get_service_client_id(agent_id, service_name)
             if existing_client_id != client_id:
                 logger.debug(f" [VALIDATE_MAPPING] service '{service_name}' maps to different client_id: expected={client_id}, actual={existing_client_id}")
                 return False
@@ -948,12 +948,18 @@ class ServiceManagementMixin:
                 mapped = self._store.registry.get_global_name_from_agent_service(agent_id, input_name)
                 global_service_name = mapped or AgentServiceMapper(agent_id).to_global_name(input_name)
 
-            # 2.2 在 Store 命名空间解析 client_id
-            client_id = self._store.registry.get_service_client_id(global_agent_id, global_service_name)
+            # 2.2 优先在 Agent 命名空间解析 client_id，再回退到 Store 命名空间
+            client_id = self._store.registry._agent_client_service.get_service_client_id(agent_id, input_name)
             if not client_id:
-                available = ', '.join(self._store.registry.get_all_service_names(global_agent_id)) or 'None'
+                # 回退到 Store 命名空间
+                client_id = self._store.registry._agent_client_service.get_service_client_id(global_agent_id, global_service_name)
+
+            if not client_id:
+                available_agent = ', '.join(self._store.registry._service_state_service.get_all_service_names(agent_id)) or 'None'
+                available_global = ', '.join(self._store.registry._service_state_service.get_all_service_names(global_agent_id)) or 'None'
                 raise ValueError(
-                    f"Service '{input_name}' (global '{global_service_name}') not found in store. Available services: {available}"
+                    f"Service '{input_name}' (global '{global_service_name}') not found. "
+                    f"Agent services: {available_agent}. Store services: {available_global}"
                 )
 
             logger.debug(f"[RESOLVE_CLIENT_ID] agent_proxy_ok local_or_global='{input_name}' -> global='{global_service_name}' client_id={client_id}")
@@ -961,9 +967,9 @@ class ServiceManagementMixin:
 
         # 3) Store 模式：直接在 Store 命名空间解析
         service_name = client_id_or_service_name
-        service_names = self._store.registry.get_all_service_names(agent_id)
+        service_names = self._store.registry._service_state_service.get_all_service_names(agent_id)
         if service_name in service_names:
-            client_id = self._store.registry.get_service_client_id(agent_id, service_name)
+            client_id = self._store.registry._agent_client_service.get_service_client_id(agent_id, service_name)
             if client_id:
                 logger.debug(f"[RESOLVE_CLIENT_ID] store_lookup_ok service={service_name} client_id={client_id}")
                 return client_id, service_name
@@ -1194,7 +1200,7 @@ class ServiceManagementMixin:
             )
 
             # 更新服务元数据中的配置
-            metadata = self._store.registry.get_service_metadata(global_agent_store_id, service_name)
+            metadata = self._store.registry._service_state_service.get_service_metadata(global_agent_store_id, service_name)
             if metadata:
                 metadata.service_config = normalized_config
                 metadata.consecutive_failures = 0
@@ -1279,7 +1285,7 @@ class ServiceManagementMixin:
             )
 
             # 更新服务元数据中的配置
-            metadata = self._store.registry.get_service_metadata(self._agent_id, service_name)
+            metadata = self._store.registry._service_state_service.get_service_metadata(self._agent_id, service_name)
             if metadata:
                 metadata.service_config = normalized_config
                 metadata.consecutive_failures = 0
@@ -1641,7 +1647,7 @@ class ServiceManagementMixin:
                         # 对比 orchestrator 与 registry 的状态及最近健康检查（节流打印）
                         try:
                             reg_state = self._store.registry.get_service_state(status_agent_key, service_name)
-                            meta = self._store.registry.get_service_metadata(status_agent_key, service_name)
+                            meta = self._store.registry._service_state_service.get_service_metadata(status_agent_key, service_name)
                             last_check_ts = meta.last_health_check.isoformat() if getattr(meta, 'last_health_check', None) else None
                             logger.debug(f"[WAIT_SERVICE] compare orchestrator='{current_status}' registry='{getattr(reg_state,'value',reg_state)}' last_check={last_check_ts}")
                         except Exception:

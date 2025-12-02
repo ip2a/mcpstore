@@ -15,7 +15,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
+from ...config.config_defaults import WrapperConfigDefaults
+
 logger = logging.getLogger(__name__)
+
+_wrapper_defaults = WrapperConfigDefaults()
 
 
 class WrapperConfig:
@@ -41,9 +45,9 @@ class WrapperConfig:
     # Default values
     DEFAULT_ENABLE_STATISTICS = True
     DEFAULT_ENABLE_SIZE_LIMIT = True
-    DEFAULT_MAX_ITEM_SIZE = 1024 * 1024  # 1MB
+    DEFAULT_MAX_ITEM_SIZE = _wrapper_defaults.DEFAULT_MAX_ITEM_SIZE  # 1MB
     DEFAULT_ENABLE_COMPRESSION = False
-    DEFAULT_COMPRESSION_THRESHOLD = 512 * 1024  # 512KB
+    DEFAULT_COMPRESSION_THRESHOLD = _wrapper_defaults.DEFAULT_COMPRESSION_THRESHOLD  # 由 WrapperConfigDefaults 统一管理
     
     def __init__(
         self,

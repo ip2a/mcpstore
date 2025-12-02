@@ -1,39 +1,88 @@
 """
 统一监控配置管理器
 处理用户监控配置，提供默认值和配置验证
+现在从 MCPStoreConfig 获取配置值
 """
 
 import logging
 from typing import Dict, Any, Optional
 
+from mcpstore.config.config_defaults import MonitoringConfigDefaults
+
 logger = logging.getLogger(__name__)
+
+_monitoring_defaults = MonitoringConfigDefaults()
 
 
 class MonitoringConfigProcessor:
     """监控配置处理器"""
-    
-    # 默认监控配置（推荐配置）
-    DEFAULT_CONFIG = {
-        "health_check_seconds": 30,        # 30秒健康检查
-        "tools_update_hours": 2,           # 2小时工具更新检查
-        "reconnection_seconds": 60,        # 1分钟重连间隔
-        "cleanup_hours": 24,               # 24小时清理一次
-        "enable_tools_update": True,       # 启用工具更新
-        "enable_reconnection": True,       # 启用重连
-        "update_tools_on_reconnection": True,  # 重连时更新工具
-        "detect_tools_changes": False,     # 关闭智能变化检测（避免额外开销）
-        
-        # 健康检查相关
-        "local_service_ping_timeout": 3,   # 本地服务ping超时
-        "remote_service_ping_timeout": 5,  # 远程服务ping超时
-        "startup_wait_time": 2,            # 启动等待时间
-        "healthy_response_threshold": 1.0, # 健康响应阈值
-        "warning_response_threshold": 3.0, # 警告响应阈值
-        "slow_response_threshold": 10.0,   # 慢响应阈值
-        "enable_adaptive_timeout": True,   # 启用智能超时
-        "adaptive_timeout_multiplier": 2.0, # 智能超时倍数
-        "response_time_history_size": 10   # 响应时间历史大小
-    }
+
+    @classmethod
+    def get_config_from_mcpstore(cls) -> Dict[str, Any]:
+        """
+        从 MCPStoreConfig 获取监控配置
+
+        Returns:
+            从 MCPStoreConfig 读取的监控配置字典，如果 MCPStoreConfig 未初始化则返回默认配置
+        """
+        try:
+            from mcpstore.config.toml_config import get_monitoring_config_with_defaults
+            config = get_monitoring_config_with_defaults()
+
+            # 将 dataclass 转换为字典格式以保持向后兼容
+            if hasattr(config, '__dict__'):
+                return {
+                    "health_check_seconds": getattr(config, 'health_check_seconds', _monitoring_defaults.health_check_seconds),
+                    "tools_update_hours": getattr(config, 'tools_update_hours', _monitoring_defaults.tools_update_hours),
+                    "reconnection_seconds": getattr(config, 'reconnection_seconds', _monitoring_defaults.reconnection_seconds),
+                    "cleanup_hours": getattr(config, 'cleanup_hours', _monitoring_defaults.cleanup_hours),
+                    "enable_tools_update": getattr(config, 'enable_tools_update', _monitoring_defaults.enable_tools_update),
+                    "enable_reconnection": getattr(config, 'enable_reconnection', _monitoring_defaults.enable_reconnection),
+                    "update_tools_on_reconnection": getattr(config, 'update_tools_on_reconnection', _monitoring_defaults.update_tools_on_reconnection),
+                    "detect_tools_changes": getattr(config, 'detect_tools_changes', _monitoring_defaults.detect_tools_changes),
+                    "local_service_ping_timeout": getattr(config, 'local_service_ping_timeout', _monitoring_defaults.local_service_ping_timeout),
+                    "remote_service_ping_timeout": getattr(config, 'remote_service_ping_timeout', _monitoring_defaults.remote_service_ping_timeout),
+                    "startup_wait_time": getattr(config, 'startup_wait_time', _monitoring_defaults.startup_wait_time),
+                    "healthy_response_threshold": getattr(config, 'healthy_response_threshold', _monitoring_defaults.healthy_response_threshold),
+                    "warning_response_threshold": getattr(config, 'warning_response_threshold', _monitoring_defaults.warning_response_threshold),
+                    "slow_response_threshold": getattr(config, 'slow_response_threshold', _monitoring_defaults.slow_response_threshold),
+                    "enable_adaptive_timeout": getattr(config, 'enable_adaptive_timeout', _monitoring_defaults.enable_adaptive_timeout),
+                    "adaptive_timeout_multiplier": getattr(config, 'adaptive_timeout_multiplier', _monitoring_defaults.adaptive_timeout_multiplier),
+                    "response_time_history_size": getattr(config, 'response_time_history_size', _monitoring_defaults.response_time_history_size),
+                }
+            else:
+                # 如果返回的是字典，直接使用
+                return config
+
+        except Exception as e:
+            logger.warning(f"Failed to get monitoring config from MCPStoreConfig: {e}, using defaults")
+            # 返回默认配置作为回退
+            return cls._get_default_config()
+
+    @classmethod
+    def _get_default_config(cls) -> Dict[str, Any]:
+        """获取默认监控配置（回退配置）"""
+        return {
+            "health_check_seconds": _monitoring_defaults.health_check_seconds,        # 30秒健康检查
+            "tools_update_hours": _monitoring_defaults.tools_update_hours,           # 2小时工具更新检查
+            "reconnection_seconds": _monitoring_defaults.reconnection_seconds,        # 1分钟重连间隔
+            "cleanup_hours": _monitoring_defaults.cleanup_hours,               # 24小时清理一次
+            "enable_tools_update": _monitoring_defaults.enable_tools_update,       # 启用工具更新
+            "enable_reconnection": _monitoring_defaults.enable_reconnection,       # 启用重连
+            "update_tools_on_reconnection": _monitoring_defaults.update_tools_on_reconnection,  # 重连时更新工具
+            "detect_tools_changes": _monitoring_defaults.detect_tools_changes,     # 关闭智能变化检测（避免额外开销）
+
+            # 健康检查相关
+            "local_service_ping_timeout": _monitoring_defaults.local_service_ping_timeout,   # 本地服务ping超时
+            "remote_service_ping_timeout": _monitoring_defaults.remote_service_ping_timeout,  # 远程服务ping超时
+            "startup_wait_time": _monitoring_defaults.startup_wait_time,            # 启动等待时间
+            "healthy_response_threshold": _monitoring_defaults.healthy_response_threshold, # 健康响应阈值
+            "warning_response_threshold": _monitoring_defaults.warning_response_threshold, # 警告响应阈值
+            "slow_response_threshold": _monitoring_defaults.slow_response_threshold,   # 慢响应阈值
+            "enable_adaptive_timeout": _monitoring_defaults.enable_adaptive_timeout,   # 启用智能超时
+            "adaptive_timeout_multiplier": _monitoring_defaults.adaptive_timeout_multiplier, # 智能超时倍数
+            "response_time_history_size": _monitoring_defaults.response_time_history_size   # 响应时间历史大小
+        }
     
     # 配置验证规则
     VALIDATION_RULES = {
@@ -55,30 +104,31 @@ class MonitoringConfigProcessor:
     def process_config(cls, user_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         处理用户监控配置
-        
+
         Args:
-            user_config: 用户提供的监控配置
-            
+            user_config: 用户提供的监控配置（可选覆盖配置）
+
         Returns:
-            完整的监控配置
+            完整的监控配置（基于 MCPStoreConfig + 用户覆盖）
         """
         if user_config is None:
             user_config = {}
-        
-        # 从默认配置开始
-        final_config = cls.DEFAULT_CONFIG.copy()
-        
-        # 应用用户配置
+
+        # 从 MCPStoreConfig 获取基础配置
+        final_config = cls.get_config_from_mcpstore()
+
+        # 应用用户配置覆盖
         for key, value in user_config.items():
-            if key in cls.DEFAULT_CONFIG:
+            if key in final_config:
                 # 验证配置值
                 if cls._validate_config_value(key, value):
                     final_config[key] = value
+                    logger.info(f"Applied user override for monitoring config: {key} = {value}")
                 else:
-                    logger.warning(f"Invalid monitoring config value for {key}: {value}, using default: {cls.DEFAULT_CONFIG[key]}")
+                    logger.warning(f"Invalid monitoring config value for {key}: {value}, using MCPStoreConfig value: {final_config[key]}")
             else:
                 logger.warning(f"Unknown monitoring config key: {key}, ignoring")
-        
+
         # 配置一致性检查
         final_config = cls._ensure_config_consistency(final_config)
         
@@ -179,24 +229,27 @@ class MonitoringConfigProcessor:
     
     @classmethod
     def get_default_config(cls) -> Dict[str, Any]:
-        """获取默认配置"""
-        return cls.DEFAULT_CONFIG.copy()
+        """获取默认配置（现在从 MCPStoreConfig 获取）"""
+        return cls.get_config_from_mcpstore()
     
     @classmethod
     def validate_user_config(cls, user_config: Dict[str, Any]) -> tuple[bool, list[str]]:
         """
         验证用户配置
-        
+
         Returns:
             (是否有效, 错误信息列表)
         """
         errors = []
-        
+
+        # 获取当前有效配置作为参考
+        valid_config = cls.get_config_from_mcpstore()
+
         for key, value in user_config.items():
-            if key not in cls.DEFAULT_CONFIG:
+            if key not in valid_config:
                 errors.append(f"Unknown config key: {key}")
             elif not cls._validate_config_value(key, value):
                 rules = cls.VALIDATION_RULES.get(key, {})
                 errors.append(f"Invalid value for {key}: {value} (expected: {rules})")
-        
+
         return len(errors) == 0, errors
