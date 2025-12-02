@@ -21,6 +21,8 @@ services:
       start_period: 40s
     networks:
       - mcpstore-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # 开发模式可以选择性地挂载源码进行热重载
     # volumes:
     #   - ../vue/src:/usr/share/nginx/html/src:ro

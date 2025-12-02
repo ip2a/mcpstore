@@ -19,13 +19,13 @@ RUN pip install --no-cache-dir uv
 WORKDIR /app
 
 # Copy requirements file
-COPY requirements.txt .
+COPY docker/wiki/requirements.txt .
 
 # Install dependencies using uv
 RUN uv pip install --system -r requirements.txt
 
 # Copy wiki service file
-COPY ../../wiki/mcp_service_wiki.py .
+COPY wiki/mcp_service_wiki.py .
 
 # Create logs directory
 RUN mkdir -p /app/logs
