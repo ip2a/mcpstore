@@ -1,9 +1,7 @@
-version: '3.8'
-
 services:
   wiki:
     build:
-      context: ..
+      context: ../..
       dockerfile: docker/wiki/Dockerfile
     container_name: mcpstore-wiki
     restart: unless-stopped
