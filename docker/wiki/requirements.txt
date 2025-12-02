@@ -1,0 +1,5 @@
+# MCP Wiki 服务依赖
+fastmcp>=2.7.1
+pydantic>=2.11.5
+uvicorn>=0.30.0
+python-multipart>=0.0.6
