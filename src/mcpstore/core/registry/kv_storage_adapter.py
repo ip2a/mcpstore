@@ -49,16 +49,14 @@ class KVStorageAdapter:
         """
         Synchronously execute an async KV store operation.
         
-        This is a bridge method for backward compatibility with synchronous code.
-        Uses AsyncSyncHelper to run async operations in sync context.
+        This is a bridge method for synchronous code that must perform KV
+        operations. It uses AsyncSyncHelper to run async operations in a
+        synchronous context.
         
         Args:
             coro: Coroutine to execute
             operation_name: Description of the operation for logging
         
-        Note:
-            This method catches and logs KV operation failures but doesn't raise,
-            as memory cache is still updated and KV sync is best-effort.
         """
         try:
             logger.debug(f"[KV_SYNC] Starting sync: {operation_name}")
@@ -66,12 +64,12 @@ class KVStorageAdapter:
             helper.run_async(coro, timeout=5.0)
             logger.debug(f"[KV_SYNC] Successfully synced: {operation_name}")
         except Exception as e:
-            # Log cache operation failure with context
-            logger.warning(
-                f"[KV_SYNC] Failed to sync to KV store: {operation_name}. "
-                f"Error: {e}. Memory cache is still updated."
+            # Treat KV sync failures as hard errors so they are not hidden
+            logger.error(
+                f"[KV_SYNC] Failed to sync to KV store: {operation_name}. Error: {e}",
+                exc_info=True,
             )
-            # Don't raise - memory cache is still updated, KV sync is best-effort
+            raise
     
     def get_collection(self, agent_id: str, data_type: str) -> str:
         """

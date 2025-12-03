@@ -13,15 +13,25 @@ if TYPE_CHECKING:
 
 
 class AgentProxy:
+    """
+    Proxy object for agent-specific operations.
+
+    Provides a unified interface for managing agent-level services, tools,
+    and operations with proper context isolation and caching.
+    """
+
     def __init__(self, context: "MCPStoreContext", agent_id: str):
+        """
+        Initialize AgentProxy with context and agent identifier.
+
+        Args:
+            context: The MCPStoreContext instance for operations
+            agent_id: Unique identifier for this agent
+        """
         self._context = context
         self._agent_id = agent_id
-        # Prepare an agent-scoped context for delegations to avoid relying on store.for_agent()
-        try:
-            from .base_context import MCPStoreContext as _Ctx
-            self._agent_ctx = _Ctx(self._context._store, agent_id)
-        except Exception:
-            self._agent_ctx = None
+        # Use the provided context directly instead of creating a duplicate
+        self._agent_ctx = context
 
     # ---- Identity ----
     def get_id(self) -> str:
@@ -168,9 +178,9 @@ class AgentProxy:
         ctx = self._agent_ctx or self._context
         return await ctx.call_tool_async(tool_name, args)
 
-    async def show_config_async(self, scope: str = "all") -> Dict[str, Any]:
+    async def show_config_async(self) -> Dict[str, Any]:
         ctx = self._agent_ctx or self._context
-        return await ctx.show_config_async(scope)
+        return await ctx.show_config_async()
 
     async def delete_config_async(self, client_id_or_service_name: str) -> Dict[str, Any]:
         ctx = self._agent_ctx or self._context
@@ -437,9 +447,9 @@ class AgentProxy:
         ctx = self._agent_ctx or self._context
         return bool(ctx.reset_config(scope))
 
-    def show_config(self, scope: str = "all") -> Dict[str, Any]:
+    def show_config(self) -> Dict[str, Any]:
         ctx = self._agent_ctx or self._context
-        return ctx.show_config(scope)
+        return ctx.show_config()
 
     # ---- Escape hatch ----
     def get_context(self):

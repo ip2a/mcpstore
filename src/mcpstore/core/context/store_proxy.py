@@ -116,8 +116,21 @@ class StoreProxy:
         return result
 
     def find_agent(self, agent_id: str) -> "AgentProxy":
-        from .agent_proxy import AgentProxy
-        return AgentProxy(self._context, agent_id)
+        """
+        Find agent proxy with unified caching.
+
+        Uses the centralized AgentProxy caching system to ensure that the same
+        agent_id always returns the same AgentProxy instance across all access
+        methods in the MCPStore.
+
+        Args:
+            agent_id: Unique identifier for the agent
+
+        Returns:
+            AgentProxy: Cached or newly created AgentProxy instance
+        """
+        # Use unified AgentProxy caching system from the store
+        return self._context._store._get_or_create_agent_proxy(self._context, agent_id)
 
     # ---- Health & runtime ----
     def check_services(self) -> Dict[str, Any]:
@@ -168,8 +181,8 @@ class StoreProxy:
     async def call_tool_async(self, tool_name: str, args: Dict[str, Any]):
         return await self._context.call_tool_async(tool_name, args)
 
-    async def show_config_async(self, scope: str = "all") -> Dict[str, Any]:
-        return await self._context.show_config_async(scope)
+    async def show_config_async(self) -> Dict[str, Any]:
+        return await self._context.show_config_async()
 
     async def delete_config_async(self, client_id_or_service_name: str) -> Dict[str, Any]:
         return await self._context.delete_config_async(client_id_or_service_name)
@@ -276,8 +289,8 @@ class StoreProxy:
     def reset_config(self, scope: str = "all") -> bool:
         return bool(self._context.reset_config(scope))
 
-    def show_config(self, scope: str = "all") -> Dict[str, Any]:
-        return self._context.show_config(scope)
+    def show_config(self) -> Dict[str, Any]:
+        return self._context.show_config()
 
     def switch_cache(self, cache_config: Any) -> bool:
         """Runtime cache backend switching (synchronous version)."""

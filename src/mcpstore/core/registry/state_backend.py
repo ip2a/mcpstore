@@ -222,8 +222,14 @@ class KVRegistryStateBackend(RegistryStateBackend):
             return None
         if isinstance(wrapped, dict) and "value" in wrapped:
             return wrapped["value"]
-        logger.info("Migrating legacy unwrapped mapping value")
-        return wrapped if isinstance(wrapped, str) else None
+        logger.error(
+            f"Invalid tool_service mapping value for {agent_id}/{tool_name}: "
+            f"expected dict with 'value', got {type(wrapped).__name__}"
+        )
+        raise RuntimeError(
+            f"tool_service mapping for {agent_id}/{tool_name} must be stored as "
+            "{{'value': service_name}} dict"
+        )
 
     async def set_tool_service(self, agent_id: str, tool_name: str, service_name: str) -> None:
         collection = self._collection(agent_id, "mappings")
@@ -244,8 +250,14 @@ class KVRegistryStateBackend(RegistryStateBackend):
             return None
         if isinstance(value, dict) and "value" in value:
             return value["value"]
-        logger.info("Migrating legacy service_client mapping value")
-        return value if isinstance(value, str) else None
+        logger.error(
+            f"Invalid service_client mapping value for {agent_id}/{service_name}: "
+            f"expected dict with 'value', got {type(value).__name__}"
+        )
+        raise RuntimeError(
+            f"service_client mapping for {agent_id}/{service_name} must be stored as "
+            "{{'value': client_id}} dict"
+        )
 
     async def set_service_client(self, agent_id: str, service_name: str, client_id: str) -> None:
         collection = self._collection(agent_id, "mappings")
@@ -277,10 +289,19 @@ class KVRegistryStateBackend(RegistryStateBackend):
                 values.append(await self._kv_store.get(key=key, collection=collection))
         client_ids = set()
         for value in values:
+            if value is None:
+                continue
             if isinstance(value, dict) and "value" in value:
                 client_ids.add(value["value"])
-            elif isinstance(value, str):
-                client_ids.add(value)
+            else:
+                logger.error(
+                    f"Invalid service_client mapping value in list_agent_clients "
+                    f"for agent {agent_id}: expected dict with 'value', got "
+                    f"{type(value).__name__}"
+                )
+                raise RuntimeError(
+                    "service_client mappings must all be stored as {'value': client_id} dicts"
+                )
         return list(client_ids)
 
     async def get_client_config(self, client_id: str) -> Optional[Dict[str, Any]]:

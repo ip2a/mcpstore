@@ -293,47 +293,42 @@ class ConnectionManager:
         """Get service configuration from cache"""
         logger.debug(f"[CONNECTION] Getting config for {agent_id}:{service_name}")
 
-        # Get configuration through client_id
+        # Get configuration strictly through client_id → client_config → mcpServers
         client_id = self._registry.get_service_client_id(agent_id, service_name)
         if not client_id:
-            logger.warning(f"[CONNECTION] No client_id found for {agent_id}:{service_name}")
+            msg = f"No client_id mapping found for {agent_id}:{service_name}"
+            logger.error(f"[CONNECTION] {msg}")
+            raise RuntimeError(msg)
 
-            # Try to get configuration from service_metadata as fallback
-            metadata = self._registry.get_service_metadata(agent_id, service_name)
-            if metadata and hasattr(metadata, 'service_config') and metadata.service_config:
-                logger.info(f"[CONNECTION] Using config from metadata for {service_name}")
-                return metadata.service_config
-
-            logger.error(f"[CONNECTION] No config found in client mapping or metadata for {service_name}")
-            return {}
-
-        logger.debug(f"[CONNECTION] Found client_id: {client_id}")
+        logger.debug(f"[CONNECTION] Found client_id for {agent_id}:{service_name}: {client_id}")
 
         client_config = self._registry.get_client_config_from_cache(client_id)
         if not client_config:
-            logger.warning(f"[CONNECTION] No client config found for client_id: {client_id}")
+            msg = (
+                f"No client config found for client_id={client_id} "
+                f"when resolving service {service_name} (agent={agent_id})"
+            )
+            logger.error(f"[CONNECTION] {msg}")
+            raise RuntimeError(msg)
 
-            # Try fallback from metadata
-            metadata = self._registry.get_service_metadata(agent_id, service_name)
-            if metadata and hasattr(metadata, 'service_config') and metadata.service_config:
-                logger.info(f"[CONNECTION] Using config from metadata as fallback for {service_name}")
-                return metadata.service_config
+        mcp_servers = client_config.get("mcpServers")
+        if not isinstance(mcp_servers, dict):
+            msg = (
+                f"Invalid client config for client_id={client_id}: "
+                f"'mcpServers' must be a dict, got {type(mcp_servers).__name__}"
+            )
+            logger.error(f"[CONNECTION] {msg}")
+            raise RuntimeError(msg)
 
-            return {}
+        service_config = mcp_servers.get(service_name)
+        if not isinstance(service_config, dict) or not service_config:
+            msg = (
+                f"Service {service_name} not found in client config for client_id={client_id} "
+                f"(agent={agent_id})"
+            )
+            logger.error(f"[CONNECTION] {msg}")
+            raise RuntimeError(msg)
 
-        mcp_servers = client_config.get("mcpServers", {})
-        service_config = mcp_servers.get(service_name, {})
-
-        if not service_config:
-            logger.warning(f"[CONNECTION] Service {service_name} not found in client config")
-
-            # Last attempt from metadata
-            metadata = self._registry.get_service_metadata(agent_id, service_name)
-            if metadata and hasattr(metadata, 'service_config') and metadata.service_config:
-                logger.info(f"[CONNECTION] Using config from metadata as last resort for {service_name}")
-                return metadata.service_config
-        else:
-            logger.debug(f"[CONNECTION] Found config for {service_name}: {list(service_config.keys())}")
-        
+        logger.debug(f"[CONNECTION] Found config for {service_name}: {list(service_config.keys())}")
         return service_config
 

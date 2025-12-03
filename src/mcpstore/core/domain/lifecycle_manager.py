@@ -113,16 +113,14 @@ class LifecycleManager:
         logger.info(f"[LIFECYCLE] Service connected: {event.service_name}")
         
         try:
-            await self._transition_state(
+            self._registry.set_service_state(
                 agent_id=event.agent_id,
                 service_name=event.service_name,
-                new_state=ServiceConnectionState.HEALTHY,
-                reason="connection_success",
-                source="ConnectionManager"
+                state=ServiceConnectionState.HEALTHY
             )
             
             # Reset failure counts
-            metadata = self._registry._service_state_service.get_service_metadata(event.agent_id, event.service_name)
+            metadata = self._registry.get_service_metadata(event.agent_id, event.service_name)
             if metadata:
                 metadata.consecutive_failures = 0
                 metadata.reconnect_attempts = 0

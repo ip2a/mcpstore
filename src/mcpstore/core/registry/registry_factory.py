@@ -66,7 +66,7 @@ class ProductionRegistryFactory(RegistryFactoryInterface):
             # ServiceStateService需要sync_helper，我们提供一个lambda
             def sync_helper_provider():
                 # 延迟创建sync_helper，与ServiceRegistry保持一致
-                from ..store.base_store import AsyncSyncHelper
+                from mcpstore.core.utils.async_sync_helper import AsyncSyncHelper
                 return AsyncSyncHelper()
 
             service_state_service = ServiceStateService(
