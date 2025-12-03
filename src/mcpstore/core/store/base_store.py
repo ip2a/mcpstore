@@ -4,7 +4,9 @@ Contains core initialization logic and basic properties
 """
 
 import logging
-from typing import Dict
+import threading
+from typing import Dict, Optional
+from weakref import WeakValueDictionary
 
 from mcpstore.config.json_config import MCPConfig
 from mcpstore.core.configuration.unified_config import UnifiedConfigManager
@@ -41,6 +43,10 @@ class BaseMCPStore:
 
         self._context_cache: Dict[str, MCPStoreContext] = {}
         self._store_context = self._create_store_context()
+
+        # AgentProxy caching system for unified agent access
+        self._agent_proxy_cache: WeakValueDictionary[str, 'AgentProxy'] = WeakValueDictionary()
+        self._agent_cache_lock: threading.RLock = threading.RLock()
 
         # Data space manager (optional, only set when using data spaces)
         self._data_space_manager = None
@@ -95,7 +101,61 @@ class BaseMCPStore:
     def _create_store_context(self) -> MCPStoreContext:
         """Create store-level context"""
         return MCPStoreContext(self)
-    
+
+    def _get_or_create_agent_proxy(self, context: MCPStoreContext, agent_id: str) -> 'AgentProxy':
+        """
+        Get or create AgentProxy with unified caching.
+
+        This method ensures that the same agent_id always returns the same AgentProxy
+        instance across the entire MCPStore instance, providing true object identity
+        and consistent state management.
+
+        Args:
+            context: The MCPStoreContext to use for the agent
+            agent_id: Unique identifier for the agent
+
+        Returns:
+            AgentProxy: Cached or newly created AgentProxy instance
+        """
+        with self._agent_cache_lock:
+            # Try to get from cache first
+            cached_proxy = self._agent_proxy_cache.get(agent_id)
+            if cached_proxy is not None:
+                return cached_proxy
+
+            # Create new AgentProxy and cache it
+            from mcpstore.core.context.agent_proxy import AgentProxy
+            agent_proxy = AgentProxy(context, agent_id)
+            self._agent_proxy_cache[agent_id] = agent_proxy
+
+            return agent_proxy
+
+    def _clear_agent_proxy_cache(self, agent_id: Optional[str] = None) -> None:
+        """
+        Clear AgentProxy cache.
+
+        Args:
+            agent_id: Specific agent ID to clear, or None to clear all
+        """
+        with self._agent_cache_lock:
+            if agent_id is None:
+                self._agent_proxy_cache.clear()
+            else:
+                self._agent_proxy_cache.pop(agent_id, None)
+
+    def _get_agent_proxy_cache_stats(self) -> Dict[str, int]:
+        """
+        Get AgentProxy cache statistics.
+
+        Returns:
+            Dictionary containing cache statistics
+        """
+        with self._agent_cache_lock:
+            return {
+                'total_cached_agents': len(self._agent_proxy_cache),
+                'cache_lock_acquired': 1  # Simple indicator that lock is working
+            }
+
     async def cleanup(self):
         """
         Cleanup resources on shutdown.

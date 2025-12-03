@@ -33,10 +33,27 @@ class ContextFactoryMixin:
         return self._store_context.for_store()
 
     def for_agent(self, agent_id: str) -> AgentProxy:
-        """Get agent-level object (proxy) with caching"""
+        """
+        Get agent-level object (proxy) with unified caching.
+
+        Uses the centralized AgentProxy caching system to ensure that the same
+        agent_id always returns the same AgentProxy instance across all access
+        methods in the MCPStore.
+
+        Args:
+            agent_id: Unique identifier for the agent
+
+        Returns:
+            AgentProxy: Cached or newly created AgentProxy instance
+        """
+        # Create or reuse agent context (still cached for efficiency)
         if agent_id not in self._context_cache:
             self._context_cache[agent_id] = self._create_agent_context(agent_id)
-        return self._context_cache[agent_id].find_agent(agent_id)
+
+        agent_context = self._context_cache[agent_id]
+
+        # Use unified AgentProxy caching system
+        return self._get_or_create_agent_proxy(agent_context, agent_id)
 
     # -- Objectified helpers (non-breaking) --
     def for_store_proxy(self):

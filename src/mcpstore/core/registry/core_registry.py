@@ -210,6 +210,41 @@ class ServiceRegistry:
             logger.debug("AsyncSyncHelper initialized for ServiceRegistry")
         return self._sync_helper
 
+    # === Shared Client State Synchronization ===
+
+    def _ensure_state_sync_manager(self):
+        """Ensure SharedClientStateSyncManager is initialized (lazy initialization).
+
+        Centralizes ownership of shared-client state sync in ServiceRegistry.
+        """
+        if self._state_sync_manager is None:
+            from mcpstore.core.sync.shared_client_state_sync import SharedClientStateSyncManager
+            self._state_sync_manager = SharedClientStateSyncManager(self)
+            logger.debug("[REGISTRY] state_sync_manager initialized")
+        return self._state_sync_manager
+
+    def set_service_state(self, agent_id: str, service_name: str, state: Optional[ServiceConnectionState]):
+        """Set service state via ServiceStateService and propagate to shared-client services.
+
+        This is the single entry point for lifecycle state mutations, so that
+        shared-client synchronization logic is centralized in ServiceRegistry.
+        """
+        # Delegate core state update + KV sync to ServiceStateService
+        self._service_state_service.set_service_state(agent_id, service_name, state)
+
+        # For non-None state changes, synchronize to other services sharing the same client_id
+        if state is not None:
+            state_sync_manager = self._ensure_state_sync_manager()
+            state_sync_manager.sync_state_for_shared_client(agent_id, service_name, state)
+
+    def set_service_metadata(self, agent_id: str, service_name: str, metadata: Optional[ServiceStateMetadata]):
+        """Set service metadata via ServiceStateService.
+
+        Kept in ServiceRegistry for symmetry with set_service_state and to
+        provide a single aggregation point for future cross-service rules.
+        """
+        self._service_state_service.set_service_metadata(agent_id, service_name, metadata)
+
     def _sync_to_kv(self, coro, operation_name: str = "KV operation"):
         """
         Synchronously execute an async KV store operation.
@@ -489,13 +524,6 @@ class ServiceRegistry:
     # === Async Service Metadata Access Methods ===
 
     # === Async Tool Mapping Access Methods ===
-
-    def _ensure_state_sync_manager(self):
-        """确保状态同步管理器已初始化"""
-        if self._state_sync_manager is None:
-            from mcpstore.core.sync.shared_client_state_sync import SharedClientStateSyncManager
-            self._state_sync_manager = SharedClientStateSyncManager(self)
-            logger.debug("[REGISTRY] state_sync_manager initialized")
 
     def clear(self, agent_id: str):
         """

@@ -115,8 +115,21 @@ class MCPStoreContext(
         return StoreProxy(self)
 
     def find_agent(self, agent_id: str) -> 'AgentProxy':
-        from .agent_proxy import AgentProxy
-        return AgentProxy(self, agent_id)
+        """
+        Find agent proxy with unified caching.
+
+        Uses the centralized AgentProxy caching system to ensure that the same
+        agent_id always returns the same AgentProxy instance across all access
+        methods in the MCPStore.
+
+        Args:
+            agent_id: Unique identifier for the agent
+
+        Returns:
+            AgentProxy: Cached or newly created AgentProxy instance
+        """
+        # Use unified AgentProxy caching system from the store
+        return self._store._get_or_create_agent_proxy(self, agent_id)
 
     def for_langchain(self, response_format: str = "text") -> 'LangChainAdapter':
         """Return a LangChain adapter. If a session is active (within with_session),

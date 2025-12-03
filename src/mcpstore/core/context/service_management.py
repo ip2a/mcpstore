@@ -579,39 +579,32 @@ class ServiceManagementMixin:
             logger.error(f"Agent级别重置配置失败: {e}")
             return False
 
-    def show_config(self, scope: str = "all") -> Dict[str, Any]:
+    def show_config(self) -> Dict[str, Any]:
         """
         显示配置信息（同步版本）
 
-        Args:
-            scope: 显示范围（仅Store级别有效）
-                - "all": 显示所有Agent的配置（默认）
-                - "global_agent_store": 只显示global_agent_store的配置
+        - Store级别: 返回所有Agent的配置
+        - Agent级别: 返回该Agent的配置
 
         Returns:
             Dict: 配置信息字典
         """
-        return self._sync_helper.run_async(self.show_config_async(scope), timeout=60.0, force_background=True)
+        return self._sync_helper.run_async(self.show_config_async(), timeout=60.0, force_background=True)
 
-    async def show_config_async(self, scope: str = "all") -> Dict[str, Any]:
+    async def show_config_async(self) -> Dict[str, Any]:
         """
         显示配置信息（异步版本）- 从缓存获取
 
         根据上下文类型执行不同的显示操作：
-        - Store上下文：根据scope参数显示不同范围的配置
-        - Agent上下文：显示该Agent的配置（忽略scope参数）
-
-        Args:
-            scope: 显示范围（仅Store级别有效）
-                - "all": 显示所有Agent的配置（默认）
-                - "global_agent_store": 只显示global_agent_store的配置
+        - Store上下文：显示所有Agent的配置
+        - Agent上下文：显示该Agent的配置
 
         Returns:
             Dict: 配置信息字典
         """
         try:
             if self._context_type == ContextType.STORE:
-                return await self._show_store_config(scope)
+                return await self._show_store_config()
             else:
                 return await self._show_agent_config()
         except Exception as e:
@@ -622,67 +615,52 @@ class ServiceManagementMixin:
                 "summary": {"total_services": 0, "total_clients": 0}
             }
 
-    async def _show_store_config(self, scope: str) -> Dict[str, Any]:
+    async def _show_store_config(self) -> Dict[str, Any]:
         """Store级别显示配置的内部实现"""
         try:
-            if scope == "all":
-                logger.info(" Store级别：显示所有Agent的配置")
+            logger.info("📋 Store级别：显示所有Agent的配置")
 
-                # 获取所有Agent ID
-                all_agent_ids = self._store.registry.get_all_agent_ids()
+            # 获取所有Agent ID
+            all_agent_ids = self._store.registry.get_all_agent_ids()
 
-                agents_config = {}
-                total_services = 0
-                total_clients = 0
+            agents_config = {}
+            total_services = 0
+            total_clients = 0
 
-                for agent_id in all_agent_ids:
-                    agent_services = {}
-                    agent_client_count = 0
+            for agent_id in all_agent_ids:
+                agent_services = {}
+                agent_client_count = 0
 
-                    # 获取该Agent的所有服务
-                    service_names = self._store.registry._service_state_service.get_all_service_names(agent_id)
+                # 获取该Agent的所有服务
+                service_names = self._store.registry._service_state_service.get_all_service_names(agent_id)
 
-                    for service_name in service_names:
-                        complete_info = self._store.registry.get_complete_service_info(agent_id, service_name)
-                        client_id = complete_info.get("client_id")
-                        config = complete_info.get("config", {})
+                for service_name in service_names:
+                    complete_info = self._store.registry.get_complete_service_info(agent_id, service_name)
+                    client_id = complete_info.get("client_id")
+                    config = complete_info.get("config", {})
 
-                        if client_id:
-                            agent_services[service_name] = {
-                                "client_id": client_id,
-                                "config": config
-                            }
-                            agent_client_count += 1
-
-                    if agent_services:  # 只包含有服务的Agent
-                        agents_config[agent_id] = {
-                            "services": agent_services
+                    if client_id:
+                        agent_services[service_name] = {
+                            "client_id": client_id,
+                            "config": config
                         }
-                        total_services += len(agent_services)
-                        total_clients += agent_client_count
+                        agent_client_count += 1
 
-                return {
-                    "agents": agents_config,
-                    "summary": {
-                        "total_agents": len(agents_config),
-                        "total_services": total_services,
-                        "total_clients": total_clients
+                if agent_services:  # 只包含有服务的Agent
+                    agents_config[agent_id] = {
+                        "services": agent_services
                     }
+                    total_services += len(agent_services)
+                    total_clients += agent_client_count
+
+            return {
+                "agents": agents_config,
+                "summary": {
+                    "total_agents": len(agents_config),
+                    "total_services": total_services,
+                    "total_clients": total_clients
                 }
-
-            elif scope == "global_agent_store":
-                logger.info(" Store级别：只显示global_agent_store的配置")
-
-                global_agent_store_id = self._store.client_manager.global_agent_store_id
-                return await self._get_single_agent_config(global_agent_store_id)
-
-            else:
-                logger.error(f"不支持的scope参数: {scope}")
-                return {
-                    "error": f"Unsupported scope parameter: {scope}",
-                    "services": {},
-                    "summary": {"total_services": 0, "total_clients": 0}
-                }
+            }
 
         except Exception as e:
             logger.error(f"Store级别显示配置失败: {e}")

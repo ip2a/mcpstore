@@ -56,9 +56,6 @@ class ServiceStateService:
         
         # agent_id -> {service_name: ServiceStateMetadata}
         self.service_metadata: Dict[str, Dict[str, ServiceStateMetadata]] = {}
-        
-        # State synchronization manager (lazy initialization)
-        self._state_sync_manager = None
 
     def _get_sync_helper(self):
         """Get the sync_helper, handling lambda provider"""
@@ -72,11 +69,14 @@ class ServiceStateService:
     # === Service State Management Methods ===
     
     def set_service_state(self, agent_id: str, service_name: str, state: Optional[ServiceConnectionState]):
-        """[ENHANCED] 设置服务生命周期状态，自动同步共享 Client ID 的服务"""
-        
-        # 记录旧状态
+        """设置服务生命周期状态并同步到 KV 存储。
+
+        ServiceStateService 只负责本地缓存和 KV，同步共享 Client ID
+        的跨服务状态由 ServiceRegistry 统一协调。
+        """
+        # 记录旧状态（仅用于日志）
         old_state = self.service_states.get(agent_id, {}).get(service_name)
-        
+
         # 设置新状态（现有逻辑）
         if agent_id not in self.service_states:
             self.service_states[agent_id] = {}
@@ -98,24 +98,20 @@ class ServiceStateService:
                 self.set_service_state_async(agent_id, service_name, state),
                 f"service_state:{agent_id}:{service_name}"
             )
-        
-        # 新增：自动同步共享服务状态
-        if state is not None and old_state != state:
-            self._ensure_state_sync_manager()
-            self._state_sync_manager.sync_state_for_shared_client(agent_id, service_name, state)
     
     def get_service_state(self, agent_id: str, service_name: str) -> ServiceConnectionState:
         """获取服务生命周期状态"""
+        sync_helper = self._get_sync_helper()
         try:
-            sync_helper = self._get_sync_helper()
             state = sync_helper.run_async(
                 self.get_service_state_async(agent_id, service_name),
                 timeout=5.0
             )
-            if state is not None:
-                return state
         except Exception as e:
-            logger.warning(f"[REGISTRY] get_service_state async fallback for {agent_id}/{service_name}: {e}")
+            logger.error(f"[REGISTRY] get_service_state async error for {agent_id}/{service_name}: {e}")
+            raise
+        if state is not None:
+            return state
         return self.service_states.get(agent_id, {}).get(service_name, ServiceConnectionState.DISCONNECTED)
     
     def set_service_metadata(self, agent_id: str, service_name: str, metadata: Optional[ServiceStateMetadata]):
@@ -141,16 +137,17 @@ class ServiceStateService:
     
     def get_service_metadata(self, agent_id: str, service_name: str) -> Optional[ServiceStateMetadata]:
         """获取服务状态元数据"""
+        sync_helper = self._get_sync_helper()
         try:
-            sync_helper = self._get_sync_helper()
             metadata = sync_helper.run_async(
                 self.get_service_metadata_async(agent_id, service_name),
                 timeout=5.0
             )
-            if metadata is not None:
-                return metadata
         except Exception as e:
-            logger.warning(f"[REGISTRY] get_service_metadata async fallback for {agent_id}/{service_name}: {e}")
+            logger.error(f"[REGISTRY] get_service_metadata async error for {agent_id}/{service_name}: {e}")
+            raise
+        if metadata is not None:
+            return metadata
         return self.service_metadata.get(agent_id, {}).get(service_name)
     
     def get_all_service_names(self, agent_id: str) -> List[str]:
@@ -166,13 +163,6 @@ class ServiceStateService:
         修复：从service_states判断服务是否存在，而不是sessions（sessions可能为空）
         """
         return name in self.service_states.get(agent_id, {})
-    
-    def _ensure_state_sync_manager(self):
-        """确保状态同步管理器已初始化"""
-        if self._state_sync_manager is None:
-            from mcpstore.core.sync.shared_client_state_sync import SharedClientStateSyncManager
-            # Note: This needs the parent registry instance, will be set by ServiceRegistry
-            logger.debug("[SERVICE_STATE] state_sync_manager needs to be initialized by parent")
     
     # === Async Methods for KV Storage ===
     
