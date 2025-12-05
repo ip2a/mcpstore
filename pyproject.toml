@@ -4,19 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcpstore"
-version = "1.5.4"
+version = "1.5.9"
 description = "A composable, ready-to-use MCP toolkit for agents and rapid integration."
 readme = "README.md"
 requires-python = ">=3.10"
 
- 
 dependencies = [
     "fastapi>=0.115.12",
     "fastmcp>=2.7.1",
     "httpx>=0.28.1",        
     "pydantic>=2.11.5",
     "uvicorn>=0.30.0",
-    "typer>=0.9.0",         
+    "typer>=0.9.0",
+    "py-key-value-aio>=0.1.0",
 ]
 
 authors = [
@@ -39,7 +39,24 @@ classifiers = [
 [project.scripts]
 mcpstore = "mcpstore.cli.main:main"
 
+[[tool.uv.index]]
+url = "https://mirrors.aliyun.com/pypi/simple"
+default = true
+
+[dependency-groups]
+dev = [
+    "py-key-value-aio>=0.2.8",
+]
+
 [project.optional-dependencies]
+
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-benchmark>=4.0.0",
+    "pytest-cov>=4.0.0",
+    "hypothesis>=6.0.0",
+]
 
 redis = [
     "redis[hiredis]>=5.0.0",
@@ -71,6 +88,9 @@ all = [
     "langchain>=0.1.0",
     "langchain-core>=0.1.0",
     "langchain-openai>=0.1.0",
+    "llama-index>=0.10.0",
+    "autogen>=0.2.0",
+    "semantic-kernel>=0.5.0",
 ]
 
 
