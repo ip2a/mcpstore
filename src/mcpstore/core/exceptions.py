@@ -427,14 +427,4 @@ class SessionSerializationError(MCPStoreException):
         )
 
 
-# === Legacy Aliases (for backward compatibility during migration) ===
-
-# SDK legacy names
-MCPStoreError = MCPStoreException
-ServiceNotFoundError = ServiceNotFoundException
-InvalidConfigError = ConfigurationException
-DeleteServiceError = ServiceUnavailableError
-
-# API legacy names  
-ServiceOperationException = ServiceUnavailableError
 

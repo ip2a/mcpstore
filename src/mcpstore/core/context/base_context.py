@@ -313,7 +313,16 @@ class MCPStoreContext(
 
     def setup_config(self) -> Dict[str, Any]:
         """Return a read-only snapshot of setup-time configuration.
+
         This reflects the effective configuration used during MCPStore.setup_store().
+        The snapshot includes:
+        - mcp_json: Path to mcp.json configuration file
+        - debug_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL, OFF)
+        - static_config: Static configuration dict (monitoring, network, features, etc.)
+        - cache_config: Cache configuration object (MemoryConfig or RedisConfig)
+
+        Returns:
+            Dict[str, Any]: Configuration snapshot dictionary
         """
         from copy import deepcopy
         snap = getattr(self._store, "_setup_snapshot", None)
@@ -334,7 +343,6 @@ class MCPStoreContext(
         return {
             "mcp_json": getattr(self._store.config, "json_path", None),
             "debug_level": level_name,
-            "external_db": {},
             "static_config": {}
         }
 

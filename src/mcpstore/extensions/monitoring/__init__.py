@@ -20,10 +20,8 @@ except ImportError:
 
 try:
     from .base_monitor import MonitoringManager
-    BaseMonitor = MonitoringManager  # For backward compatibility
 except ImportError as e:
     print(f"Warning: Failed to import from base_monitor: {e}")
-    BaseMonitor = None
     MonitoringManager = None
 
 try:
@@ -38,7 +36,6 @@ __all__ = [
     'EventCollector',
     'ToolUsageMetrics',
     'ServiceHealthMetrics',
-    'BaseMonitor',
     'MonitoringManager',
     'MonitoringConfig'
 ]

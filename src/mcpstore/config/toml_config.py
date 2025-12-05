@@ -1514,175 +1514,199 @@ async def shutdown_config():
 def get_lifecycle_config_with_defaults() -> 'ServiceLifecycleConfig':
     """Get lifecycle configuration.
 
-    This helper now **requires** MCPStoreConfig to be initialized and must be
-    called from a synchronous context. It will no longer silently construct
-    default configurations for compatibility.
+    This helper attempts to load from MCPStoreConfig. If called in an async context
+    or if config is not available, returns default ServiceLifecycleConfig.
     """
     config = get_config()
     if config is None:
-        raise RuntimeError("MCPStoreConfig is not initialized. Call init_config/setup_store first.")
+        # Config not initialized, return defaults
+        logger.warning("MCPStoreConfig not initialized, using default ServiceLifecycleConfig")
+        try:
+            from mcpstore.core.lifecycle.config import ServiceLifecycleConfig
+            return ServiceLifecycleConfig()
+        except ImportError:
+            logger.error("Cannot import ServiceLifecycleConfig, returning empty dict")
+            return {}
 
     import asyncio
     try:
         loop = asyncio.get_running_loop()
-        if loop.is_running():
-            # In async context, users should call the async getter directly
-            raise RuntimeError(
-                "get_lifecycle_config_with_defaults cannot be used in an async context. "
-                "Use 'await MCPStoreConfig.get_lifecycle_config()' instead."
-            )
+        # In async context, cannot use asyncio.run - return defaults
+        logger.warning("Cannot load config in async context, using default ServiceLifecycleConfig")
+        try:
+            from mcpstore.core.lifecycle.config import ServiceLifecycleConfig
+            return ServiceLifecycleConfig()
+        except ImportError:
+            return {}
     except RuntimeError:
         # No running loop, safe to use asyncio.run
-        return asyncio.run(config.get_lifecycle_config())
+        try:
+            return asyncio.run(config.get_lifecycle_config())
+        except Exception as e:
+            logger.warning(f"Failed to load lifecycle config: {e}, using defaults")
+            try:
+                from mcpstore.core.lifecycle.config import ServiceLifecycleConfig
+                return ServiceLifecycleConfig()
+            except ImportError:
+                return {}
 
 
 def get_content_update_config_with_defaults() -> ContentUpdateConfig:
     """Get content update configuration.
 
-    This helper now **requires** MCPStoreConfig to be initialized and must be
-    called from a synchronous context. It will no longer silently construct
-    default configurations for compatibility.
+    Attempts to load from MCPStoreConfig. Falls back to defaults if in async context
+    or if config is unavailable.
     """
     config = get_config()
     if config is None:
-        raise RuntimeError("MCPStoreConfig is not initialized. Call init_config/setup_store first.")
+        logger.warning("MCPStoreConfig not initialized, using default ContentUpdateConfig")
+        return ContentUpdateConfig()
 
     import asyncio
     try:
         loop = asyncio.get_running_loop()
-        if loop.is_running():
-            raise RuntimeError(
-                "get_content_update_config_with_defaults cannot be used in an async context. "
-                "Use 'await MCPStoreConfig.get_content_update_config()' instead."
-            )
+        # In async context, return defaults
+        logger.warning("Cannot load config in async context, using default ContentUpdateConfig")
+        return ContentUpdateConfig()
     except RuntimeError:
-        return asyncio.run(config.get_content_update_config())
+        # No running loop, safe to use asyncio.run
+        try:
+            return asyncio.run(config.get_content_update_config())
+        except Exception as e:
+            logger.warning(f"Failed to load content update config: {e}, using defaults")
+            return ContentUpdateConfig()
 
 
 def get_monitoring_config_with_defaults() -> MonitoringConfig:
     """Get monitoring configuration.
 
-    This helper now **requires** MCPStoreConfig to be initialized and must be
-    called from a synchronous context. It will no longer silently construct
-    default configurations for compatibility.
+    Attempts to load from MCPStoreConfig. Falls back to defaults if in async context
+    or if config is unavailable.
     """
     config = get_config()
     if config is None:
-        raise RuntimeError("MCPStoreConfig is not initialized. Call init_config/setup_store first.")
+        logger.warning("MCPStoreConfig not initialized, using default MonitoringConfig")
+        return MonitoringConfig()
 
     import asyncio
     try:
         loop = asyncio.get_running_loop()
-        if loop.is_running():
-            raise RuntimeError(
-                "get_monitoring_config_with_defaults cannot be used in an async context. "
-                "Use 'await MCPStoreConfig.get_monitoring_config()' instead."
-            )
+        logger.warning("Cannot load config in async context, using default MonitoringConfig")
+        return MonitoringConfig()
     except RuntimeError:
-        return asyncio.run(config.get_monitoring_config())
+        try:
+            return asyncio.run(config.get_monitoring_config())
+        except Exception as e:
+            logger.warning(f"Failed to load monitoring config: {e}, using defaults")
+            return MonitoringConfig()
 
 
 def get_cache_memory_config_with_defaults() -> MemoryConfig:
     """Get memory cache configuration.
 
-    This helper now **requires** MCPStoreConfig to be initialized and must be
-    called from a synchronous context. It will no longer silently construct
-    default configurations for compatibility.
+    Attempts to load from MCPStoreConfig. Falls back to defaults if in async context
+    or if config is unavailable.
     """
     config = get_config()
     if config is None:
-        raise RuntimeError("MCPStoreConfig is not initialized. Call init_config/setup_store first.")
+        logger.warning("MCPStoreConfig not initialized, using default MemoryConfig")
+        return MemoryConfig()
 
     import asyncio
     try:
         loop = asyncio.get_running_loop()
-        if loop.is_running():
-            raise RuntimeError(
-                "get_cache_memory_config_with_defaults cannot be used in an async context. "
-                "Use 'await MCPStoreConfig.get_cache_memory_config()' instead."
-            )
+        logger.warning("Cannot load config in async context, using default MemoryConfig")
+        return MemoryConfig()
     except RuntimeError:
-        return asyncio.run(config.get_cache_memory_config())
+        try:
+            return asyncio.run(config.get_cache_memory_config())
+        except Exception as e:
+            logger.warning(f"Failed to load memory config: {e}, using defaults")
+            return MemoryConfig()
 
 
 def get_cache_redis_config_with_defaults() -> RedisConfig:
     """Get Redis cache configuration.
 
-    This helper now **requires** MCPStoreConfig to be initialized and must be
-    called from a synchronous context. It will no longer silently construct
-    default configurations for compatibility.
+    Attempts to load from MCPStoreConfig. Falls back to defaults if in async context
+    or if config is unavailable.
 
     Returns:
         RedisConfig: Redis cache configuration object (non-sensitive fields only)
     """
     config = get_config()
     if config is None:
-        raise RuntimeError("MCPStoreConfig is not initialized. Call init_config/setup_store first.")
+        logger.warning("MCPStoreConfig not initialized, using default RedisConfig")
+        return RedisConfig()
 
     import asyncio
     try:
         loop = asyncio.get_running_loop()
-        if loop.is_running():
-            raise RuntimeError(
-                "get_cache_redis_config_with_defaults cannot be used in an async context. "
-                "Use 'await MCPStoreConfig.get_cache_redis_config()' instead."
-            )
+        logger.warning("Cannot load config in async context, using default RedisConfig")
+        return RedisConfig()
     except RuntimeError:
-        return asyncio.run(config.get_cache_redis_config())
+        try:
+            return asyncio.run(config.get_cache_redis_config())
+        except Exception as e:
+            logger.warning(f"Failed to load redis config: {e}, using defaults")
+            return RedisConfig()
 
 
 def get_standalone_config_with_defaults() -> Union[Any, Dict[str, Any]]:
     """Get standalone configuration.
 
-    This helper now **requires** MCPStoreConfig to be initialized and must be
-    called from a synchronous context. It will no longer silently construct
-    default configurations for compatibility.
+    Attempts to load from MCPStoreConfig. Falls back to empty dict if in async context
+    or if config is unavailable.
 
     Returns:
-        StandaloneConfig or dict with standalone configuration values (may be dict if StandaloneConfig not available)
+        StandaloneConfig or dict with standalone configuration values
     """
     config = get_config()
     if config is None:
-        raise RuntimeError("MCPStoreConfig is not initialized. Call init_config/setup_store first.")
+        logger.warning("MCPStoreConfig not initialized, using empty dict for standalone config")
+        return {}
 
     import asyncio
     try:
         loop = asyncio.get_running_loop()
-        if loop.is_running():
-            raise RuntimeError(
-                "get_standalone_config_with_defaults cannot be used in an async context. "
-                "Use 'await MCPStoreConfig.get_standalone_config()' instead."
-            )
+        # In async context, return empty dict
+        logger.warning("Cannot load config in async context, using empty dict for standalone config")
+        return {}
     except RuntimeError:
-        # No running loop, we can use asyncio.run
-        return asyncio.run(config.get_standalone_config())
+        # No running loop, safe to use asyncio.run
+        try:
+            return asyncio.run(config.get_standalone_config())
+        except Exception as e:
+            logger.warning(f"Failed to load standalone config: {e}, using empty dict")
+            return {}
 
 
 def get_server_config_with_defaults() -> Dict[str, Any]:
     """Get API server configuration.
 
-    This helper now **requires** MCPStoreConfig to be initialized and must be
-    called from a synchronous context. It will no longer silently construct
-    default configurations for compatibility.
+    Attempts to load from MCPStoreConfig. Falls back to empty dict if in async context
+    or if config is unavailable.
 
     Returns:
         Dict with server configuration values
     """
     config = get_config()
     if config is None:
-        raise RuntimeError("MCPStoreConfig is not initialized. Call init_config/setup_store first.")
+        logger.warning("MCPStoreConfig not initialized, using empty dict for server config")
+        return {}
 
     import asyncio
     try:
         loop = asyncio.get_running_loop()
-        if loop.is_running():
-            raise RuntimeError(
-                "get_server_config_with_defaults cannot be used in an async context. "
-                "Use 'await MCPStoreConfig.get_server_config()' instead."
-            )
+        logger.warning("Cannot load config in async context, using empty dict for server config")
+        return {}
     except RuntimeError:
-        # No running loop, we can use asyncio.run
-        return asyncio.run(config.get_server_config())
+        # No running loop, safe to use asyncio.run
+        try:
+            return asyncio.run(config.get_server_config())
+        except Exception as e:
+            logger.warning(f"Failed to load server config: {e}, using empty dict")
+            return {}
 
 
 # Export the main initialization function and new classes

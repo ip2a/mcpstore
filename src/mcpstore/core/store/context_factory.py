@@ -55,15 +55,7 @@ class ContextFactoryMixin:
         # Use unified AgentProxy caching system
         return self._get_or_create_agent_proxy(agent_context, agent_id)
 
-    # -- Objectified helpers (non-breaking) --
-    def for_store_proxy(self):
-        """Alias of for_store() for backward compatibility."""
-        return self.for_store()
-
-    def for_agent_proxy(self, agent_id: str):
-        """Alias of for_agent() for backward compatibility."""
-        return self.for_agent(agent_id)
-
+    
     # Delegation methods - maintain backward compatibility
     async def add_service(self, service_names: List[str] = None, agent_id: Optional[str] = None, **kwargs) -> bool:
         """

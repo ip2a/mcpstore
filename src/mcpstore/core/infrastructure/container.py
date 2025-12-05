@@ -63,29 +63,28 @@ class ServiceContainer:
             registry=self._registry,
             agent_locks=self._agent_locks
         )
-        
+
+        # 获取生命周期配置（自动处理异步上下文和fallback）
+        from mcpstore.config.toml_config import get_lifecycle_config_with_defaults
+        lifecycle_config = get_lifecycle_config_with_defaults()
+
         self._lifecycle_manager = LifecycleManager(
             event_bus=self._event_bus,
-            registry=self._registry
+            registry=self._registry,
+            lifecycle_config=lifecycle_config
         )
-        
+
         self._connection_manager = ConnectionManager(
             event_bus=self._event_bus,
             registry=self._registry,
             config_processor=self._config_processor,
             local_service_manager=self._local_service_manager
         )
-        
+
         self._persistence_manager = PersistenceManager(
             event_bus=self._event_bus,
             config_manager=self._config_manager
         )
-
-        # 🆕 创建健康监控管理器（从 MCPStoreConfig 读取配置）
-        from mcpstore.config.toml_config import get_lifecycle_config_with_defaults
-        lifecycle_config = get_lifecycle_config_with_defaults()
-
-        logger.info(f"HealthMonitor initialized with lifecycle config from {'MCPStoreConfig' if 'MCPStoreConfig' in str(type(lifecycle_config)) else 'defaults'}")
 
         self._health_monitor = HealthMonitor(
             event_bus=self._event_bus,
@@ -94,7 +93,7 @@ class ServiceContainer:
             global_agent_store_id=self._global_agent_store_id
         )
 
-        # 🆕 创建重连调度器（使用相同的生命周期配置）
+        # 创建重连调度器（使用相同的生命周期配置）
         self._reconnection_scheduler = ReconnectionScheduler(
             event_bus=self._event_bus,
             registry=self._registry,

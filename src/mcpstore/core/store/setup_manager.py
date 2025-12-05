@@ -1,6 +1,9 @@
 """
 Setup Manager module (latest: single path)
 Handles unified initialization logic for MCPStore
+
+This module provides the core setup_store() method that initializes MCPStore
+with modern cache configuration (RedisConfig/MemoryConfig).
 """
 
 import logging
@@ -40,39 +43,44 @@ class StoreSetupManager:
         mcpjson_path: str | None = None,
         debug: bool | str = False,
         cache: Optional[Union["MemoryConfig", "RedisConfig"]] = None,
-        external_db: Optional[Dict[str, Any]] = None,
         static_config: Optional[Dict[str, Any]] = None,
         cache_mode: str = "auto",
-        **deprecated_kwargs,
     ):
         """
         Unified MCPStore initialization (no implicit background side effects)
+
         Args:
-            mcpjson_path: mcp.json file path; None uses default
+            mcpjson_path: mcp.json file path; None uses default (~/.mcpstore/mcp.json)
             debug: False=OFF (completely silent); True=DEBUG; string=corresponding level
             cache: Cache configuration object (MemoryConfig or RedisConfig), default None (use MemoryConfig)
-            external_db: External database module configuration dict (currently only supports cache.redis) - deprecated, use cache parameter
+                - MemoryConfig(): In-memory cache (default)
+                - RedisConfig(url="redis://localhost:6379/0"): Redis cache
             static_config: Static configuration injection (monitoring/network/features/local_service)
             cache_mode: Cache working mode ("auto" | "local" | "hybrid" | "shared")
-                - "auto": Auto detection mode (default)
+                - "auto": Auto detection mode (default, maps to DataSourceStrategy)
                 - "local": Local mode (JSON + Memory)
                 - "hybrid": Hybrid mode (JSON + Redis)
                 - "shared": Shared mode (Redis Only)
-            **deprecated_kwargs: Historical compatibility parameters (mcp_json / mcp_config_file), will trigger warning
+
+        Returns:
+            MCPStore: Initialized MCPStore instance
+
+        Raises:
+            ValueError: If external_db parameter is provided (no longer supported)
+            RuntimeError: If workspace initialization fails
+
+        Examples:
+            >>> # Default: Memory cache
+            >>> store = MCPStore.setup_store()
+
+            >>> # Redis cache
+            >>> from mcpstore.config import RedisConfig
+            >>> store = MCPStore.setup_store(
+            ...     cache=RedisConfig(url="redis://localhost:6379/0")
+            ... )
         """
-        # Backward-compatible parameter aliases with warnings
-        if deprecated_kwargs:
-            for _old in ("mcp_json", "mcp_config_file"):
-                if _old in deprecated_kwargs:
-                    if not mcpjson_path:
-                        mcpjson_path = deprecated_kwargs.get(_old)
-                    try:
-                        import warnings as _warnings
-                        _warnings.warn(f"`{_old}` is deprecated; use `mcpjson_path`", DeprecationWarning, stacklevel=2)
-                    except Exception:
-                        pass
-                    logger.warning(f"Parameter `{_old}` is deprecated; use `mcpjson_path`")
-        # 1) Logging
+
+        # 1) Logging configuration
         from mcpstore.config.config import LoggingConfig
         LoggingConfig.setup_logging(debug=debug)
 
@@ -127,36 +135,17 @@ class StoreSetupManager:
         from mcpstore.core.registry import ServiceRegistry
         from mcpstore.core.registry.registry_factory import create_registry_from_kv_store
         from mcpstore.config import (
-            MemoryConfig, RedisConfig, detect_strategy, 
+            MemoryConfig, RedisConfig, detect_strategy,
             create_kv_store, get_namespace, start_health_check
         )
         from mcpstore.core.registry.config_sync_manager import ConfigSyncManager
-        
-        # Handle cache configuration
-        # Priority: cache parameter > external_db (deprecated) > default MemoryConfig
+
+        # Handle cache configuration (default to MemoryConfig if not provided)
         if cache is None:
-            # Check if external_db is provided (deprecated path)
-            cache_mod = (external_db or {}).get("cache") if isinstance(external_db, dict) else None
-            if isinstance(cache_mod, dict) and cache_mod.get("type") == "redis":
-                # Convert old external_db format to new RedisConfig
-                logger.warning(
-                    "external_db parameter is deprecated. "
-                    "Please use cache=RedisConfig(...) instead."
-                )
-                cache = RedisConfig(
-                    url=cache_mod.get("url"),
-                    password=cache_mod.get("password"),
-                    namespace=cache_mod.get("namespace"),
-                    socket_timeout=cache_mod.get("socket_timeout", 5.0),
-                    health_check_interval=cache_mod.get("healthcheck_interval", 30),
-                    max_connections=cache_mod.get("max_connections", 50),
-                )
-            else:
-                # Default to MemoryConfig
-                cache = MemoryConfig()
-                logger.debug("Using default MemoryConfig for cache")
-        
-        # Detect data source strategy
+            cache = MemoryConfig()
+            logger.debug("Using default MemoryConfig for cache")
+
+        # Detect data source strategy based on cache type and JSON path
         strategy = detect_strategy(cache, mcpjson_path)
         logger.info(f"Cache initialization: type={cache.cache_type.value}, strategy={strategy.value}")
         
@@ -294,7 +283,7 @@ class StoreSetupManager:
                     raise
                 logger.warning(f"Cache preload failed (ignored): {e}")
 
-        # 9) 生成只读配置快照
+        # 9) Generate read-only configuration snapshot
         try:
             lvl = logging.getLogger().getEffectiveLevel()
             if lvl <= logging.DEBUG:
@@ -315,9 +304,8 @@ class StoreSetupManager:
         snapshot = {
             "mcp_json": getattr(config, "json_path", None),
             "debug_level": level_name,
-            "external_db": deepcopy(external_db or {}),
             "static_config": deepcopy(stat),
-            "cache_config": cache,  # Store cache configuration
+            "cache_config": cache,  # Store cache configuration object
         }
         try:
             setattr(store, "_setup_snapshot", snapshot)

@@ -33,9 +33,7 @@ class StandaloneConfig:
     # === File path configuration ===
     config_dir: Optional[str] = None  # If None, use in-memory configuration
     mcp_config_file: Optional[str] = None
-    # Single data source architecture: shard file configuration deprecated
-    # client_services_file: Optional[str] = None  # Deprecated
-    # agent_clients_file: Optional[str] = None    # Deprecated
+    # Single data source architecture: only support unified config
     
     # === Service configuration ===
     known_services: Dict[str, Dict[str, Any]] = field(default_factory=lambda: {})
@@ -144,9 +142,7 @@ class StandaloneConfigManager:
         """获取配置文件路径"""
         return {
             "config_dir": self.config.config_dir,
-            "mcp_config_file": self.config.mcp_config_file,
-            "client_services_file": self.config.client_services_file,
-            "agent_clients_file": self.config.agent_clients_file
+            "mcp_config_file": self.config.mcp_config_file
         }
     
     def is_file_based(self) -> bool:
