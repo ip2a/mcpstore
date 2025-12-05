@@ -190,7 +190,7 @@ async def agent_summary(agent_id: str):
     """Return agent-level statistical summary (object-oriented entry point wrapper)."""
     validate_agent_id(agent_id)
     store = get_store()
-    proxy = store.for_agent_proxy(agent_id)
+    proxy = store.for_agent(agent_id)
     stats = proxy.get_stats()
     return ResponseBuilder.success(
         message=f"Agent '{agent_id}' summary returned",

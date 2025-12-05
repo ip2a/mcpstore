@@ -137,32 +137,7 @@ class ClientIDGenerator:
         except Exception:
             return False
 
-    @staticmethod
-    def migrate_legacy_id(legacy_id: str, agent_id: str, service_name: str,
-                         service_config: Dict[str, Any],
-                         global_agent_store_id: str) -> str:
-        """
-        将旧格式的client_id迁移到新的确定性格式
-
-        Args:
-            legacy_id: 旧的client_id
-            agent_id: Agent ID
-            service_name: 服务名称
-            service_config: 服务配置
-            global_agent_store_id: 全局Agent Store ID
-
-        Returns:
-            str: 新的确定性client_id
-        """
-        logger.debug(f"Migrating legacy client_id: {legacy_id} -> deterministic format")
-
-        new_id = ClientIDGenerator.generate_deterministic_id(
-            agent_id, service_name, service_config, global_agent_store_id
-        )
-
-        logger.debug(f"ID migration completed: {legacy_id} -> {new_id}")
-        return new_id
-
+    
 
 def generate_id(length: int = 8) -> str:
     """
