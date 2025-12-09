@@ -4,12 +4,15 @@ Lightweight, stateless handle bound to a specific agent_id.
 Delegates to existing context/mixins/registry for all operations.
 """
 
+import logging
 from typing import Any, Dict, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .base_context import MCPStoreContext
     from .service_proxy import ServiceProxy
     from .tool_proxy import ToolProxy
+
+logger = logging.getLogger(__name__)
 
 
 class AgentProxy:
@@ -97,13 +100,143 @@ class AgentProxy:
         return result
 
     def find_service(self, name: str) -> "ServiceProxy":
+        """
+        查找服务并返回服务代理对象
+        
+        验证服务归属于当前 Agent
+        
+        Args:
+            name: 服务名称（本地名称）
+        
+        Returns:
+            ServiceProxy: 绑定到当前 Agent 的服务代理对象
+        
+        Raises:
+            ServiceNotFoundException: 服务不存在
+            ServiceBindingError: 服务不属于当前 Agent
+        
+        Validates: Requirements 6.6, 6.7 (服务归属验证)
+        """
         from .service_proxy import ServiceProxy
-        return ServiceProxy(self._agent_ctx or self._context, name)
+        from mcpstore.core.exceptions import ServiceNotFoundException, ServiceBindingError
+        
+        ctx = self._agent_ctx or self._context
+        
+        # 验证服务归属
+        try:
+            verified, global_name = self._verify_service_ownership(name)
+            if not verified:
+                raise ServiceBindingError(
+                    service_name=name,
+                    agent_id=self._agent_id,
+                    reason="服务不属于当前 Agent"
+                )
+            
+            # 创建 ServiceProxy 时传入 agent_id 和 global_name
+            return ServiceProxy(
+                ctx,
+                name,
+                agent_id=self._agent_id,
+                global_name=global_name
+            )
+        except ServiceNotFoundException:
+            raise
+        except ServiceBindingError:
+            raise
+        except Exception as e:
+            logger.error(f"[AGENT_PROXY] Failed to find service '{name}': {e}")
+            raise ServiceNotFoundException(service_name=name, agent_id=self._agent_id)
+    
+    def _verify_service_ownership(self, service_name: str) -> tuple[bool, str]:
+        """
+        验证服务归属于当前 Agent
+        
+        Args:
+            service_name: 服务名称（本地名称）
+        
+        Returns:
+            tuple[bool, str]: (是否验证通过, 全局服务名称)
+        
+        Raises:
+            ServiceNotFoundException: 服务不存在
+        
+        Validates: Requirements 6.6, 6.7 (服务归属验证)
+        """
+        from mcpstore.core.exceptions import ServiceNotFoundException
+        
+        ctx = self._agent_ctx or self._context
+        
+        # 通过 ToolSetManager 验证服务映射
+        if hasattr(ctx, '_tool_set_manager') and ctx._tool_set_manager:
+            try:
+                # 检查服务映射
+                mapping = ctx._sync_helper.run_async(
+                    ctx._tool_set_manager.get_service_mapping_async(
+                        self._agent_id,
+                        service_name
+                    )
+                )
+                
+                if not mapping:
+                    raise ServiceNotFoundException(
+                        service_name=service_name,
+                        agent_id=self._agent_id
+                    )
+                
+                global_name = mapping.get("global_name", service_name)
+                
+                # 检查索引中是否存在该服务
+                index_key = f"tool_set:index:{self._agent_id}"
+                index_data = ctx._sync_helper.run_async(
+                    ctx._store._kv_store.get(index_key)
+                )
+                
+                if index_data:
+                    services = index_data if isinstance(index_data, list) else []
+                    service_exists = any(
+                        s.get("service_name") == service_name
+                        for s in services
+                        if isinstance(s, dict)
+                    )
+                    
+                    if not service_exists:
+                        raise ServiceNotFoundException(
+                            service_name=service_name,
+                            agent_id=self._agent_id
+                        )
+                
+                logger.debug(f"[AGENT_PROXY] Verified ownership of service '{service_name}' for agent '{self._agent_id}'")
+                return True, global_name
+                
+            except ServiceNotFoundException:
+                raise
+            except Exception as e:
+                logger.warning(f"[AGENT_PROXY] Failed to verify service ownership: {e}")
+                # 降级：假设服务存在
+                return True, service_name
+        
+        # 如果没有 ToolSetManager，降级到简单检查
+        return True, service_name
 
-    def list_tools(self) -> List[Dict[str, Any]]:
+    def list_tools(
+        self,
+        service_name: str = None,
+        *,
+        filter: str = "available"
+    ) -> List[Dict[str, Any]]:
+        """
+        列出工具
+        
+        Args:
+            service_name: 服务名称(可选)
+            filter: 筛选范围 ("available" 或 "all")
+        
+        Returns:
+            工具列表
+        """
         # Delegate to agent-scoped context list_tools for consistent mapping and snapshot behavior
         ctx = self._agent_ctx or self._context
-        items = ctx.list_tools()
+        items = ctx.list_tools(service_name=service_name, filter=filter)
         result: List[Dict[str, Any]] = []
         for t in items:
             if isinstance(t, dict):
@@ -396,14 +529,6 @@ class AgentProxy:
         ctx = self._agent_ctx or self._context
         return await ctx.import_api_async(api_url, api_name)
 
-    def hub_services(self):
-        ctx = self._agent_ctx or self._context
-        return ctx.hub_services()
-
-    def hub_tools(self):
-        ctx = self._agent_ctx or self._context
-        return ctx.hub_tools()
-
     def reset_mcp_json_file(self) -> bool:
         ctx = self._agent_ctx or self._context
         return ctx.reset_mcp_json_file()
@@ -416,6 +541,74 @@ class AgentProxy:
     def find_tool(self, tool_name: str):
         from .tool_proxy import ToolProxy
         return ToolProxy(self._agent_ctx or self._context, tool_name, scope='context')
+
+    # ---- 工具集管理方法 ----
+    def add_tools(self, service, tools) -> 'AgentProxy':
+        """
+        添加工具到当前可用集合
+        
+        Args:
+            service: 服务标识（服务名称、ServiceProxy 或 "_all_services"）
+            tools: 工具标识（工具名称列表或 "_all_tools"）
+        
+        Returns:
+            self (支持链式调用)
+        """
+        ctx = self._agent_ctx or self._context
+        ctx.add_tools(service=service, tools=tools)
+        return self
+
+    def remove_tools(self, service, tools) -> 'AgentProxy':
+        """
+        从当前可用集合移除工具
+        
+        Args:
+            service: 服务标识（服务名称、ServiceProxy 或 "_all_services"）
+            tools: 工具标识（工具名称列表或 "_all_tools"）
+        
+        Returns:
+            self (支持链式调用)
+        """
+        ctx = self._agent_ctx or self._context
+        ctx.remove_tools(service=service, tools=tools)
+        return self
+
+    def reset_tools(self, service) -> 'AgentProxy':
+        """
+        重置服务的工具集为默认状态
+        
+        Args:
+            service: 服务标识（服务名称、ServiceProxy 或 "_all_services"）
+        
+        Returns:
+            self (支持链式调用)
+        """
+        ctx = self._agent_ctx or self._context
+        ctx.reset_tools(service=service)
+        return self
+
+    def get_tool_set_info(self, service) -> Dict[str, Any]:
+        """
+        获取服务的工具集信息
+        
+        Args:
+            service: 服务标识（服务名称或 ServiceProxy）
+        
+        Returns:
+            工具集信息字典
+        """
+        ctx = self._agent_ctx or self._context
+        return ctx.get_tool_set_info(service=service)
+
+    def get_tool_set_summary(self) -> Dict[str, Any]:
+        """
+        获取工具集摘要
+        
+        Returns:
+            摘要信息字典
+        """
+        ctx = self._agent_ctx or self._context
+        return ctx.get_tool_set_summary()
 
     # ---- Resources & Prompts ----
     def list_resources(self, service_name: str = None) -> Dict[str, Any]:

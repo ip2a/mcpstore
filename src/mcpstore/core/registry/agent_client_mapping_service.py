@@ -28,7 +28,7 @@ class AgentClientMappingService:
     def __init__(self, kv_store: 'AsyncKeyValue', state_backend: 'RegistryStateBackend', kv_adapter):
         """
         Initialize Agent-Client mapping service.
-        
+
         Args:
             kv_store: AsyncKeyValue instance for data storage
             state_backend: Registry state backend for KV operations
@@ -37,106 +37,140 @@ class AgentClientMappingService:
         self._kv_store = kv_store
         self._state_backend = state_backend
         self._kv_adapter = kv_adapter
-        
-        # Agent-Client mapping cache
-        # Structure: {agent_id: [client_id1, client_id2, ...]}
-        self.agent_clients: Dict[str, List[str]] = {}
-        
-        # Service to Client reverse mapping
-        # Structure: {agent_id: {service_name: client_id}}
-        self.service_to_client: Dict[str, Dict[str, str]] = {}
+
+        # agent_clients removed - now reads directly from pyvk
+        # service_to_client removed - now reads directly from pyvk
+        # This eliminates memory/pyvk inconsistency issues
+        # Access via: self._state_backend.list_agent_clients(agent_id)
     
     # === Agent-Client Mapping Methods ===
-    
+
     def add_agent_client_mapping(self, agent_id: str, client_id: str):
-        """添加 Agent-Client 映射到缓存（委托后端）"""
-        # Use in-memory cache for now (backward compatibility)
-        if agent_id not in self.agent_clients:
-            self.agent_clients[agent_id] = []
-        if client_id not in self.agent_clients[agent_id]:
-            self.agent_clients[agent_id].append(client_id)
-        logger.debug(f"[REGISTRY] agent_client_mapped client_id={client_id} agent_id={agent_id}")
-        logger.debug(f"[REGISTRY] agent_clients={dict(self.agent_clients)}")
+        """添加 Agent-Client 映射 (no-op - derived from service_client mappings)"""
+        # Agent-client mappings are now derived from service_client mappings
+        # No need to store separately - list_agent_clients() extracts unique client_ids
+        logger.debug(f"[MAPPING] add_agent_client_mapping is now a no-op (derived from service_client)")
+        logger.debug(f"[MAPPING] agent_id={agent_id}, client_id={client_id}")
     
     def remove_agent_client_mapping(self, agent_id: str, client_id: str):
-        """从缓存移除 Agent-Client 映射（委托后端）"""
-        # Use in-memory cache for now (backward compatibility)
-        if agent_id in self.agent_clients and client_id in self.agent_clients[agent_id]:
-            self.agent_clients[agent_id].remove(client_id)
+        """移除 Agent-Client 映射 (no-op - derived from service_client mappings)"""
+        # Agent-client mappings are now derived from service_client mappings
+        # No need to remove separately - list_agent_clients() will reflect changes
+        logger.debug(f"[MAPPING] remove_agent_client_mapping is now a no-op (derived from service_client)")
+        logger.debug(f"[MAPPING] agent_id={agent_id}, client_id={client_id}")
     
     def get_agent_clients_from_cache(self, agent_id: str) -> List[str]:
-        """从缓存获取 Agent 的所有 Client ID"""
-        # Use in-memory cache for now (backward compatibility)
-        return self.agent_clients.get(agent_id, [])
+        """获取 Agent 的所有 Client ID (从 pyvk 读取)"""
+        # Single source of truth: read directly from pyvk
+        try:
+            helper = self._kv_adapter._ensure_sync_helper()
+            result = helper.run_async(
+                self._state_backend.list_agent_clients(agent_id),
+                timeout=5.0
+            )
+            logger.debug(f"[MAPPING] Get agent_clients for {agent_id} -> {len(result)} clients (pyvk)")
+            return result
+        except Exception as e:
+            logger.warning(f"[MAPPING] Failed to get agent_clients for {agent_id}: {e}")
+            return []
     
     def get_all_agent_ids(self) -> List[str]:
-        """从缓存获取所有Agent ID列表"""
-        agent_ids = list(self.agent_clients.keys())
-        logger.debug(f"[REGISTRY] agent_ids={agent_ids}")
-        logger.info(f"[REGISTRY] agent_clients_full={dict(self.agent_clients)}")
-        return agent_ids
+        """获取所有Agent ID列表 (从运行时数据推导)"""
+        # Since agent_clients is removed, we need to derive agent_ids from other sources
+        # This method is called by core_registry, so we need to access registry data
+        # For now, return empty list - caller should use registry's in-memory structures
+        logger.warning("[MAPPING] get_all_agent_ids() called on AgentClientMappingService - should use registry data")
+        return []
     
     def has_agent_client(self, agent_id: str, client_id: str) -> bool:
-        """检查指定的 Agent-Client 映射是否存在"""
-        return client_id in self.agent_clients.get(agent_id, [])
+        """检查指定的 Agent-Client 映射是否存在 (从 pyvk 读取)"""
+        try:
+            helper = self._kv_adapter._ensure_sync_helper()
+            client_ids = helper.run_async(
+                self._state_backend.list_agent_clients(agent_id),
+                timeout=5.0
+            )
+            return client_id in client_ids
+        except Exception as e:
+            logger.warning(f"[MAPPING] Failed to check agent_client for {agent_id}/{client_id}: {e}")
+            return False
     
     def clear_agent_client_mappings(self, agent_id: str):
-        """清除指定 agent 的所有 client 映射"""
-        if agent_id in self.agent_clients:
-            del self.agent_clients[agent_id]
-        logger.debug(f"[REGISTRY] Cleared all client mappings for agent {agent_id}")
+        """清除指定 agent 的所有 client 映射 (no-op - derived from service_client)"""
+        # Agent-client mappings are derived from service_client mappings
+        # Clearing service_client mappings will automatically clear agent_clients
+        logger.debug(f"[MAPPING] clear_agent_client_mappings is now a no-op (derived from service_client)")
+        logger.debug(f"[MAPPING] agent_id={agent_id}")
     
     # === Service-Client Mapping Methods ===
-    
-    def add_service_client_mapping(self, agent_id: str, service_name: str, client_id: str):
-        """添加 Service-Client 映射到缓存"""
-        # 1. 立即更新内存缓存（不依赖 KV 同步）
-        if agent_id not in self.service_to_client:
-            self.service_to_client[agent_id] = {}
-        self.service_to_client[agent_id][service_name] = client_id
-        logger.debug(f"Mapped service {service_name} to client {client_id} for agent {agent_id}")
-        # 立即验证内存缓存更新
-        logger.debug(f"Memory cache verification for {agent_id}: {self.service_to_client.get(agent_id, {})}")
 
-        # 2. 异步同步到 KV（失败不影响内存缓存）
-        try:
-            self._kv_adapter.sync_to_kv(
-                self.set_service_client_mapping_async(agent_id, service_name, client_id),
-                f"service_client:{agent_id}:{service_name}"
-            )
-        except Exception as e:
-            logger.warning(f"KV sync failed for service_client mapping {agent_id}:{service_name} -> {client_id}: {e}")
-            # 内存缓存已经更新，不影响功能
-    
+    def add_service_client_mapping(self, agent_id: str, service_name: str, client_id: str):
+        """添加 Service-Client 映射 (直接写入 pyvk)"""
+        logger.debug(f"[MAPPING] Adding service-client mapping: {agent_id}:{service_name} -> {client_id}")
+        # Single source of truth: write directly to pyvk only
+        self._kv_adapter.sync_to_kv(
+            self.set_service_client_mapping_async(agent_id, service_name, client_id),
+            f"service_client:{agent_id}:{service_name}"
+        )
+        logger.debug(f"[MAPPING] Successfully mapped service {service_name} to client {client_id} for agent {agent_id} (pyvk)")
+
     def remove_service_client_mapping(self, agent_id: str, service_name: str):
-        """移除 Service-Client 映射"""
-        # Use in-memory cache for now (backward compatibility)
-        if agent_id in self.service_to_client and service_name in self.service_to_client[agent_id]:
-            del self.service_to_client[agent_id][service_name]
+        """移除 Service-Client 映射 (直接从 pyvk 删除)"""
+        # Single source of truth: delete directly from pyvk only
         self._kv_adapter.sync_to_kv(
             self.delete_service_client_mapping_async(agent_id, service_name),
             f"service_client:{agent_id}:{service_name}"
         )
-    
+        logger.debug(f"[MAPPING] Removed service-client mapping for {agent_id}:{service_name} (pyvk)")
+
     def get_service_client_id(self, agent_id: str, service_name: str) -> Optional[str]:
-        """获取服务对应的 Client ID"""
-        # Use in-memory cache for now (backward compatibility)
-        return self.service_to_client.get(agent_id, {}).get(service_name)
-    
+        """获取服务对应的 Client ID (直接从 pyvk 读取)"""
+        # Single source of truth: read directly from pyvk
+        try:
+            helper = self._kv_adapter._ensure_sync_helper()
+            result = helper.run_async(
+                self.get_service_client_id_async(agent_id, service_name),
+                timeout=5.0
+            )
+            logger.debug(f"[MAPPING] Get service_client_id for {agent_id}:{service_name} -> {result} (pyvk)")
+            return result
+        except Exception as e:
+            logger.warning(f"[MAPPING] Failed to get service_client_id for {agent_id}:{service_name}: {e}")
+            return None
+
     def get_service_client_mapping(self, agent_id: str) -> Dict[str, str]:
-        """获取指定 agent 的所有 service-client 映射"""
-        return self.service_to_client.get(agent_id, {})
-    
+        """获取指定 agent 的所有 service-client 映射 (直接从 pyvk 读取)"""
+        # Single source of truth: read directly from pyvk
+        try:
+            helper = self._kv_adapter._ensure_sync_helper()
+            result = helper.run_async(
+                self.get_service_client_mapping_async(agent_id),
+                timeout=5.0
+            )
+            logger.debug(f"[MAPPING] Get service_client_mapping for {agent_id} -> {len(result)} mappings (pyvk)")
+            return result
+        except Exception as e:
+            logger.warning(f"[MAPPING] Failed to get service_client_mapping for {agent_id}: {e}")
+            return {}
+
     def get_client_by_service(self, agent_id: str, service_name: str) -> Optional[str]:
         """根据服务名获取对应的 Client ID（别名方法）"""
         return self.get_service_client_id(agent_id, service_name)
     
     # === Async Methods for KV Storage ===
-    
+
     async def set_service_client_mapping_async(self, agent_id: str, service_name: str, client_id: str) -> None:
         """异步设置 Service-Client 映射到 KV 存储"""
         await self._state_backend.set_service_client(agent_id, service_name, client_id)
-    
+
     async def delete_service_client_mapping_async(self, agent_id: str, service_name: str) -> None:
         """异步删除 Service-Client 映射从 KV 存储"""
         await self._state_backend.delete_service_client(agent_id, service_name)
+
+    async def get_service_client_id_async(self, agent_id: str, service_name: str) -> Optional[str]:
+        """异步获取 Service-Client 映射从 KV 存储"""
+        return await self._state_backend.get_service_client(agent_id, service_name)
+
+    async def get_service_client_mapping_async(self, agent_id: str) -> Dict[str, str]:
+        """异步获取指定 agent 的所有 service-client 映射"""
+        return await self._state_backend.get_all_service_clients(agent_id)

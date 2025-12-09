@@ -719,6 +719,41 @@ class ServiceOperationsMixin:
             if not result.success:
                 raise RuntimeError(f"Failed to add service: {result.error_message}")
 
+            # 3. 初始化工具集（仅在 Agent 模式下）
+            if self._context_type == ContextType.AGENT:
+                try:
+                    logger.debug(f"[TOOL_INIT] 开始初始化工具集: agent_id={agent_id}, service_name={service_name}")
+                    # 从 registry 获取该服务的所有工具列表
+                    all_tools = await self._get_service_tools_for_initialization(agent_id, service_name)
+                    
+                    logger.debug(f"[TOOL_INIT] 获取到工具列表: agent_id={agent_id}, service_name={service_name}, all_tools_count={len(all_tools)}")
+                    
+                    # 调用 ToolSetManager 初始化工具集
+                    tool_set_manager = getattr(self._store, 'tool_set_manager', None)
+                    if tool_set_manager:
+                        if len(all_tools) == 0:
+                            logger.warning(
+                                f"[TOOL_INIT] 工具列表为空，将创建空状态: agent_id={agent_id}, "
+                                f"service_name={service_name}"
+                            )
+                        await tool_set_manager.initialize_tool_set_async(
+                            agent_id=agent_id,
+                            service_name=service_name,
+                            all_tools=all_tools
+                        )
+                        logger.info(
+                            f"[TOOL_INIT] 工具集初始化成功: agent_id={agent_id}, "
+                            f"service_name={service_name}, tools_count={len(all_tools)}"
+                        )
+                    else:
+                        logger.warning("ToolSetManager 不可用，跳过工具集初始化")
+                except Exception as init_error:
+                    # 初始化失败不影响服务添加
+                    logger.warning(
+                        f"工具集初始化失败（不影响服务添加）: "
+                        f"agent_id={agent_id}, service_name={service_name}, error={init_error}"
+                    )
+
             return {
                 "service_name": service_name,
                 "client_id": client_id,
@@ -754,6 +789,70 @@ class ServiceOperationsMixin:
 
         logger.debug(f" [CLIENT_ID] 生成新client_id: {service_name} -> {client_id}")
         return client_id
+
+    async def _get_service_tools_for_initialization(
+        self,
+        agent_id: str,
+        service_name: str
+    ) -> List[str]:
+        """
+        获取服务的工具列表用于初始化工具集
+        
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称（Agent 视角的本地名称，local_name）
+            
+        Returns:
+            工具名称列表
+        """
+        try:
+            # 1. 将 local_name 映射到 global_name（如果是 Agent 服务）
+            # Agent 服务会被重命名为 service_byagent_agentid 格式
+            global_name = self._store.registry.get_global_name_from_agent_service(
+                agent_id, service_name
+            )
+            
+            # 2. 如果没有映射，说明是 Store 级别的服务，直接使用原始名字
+            if not global_name:
+                global_name = service_name
+            
+            logger.debug(
+                f"[TOOL_INIT] 服务名映射: agent_id={agent_id}, "
+                f"local_name={service_name}, global_name={global_name}"
+            )
+            
+            # 3. 从 registry 获取工具列表
+            tools = self._store.registry.list_tools(agent_id)
+            
+            logger.debug(
+                f"[TOOL_INIT] 获取服务工具列表: agent_id={agent_id}, "
+                f"service_name={service_name}, registry.list_tools返回总数={len(tools)}"
+            )
+            if tools:
+                tool_names = [f"{t.name}@{t.service_name}" for t in tools[:5]]
+                logger.debug(f"[TOOL_INIT] 工具列表前5个: {tool_names}")
+            
+            # 4. 筛选出属于该服务的工具（使用 global_name 匹配）
+            # 工具注册时使用的是 global_name，所以需要用 global_name 匹配
+            service_tools = [
+                t.name for t in tools
+                if t.service_name == global_name
+            ]
+            
+            logger.debug(
+                f"[TOOL_INIT] 筛选后工具列表: agent_id={agent_id}, "
+                f"local_name={service_name}, global_name={global_name}, "
+                f"tools_count={len(service_tools)}, tools={service_tools[:5]}"
+            )
+            
+            return service_tools
+            
+        except Exception as e:
+            logger.error(
+                f"获取服务工具列表失败: agent_id={agent_id}, "
+                f"service_name={service_name}, error={e}"
+            )
+            return []
 
     async def _connect_and_update_cache(self, agent_id: str, service_name: str, service_config: Dict[str, Any]):
         """异步连接服务并更新缓存状态"""
@@ -1189,6 +1288,9 @@ class ServiceOperationsMixin:
                     # 5. 建立双向映射关系（新服务）
                     self._store.registry.add_agent_service_mapping(agent_id, local_name, global_name)
                     logger.debug(f" [AGENT_PROXY] 建立映射关系: {agent_id}:{local_name} ↔ {global_name}")
+                    # 验证映射是否建立成功
+                    verify_mapping = self._store.registry.get_global_name_from_agent_service(agent_id, local_name)
+                    logger.debug(f" [AGENT_PROXY] 验证映射: {agent_id}:{local_name} -> {verify_mapping} (期望: {global_name})")
 
                 # 6. 设置共享 Client ID 映射（新服务和同名服务都需要）
                 self._store.registry._agent_client_service.add_service_client_mapping(

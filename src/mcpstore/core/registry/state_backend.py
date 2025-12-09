@@ -270,6 +270,43 @@ class KVRegistryStateBackend(RegistryStateBackend):
         key = f"service_client:{service_name}"
         await self._kv_store.delete(key=key, collection=collection)
 
+    async def get_all_service_clients(self, agent_id: str) -> Dict[str, str]:
+        """获取指定 agent 的所有 service-client 映射"""
+        collection = self._collection(agent_id, "mappings")
+        if not hasattr(self._kv_store, "keys"):
+            return {}
+        keys = await self._kv_store.keys(collection=collection)
+        if not keys:
+            return {}
+        service_keys = [k for k in keys if isinstance(k, str) and k.startswith("service_client:")]
+        if not service_keys:
+            return {}
+
+        # Get all values
+        values: List[Any]
+        if hasattr(self._kv_store, "get_many"):
+            values = await self._kv_store.get_many(service_keys, collection=collection)
+        else:
+            values = []
+            for key in service_keys:
+                values.append(await self._kv_store.get(key=key, collection=collection))
+
+        # Build mapping dict
+        result = {}
+        for key, value in zip(service_keys, values):
+            if value is None:
+                continue
+            # Extract service_name from key (remove "service_client:" prefix)
+            service_name = key.replace("service_client:", "")
+            if isinstance(value, dict) and "value" in value:
+                result[service_name] = value["value"]
+            else:
+                logger.error(
+                    f"Invalid service_client mapping value for {agent_id}/{service_name}: "
+                    f"expected dict with 'value', got {type(value).__name__}"
+                )
+        return result
+
     async def list_agent_clients(self, agent_id: str) -> List[str]:
         collection = self._collection(agent_id, "mappings")
         if not hasattr(self._kv_store, "keys"):

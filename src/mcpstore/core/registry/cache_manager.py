@@ -78,7 +78,7 @@ class ServiceCacheManager:
                 logger.info(" [CACHE_INIT] Single data source mode: initializing empty cache, waiting for synchronization from mcp.json")
 
                 # Initialize empty cache
-                self.registry.agent_clients = {}
+                # agent_clients removed - now derived from service_client mappings in pyvk
                 self.registry.client_configs = {}
                 logger.info(" [CACHE_INIT] Empty cache initialization completed")
 
@@ -132,18 +132,21 @@ class CacheTransactionManager:
         self.transaction_timeout = 3600  # Transaction timeout time (seconds)
     
     async def begin_transaction(self, transaction_id: str):
-        """Begin cache transaction"""
-        # Create current state snapshot
+        """Begin cache transaction
+
+        Note: tool_cache and service_to_client removed - now stored in pyvk only.
+        Transaction snapshots only cover in-memory runtime data.
+        """
+        # Create current state snapshot (only in-memory runtime data)
         snapshot = {
             "transaction_id": transaction_id,
             "timestamp": datetime.now(),
-            "agent_clients": copy.deepcopy(self.registry.agent_clients),
+            # agent_clients removed - now derived from service_client mappings in pyvk
             "client_configs": copy.deepcopy(self.registry.client_configs),
-            "service_to_client": copy.deepcopy(self.registry.service_to_client),
+            # service_to_client removed - now in pyvk only
             "service_states": copy.deepcopy(self.registry.service_states),
             "service_metadata": copy.deepcopy(self.registry.service_metadata),
-            "sessions": copy.deepcopy(self.registry.sessions),
-            "tool_cache": copy.deepcopy(self.registry.tool_cache)
+            "sessions": copy.deepcopy(self.registry.sessions)
         }
 
         self.transaction_stack.append(snapshot)
@@ -176,24 +179,23 @@ class CacheTransactionManager:
             return False
         
         try:
-            # Restore cache state
-            self.registry.agent_clients = snapshot["agent_clients"]
+            # Restore cache state (only in-memory runtime data)
+            # agent_clients removed - now derived from service_client mappings in pyvk
             self.registry.client_configs = snapshot["client_configs"]
-            self.registry.service_to_client = snapshot["service_to_client"]
+            # service_to_client removed - now in pyvk only
             self.registry.service_states = snapshot["service_states"]
             self.registry.service_metadata = snapshot["service_metadata"]
             self.registry.sessions = snapshot["sessions"]
-            self.registry.tool_cache = snapshot["tool_cache"]
 
             # Remove snapshot
             self.transaction_stack = [
-                snap for snap in self.transaction_stack 
+                snap for snap in self.transaction_stack
                 if snap["transaction_id"] != transaction_id
             ]
 
             logger.info(f"Rolled back cache transaction: {transaction_id}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to rollback transaction {transaction_id}: {e}")
             return False

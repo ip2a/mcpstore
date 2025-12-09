@@ -68,6 +68,11 @@ from .tool import (
     ToolExecutionRequest
 )
 
+# Tool set management models
+from .tool_set import (
+    ToolSetState
+)
+
 # Configuration management related
 try:
     from ..configuration.unified_config import UnifiedConfigManager, ConfigType, ConfigInfo
@@ -118,6 +123,9 @@ __all__ = [
     'ToolInfo',
     'ToolsResponse',
     'ToolExecutionRequest',
+    
+    # Tool set management models
+    'ToolSetState',
 
     # Client models
     'ClientRegistrationRequest',

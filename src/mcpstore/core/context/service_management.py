@@ -513,16 +513,6 @@ class ServiceManagementMixin:
                 # 3. 单源模式：不再维护分片映射文件
                 logger.debug("Single-source mode: skip shard mapping files (agent_clients/client_services)")
 
-                # 4. 触发快照更新（强一致）
-                try:
-                    gid = self._store.client_manager.global_agent_store_id
-                    self._store.registry.tools_changed(gid, aggressive=True)
-                except Exception:
-                    try:
-                        self._store.registry.mark_tools_snapshot_dirty()
-                    except Exception:
-                        pass
-
                 logger.debug("Store level: all configuration reset completed")
                 return mcp_success
 
@@ -539,16 +529,6 @@ class ServiceManagementMixin:
 
                 # 3. 单源模式：不再维护分片映射文件
                 logger.debug("Single-source mode: skip shard mapping files (agent_clients/client_services)")
-
-                # 4. 触发快照更新（强一致）
-                try:
-                    gid = self._store.client_manager.global_agent_store_id
-                    self._store.registry.tools_changed(gid, aggressive=True)
-                except Exception:
-                    try:
-                        self._store.registry.mark_tools_snapshot_dirty()
-                    except Exception:
-                        pass
 
                 logger.info(" Store级别：global_agent_store重置完成")
                 return mcp_success
@@ -996,15 +976,6 @@ class ServiceManagementMixin:
 
             logger.info(f" Store级别：配置删除完成 {service_name}")
 
-            # 触发快照更新（强一致）
-            try:
-                self._store.registry.tools_changed(global_agent_store_id, aggressive=True)
-            except Exception:
-                try:
-                    self._store.registry.mark_tools_snapshot_dirty()
-                except Exception:
-                    pass
-
             return {
                 "success": True,
                 "message": f"Service '{service_name}' deleted successfully",
@@ -1052,16 +1023,6 @@ class ServiceManagementMixin:
             logger.info("Single-source mode: skip shard mapping files sync")
 
             logger.info(f" Agent级别：配置删除完成 {service_name}")
-
-            # 触发快照更新（强一致）
-            try:
-                gid = self._store.client_manager.global_agent_store_id
-                self._store.registry.tools_changed(gid, aggressive=True)
-            except Exception:
-                try:
-                    self._store.registry.mark_tools_snapshot_dirty()
-                except Exception:
-                    pass
 
             return {
                 "success": True,
@@ -1378,15 +1339,6 @@ class ServiceManagementMixin:
                 self._store.registry.clear_service_tools_only(global_agent_id, global_name)
             except Exception:
                 pass
-            # 触发快照更新（强一致）
-            try:
-                self._store.registry.tools_changed(global_agent_id, aggressive=True)
-            except Exception:
-                try:
-                    self._store.registry.mark_tools_snapshot_dirty()
-                except Exception:
-                    pass
-
             return True
         except Exception as e:
             logger.error(f"[DISCONNECT_SERVICE] Failed to disconnect '{name}': {e}")
@@ -1477,7 +1429,24 @@ class ServiceManagementMixin:
             else:
                 logger.error(f" [SERVICE_DELETE] Agent 服务删除失败: {local_name} → {global_name}")
 
-            # 6. 单源模式：不再同步到分片文件
+            # 6. 清理工具集数据（如果启用了工具集管理）
+            if hasattr(self._store, 'tool_set_manager') and self._store.tool_set_manager:
+                try:
+                    await self._store.tool_set_manager.cleanup_service_async(
+                        self._agent_id,
+                        local_name
+                    )
+                    logger.info(
+                        f"[SERVICE_DELETE] 工具集数据清理成功: "
+                        f"agent_id={self._agent_id}, service={local_name}"
+                    )
+                except Exception as cleanup_error:
+                    logger.warning(
+                        f"[SERVICE_DELETE] 工具集数据清理失败（不影响服务删除）: "
+                        f"agent_id={self._agent_id}, service={local_name}, error={cleanup_error}"
+                    )
+
+            # 7. 单源模式：不再同步到分片文件
             logger.info("Single-source mode: skip shard mapping files sync")
 
         except Exception as e:

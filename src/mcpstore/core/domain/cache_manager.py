@@ -115,6 +115,7 @@ class CacheManager:
                 )
                 
                 # 4. 添加 Service-Client 映射
+                logger.debug(f"[CACHE] Adding service-client mapping: {event.agent_id}:{event.service_name} -> {event.client_id}")
                 self._registry._agent_client_service.add_service_client_mapping(
                     event.agent_id, event.service_name, event.client_id
                 )
@@ -123,11 +124,19 @@ class CacheManager:
                     self._registry._agent_client_service.remove_service_client_mapping,
                     event.agent_id, event.service_name
                 )
-            
+
+                # 立即验证映射是否成功建立
+                verify_client_id = self._registry._agent_client_service.get_service_client_id(event.agent_id, event.service_name)
+                if verify_client_id != event.client_id:
+                    error_msg = (
+                        f"Service-client mapping verification failed! "
+                        f"Expected: {event.client_id}, Got: {verify_client_id}"
+                    )
+                    logger.error(f"[CACHE] {error_msg}")
+                    raise RuntimeError(error_msg)
+                logger.debug(f"[CACHE] Service-client mapping verified: {event.agent_id}:{event.service_name} -> {verify_client_id}")
+
             logger.info(f"[CACHE] Service cached: {event.service_name}")
-            
-            # 验证映射是否成功建立
-            verify_client_id = self._registry._agent_client_service.get_service_client_id(event.agent_id, event.service_name)
             logger.debug(f"[CACHE] Verification - client_id mapping: {verify_client_id}")
             
             verify_config = self._registry._client_config_service.get_client_config_from_cache(event.client_id)
@@ -188,17 +197,7 @@ class CacheManager:
             
             logger.info(f"[CACHE] Cache updated for {event.service_name} with {len(event.tools)} tools")
 
-            # 工具缓存更新完成后：统一触发器（强一致）
-            try:
-                # 优先获取全局 agent id
-                cm = getattr(self, 'orchestrator', None)
-                gid = getattr(getattr(cm, 'client_manager', None), 'global_agent_store_id', None) or event.agent_id
-                if hasattr(self._registry, 'tools_changed'):
-                    self._registry.tools_changed(gid, aggressive=True)
-                logger.debug(f"[SNAPSHOT] cache_manager: tools_changed triggered service={event.service_name}")
-            except Exception as e:
-                logger.warning(f"[SNAPSHOT] cache_manager: tools_changed failed: {e}")
-            
+
         except Exception as e:
             logger.error(f"[CACHE] Failed to update cache for {event.service_name}: {e}", exc_info=True)
             

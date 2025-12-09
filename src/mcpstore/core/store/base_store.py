@@ -80,6 +80,16 @@ class BaseMCPStore:
             enable_event_history=False  # Disable event history in production
         )
 
+        # [NEW] 初始化 ToolSetManager（工具集管理系统）
+        from mcpstore.core.tool_set_manager import ToolSetManager
+        # 从 registry 获取 kv_store 实例
+        kv_store = self.registry._kv_store
+        self.tool_set_manager = ToolSetManager(
+            kv_store=kv_store,
+            registry=self.registry
+        )
+        logger.info("ToolSetManager 初始化成功")
+
         # [UNIFIED] Point orchestrator.lifecycle_manager to container's lifecycle_manager
         try:
             self.orchestrator.lifecycle_manager = self.container.lifecycle_manager

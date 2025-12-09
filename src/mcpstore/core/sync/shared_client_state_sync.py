@@ -92,21 +92,29 @@ class SharedClientStateSyncManager:
     
     def _find_all_services_with_client_id(self, client_id: str) -> List[Tuple[str, str]]:
         """
-        查找使用指定 client_id 的所有服务
-        
+        查找使用指定 client_id 的所有服务 (从 pyvk 读取)
+
         Args:
             client_id: 要查找的 Client ID
-            
+
         Returns:
             List of (agent_id, service_name) tuples
         """
         services = []
-        
-        for agent_id, service_mappings in self.registry.service_to_client.items():
-            for service_name, mapped_client_id in service_mappings.items():
-                if mapped_client_id == client_id:
-                    services.append((agent_id, service_name))
-        
+
+        # Get all agent_ids from in-memory cache (still needed for iteration)
+        agent_ids = self.registry.get_all_agent_ids()
+
+        # For each agent, get service-client mappings from pyvk
+        for agent_id in agent_ids:
+            try:
+                service_mappings = self.registry._agent_client_service.get_service_client_mapping(agent_id)
+                for service_name, mapped_client_id in service_mappings.items():
+                    if mapped_client_id == client_id:
+                        services.append((agent_id, service_name))
+            except Exception as e:
+                logger.warning(f"[STATE_SYNC] Failed to get service mappings for {agent_id}: {e}")
+
         logger.debug(f" [STATE_SYNC] Found {len(services)} services with client_id {client_id}: {services}")
         return services
     
