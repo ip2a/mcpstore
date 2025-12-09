@@ -184,51 +184,6 @@ class MCPStoreContext(
         from ...adapters.openai_adapter import OpenAIAdapter
         return OpenAIAdapter(self)
 
-    # === Hub Services Extension ===
-
-    def hub_services(self) -> 'HubServicesBuilder':
-        """
-        Create Hub services packaging builder
-
-        Packages cached services in current context as independent Hub service processes.
-        Based on existing service data without new service registration.
-
-        Returns:
-            HubServicesBuilder: Hub services builder with chainable method calls
-
-        Example:
-            # Store-level Hub
-            hub = store.for_store().hub_services()\\
-                .with_name("global-hub")\\
-                .with_description("Global services hub")\\
-                .build()
-
-            # Agent-level Hub
-            hub = store.for_agent("team1").hub_services()\\
-                .with_name("team-hub")\\
-                .filter_services(category="api")\\
-                .build()
-        """
-        from mcpstore.extensions.hub.builder import HubServicesBuilder
-        return HubServicesBuilder(self, self._context_type.value, self._agent_id)
-
-    def hub_tools(self) -> 'HubToolsBuilder':
-        """
-        Create Hub tools packaging builder
-
-        Packages tools at tool level as Hub services.
-        Note: This feature is a placeholder implementation in current version,
-        full functionality will be available in later versions.
-
-        Returns:
-            HubToolsBuilder: Hub tools builder
-
-        Raises:
-            NotImplementedError: Feature not implemented in current version
-        """
-        from mcpstore.extensions.hub.builder import HubToolsBuilder
-        return HubToolsBuilder(self, self._context_type.value, self._agent_id)
-
     def find_service(self, service_name: str) -> 'ServiceProxy':
         """
         Find specified service and return service proxy object

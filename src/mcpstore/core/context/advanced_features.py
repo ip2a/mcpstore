@@ -231,18 +231,8 @@ class AdvancedFeaturesMixin:
             
             if mcp_success:
                 logger.info(f" [MCP_RESET] MCP JSON file reset completed for scope: {scope}，缓存已同步")
-                
-                # 4. 触发重新同步（可选）
-                # 4.1 强一致：触发快照更新
-                try:
-                    gid = self._store.client_manager.global_agent_store_id
-                    self._store.registry.tools_changed(gid, aggressive=True)
-                except Exception:
-                    try:
-                        self._store.registry.mark_tools_snapshot_dirty()
-                    except Exception:
-                        pass
 
+                # 4. 触发重新同步（可选）
                 if hasattr(self._store.orchestrator, 'sync_manager') and self._store.orchestrator.sync_manager:
                     logger.info(" [MCP_RESET] Triggering cache resync from mcp.json")
                     await self._store.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()

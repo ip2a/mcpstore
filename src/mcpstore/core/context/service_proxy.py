@@ -18,18 +18,31 @@ class ServiceProxy:
     提供具体服务的所有操作方法，进一步缩小作用域
     """
 
-    def __init__(self, context: 'MCPStoreContext', service_name: str):
+    def __init__(
+        self,
+        context: 'MCPStoreContext',
+        service_name: str,
+        agent_id: str = None,
+        global_name: str = None
+    ):
         """
         初始化服务代理
 
         Args:
             context: 父级上下文对象
-            service_name: 服务名称
+            service_name: 服务名称（本地名称）
+            agent_id: Agent ID（可选，用于绑定验证）
+            global_name: 全局服务名称（可选）
         """
         self._context = context
         self._service_name = service_name
         self._context_type = context.context_type
-        self._agent_id = context.agent_id
+        self._agent_id = agent_id or context.agent_id
+        self._global_name = global_name
+        
+        # 验证绑定关系（如果提供了 agent_id）
+        if agent_id and self._context_type.value == "agent":
+            self._verify_binding()
 
         logger.debug(f"[SERVICE_PROXY] Created proxy for service '{service_name}' in {self._context_type.value} context")
 
@@ -42,6 +55,45 @@ class ServiceProxy:
     def context_type(self) -> ContextType:
         """获取上下文类型"""
         return self._context_type
+    
+    @property
+    def agent_id(self) -> str:
+        """获取绑定的 Agent ID"""
+        return self._agent_id
+    
+    @property
+    def is_agent_scoped(self) -> bool:
+        """判断是否绑定到 Agent"""
+        return self._agent_id is not None and self._context_type.value == "agent"
+    
+    def _verify_binding(self) -> None:
+        """验证服务绑定关系
+        
+        Validates: Requirements 6.7, 6.8 (服务归属验证)
+        """
+        try:
+            # 通过 ToolSetManager 验证服务归属
+            if hasattr(self._context, '_tool_set_manager') and self._context._tool_set_manager:
+                # 检查服务映射是否存在
+                mapping = self._context._sync_helper.run_async(
+                    self._context._tool_set_manager.get_service_mapping_async(
+                        self._agent_id,
+                        self._service_name
+                    )
+                )
+                
+                if not mapping:
+                    from mcpstore.core.exceptions import ServiceBindingError
+                    raise ServiceBindingError(
+                        service_name=self._service_name,
+                        agent_id=self._agent_id,
+                        reason="服务映射不存在"
+                    )
+                
+                logger.debug(f"[SERVICE_PROXY] Verified binding for service '{self._service_name}' to agent '{self._agent_id}'")
+        except Exception as e:
+            logger.warning(f"[SERVICE_PROXY] Failed to verify binding: {e}")
+            # 不中断初始化，只记录警告
 
     # === 服务信息查询方法（两个单词） ===
 
@@ -232,14 +284,24 @@ class ServiceProxy:
         """
         # 通过orchestrator移除服务（同步封装）
         try:
+            # 获取 tool_set_manager
+            tool_set_manager = getattr(self._context._store, 'tool_set_manager', None)
+            
             if self._context_type == ContextType.STORE:
                 return self._context._sync_helper.run_async(
-                    self._context._store.orchestrator.remove_service(self._service_name)
+                    self._context._store.orchestrator.remove_service(
+                        self._service_name,
+                        tool_set_manager=tool_set_manager
+                    )
                 )
             else:
-                # Agent 模式需要传递 agent_id
+                # Agent 模式需要传递 agent_id 和 tool_set_manager
                 return self._context._sync_helper.run_async(
-                    self._context._store.orchestrator.remove_service(self._service_name, self._agent_id)
+                    self._context._store.orchestrator.remove_service(
+                        self._service_name,
+                        self._agent_id,
+                        tool_set_manager=tool_set_manager
+                    )
                 )
         except Exception as e:
             logger.error(f"Failed to remove service {self._service_name}: {e}")

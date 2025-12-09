@@ -98,6 +98,7 @@ def get_default_config_template() -> str:
     sync = defaults["sync"]
     transaction = defaults["transaction"]
     api = defaults["api"]
+    tool_set = defaults["tool_set"]
 
     return f'''# =============================================================================
 # MCPStore 统一配置文件
@@ -220,6 +221,12 @@ cors_origins = {_list(api["cors_origins"])}
 rate_limit_enabled = {_bool(api["rate_limit_enabled"])}
 rate_limit_requests = {api["rate_limit_requests"]}
 rate_limit_window = {api["rate_limit_window"]}
+
+[tool_set]
+# 工具集管理配置
+enable_tool_set = true
+cache_ttl_seconds = 3600
+max_tools_per_service = 1000
 '''
 
 
@@ -386,6 +393,11 @@ class ConfigValidator:
 
         # Transaction configuration
         "transaction.timeout": {"min": 1.0, "max": 3600.0, "type": float},
+
+        # Tool set configuration
+        "tool_set.enable_tool_set": {"type": bool},
+        "tool_set.cache_ttl_seconds": {"min": 60, "max": 86400, "type": int},
+        "tool_set.max_tools_per_service": {"min": 10, "max": 10000, "type": int},
     }
 
     @classmethod
@@ -1254,6 +1266,22 @@ class MCPStoreConfig:
             "show_startup_info": await self._get_config_value("server.show_startup_info", True),
             "log_level": await self._get_config_value("server.log_level", "info"),
             "url_prefix": await self._get_config_value("server.url_prefix", ""),
+        }
+
+    async def get_tool_set_config_async(self) -> Dict[str, Any]:
+        """
+        获取工具集配置
+
+        Returns:
+            Dict: 工具集配置字典，包含以下键：
+                - enable_tool_set: 是否启用工具集管理功能
+                - cache_ttl_seconds: 缓存过期时间（秒）
+                - max_tools_per_service: 每个服务的最大工具数量
+        """
+        return {
+            "enable_tool_set": await self._get_config_value("tool_set.enable_tool_set", True),
+            "cache_ttl_seconds": await self._get_config_value("tool_set.cache_ttl_seconds", 3600),
+            "max_tools_per_service": await self._get_config_value("tool_set.max_tools_per_service", 1000),
         }
 
     async def get_raw_config_section(self, section: str) -> Dict[str, Any]:

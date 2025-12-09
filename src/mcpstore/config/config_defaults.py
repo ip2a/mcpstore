@@ -174,6 +174,14 @@ class APIConfigDefaults:
             self.cors_origins = ["*"]
 
 
+@dataclass
+class ToolSetConfigDefaults:
+    """Default tool set configuration."""
+    enable_tool_set: bool = True
+    cache_ttl_seconds: int = 3600
+    max_tools_per_service: int = 1000
+
+
 def get_all_defaults() -> Dict[str, Dict[str, Any]]:
     """
     Get all default configuration values as a dictionary.
@@ -194,6 +202,7 @@ def get_all_defaults() -> Dict[str, Dict[str, Any]]:
     sync = SyncConfigDefaults()
     transaction = TransactionConfigDefaults()
     api = APIConfigDefaults()
+    tool_set = ToolSetConfigDefaults()
 
     return {
         "server": {
@@ -298,5 +307,10 @@ def get_all_defaults() -> Dict[str, Dict[str, Any]]:
             "rate_limit_enabled": api.rate_limit_enabled,
             "rate_limit_requests": api.rate_limit_requests,
             "rate_limit_window": api.rate_limit_window,
+        },
+        "tool_set": {
+            "enable_tool_set": tool_set.enable_tool_set,
+            "cache_ttl_seconds": tool_set.cache_ttl_seconds,
+            "max_tools_per_service": tool_set.max_tools_per_service,
         },
     }

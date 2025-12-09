@@ -146,9 +146,6 @@ class ServiceRegistry:
         self.sessions: Dict[str, Dict[str, Any]] = {}
 
         # Legacy in-memory structures for backward compatibility
-        # These will be gradually migrated to use _kv_store
-        # agent_id -> {tool_name: tool_definition}
-        self.tool_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}
         # agent_id -> {tool_name: session}
         self.tool_to_session_map: Dict[str, Dict[str, Any]] = {}
         # agent_id -> {tool_name: service_name} (hard mapping)
@@ -162,17 +159,15 @@ class ServiceRegistry:
         # agent_id -> {service_name: ServiceStateMetadata}
         self.service_metadata: Dict[str, Dict[str, ServiceStateMetadata]] = {}
 
-        # Agent-Client mapping cache
-        self.agent_clients: Dict[str, List[str]] = {}
-        # Structure: {agent_id: [client_id1, client_id2, ...]}
+        # agent_clients removed - now derived from service_client mappings in pyvk
+        # Access via: self._state_backend.list_agent_clients(agent_id)
 
         # Client configuration cache
         self.client_configs: Dict[str, Dict[str, Any]] = {}
         # Structure: {client_id: {"mcpServers": {...}}}
 
-        # Service to Client reverse mapping
-        self.service_to_client: Dict[str, Dict[str, str]] = {}
-        # Structure: {agent_id: {service_name: client_id}}
+        # service_to_client removed - now stored in pyvk only
+        # Access via: self._agent_client_service.get_service_client_id(agent_id, service_name)
 
         # Cache synchronization status
         from datetime import datetime
@@ -187,20 +182,12 @@ class ServiceRegistry:
         # State synchronization manager (lazy initialization)
         self._state_sync_manager = None
 
-        # === Snapshot (A+B+D): immutable bundle and versioning ===
-        # Current effective snapshot bundle (immutable structure); read paths only read this pointer,
-        # publishing happens through atomic pointer exchange
-        self._tools_snapshot_bundle: Optional[Dict[str, Any]] = None
-        self._tools_snapshot_version: int = 0
-        # Snapshot dirty flag: set to True when cache changes (add/remove/clear)
-        self._tools_snapshot_dirty: bool = True
-
         # Initialize AsyncSyncHelper for sync-to-async conversion
         # This allows synchronous methods to call async KV store operations
         self._sync_helper: Optional[Any] = None  # Lazy initialization
 
         logger.debug(
-            f"ServiceRegistry initialized (id={id(self)}) with py-key-value backend, snapshot_version={self._tools_snapshot_version}")
+            f"ServiceRegistry initialized (id={id(self)}) with py-key-value backend")
 
     def _ensure_sync_helper(self):
         """Ensure AsyncSyncHelper is initialized (lazy initialization)."""
@@ -519,6 +506,37 @@ class ServiceRegistry:
             # Memory backend (already initialized in __init__)
             logger.debug("Using default Memory cache backend")
 
+    def get_all_agent_ids(self) -> List[str]:
+        """
+        获取所有 Agent ID 列表 (从运行时数据推导)
+
+        Since agent_clients is removed, we derive agent_ids from in-memory structures:
+        - sessions
+        - service_states
+        - tool_to_session_map
+        - agent_to_global_mappings
+
+        Returns:
+            List of unique agent_ids
+        """
+        agent_ids = set()
+
+        # From sessions
+        agent_ids.update(self.sessions.keys())
+
+        # From service_states
+        agent_ids.update(self.service_states.keys())
+
+        # From tool_to_session_map
+        agent_ids.update(self.tool_to_session_map.keys())
+
+        # From agent_to_global_mappings
+        agent_ids.update(self.agent_to_global_mappings.keys())
+
+        result = list(agent_ids)
+        logger.debug(f"[REGISTRY] get_all_agent_ids: {len(result)} agents")
+        return result
+
     # === Async Tool Cache Access Methods ===
 
     # === Async Service Metadata Access Methods ===
@@ -539,25 +557,51 @@ class ServiceRegistry:
                 logger.warning(f"Failed to remove service {service_name} during clear for agent {agent_id}: {e}")
 
         self.sessions.pop(agent_id, None)
-        self.tool_cache.pop(agent_id, None)
         self.tool_to_session_map.pop(agent_id, None)
         self.tool_to_service.pop(agent_id, None)
 
         #  清理新增的缓存字段
         self.service_states.pop(agent_id, None)
         self.service_metadata.pop(agent_id, None)
-        self.service_to_client.pop(agent_id, None)
+        # service_to_client removed - no longer in memory
+        # agent_clients removed - derived from service_client mappings
 
         # 清理Agent-Client映射和相关Client配置
-        client_ids = self.agent_clients.pop(agent_id, [])
+        # Get client_ids from pyvk instead of memory
+        try:
+            helper = self._ensure_sync_helper()
+            client_ids = helper.run_async(
+                self._state_backend.list_agent_clients(agent_id),
+                timeout=5.0
+            )
+        except Exception as e:
+            logger.warning(f"Failed to get agent_clients for {agent_id} during clear: {e}")
+            client_ids = []
+
         for client_id in client_ids:
             # 检查client是否被其他agent使用
-            is_used_by_others = any(
-                client_id in clients for other_agent, clients in self.agent_clients.items()
-                if other_agent != agent_id
-            )
+            # Get all agent_ids and check if any other agent uses this client_id
+            all_agent_ids = self.get_all_agent_ids()
+            is_used_by_others = False
+            for other_agent in all_agent_ids:
+                if other_agent == agent_id:
+                    continue
+                try:
+                    other_clients = helper.run_async(
+                        self._state_backend.list_agent_clients(other_agent),
+                        timeout=5.0
+                    )
+                    if client_id in other_clients:
+                        is_used_by_others = True
+                        break
+                except Exception:
+                    pass
+
             if not is_used_by_others:
                 self.client_configs.pop(client_id, None)
+
+        # TODO: Also clear pyvk data for this agent_id
+        # This requires async operation, consider adding clear_async() method
 
     def _remove_service_tools(self, agent_id: str, service_name: str):
         tools_to_remove = [
@@ -566,8 +610,6 @@ class ServiceRegistry:
             if mapped_service == service_name
         ]
         for tool_name in tools_to_remove:
-            if tool_name in self.tool_cache.get(agent_id, {}):
-                del self.tool_cache[agent_id][tool_name]
             if tool_name in self.tool_to_session_map.get(agent_id, {}):
                 del self.tool_to_session_map[agent_id][tool_name]
             if agent_id in self.tool_to_service and tool_name in self.tool_to_service[agent_id]:
@@ -580,8 +622,6 @@ class ServiceRegistry:
                 self.delete_tool_to_service_mapping_async(agent_id, tool_name),
                 f"tool_mapping:{agent_id}:{tool_name}"
             )
-        if tools_to_remove:
-            self._tools_snapshot_dirty = True
 
     @atomic_write(agent_id_param="agent_id", use_lock=True)
     def add_service(self, agent_id: str, name: str, session: Any = None, tools: List[Tuple[str, Dict[str, Any]]] = None,
@@ -605,8 +645,6 @@ class ServiceRegistry:
         # 初始化数据结构
         if agent_id not in self.sessions:
             self.sessions[agent_id] = {}
-        if agent_id not in self.tool_cache:
-            self.tool_cache[agent_id] = {}
         if agent_id not in self.tool_to_session_map:
             self.tool_to_session_map[agent_id] = {}
         if agent_id not in self.tool_to_service:
@@ -700,15 +738,13 @@ class ServiceRegistry:
                 continue
 
             # 检查工具名冲突
-            if tool_name in self.tool_cache[agent_id]:
-                existing_session = self.tool_to_session_map[agent_id].get(tool_name)
-                if existing_session is not session:
-                    logger.warning(
-                        f"Tool name conflict: '{tool_name}' from {name} for agent {agent_id} conflicts with existing tool. Skipping this tool.")
-                    continue
+            existing_session = self.tool_to_session_map[agent_id].get(tool_name)
+            if existing_session and existing_session is not session:
+                logger.warning(
+                    f"Tool name conflict: '{tool_name}' from {name} for agent {agent_id} conflicts with existing tool. Skipping this tool.")
+                continue
 
-            # 存储工具到内存
-            self.tool_cache[agent_id][tool_name] = tool_definition
+            # 存储工具到会话映射
             self.tool_to_session_map[agent_id][tool_name] = session
 
             # Map tool to service in memory
@@ -728,8 +764,6 @@ class ServiceRegistry:
                 f"tool_mapping:{agent_id}:{tool_name}"
             )
 
-            # Mark snapshot as dirty
-            self._tools_snapshot_dirty = True
             added_tool_names.append(tool_name)
 
         logger.debug(f"Service added: {name} ({state.value}, {len(tools)} tools) for agent {agent_id}")
@@ -835,13 +869,6 @@ class ServiceRegistry:
             )
             replaced_count = len(processed)
 
-            # 标脏快照，由读侧或上层触发重建
-            try:
-                if hasattr(self, 'mark_tools_snapshot_dirty'):
-                    self.mark_tools_snapshot_dirty()
-            except Exception:
-                pass
-
             return {"replaced": replaced_count, "invalid": invalid_count}
         except Exception as e:
             logger.error(f"[REGISTRY] replace_service_tools failed: agent={agent_id} service={service_name} err={e}")
@@ -864,17 +891,6 @@ class ServiceRegistry:
 
         self._cleanup_service_cache_data(agent_id, name)
 
-        # 标记并重建快照（强一致）
-        try:
-            if hasattr(self, 'tools_changed'):
-                # 尝试使用全局agent（若无，则用当前agent作为兜底）
-                gid = getattr(self, '_main_agent_id', None) or agent_id
-                self.tools_changed(global_agent_id=gid, aggressive=True)
-        except Exception:
-            try:
-                self.mark_tools_snapshot_dirty()
-            except Exception:
-                pass
         logger.debug(f"Service removed: {name} for agent {agent_id}")
         return session
 
@@ -891,7 +907,7 @@ class ServiceRegistry:
         """
         try:
             logger.debug(
-                f"[REGISTRY.CLEAR_TOOLS_ONLY] begin agent={agent_id} service={service_name} tool_cache_size={len(self.tool_cache.get(agent_id, {}))}")
+                f"[REGISTRY.CLEAR_TOOLS_ONLY] begin agent={agent_id} service={service_name}")
             # 获取现有会话
             existing_session = self.sessions.get(agent_id, {}).get(service_name)
             if not existing_session:
@@ -906,17 +922,12 @@ class ServiceRegistry:
             ]
 
             for tool_name in tools_to_remove:
-                # 清理工具缓存
-                if agent_id in self.tool_cache and tool_name in self.tool_cache[agent_id]:
-                    del self.tool_cache[agent_id][tool_name]
                 # 清理工具-会话映射
                 if agent_id in self.tool_to_session_map and tool_name in self.tool_to_session_map[agent_id]:
                     del self.tool_to_session_map[agent_id][tool_name]
                 # 清理工具-服务硬映射 (in-memory)
                 if agent_id in self.tool_to_service and tool_name in self.tool_to_service[agent_id]:
                     del self.tool_to_service[agent_id][tool_name]
-            # Mark snapshot as dirty
-            self._tools_snapshot_dirty = True
 
             # 清理会话（会被新会话替换）
             if agent_id in self.sessions and service_name in self.sessions[agent_id]:
@@ -927,16 +938,6 @@ class ServiceRegistry:
 
         except Exception as e:
             logger.error(f"Failed to clear service tools for {service_name}: {e}")
-        # 强一致：工具清理后立即触发快照更新
-        try:
-            gid = getattr(self, '_main_agent_id', None) or agent_id
-            if hasattr(self, 'tools_changed'):
-                self.tools_changed(global_agent_id=gid, aggressive=True)
-        except Exception:
-            try:
-                self.mark_tools_snapshot_dirty()
-            except Exception:
-                pass
 
     def _cleanup_service_cache_data(self, agent_id: str, service_name: str):
         """清理服务相关的缓存数据"""
@@ -1037,9 +1038,17 @@ class ServiceRegistry:
     def get_all_tools(self, agent_id: str) -> List[Dict[str, Any]]:
         """
         获取指定 agent_id 下所有工具的定义。
+
+        Note: Now reads directly from pyvk (single source of truth).
         """
+        # Read tools from pyvk
+        tools_dict = self._sync_to_kv(
+            self._tool_management_service._state_backend.list_tools(agent_id),
+            f"list_tools:{agent_id}"
+        )
+
         all_tools = []
-        for tool_name, tool_def in self.tool_cache.get(agent_id, {}).items():
+        for tool_name, tool_def in tools_dict.items():
             session = self.tool_to_session_map.get(agent_id, {}).get(tool_name)
             service_name = None
             for name, sess in self.sessions.get(agent_id, {}).items():
@@ -1067,9 +1076,17 @@ class ServiceRegistry:
     def get_all_tool_info(self, agent_id: str) -> List[Dict[str, Any]]:
         """
         获取指定 agent_id 下所有工具的详细信息。
+
+        Note: Now reads directly from pyvk (single source of truth).
         """
+        # Read tools from pyvk
+        tools_dict = self._sync_to_kv(
+            self._tool_management_service._state_backend.list_tools(agent_id),
+            f"list_tools:{agent_id}"
+        )
+
         tools_info = []
-        for tool_name in self.tool_cache.get(agent_id, {}).keys():
+        for tool_name in tools_dict.keys():
             session = self.tool_to_session_map.get(agent_id, {}).get(tool_name)
             service_name = None
             for name, sess in self.sessions.get(agent_id, {}).items():
@@ -1098,28 +1115,34 @@ class ServiceRegistry:
     def get_tools_for_service(self, agent_id: str, name: str) -> List[str]:
         """
         获取指定 agent_id 下某服务的所有工具名。
-         修复：改为从service_to_client映射和tool_cache获取，而不是依赖sessions
+
+        Note: Now reads directly from pyvk (single source of truth).
         """
         logger.info(f"[REGISTRY] get_tools service={name} agent_id={agent_id}")
 
-        #  修复：首先检查服务是否存在
+        # 首先检查服务是否存在
         if not self.has_service(agent_id, name):
             logger.warning(f"[REGISTRY] service_not_exists service={name}")
             return []
 
-        #  优先：使用工具→服务硬映射
+        # 优先：使用工具→服务硬映射
         tools = []
-        tool_cache = self.tool_cache.get(agent_id, {})
         tool_to_session = self.tool_to_session_map.get(agent_id, {})
         tool_to_service = self.tool_to_service.get(agent_id, {})
 
         # 获取该服务的session（如果存在）
         service_session = self.sessions.get(agent_id, {}).get(name)
 
-        logger.debug(
-            f"[REGISTRY] tool_cache_size={len(tool_cache)} tool_to_session_size={len(tool_to_session)} tool_to_service_size={len(tool_to_service)}")
+        # Read all tool names from pyvk
+        tools_dict = self._sync_to_kv(
+            self._tool_management_service._state_backend.list_tools(agent_id),
+            f"list_tools:{agent_id}"
+        )
 
-        for tool_name in tool_cache.keys():
+        logger.debug(
+            f"[REGISTRY] tools_count={len(tools_dict)} tool_to_session_size={len(tool_to_session)} tool_to_service_size={len(tool_to_service)}")
+
+        for tool_name in tools_dict.keys():
             mapped_service = tool_to_service.get(tool_name)
             if mapped_service == name:
                 tools.append(tool_name)
@@ -1176,8 +1199,14 @@ class ServiceRegistry:
     def get_tool_info(self, agent_id: str, tool_name: str) -> Dict[str, Any]:
         """
         获取指定 agent_id 下某工具的详细信息，返回格式化的工具信息。
+
+        Note: Now reads directly from pyvk (single source of truth).
         """
-        tool_def = self.tool_cache.get(agent_id, {}).get(tool_name)
+        # Read tool from pyvk
+        tool_def = self._sync_to_kv(
+            self._tool_management_service._state_backend.get_tool(agent_id, tool_name),
+            f"get_tool:{agent_id}:{tool_name}"
+        )
         if not tool_def:
             return None
 
@@ -1218,8 +1247,14 @@ class ServiceRegistry:
     def _get_detailed_tool_info(self, agent_id: str, tool_name: str) -> Dict[str, Any]:
         """
         获取指定 agent_id 下某工具的详细信息。
+
+        Note: Now reads directly from pyvk (single source of truth).
         """
-        tool_def = self.tool_cache.get(agent_id, {}).get(tool_name)
+        # Read tool from pyvk
+        tool_def = self._sync_to_kv(
+            self._tool_management_service._state_backend.get_tool(agent_id, tool_name),
+            f"get_tool:{agent_id}:{tool_name}"
+        )
         if not tool_def:
             return {}
         session = self.tool_to_session_map.get(agent_id, {}).get(tool_name)
@@ -1384,8 +1419,8 @@ class ServiceRegistry:
                 logger.debug(f"[REGISTRY] get_service_config: from_metadata agent={agent_id} name={name}")
                 return metadata.service_config
 
-            # 3) 备用：从 Client 配置映射读取
-            client_id = self.service_to_client.get(agent_id, {}).get(name)
+            # 3) 备用：从 Client 配置映射读取 (从 pyvk)
+            client_id = self._agent_client_service.get_service_client_id(agent_id, name)
             if client_id:
                 client_cfg = self.client_configs.get(client_id, {}) or {}
                 svc_cfg = (client_cfg.get("mcpServers", {}) or {}).get(name)
@@ -1528,6 +1563,8 @@ class ServiceRegistry:
         self.global_to_agent_mappings[global_name] = (agent_id, local_name)
 
         logger.debug(f" [AGENT_MAPPING] Added mapping: {agent_id}:{local_name} ↔ {global_name}")
+        logger.debug(f" [AGENT_MAPPING] Current agent_to_global_mappings[{agent_id}] = {self.agent_to_global_mappings.get(agent_id, {})}")
+        logger.debug(f" [AGENT_MAPPING] Current global_to_agent_mappings keys = {list(self.global_to_agent_mappings.keys())[:5]}")
 
     def get_global_name_from_agent_service(self, agent_id: str, local_name: str) -> Optional[str]:
         """获取 Agent 服务对应的全局名称"""
@@ -1812,11 +1849,11 @@ class ServiceRegistry:
         # Get all agent IDs from in-memory structures
         # We need to check multiple sources to get all agents
         agent_ids = set()
-        agent_ids.update(self.tool_cache.keys())
         agent_ids.update(self.service_states.keys())
         agent_ids.update(self.service_metadata.keys())
         agent_ids.update(self.tool_to_service.keys())
-        agent_ids.update(self.agent_clients.keys())
+        # agent_clients removed - use get_all_agent_ids() instead
+        agent_ids.update(self.get_all_agent_ids())
 
         logger.debug(f"[EXPORT] Found {len(agent_ids)} agents to export")
 
@@ -1864,9 +1901,9 @@ class ServiceRegistry:
         # Also export in-memory structures that aren't in py-key-value
         # (These are needed for complete state restoration)
         exported["_meta"] = {
-            "agent_clients": dict(self.agent_clients),
+            # agent_clients removed - now derived from service_client mappings in pyvk
             "client_configs": dict(self.client_configs),
-            "service_to_client": dict(self.service_to_client),
+            # service_to_client removed - now in pyvk only
             "agent_to_global_mappings": dict(self.agent_to_global_mappings),
             "global_to_agent_mappings": dict(self.global_to_agent_mappings),
             "long_lived_connections": list(self.long_lived_connections)
@@ -1922,9 +1959,9 @@ class ServiceRegistry:
         # Import meta data first (in-memory structures)
         if "_meta" in data:
             meta = data["_meta"]
-            self.agent_clients = dict(meta.get("agent_clients", {}))
+            # agent_clients removed - now derived from service_client mappings in pyvk (skip import)
             self.client_configs = dict(meta.get("client_configs", {}))
-            self.service_to_client = dict(meta.get("service_to_client", {}))
+            # service_to_client removed - now in pyvk only (skip import)
             self.agent_to_global_mappings = dict(meta.get("agent_to_global_mappings", {}))
             self.global_to_agent_mappings = dict(meta.get("global_to_agent_mappings", {}))
             self.long_lived_connections = set(meta.get("long_lived_connections", []))
@@ -1943,10 +1980,6 @@ class ServiceRegistry:
             if "tools" in agent_data and agent_data["tools"]:
                 tools_collection = self._get_collection(agent_id, "tools")
                 await self._import_collection(tools_collection, agent_data["tools"])
-                # Also update in-memory cache
-                if agent_id not in self.tool_cache:
-                    self.tool_cache[agent_id] = {}
-                self.tool_cache[agent_id].update(agent_data["tools"])
                 logger.debug(f"[IMPORT] Agent {agent_id}: imported {len(agent_data['tools'])} tools")
 
             # Import states

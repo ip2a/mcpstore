@@ -181,24 +181,30 @@ class AgentQueryBuilder:
     def with_services(self, min_count: int = 1):
         """查询有服务的Agent"""
         agents_with_services = []
-        for agent_id in self.registry.agent_clients.keys():
+        # Use get_all_agent_ids() instead of agent_clients.keys()
+        for agent_id in self.registry.get_all_agent_ids():
             service_count = len(self.registry.get_all_service_names(agent_id))
             if service_count >= min_count:
+                # Get client_count from pyvk
+                client_ids = self.registry.get_agent_clients_from_cache(agent_id)
                 agents_with_services.append({
                     'agent_id': agent_id,
                     'service_count': service_count,
-                    'client_count': len(self.registry.agent_clients.get(agent_id, []))
+                    'client_count': len(client_ids)
                 })
         return agents_with_services
     
     def get_all(self) -> List[Dict[str, Any]]:
         """获取所有Agent信息"""
         agents = []
-        for agent_id in self.registry.agent_clients.keys():
+        # Use get_all_agent_ids() instead of agent_clients.keys()
+        for agent_id in self.registry.get_all_agent_ids():
+            # Get client_count from pyvk
+            client_ids = self.registry.get_agent_clients_from_cache(agent_id)
             agents.append({
                 'agent_id': agent_id,
                 'service_count': len(self.registry.get_all_service_names(agent_id)),
-                'client_count': len(self.registry.agent_clients.get(agent_id, [])),
+                'client_count': len(client_ids),
                 'healthy_services': len(self.registry.get_healthy_services(agent_id)),
                 'failed_services': len(self.registry.get_failed_services(agent_id))
             })

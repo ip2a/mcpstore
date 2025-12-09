@@ -296,6 +296,13 @@ class ConnectionManager:
         # Get configuration strictly through client_id → client_config → mcpServers
         client_id = self._registry.get_service_client_id(agent_id, service_name)
         if not client_id:
+            # 诊断信息: 从 pyvk 读取所有映射
+            try:
+                all_mappings = self._registry._agent_client_service.get_service_client_mapping(agent_id)
+                logger.error(f"[CONNECTION] All service_to_client mappings for {agent_id}: {all_mappings}")
+            except Exception as e:
+                logger.error(f"[CONNECTION] Failed to get service_to_client mappings: {e}")
+
             msg = f"No client_id mapping found for {agent_id}:{service_name}"
             logger.error(f"[CONNECTION] {msg}")
             raise RuntimeError(msg)

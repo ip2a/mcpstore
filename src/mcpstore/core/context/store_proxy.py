@@ -391,12 +391,6 @@ class StoreProxy:
     async def import_api_async(self, api_url: str, api_name: str = None):
         return await self._context.import_api_async(api_url, api_name)
 
-    def hub_services(self):
-        return self._context.hub_services()
-
-    def hub_tools(self):
-        return self._context.hub_tools()
-
     def reset_mcp_json_file(self) -> bool:
         return self._context.reset_mcp_json_file()
 

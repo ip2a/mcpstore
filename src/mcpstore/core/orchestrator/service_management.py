@@ -16,70 +16,131 @@ class ServiceManagementMixin:
     """Service management mixin class"""
 
     async def tools_snapshot(self, agent_id: Optional[str] = None) -> List[Any]:
-        """Public API: read immutable snapshot bundle and project agent view (A+B+D).
+        """Public API: read tools directly from pyvk and project agent view.
 
-        - Always read global tools from the registry's current snapshot bundle.
+        - Always read global tools from pyvk (single source of truth).
         - If agent_id provided, project the global services to agent-local names using
-          the mapping snapshot included in the bundle.
-        - No waiting/retry. Pure read and projection.
+          the current mapping state.
+        - Real-time data, no snapshot caching.
         """
         try:
-            bundle = self.registry.get_tools_snapshot_bundle()
-            # Trigger rebuild if bundle doesn't exist or is marked dirty
-            if (not bundle) or getattr(self.registry, 'is_tools_snapshot_dirty', lambda: False)():
-                reason = 'none' if not bundle else 'dirty'
-                logger.debug(f"[SNAPSHOT] tools_snapshot: trigger rebuild (reason={reason})")
-                bundle = self.registry.rebuild_tools_snapshot(self.client_manager.global_agent_store_id)
-            else:
-                meta = bundle.get("meta", {}) if isinstance(bundle, dict) else {}
-                logger.debug(f"[SNAPSHOT] tools_snapshot: using bundle version={meta.get('version')}")
+            global_agent_id = self.client_manager.global_agent_store_id
 
-            tools_section = bundle.get("tools", {})
-            mappings = bundle.get("mappings", {})
-            services_index: Dict[str, List[Dict[str, Any]]] = tools_section.get("services", {})
+            # 1. Read all tools from pyvk (batch operation)
+            tools_dict = await self.registry._tool_management_service._state_backend.list_tools(global_agent_id)
+            logger.debug(f"[TOOLS] Loaded {len(tools_dict)} tools from pyvk for global_agent_id={global_agent_id}")
 
-            # Flatten global tools
+            # 2. Get all service names
+            service_names = self.registry._service_state_service.get_all_service_names(global_agent_id)
+
+            # 3. Build services index: service_name -> [tool_info, ...]
+            services_index: Dict[str, List[Dict[str, Any]]] = {}
+            for service_name in service_names:
+                tool_names = self.registry.get_tools_for_service(global_agent_id, service_name)
+                if not tool_names:
+                    services_index[service_name] = []
+                    continue
+
+                items: List[Dict[str, Any]] = []
+                for tool_name in tool_names:
+                    tool_def = tools_dict.get(tool_name)
+                    if not tool_def:
+                        continue
+
+                    # Extract tool info from definition (inline logic)
+                    # Get Client ID using public method
+                    client_id = self.registry.get_service_client_id(global_agent_id, service_name) if service_name else None
+
+                    # Handle different tool definition formats
+                    if "function" in tool_def:
+                        function_data = tool_def["function"]
+                        tool_info = {
+                            'name': tool_name,
+                            'display_name': function_data.get('display_name', tool_name),
+                            'original_name': function_data.get('name', tool_name),
+                            'description': function_data.get('description', ''),
+                            'inputSchema': function_data.get('parameters', {}),
+                            'service_name': service_name,
+                            'client_id': client_id
+                        }
+                    else:
+                        tool_info = {
+                            'name': tool_name,
+                            'display_name': tool_def.get('display_name', tool_name),
+                            'original_name': tool_def.get('name', tool_name),
+                            'description': tool_def.get('description', ''),
+                            'inputSchema': tool_def.get('parameters', {}),
+                            'service_name': service_name,
+                            'client_id': client_id
+                        }
+
+                    if not tool_info:
+                        continue
+
+                    # Normalize to standard format
+                    full_name = tool_info.get("name", tool_name)
+                    item = {
+                        "name": full_name,
+                        "display_name": tool_info.get("display_name", tool_info.get("original_name", full_name.split(f"{service_name}_", 1)[-1] if isinstance(full_name, str) else full_name)),
+                        "description": tool_info.get("description", ""),
+                        "service_name": service_name,
+                        "client_id": tool_info.get("client_id"),
+                        "inputSchema": tool_info.get("inputSchema", {}),
+                        "original_name": tool_info.get("original_name", tool_info.get("name", tool_name))
+                    }
+                    items.append(item)
+
+                services_index[service_name] = items
+
+            # 4. Flatten global tools
             flat_global: List[Dict[str, Any]] = []
             for svc, items in services_index.items():
                 if not items:
                     continue
                 for it in items:
-                    # ensure service_name is global name here
                     entry = dict(it)
                     entry["service_name"] = svc
                     flat_global.append(entry)
 
+            logger.debug(f"[TOOLS] Built {len(flat_global)} global tools from {len(services_index)} services")
+
+            # 5. If no agent_id, return global tools directly
             if not agent_id:
                 return flat_global
 
-            # Agent projection: global -> local service names
-            agent_map = mappings.get("agent_to_global", {}).get(agent_id, {})
-            # Build reverse map for this agent only: global -> local
+            # 6. Real-time agent projection: global -> local service names
+            agent_map = self.registry.agent_to_global_mappings.get(agent_id, {})
             reverse_map: Dict[str, str] = {g: l for (l, g) in agent_map.items()}
 
+            logger.debug(f"[TOOLS] Agent projection for agent_id={agent_id}: reverse_map={reverse_map}")
+
+            # 7. Project tools to agent view
             projected: List[Dict[str, Any]] = []
+            skipped_count = 0
             for item in flat_global:
                 gsvc = item.get("service_name")
                 lsvc = reverse_map.get(gsvc)
                 if not lsvc:
-                    # Strict projection: skip services without mapping for this agent
+                    # Skip services without mapping for this agent
+                    skipped_count += 1
                     continue
+
                 new_item = dict(item)
                 new_item["service_name"] = lsvc
-                # Rewrite tool name to use local service prefix to keep name/service consistent
+
+                # Rewrite tool name to use local service prefix
                 name = new_item.get("name")
                 if isinstance(name, str):
                     if name.startswith(f"{gsvc}_"):
-                        # service_tool -> replace global service with local
                         suffix = name[len(gsvc) + 1:]
                         new_item["name"] = f"{lsvc}_{suffix}"
                     elif name.startswith(f"{gsvc}__"):
-                        # legacy double-underscore format: normalize to single underscore
                         suffix = name[len(gsvc) + 2:]
                         new_item["name"] = f"{lsvc}_{suffix}"
+
                 projected.append(new_item)
 
-            logger.debug(f"[SNAPSHOT] tools_snapshot: return_count={len(projected)} (agent_view)")
+            logger.debug(f"[TOOLS] Agent view: {len(projected)} tools projected, {skipped_count} skipped")
             return projected
 
         except Exception as e:
@@ -176,8 +237,15 @@ class ServiceManagementMixin:
         selected = {name: all_services[name] for name in service_names if name in all_services}
         return {"mcpServers": selected}
 
-    async def remove_service(self, service_name: str, agent_id: str = None):
-        """Remove service and handle lifecycle state"""
+    async def remove_service(self, service_name: str, agent_id: str = None, tool_set_manager=None):
+        """
+        Remove service and handle lifecycle state
+        
+        Args:
+            service_name: 服务名称
+            agent_id: Agent ID（可选）
+            tool_set_manager: ToolSetManager 实例（可选，用于清理工具集数据）
+        """
         try:
             #  Fix: safer agent_id handling
             if agent_id is None:
@@ -221,7 +289,7 @@ class ServiceManagementMixin:
                 logger.warning(f"Error removing from content monitoring: {e}")
 
             try:
-                # Remove service from registry (will internally trigger tools_changed)
+                # Remove service from registry
                 self.registry.remove_service(agent_key, service_name)
 
                 # Cancel health monitoring (if exists)
@@ -245,13 +313,37 @@ class ServiceManagementMixin:
             except Exception as e:
                 logger.warning(f"Error removing lifecycle data: {e}")
 
-            # A+B+D: Trigger unified snapshot update after changes (strong consistency)
+            # 清理工具集状态（仅在 Agent 模式下）
             try:
-                gid = self.client_manager.global_agent_store_id
-                if hasattr(self.registry, 'tools_changed'):
-                    self.registry.tools_changed(gid, aggressive=True)
+                # 检查是否为 Agent 模式（非 global_agent_store）
+                global_agent_store_id = self.client_manager.global_agent_store_id
+                if agent_key != global_agent_store_id:
+                    # 如果没有传入 tool_set_manager，尝试从 container 获取
+                    if tool_set_manager is None:
+                        tool_set_manager = getattr(self.container, 'tool_set_manager', None)
+                        if tool_set_manager is None:
+                            tool_set_manager = getattr(self.container, '_tool_set_manager', None)
+                    
+                    if tool_set_manager:
+                        await self._cleanup_tool_set_data(
+                            tool_set_manager,
+                            agent_key,
+                            service_name
+                        )
+                        logger.info(
+                            f"工具集数据清理成功: agent_id={agent_key}, "
+                            f"service_name={service_name}"
+                        )
+                    else:
+                        logger.debug("ToolSetManager 不可用，跳过工具集清理")
+                else:
+                    logger.debug(f"跳过工具集清理（Store 级别服务）: agent_id={agent_key}")
             except Exception as e:
-                logger.warning(f"[SNAPSHOT] tools_changed failed after removal: {e}")
+                # 清理失败记录警告但不中断
+                logger.warning(
+                    f"工具集数据清理失败（不影响服务移除）: "
+                    f"agent_id={agent_key}, service_name={service_name}, error={e}"
+                )
 
             logger.debug(f"Service removal completed: {service_name} from agent {agent_key}")
 
@@ -260,6 +352,43 @@ class ServiceManagementMixin:
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             raise
+
+    async def _cleanup_tool_set_data(
+        self,
+        tool_set_manager,
+        agent_id: str,
+        service_name: str
+    ) -> None:
+        """
+        清理工具集相关数据
+        
+        委托给 ToolSetManager.cleanup_service_async() 方法执行清理。
+        
+        清理内容：
+        1. 删除工具集状态键（tool_set:state:{agent_id}:{service_name}）
+        2. 从索引中移除服务条目
+        3. 更新元数据（减少服务计数）
+        4. 删除服务映射键（tool_set:service_mapping:{agent_id}:{service_name}）
+        5. 删除反向映射键（tool_set:reverse_mapping:{global_name}）
+        6. 清除内存缓存
+        
+        Args:
+            tool_set_manager: ToolSetManager 实例
+            agent_id: Agent ID
+            service_name: 服务名称
+        """
+        try:
+            # 委托给 ToolSetManager 的 cleanup_service_async 方法
+            await tool_set_manager.cleanup_service_async(agent_id, service_name)
+            
+        except Exception as e:
+            # 清理失败记录警告但不中断
+            logger.warning(
+                f"工具集数据清理失败（不影响服务移除）: "
+                f"agent_id={agent_id}, service_name={service_name}, error={e}",
+                exc_info=True
+            )
+            # 不抛出异常，允许服务移除继续
 
     def get_session(self, service_name: str, agent_id: str = None):
         agent_key = agent_id or self.client_manager.global_agent_store_id

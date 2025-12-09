@@ -452,15 +452,6 @@ class ServiceConnectionMixin:
 
             logger.info(f"Updated cache for service '{service_name}' with {len(processed_tools)} tools for agent '{agent_id}'")
 
-            # A+B+D: ???????????????????????
-            try:
-                gid = self.client_manager.global_agent_store_id
-                if hasattr(self.registry, 'tools_changed'):
-                    self.registry.tools_changed(gid, aggressive=True)
-                logger.debug(f"[SNAPSHOT] connection: tools_changed after cache update service={service_name} agent={agent_id}")
-            except Exception as e:
-                logger.warning(f"[SNAPSHOT] tools_changed failed after cache update: {e}")
-
         except Exception as e:
             logger.error(f"Failed to update service cache for '{service_name}': {e}")
 

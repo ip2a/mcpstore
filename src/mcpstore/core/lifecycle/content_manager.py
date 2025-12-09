@@ -366,10 +366,3 @@ class ServiceContentManager:
             self.registry.add_service(agent_id=agent_id, name=service_name, session=service_session, tools=processed_tools, preserve_mappings=True)
 
         logger.debug(f"Updated tool cache for {service_name}: {len(processed_tools)} tools")
-
-        # A+B+D: 工具缓存更新后，重建并发布全局快照
-        try:
-            global_agent_id = self.orchestrator.client_manager.global_agent_store_id
-            self.registry.rebuild_tools_snapshot(global_agent_id)
-        except Exception as e:
-            logger.warning(f"[SNAPSHOT] rebuild failed in content manager: {e}")
