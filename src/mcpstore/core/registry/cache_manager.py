@@ -79,7 +79,7 @@ class ServiceCacheManager:
 
                 # Initialize empty cache
                 # agent_clients removed - now derived from service_client mappings in pyvk
-                self.registry.client_configs = {}
+                # client_configs removed - now in pyvk only
                 logger.info(" [CACHE_INIT] Empty cache initialization completed")
 
                 # Mark cache as initialized
@@ -134,7 +134,7 @@ class CacheTransactionManager:
     async def begin_transaction(self, transaction_id: str):
         """Begin cache transaction
 
-        Note: tool_cache and service_to_client removed - now stored in pyvk only.
+        Note: tool_cache, service_to_client, client_configs removed - now stored in pyvk only.
         Transaction snapshots only cover in-memory runtime data.
         """
         # Create current state snapshot (only in-memory runtime data)
@@ -142,7 +142,7 @@ class CacheTransactionManager:
             "transaction_id": transaction_id,
             "timestamp": datetime.now(),
             # agent_clients removed - now derived from service_client mappings in pyvk
-            "client_configs": copy.deepcopy(self.registry.client_configs),
+            # client_configs removed - now in pyvk only
             # service_to_client removed - now in pyvk only
             "service_states": copy.deepcopy(self.registry.service_states),
             "service_metadata": copy.deepcopy(self.registry.service_metadata),
@@ -181,7 +181,7 @@ class CacheTransactionManager:
         try:
             # Restore cache state (only in-memory runtime data)
             # agent_clients removed - now derived from service_client mappings in pyvk
-            self.registry.client_configs = snapshot["client_configs"]
+            # client_configs removed - now in pyvk only
             # service_to_client removed - now in pyvk only
             self.registry.service_states = snapshot["service_states"]
             self.registry.service_metadata = snapshot["service_metadata"]

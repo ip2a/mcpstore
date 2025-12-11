@@ -41,6 +41,9 @@ class BaseMCPStore:
         # Unified configuration manager (pass instance reference)
         self._unified_config = UnifiedConfigManager(mcp_config=config)
 
+        # Set unified config to registry for JSON persistence
+        self.registry.set_unified_config(self._unified_config)
+
         self._context_cache: Dict[str, MCPStoreContext] = {}
         self._store_context = self._create_store_context()
 
@@ -88,6 +91,8 @@ class BaseMCPStore:
             kv_store=kv_store,
             registry=self.registry
         )
+        # 将 ToolSetManager 引用传递给 Registry（用于映射关系管理）
+        self.registry._tool_set_manager = self.tool_set_manager
         logger.info("ToolSetManager 初始化成功")
 
         # [UNIFIED] Point orchestrator.lifecycle_manager to container's lifecycle_manager

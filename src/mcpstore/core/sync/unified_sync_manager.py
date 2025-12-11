@@ -411,11 +411,11 @@ class UnifiedMCPSyncManager:
 
     async def _add_service_to_cache_mapping(self, agent_id: str, service_name: str, service_config: Dict[str, Any]) -> bool:
         """
-        将服务添加到缓存映射（Registry中的两个映射字段）
+        将服务添加到缓存映射（Registry中的映射字段）
 
-        缓存映射指的是：
-        - registry.agent_clients: Agent-Client映射
-        - registry.client_configs: Client配置映射
+        注意：
+        - registry.agent_clients: 已移除 (Phase 4) - 现在从 pyvk 推导
+        - registry.client_configs: 已移除 (Phase 5) - 现在存储在 pyvk
 
         Args:
             agent_id: Agent ID

@@ -593,6 +593,85 @@ class ToolSetManager:
         """
         mapping = await self.get_service_mapping_async(agent_id, local_name)
         return mapping is not None
+    
+    async def get_all_mappings_async(
+        self,
+        agent_id: str
+    ) -> Dict[str, str]:
+        """
+        获取 Agent 的所有服务映射（异步）
+        
+        Args:
+            agent_id: Agent ID
+            
+        Returns:
+            映射字典 {local_name: global_name}
+        """
+        try:
+            # 从索引中获取所有服务
+            index_key = self._get_index_key(agent_id)
+            index_data = await self._kv_store.get(index_key)
+            
+            if not index_data:
+                return {}
+            
+            # 构建映射字典
+            mappings = {}
+            for entry in index_data:
+                local_name = entry.get("service_name")
+                global_name = entry.get("global_name")
+                if local_name and global_name:
+                    mappings[local_name] = global_name
+            
+            return mappings
+            
+        except Exception as e:
+            logger.error(
+                f"获取所有映射失败: agent_id={agent_id}, error={e}",
+                exc_info=True
+            )
+            return {}
+    
+    async def delete_service_mapping_async(
+        self,
+        agent_id: str,
+        local_name: str
+    ) -> None:
+        """
+        删除服务映射（异步）
+        
+        Args:
+            agent_id: Agent ID
+            local_name: 本地服务名称
+        """
+        try:
+            # 先获取 global_name
+            global_name = await self.get_global_name_async(agent_id, local_name)
+            
+            if not global_name:
+                logger.debug(f"映射不存在，无需删除: {agent_id}:{local_name}")
+                return
+            
+            # 删除正向映射
+            forward_key = self._get_mapping_key(agent_id, local_name)
+            await self._kv_store.delete(forward_key)
+            
+            # 删除反向映射
+            reverse_key = self._get_reverse_mapping_key(global_name)
+            await self._kv_store.delete(reverse_key)
+            
+            logger.debug(
+                f"删除服务映射成功: agent_id={agent_id}, "
+                f"local_name={local_name}, global_name={global_name}"
+            )
+            
+        except Exception as e:
+            logger.error(
+                f"删除服务映射失败: agent_id={agent_id}, "
+                f"local_name={local_name}, error={e}",
+                exc_info=True
+            )
+            raise
 
     # ==================== 索引管理方法 ====================
     

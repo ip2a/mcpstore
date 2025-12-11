@@ -293,8 +293,36 @@ class ConnectionManager:
         """Get service configuration from cache"""
         logger.debug(f"[CONNECTION] Getting config for {agent_id}:{service_name}")
 
+        # Handle service name mapping for agent services
+        actual_service_name = service_name
+
+        # DEBUG: Show current mappings
+        logger.debug(f"[CONNECTION] global_to_agent_mappings count: {len(self._registry.global_to_agent_mappings)}")
+        if hasattr(self._registry, 'global_to_agent_mappings'):
+            for global_name, (mapped_agent_id, local_name) in list(self._registry.global_to_agent_mappings.items())[:3]:
+                logger.debug(f"[CONNECTION] Found mapping: {global_name} -> agent:{mapped_agent_id}, local:{local_name}")
+
+        # If this is a local service name for global_agent_store,
+        # check if there's a global name mapping
+        if agent_id == "global_agent_store" and not service_name.startswith("_"):
+            # Try to get global name from registry mappings
+            global_name = self._registry.get_agent_service_from_global_name(service_name)
+            if global_name:
+                # service_name is actually a local name, need to find its global counterpart
+                # Search through all agent mappings
+                for mapped_global_name, (mapped_agent_id, mapped_local_name) in self._registry.global_to_agent_mappings.items():
+                    if mapped_local_name == service_name:
+                        actual_service_name = mapped_global_name
+                        logger.debug(f"[CONNECTION] Mapped local name {service_name} to global name {actual_service_name}")
+                        break
+            else:
+                # Check if service_name is already a global name
+                if service_name in self._registry.global_to_agent_mappings:
+                    actual_service_name = service_name
+                    logger.debug(f"[CONNECTION] Service name {service_name} is already a global name")
+
         # Get configuration strictly through client_id → client_config → mcpServers
-        client_id = self._registry.get_service_client_id(agent_id, service_name)
+        client_id = self._registry.get_service_client_id(agent_id, actual_service_name)
         if not client_id:
             # 诊断信息: 从 pyvk 读取所有映射
             try:
@@ -303,11 +331,13 @@ class ConnectionManager:
             except Exception as e:
                 logger.error(f"[CONNECTION] Failed to get service_to_client mappings: {e}")
 
-            msg = f"No client_id mapping found for {agent_id}:{service_name}"
+            msg = f"No client_id mapping found for {agent_id}:{actual_service_name}"
+            if actual_service_name != service_name:
+                msg += f" (original: {service_name})"
             logger.error(f"[CONNECTION] {msg}")
             raise RuntimeError(msg)
 
-        logger.debug(f"[CONNECTION] Found client_id for {agent_id}:{service_name}: {client_id}")
+        logger.debug(f"[CONNECTION] Found client_id for {agent_id}:{actual_service_name}: {client_id}")
 
         client_config = self._registry.get_client_config_from_cache(client_id)
         if not client_config:
@@ -327,15 +357,17 @@ class ConnectionManager:
             logger.error(f"[CONNECTION] {msg}")
             raise RuntimeError(msg)
 
-        service_config = mcp_servers.get(service_name)
+        service_config = mcp_servers.get(actual_service_name)
         if not isinstance(service_config, dict) or not service_config:
             msg = (
-                f"Service {service_name} not found in client config for client_id={client_id} "
+                f"Service {actual_service_name} not found in client config for client_id={client_id} "
                 f"(agent={agent_id})"
             )
+            if actual_service_name != service_name:
+                msg += f" (original: {service_name})"
             logger.error(f"[CONNECTION] {msg}")
             raise RuntimeError(msg)
 
-        logger.debug(f"[CONNECTION] Found config for {service_name}: {list(service_config.keys())}")
+        logger.debug(f"[CONNECTION] Found config for {actual_service_name}: {list(service_config.keys())}")
         return service_config
 

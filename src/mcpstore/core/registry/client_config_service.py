@@ -30,7 +30,7 @@ class ClientConfigService:
     def __init__(self, kv_store: 'AsyncKeyValue', state_backend: 'RegistryStateBackend', kv_adapter):
         """
         Initialize Client Configuration service.
-        
+
         Args:
             kv_store: AsyncKeyValue instance for data storage
             state_backend: Registry state backend for KV operations
@@ -39,57 +39,79 @@ class ClientConfigService:
         self._kv_store = kv_store
         self._state_backend = state_backend
         self._kv_adapter = kv_adapter
-        
-        # Client configuration cache
-        # Structure: {client_id: {"mcpServers": {...}}}
-        self.client_configs: Dict[str, Dict[str, Any]] = {}
+
+        # client_configs removed - now read from pyvk only (single source of truth)
     
     # === Client Configuration Management Methods ===
     
     def add_client_config(self, client_id: str, config: Dict[str, Any]):
-        """添加 Client 配置到缓存"""
-        # Use in-memory cache for now (backward compatibility)
-        self.client_configs[client_id] = config
+        """添加 Client 配置到 pyvk (单一数据源)"""
+        # Write directly to pyvk
         self._kv_adapter.sync_to_kv(
             self.set_client_config_async(client_id, config),
             f"client_config:{client_id}"
         )
-        logger.debug(f"Added client config for {client_id} to cache")
+        logger.debug(f"Added client config for {client_id} to pyvk")
     
     def update_client_config(self, client_id: str, updates: Dict[str, Any]):
-        """更新缓存中的 Client 配置"""
-        # Use in-memory cache for now (backward compatibility)
-        if client_id in self.client_configs:
-            self.client_configs[client_id].update(updates)
-        else:
-            self.client_configs[client_id] = updates
-        self._kv_adapter.sync_to_kv(
-            self.set_client_config_async(client_id, self.client_configs[client_id]),
-            f"client_config:{client_id}"
-        )
+        """更新 pyvk 中的 Client 配置"""
+        # Read current config from pyvk, merge updates, write back
+        helper = self._kv_adapter._ensure_sync_helper()
+        try:
+            current_config = helper.run_async(
+                self._state_backend.get_client_config(client_id),
+                timeout=5.0
+            )
+            if current_config:
+                current_config.update(updates)
+            else:
+                current_config = updates
+
+            self._kv_adapter.sync_to_kv(
+                self.set_client_config_async(client_id, current_config),
+                f"client_config:{client_id}"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to update client config for {client_id}: {e}")
+            # Fallback: just write the updates
+            self._kv_adapter.sync_to_kv(
+                self.set_client_config_async(client_id, updates),
+                f"client_config:{client_id}"
+            )
     
     def remove_client_config(self, client_id: str):
-        """从缓存移除 Client 配置"""
-        # Use in-memory cache for now (backward compatibility)
-        if client_id in self.client_configs:
-            del self.client_configs[client_id]
+        """从 pyvk 移除 Client 配置"""
+        # Delete directly from pyvk
         self._kv_adapter.sync_to_kv(
             self.delete_client_config_async(client_id),
             f"client_config:{client_id}"
         )
     
     def get_client_config_from_cache(self, client_id: str) -> Optional[Dict[str, Any]]:
-        """从缓存获取 Client 配置"""
-        # Use in-memory cache for now (backward compatibility)
-        return self.client_configs.get(client_id)
-    
+        """从 pyvk 获取 Client 配置"""
+        # Read directly from pyvk (single source of truth)
+        helper = self._kv_adapter._ensure_sync_helper()
+        try:
+            result = helper.run_async(
+                self._state_backend.get_client_config(client_id),
+                timeout=5.0
+            )
+            return result
+        except Exception as e:
+            logger.warning(f"Failed to get client config for {client_id}: {e}")
+            return None
+
     def has_client_config(self, client_id: str) -> bool:
         """检查指定的 Client 配置是否存在"""
-        return client_id in self.client_configs
-    
+        config = self.get_client_config_from_cache(client_id)
+        return config is not None
+
     def get_all_client_configs(self) -> Dict[str, Dict[str, Any]]:
         """获取所有 Client 配置"""
-        return dict(self.client_configs)
+        # Note: This method is not efficient as it requires listing all keys
+        # Consider deprecating or implementing a key listing mechanism in state_backend
+        logger.warning("get_all_client_configs() is not efficient with pyvk backend")
+        return {}
     
     # === Async Methods for KV Storage ===
     
