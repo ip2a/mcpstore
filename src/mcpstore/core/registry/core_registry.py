@@ -10,12 +10,6 @@ from ..models.service import ServiceConnectionState, ServiceStateMetadata
 
 from .atomic import atomic_write
 from .exception_mapper import map_kv_exception
-from .state_backend import KVRegistryStateBackend, RegistryStateBackend
-from .kv_storage_adapter import KVStorageAdapter
-from .agent_client_mapping_service import AgentClientMappingService
-from .client_config_service import ClientConfigService
-from .service_state_service import ServiceStateService
-from .tool_management_service import ToolManagementService
 
 if TYPE_CHECKING:
     from key_value.aio.protocols import AsyncKeyValue
@@ -36,27 +30,19 @@ class ServiceRegistry:
 
     def __init__(self,
                  kv_store: Optional['AsyncKeyValue'] = None,
-                 service_state_service: Optional[ServiceStateService] = None,
-                 agent_client_service: Optional[AgentClientMappingService] = None,
-                 client_config_service: Optional[ClientConfigService] = None,
-                 tool_management_service: Optional[ToolManagementService] = None):
+                 namespace: str = "default"):
         """
-        Initialize ServiceRegistry with dependency injection support.
+        Initialize ServiceRegistry with new cache architecture.
 
         Args:
             kv_store: AsyncKeyValue instance for data storage. If None, uses MemoryStore.
                      Session data is always kept in memory regardless of kv_store type.
-            service_state_service: Optional pre-initialized ServiceStateService (dependency injection)
-            agent_client_service: Optional pre-initialized AgentClientMappingService (dependency injection)
-            client_config_service: Optional pre-initialized ClientConfigService (dependency injection)
-            tool_management_service: Optional pre-initialized ToolManagementService (dependency injection)
+            namespace: Cache namespace for data isolation (default: "default")
 
         Note:
-            - When all services are provided: zero delegation factory mode
-            - When no services provided: legacy backward compatibility mode
             - Sessions are stored in memory (not serializable)
-            - All other data (tools, states, metadata, mappings) use kv_store
-            - Maintains backward compatibility with existing code
+            - All other data uses the new three-layer cache architecture
+            - Uses CacheLayerManager for all cache operations
         """
         # Import py-key-value here to avoid circular imports
         if kv_store is None:
@@ -72,122 +58,57 @@ class ServiceRegistry:
 
         # Store the py-key-value instance
         self._kv_store: 'AsyncKeyValue' = kv_store
-        # Initialize KV-backed state backend
-        self._state_backend: RegistryStateBackend = KVRegistryStateBackend(self._kv_store)
 
-        # Initialize KV storage adapter (extracted from God Object refactoring)
-        self._kv_adapter = KVStorageAdapter(self._kv_store)
+        # Store unified config manager for JSON persistence (will be set later)
+        self._unified_config = None
+
+        # Initialize new cache architecture managers
+        from ..cache.cache_layer_manager import CacheLayerManager
+        from ..cache.naming_service import NamingService
+        from ..cache.service_entity_manager import ServiceEntityManager
+        from ..cache.tool_entity_manager import ToolEntityManager
+        from ..cache.relationship_manager import RelationshipManager
+        from ..cache.state_manager import StateManager
+
+        self._cache_layer = CacheLayerManager(kv_store, namespace)
+        self._naming = NamingService()
+        self._service_manager = ServiceEntityManager(self._cache_layer, self._naming)
+        self._tool_manager = ToolEntityManager(self._cache_layer, self._naming)
+        self._relation_manager = RelationshipManager(self._cache_layer)
+        self._state_manager = StateManager(self._cache_layer)
 
         # Initialize AsyncSyncHelper for sync-to-async conversion
         self._sync_helper: Optional[Any] = None  # Lazy initialization
-
-        # Factory mode vs Legacy mode detection
-        factory_mode = all([
-            service_state_service is not None,
-            agent_client_service is not None,
-            client_config_service is not None
-        ])
-
-        if factory_mode:
-            # Zero delegation factory mode - inject all dependencies
-            logger.debug("ServiceRegistry initializing in factory mode (zero delegation)")
-            self._service_state_service = service_state_service
-            self._agent_client_service = agent_client_service
-            self._client_config_service = client_config_service
-            # ToolManagementService needs registry reference, create it after registry initialization
-            self._tool_management_service = tool_management_service
-        else:
-            # Legacy backward compatibility mode - create services internally
-            logger.debug("ServiceRegistry initializing in legacy mode (self-created services)")
-            # Initialize service modules (God Object refactoring)
-            self._agent_client_service = AgentClientMappingService(self._kv_store, self._state_backend, self._kv_adapter)
-            self._client_config_service = ClientConfigService(self._kv_store, self._state_backend, self._kv_adapter)
-            # Note: ServiceStateService needs access to _sync_helper which is lazy-initialized
-            # We pass a lambda that will access it when needed
-            self._service_state_service = ServiceStateService(self._kv_store, self._state_backend, self._kv_adapter,
-                                                              lambda: self._ensure_sync_helper())
-            self._tool_management_service = ToolManagementService(self._kv_store, self._state_backend, self._kv_adapter,
-                                                                 self)
 
         # Create a no-op cache_backend for backward compatibility with @atomic_write decorator
         # The decorator expects begin(), commit(), rollback() methods
         class NoOpBackend:
             def begin(self): pass
-
             def commit(self): pass
-
             def rollback(self): pass
 
         self.cache_backend = NoOpBackend()
-
-        # Initialize service mapping for dynamic proxy (zero delegation mode)
-        if factory_mode:
-            # ToolManagementService needs registry reference, create it now
-            from .tool_management_service import ToolManagementService
-            self._tool_management_service = ToolManagementService(
-                self._kv_store,
-                self._state_backend,
-                self._kv_adapter,
-                self
-            )
-
-            self._service_mapping = {
-                'service_state': self._service_state_service,
-                'agent_client': self._agent_client_service,
-                'client_config': self._client_config_service,
-                'tool_management': self._tool_management_service
-            }
-            logger.info("Dynamic proxy service mapping initialized for zero delegation mode")
-        else:
-            self._service_mapping = {}
 
         # Sessions remain in memory (not serializable)
         # agent_id -> {service_name: session}
         self.sessions: Dict[str, Dict[str, Any]] = {}
 
-        # Legacy in-memory structures for backward compatibility
+        # Tool-to-session mapping (in-memory only)
         # agent_id -> {tool_name: session}
         self.tool_to_session_map: Dict[str, Dict[str, Any]] = {}
-        # agent_id -> {tool_name: service_name} (hard mapping)
-        self.tool_to_service: Dict[str, Dict[str, str]] = {}
+
         # Long-lived connection service markers - agent_id:service_name
         self.long_lived_connections: Set[str] = set()
-
-        # Lifecycle state support
-        # agent_id -> {service_name: ServiceConnectionState}
-        self.service_states: Dict[str, Dict[str, ServiceConnectionState]] = {}
-        # agent_id -> {service_name: ServiceStateMetadata}
-        self.service_metadata: Dict[str, Dict[str, ServiceStateMetadata]] = {}
-
-        # agent_clients removed - now derived from service_client mappings in pyvk
-        # Access via: self._state_backend.list_agent_clients(agent_id)
-
-        # Client configuration cache
-        self.client_configs: Dict[str, Dict[str, Any]] = {}
-        # Structure: {client_id: {"mcpServers": {...}}}
-
-        # service_to_client removed - now stored in pyvk only
-        # Access via: self._agent_client_service.get_service_client_id(agent_id, service_name)
 
         # Cache synchronization status
         from datetime import datetime
         self.cache_sync_status: Dict[str, datetime] = {}
 
-        # Agent service mapping relationships
-        # agent_id -> {local_name: global_name}
-        self.agent_to_global_mappings: Dict[str, Dict[str, str]] = {}
-        # global_name -> (agent_id, local_name)
-        self.global_to_agent_mappings: Dict[str, Tuple[str, str]] = {}
-
         # State synchronization manager (lazy initialization)
         self._state_sync_manager = None
 
-        # Initialize AsyncSyncHelper for sync-to-async conversion
-        # This allows synchronous methods to call async KV store operations
-        self._sync_helper: Optional[Any] = None  # Lazy initialization
-
         logger.debug(
-            f"ServiceRegistry initialized (id={id(self)}) with py-key-value backend")
+            f"ServiceRegistry initialized (id={id(self)}) with new cache architecture")
 
     def _ensure_sync_helper(self):
         """Ensure AsyncSyncHelper is initialized (lazy initialization)."""
@@ -196,6 +117,195 @@ class ServiceRegistry:
             self._sync_helper = AsyncSyncHelper()
             logger.debug("AsyncSyncHelper initialized for ServiceRegistry")
         return self._sync_helper
+
+    def set_unified_config(self, unified_config: Any) -> None:
+        """
+        设置统一配置管理器（用于 JSON 配置持久化）
+        
+        Args:
+            unified_config: UnifiedConfigManager 实例
+        """
+        self._unified_config = unified_config
+        logger.debug("[REGISTRY] UnifiedConfigManager 已设置，JSON 配置持久化已启用")
+
+    async def load_services_from_json_async(self) -> Dict[str, Any]:
+        """
+        从 mcp.json 读取服务配置并恢复服务实体
+        
+        Returns:
+            加载结果统计信息
+            
+        Note:
+            此方法用于系统初始化时从 mcp.json 恢复服务配置。
+            它会：
+            1. 从 mcp.json 读取所有服务配置
+            2. 解析服务全局名称，提取 agent_id 和 original_name
+            3. 为每个服务创建实体、关系和状态
+            
+        Raises:
+            RuntimeError: 如果 unified_config 未设置
+        """
+        if not self._unified_config:
+            raise RuntimeError(
+                "UnifiedConfigManager 未设置，无法从 JSON 加载配置。"
+                "请先调用 set_unified_config() 方法。"
+            )
+        
+        logger.info("[JSON_LOAD] 开始从 mcp.json 加载服务配置...")
+        
+        # 统计信息
+        stats = {
+            "total": 0,
+            "loaded": 0,
+            "failed": 0,
+            "errors": []
+        }
+        
+        try:
+            # 读取 mcp.json 配置
+            mcp_config = self._unified_config.get_mcp_config()
+            mcp_servers = mcp_config.get("mcpServers", {})
+            
+            stats["total"] = len(mcp_servers)
+            
+            if not mcp_servers:
+                logger.info("[JSON_LOAD] mcp.json 中没有服务配置")
+                return stats
+            
+            logger.info(f"[JSON_LOAD] 发现 {len(mcp_servers)} 个服务配置")
+            
+            # 遍历所有服务
+            for service_global_name, service_config in mcp_servers.items():
+                try:
+                    # 解析全局名称，提取 agent_id 和 original_name
+                    original_name, agent_id = self._naming.parse_service_global_name(
+                        service_global_name
+                    )
+                    
+                    logger.debug(
+                        f"[JSON_LOAD] 解析服务: global_name={service_global_name}, "
+                        f"original_name={original_name}, agent_id={agent_id}"
+                    )
+                    
+                    # 检查服务是否已存在
+                    existing = await self._service_manager.get_service(service_global_name)
+                    if existing:
+                        logger.debug(
+                            f"[JSON_LOAD] 服务已存在，跳过: {service_global_name}"
+                        )
+                        stats["loaded"] += 1
+                        continue
+                    
+                    # 创建服务实体
+                    await self._service_manager.create_service(
+                        agent_id=agent_id,
+                        original_name=original_name,
+                        config=service_config
+                    )
+                    
+                    # 创建 Agent-Service 关系
+                    client_id = f"client_{agent_id}_{original_name}"
+                    await self._relation_manager.add_agent_service(
+                        agent_id=agent_id,
+                        service_original_name=original_name,
+                        service_global_name=service_global_name,
+                        client_id=client_id
+                    )
+                    
+                    # 创建服务状态（初始状态为 unknown）
+                    await self._state_manager.update_service_status(
+                        service_global_name=service_global_name,
+                        health_status="unknown",
+                        tools_status=[]
+                    )
+                    
+                    stats["loaded"] += 1
+                    logger.info(
+                        f"[JSON_LOAD] 成功加载服务: {service_global_name}"
+                    )
+                    
+                except Exception as e:
+                    stats["failed"] += 1
+                    error_msg = f"加载服务 {service_global_name} 失败: {e}"
+                    stats["errors"].append(error_msg)
+                    logger.error(f"[JSON_LOAD] {error_msg}")
+            
+            logger.info(
+                f"[JSON_LOAD] 加载完成: 总数={stats['total']}, "
+                f"成功={stats['loaded']}, 失败={stats['failed']}"
+            )
+            
+        except Exception as e:
+            logger.error(f"[JSON_LOAD] 从 mcp.json 加载配置时出错: {e}")
+            stats["errors"].append(f"加载过程出错: {e}")
+        
+        return stats
+
+    def load_services_from_json(self) -> Dict[str, Any]:
+        """
+        从 mcp.json 读取服务配置并恢复服务实体（同步版本）
+        
+        Returns:
+            加载结果统计信息
+        """
+        helper = self._ensure_sync_helper()
+        return helper.run_async(
+            self.load_services_from_json_async(),
+            timeout=30.0
+        )
+
+    def _extract_standard_mcp_config(self, service_config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        提取标准的 MCP 配置字段，排除 MCPStore 特定的元数据
+        
+        Args:
+            service_config: 完整的服务配置
+            
+        Returns:
+            只包含标准 MCP 字段的配置字典
+            
+        Note:
+            标准 MCP 配置字段包括:
+            - command: 命令
+            - args: 参数列表
+            - env: 环境变量
+            - url: HTTP 服务 URL
+            - transport_type: 传输类型（可选）
+            
+            排除的 MCPStore 特定字段:
+            - added_time: 添加时间
+            - source_agent: 来源 Agent
+            - service_global_name: 全局名称
+            - service_original_name: 原始名称
+            - 其他内部元数据字段
+        """
+        # 标准 MCP 配置字段列表
+        standard_fields = {
+            'command', 'args', 'env', 'url', 
+            'transport_type', 'working_dir', 'keep_alive',
+            'package_name'
+        }
+        
+        # 提取标准字段
+        mcp_config = {}
+        for field in standard_fields:
+            if field in service_config:
+                mcp_config[field] = service_config[field]
+        
+        # 如果没有任何标准字段，返回原始配置（可能是简化配置）
+        if not mcp_config:
+            # 过滤掉明显的内部字段
+            internal_fields = {
+                'added_time', 'source_agent', 
+                'service_global_name', 'service_original_name',
+                'last_modified', 'created_at'
+            }
+            mcp_config = {
+                k: v for k, v in service_config.items() 
+                if k not in internal_fields
+            }
+        
+        return mcp_config
 
     # === Shared Client State Synchronization ===
 
@@ -243,6 +353,9 @@ class ServiceRegistry:
             coro: Coroutine to execute
             operation_name: Description of the operation (for logging)
         
+        Returns:
+            The result of the coroutine execution, or None if operation fails
+        
         Note:
             Failures are logged but don't raise exceptions to avoid breaking
             the main flow. The in-memory cache remains the source of truth.
@@ -250,8 +363,9 @@ class ServiceRegistry:
         try:
             logger.debug(f"[KV_SYNC] Starting sync: {operation_name}")
             helper = self._ensure_sync_helper()
-            helper.run_async(coro, timeout=5.0)
+            result = helper.run_async(coro, timeout=5.0)
             logger.debug(f"[KV_SYNC] Successfully synced: {operation_name}")
+            return result
         except Exception as e:
             # Log cache operation failure with context
             logger.warning(
@@ -260,188 +374,9 @@ class ServiceRegistry:
                 f"In-memory cache remains consistent."
             )
             # Don't raise - memory cache is still updated, KV sync is best-effort
-
-    def _get_collection(self, agent_id: str, data_type: str) -> str:
-        """Generate Collection name for py-key-value storage.
-        
-        This method implements the Collection mapping strategy for organizing data
-        in py-key-value. It supports both Store mode (using global_agent_store_id)
-        and Agent mode (using actual agent_id).
-        
-        Args:
-            agent_id: Agent ID (Store mode uses 'global_agent_store', Agent mode uses actual agent_id)
-            data_type: Data type identifier (tools | states | metadata | clients | mappings)
-        
-        Returns:
-            Collection name in format: agent:{agent_id}:{data_type}
-        
-        Examples:
-            >>> _get_collection("global_agent_store", "tools")
-            "agent:global_agent_store:tools"
-            
-            >>> _get_collection("agent_001", "states")
-            "agent:agent_001:states"
-            
-            >>> _get_collection("my_agent", "metadata")
-            "agent:my_agent:metadata"
-        
-        Note:
-            This method is idempotent - calling it multiple times with the same
-            parameters will always return the same Collection name.
-            
-        Validates:
-            - Requirements 3.1: Agent isolation semantics preservation
-            - Requirements 11.1: Store mode Agent isolation
-            - Requirements 15.1: Collection naming conventions
-            - Requirements 15.3: Collection generation logic
-        """
-        return f"agent:{agent_id}:{data_type}"
-
-    def _wrap_scalar_value(self, value: Any) -> Dict[str, Any]:
-        """
-        Wrap a scalar value in a dictionary for py-key-value storage.
-        
-        This method ensures type safety when storing scalar values in py-key-value,
-        which expects dict[str, Any] for its put() method. By wrapping scalars in
-        a dictionary, we prevent beartype warnings and maintain type correctness.
-        
-        Args:
-            value: Scalar value (str, int, bool, float, None) or dict
-        
-        Returns:
-            Dictionary with structure: {"value": value}
-            If input is already a dict, returns it unchanged.
-        
-        Examples:
-            >>> _wrap_scalar_value("mcpstore")
-            {"value": "mcpstore"}
-            
-            >>> _wrap_scalar_value(42)
-            {"value": 42}
-            
-            >>> _wrap_scalar_value(True)
-            {"value": True}
-            
-            >>> _wrap_scalar_value(None)
-            {"value": None}
-            
-            >>> _wrap_scalar_value({"already": "wrapped"})
-            {"already": "wrapped"}
-        
-        Note:
-            - Uses consistent key "value" for all scalar types
-            - Passes through dict values unchanged
-            - Handles None as a valid scalar
-            - Logs warnings for unexpected non-scalar types
-        
-        Validates:
-            - Requirements 1.1: Wrapping service names before storage
-            - Requirements 1.3: Wrapping scalar values in dictionaries
-            - Requirements 2.1: Using standard key name consistently
-        """
-        # Pass through dicts unchanged
-        if isinstance(value, dict):
-            return value
-
-        # Validate scalar types and log warnings for unexpected types
-        if not isinstance(value, (str, int, float, bool, type(None))):
-            logger.warning(
-                f"Wrapping non-scalar type {type(value).__name__}. "
-                f"Consider using dict directly for complex types."
-            )
-
-        return {"value": value}
-
-    def _unwrap_scalar_value(self, wrapped: Any) -> Any:
-        """
-        Unwrap a scalar value from dictionary storage format.
-        
-        This method extracts scalar values from the wrapped dictionary format,
-        maintaining backward compatibility with legacy unwrapped data. It handles
-        both the new wrapped format ({"value": x}) and legacy format (x).
-        
-        Args:
-            wrapped: Value from py-key-value (dict or legacy scalar)
-        
-        Returns:
-            Unwrapped scalar value
-        
-        Examples:
-            >>> _unwrap_scalar_value({"value": "mcpstore"})
-            "mcpstore"
-            
-            >>> _unwrap_scalar_value("mcpstore")  # Legacy format
-            "mcpstore"
-            
-            >>> _unwrap_scalar_value(None)
-            None
-            
-            >>> _unwrap_scalar_value({"value": 42})
-            42
-        
-        Note:
-            - Handles both new wrapped format and legacy unwrapped format
-            - Logs migration info when encountering legacy format
-            - Returns None if wrapped is None
-            - Provides backward compatibility for existing cached data
-        
-        Validates:
-            - Requirements 1.2: Extracting service names from dictionaries
-            - Requirements 1.5: Maintaining backward compatibility
-            - Requirements 3.1: Reading both old and new formats
-            - Requirements 3.3: Logging migration for observability
-        """
-        if wrapped is None:
             return None
 
-        # New wrapped format
-        if isinstance(wrapped, dict) and "value" in wrapped:
-            return wrapped["value"]
 
-        # Legacy format - return as-is with migration logging
-        logger.info(
-            f"Migrating legacy unwrapped value: {type(wrapped).__name__}. "
-            f"Value will be wrapped on next write."
-        )
-        return wrapped
-
-    def _is_wrapped_value(self, value: Any) -> bool:
-        """
-        Check if a value is in wrapped format.
-        
-        This method determines whether a value has been wrapped using the
-        _wrap_scalar_value method by checking for the standard "value" key
-        in a dictionary structure.
-        
-        Args:
-            value: Value to check
-        
-        Returns:
-            True if value is a dict with "value" key, False otherwise
-        
-        Examples:
-            >>> _is_wrapped_value({"value": "mcpstore"})
-            True
-            
-            >>> _is_wrapped_value("mcpstore")
-            False
-            
-            >>> _is_wrapped_value({"other": "data"})
-            False
-            
-            >>> _is_wrapped_value(None)
-            False
-        
-        Note:
-            - Used for validation and debugging
-            - Helps identify legacy vs. new format data
-            - Simple check: dict with "value" key
-        
-        Validates:
-            - Requirements 2.1: Consistent wrapping key usage
-            - Requirements 2.2: Same wrapping pattern for all types
-        """
-        return isinstance(value, dict) and "value" in value
 
     def configure_cache_backend(self, cache_config: Dict[str, Any]) -> None:
         """
@@ -598,7 +533,8 @@ class ServiceRegistry:
                     pass
 
             if not is_used_by_others:
-                self.client_configs.pop(client_id, None)
+                # Delete client config from pyvk
+                self._client_config_service.remove_client_config(client_id)
 
         # TODO: Also clear pyvk data for this agent_id
         # This requires async operation, consider adding clear_async() method
@@ -628,31 +564,28 @@ class ServiceRegistry:
                     service_config: Dict[str, Any] = None, state: 'ServiceConnectionState' = None,
                     preserve_mappings: bool = False) -> List[str]:
         """
-        为指定 agent_id 注册服务及其工具（支持所有状态的服务）
-        - agent_id: store/agent 的唯一标识
-        - name: 服务名
-        - session: 服务会话对象（可选，失败的服务为None）
-        - tools: [(tool_name, tool_def)]（可选，失败的服务为空列表）
-        - service_config: 服务配置信息
-        - state: 服务状态（可选，如果不提供则根据session判断）
-        - preserve_mappings: 是否保留现有的Agent-Client映射关系（优雅修复用）
-        返回实际注册的工具名列表。
+        为指定 agent_id 注册服务及其工具（使用新的三层缓存架构）
+        
+        Args:
+            agent_id: store/agent 的唯一标识
+            name: 服务原始名称
+            session: 服务会话对象（可选，失败的服务为None）
+            tools: [(tool_name, tool_def)]（可选，失败的服务为空列表）
+            service_config: 服务配置信息
+            state: 服务状态（可选，如果不提供则根据session判断）
+            preserve_mappings: 是否保留现有的映射关系（优雅修复用）
+            
+        Returns:
+            实际注册的工具名列表（全局名称）
         """
-        #  新增：支持所有状态的服务注册
         tools = tools or []
         service_config = service_config or {}
 
-        # 初始化数据结构
+        # 初始化会话数据结构（仅内存）
         if agent_id not in self.sessions:
             self.sessions[agent_id] = {}
         if agent_id not in self.tool_to_session_map:
             self.tool_to_session_map[agent_id] = {}
-        if agent_id not in self.tool_to_service:
-            self.tool_to_service[agent_id] = {}
-        if agent_id not in self.service_states:
-            self.service_states[agent_id] = {}
-        if agent_id not in self.service_metadata:
-            self.service_metadata[agent_id] = {}
 
         # 确定服务状态
         if state is None:
@@ -666,64 +599,86 @@ class ServiceRegistry:
                 from mcpstore.core.models.service import ServiceConnectionState
                 state = ServiceConnectionState.DISCONNECTED  # 连接失败
 
-        #  优雅修复：智能处理现有服务
+        # 处理现有服务
         if name in self.sessions[agent_id]:
-            if preserve_mappings:
-                # 保留映射关系，只清理工具缓存
-                logger.debug(f"[ADD_SERVICE] exists keep_mappings=True clear_tools_only name={name}")
-                self.clear_service_tools_only(agent_id, name)
-            else:
-                # 传统逻辑：完全移除服务
-                logger.debug(
-                    f"Re-registering service: {name} for agent {agent_id}. Removing old service before overwriting.")
+            if not preserve_mappings:
+                logger.debug(f"Re-registering service: {name} for agent {agent_id}. Removing old service.")
                 self.remove_service(agent_id, name)
+            else:
+                logger.debug(f"[ADD_SERVICE] Preserving mappings for service: {name}")
 
-        # 存储服务信息（即使连接失败也存储）
-        self.sessions[agent_id][name] = session  # 失败的服务session为None
-        self.service_states[agent_id][name] = state
+        # 1. 使用 NamingService 生成全局名称
+        service_global_name = self._naming.generate_service_global_name(name, agent_id)
+        logger.debug(f"[ADD_SERVICE] Generated global name: {service_global_name} for {name}")
 
-        # Sync service state to KV store
+        # 2. 使用 ServiceEntityManager 创建服务实体
         self._sync_to_kv(
-            self.set_service_state_async(agent_id, name, state),
-            f"service_state:{agent_id}:{name}"
+            self._service_manager.create_service(
+                agent_id=agent_id,
+                original_name=name,
+                config=service_config
+            ),
+            f"create_service:{service_global_name}"
         )
 
-        # 关键：存储完整的服务配置和元数据
-        if name not in self.service_metadata[agent_id]:
-            from mcpstore.core.models.service import ServiceStateMetadata
-            from datetime import datetime
-            metadata = ServiceStateMetadata(
-                service_name=name,
-                agent_id=agent_id,
-                state_entered_time=datetime.now(),
-                service_config=service_config,  # 存储完整配置
-                consecutive_failures=0 if session else 1,
-                error_message=None if session else "Connection failed"
-            )
-            self.service_metadata[agent_id][name] = metadata
-
-            # Sync metadata to KV store
-            self._sync_to_kv(
-                self.set_service_metadata_async(agent_id, name, metadata),
-                f"service_metadata:{agent_id}:{name}"
-            )
-        else:
-            #  修复：如果metadata已存在，也要更新service_config
-            # 这确保了配置信息始终是最新的
-            existing_metadata = self.service_metadata[agent_id][name]
-            if service_config:  # 只在提供了新配置时更新
-                existing_metadata.service_config = service_config
-                logger.debug(f"[ADD_SERVICE] Updated service_config for existing service: {name}")
-
-                # Sync updated metadata to KV store
-                self._sync_to_kv(
-                    self.set_service_metadata_async(agent_id, name, existing_metadata),
-                    f"service_metadata:{agent_id}:{name}"
+        # 2.1 持久化到 mcp.json（使用全局名称作为键）
+        if self._unified_config and service_config:
+            try:
+                # 提取标准 MCP 配置字段（不包含 MCPStore 特定元数据）
+                mcp_config = self._extract_standard_mcp_config(service_config)
+                
+                # 使用全局名称作为键写入 mcp.json
+                success = self._unified_config.add_service_config(
+                    service_name=service_global_name,
+                    config=mcp_config
+                )
+                
+                if success:
+                    logger.debug(
+                        f"[JSON_PERSIST] 服务配置已写入 mcp.json: "
+                        f"global_name={service_global_name}"
+                    )
+                else:
+                    logger.warning(
+                        f"[JSON_PERSIST] 写入 mcp.json 失败: "
+                        f"global_name={service_global_name}"
+                    )
+            except Exception as e:
+                logger.error(
+                    f"[JSON_PERSIST] 持久化服务配置时出错: "
+                    f"global_name={service_global_name}, error={e}"
                 )
 
+        # 3. 使用 RelationshipManager 创建 Agent-Service 关系
+        # 生成 client_id（简化版本，实际应该从配置中获取）
+        client_id = f"client_{agent_id}_{name}"
+        self._sync_to_kv(
+            self._relation_manager.add_agent_service(
+                agent_id=agent_id,
+                service_original_name=name,
+                service_global_name=service_global_name,
+                client_id=client_id
+            ),
+            f"add_agent_service:{agent_id}:{service_global_name}"
+        )
+
+        # 4. 使用 StateManager 创建服务状态
+        tools_status = []  # 工具状态将在注册工具时更新
+        self._sync_to_kv(
+            self._state_manager.update_service_status(
+                service_global_name=service_global_name,
+                health_status=state.value,
+                tools_status=tools_status
+            ),
+            f"update_service_status:{service_global_name}"
+        )
+
+        # 存储会话（仅内存）
+        self.sessions[agent_id][name] = session
+
+        # 5. 使用 ToolEntityManager 注册工具
         added_tool_names = []
         for tool_name, tool_definition in tools:
-            # Use new tool ownership determination logic
             # 检查工具定义中的服务归属
             tool_service_name = None
             if "function" in tool_definition:
@@ -734,39 +689,50 @@ class ServiceRegistry:
             # 验证工具是否属于当前服务
             if tool_service_name and tool_service_name != name:
                 logger.warning(
-                    f"Tool '{tool_name}' belongs to service '{tool_service_name}', not '{name}'. Skipping this tool.")
+                    f"Tool '{tool_name}' belongs to service '{tool_service_name}', not '{name}'. Skipping.")
                 continue
 
             # 检查工具名冲突
             existing_session = self.tool_to_session_map[agent_id].get(tool_name)
             if existing_session and existing_session is not session:
                 logger.warning(
-                    f"Tool name conflict: '{tool_name}' from {name} for agent {agent_id} conflicts with existing tool. Skipping this tool.")
+                    f"Tool name conflict: '{tool_name}' from {name} for agent {agent_id}. Skipping.")
                 continue
 
-            # 存储工具到会话映射
+            # 生成工具全局名称
+            tool_global_name = self._naming.generate_tool_global_name(service_global_name, tool_name)
+
+            # 创建工具实体
+            self._sync_to_kv(
+                self._tool_manager.create_tool(
+                    service_global_name=service_global_name,
+                    service_original_name=name,
+                    source_agent=agent_id,
+                    tool_original_name=tool_name,
+                    tool_def=tool_definition
+                ),
+                f"create_tool:{tool_global_name}"
+            )
+
+            # 6. 使用 RelationshipManager 创建 Service-Tool 关系
+            self._sync_to_kv(
+                self._relation_manager.add_service_tool(
+                    service_global_name=service_global_name,
+                    service_original_name=name,
+                    source_agent=agent_id,
+                    tool_global_name=tool_global_name,
+                    tool_original_name=tool_name
+                ),
+                f"add_service_tool:{service_global_name}:{tool_global_name}"
+            )
+
+            # 存储工具到会话映射（仅内存）
             self.tool_to_session_map[agent_id][tool_name] = session
 
-            # Map tool to service in memory
-            if agent_id not in self.tool_to_service:
-                self.tool_to_service[agent_id] = {}
-            self.tool_to_service[agent_id][tool_name] = name
-
-            # Sync tool definition to KV store
-            self._sync_to_kv(
-                self.set_tool_cache_async(agent_id, tool_name, tool_definition),
-                f"tool_cache:{agent_id}:{tool_name}"
-            )
-
-            # Sync tool-to-service mapping to KV store
-            self._sync_to_kv(
-                self.set_tool_to_service_mapping_async(agent_id, tool_name, name),
-                f"tool_mapping:{agent_id}:{tool_name}"
-            )
-
-            added_tool_names.append(tool_name)
+            added_tool_names.append(tool_global_name)
 
         logger.debug(f"Service added: {name} ({state.value}, {len(tools)} tools) for agent {agent_id}")
+        logger.debug(f"Global name: {service_global_name}, Added tools: {added_tool_names}")
         return added_tool_names
 
     def add_failed_service(self, agent_id: str, name: str, service_config: Dict[str, Any],
@@ -877,21 +843,162 @@ class ServiceRegistry:
     @atomic_write(agent_id_param="agent_id", use_lock=True)
     def remove_service(self, agent_id: str, name: str) -> Optional[Any]:
         """
-        移除指定 agent_id 下的服务及其所有工具。
-        只影响该 agent_id，不影响其它 agent。
+        移除指定 agent_id 下的服务及其所有工具（使用新的三层缓存架构）
+        
+        删除顺序：
+        1. 生成服务全局名称
+        2. 获取服务的所有工具（从关系层）
+        3. 删除所有工具实体（从实体层）
+        4. 删除 Service-Tool 关系（从关系层）
+        5. 删除 Agent-Service 关系（从关系层）
+        6. 删除服务状态（从状态层）
+        7. 删除服务实体（从实体层）
+        8. 从 mcp.json 删除配置
+        9. 清理内存中的会话和工具映射
+        
+        Args:
+            agent_id: Agent ID
+            name: 服务原始名称
+            
+        Returns:
+            服务会话对象，如果不存在返回 None
         """
+        # 1. 生成服务全局名称
+        service_global_name = self._naming.generate_service_global_name(name, agent_id)
+        
+        logger.info(
+            f"[REMOVE_SERVICE] 开始删除服务: agent_id={agent_id}, "
+            f"name={name}, global_name={service_global_name}"
+        )
+        
+        # 2. 获取服务的所有工具（从关系层）
+        try:
+            service_tools = self._sync_to_kv(
+                self._relation_manager.get_service_tools(service_global_name),
+                f"get_service_tools:{service_global_name}"
+            )
+            if service_tools is None:
+                service_tools = []
+            
+            logger.debug(
+                f"[REMOVE_SERVICE] 找到 {len(service_tools)} 个工具需要删除"
+            )
+            
+            # 3. 删除所有工具实体（从实体层）
+            for tool_info in service_tools:
+                tool_global_name = tool_info.get("tool_global_name")
+                if tool_global_name:
+                    try:
+                        self._sync_to_kv(
+                            self._tool_manager.delete_tool(tool_global_name),
+                            f"delete_tool:{tool_global_name}"
+                        )
+                        logger.debug(
+                            f"[REMOVE_SERVICE] 删除工具实体: {tool_global_name}"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"[REMOVE_SERVICE] 删除工具实体失败: "
+                            f"tool={tool_global_name}, error={e}"
+                        )
+        except Exception as e:
+            logger.warning(
+                f"[REMOVE_SERVICE] 获取服务工具失败: "
+                f"service={service_global_name}, error={e}"
+            )
+        
+        # 4. 删除关系（使用级联删除）
+        try:
+            self._sync_to_kv(
+                self._relation_manager.remove_service_cascade(
+                    agent_id=agent_id,
+                    service_global_name=service_global_name
+                ),
+                f"remove_service_cascade:{service_global_name}"
+            )
+            logger.debug(
+                f"[REMOVE_SERVICE] 删除服务关系: {service_global_name}"
+            )
+        except Exception as e:
+            logger.warning(
+                f"[REMOVE_SERVICE] 删除服务关系失败: "
+                f"service={service_global_name}, error={e}"
+            )
+        
+        # 5. 删除服务状态（从状态层）
+        try:
+            self._sync_to_kv(
+                self._state_manager.delete_service_status(service_global_name),
+                f"delete_service_status:{service_global_name}"
+            )
+            logger.debug(
+                f"[REMOVE_SERVICE] 删除服务状态: {service_global_name}"
+            )
+        except Exception as e:
+            logger.warning(
+                f"[REMOVE_SERVICE] 删除服务状态失败: "
+                f"service={service_global_name}, error={e}"
+            )
+        
+        # 6. 删除服务实体（从实体层）
+        try:
+            self._sync_to_kv(
+                self._service_manager.delete_service(service_global_name),
+                f"delete_service:{service_global_name}"
+            )
+            logger.debug(
+                f"[REMOVE_SERVICE] 删除服务实体: {service_global_name}"
+            )
+        except Exception as e:
+            logger.warning(
+                f"[REMOVE_SERVICE] 删除服务实体失败: "
+                f"service={service_global_name}, error={e}"
+            )
+        
+        # 7. 从 mcp.json 删除配置
+        if self._unified_config:
+            try:
+                success = self._unified_config.remove_service_config(service_global_name)
+                if success:
+                    logger.debug(
+                        f"[JSON_PERSIST] 从 mcp.json 删除服务配置: "
+                        f"global_name={service_global_name}"
+                    )
+                else:
+                    logger.warning(
+                        f"[JSON_PERSIST] 从 mcp.json 删除服务配置失败: "
+                        f"global_name={service_global_name}"
+                    )
+            except Exception as e:
+                logger.error(
+                    f"[JSON_PERSIST] 删除服务配置时出错: "
+                    f"global_name={service_global_name}, error={e}"
+                )
+        
+        # 8. 清理内存中的会话
         session = self.sessions.get(agent_id, {}).pop(name, None)
-        if not session:
-            logger.debug(f"Service {name} has no active session for agent {agent_id}. Cleaning up cache data only.")
-            self._remove_service_tools(agent_id, name)
-            self._cleanup_service_cache_data(agent_id, name)
-            return None
-
-        self._remove_service_tools(agent_id, name)
-
-        self._cleanup_service_cache_data(agent_id, name)
-
-        logger.debug(f"Service removed: {name} for agent {agent_id}")
+        
+        # 9. 清理内存中的工具映射
+        if agent_id in self.tool_to_session_map:
+            # 找到所有属于该服务的工具
+            tools_to_remove = [
+                tool_name
+                for tool_name, tool_session in self.tool_to_session_map[agent_id].items()
+                if tool_session is session
+            ]
+            
+            # 删除工具映射
+            for tool_name in tools_to_remove:
+                self.tool_to_session_map[agent_id].pop(tool_name, None)
+                logger.debug(
+                    f"[REMOVE_SERVICE] 清理工具映射: tool={tool_name}"
+                )
+        
+        logger.info(
+            f"[REMOVE_SERVICE] 服务删除完成: agent_id={agent_id}, "
+            f"name={name}, global_name={service_global_name}"
+        )
+        
         return session
 
     @atomic_write(agent_id_param="agent_id", use_lock=True)
@@ -1046,6 +1153,10 @@ class ServiceRegistry:
             self._tool_management_service._state_backend.list_tools(agent_id),
             f"list_tools:{agent_id}"
         )
+        
+        # 确保 tools_dict 不为 None
+        if tools_dict is None:
+            tools_dict = {}
 
         all_tools = []
         for tool_name, tool_def in tools_dict.items():
@@ -1084,6 +1195,10 @@ class ServiceRegistry:
             self._tool_management_service._state_backend.list_tools(agent_id),
             f"list_tools:{agent_id}"
         )
+        
+        # 确保 tools_dict 不为 None
+        if tools_dict is None:
+            tools_dict = {}
 
         tools_info = []
         for tool_name in tools_dict.keys():
@@ -1138,6 +1253,10 @@ class ServiceRegistry:
             self._tool_management_service._state_backend.list_tools(agent_id),
             f"list_tools:{agent_id}"
         )
+        
+        # 确保 tools_dict 不为 None
+        if tools_dict is None:
+            tools_dict = {}
 
         logger.debug(
             f"[REGISTRY] tools_count={len(tools_dict)} tool_to_session_size={len(tool_to_session)} tool_to_service_size={len(tool_to_service)}")
@@ -1422,11 +1541,12 @@ class ServiceRegistry:
             # 3) 备用：从 Client 配置映射读取 (从 pyvk)
             client_id = self._agent_client_service.get_service_client_id(agent_id, name)
             if client_id:
-                client_cfg = self.client_configs.get(client_id, {}) or {}
+                # Read client config from pyvk
+                client_cfg = self._client_config_service.get_client_config_from_cache(client_id) or {}
                 svc_cfg = (client_cfg.get("mcpServers", {}) or {}).get(name)
                 if isinstance(svc_cfg, dict) and svc_cfg:
                     logger.debug(
-                        f"[REGISTRY] get_service_config: from_client_configs agent={agent_id} name={name} client_id={client_id}")
+                        f"[REGISTRY] get_service_config: from_pyvk_client_configs agent={agent_id} name={name} client_id={client_id}")
                     return svc_cfg
 
             # 4) 未找到：返回 None，不依赖 Web 层
@@ -1547,48 +1667,90 @@ class ServiceRegistry:
 
     def add_agent_service_mapping(self, agent_id: str, local_name: str, global_name: str):
         """
-        建立 Agent 服务映射关系
+        建立 Agent 服务映射关系（委托给 ToolSetManager）
 
         Args:
             agent_id: Agent ID
             local_name: Agent 中的本地服务名
             global_name: Store 中的全局服务名（带后缀）
         """
-        # 建立 agent -> global 映射
-        if agent_id not in self.agent_to_global_mappings:
-            self.agent_to_global_mappings[agent_id] = {}
-        self.agent_to_global_mappings[agent_id][local_name] = global_name
-
-        # 建立 global -> agent 映射
-        self.global_to_agent_mappings[global_name] = (agent_id, local_name)
-
-        logger.debug(f" [AGENT_MAPPING] Added mapping: {agent_id}:{local_name} ↔ {global_name}")
-        logger.debug(f" [AGENT_MAPPING] Current agent_to_global_mappings[{agent_id}] = {self.agent_to_global_mappings.get(agent_id, {})}")
-        logger.debug(f" [AGENT_MAPPING] Current global_to_agent_mappings keys = {list(self.global_to_agent_mappings.keys())[:5]}")
+        # 委托给 ToolSetManager，存储到 pyvk
+        if self._tool_set_manager:
+            self._sync_to_kv(
+                self._tool_set_manager.create_service_mapping_async(agent_id, local_name, global_name),
+                f"agent_mapping:{agent_id}:{local_name}"
+            )
+            logger.debug(f" [AGENT_MAPPING] Added mapping to pyvk: {agent_id}:{local_name} ↔ {global_name}")
+        else:
+            logger.warning(f" [AGENT_MAPPING] ToolSetManager not available, mapping not persisted")
 
     def get_global_name_from_agent_service(self, agent_id: str, local_name: str) -> Optional[str]:
-        """获取 Agent 服务对应的全局名称"""
-        return self.agent_to_global_mappings.get(agent_id, {}).get(local_name)
+        """获取 Agent 服务对应的全局名称（从 pyvk 读取）"""
+        if self._tool_set_manager:
+            # 从 pyvk 读取映射
+            result = self._sync_to_kv(
+                self._tool_set_manager.get_global_name_async(agent_id, local_name),
+                f"get_mapping:{agent_id}:{local_name}"
+            )
+            return result
+        else:
+            logger.warning(f" [AGENT_MAPPING] ToolSetManager not available")
+            return None
 
     def get_agent_service_from_global_name(self, global_name: str) -> Optional[Tuple[str, str]]:
-        """获取全局服务名对应的 Agent 服务信息"""
-        return self.global_to_agent_mappings.get(global_name)
+        """获取全局服务名对应的 Agent 服务信息（从 pyvk 读取）"""
+        if self._tool_set_manager:
+            # 从 pyvk 读取反向映射
+            result = self._sync_to_kv(
+                self._tool_set_manager.get_local_name_async(global_name),
+                f"get_reverse_mapping:{global_name}"
+            )
+            return result
+        else:
+            logger.warning(f" [AGENT_MAPPING] ToolSetManager not available")
+            return None
 
     def get_agent_services(self, agent_id: str) -> List[str]:
-        """获取 Agent 的所有服务（全局名称）"""
-        return list(self.agent_to_global_mappings.get(agent_id, {}).values())
+        """获取 Agent 的所有服务（全局名称，从 pyvk 读取）"""
+        if self._tool_set_manager:
+            # 从 pyvk 读取所有映射
+            mappings = self._sync_to_kv(
+                self._tool_set_manager.get_all_mappings_async(agent_id),
+                f"get_all_mappings:{agent_id}"
+            )
+            if mappings:
+                return list(mappings.values())
+            return []
+        else:
+            logger.warning(f" [AGENT_MAPPING] ToolSetManager not available")
+            return []
 
     def is_agent_service(self, global_name: str) -> bool:
-        """判断是否为 Agent 服务"""
-        return global_name in self.global_to_agent_mappings
+        """判断是否为 Agent 服务（从 pyvk 读取）"""
+        if self._tool_set_manager:
+            result = self._sync_to_kv(
+                self._tool_set_manager.get_local_name_async(global_name),
+                f"check_agent_service:{global_name}"
+            )
+            return result is not None
+        else:
+            logger.warning(f" [AGENT_MAPPING] ToolSetManager not available")
+            return False
 
     def remove_agent_service_mapping(self, agent_id: str, local_name: str):
-        """移除 Agent 服务映射"""
-        if agent_id in self.agent_to_global_mappings:
-            global_name = self.agent_to_global_mappings[agent_id].pop(local_name, None)
+        """移除 Agent 服务映射（从 pyvk 删除）"""
+        if self._tool_set_manager:
+            # 先获取 global_name
+            global_name = self.get_global_name_from_agent_service(agent_id, local_name)
             if global_name:
-                self.global_to_agent_mappings.pop(global_name, None)
-                logger.debug(f" [AGENT_MAPPING] Removed mapping: {agent_id}:{local_name} ↔ {global_name}")
+                # 从 pyvk 删除映射
+                self._sync_to_kv(
+                    self._tool_set_manager.delete_service_mapping_async(agent_id, local_name),
+                    f"delete_mapping:{agent_id}:{local_name}"
+                )
+                logger.debug(f" [AGENT_MAPPING] Removed mapping from pyvk: {agent_id}:{local_name} ↔ {global_name}")
+        else:
+            logger.warning(f" [AGENT_MAPPING] ToolSetManager not available")
 
     # ===  新增：完整的服务信息获取 ===
 
@@ -1902,7 +2064,7 @@ class ServiceRegistry:
         # (These are needed for complete state restoration)
         exported["_meta"] = {
             # agent_clients removed - now derived from service_client mappings in pyvk
-            "client_configs": dict(self.client_configs),
+            # client_configs removed - now in pyvk only
             # service_to_client removed - now in pyvk only
             "agent_to_global_mappings": dict(self.agent_to_global_mappings),
             "global_to_agent_mappings": dict(self.global_to_agent_mappings),
@@ -1960,7 +2122,7 @@ class ServiceRegistry:
         if "_meta" in data:
             meta = data["_meta"]
             # agent_clients removed - now derived from service_client mappings in pyvk (skip import)
-            self.client_configs = dict(meta.get("client_configs", {}))
+            # client_configs removed - now in pyvk only (skip import)
             # service_to_client removed - now in pyvk only (skip import)
             self.agent_to_global_mappings = dict(meta.get("agent_to_global_mappings", {}))
             self.global_to_agent_mappings = dict(meta.get("global_to_agent_mappings", {}))

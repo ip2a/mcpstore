@@ -109,7 +109,13 @@ class ServiceManagementMixin:
                 return flat_global
 
             # 6. Real-time agent projection: global -> local service names
-            agent_map = self.registry.agent_to_global_mappings.get(agent_id, {})
+            # 从 pyvk 读取映射关系
+            tool_set_manager = getattr(self.registry, '_tool_set_manager', None)
+            if not tool_set_manager:
+                logger.error(f"[TOOLS] ToolSetManager not available for agent projection")
+                return flat_global
+            
+            agent_map = await tool_set_manager.get_all_mappings_async(agent_id)
             reverse_map: Dict[str, str] = {g: l for (l, g) in agent_map.items()}
 
             logger.debug(f"[TOOLS] Agent projection for agent_id={agent_id}: reverse_map={reverse_map}")

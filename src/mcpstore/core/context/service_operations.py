@@ -1315,9 +1315,43 @@ class ServiceOperationsMixin:
                 except Exception as e:
                     logger.error(f" [AGENT_PROXY] 事件驱动架构初始化异常: {e}")
 
+                # 8. 初始化工具集（Agent 模式必需）
+                try:
+                    logger.debug(f"[TOOL_INIT] 开始初始化工具集: agent_id={agent_id}, service_name={local_name}")
+                    # 从 registry 获取该服务的所有工具列表
+                    all_tools = await self._get_service_tools_for_initialization(agent_id, local_name)
+                    
+                    logger.debug(f"[TOOL_INIT] 获取到工具列表: agent_id={agent_id}, service_name={local_name}, all_tools_count={len(all_tools)}")
+                    
+                    # 调用 ToolSetManager 初始化工具集
+                    tool_set_manager = getattr(self._store, 'tool_set_manager', None)
+                    if tool_set_manager:
+                        if len(all_tools) == 0:
+                            logger.warning(
+                                f"[TOOL_INIT] 工具列表为空，将创建空状态: agent_id={agent_id}, "
+                                f"service_name={local_name}"
+                            )
+                        await tool_set_manager.initialize_tool_set_async(
+                            agent_id=agent_id,
+                            service_name=local_name,
+                            all_tools=all_tools
+                        )
+                        logger.info(
+                            f"[TOOL_INIT] 工具集初始化成功: agent_id={agent_id}, "
+                            f"service_name={local_name}, tools_count={len(all_tools)}"
+                        )
+                    else:
+                        logger.warning("ToolSetManager 不可用，跳过工具集初始化")
+                except Exception as init_error:
+                    # 初始化失败不影响服务添加
+                    logger.warning(
+                        f"工具集初始化失败（不影响服务添加）: "
+                        f"agent_id={agent_id}, service_name={local_name}, error={init_error}"
+                    )
+
                 logger.info(f" [AGENT_PROXY] Agent 服务添加完成: {local_name} → {global_name}")
 
-            # 8. 同步到持久化文件
+            # 9. 同步到持久化文件
             await self._sync_agent_services_to_files(agent_id, services_to_add)
 
             logger.info(f" [AGENT_PROXY] Agent 透明代理添加完成，共处理 {len(services_to_add)} 个服务")

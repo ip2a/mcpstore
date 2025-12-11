@@ -116,6 +116,11 @@ class AgentClientMappingService:
 
     def remove_service_client_mapping(self, agent_id: str, service_name: str):
         """移除 Service-Client 映射 (直接从 pyvk 删除)"""
+        # DEBUG: Track who is removing mappings
+        import traceback
+        logger.debug(f"[MAPPING] Removing service-client mapping for {agent_id}:{service_name}")
+        logger.debug(f"[MAPPING] Call stack:\n" + "\n".join(traceback.format_stack()[-3:]))
+
         # Single source of truth: delete directly from pyvk only
         self._kv_adapter.sync_to_kv(
             self.delete_service_client_mapping_async(agent_id, service_name),
