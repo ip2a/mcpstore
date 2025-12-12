@@ -204,3 +204,163 @@ class StateManager:
         logger.debug(
             f"[StateManager] 删除服务状态: service={service_global_name}"
         )
+    
+    async def set_tool_available(
+        self,
+        service_global_name: str,
+        tool_original_name: str
+    ) -> None:
+        """
+        设置工具为可用状态
+        
+        Args:
+            service_global_name: 服务全局名称
+            tool_original_name: 工具原始名称
+            
+        Raises:
+            RuntimeError: 如果服务状态不存在或工具不存在
+        """
+        await self._update_tool_status_by_original_name(
+            service_global_name,
+            tool_original_name,
+            "available"
+        )
+    
+    async def set_tool_unavailable(
+        self,
+        service_global_name: str,
+        tool_original_name: str
+    ) -> None:
+        """
+        设置工具为不可用状态
+        
+        Args:
+            service_global_name: 服务全局名称
+            tool_original_name: 工具原始名称
+            
+        Raises:
+            RuntimeError: 如果服务状态不存在或工具不存在
+        """
+        await self._update_tool_status_by_original_name(
+            service_global_name,
+            tool_original_name,
+            "unavailable"
+        )
+    
+    async def _update_tool_status_by_original_name(
+        self,
+        service_global_name: str,
+        tool_original_name: str,
+        status: str
+    ) -> None:
+        """
+        通过原始工具名更新工具状态
+        
+        Args:
+            service_global_name: 服务全局名称
+            tool_original_name: 工具原始名称
+            status: 工具状态 ("available" | "unavailable")
+            
+        Raises:
+            RuntimeError: 如果服务状态不存在或工具不存在
+        """
+        # 获取当前服务状态
+        service_status = await self.get_service_status(service_global_name)
+        
+        if service_status is None:
+            raise RuntimeError(
+                f"服务状态不存在，无法更新工具状态: "
+                f"service={service_global_name}, tool={tool_original_name}"
+            )
+        
+        # 查找并更新工具状态（通过原始名称）
+        tool_found = False
+        for tool in service_status.tools:
+            if tool.tool_original_name == tool_original_name:
+                tool.status = status
+                tool_found = True
+                break
+        
+        if not tool_found:
+            raise RuntimeError(
+                f"工具不存在于服务状态中: "
+                f"service={service_global_name}, tool_original_name={tool_original_name}"
+            )
+        
+        # 保存更新后的服务状态
+        await self._cache_layer.put_state(
+            "service_status",
+            service_global_name,
+            service_status.to_dict()
+        )
+        
+        logger.debug(
+            f"[StateManager] 更新工具状态: service={service_global_name}, "
+            f"tool_original_name={tool_original_name}, status={status}"
+        )
+    
+    async def batch_set_tools_status(
+        self,
+        service_global_name: str,
+        tool_original_names: List[str],
+        status: str
+    ) -> None:
+        """
+        批量设置工具状态
+        
+        Args:
+            service_global_name: 服务全局名称
+            tool_original_names: 工具原始名称列表
+            status: 工具状态 ("available" | "unavailable")
+            
+        Raises:
+            ValueError: 如果状态值无效
+            RuntimeError: 如果服务状态不存在或任何工具不存在
+        """
+        # 验证状态值
+        valid_statuses = ["available", "unavailable"]
+        if status not in valid_statuses:
+            raise ValueError(
+                f"无效的工具状态: {status}. "
+                f"有效值: {valid_statuses}"
+            )
+        
+        # 获取当前服务状态
+        service_status = await self.get_service_status(service_global_name)
+        
+        if service_status is None:
+            raise RuntimeError(
+                f"服务状态不存在，无法更新工具状态: "
+                f"service={service_global_name}"
+            )
+        
+        # 批量更新工具状态
+        not_found_tools = []
+        for tool_original_name in tool_original_names:
+            tool_found = False
+            for tool in service_status.tools:
+                if tool.tool_original_name == tool_original_name:
+                    tool.status = status
+                    tool_found = True
+                    break
+            
+            if not tool_found:
+                not_found_tools.append(tool_original_name)
+        
+        if not_found_tools:
+            raise RuntimeError(
+                f"以下工具不存在于服务状态中: "
+                f"service={service_global_name}, tools={not_found_tools}"
+            )
+        
+        # 保存更新后的服务状态
+        await self._cache_layer.put_state(
+            "service_status",
+            service_global_name,
+            service_status.to_dict()
+        )
+        
+        logger.debug(
+            f"[StateManager] 批量更新工具状态: service={service_global_name}, "
+            f"tools_count={len(tool_original_names)}, status={status}"
+        )

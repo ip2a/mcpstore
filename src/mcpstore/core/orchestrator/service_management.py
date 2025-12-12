@@ -186,14 +186,16 @@ class ServiceManagementMixin:
                 return flat_global
 
             # 6. Real-time agent projection: global -> local service names
-            # 从 pyvk 读取映射关系
-            tool_set_manager = getattr(self.registry, '_tool_set_manager', None)
-            if not tool_set_manager:
-                logger.error(f"[TOOLS] ToolSetManager not available for agent projection")
-                return flat_global
+            # 从关系层获取 Agent 的服务映射
+            agent_services = await self.registry._relation_manager.get_agent_services(agent_id)
             
-            agent_map = await tool_set_manager.get_all_mappings_async(agent_id)
-            reverse_map: Dict[str, str] = {g: l for (l, g) in agent_map.items()}
+            # 构建 global_name -> local_name 的反向映射
+            reverse_map: Dict[str, str] = {}
+            for svc in agent_services:
+                global_name = svc.get("service_global_name")
+                local_name = svc.get("service_original_name")
+                if global_name and local_name:
+                    reverse_map[global_name] = local_name
 
             logger.debug(f"[TOOLS] Agent projection for agent_id={agent_id}: reverse_map={reverse_map}")
 
@@ -320,14 +322,13 @@ class ServiceManagementMixin:
         selected = {name: all_services[name] for name in service_names if name in all_services}
         return {"mcpServers": selected}
 
-    async def remove_service(self, service_name: str, agent_id: str = None, tool_set_manager=None):
+    async def remove_service(self, service_name: str, agent_id: str = None):
         """
         Remove service and handle lifecycle state
         
         Args:
             service_name: 服务名称
             agent_id: Agent ID（可选）
-            tool_set_manager: ToolSetManager 实例（可选，用于清理工具集数据）
         """
         try:
             #  Fix: safer agent_id handling
@@ -396,35 +397,34 @@ class ServiceManagementMixin:
             except Exception as e:
                 logger.warning(f"Error removing lifecycle data: {e}")
 
-            # 清理工具集状态（仅在 Agent 模式下）
+            # 清理服务状态（使用 StateManager）
             try:
-                # 检查是否为 Agent 模式（非 global_agent_store）
+                # 获取服务的全局名称
                 global_agent_store_id = self.client_manager.global_agent_store_id
                 if agent_key != global_agent_store_id:
-                    # 如果没有传入 tool_set_manager，尝试从 container 获取
-                    if tool_set_manager is None:
-                        tool_set_manager = getattr(self.container, 'tool_set_manager', None)
-                        if tool_set_manager is None:
-                            tool_set_manager = getattr(self.container, '_tool_set_manager', None)
-                    
-                    if tool_set_manager:
-                        await self._cleanup_tool_set_data(
-                            tool_set_manager,
-                            agent_key,
-                            service_name
-                        )
-                        logger.info(
-                            f"工具集数据清理成功: agent_id={agent_key}, "
-                            f"service_name={service_name}"
-                        )
-                    else:
-                        logger.debug("ToolSetManager 不可用，跳过工具集清理")
+                    # Agent 模式：需要获取全局服务名
+                    service_global_name = self.registry.get_global_name_from_agent_service(
+                        agent_key, service_name
+                    )
                 else:
-                    logger.debug(f"跳过工具集清理（Store 级别服务）: agent_id={agent_key}")
+                    # Store 模式：服务名就是全局名称
+                    service_global_name = service_name
+                
+                if service_global_name:
+                    # 使用 StateManager 删除服务状态
+                    state_manager = self.registry._state_manager
+                    await state_manager.delete_service_status(service_global_name)
+                    logger.info(
+                        f"服务状态清理成功: service_global_name={service_global_name}"
+                    )
+                else:
+                    logger.debug(
+                        f"无法获取服务全局名称，跳过状态清理: "
+                        f"agent_id={agent_key}, service_name={service_name}"
+                    )
             except Exception as e:
-                # 清理失败记录警告但不中断
                 logger.warning(
-                    f"工具集数据清理失败（不影响服务移除）: "
+                    f"服务状态清理失败（不影响服务移除）: "
                     f"agent_id={agent_key}, service_name={service_name}, error={e}"
                 )
 
@@ -435,43 +435,6 @@ class ServiceManagementMixin:
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             raise
-
-    async def _cleanup_tool_set_data(
-        self,
-        tool_set_manager,
-        agent_id: str,
-        service_name: str
-    ) -> None:
-        """
-        清理工具集相关数据
-        
-        委托给 ToolSetManager.cleanup_service_async() 方法执行清理。
-        
-        清理内容：
-        1. 删除工具集状态键（tool_set:state:{agent_id}:{service_name}）
-        2. 从索引中移除服务条目
-        3. 更新元数据（减少服务计数）
-        4. 删除服务映射键（tool_set:service_mapping:{agent_id}:{service_name}）
-        5. 删除反向映射键（tool_set:reverse_mapping:{global_name}）
-        6. 清除内存缓存
-        
-        Args:
-            tool_set_manager: ToolSetManager 实例
-            agent_id: Agent ID
-            service_name: 服务名称
-        """
-        try:
-            # 委托给 ToolSetManager 的 cleanup_service_async 方法
-            await tool_set_manager.cleanup_service_async(agent_id, service_name)
-            
-        except Exception as e:
-            # 清理失败记录警告但不中断
-            logger.warning(
-                f"工具集数据清理失败（不影响服务移除）: "
-                f"agent_id={agent_id}, service_name={service_name}, error={e}",
-                exc_info=True
-            )
-            # 不抛出异常，允许服务移除继续
 
     def get_session(self, service_name: str, agent_id: str = None):
         agent_key = agent_id or self.client_manager.global_agent_store_id

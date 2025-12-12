@@ -83,23 +83,22 @@ class BaseMCPStore:
             enable_event_history=False  # Disable event history in production
         )
 
-        # [NEW] 初始化 ToolSetManager（工具集管理系统）
-        from mcpstore.core.tool_set_manager import ToolSetManager
-        # 从 registry 获取 kv_store 实例
-        kv_store = self.registry._kv_store
-        self.tool_set_manager = ToolSetManager(
-            kv_store=kv_store,
-            registry=self.registry
-        )
-        # 将 ToolSetManager 引用传递给 Registry（用于映射关系管理）
-        self.registry._tool_set_manager = self.tool_set_manager
-        logger.info("ToolSetManager 初始化成功")
+        # ToolSetManager 已废弃，工具可用性统一使用 StateManager
+        # 工具状态存储在状态层: default:state:service_status
 
         # [UNIFIED] Point orchestrator.lifecycle_manager to container's lifecycle_manager
         try:
             self.orchestrator.lifecycle_manager = self.container.lifecycle_manager
         except Exception as e:
             logger.debug(f"Link lifecycle_manager failed: {e}")
+
+        # [UNIFIED] Initialize content_manager after lifecycle_manager is set
+        try:
+            from mcpstore.core.lifecycle.content_manager import ServiceContentManager
+            self.orchestrator.content_manager = ServiceContentManager(self.orchestrator)
+            logger.info("ServiceContentManager 初始化成功")
+        except Exception as e:
+            logger.warning(f"ServiceContentManager 初始化失败: {e}")
 
         # Break circular dependency: pass container and context_factory to orchestrator
         # instead of letting orchestrator hold store reference (must be after container initialization)

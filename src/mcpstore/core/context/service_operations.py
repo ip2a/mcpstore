@@ -719,40 +719,8 @@ class ServiceOperationsMixin:
             if not result.success:
                 raise RuntimeError(f"Failed to add service: {result.error_message}")
 
-            # 3. 初始化工具集（仅在 Agent 模式下）
-            if self._context_type == ContextType.AGENT:
-                try:
-                    logger.debug(f"[TOOL_INIT] 开始初始化工具集: agent_id={agent_id}, service_name={service_name}")
-                    # 从 registry 获取该服务的所有工具列表
-                    all_tools = await self._get_service_tools_for_initialization(agent_id, service_name)
-                    
-                    logger.debug(f"[TOOL_INIT] 获取到工具列表: agent_id={agent_id}, service_name={service_name}, all_tools_count={len(all_tools)}")
-                    
-                    # 调用 ToolSetManager 初始化工具集
-                    tool_set_manager = getattr(self._store, 'tool_set_manager', None)
-                    if tool_set_manager:
-                        if len(all_tools) == 0:
-                            logger.warning(
-                                f"[TOOL_INIT] 工具列表为空，将创建空状态: agent_id={agent_id}, "
-                                f"service_name={service_name}"
-                            )
-                        await tool_set_manager.initialize_tool_set_async(
-                            agent_id=agent_id,
-                            service_name=service_name,
-                            all_tools=all_tools
-                        )
-                        logger.info(
-                            f"[TOOL_INIT] 工具集初始化成功: agent_id={agent_id}, "
-                            f"service_name={service_name}, tools_count={len(all_tools)}"
-                        )
-                    else:
-                        logger.warning("ToolSetManager 不可用，跳过工具集初始化")
-                except Exception as init_error:
-                    # 初始化失败不影响服务添加
-                    logger.warning(
-                        f"工具集初始化失败（不影响服务添加）: "
-                        f"agent_id={agent_id}, service_name={service_name}, error={init_error}"
-                    )
+            # 注意：工具状态初始化在 registry.add_service 中完成
+            # 因为此时工具尚未注册到关系层，需要等待服务连接成功后才能获取工具列表
 
             return {
                 "service_name": service_name,
@@ -822,10 +790,14 @@ class ServiceOperationsMixin:
             )
             
             # 3. 从 registry 获取工具列表
-            tools = self._store.registry.list_tools(agent_id)
+            # 注意：工具是在 global_agent_store 下注册的，所以需要使用 global_agent_store_id
+            # 而不是 agent_id
+            global_agent_store_id = self._store.orchestrator.client_manager.global_agent_store_id
+            tools = self._store.registry.list_tools(global_agent_store_id)
             
             logger.debug(
                 f"[TOOL_INIT] 获取服务工具列表: agent_id={agent_id}, "
+                f"global_agent_store_id={global_agent_store_id}, "
                 f"service_name={service_name}, registry.list_tools返回总数={len(tools)}"
             )
             if tools:
@@ -852,7 +824,94 @@ class ServiceOperationsMixin:
                 f"获取服务工具列表失败: agent_id={agent_id}, "
                 f"service_name={service_name}, error={e}"
             )
-            return []
+            raise
+
+    async def _initialize_service_tool_status(
+        self,
+        agent_id: str,
+        service_name: str
+    ) -> None:
+        """
+        初始化服务的工具状态（使用 StateManager）
+        
+        Store 和 Agent 模式都需要调用此方法。
+        所有工具默认状态为 "available"。
+        
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+            
+        Raises:
+            RuntimeError: 如果初始化失败
+        """
+        logger.debug(
+            f"[TOOL_STATUS_INIT] 开始初始化工具状态: "
+            f"agent_id={agent_id}, service_name={service_name}"
+        )
+        
+        # 1. 获取服务的全局名称
+        if self._context_type == ContextType.AGENT:
+            # Agent 模式：需要将本地服务名映射到全局服务名
+            service_global_name = self._store.registry.get_global_name_from_agent_service(
+                agent_id, service_name
+            )
+            if not service_global_name:
+                raise RuntimeError(
+                    f"无法获取服务全局名称: agent_id={agent_id}, "
+                    f"service_name={service_name}"
+                )
+        else:
+            # Store 模式：服务名就是全局名称
+            service_global_name = service_name
+        
+        logger.debug(
+            f"[TOOL_STATUS_INIT] 服务全局名称: "
+            f"service_name={service_name}, service_global_name={service_global_name}"
+        )
+        
+        # 2. 从关系层获取服务的工具列表
+        state_manager = self._store.registry._state_manager
+        relation_manager = self._store.registry._relation_manager
+        
+        tool_relations = await relation_manager.get_service_tools(service_global_name)
+        
+        if not tool_relations:
+            logger.warning(
+                f"[TOOL_STATUS_INIT] 服务没有工具: "
+                f"service_global_name={service_global_name}"
+            )
+            # 即使没有工具，也要创建服务状态
+            tool_relations = []
+        
+        # 3. 构建工具状态列表（所有工具默认 available）
+        tools_status = []
+        for tool_rel in tool_relations:
+            tool_global_name = tool_rel.get("tool_global_name")
+            tool_original_name = tool_rel.get("tool_original_name")
+            
+            if not tool_global_name or not tool_original_name:
+                raise RuntimeError(
+                    f"工具关系数据不完整: tool_rel={tool_rel}"
+                )
+            
+            tools_status.append({
+                "tool_global_name": tool_global_name,
+                "tool_original_name": tool_original_name,
+                "status": "available"
+            })
+        
+        # 4. 使用 StateManager 更新服务状态
+        await state_manager.update_service_status(
+            service_global_name=service_global_name,
+            health_status="initializing",
+            tools_status=tools_status
+        )
+        
+        logger.info(
+            f"[TOOL_STATUS_INIT] 工具状态初始化成功: "
+            f"service_global_name={service_global_name}, "
+            f"tools_count={len(tools_status)}"
+        )
 
     async def _connect_and_update_cache(self, agent_id: str, service_name: str, service_config: Dict[str, Any]):
         """异步连接服务并更新缓存状态"""
@@ -1317,37 +1376,18 @@ class ServiceOperationsMixin:
 
                 # 8. 初始化工具集（Agent 模式必需）
                 try:
-                    logger.debug(f"[TOOL_INIT] 开始初始化工具集: agent_id={agent_id}, service_name={local_name}")
-                    # 从 registry 获取该服务的所有工具列表
-                    all_tools = await self._get_service_tools_for_initialization(agent_id, local_name)
-                    
-                    logger.debug(f"[TOOL_INIT] 获取到工具列表: agent_id={agent_id}, service_name={local_name}, all_tools_count={len(all_tools)}")
-                    
-                    # 调用 ToolSetManager 初始化工具集
-                    tool_set_manager = getattr(self._store, 'tool_set_manager', None)
-                    if tool_set_manager:
-                        if len(all_tools) == 0:
-                            logger.warning(
-                                f"[TOOL_INIT] 工具列表为空，将创建空状态: agent_id={agent_id}, "
-                                f"service_name={local_name}"
-                            )
-                        await tool_set_manager.initialize_tool_set_async(
-                            agent_id=agent_id,
-                            service_name=local_name,
-                            all_tools=all_tools
-                        )
-                        logger.info(
-                            f"[TOOL_INIT] 工具集初始化成功: agent_id={agent_id}, "
-                            f"service_name={local_name}, tools_count={len(all_tools)}"
-                        )
-                    else:
-                        logger.warning("ToolSetManager 不可用，跳过工具集初始化")
+                    # 注意：工具状态初始化在 registry.add_service 中完成
+                    # 因为此时工具尚未注册到关系层，需要等待服务连接成功后才能获取工具列表
+                    logger.debug(
+                        f"[TOOL_INIT] 工具状态将在服务连接成功后初始化: "
+                        f"agent_id={agent_id}, service_name={local_name}"
+                    )
                 except Exception as init_error:
-                    # 初始化失败不影响服务添加
-                    logger.warning(
-                        f"工具集初始化失败（不影响服务添加）: "
+                    logger.error(
+                        f"Agent 服务添加失败: "
                         f"agent_id={agent_id}, service_name={local_name}, error={init_error}"
                     )
+                    raise
 
                 logger.info(f" [AGENT_PROXY] Agent 服务添加完成: {local_name} → {global_name}")
 

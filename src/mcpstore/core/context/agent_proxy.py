@@ -166,57 +166,31 @@ class AgentProxy:
         
         ctx = self._agent_ctx or self._context
         
-        # 通过 ToolSetManager 验证服务映射
-        if hasattr(ctx, '_tool_set_manager') and ctx._tool_set_manager:
-            try:
-                # 检查服务映射
-                mapping = ctx._sync_helper.run_async(
-                    ctx._tool_set_manager.get_service_mapping_async(
-                        self._agent_id,
-                        service_name
-                    )
+        # 通过 Registry 验证服务映射
+        try:
+            # 使用 Registry 获取服务的全局名称
+            global_name = ctx._store.registry.get_global_name_from_agent_service(
+                self._agent_id,
+                service_name
+            )
+            
+            if not global_name:
+                raise ServiceNotFoundException(
+                    service_name=service_name,
+                    agent_id=self._agent_id
                 )
-                
-                if not mapping:
-                    raise ServiceNotFoundException(
-                        service_name=service_name,
-                        agent_id=self._agent_id
-                    )
-                
-                global_name = mapping.get("global_name", service_name)
-                
-                # 检查索引中是否存在该服务
-                index_key = f"tool_set:index:{self._agent_id}"
-                index_data = ctx._sync_helper.run_async(
-                    ctx._store._kv_store.get(index_key)
-                )
-                
-                if index_data:
-                    services = index_data if isinstance(index_data, list) else []
-                    service_exists = any(
-                        s.get("service_name") == service_name
-                        for s in services
-                        if isinstance(s, dict)
-                    )
-                    
-                    if not service_exists:
-                        raise ServiceNotFoundException(
-                            service_name=service_name,
-                            agent_id=self._agent_id
-                        )
-                
-                logger.debug(f"[AGENT_PROXY] Verified ownership of service '{service_name}' for agent '{self._agent_id}'")
-                return True, global_name
-                
-            except ServiceNotFoundException:
-                raise
-            except Exception as e:
-                logger.warning(f"[AGENT_PROXY] Failed to verify service ownership: {e}")
-                # 降级：假设服务存在
-                return True, service_name
-        
-        # 如果没有 ToolSetManager，降级到简单检查
-        return True, service_name
+            
+            logger.debug(f"[AGENT_PROXY] Verified ownership of service '{service_name}' for agent '{self._agent_id}'")
+            return True, global_name
+            
+        except ServiceNotFoundException:
+            raise
+        except Exception as e:
+            logger.error(f"[AGENT_PROXY] Failed to verify service ownership: {e}")
+            raise ServiceNotFoundException(
+                service_name=service_name,
+                agent_id=self._agent_id
+            )
 
     def list_tools(
         self,

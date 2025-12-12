@@ -549,7 +549,11 @@ class ServiceConnectionMixin:
             logger.warning("Sync manager not available, cannot refresh services")
 
     async def refresh_service_content(self, service_name: str, agent_id: str = None) -> bool:
-        """??????????????????????"""
+        """刷新服务内容（工具、资源等）"""
+        if self.content_manager is None:
+            raise RuntimeError(
+                f"content_manager 未初始化，无法刷新服务内容: service_name={service_name}"
+            )
         agent_key = agent_id or self.client_manager.global_agent_store_id
         return await self.content_manager.force_update_service_content(agent_key, service_name)
 

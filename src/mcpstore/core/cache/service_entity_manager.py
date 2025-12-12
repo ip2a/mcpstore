@@ -76,15 +76,31 @@ class ServiceEntityManager:
             agent_id
         )
         
-        # 检查服务是否已存在
+        # 检查服务是否已存在（基于全局名称判断）
         existing = await self._cache_layer.get_entity("services", global_name)
         if existing:
-            raise ValueError(
-                f"服务已存在: global_name={global_name}, "
+            # 全局名称相同，认为是同一个实体，更新配置
+            entity = ServiceEntity(
+                service_global_name=global_name,
+                service_original_name=original_name,
+                source_agent=agent_id,
+                config=config,
+                added_time=existing.get("added_time", int(time.time()))
+            )
+            
+            await self._cache_layer.put_entity(
+                "services",
+                global_name,
+                entity.to_dict()
+            )
+            
+            logger.info(
+                f"[SERVICE_ENTITY] 更新服务实体: global_name={global_name}, "
                 f"original_name={original_name}, agent_id={agent_id}"
             )
+            return global_name
         
-        # 创建服务实体
+        # 创建新服务实体
         entity = ServiceEntity(
             service_global_name=global_name,
             service_original_name=original_name,

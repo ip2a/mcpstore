@@ -103,13 +103,29 @@ class RelationshipManager:
             # 解析现有关系
             relation = AgentServiceRelation.from_dict(relation_data)
         
-        # 检查服务是否已存在
-        for service in relation.services:
+        # 检查服务是否已存在（基于全局名称判断）
+        for i, service in enumerate(relation.services):
             if service.service_global_name == service_global_name:
-                raise ValueError(
-                    f"服务已存在于 Agent 关系中: agent_id={agent_id}, "
+                # 全局名称相同，认为是同一个关系，更新配置
+                relation.services[i] = ServiceRelationItem(
+                    service_original_name=service_original_name,
+                    service_global_name=service_global_name,
+                    client_id=client_id,
+                    established_time=service.established_time,
+                    last_access=int(time.time())
+                )
+                
+                await self._cache_layer.put_relation(
+                    "agent_services",
+                    agent_id,
+                    relation.to_dict()
+                )
+                
+                logger.info(
+                    f"[RELATIONSHIP] 更新 Agent-Service 关系: agent_id={agent_id}, "
                     f"service_global_name={service_global_name}"
                 )
+                return
         
         # 添加新服务
         current_time = int(time.time())
@@ -326,14 +342,27 @@ class RelationshipManager:
             # 解析现有关系
             relation = ServiceToolRelation.from_dict(relation_data)
         
-        # 检查工具是否已存在
-        for tool in relation.tools:
+        # 检查工具是否已存在（基于全局名称判断）
+        for i, tool in enumerate(relation.tools):
             if tool.tool_global_name == tool_global_name:
-                raise ValueError(
-                    f"工具已存在于服务关系中: "
+                # 全局名称相同，认为是同一个关系，更新配置
+                relation.tools[i] = ToolRelationItem(
+                    tool_global_name=tool_global_name,
+                    tool_original_name=tool_original_name
+                )
+                
+                await self._cache_layer.put_relation(
+                    "service_tools",
+                    service_global_name,
+                    relation.to_dict()
+                )
+                
+                logger.info(
+                    f"[RELATIONSHIP] 更新 Service-Tool 关系: "
                     f"service_global_name={service_global_name}, "
                     f"tool_global_name={tool_global_name}"
                 )
+                return
         
         # 添加新工具
         new_tool = ToolRelationItem(
