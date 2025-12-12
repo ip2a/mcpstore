@@ -50,7 +50,9 @@ class ServiceStateService:
             # It's already an AsyncSyncHelper object
             self._sync_helper = sync_helper
         
-        # Lifecycle state support
+        # 注意：这些内存缓存字段已废弃，应使用新的 StateManager
+        # 保留这些字段仅用于过渡期间的兼容性
+        # TODO: 完全迁移到 StateManager 后删除这些字段
         # agent_id -> {service_name: ServiceConnectionState}
         self.service_states: Dict[str, Dict[str, ServiceConnectionState]] = {}
         
@@ -169,25 +171,25 @@ class ServiceStateService:
     @map_kv_exception
     async def set_service_state_async(self, agent_id: str, service_name: str, state: ServiceConnectionState) -> None:
         """
-        Set service state in py-key-value storage.
+        在 py-key-value 存储中设置服务状态。
         
         Args:
             agent_id: Agent ID
-            service_name: Service name
-            state: ServiceConnectionState to set
+            service_name: 服务名称
+            state: 要设置的 ServiceConnectionState
         
         Note:
-            This method also updates the in-memory cache for backward compatibility.
+            此方法同时更新内存缓存（过渡期间保留）。
         
         Raises:
-            CacheOperationError: If cache operation fails
-            CacheConnectionError: If cache connection fails
-            CacheValidationError: If data validation fails
+            CacheOperationError: 如果缓存操作失败
+            CacheConnectionError: 如果缓存连接失败
+            CacheValidationError: 如果数据验证失败
         """
-        # Delegate to KV-backed state backend
+        # 委托给 KV 支持的状态后端
         await self._state_backend.set_service_state(agent_id, service_name, state)
         
-        # Also update in-memory cache for backward compatibility
+        # 同时更新内存缓存（过渡期间保留）
         if agent_id not in self.service_states:
             self.service_states[agent_id] = {}
         self.service_states[agent_id][service_name] = state
@@ -197,25 +199,25 @@ class ServiceStateService:
     @map_kv_exception
     async def get_service_state_async(self, agent_id: str, service_name: str) -> Optional[ServiceConnectionState]:
         """
-        Get service state from py-key-value storage.
+        从 py-key-value 存储中获取服务状态。
         
         Args:
             agent_id: Agent ID
-            service_name: Service name
+            service_name: 服务名称
         
         Returns:
-            ServiceConnectionState or None if not found
+            ServiceConnectionState 或 None（如果未找到）
         
         Note:
-            This is the async version that reads from py-key-value.
-            For backward compatibility, the sync version still uses in-memory cache.
+            这是从 py-key-value 读取的异步版本。
+            同步版本仍使用内存缓存（过渡期间保留）。
         
         Raises:
-            CacheOperationError: If cache operation fails
-            CacheConnectionError: If cache connection fails
-            CacheValidationError: If data validation fails
+            CacheOperationError: 如果缓存操作失败
+            CacheConnectionError: 如果缓存连接失败
+            CacheValidationError: 如果数据验证失败
         """
-        # Delegate to KV-backed state backend
+        # 委托给 KV 支持的状态后端
         return await self._state_backend.get_service_state(agent_id, service_name)
     
     @map_kv_exception
@@ -227,25 +229,25 @@ class ServiceStateService:
     @map_kv_exception
     async def set_service_metadata_async(self, agent_id: str, service_name: str, metadata: ServiceStateMetadata) -> None:
         """
-        Set service metadata in py-key-value storage.
+        在 py-key-value 存储中设置服务元数据。
         
         Args:
             agent_id: Agent ID
-            service_name: Service name
-            metadata: ServiceStateMetadata to set
+            service_name: 服务名称
+            metadata: 要设置的 ServiceStateMetadata
         
         Note:
-            This method also updates the in-memory cache for backward compatibility.
+            此方法同时更新内存缓存（过渡期间保留）。
         
         Raises:
-            CacheOperationError: If cache operation fails
-            CacheConnectionError: If cache connection fails
-            CacheValidationError: If data validation fails
+            CacheOperationError: 如果缓存操作失败
+            CacheConnectionError: 如果缓存连接失败
+            CacheValidationError: 如果数据验证失败
         """
-        # Delegate to KV-backed state backend
+        # 委托给 KV 支持的状态后端
         await self._state_backend.set_service_metadata(agent_id, service_name, metadata)
         
-        # Also update in-memory cache for backward compatibility
+        # 同时更新内存缓存（过渡期间保留）
         if agent_id not in self.service_metadata:
             self.service_metadata[agent_id] = {}
         self.service_metadata[agent_id][service_name] = metadata
@@ -255,25 +257,25 @@ class ServiceStateService:
     @map_kv_exception
     async def get_service_metadata_async(self, agent_id: str, service_name: str) -> Optional[ServiceStateMetadata]:
         """
-        Get service metadata from py-key-value storage.
+        从 py-key-value 存储中获取服务元数据。
         
         Args:
             agent_id: Agent ID
-            service_name: Service name
+            service_name: 服务名称
         
         Returns:
-            ServiceStateMetadata or None if not found
+            ServiceStateMetadata 或 None（如果未找到）
         
         Note:
-            This is the async version that reads from py-key-value.
-            For backward compatibility, the sync version still uses in-memory cache.
+            这是从 py-key-value 读取的异步版本。
+            同步版本仍使用内存缓存（过渡期间保留）。
         
         Raises:
-            CacheOperationError: If cache operation fails
-            CacheConnectionError: If cache connection fails
-            CacheValidationError: If data validation fails
+            CacheOperationError: 如果缓存操作失败
+            CacheConnectionError: 如果缓存连接失败
+            CacheValidationError: 如果数据验证失败
         """
-        # Delegate to KV-backed state backend
+        # 委托给 KV 支持的状态后端
         return await self._state_backend.get_service_metadata(agent_id, service_name)
     
     @map_kv_exception
