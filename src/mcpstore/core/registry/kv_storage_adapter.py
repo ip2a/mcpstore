@@ -73,33 +73,25 @@ class KVStorageAdapter:
     
     def get_collection(self, agent_id: str, data_type: str) -> str:
         """
-        Generate Collection name for py-key-value storage.
+        生成 Collection 名称（已废弃）。
         
-        This method implements the Collection mapping strategy for organizing data
-        in the KV store with agent_id isolation.
+        此方法使用旧的命名格式，已被新的三层缓存架构替代。
+        不应再使用此方法。
         
         Args:
-            agent_id: Agent identifier (e.g., "global_agent_store", "agent_123")
-            data_type: Type of data being stored (e.g., "tools", "states", "metadata")
+            agent_id: Agent 标识符
+            data_type: 数据类型
         
-        Returns:
-            Collection name in format "agent:{agent_id}:{data_type}"
-        
-        Examples:
-            >>> adapter.get_collection("global_agent_store", "tools")
-            "agent:global_agent_store:tools"
-            
-            >>> adapter.get_collection("agent_123", "states")
-            "agent:agent_123:states"
-        
-        Note:
-            This naming strategy ensures:
-            - Clear agent_id isolation
-            - Logical grouping by data type
-            - Easy querying and debugging
-            - Consistent with py-key-value Collection semantics
+        Raises:
+            NotImplementedError: 此方法已废弃
         """
-        return f"agent:{agent_id}:{data_type}"
+        raise NotImplementedError(
+            "旧的 Collection 命名格式已废弃。请使用新的三层缓存架构：\n"
+            "- 实体层: {namespace}:entity:{entity_type}\n"
+            "- 关系层: {namespace}:relations:{relation_type}\n"
+            "- 状态层: {namespace}:state:{state_type}\n"
+            "请使用 CacheLayerManager 进行缓存操作。"
+        )
     
     def wrap_scalar_value(self, value: Any) -> Dict[str, Any]:
         """

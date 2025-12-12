@@ -56,7 +56,7 @@ class StateManager:
             ValueError: 如果健康状态值无效
         """
         # 验证健康状态
-        valid_health_statuses = ["healthy", "unhealthy", "unknown"]
+        valid_health_statuses = ["healthy", "unhealthy", "unknown", "initializing", "warning", "disconnected", "reconnecting"]
         if health_status not in valid_health_statuses:
             raise ValueError(
                 f"无效的健康状态: {health_status}. "

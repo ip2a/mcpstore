@@ -447,7 +447,7 @@ class ServiceStatus:
                 raise ValueError(f"缺少必需字段: {field_name}")
         
         # 验证健康状态值
-        valid_health_statuses = ["healthy", "unhealthy", "unknown"]
+        valid_health_statuses = ["healthy", "unhealthy", "unknown", "initializing", "warning", "disconnected", "reconnecting"]
         if data["health_status"] not in valid_health_statuses:
             raise ValueError(
                 f"无效的健康状态: {data['health_status']}. "

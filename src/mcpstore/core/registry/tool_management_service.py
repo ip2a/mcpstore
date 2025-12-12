@@ -182,8 +182,8 @@ class ToolManagementService:
             Dictionary mapping tool names to tool definitions
 
         Note:
-            This is the async version that reads from py-key-value.
-            For backward compatibility, the sync version still uses in-memory cache.
+            这是从 py-key-value 读取的异步版本。
+            同步版本仍使用内存缓存（过渡期间保留）。
 
         Raises:
             CacheOperationError: If cache operation fails

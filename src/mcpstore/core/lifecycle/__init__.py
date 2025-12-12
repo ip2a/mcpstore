@@ -14,7 +14,7 @@ __all__ = [
     'ServiceLifecycleConfig',
 ]
 
-# For backward compatibility, also export some commonly used types
+# 导出常用类型
 try:
     from mcpstore.core.models.service import ServiceConnectionState, ServiceStateMetadata
     __all__.extend(['ServiceConnectionState', 'ServiceStateMetadata'])

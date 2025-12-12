@@ -107,6 +107,29 @@ class ServiceRegistry:
         # State synchronization manager (lazy initialization)
         self._state_sync_manager = None
 
+        # 兼容性属性 - 这些属性在新的三层缓存架构中已被废弃
+        # 保留空字典以避免 AttributeError，但不再使用
+        # TODO: 在完成所有代码迁移后删除这些属性
+        self.service_states: Dict[str, Dict[str, Any]] = {}
+        self.service_metadata: Dict[str, Dict[str, Any]] = {}
+        self.tool_to_service: Dict[str, Dict[str, str]] = {}
+        self.agent_to_global_mappings: Dict[str, Dict[str, str]] = {}
+        
+        # Service-Client 映射（内存中）
+        # agent_id -> {service_name: client_id}
+        self.service_to_client: Dict[str, Dict[str, str]] = {}
+        
+        # 全局名称到 Agent 名称的映射
+        # global_name -> {agent_id: local_name}
+        self.global_to_agent_mappings: Dict[str, Dict[str, str]] = {}
+        
+        # 兼容性服务适配器 - 提供旧 API 的兼容性支持
+        # 这些适配器将旧的服务调用转发到新的缓存架构
+        self._service_state_service = _ServiceStateServiceAdapter(self)
+        self._agent_client_service = _AgentClientServiceAdapter(self)
+        self._client_config_service = _ClientConfigServiceAdapter(self)
+        self._tool_management_service = _ToolManagementServiceAdapter(self)
+
         logger.debug(
             f"ServiceRegistry initialized (id={id(self)}) with new cache architecture")
 
@@ -1567,35 +1590,9 @@ class ServiceRegistry:
     
     
     
-    
-    def __getattr__(self, name: str):
-        """
-        动态方法代理 - 零委托模式的核心实现
-
-        当访问不存在的方法时，自动查找并调用对应的服务方法
-        这样就无需编写任何委托代码，实现了真正的零委托
-        """
-        if not hasattr(self, '_service_mapping') or not self._service_mapping:
-            # Legacy mode - 可能是在升级过程中访问
-            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}' (legacy mode)")
-
-        # 在所有服务中查找方法
-        for service_name, service in self._service_mapping.items():
-            if hasattr(service, name):
-                method = getattr(service, name)
-                logger.debug(f"[REGISTRY] Method '{name}' dynamically proxied to {service_name} service")
-                return method
-
-        # 如果没有找到，提供清晰的错误信息
-        available_methods = []
-        for service_name, service in self._service_mapping.items():
-            methods = [f"{service_name}.{m}" for m in dir(service) if not m.startswith('_') and callable(getattr(service, m))]
-            available_methods.extend(methods[:5])  # 每个服务只显示前5个方法
-
-        raise AttributeError(
-            f"Method '{name}' not found in any service. "
-            f"Available methods (sample): {available_methods[:15]}..."
-        )
+    # 注意：__getattr__ 方法已在缓存重构中删除
+    # 新的三层缓存架构不再需要动态方法代理
+    # 所有操作通过 CacheLayerManager、ServiceEntityManager 等管理器完成
 
     def mark_as_long_lived(self, agent_id: str, service_name: str):
         """标记服务为长连接服务"""
@@ -1645,9 +1642,125 @@ class ServiceRegistry:
 
     # ===  新增：Service-Client 映射管理 ===
 
+    def get_service_client_id(self, agent_id: str, service_name: str) -> Optional[str]:
+        """
+        获取服务对应的 Client ID
+        
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+            
+        Returns:
+            Client ID，如果不存在则返回 None
+        """
+        return self.service_to_client.get(agent_id, {}).get(service_name)
+
+    def get_agent_clients_from_cache(self, agent_id: str) -> List[str]:
+        """
+        获取指定 Agent 的所有 Client ID
+        
+        Args:
+            agent_id: Agent ID
+            
+        Returns:
+            Client ID 列表
+        """
+        client_ids = set()
+        for service_name, client_id in self.service_to_client.get(agent_id, {}).items():
+            if client_id:
+                client_ids.add(client_id)
+        return list(client_ids)
+
+    def get_client_config_from_cache(self, client_id: str) -> Optional[Dict[str, Any]]:
+        """
+        从缓存获取客户端配置
+        
+        Args:
+            client_id: Client ID
+            
+        Returns:
+            客户端配置字典，如果不存在则返回 None
+        """
+        return self._client_config_service.get_client_config_from_cache(client_id)
+
+    def has_service(self, agent_id: str, service_name: str) -> bool:
+        """
+        检查服务是否存在
+        
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+            
+        Returns:
+            服务是否存在
+        """
+        # 检查会话中是否存在
+        if service_name in self.sessions.get(agent_id, {}):
+            return True
+        # 检查服务状态中是否存在
+        if service_name in self.service_states.get(agent_id, {}):
+            return True
+        # 检查服务元数据中是否存在
+        if service_name in self.service_metadata.get(agent_id, {}):
+            return True
+        return False
+
+    def get_service_state(self, agent_id: str, service_name: str) -> Optional[Any]:
+        """
+        获取服务状态
+        
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+            
+        Returns:
+            服务状态，如果不存在则返回 None
+        """
+        return self._service_state_service.get_service_state(agent_id, service_name)
+
+    def get_service_metadata(self, agent_id: str, service_name: str) -> Optional[Any]:
+        """
+        获取服务元数据
+        
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+            
+        Returns:
+            服务元数据，如果不存在则返回 None
+        """
+        return self._service_state_service.get_service_metadata(agent_id, service_name)
+
+    def set_service_client_mapping(self, agent_id: str, service_name: str, client_id: str) -> None:
+        """
+        设置 Service-Client 映射
+        
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+            client_id: Client ID
+        """
+        if agent_id not in self.service_to_client:
+            self.service_to_client[agent_id] = {}
+        self.service_to_client[agent_id][service_name] = client_id
+        logger.debug(f"[REGISTRY] Set service-client mapping: {agent_id}:{service_name} -> {client_id}")
+
+    def remove_service_client_mapping(self, agent_id: str, service_name: str) -> None:
+        """
+        移除 Service-Client 映射
+        
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+        """
+        if agent_id in self.service_to_client and service_name in self.service_to_client[agent_id]:
+            del self.service_to_client[agent_id][service_name]
+            logger.debug(f"[REGISTRY] Removed service-client mapping: {agent_id}:{service_name}")
+
     @map_kv_exception
     async def set_service_client_mapping_async(self, agent_id: str, service_name: str, client_id: str) -> None:
-        await self._state_backend.set_service_client(agent_id, service_name, client_id)
+        """异步设置 Service-Client 映射（兼容性方法）"""
+        self.set_service_client_mapping(agent_id, service_name, client_id)
 
     @map_kv_exception
     async def delete_service_client_mapping_async(self, agent_id: str, service_name: str) -> None:
@@ -2296,3 +2409,184 @@ class ServiceRegistry:
             raise RuntimeError(f"Data integrity verification failed:\n{error_msg}")
 
         logger.info("[VERIFY] Data integrity verified successfully")
+
+
+# ============================================================
+# 兼容性适配器类
+# 这些类提供旧 API 的兼容性支持，将调用转发到新的缓存架构
+# TODO: 在完成所有代码迁移后删除这些适配器
+# ============================================================
+
+class _ServiceStateServiceAdapter:
+    """
+    ServiceStateService 兼容性适配器
+    
+    提供旧的 ServiceStateService API，将调用转发到 ServiceRegistry 的内存字典
+    """
+    
+    def __init__(self, registry: 'ServiceRegistry'):
+        self._registry = registry
+        # 使用 registry 的 service_states 字典
+        self.service_states = registry.service_states
+    
+    def get_service_state(self, agent_id: str, service_name: str) -> Optional[Any]:
+        """获取服务状态"""
+        return self._registry.service_states.get(agent_id, {}).get(service_name)
+    
+    def set_service_state(self, agent_id: str, service_name: str, state: Any) -> None:
+        """设置服务状态"""
+        if agent_id not in self._registry.service_states:
+            self._registry.service_states[agent_id] = {}
+        self._registry.service_states[agent_id][service_name] = state
+    
+    def get_service_metadata(self, agent_id: str, service_name: str) -> Optional[Any]:
+        """获取服务元数据"""
+        return self._registry.service_metadata.get(agent_id, {}).get(service_name)
+    
+    def set_service_metadata(self, agent_id: str, service_name: str, metadata: Any) -> None:
+        """设置服务元数据"""
+        if agent_id not in self._registry.service_metadata:
+            self._registry.service_metadata[agent_id] = {}
+        self._registry.service_metadata[agent_id][service_name] = metadata
+    
+    def get_all_service_names(self, agent_id: str) -> List[str]:
+        """获取指定 Agent 的所有服务名称"""
+        names = set()
+        names.update(self._registry.service_states.get(agent_id, {}).keys())
+        names.update(self._registry.service_metadata.get(agent_id, {}).keys())
+        names.update(self._registry.sessions.get(agent_id, {}).keys())
+        return list(names)
+    
+    async def delete_service_state_async(self, agent_id: str, service_name: str) -> None:
+        """异步删除服务状态"""
+        if agent_id in self._registry.service_states:
+            self._registry.service_states[agent_id].pop(service_name, None)
+    
+    async def delete_service_metadata_async(self, agent_id: str, service_name: str) -> None:
+        """异步删除服务元数据"""
+        if agent_id in self._registry.service_metadata:
+            self._registry.service_metadata[agent_id].pop(service_name, None)
+
+
+class _AgentClientServiceAdapter:
+    """
+    AgentClientMappingService 兼容性适配器
+    
+    提供旧的 AgentClientMappingService API，将调用转发到 ServiceRegistry 的内存字典
+    """
+    
+    def __init__(self, registry: 'ServiceRegistry'):
+        self._registry = registry
+    
+    def get_service_client_id(self, agent_id: str, service_name: str) -> Optional[str]:
+        """获取服务对应的 Client ID"""
+        return self._registry.service_to_client.get(agent_id, {}).get(service_name)
+    
+    def set_service_client_mapping(self, agent_id: str, service_name: str, client_id: str) -> None:
+        """设置 Service-Client 映射"""
+        if agent_id not in self._registry.service_to_client:
+            self._registry.service_to_client[agent_id] = {}
+        self._registry.service_to_client[agent_id][service_name] = client_id
+    
+    def add_service_client_mapping(self, agent_id: str, service_name: str, client_id: str) -> None:
+        """添加 Service-Client 映射（set_service_client_mapping 的别名）"""
+        self.set_service_client_mapping(agent_id, service_name, client_id)
+    
+    def remove_service_client_mapping(self, agent_id: str, service_name: str) -> None:
+        """移除 Service-Client 映射"""
+        if agent_id in self._registry.service_to_client:
+            self._registry.service_to_client[agent_id].pop(service_name, None)
+    
+    def add_agent_client_mapping(self, agent_id: str, client_id: str) -> None:
+        """添加 Agent-Client 映射（兼容性方法，暂不实现）"""
+        pass
+    
+    def remove_agent_client_mapping(self, agent_id: str, client_id: str) -> None:
+        """移除 Agent-Client 映射（兼容性方法，暂不实现）"""
+        pass
+    
+    def get_services_by_client_id(self, client_id: str) -> List[tuple]:
+        """根据 Client ID 获取所有服务"""
+        services = []
+        for agent_id, service_map in self._registry.service_to_client.items():
+            for service_name, cid in service_map.items():
+                if cid == client_id:
+                    services.append((agent_id, service_name))
+        return services
+
+
+class _ClientConfigServiceAdapter:
+    """
+    ClientConfigService 兼容性适配器
+    
+    提供旧的 ClientConfigService API
+    """
+    
+    def __init__(self, registry: 'ServiceRegistry'):
+        self._registry = registry
+        self._client_configs: Dict[str, Dict[str, Any]] = {}
+    
+    def get_client_config_from_cache(self, client_id: str) -> Optional[Dict[str, Any]]:
+        """从缓存获取客户端配置"""
+        return self._client_configs.get(client_id)
+    
+    def set_client_config(self, client_id: str, config: Dict[str, Any]) -> None:
+        """设置客户端配置"""
+        self._client_configs[client_id] = config
+    
+    def add_client_config(self, client_id: str, config: Dict[str, Any]) -> None:
+        """添加客户端配置（set_client_config 的别名）"""
+        self.set_client_config(client_id, config)
+    
+    def remove_client_config(self, client_id: str) -> None:
+        """移除客户端配置"""
+        self._client_configs.pop(client_id, None)
+
+
+class _ToolManagementServiceAdapter:
+    """
+    ToolManagementService 兼容性适配器
+    
+    提供旧的 ToolManagementService API
+    """
+    
+    def __init__(self, registry: 'ServiceRegistry'):
+        self._registry = registry
+    
+    def get_all_tools(self, agent_id: str) -> List[Dict[str, Any]]:
+        """获取指定 Agent 的所有工具"""
+        tools = []
+        for tool_name, session in self._registry.tool_to_session_map.get(agent_id, {}).items():
+            # 从 tool_to_service 获取服务名
+            service_name = self._registry.tool_to_service.get(agent_id, {}).get(tool_name)
+            tools.append({
+                "name": tool_name,
+                "service_name": service_name,
+                "session": session
+            })
+        return tools
+    
+    def get_tool_by_name(self, agent_id: str, tool_name: str) -> Optional[Dict[str, Any]]:
+        """根据名称获取工具"""
+        session = self._registry.tool_to_session_map.get(agent_id, {}).get(tool_name)
+        if session is None:
+            return None
+        service_name = self._registry.tool_to_service.get(agent_id, {}).get(tool_name)
+        return {
+            "name": tool_name,
+            "service_name": service_name,
+            "session": session
+        }
+    
+    def get_tools_by_service(self, agent_id: str, service_name: str) -> List[Dict[str, Any]]:
+        """获取指定服务的所有工具"""
+        tools = []
+        for tool_name, svc_name in self._registry.tool_to_service.get(agent_id, {}).items():
+            if svc_name == service_name:
+                session = self._registry.tool_to_session_map.get(agent_id, {}).get(tool_name)
+                tools.append({
+                    "name": tool_name,
+                    "service_name": service_name,
+                    "session": session
+                })
+        return tools

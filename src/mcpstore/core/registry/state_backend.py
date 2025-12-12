@@ -93,8 +93,18 @@ class KVRegistryStateBackend(RegistryStateBackend):
 
     @staticmethod
     def _collection(agent_id: str, data_type: str) -> str:
-        """Generate collection name consistent with ServiceRegistry._get_collection."""
-        return f"agent:{agent_id}:{data_type}"
+        """
+        生成 Collection 名称。
+        
+        注意：此方法已废弃，不应再使用旧的命名格式。
+        新的缓存架构使用三层 Collection 命名规范。
+        """
+        raise NotImplementedError(
+            "旧的 Collection 命名格式已废弃。请使用新的三层缓存架构：\n"
+            "- 实体层: {namespace}:entity:{entity_type}\n"
+            "- 关系层: {namespace}:relations:{relation_type}\n"
+            "- 状态层: {namespace}:state:{state_type}"
+        )
 
     # Service state -------------------------------------------------------
 
