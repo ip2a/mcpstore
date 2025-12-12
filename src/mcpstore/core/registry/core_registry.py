@@ -521,46 +521,30 @@ class ServiceRegistry:
         #  清理新增的缓存字段
         self.service_states.pop(agent_id, None)
         self.service_metadata.pop(agent_id, None)
-        # service_to_client removed - no longer in memory
-        # agent_clients removed - derived from service_client mappings
 
-        # 清理Agent-Client映射和相关Client配置
-        # Get client_ids from pyvk instead of memory
-        try:
-            helper = self._ensure_sync_helper()
-            client_ids = helper.run_async(
-                self._state_backend.list_agent_clients(agent_id),
-                timeout=5.0
-            )
-        except Exception as e:
-            logger.warning(f"Failed to get agent_clients for {agent_id} during clear: {e}")
-            client_ids = []
+        # 清理 Agent-Client 映射和相关 Client 配置
+        # 从内存中的 service_to_client 获取 client_ids
+        client_ids = set()
+        for service_name, client_id in self.service_to_client.get(agent_id, {}).items():
+            if client_id:
+                client_ids.add(client_id)
+        
+        # 清理 service_to_client 映射
+        self.service_to_client.pop(agent_id, None)
 
         for client_id in client_ids:
-            # 检查client是否被其他agent使用
-            # Get all agent_ids and check if any other agent uses this client_id
-            all_agent_ids = self.get_all_agent_ids()
+            # 检查 client 是否被其他 agent 使用
             is_used_by_others = False
-            for other_agent in all_agent_ids:
+            for other_agent, service_map in self.service_to_client.items():
                 if other_agent == agent_id:
                     continue
-                try:
-                    other_clients = helper.run_async(
-                        self._state_backend.list_agent_clients(other_agent),
-                        timeout=5.0
-                    )
-                    if client_id in other_clients:
-                        is_used_by_others = True
-                        break
-                except Exception:
-                    pass
+                if client_id in service_map.values():
+                    is_used_by_others = True
+                    break
 
             if not is_used_by_others:
-                # Delete client config from pyvk
+                # 删除 client 配置
                 self._client_config_service.remove_client_config(client_id)
-
-        # TODO: Also clear pyvk data for this agent_id
-        # This requires async operation, consider adding clear_async() method
 
     def _remove_service_tools(self, agent_id: str, service_name: str):
         tools_to_remove = [
@@ -725,6 +709,15 @@ class ServiceRegistry:
                     f"Tool name conflict: '{tool_name}' from {name} for agent {agent_id}. Skipping.")
                 continue
 
+            # 提取工具的真正原始名称（从 tool_definition 中获取）
+            # connection_manager._process_tools 传入的 tool_name 是 display_name（带服务前缀）
+            # 真正的原始名称存储在 tool_definition["function"]["name"] 中
+            actual_original_name = tool_name  # 默认使用传入的名称
+            if "function" in tool_definition:
+                func_name = tool_definition["function"].get("name")
+                if func_name:
+                    actual_original_name = func_name
+            
             # 生成工具全局名称
             tool_global_name = self._naming.generate_tool_global_name(service_global_name, tool_name)
 
@@ -734,7 +727,7 @@ class ServiceRegistry:
                     service_global_name=service_global_name,
                     service_original_name=name,
                     source_agent=agent_id,
-                    tool_original_name=tool_name,
+                    tool_original_name=actual_original_name,
                     tool_def=tool_definition
                 ),
                 f"create_tool:{tool_global_name}"
@@ -747,7 +740,7 @@ class ServiceRegistry:
                     service_original_name=name,
                     source_agent=agent_id,
                     tool_global_name=tool_global_name,
-                    tool_original_name=tool_name
+                    tool_original_name=actual_original_name
                 ),
                 f"add_service_tool:{service_global_name}:{tool_global_name}"
             )
@@ -755,11 +748,35 @@ class ServiceRegistry:
             # 存储工具到会话映射（仅内存）
             self.tool_to_session_map[agent_id][tool_name] = session
 
-            added_tool_names.append(tool_global_name)
+            added_tool_names.append((tool_global_name, actual_original_name))
 
+        # 7. 更新服务状态中的工具列表（工具注册完成后）
+        if added_tool_names:
+            tools_status = [
+                {
+                    "tool_global_name": tool_global_name,
+                    "tool_original_name": tool_original_name,
+                    "status": "available"
+                }
+                for tool_global_name, tool_original_name in added_tool_names
+            ]
+            self._sync_to_kv(
+                self._state_manager.update_service_status(
+                    service_global_name=service_global_name,
+                    health_status=state.value,
+                    tools_status=tools_status
+                ),
+                f"update_service_status_with_tools:{service_global_name}"
+            )
+            logger.debug(
+                f"[TOOL_STATUS] 更新服务状态工具列表: "
+                f"service={service_global_name}, tools_count={len(tools_status)}"
+            )
+
+        tool_global_names = [t[0] for t in added_tool_names]
         logger.debug(f"Service added: {name} ({state.value}, {len(tools)} tools) for agent {agent_id}")
-        logger.debug(f"Global name: {service_global_name}, Added tools: {added_tool_names}")
-        return added_tool_names
+        logger.debug(f"Global name: {service_global_name}, Added tools: {tool_global_names}")
+        return tool_global_names
 
     def add_failed_service(self, agent_id: str, name: str, service_config: Dict[str, Any],
                            error_message: str, state: 'ServiceConnectionState' = None):
@@ -1288,6 +1305,63 @@ class ServiceRegistry:
             f"Retrieved {len(all_tools)} tools from {len(self.get_all_service_names(agent_id))} services for agent {agent_id}")
         return all_tools
 
+    def list_tools(self, agent_id: str) -> List['ToolInfo']:
+        """
+        列出指定 agent_id 下所有工具（返回 ToolInfo 对象列表）
+        
+        此方法是 get_all_tools 的包装，将字典转换为 ToolInfo 对象，
+        以便调用方可以使用 .name 和 .service_name 等属性访问。
+        
+        Args:
+            agent_id: Agent ID
+            
+        Returns:
+            ToolInfo 对象列表
+            
+        Note:
+            使用新的三层缓存架构获取工具数据
+        """
+        from ..models.tool import ToolInfo
+        
+        # 使用新的缓存架构获取工具
+        tools_dict = self._sync_to_kv(
+            self._get_all_tools_dict_async(agent_id),
+            f"list_tools:{agent_id}"
+        )
+        
+        # 确保 tools_dict 不为 None
+        if tools_dict is None:
+            tools_dict = {}
+        
+        result: List['ToolInfo'] = []
+        for tool_global_name, tool_def in tools_dict.items():
+            try:
+                # 从工具定义中提取信息
+                # 优先使用 service_global_name，因为工具注册时使用的是全局名称
+                service_name = tool_def.get("service_global_name") or tool_def.get("service_name", "")
+                tool_name = tool_def.get("name") or tool_def.get("tool_original_name", tool_global_name)
+                description = tool_def.get("description", "")
+                input_schema = tool_def.get("inputSchema") or tool_def.get("parameters")
+                
+                # 创建 ToolInfo 对象
+                tool_info = ToolInfo(
+                    name=tool_name,
+                    description=description,
+                    service_name=service_name,
+                    client_id=None,
+                    inputSchema=input_schema
+                )
+                result.append(tool_info)
+            except Exception as e:
+                logger.warning(
+                    f"[REGISTRY] 转换工具信息失败: tool={tool_global_name}, error={e}"
+                )
+        
+        logger.debug(
+            f"[REGISTRY] list_tools: agent_id={agent_id}, count={len(result)}"
+        )
+        return result
+
     def get_all_tool_info(self, agent_id: str) -> List[Dict[str, Any]]:
         """
         获取指定 agent_id 下所有工具的详细信息。
@@ -1412,22 +1486,28 @@ class ServiceRegistry:
         """
         获取指定 agent_id 下某工具的详细信息，返回格式化的工具信息。
 
-        Note: Now reads directly from pyvk (single source of truth).
+        Note: 使用新的三层缓存架构获取工具信息
         """
-        # Read tool from pyvk
-        tool_def = self._sync_to_kv(
-            self._tool_management_service._state_backend.get_tool(agent_id, tool_name),
-            f"get_tool:{agent_id}:{tool_name}"
+        # 使用新的缓存架构获取工具
+        tools_dict = self._sync_to_kv(
+            self._get_all_tools_dict_async(agent_id),
+            f"list_tools:{agent_id}"
         )
+        
+        if tools_dict is None:
+            tools_dict = {}
+        
+        tool_def = tools_dict.get(tool_name)
         if not tool_def:
             return None
 
         session = self.tool_to_session_map.get(agent_id, {}).get(tool_name)
-        service_name = None
-        if session:
+        service_name = tool_def.get("service_name")
+        if not service_name and session:
             for name, sess in self.sessions.get(agent_id, {}).items():
                 if sess is session:
                     service_name = name
+                    break
                     break
 
         # 获取 Client ID
@@ -1460,18 +1540,24 @@ class ServiceRegistry:
         """
         获取指定 agent_id 下某工具的详细信息。
 
-        Note: Now reads directly from pyvk (single source of truth).
+        Note: 使用新的三层缓存架构获取工具信息
         """
-        # Read tool from pyvk
-        tool_def = self._sync_to_kv(
-            self._tool_management_service._state_backend.get_tool(agent_id, tool_name),
-            f"get_tool:{agent_id}:{tool_name}"
+        # 使用新的缓存架构获取工具
+        tools_dict = self._sync_to_kv(
+            self._get_all_tools_dict_async(agent_id),
+            f"list_tools:{agent_id}"
         )
+        
+        if tools_dict is None:
+            tools_dict = {}
+        
+        tool_def = tools_dict.get(tool_name)
         if not tool_def:
             return {}
+        
         session = self.tool_to_session_map.get(agent_id, {}).get(tool_name)
-        service_name = None
-        if session:
+        service_name = tool_def.get("service_name")
+        if not service_name and session:
             for name, sess in self.sessions.get(agent_id, {}).items():
                 if sess is session:
                     service_name = name
@@ -1493,8 +1579,8 @@ class ServiceRegistry:
                 "display_name": tool_def.get("display_name", tool_name),
                 "description": tool_def.get("description", ""),
                 "service_name": service_name,
-                "inputSchema": tool_def.get("parameters", {}),
-                "original_name": tool_def.get("name", tool_name)
+                "inputSchema": tool_def.get("inputSchema", tool_def.get("parameters", {})),
+                "original_name": tool_def.get("original_name", tool_def.get("name", tool_name))
             }
         return tool_info
 
@@ -1844,7 +1930,8 @@ class ServiceRegistry:
 
     @map_kv_exception
     async def delete_service_client_mapping_async(self, agent_id: str, service_name: str) -> None:
-        await self._state_backend.delete_service_client(agent_id, service_name)
+        """异步删除 Service-Client 映射"""
+        self.remove_service_client_mapping(agent_id, service_name)
 
     def get_repository(self):
         """Return a Repository-style thin facade bound to this registry.
@@ -1856,94 +1943,109 @@ class ServiceRegistry:
             raise RuntimeError(f"CacheRepository unavailable: {e}")
         return CacheRepository(self)
 
-    # ===  新增：Agent 服务映射管理 ===
+    # ===  Agent 服务映射管理（使用关系层） ===
 
     def add_agent_service_mapping(self, agent_id: str, local_name: str, global_name: str):
         """
-        建立 Agent 服务映射关系（委托给 ToolSetManager）
+        建立 Agent 服务映射关系（使用关系层）
 
         Args:
             agent_id: Agent ID
             local_name: Agent 中的本地服务名
             global_name: Store 中的全局服务名（带后缀）
+            
+        Raises:
+            RuntimeError: 如果添加失败
         """
-        # 委托给 ToolSetManager，存储到 pyvk
-        if self._tool_set_manager:
-            self._sync_to_kv(
-                self._tool_set_manager.create_service_mapping_async(agent_id, local_name, global_name),
-                f"agent_mapping:{agent_id}:{local_name}"
-            )
-            logger.debug(f" [AGENT_MAPPING] Added mapping to pyvk: {agent_id}:{local_name} ↔ {global_name}")
-        else:
-            logger.warning(f" [AGENT_MAPPING] ToolSetManager not available, mapping not persisted")
+        # 使用关系层存储映射
+        # 注意：add_agent_service 需要 client_id，这里生成一个
+        client_id = f"client_{agent_id}_{local_name}"
+        self._sync_to_kv(
+            self._relation_manager.add_agent_service(
+                agent_id=agent_id,
+                service_original_name=local_name,
+                service_global_name=global_name,
+                client_id=client_id
+            ),
+            f"agent_mapping:{agent_id}:{local_name}"
+        )
+        logger.debug(f"[AGENT_MAPPING] Added mapping: {agent_id}:{local_name} -> {global_name}")
 
     def get_global_name_from_agent_service(self, agent_id: str, local_name: str) -> Optional[str]:
-        """获取 Agent 服务对应的全局名称（从 pyvk 读取）"""
-        if self._tool_set_manager:
-            # 从 pyvk 读取映射
-            result = self._sync_to_kv(
-                self._tool_set_manager.get_global_name_async(agent_id, local_name),
-                f"get_mapping:{agent_id}:{local_name}"
-            )
-            return result
-        else:
-            logger.warning(f" [AGENT_MAPPING] ToolSetManager not available")
+        """获取 Agent 服务对应的全局名称（从关系层读取）"""
+        # 从关系层读取 Agent 的所有服务
+        services = self._sync_to_kv(
+            self._relation_manager.get_agent_services(agent_id),
+            f"get_agent_services:{agent_id}"
+        )
+        
+        if not services:
             return None
+        
+        # 查找匹配的服务
+        for service in services:
+            if service.get("service_original_name") == local_name:
+                return service.get("service_global_name")
+        
+        return None
 
     def get_agent_service_from_global_name(self, global_name: str) -> Optional[Tuple[str, str]]:
-        """获取全局服务名对应的 Agent 服务信息（从 pyvk 读取）"""
-        if self._tool_set_manager:
-            # 从 pyvk 读取反向映射
-            result = self._sync_to_kv(
-                self._tool_set_manager.get_local_name_async(global_name),
-                f"get_reverse_mapping:{global_name}"
-            )
-            return result
-        else:
-            logger.warning(f" [AGENT_MAPPING] ToolSetManager not available")
+        """获取全局服务名对应的 Agent 服务信息（从关系层读取）
+        
+        Returns:
+            Tuple[agent_id, local_name] 或 None
+        """
+        # 从全局名称解析 agent_id（格式：service_byagent_agentid）
+        from mcpstore.core.context.agent_service_mapper import AgentServiceMapper
+        
+        if not AgentServiceMapper.is_any_agent_service(global_name):
+            return None
+        
+        # 解析 agent_id 和 local_name
+        try:
+            parts = global_name.rsplit("_byagent_", 1)
+            if len(parts) != 2:
+                return None
+            local_name, agent_id = parts
+            return (agent_id, local_name)
+        except Exception:
             return None
 
     def get_agent_services(self, agent_id: str) -> List[str]:
-        """获取 Agent 的所有服务（全局名称，从 pyvk 读取）"""
-        if self._tool_set_manager:
-            # 从 pyvk 读取所有映射
-            mappings = self._sync_to_kv(
-                self._tool_set_manager.get_all_mappings_async(agent_id),
-                f"get_all_mappings:{agent_id}"
-            )
-            if mappings:
-                return list(mappings.values())
+        """获取 Agent 的所有服务（全局名称，从关系层读取）"""
+        # 从关系层读取 Agent 的所有服务
+        services = self._sync_to_kv(
+            self._relation_manager.get_agent_services(agent_id),
+            f"get_agent_services:{agent_id}"
+        )
+        
+        if not services:
             return []
-        else:
-            logger.warning(f" [AGENT_MAPPING] ToolSetManager not available")
-            return []
+        
+        # 返回全局名称列表
+        return [service.get("service_global_name") for service in services if service.get("service_global_name")]
 
     def is_agent_service(self, global_name: str) -> bool:
-        """判断是否为 Agent 服务（从 pyvk 读取）"""
-        if self._tool_set_manager:
-            result = self._sync_to_kv(
-                self._tool_set_manager.get_local_name_async(global_name),
-                f"check_agent_service:{global_name}"
-            )
-            return result is not None
-        else:
-            logger.warning(f" [AGENT_MAPPING] ToolSetManager not available")
-            return False
+        """判断是否为 Agent 服务（通过名称格式判断）"""
+        from mcpstore.core.context.agent_service_mapper import AgentServiceMapper
+        return AgentServiceMapper.is_any_agent_service(global_name)
 
     def remove_agent_service_mapping(self, agent_id: str, local_name: str):
-        """移除 Agent 服务映射（从 pyvk 删除）"""
-        if self._tool_set_manager:
-            # 先获取 global_name
-            global_name = self.get_global_name_from_agent_service(agent_id, local_name)
-            if global_name:
-                # 从 pyvk 删除映射
+        """移除 Agent 服务映射（从关系层删除）"""
+        # 先获取 global_name
+        global_name = self.get_global_name_from_agent_service(agent_id, local_name)
+        if global_name:
+            # 从关系层删除映射
+            try:
                 self._sync_to_kv(
-                    self._tool_set_manager.delete_service_mapping_async(agent_id, local_name),
-                    f"delete_mapping:{agent_id}:{local_name}"
+                    self._relation_manager.remove_agent_service(agent_id, global_name),
+                    f"remove_agent_service:{agent_id}:{global_name}"
                 )
-                logger.debug(f" [AGENT_MAPPING] Removed mapping from pyvk: {agent_id}:{local_name} ↔ {global_name}")
+                logger.debug(f"[AGENT_MAPPING] Removed mapping: {agent_id}:{local_name} -> {global_name}")
+            except KeyError:
+                logger.warning(f"[AGENT_MAPPING] Mapping not found: {agent_id}:{local_name}")
         else:
-            logger.warning(f" [AGENT_MAPPING] ToolSetManager not available")
+            logger.warning(f"[AGENT_MAPPING] Global name not found for: {agent_id}:{local_name}")
 
     # ===  新增：完整的服务信息获取 ===
 

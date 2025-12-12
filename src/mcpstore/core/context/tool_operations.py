@@ -16,78 +16,87 @@ class ToolOperationsMixin:
 
     def _is_tool_available(
         self,
-        agent_id: str,
-        service_name: str,
+        service_global_name: str,
         tool_name: str
     ) -> bool:
         """
-        检查工具是否在可用集合中（同步版本）
+        检查工具是否可用（同步版本）
+        
+        使用状态层的 tools[].status 字段作为唯一数据源。
         
         Args:
-            agent_id: Agent ID
-            service_name: 服务名称
-            tool_name: 工具名称
+            service_global_name: 服务全局名称
+            tool_name: 工具名称（可以是全局名称或原始名称）
         
         Returns:
             True 如果工具可用，否则 False
+            
+        Raises:
+            RuntimeError: 如果服务状态不存在
         """
         return self._sync_helper.run_async(
-            self._is_tool_available_async(agent_id, service_name, tool_name),
+            self._is_tool_available_async(service_global_name, tool_name),
             force_background=True
         )
 
     async def _is_tool_available_async(
         self,
-        agent_id: str,
-        service_name: str,
+        service_global_name: str,
         tool_name: str
     ) -> bool:
         """
-        检查工具是否在可用集合中（异步版本）
+        检查工具是否可用（异步版本）
+        
+        使用状态层的 tools[].status 字段作为唯一数据源。
         
         Args:
-            agent_id: Agent ID
-            service_name: 服务名称
-            tool_name: 工具名称
+            service_global_name: 服务全局名称
+            tool_name: 工具名称（可以是全局名称或原始名称）
         
         Returns:
             True 如果工具可用，否则 False
+            
+        Raises:
+            RuntimeError: 如果服务状态不存在
         """
-        try:
-            # 获取 ToolSetManager
-            tool_set_manager = self._store.tool_set_manager
-            
-            # 获取工具集状态
-            state = await tool_set_manager.get_state_async(agent_id, service_name)
-            
-            # 如果状态不存在，默认所有工具可用（向后兼容）
-            if state is None:
-                logger.debug(
-                    f"工具集状态不存在，默认可用: agent_id={agent_id}, "
-                    f"service={service_name}, tool={tool_name}"
-                )
-                return True
-            
-            # 检查工具是否在可用集合中
-            # 需要提取工具的原始名称（去除服务前缀）
-            original_tool_name = self._extract_original_tool_name(tool_name, service_name)
-            is_available = original_tool_name in state.available_tools
-            
-            logger.debug(
-                f"工具可用性检查: agent_id={agent_id}, service={service_name}, "
-                f"tool={tool_name}, original={original_tool_name}, available={is_available}"
+        # 获取 StateManager
+        state_manager = self._store.registry._state_manager
+        
+        # 获取服务状态
+        service_status = await state_manager.get_service_status(service_global_name)
+        
+        if service_status is None:
+            raise RuntimeError(
+                f"服务状态不存在，无法检查工具可用性: "
+                f"service_global_name={service_global_name}, tool={tool_name}"
             )
-            
-            return is_available
-            
-        except Exception as e:
-            logger.error(
-                f"检查工具可用性失败: agent_id={agent_id}, "
-                f"service={service_name}, tool={tool_name}, error={e}",
-                exc_info=True
+        
+        # 提取工具的原始名称（去除服务前缀）
+        original_tool_name = self._extract_original_tool_name(tool_name, service_global_name)
+        
+        # 在 tools 列表中查找工具状态
+        tool_status_item = None
+        for tool in service_status.tools:
+            if tool.tool_original_name == original_tool_name:
+                tool_status_item = tool
+                break
+        
+        if tool_status_item is None:
+            raise RuntimeError(
+                f"工具不存在于服务状态中: "
+                f"service_global_name={service_global_name}, tool={tool_name}, "
+                f"original_tool_name={original_tool_name}"
             )
-            # 出错时默认可用（向后兼容）
-            return True
+        
+        is_available = tool_status_item.status == "available"
+        
+        logger.debug(
+            f"工具可用性检查: service={service_global_name}, "
+            f"tool={tool_name}, original={original_tool_name}, "
+            f"status={tool_status_item.status}, available={is_available}"
+        )
+        
+        return is_available
 
     def _extract_original_tool_name(self, tool_name: str, service_name: str) -> str:
         """
@@ -117,7 +126,7 @@ class ToolOperationsMixin:
         
         参数说明：
         - filter="available" (默认): 返回当前可用工具集
-        - filter="all": 返回原始完整工具集(忽略 add/remove 操作)
+        - filter="all": 返回原始完整工具集(忽略状态过滤)
         
         Args:
             service_name: 服务名称(可选,None表示所有服务)
@@ -146,47 +155,10 @@ class ToolOperationsMixin:
             original = ctx.list_tools(service_name="weather", filter="all")
             removed = set(original) - set(current)
         """
-        # Unified waiting strategy: Get consistent snapshot from orchestrator
-        logger.info(f"[LIST_TOOLS] start (snapshot) filter={filter}")
-        try:
-            agent_id = self._agent_id if self._context_type == ContextType.AGENT else None
-            snapshot = self._store.orchestrator._sync_helper.run_async(
-                self._store.orchestrator.tools_snapshot(agent_id),
-                force_background=True
-            )
-            # Map to ToolInfo
-            all_tools = [ToolInfo(**t) for t in snapshot if isinstance(t, dict)]
-            
-            # 如果指定了服务名称，筛选该服务的工具
-            if service_name:
-                all_tools = [t for t in all_tools if t.service_name == service_name]
-            
-            # 如果 filter="all"，直接返回原始列表
-            if filter == "all":
-                logger.info(f"[LIST_TOOLS] filter=all count={len(all_tools)}")
-                return all_tools
-            
-            # 如果 filter="available"，应用工具集筛选
-            # Store 级别不筛选，Agent 级别应用筛选
-            if self._context_type != ContextType.AGENT or not agent_id:
-                logger.info(f"[LIST_TOOLS] store_mode count={len(all_tools)}")
-                return all_tools
-            
-            # Agent 级别，应用工具集筛选
-            filtered_tools = []
-            for tool in all_tools:
-                if self._is_tool_available(agent_id, tool.service_name, tool.name):
-                    filtered_tools.append(tool)
-            
-            logger.info(
-                f"[LIST_TOOLS] filter=available agent={agent_id} "
-                f"total={len(all_tools)} available={len(filtered_tools)}"
-            )
-            return filtered_tools
-            
-        except Exception as e:
-            logger.error(f"[LIST_TOOLS] snapshot error: {e}")
-            return []
+        return self._sync_helper.run_async(
+            self.list_tools_async(service_name, filter=filter),
+            force_background=True
+        )
 
     async def list_tools_async(
         self,
@@ -197,6 +169,8 @@ class ToolOperationsMixin:
         """
         列出工具（异步版本）
         
+        Store 和 Agent 模式都会根据状态层的 tools[].status 进行过滤。
+        
         Args:
             service_name: 服务名称(可选,None表示所有服务)
             filter: 筛选范围,可选值:
@@ -206,8 +180,15 @@ class ToolOperationsMixin:
         Returns:
             工具列表
         """
-        # Unified to read orchestrator snapshot
-        agent_id = self._agent_id if self._context_type == ContextType.AGENT else None
+        logger.info(f"[LIST_TOOLS] start filter={filter} context_type={self._context_type.name}")
+        
+        # 获取 agent_id（Store 模式使用 global_agent_store）
+        if self._context_type == ContextType.AGENT:
+            agent_id = self._agent_id
+        else:
+            agent_id = self._store.orchestrator.client_manager.global_agent_store_id
+        
+        # 从 orchestrator 获取工具快照
         snapshot = await self._store.orchestrator.tools_snapshot(agent_id)
         all_tools = [ToolInfo(**t) for t in snapshot if isinstance(t, dict)]
         
@@ -217,19 +198,57 @@ class ToolOperationsMixin:
         
         # 如果 filter="all"，直接返回原始列表
         if filter == "all":
+            logger.info(f"[LIST_TOOLS] filter=all count={len(all_tools)}")
             return all_tools
         
-        # 如果 filter="available"，应用工具集筛选
-        # Store 级别不筛选，Agent 级别应用筛选
-        if self._context_type != ContextType.AGENT or not agent_id:
-            return all_tools
+        # filter="available"，使用状态层进行过滤
+        # Store 和 Agent 模式都进行过滤
         
-        # Agent 级别，应用工具集筛选
+        # Agent 模式下，需要构建本地服务名到全局服务名的映射
+        # 因为 tools_snapshot 返回的是投影后的本地名称，但状态层存储的是全局名称
+        local_to_global_map: Dict[str, str] = {}
+        if self._context_type == ContextType.AGENT and self._agent_id:
+            # 从关系层获取 Agent 的服务映射
+            agent_services = await self._store.registry._relation_manager.get_agent_services(self._agent_id)
+            for svc in agent_services:
+                global_name = svc.get("service_global_name")
+                local_name = svc.get("service_original_name")
+                if global_name and local_name:
+                    local_to_global_map[local_name] = global_name
+            logger.debug(f"[LIST_TOOLS] Agent local_to_global_map: {local_to_global_map}")
+        
         filtered_tools = []
         for tool in all_tools:
-            if await self._is_tool_available_async(agent_id, tool.service_name, tool.name):
+            # 获取服务的全局名称
+            local_service_name = tool.service_name
+            
+            # Agent 模式下，将本地服务名映射到全局服务名
+            if self._context_type == ContextType.AGENT and local_service_name in local_to_global_map:
+                service_global_name = local_to_global_map[local_service_name]
+                # 同时需要将工具名也映射到全局名称
+                tool_global_name = tool.name.replace(
+                    f"{local_service_name}_",
+                    f"{service_global_name}_",
+                    1
+                )
+            else:
+                # Store 模式或没有映射的情况，直接使用原名称
+                service_global_name = local_service_name
+                tool_global_name = tool.name
+            
+            # 检查工具可用性
+            is_available = await self._is_tool_available_async(
+                service_global_name,
+                tool_global_name
+            )
+            
+            if is_available:
                 filtered_tools.append(tool)
         
+        logger.info(
+            f"[LIST_TOOLS] filter=available agent_id={agent_id} "
+            f"total={len(all_tools)} available={len(filtered_tools)}"
+        )
         return filtered_tools
 
     def get_tools_with_stats(self) -> Dict[str, Any]:
@@ -576,37 +595,45 @@ class ToolOperationsMixin:
                 "is_error": True
             }
 
-        # 🎯 工具可用性拦截：Agent 模式下检查工具是否可用
+        # 工具可用性拦截：Store 和 Agent 模式都检查工具是否可用
+        # 获取服务的全局名称
         if self._context_type == ContextType.AGENT and self._agent_id:
-            # 提取原始工具名称（去除服务前缀）
+            # Agent 模式：需要将本地服务名映射到全局服务名
+            service_global_name = await self._map_agent_tool_to_global_service(
+                resolution.service_name, fastmcp_tool_name
+            )
+        else:
+            # Store 模式：服务名就是全局名称
+            service_global_name = resolution.service_name
+        
+        # 检查工具是否可用
+        is_available = await self._is_tool_available_async(
+            service_global_name,
+            fastmcp_tool_name
+        )
+        
+        if not is_available:
+            # 工具不可用，抛出异常
+            from mcpstore.core.exceptions import ToolNotAvailableError
+            
             original_tool_name = self._extract_original_tool_name(fastmcp_tool_name, resolution.service_name)
+            agent_id = self._agent_id if self._context_type == ContextType.AGENT else "global_agent_store"
             
-            # 检查工具是否可用
-            is_available = await self._is_tool_available_async(
-                self._agent_id,
-                resolution.service_name,
-                original_tool_name
+            logger.warning(
+                f"[TOOL_INTERCEPT] 工具不可用: agent_id={agent_id}, "
+                f"service_global_name={service_global_name}, tool={original_tool_name}"
             )
             
-            if not is_available:
-                # 工具不可用，抛出异常
-                from mcpstore.core.exceptions import ToolNotAvailableError
-                
-                logger.warning(
-                    f"[TOOL_INTERCEPT] 工具不可用: agent_id={self._agent_id}, "
-                    f"service={resolution.service_name}, tool={original_tool_name}"
-                )
-                
-                raise ToolNotAvailableError(
-                    tool_name=original_tool_name,
-                    service_name=resolution.service_name,
-                    agent_id=self._agent_id
-                )
-            
-            logger.debug(
-                f"[TOOL_INTERCEPT] 工具可用性检查通过: agent_id={self._agent_id}, "
-                f"service={resolution.service_name}, tool={original_tool_name}"
+            raise ToolNotAvailableError(
+                tool_name=original_tool_name,
+                service_name=resolution.service_name,
+                agent_id=agent_id
             )
+        
+        logger.debug(
+            f"[TOOL_INTERCEPT] 工具可用性检查通过: "
+            f"service_global_name={service_global_name}, tool={fastmcp_tool_name}"
+        )
         
         # 构造标准化的工具执行请求
         from mcpstore.core.models.tool import ToolExecutionRequest
@@ -900,39 +927,35 @@ class ToolOperationsMixin:
         
         Validates: Requirements 6.6, 6.10 (数据源归属验证)
         """
-        from mcpstore.core.exceptions import DataSourceNotFoundError, ServiceMappingError
+        from mcpstore.core.exceptions import DataSourceNotFoundError
         
-        tool_set_manager = self._store.tool_set_manager
+        # 获取服务的全局名称
+        service_global_name = self._store.registry.get_global_name_from_agent_service(
+            agent_id, service_name
+        )
         
-        # 检查工具集状态键是否存在
-        state = await tool_set_manager.get_state_async(agent_id, service_name)
-        if not state:
-            logger.warning(
-                f"[TOOL_OPERATIONS] Tool set state not found: "
-                f"agent_id={agent_id}, service={service_name}"
-            )
+        if not service_global_name:
             raise DataSourceNotFoundError(
                 agent_id=agent_id,
                 service_name=service_name,
-                data_type="tool_set_state"
+                data_type="service_mapping"
             )
         
-        # 检查服务映射键是否存在
-        mapping = await tool_set_manager.get_service_mapping_async(agent_id, service_name)
-        if not mapping:
-            logger.warning(
-                f"[TOOL_OPERATIONS] Service mapping not found: "
-                f"agent_id={agent_id}, service={service_name}"
-            )
-            raise ServiceMappingError(
-                service_name=service_name,
+        # 检查服务状态是否存在
+        state_manager = self._store.registry._state_manager
+        service_status = await state_manager.get_service_status(service_global_name)
+        
+        if not service_status:
+            raise DataSourceNotFoundError(
                 agent_id=agent_id,
-                mapping_type="local_to_global"
+                service_name=service_name,
+                data_type="service_status"
             )
         
         logger.debug(
             f"[TOOL_OPERATIONS] Verified data source ownership: "
-            f"agent_id={agent_id}, service={service_name}"
+            f"agent_id={agent_id}, service={service_name}, "
+            f"service_global_name={service_global_name}"
         )
 
     def add_tools(
@@ -1000,6 +1023,8 @@ class ToolOperationsMixin:
         """
         添加工具到当前可用集合（异步版本）
         
+        使用 StateManager 更新工具状态为 "available"。
+        
         Args:
             service: 服务标识
             tools: 工具标识
@@ -1016,40 +1041,51 @@ class ToolOperationsMixin:
         if isinstance(service_names, str):
             service_names = [service_names]
         
-        # 获取 ToolSetManager
-        tool_set_manager = self._store.tool_set_manager
+        # 获取 StateManager
+        state_manager = self._store.registry._state_manager
         
         # 对每个服务执行添加操作
-        errors = []
         for service_name in service_names:
-            try:
-                # 验证数据源归属
-                await self._verify_data_source_ownership(self._agent_id, service_name)
-                
-                await tool_set_manager.add_tools_async(
-                    self._agent_id,
-                    service_name,
-                    tools
+            # 验证数据源归属
+            await self._verify_data_source_ownership(self._agent_id, service_name)
+            
+            # 获取服务的全局名称
+            service_global_name = self._store.registry.get_global_name_from_agent_service(
+                self._agent_id, service_name
+            )
+            
+            if not service_global_name:
+                raise RuntimeError(
+                    f"无法获取服务全局名称: agent_id={self._agent_id}, "
+                    f"service_name={service_name}"
                 )
-                logger.info(
-                    f"添加工具成功: agent_id={self._agent_id}, "
-                    f"service={service_name}, tools={tools}"
+            
+            # 获取服务状态
+            service_status = await state_manager.get_service_status(service_global_name)
+            
+            if not service_status:
+                raise RuntimeError(
+                    f"服务状态不存在: service_global_name={service_global_name}"
                 )
-            except Exception as e:
-                logger.error(
-                    f"添加工具失败: agent_id={self._agent_id}, "
-                    f"service={service_name}, error={e}",
-                    exc_info=True
-                )
-                errors.append((service_name, e))
-                # 如果只有一个服务，直接抛出异常
-                if len(service_names) == 1:
-                    raise
-                # 否则继续处理其他服务
-        
-        # 如果有多个服务且全部失败，抛出第一个异常
-        if errors and len(errors) == len(service_names):
-            raise errors[0][1]
+            
+            # 确定要添加的工具列表
+            if tools == "_all_tools":
+                # 添加所有工具
+                tool_names = [t.tool_original_name for t in service_status.tools]
+            else:
+                tool_names = tools
+            
+            # 批量设置工具为可用
+            await state_manager.batch_set_tools_status(
+                service_global_name,
+                tool_names,
+                "available"
+            )
+            
+            logger.info(
+                f"添加工具成功: agent_id={self._agent_id}, "
+                f"service={service_name}, tools={tool_names}"
+            )
         
         return self
 
@@ -1117,6 +1153,8 @@ class ToolOperationsMixin:
         """
         从当前可用集合移除工具（异步版本）
         
+        使用 StateManager 更新工具状态为 "unavailable"。
+        
         Args:
             service: 服务标识
             tools: 工具标识
@@ -1133,40 +1171,51 @@ class ToolOperationsMixin:
         if isinstance(service_names, str):
             service_names = [service_names]
         
-        # 获取 ToolSetManager
-        tool_set_manager = self._store.tool_set_manager
+        # 获取 StateManager
+        state_manager = self._store.registry._state_manager
         
         # 对每个服务执行移除操作
-        errors = []
         for service_name in service_names:
-            try:
-                # 验证数据源归属
-                await self._verify_data_source_ownership(self._agent_id, service_name)
-                
-                await tool_set_manager.remove_tools_async(
-                    self._agent_id,
-                    service_name,
-                    tools
+            # 验证数据源归属
+            await self._verify_data_source_ownership(self._agent_id, service_name)
+            
+            # 获取服务的全局名称
+            service_global_name = self._store.registry.get_global_name_from_agent_service(
+                self._agent_id, service_name
+            )
+            
+            if not service_global_name:
+                raise RuntimeError(
+                    f"无法获取服务全局名称: agent_id={self._agent_id}, "
+                    f"service_name={service_name}"
                 )
-                logger.info(
-                    f"移除工具成功: agent_id={self._agent_id}, "
-                    f"service={service_name}, tools={tools}"
+            
+            # 获取服务状态
+            service_status = await state_manager.get_service_status(service_global_name)
+            
+            if not service_status:
+                raise RuntimeError(
+                    f"服务状态不存在: service_global_name={service_global_name}"
                 )
-            except Exception as e:
-                logger.error(
-                    f"移除工具失败: agent_id={self._agent_id}, "
-                    f"service={service_name}, error={e}",
-                    exc_info=True
-                )
-                errors.append((service_name, e))
-                # 如果只有一个服务，直接抛出异常
-                if len(service_names) == 1:
-                    raise
-                # 否则继续处理其他服务
-        
-        # 如果有多个服务且全部失败，抛出第一个异常
-        if errors and len(errors) == len(service_names):
-            raise errors[0][1]
+            
+            # 确定要移除的工具列表
+            if tools == "_all_tools":
+                # 移除所有工具
+                tool_names = [t.tool_original_name for t in service_status.tools]
+            else:
+                tool_names = tools
+            
+            # 批量设置工具为不可用
+            await state_manager.batch_set_tools_status(
+                service_global_name,
+                tool_names,
+                "unavailable"
+            )
+            
+            logger.info(
+                f"移除工具成功: agent_id={self._agent_id}, "
+                f"service={service_name}, tools={tool_names}"
+            )
         
         return self
 
@@ -1223,6 +1272,8 @@ class ToolOperationsMixin:
         """
         重置服务的工具集为默认状态（异步版本）
         
+        将所有工具状态重置为 "available"。
+        
         Args:
             service: 服务标识
         
@@ -1238,39 +1289,48 @@ class ToolOperationsMixin:
         if isinstance(service_names, str):
             service_names = [service_names]
         
-        # 获取 ToolSetManager
-        tool_set_manager = self._store.tool_set_manager
+        # 获取 StateManager
+        state_manager = self._store.registry._state_manager
         
         # 对每个服务执行重置操作
-        errors = []
         for service_name in service_names:
-            try:
-                # 验证数据源归属
-                await self._verify_data_source_ownership(self._agent_id, service_name)
-                
-                await tool_set_manager.reset_tools_async(
-                    self._agent_id,
-                    service_name
+            # 验证数据源归属
+            await self._verify_data_source_ownership(self._agent_id, service_name)
+            
+            # 获取服务的全局名称
+            service_global_name = self._store.registry.get_global_name_from_agent_service(
+                self._agent_id, service_name
+            )
+            
+            if not service_global_name:
+                raise RuntimeError(
+                    f"无法获取服务全局名称: agent_id={self._agent_id}, "
+                    f"service_name={service_name}"
                 )
-                logger.info(
-                    f"重置工具集成功: agent_id={self._agent_id}, "
-                    f"service={service_name}"
+            
+            # 获取服务状态
+            service_status = await state_manager.get_service_status(service_global_name)
+            
+            if not service_status:
+                raise RuntimeError(
+                    f"服务状态不存在: service_global_name={service_global_name}"
                 )
-            except Exception as e:
-                logger.error(
-                    f"重置工具集失败: agent_id={self._agent_id}, "
-                    f"service={service_name}, error={e}",
-                    exc_info=True
+            
+            # 获取所有工具名称
+            all_tool_names = [t.tool_original_name for t in service_status.tools]
+            
+            # 批量设置所有工具为可用
+            if all_tool_names:
+                await state_manager.batch_set_tools_status(
+                    service_global_name,
+                    all_tool_names,
+                    "available"
                 )
-                errors.append((service_name, e))
-                # 如果只有一个服务，直接抛出异常
-                if len(service_names) == 1:
-                    raise
-                # 否则继续处理其他服务
-        
-        # 如果有多个服务且全部失败，抛出第一个异常
-        if errors and len(errors) == len(service_names):
-            raise errors[0][1]
+            
+            logger.info(
+                f"重置工具集成功: agent_id={self._agent_id}, "
+                f"service={service_name}, tools_count={len(all_tool_names)}"
+            )
         
         return self
 
@@ -1320,6 +1380,8 @@ class ToolOperationsMixin:
         """
         获取服务的工具集信息（异步版本）
         
+        使用 StateManager 获取工具状态信息。
+        
         Args:
             service: 服务标识(服务名称或服务代理对象)
         
@@ -1336,54 +1398,57 @@ class ToolOperationsMixin:
         else:
             service_name = str(service)
         
-        try:
-            # 获取 ToolSetManager
-            tool_set_manager = self._store.tool_set_manager
-            
-            # 获取工具集状态
-            state = await tool_set_manager.get_state_async(self._agent_id, service_name)
-            
-            # 获取原始工具列表
-            all_tools = await tool_set_manager._get_all_tools_async(self._agent_id, service_name)
-            
-            if state is None:
-                # 状态不存在，返回默认信息
-                return {
-                    "service_name": service_name,
-                    "total_tools": len(all_tools),
-                    "available_tools": len(all_tools),
-                    "removed_tools": 0,
-                    "utilization": 1.0,
-                    "last_modified": None,
-                    "operations": []
-                }
-            
-            # 计算统计信息
-            total_tools = len(all_tools)
-            available_tools = len(state.available_tools)
-            removed_tools = total_tools - available_tools
-            utilization = available_tools / total_tools if total_tools > 0 else 0.0
-            
-            return {
-                "service_name": service_name,
-                "total_tools": total_tools,
-                "available_tools": available_tools,
-                "removed_tools": removed_tools,
-                "utilization": round(utilization, 2),
-                "last_modified": state.updated_at,
-                "operations": state.operation_history[-10:]  # 最近10条操作
-            }
-            
-        except Exception as e:
-            logger.error(
-                f"获取工具集信息失败: agent_id={self._agent_id}, "
-                f"service={service_name}, error={e}",
-                exc_info=True
+        # 获取服务的全局名称
+        service_global_name = self._store.registry.get_global_name_from_agent_service(
+            self._agent_id, service_name
+        )
+        
+        if not service_global_name:
+            raise RuntimeError(
+                f"无法获取服务全局名称: agent_id={self._agent_id}, "
+                f"service_name={service_name}"
             )
-            return {
-                "service_name": service_name,
-                "error": str(e)
+        
+        # 获取 StateManager
+        state_manager = self._store.registry._state_manager
+        
+        # 获取服务状态
+        service_status = await state_manager.get_service_status(service_global_name)
+        
+        if not service_status:
+            raise RuntimeError(
+                f"服务状态不存在: service_global_name={service_global_name}"
+            )
+        
+        # 计算统计信息
+        total_tools = len(service_status.tools)
+        available_tools = sum(
+            1 for t in service_status.tools if t.status == "available"
+        )
+        unavailable_tools = total_tools - available_tools
+        utilization = available_tools / total_tools if total_tools > 0 else 0.0
+        
+        # 构建工具列表
+        tools_info = [
+            {
+                "name": t.tool_original_name,
+                "global_name": t.tool_global_name,
+                "status": t.status
             }
+            for t in service_status.tools
+        ]
+        
+        return {
+            "service_name": service_name,
+            "service_global_name": service_global_name,
+            "health_status": service_status.health_status,
+            "total_tools": total_tools,
+            "available_tools": available_tools,
+            "unavailable_tools": unavailable_tools,
+            "utilization": round(utilization, 2),
+            "last_health_check": service_status.last_health_check,
+            "tools": tools_info
+        }
 
     def get_tool_set_summary(self) -> Dict[str, Any]:
         """
@@ -1437,13 +1502,6 @@ class ToolOperationsMixin:
             raise ValueError("get_tool_set_summary() 仅在 Agent 模式下可用")
         
         try:
-            # 获取 ToolSetManager
-            tool_set_manager = self._store.tool_set_manager
-            
-            # 获取 Agent 元数据
-            metadata_key = tool_set_manager._get_metadata_key(self._agent_id)
-            metadata = await tool_set_manager._kv_store.get(metadata_key)
-            
             # 获取所有服务
             services = await self.list_services_async()
             service_names = [getattr(s, "name", str(s)) for s in services]
@@ -1464,15 +1522,10 @@ class ToolOperationsMixin:
                     total_available += info.get("available_tools", 0)
                     total_original += info.get("total_tools", 0)
                 except Exception as e:
-                    logger.warning(
+                    logger.error(
                         f"获取服务工具集信息失败: service={service_name}, error={e}"
                     )
-                    services_info[service_name] = {
-                        "total_tools": 0,
-                        "available_tools": 0,
-                        "utilization": 0.0,
-                        "error": str(e)
-                    }
+                    raise
             
             # 计算总体利用率
             overall_utilization = total_available / total_original if total_original > 0 else 0.0
@@ -1486,11 +1539,6 @@ class ToolOperationsMixin:
                 "overall_utilization": round(overall_utilization, 2)
             }
             
-            # 如果有元数据，添加额外信息
-            if metadata:
-                summary["last_operation"] = metadata.get("last_operation")
-                summary["statistics"] = metadata.get("statistics")
-            
             return summary
             
         except Exception as e:
@@ -1498,12 +1546,4 @@ class ToolOperationsMixin:
                 f"获取工具集摘要失败: agent_id={self._agent_id}, error={e}",
                 exc_info=True
             )
-            return {
-                "agent_id": self._agent_id,
-                "total_services": 0,
-                "services": {},
-                "total_available_tools": 0,
-                "total_original_tools": 0,
-                "overall_utilization": 0.0,
-                "error": str(e)
-            }
+            raise

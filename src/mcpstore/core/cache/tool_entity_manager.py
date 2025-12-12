@@ -122,19 +122,40 @@ class ToolEntityManager:
             tool_original_name
         )
         
-        # 检查工具是否已存在
-        existing = await self._cache_layer.get_entity("tools", tool_global_name)
-        if existing:
-            raise ValueError(
-                f"工具已存在: tool_global_name={tool_global_name}, "
-                f"tool_original_name={tool_original_name}, "
-                f"service_global_name={service_global_name}"
-            )
-        
         # 生成工具哈希
         tool_hash = self._generate_tool_hash(tool_def)
         
-        # 创建工具实体
+        # 检查工具是否已存在（基于全局名称判断）
+        existing = await self._cache_layer.get_entity("tools", tool_global_name)
+        if existing:
+            # 全局名称相同，认为是同一个实体，更新配置
+            entity = ToolEntity(
+                tool_global_name=tool_global_name,
+                tool_original_name=tool_original_name,
+                service_global_name=service_global_name,
+                service_original_name=service_original_name,
+                source_agent=source_agent,
+                description=description,
+                input_schema=input_schema,
+                created_time=existing.get("created_time", int(time.time())),
+                tool_hash=tool_hash
+            )
+            
+            await self._cache_layer.put_entity(
+                "tools",
+                tool_global_name,
+                entity.to_dict()
+            )
+            
+            logger.info(
+                f"[TOOL_ENTITY] 更新工具实体: tool_global_name={tool_global_name}, "
+                f"tool_original_name={tool_original_name}, "
+                f"service_global_name={service_global_name}"
+            )
+            
+            return tool_global_name
+        
+        # 创建新工具实体
         entity = ToolEntity(
             tool_global_name=tool_global_name,
             tool_original_name=tool_original_name,

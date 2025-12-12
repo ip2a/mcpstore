@@ -71,29 +71,24 @@ class ServiceProxy:
         
         Validates: Requirements 6.7, 6.8 (服务归属验证)
         """
-        try:
-            # 通过 ToolSetManager 验证服务归属
-            if hasattr(self._context, '_tool_set_manager') and self._context._tool_set_manager:
-                # 检查服务映射是否存在
-                mapping = self._context._sync_helper.run_async(
-                    self._context._tool_set_manager.get_service_mapping_async(
-                        self._agent_id,
-                        self._service_name
-                    )
-                )
-                
-                if not mapping:
-                    from mcpstore.core.exceptions import ServiceBindingError
-                    raise ServiceBindingError(
-                        service_name=self._service_name,
-                        agent_id=self._agent_id,
-                        reason="服务映射不存在"
-                    )
-                
-                logger.debug(f"[SERVICE_PROXY] Verified binding for service '{self._service_name}' to agent '{self._agent_id}'")
-        except Exception as e:
-            logger.warning(f"[SERVICE_PROXY] Failed to verify binding: {e}")
-            # 不中断初始化，只记录警告
+        # 通过 Registry 验证服务映射是否存在
+        service_global_name = self._context._store.registry.get_global_name_from_agent_service(
+            self._agent_id,
+            self._service_name
+        )
+        
+        if not service_global_name:
+            from mcpstore.core.exceptions import ServiceBindingError
+            raise ServiceBindingError(
+                service_name=self._service_name,
+                agent_id=self._agent_id,
+                reason="服务映射不存在"
+            )
+        
+        logger.debug(
+            f"[SERVICE_PROXY] Verified binding for service '{self._service_name}' "
+            f"to agent '{self._agent_id}' (global_name={service_global_name})"
+        )
 
     # === 服务信息查询方法（两个单词） ===
 
@@ -120,20 +115,20 @@ class ServiceProxy:
         获取详细健康信息（两个单词方法）
 
         Returns:
-            dict: 详细健康检查结果（包含状态、响应时间、时间戳、错误信息、生命周期映射等）
+            dict: 详细健康检查结果（包含状态、响应时间、时间戳、错误信息等）
         """
         try:
             # 计算实际查询使用的服务名（Agent 模式使用全局名）
             effective_name = self._service_name
             if self._context_type == ContextType.AGENT and getattr(self._context, "_service_mapper", None):
                 effective_name = self._context._service_mapper.to_global_name(self._service_name)
-            # 使用 orchestrator 的稳定公共 API
-            result = self._context._sync_helper.run_async(
-                self._context._store.orchestrator.health_details(
-                    effective_name,
-                    None  # 透明代理：统一在全局命名空间执行健康检查
-                )
+            
+            # 使用 orchestrator 的 get_service_status 方法
+            result = self._context._store.orchestrator.get_service_status(
+                effective_name,
+                None  # 透明代理：统一在全局命名空间执行健康检查
             )
+            
             # 保持向后兼容：补齐 effective_name 字段
             if isinstance(result, dict) and "effective_name" not in result:
                 result = {**result, "effective_name": effective_name, "service_name": self._service_name}
@@ -284,28 +279,23 @@ class ServiceProxy:
         """
         # 通过orchestrator移除服务（同步封装）
         try:
-            # 获取 tool_set_manager
-            tool_set_manager = getattr(self._context._store, 'tool_set_manager', None)
-            
             if self._context_type == ContextType.STORE:
                 return self._context._sync_helper.run_async(
                     self._context._store.orchestrator.remove_service(
-                        self._service_name,
-                        tool_set_manager=tool_set_manager
+                        self._service_name
                     )
                 )
             else:
-                # Agent 模式需要传递 agent_id 和 tool_set_manager
+                # Agent 模式需要传递 agent_id
                 return self._context._sync_helper.run_async(
                     self._context._store.orchestrator.remove_service(
                         self._service_name,
-                        self._agent_id,
-                        tool_set_manager=tool_set_manager
+                        self._agent_id
                     )
                 )
         except Exception as e:
             logger.error(f"Failed to remove service {self._service_name}: {e}")
-            return False
+            raise
 
     # === 服务内容管理方法（两个单词） ===
 

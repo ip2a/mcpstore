@@ -1429,22 +1429,20 @@ class ServiceManagementMixin:
             else:
                 logger.error(f" [SERVICE_DELETE] Agent 服务删除失败: {local_name} → {global_name}")
 
-            # 6. 清理工具集数据（如果启用了工具集管理）
-            if hasattr(self._store, 'tool_set_manager') and self._store.tool_set_manager:
-                try:
-                    await self._store.tool_set_manager.cleanup_service_async(
-                        self._agent_id,
-                        local_name
-                    )
-                    logger.info(
-                        f"[SERVICE_DELETE] 工具集数据清理成功: "
-                        f"agent_id={self._agent_id}, service={local_name}"
-                    )
-                except Exception as cleanup_error:
-                    logger.warning(
-                        f"[SERVICE_DELETE] 工具集数据清理失败（不影响服务删除）: "
-                        f"agent_id={self._agent_id}, service={local_name}, error={cleanup_error}"
-                    )
+            # 6. 清理服务状态数据（使用 StateManager）
+            try:
+                state_manager = self._store.registry._state_manager
+                await state_manager.delete_service_status(global_name)
+                logger.info(
+                    f"[SERVICE_DELETE] 服务状态清理成功: "
+                    f"agent_id={self._agent_id}, service={local_name}, global_name={global_name}"
+                )
+            except Exception as cleanup_error:
+                logger.error(
+                    f"[SERVICE_DELETE] 服务状态清理失败: "
+                    f"agent_id={self._agent_id}, service={local_name}, error={cleanup_error}"
+                )
+                raise
 
             # 7. 单源模式：不再同步到分片文件
             logger.info("Single-source mode: skip shard mapping files sync")
