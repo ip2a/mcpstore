@@ -97,11 +97,24 @@ class ToolEntityManager:
                 f"工具定义必须是字典类型，实际类型: {type(tool_def).__name__}"
             )
         
+        # 处理嵌套的工具定义格式
+        # 支持两种格式：
+        # 1. 直接格式: {"description": "...", "inputSchema": {...}}
+        # 2. 嵌套格式: {"type": "function", "function": {"description": "...", "parameters": {...}}}
+        actual_def = tool_def
+        if "function" in tool_def and isinstance(tool_def["function"], dict):
+            fn = tool_def["function"]
+            actual_def = {
+                "description": fn.get("description", ""),
+                "inputSchema": fn.get("parameters", fn.get("inputSchema", {})),
+                "name": fn.get("name", tool_original_name),
+                "display_name": fn.get("display_name", tool_original_name),
+                "service_name": fn.get("service_name", service_original_name)
+            }
+        
         # 验证工具定义包含必需字段
-        if "description" not in tool_def:
-            raise ValueError("工具定义缺少 description 字段")
-        if "inputSchema" not in tool_def:
-            raise ValueError("工具定义缺少 inputSchema 字段")
+        description = actual_def.get("description", "")
+        input_schema = actual_def.get("inputSchema", actual_def.get("parameters", {}))
         
         # 生成工具全局名称
         tool_global_name = self._naming.generate_tool_global_name(
@@ -128,8 +141,8 @@ class ToolEntityManager:
             service_global_name=service_global_name,
             service_original_name=service_original_name,
             source_agent=source_agent,
-            description=tool_def["description"],
-            input_schema=tool_def["inputSchema"],
+            description=description,
+            input_schema=input_schema,
             created_time=int(time.time()),
             tool_hash=tool_hash
         )
