@@ -74,7 +74,8 @@ class NamingService:
         生成工具全局名称
         
         规则：
-        - 格式为 "{service_global_name}_{tool_original_name}"
+        - 如果工具名已经以服务全局名称开头，直接返回工具名
+        - 否则，格式为 "{service_global_name}_{tool_original_name}"
         
         Args:
             service_global_name: 服务全局名称
@@ -95,13 +96,24 @@ class NamingService:
             ...     "resolve-library-id"
             ... )
             "context7_resolve-library-id"
+            
+            >>> NamingService.generate_tool_global_name(
+            ...     "mcpstore",
+            ...     "mcpstore_get_current_weather"
+            ... )
+            "mcpstore_get_current_weather"  # 已包含服务前缀，不重复添加
         """
         if not service_global_name:
             raise ValueError("服务全局名称不能为空")
         if not tool_original_name:
             raise ValueError("工具原始名称不能为空")
         
-        tool_global_name = f"{service_global_name}_{tool_original_name}"
+        # 检查工具名是否已经以服务全局名称开头
+        # 避免重复添加前缀
+        if tool_original_name.startswith(f"{service_global_name}_"):
+            tool_global_name = tool_original_name
+        else:
+            tool_global_name = f"{service_global_name}_{tool_original_name}"
         
         logger.debug(
             f"[NAMING] 生成工具全局名称: service_global_name={service_global_name}, "

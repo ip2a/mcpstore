@@ -623,10 +623,12 @@ class ServiceRegistry:
                 state = ServiceConnectionState.DISCONNECTED  # 连接失败
 
         # 处理现有服务
-        if name in self.sessions[agent_id]:
+        service_exists = name in self.sessions[agent_id]
+        if service_exists:
             if not preserve_mappings:
                 logger.debug(f"Re-registering service: {name} for agent {agent_id}. Removing old service.")
                 self.remove_service(agent_id, name)
+                service_exists = False  # 服务已被删除
             else:
                 logger.debug(f"[ADD_SERVICE] Preserving mappings for service: {name}")
 
@@ -634,56 +636,57 @@ class ServiceRegistry:
         service_global_name = self._naming.generate_service_global_name(name, agent_id)
         logger.debug(f"[ADD_SERVICE] Generated global name: {service_global_name} for {name}")
 
-        # 2. 使用 ServiceEntityManager 创建服务实体
-        self._sync_to_kv(
-            self._service_manager.create_service(
-                agent_id=agent_id,
-                original_name=name,
-                config=service_config
-            ),
-            f"create_service:{service_global_name}"
-        )
+        # 2. 使用 ServiceEntityManager 创建服务实体（仅当服务不存在时）
+        if not service_exists:
+            self._sync_to_kv(
+                self._service_manager.create_service(
+                    agent_id=agent_id,
+                    original_name=name,
+                    config=service_config
+                ),
+                f"create_service:{service_global_name}"
+            )
 
-        # 2.1 持久化到 mcp.json（使用全局名称作为键）
-        if self._unified_config and service_config:
-            try:
-                # 提取标准 MCP 配置字段（不包含 MCPStore 特定元数据）
-                mcp_config = self._extract_standard_mcp_config(service_config)
-                
-                # 使用全局名称作为键写入 mcp.json
-                success = self._unified_config.add_service_config(
-                    service_name=service_global_name,
-                    config=mcp_config
-                )
-                
-                if success:
-                    logger.debug(
-                        f"[JSON_PERSIST] 服务配置已写入 mcp.json: "
-                        f"global_name={service_global_name}"
+            # 2.1 持久化到 mcp.json（使用全局名称作为键）
+            if self._unified_config and service_config:
+                try:
+                    # 提取标准 MCP 配置字段（不包含 MCPStore 特定元数据）
+                    mcp_config = self._extract_standard_mcp_config(service_config)
+                    
+                    # 使用全局名称作为键写入 mcp.json
+                    success = self._unified_config.add_service_config(
+                        service_name=service_global_name,
+                        config=mcp_config
                     )
-                else:
-                    logger.warning(
-                        f"[JSON_PERSIST] 写入 mcp.json 失败: "
-                        f"global_name={service_global_name}"
+                    
+                    if success:
+                        logger.debug(
+                            f"[JSON_PERSIST] 服务配置已写入 mcp.json: "
+                            f"global_name={service_global_name}"
+                        )
+                    else:
+                        logger.warning(
+                            f"[JSON_PERSIST] 写入 mcp.json 失败: "
+                            f"global_name={service_global_name}"
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"[JSON_PERSIST] 持久化服务配置时出错: "
+                        f"global_name={service_global_name}, error={e}"
                     )
-            except Exception as e:
-                logger.error(
-                    f"[JSON_PERSIST] 持久化服务配置时出错: "
-                    f"global_name={service_global_name}, error={e}"
-                )
 
-        # 3. 使用 RelationshipManager 创建 Agent-Service 关系
-        # 生成 client_id（简化版本，实际应该从配置中获取）
-        client_id = f"client_{agent_id}_{name}"
-        self._sync_to_kv(
-            self._relation_manager.add_agent_service(
-                agent_id=agent_id,
-                service_original_name=name,
-                service_global_name=service_global_name,
-                client_id=client_id
-            ),
-            f"add_agent_service:{agent_id}:{service_global_name}"
-        )
+            # 3. 使用 RelationshipManager 创建 Agent-Service 关系
+            # 生成 client_id（简化版本，实际应该从配置中获取）
+            client_id = f"client_{agent_id}_{name}"
+            self._sync_to_kv(
+                self._relation_manager.add_agent_service(
+                    agent_id=agent_id,
+                    service_original_name=name,
+                    service_global_name=service_global_name,
+                    client_id=client_id
+                ),
+                f"add_agent_service:{agent_id}:{service_global_name}"
+            )
 
         # 4. 使用 StateManager 创建服务状态
         tools_status = []  # 工具状态将在注册工具时更新
@@ -1165,15 +1168,92 @@ class ServiceRegistry:
         """
         return self.tool_to_session_map.get(agent_id, {}).get(tool_name)
 
+    async def _get_all_tools_dict_async(self, agent_id: str) -> Dict[str, Dict[str, Any]]:
+        """
+        从三层缓存架构获取指定 Agent 的所有工具（异步版本）
+        
+        使用新的缓存架构：
+        1. 从关系层获取 Agent 的所有服务
+        2. 从关系层获取每个服务的工具列表
+        3. 从实体层批量获取工具定义
+        
+        Args:
+            agent_id: Agent ID
+            
+        Returns:
+            工具字典 {tool_global_name: tool_definition}
+        """
+        tools_dict: Dict[str, Dict[str, Any]] = {}
+        
+        # 1. 获取 Agent 的所有服务关系
+        services = await self._relation_manager.get_agent_services(agent_id)
+        
+        if not services:
+            logger.debug(f"[REGISTRY] Agent {agent_id} 没有服务")
+            return tools_dict
+        
+        # 2. 收集所有工具全局名称
+        all_tool_global_names = []
+        for service in services:
+            service_global_name = service.get("service_global_name")
+            if not service_global_name:
+                continue
+            
+            # 获取服务的工具关系
+            tool_relations = await self._relation_manager.get_service_tools(
+                service_global_name
+            )
+            
+            for tool_rel in tool_relations:
+                tool_global_name = tool_rel.get("tool_global_name")
+                if tool_global_name:
+                    all_tool_global_names.append(tool_global_name)
+        
+        if not all_tool_global_names:
+            logger.debug(f"[REGISTRY] Agent {agent_id} 没有工具")
+            return tools_dict
+        
+        # 3. 批量获取工具实体
+        tool_entities = await self._tool_manager.get_many_tools(
+            all_tool_global_names
+        )
+        
+        # 4. 构建工具字典
+        for i, entity in enumerate(tool_entities):
+            if entity is None:
+                continue
+            
+            tool_global_name = all_tool_global_names[i]
+            
+            # 转换为标准格式
+            tools_dict[tool_global_name] = {
+                "name": entity.tool_original_name,
+                "display_name": entity.tool_original_name,
+                "original_name": entity.tool_original_name,
+                "description": entity.description,
+                "inputSchema": entity.input_schema,
+                "parameters": entity.input_schema,
+                "service_name": entity.service_original_name,
+                "service_global_name": entity.service_global_name,
+                "tool_global_name": entity.tool_global_name,
+                "source_agent": entity.source_agent
+            }
+        
+        logger.debug(
+            f"[REGISTRY] 获取到 {len(tools_dict)} 个工具: agent_id={agent_id}"
+        )
+        
+        return tools_dict
+
     def get_all_tools(self, agent_id: str) -> List[Dict[str, Any]]:
         """
         获取指定 agent_id 下所有工具的定义。
 
-        Note: Now reads directly from pyvk (single source of truth).
+        Note: 使用新的三层缓存架构
         """
-        # Read tools from pyvk
+        # 使用新的缓存架构获取工具
         tools_dict = self._sync_to_kv(
-            self._tool_management_service._state_backend.list_tools(agent_id),
+            self._get_all_tools_dict_async(agent_id),
             f"list_tools:{agent_id}"
         )
         
@@ -1184,11 +1264,12 @@ class ServiceRegistry:
         all_tools = []
         for tool_name, tool_def in tools_dict.items():
             session = self.tool_to_session_map.get(agent_id, {}).get(tool_name)
-            service_name = None
-            for name, sess in self.sessions.get(agent_id, {}).items():
-                if sess is session:
-                    service_name = name
-                    break
+            service_name = tool_def.get("service_name")
+            if not service_name:
+                for name, sess in self.sessions.get(agent_id, {}).items():
+                    if sess is session:
+                        service_name = name
+                        break
             tool_with_service = tool_def.copy()
             if "function" not in tool_with_service and isinstance(tool_with_service, dict):
                 tool_with_service = {
@@ -1211,11 +1292,11 @@ class ServiceRegistry:
         """
         获取指定 agent_id 下所有工具的详细信息。
 
-        Note: Now reads directly from pyvk (single source of truth).
+        Note: 使用新的三层缓存架构
         """
-        # Read tools from pyvk
+        # 使用新的缓存架构获取工具
         tools_dict = self._sync_to_kv(
-            self._tool_management_service._state_backend.list_tools(agent_id),
+            self._get_all_tools_dict_async(agent_id),
             f"list_tools:{agent_id}"
         )
         
@@ -1224,13 +1305,14 @@ class ServiceRegistry:
             tools_dict = {}
 
         tools_info = []
-        for tool_name in tools_dict.keys():
-            session = self.tool_to_session_map.get(agent_id, {}).get(tool_name)
-            service_name = None
-            for name, sess in self.sessions.get(agent_id, {}).items():
-                if sess is session:
-                    service_name = name
-                    break
+        for tool_name, tool_def in tools_dict.items():
+            service_name = tool_def.get("service_name")
+            if not service_name:
+                session = self.tool_to_session_map.get(agent_id, {}).get(tool_name)
+                for name, sess in self.sessions.get(agent_id, {}).items():
+                    if sess is session:
+                        service_name = name
+                        break
             detailed_tool = self._get_detailed_tool_info(agent_id, tool_name)
             if detailed_tool:
                 detailed_tool["service_name"] = service_name
@@ -1254,7 +1336,7 @@ class ServiceRegistry:
         """
         获取指定 agent_id 下某服务的所有工具名。
 
-        Note: Now reads directly from pyvk (single source of truth).
+        Note: 使用新的三层缓存架构获取工具列表
         """
         logger.info(f"[REGISTRY] get_tools service={name} agent_id={agent_id}")
 
@@ -1263,7 +1345,7 @@ class ServiceRegistry:
             logger.warning(f"[REGISTRY] service_not_exists service={name}")
             return []
 
-        # 优先：使用工具→服务硬映射
+        # 优先：使用工具→服务硬映射（内存中）
         tools = []
         tool_to_session = self.tool_to_session_map.get(agent_id, {})
         tool_to_service = self.tool_to_service.get(agent_id, {})
@@ -1271,28 +1353,16 @@ class ServiceRegistry:
         # 获取该服务的session（如果存在）
         service_session = self.sessions.get(agent_id, {}).get(name)
 
-        # Read all tool names from pyvk
-        tools_dict = self._sync_to_kv(
-            self._tool_management_service._state_backend.list_tools(agent_id),
-            f"list_tools:{agent_id}"
-        )
-        
-        # 确保 tools_dict 不为 None
-        if tools_dict is None:
-            tools_dict = {}
-
-        logger.debug(
-            f"[REGISTRY] tools_count={len(tools_dict)} tool_to_session_size={len(tool_to_session)} tool_to_service_size={len(tool_to_service)}")
-
-        for tool_name in tools_dict.keys():
-            mapped_service = tool_to_service.get(tool_name)
+        # 从内存中的 tool_to_service 映射获取工具
+        for tool_name, mapped_service in tool_to_service.items():
             if mapped_service == name:
                 tools.append(tool_name)
-                continue
-            # 次选：当硬映射缺失时，使用会话匹配（避免历史数据缺口）
-            tool_session = tool_to_session.get(tool_name)
-            if service_session and tool_session is service_session:
-                tools.append(tool_name)
+
+        # 如果内存中没有找到，尝试从会话映射中查找
+        if not tools and service_session:
+            for tool_name, tool_session in tool_to_session.items():
+                if tool_session is service_session:
+                    tools.append(tool_name)
 
         logger.debug(f"[REGISTRY] found_tools service={name} count={len(tools)} list={tools}")
         return tools
@@ -1682,6 +1752,16 @@ class ServiceRegistry:
             客户端配置字典，如果不存在则返回 None
         """
         return self._client_config_service.get_client_config_from_cache(client_id)
+
+    def add_client_config(self, client_id: str, config: Dict[str, Any]) -> None:
+        """
+        添加客户端配置到缓存
+        
+        Args:
+            client_id: Client ID
+            config: 客户端配置字典
+        """
+        self._client_config_service.add_client_config(client_id, config)
 
     def has_service(self, agent_id: str, service_name: str) -> bool:
         """
@@ -2545,9 +2625,9 @@ class _ClientConfigServiceAdapter:
 
 class _ToolManagementServiceAdapter:
     """
-    ToolManagementService 兼容性适配器
+    ToolManagementService 适配器
     
-    提供旧的 ToolManagementService API
+    提供工具管理 API
     """
     
     def __init__(self, registry: 'ServiceRegistry'):

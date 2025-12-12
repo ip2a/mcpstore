@@ -15,6 +15,83 @@ logger = logging.getLogger(__name__)
 class ServiceManagementMixin:
     """Service management mixin class"""
 
+    async def _get_all_tools_from_cache(self, agent_id: str) -> Dict[str, Dict[str, Any]]:
+        """
+        从三层缓存架构获取指定 Agent 的所有工具
+        
+        使用新的缓存架构：
+        1. 从关系层获取 Agent 的所有服务
+        2. 从关系层获取每个服务的工具列表
+        3. 从实体层批量获取工具定义
+        
+        Args:
+            agent_id: Agent ID
+            
+        Returns:
+            工具字典 {tool_global_name: tool_definition}
+        """
+        tools_dict: Dict[str, Dict[str, Any]] = {}
+        
+        # 1. 获取 Agent 的所有服务关系
+        services = await self.registry._relation_manager.get_agent_services(agent_id)
+        
+        if not services:
+            logger.debug(f"[TOOLS] Agent {agent_id} 没有服务")
+            return tools_dict
+        
+        # 2. 收集所有工具全局名称
+        all_tool_global_names = []
+        for service in services:
+            service_global_name = service.get("service_global_name")
+            if not service_global_name:
+                continue
+            
+            # 获取服务的工具关系
+            tool_relations = await self.registry._relation_manager.get_service_tools(
+                service_global_name
+            )
+            
+            for tool_rel in tool_relations:
+                tool_global_name = tool_rel.get("tool_global_name")
+                if tool_global_name:
+                    all_tool_global_names.append(tool_global_name)
+        
+        if not all_tool_global_names:
+            logger.debug(f"[TOOLS] Agent {agent_id} 没有工具")
+            return tools_dict
+        
+        # 3. 批量获取工具实体
+        tool_entities = await self.registry._tool_manager.get_many_tools(
+            all_tool_global_names
+        )
+        
+        # 4. 构建工具字典
+        for i, entity in enumerate(tool_entities):
+            if entity is None:
+                continue
+            
+            tool_global_name = all_tool_global_names[i]
+            
+            # 转换为标准格式
+            tools_dict[tool_global_name] = {
+                "name": entity.tool_original_name,
+                "display_name": entity.tool_original_name,
+                "original_name": entity.tool_original_name,
+                "description": entity.description,
+                "inputSchema": entity.input_schema,
+                "parameters": entity.input_schema,
+                "service_name": entity.service_original_name,
+                "service_global_name": entity.service_global_name,
+                "tool_global_name": entity.tool_global_name,
+                "source_agent": entity.source_agent
+            }
+        
+        logger.debug(
+            f"[TOOLS] 获取到 {len(tools_dict)} 个工具: agent_id={agent_id}"
+        )
+        
+        return tools_dict
+
     async def tools_snapshot(self, agent_id: Optional[str] = None) -> List[Any]:
         """Public API: read tools directly from pyvk and project agent view.
 
@@ -26,8 +103,8 @@ class ServiceManagementMixin:
         try:
             global_agent_id = self.client_manager.global_agent_store_id
 
-            # 1. Read all tools from pyvk (batch operation)
-            tools_dict = await self.registry._tool_management_service._state_backend.list_tools(global_agent_id)
+            # 1. Read all tools from pyvk using new cache architecture
+            tools_dict = await self._get_all_tools_from_cache(global_agent_id)
             logger.debug(f"[TOOLS] Loaded {len(tools_dict)} tools from pyvk for global_agent_id={global_agent_id}")
 
             # 2. Get all service names
