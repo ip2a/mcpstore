@@ -373,8 +373,8 @@ class ServiceManagementMixin:
                 logger.warning(f"Error removing from content monitoring: {e}")
 
             try:
-                # Remove service from registry
-                self.registry.remove_service(agent_key, service_name)
+                # Remove service from registry（使用异步版本）
+                await self.registry.remove_service_async(agent_key, service_name)
 
                 # Cancel health monitoring (if exists)
                 try:

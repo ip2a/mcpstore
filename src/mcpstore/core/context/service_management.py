@@ -495,16 +495,16 @@ class ServiceManagementMixin:
             if scope == "all":
                 logger.debug("Store level: resetting all caches and JSON files")
 
-                # 1. 清空所有Agent在缓存中的数据（通过Registry公共API）
+                # 1. 清空所有Agent在缓存中的数据（通过Registry异步API）
                 try:
                     agent_ids = self._store.registry.get_all_agent_ids()
                 except Exception:
                     agent_ids = []
                 for agent_id in agent_ids:
                     try:
-                        self._store.registry.clear(agent_id)
-                    except Exception:
-                        pass
+                        await self._store.registry.clear_async(agent_id)
+                    except Exception as e:
+                        logger.warning(f"Failed to clear agent {agent_id}: {e}")
 
                 # 2. 重置mcp.json文件（使用 UnifiedConfigManager 自动刷新缓存）
                 default_config = {"mcpServers": {}}
@@ -519,9 +519,9 @@ class ServiceManagementMixin:
             elif scope == "global_agent_store":
                 logger.info(" Store级别：只重置global_agent_store")
 
-                # 1. 清空global_agent_store在缓存中的数据
+                # 1. 清空global_agent_store在缓存中的数据（使用异步版本）
                 global_agent_store_id = self._store.client_manager.global_agent_store_id
-                self._store.registry.clear(global_agent_store_id)
+                await self._store.registry.clear_async(global_agent_store_id)
 
                 # 2. 清空mcp.json文件（使用 UnifiedConfigManager 自动刷新缓存）
                 default_config = {"mcpServers": {}}
@@ -546,8 +546,8 @@ class ServiceManagementMixin:
         try:
             logger.info(f" Agent级别：重置Agent {self._agent_id} 的所有配置")
 
-            # 1. 清空Agent在缓存中的数据
-            self._store.registry.clear(self._agent_id)
+            # 1. 清空Agent在缓存中的数据（使用异步版本）
+            await self._store.registry.clear_async(self._agent_id)
 
             # 2. 单源模式：不再同步到分片文件
             logger.info("Single-source mode: skip shard mapping files sync")
@@ -959,8 +959,8 @@ class ServiceManagementMixin:
             if success:
                 logger.info(f"🗑️ 已从mcp.json删除服务: {service_name}，缓存已同步")
 
-            # 2. 从缓存中删除服务（包括工具和会话）
-            self._store.registry.remove_service(global_agent_store_id, service_name)
+            # 2. 从缓存中删除服务（包括工具和会话）- 使用异步版本
+            await self._store.registry.remove_service_async(global_agent_store_id, service_name)
 
             # 3. 删除Service-Client映射
             self._store.registry.remove_service_client_mapping(global_agent_store_id, service_name)
@@ -1007,8 +1007,8 @@ class ServiceManagementMixin:
                 logger.warning(f"Service {service_name} not found in registry for agent {self._agent_id}, but continuing with cleanup")
 
             # Agent级别删除：只删除缓存，不修改mcp.json
-            # 1. 从缓存中删除服务（包括工具和会话）
-            self._store.registry.remove_service(self._agent_id, service_name)
+            # 1. 从缓存中删除服务（包括工具和会话）- 使用异步版本
+            await self._store.registry.remove_service_async(self._agent_id, service_name)
 
             # 2. 删除Service-Client映射
             self._store.registry.remove_service_client_mapping(self._agent_id, service_name)
@@ -1375,8 +1375,8 @@ class ServiceManagementMixin:
     async def _delete_store_service_with_sync(self, service_name: str):
         """Store 服务删除（带双向同步）"""
         try:
-            # 1. 从 Registry 中删除
-            self._store.registry.remove_service(
+            # 1. 从 Registry 中删除（使用异步版本）
+            await self._store.registry.remove_service_async(
                 self._store.client_manager.global_agent_store_id,
                 service_name
             )
@@ -1409,11 +1409,11 @@ class ServiceManagementMixin:
                 logger.warning(f" [SERVICE_DELETE] 未找到映射关系: {self._agent_id}:{local_name}")
                 return
 
-            # 2. 从 Agent 缓存中删除
-            self._store.registry.remove_service(self._agent_id, local_name)
+            # 2. 从 Agent 缓存中删除（使用异步版本）
+            await self._store.registry.remove_service_async(self._agent_id, local_name)
 
-            # 3. 从 Store 缓存中删除
-            self._store.registry.remove_service(
+            # 3. 从 Store 缓存中删除（使用异步版本）
+            await self._store.registry.remove_service_async(
                 self._store.client_manager.global_agent_store_id,
                 global_name
             )

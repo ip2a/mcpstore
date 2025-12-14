@@ -354,15 +354,15 @@ class ServiceContentManager:
                 tool_def = tool_dict
             processed_tools.append((tool_name, tool_def))
 
-        # 加锁执行原子更新
+        # 加锁执行原子更新，使用异步版本避免事件循环冲突
         locks_owner = getattr(self.orchestrator, 'store', None)
         agent_locks = getattr(locks_owner, 'agent_locks', None) if locks_owner else None
         if agent_locks:
             async with agent_locks.write(agent_id):
                 self.registry.clear_service_tools_only(agent_id, service_name)
-                self.registry.add_service(agent_id=agent_id, name=service_name, session=service_session, tools=processed_tools, preserve_mappings=True)
+                await self.registry.add_service_async(agent_id=agent_id, name=service_name, session=service_session, tools=processed_tools, preserve_mappings=True)
         else:
             self.registry.clear_service_tools_only(agent_id, service_name)
-            self.registry.add_service(agent_id=agent_id, name=service_name, session=service_session, tools=processed_tools, preserve_mappings=True)
+            await self.registry.add_service_async(agent_id=agent_id, name=service_name, session=service_session, tools=processed_tools, preserve_mappings=True)
 
         logger.debug(f"Updated tool cache for {service_name}: {len(processed_tools)} tools")

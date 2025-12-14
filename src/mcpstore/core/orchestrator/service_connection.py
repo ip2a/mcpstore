@@ -365,22 +365,23 @@ class ServiceConnectionMixin:
                     logger.error(f"Failed to process tool {tool.name}: {e}")
                     continue
 
-            # ?? per-agent ????????????????????
+            # 使用 per-agent 锁保证并发安全，使用异步版本避免事件循环冲突
             locks = getattr(self, 'store', None)
             agent_locks = getattr(locks, 'agent_locks', None) if locks else None
             if agent_locks is None:
                 logger.warning("AgentLocks not available; proceeding without per-agent lock for cache update")
-                #  ????????????
+                # 检查是否已有会话
                 existing_session = self.registry.get_session(agent_id, service_name)
                 if existing_session:
-                    logger.debug(f" [CACHE_UPDATE] ?? {service_name} ??????????")
+                    logger.debug(f" [CACHE_UPDATE] 服务 {service_name} 已存在，清理工具缓存")
                     self.registry.clear_service_tools_only(agent_id, service_name)
                 else:
-                    logger.debug(f" [CACHE_UPDATE] ?? {service_name} ?????????")
+                    logger.debug(f" [CACHE_UPDATE] 服务 {service_name} 不存在，新建")
 
                 # Use a stable per-service session handle (not a live client)
                 session_handle = existing_session if existing_session is not None else object()
-                self.registry.add_service(
+                # 使用异步版本避免事件循环冲突
+                await self.registry.add_service_async(
                     agent_id=agent_id,
                     name=service_name,
                     session=session_handle,
@@ -396,22 +397,22 @@ class ServiceConnectionMixin:
                 client_id = self.registry._agent_client_service.get_service_client_id(agent_id, service_name)
                 if client_id:
                     self.registry._agent_client_service.add_agent_client_mapping(agent_id, client_id)
-                    logger.debug(f" [CLIENT_REGISTER] ????? {client_id} ? Agent {agent_id}")
+                    logger.debug(f" [CLIENT_REGISTER] 已注册 {client_id} 到 Agent {agent_id}")
                 else:
-                    logger.warning(f" [CLIENT_REGISTER] ?????? {service_name} ? Client ID")
+                    logger.warning(f" [CLIENT_REGISTER] 未找到服务 {service_name} 的 Client ID")
             else:
                 async with agent_locks.write(agent_id):
-                    #  ??????????????Agent-Client??
+                    # 检查是否已有会话，保留 Agent-Client 映射
                     existing_session = self.registry.get_session(agent_id, service_name)
                     if existing_session:
-                        logger.debug(f" [CACHE_UPDATE] ?? {service_name} ??????????")
+                        logger.debug(f" [CACHE_UPDATE] 服务 {service_name} 已存在，清理工具缓存")
                         self.registry.clear_service_tools_only(agent_id, service_name)
                     else:
-                        logger.debug(f" [CACHE_UPDATE] ?? {service_name} ?????????")
+                        logger.debug(f" [CACHE_UPDATE] 服务 {service_name} 不存在，新建")
 
-                    # ???Registry??????????????????
+                    # 使用 Registry 异步版本避免事件循环冲突
                     session_handle = existing_session if existing_session is not None else object()
-                    self.registry.add_service(
+                    await self.registry.add_service_async(
                         agent_id=agent_id,
                         name=service_name,
                         session=session_handle,
@@ -421,17 +422,17 @@ class ServiceConnectionMixin:
                         preserve_mappings=True
                     )
 
-                    # ???????
+                    # 标记长连接服务
                     if self._is_long_lived_service(service_config):
                         self.registry.mark_as_long_lived(agent_id, service_name)
 
-                    # ?????? Agent ?????
+                    # 确保客户端 Agent 映射存在
                     client_id = self.registry._agent_client_service.get_service_client_id(agent_id, service_name)
                     if client_id:
                         self.registry._agent_client_service.add_agent_client_mapping(agent_id, client_id)
-                        logger.debug(f" [CLIENT_REGISTER] ????? {client_id} ? Agent {agent_id}")
+                        logger.debug(f" [CLIENT_REGISTER] 已注册 {client_id} 到 Agent {agent_id}")
                     else:
-                        logger.warning(f" [CLIENT_REGISTER] ?????? {service_name} ? Client ID")
+                        logger.warning(f" [CLIENT_REGISTER] 未找到服务 {service_name} 的 Client ID")
 
             # ?????????????
             await self.lifecycle_manager.handle_health_check_result(
@@ -516,9 +517,9 @@ class ServiceConnectionMixin:
             if not ok:
                 logger.warning(f"Failed to remove service {name_to_remove} from configuration file")
 
-            # ?registry???
+            # ?registry???（使用异步版本）
             agent_id = self.client_manager.global_agent_store_id
-            self.registry.remove_service(agent_id, name_to_remove)
+            await self.registry.remove_service_async(agent_id, name_to_remove)
 
             # ????global_agent_store
             if self.global_agent_store_config.get("mcpServers"):

@@ -136,8 +136,8 @@ class ServiceRegistry:
     def _ensure_sync_helper(self):
         """Ensure AsyncSyncHelper is initialized (lazy initialization)."""
         if self._sync_helper is None:
-            from mcpstore.core.utils.async_sync_helper import AsyncSyncHelper
-            self._sync_helper = AsyncSyncHelper()
+            from mcpstore.core.utils.async_sync_helper import get_global_helper
+            self._sync_helper = get_global_helper()
             logger.debug("AsyncSyncHelper initialized for ServiceRegistry")
         return self._sync_helper
 
@@ -546,6 +546,62 @@ class ServiceRegistry:
                 # 删除 client 配置
                 self._client_config_service.remove_client_config(client_id)
 
+    async def clear_async(self, agent_id: str) -> None:
+        """
+        异步清空指定 agent_id 的所有注册服务和工具。
+        
+        这是 clear 的纯异步版本，用于在异步上下文中直接调用，
+        避免 _sync_to_kv 的同步转换导致的事件循环冲突。
+        
+        只影响该 agent_id 下的服务、工具、会话，不影响其它 agent。
+        
+        Args:
+            agent_id: Agent ID
+        """
+        service_names = set(self.sessions.get(agent_id, {}).keys())
+        service_names.update(self.service_states.get(agent_id, {}).keys())
+        
+        for service_name in list(service_names):
+            try:
+                await self.remove_service_async(agent_id, service_name)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to remove service {service_name} during clear_async "
+                    f"for agent {agent_id}: {e}"
+                )
+
+        self.sessions.pop(agent_id, None)
+        self.tool_to_session_map.pop(agent_id, None)
+        self.tool_to_service.pop(agent_id, None)
+
+        # 清理新增的缓存字段
+        self.service_states.pop(agent_id, None)
+        self.service_metadata.pop(agent_id, None)
+
+        # 清理 Agent-Client 映射和相关 Client 配置
+        # 从内存中的 service_to_client 获取 client_ids
+        client_ids = set()
+        for service_name, client_id in self.service_to_client.get(agent_id, {}).items():
+            if client_id:
+                client_ids.add(client_id)
+        
+        # 清理 service_to_client 映射
+        self.service_to_client.pop(agent_id, None)
+
+        for client_id in client_ids:
+            # 检查 client 是否被其他 agent 使用
+            is_used_by_others = False
+            for other_agent, service_map in self.service_to_client.items():
+                if other_agent == agent_id:
+                    continue
+                if client_id in service_map.values():
+                    is_used_by_others = True
+                    break
+
+            if not is_used_by_others:
+                # 删除 client 配置
+                self._client_config_service.remove_client_config(client_id)
+
     def _remove_service_tools(self, agent_id: str, service_name: str):
         tools_to_remove = [
             tool_name
@@ -778,6 +834,179 @@ class ServiceRegistry:
         logger.debug(f"Global name: {service_global_name}, Added tools: {tool_global_names}")
         return tool_global_names
 
+    async def add_service_async(
+        self,
+        agent_id: str,
+        name: str,
+        session: Any = None,
+        tools: List[Tuple[str, Dict[str, Any]]] = None,
+        service_config: Dict[str, Any] = None,
+        state: 'ServiceConnectionState' = None,
+        preserve_mappings: bool = False
+    ) -> List[str]:
+        """
+        为指定 agent_id 注册服务及其工具（纯异步版本）
+        
+        这是 add_service 的异步版本，直接使用 await 调用缓存操作，
+        避免在异步上下文中使用 _sync_to_kv 导致的事件循环冲突。
+        
+        Args:
+            agent_id: store/agent 的唯一标识
+            name: 服务原始名称
+            session: 服务会话对象（可选，失败的服务为None）
+            tools: [(tool_name, tool_def)]（可选，失败的服务为空列表）
+            service_config: 服务配置信息
+            state: 服务状态（可选，如果不提供则根据session判断）
+            preserve_mappings: 是否保留现有的映射关系（优雅修复用）
+            
+        Returns:
+            实际注册的工具名列表（全局名称）
+        """
+        tools = tools or []
+        service_config = service_config or {}
+
+        # 初始化会话数据结构（仅内存）
+        if agent_id not in self.sessions:
+            self.sessions[agent_id] = {}
+        if agent_id not in self.tool_to_session_map:
+            self.tool_to_session_map[agent_id] = {}
+
+        # 确定服务状态
+        if state is None:
+            if session is not None and len(tools) > 0:
+                from mcpstore.core.models.service import ServiceConnectionState
+                state = ServiceConnectionState.HEALTHY
+            elif session is not None:
+                from mcpstore.core.models.service import ServiceConnectionState
+                state = ServiceConnectionState.WARNING
+            else:
+                from mcpstore.core.models.service import ServiceConnectionState
+                state = ServiceConnectionState.DISCONNECTED
+
+        # 处理现有服务
+        service_exists = name in self.sessions[agent_id]
+        if service_exists:
+            if not preserve_mappings:
+                logger.debug(f"Re-registering service: {name} for agent {agent_id}. Removing old service.")
+                await self.remove_service_async(agent_id, name)
+                service_exists = False
+            else:
+                logger.debug(f"[ADD_SERVICE_ASYNC] Preserving mappings for service: {name}")
+
+        # 1. 使用 NamingService 生成全局名称
+        service_global_name = self._naming.generate_service_global_name(name, agent_id)
+        logger.debug(f"[ADD_SERVICE_ASYNC] Generated global name: {service_global_name} for {name}")
+
+        # 2. 使用 ServiceEntityManager 创建服务实体（仅当服务不存在时）
+        if not service_exists:
+            await self._service_manager.create_service(
+                agent_id=agent_id,
+                original_name=name,
+                config=service_config
+            )
+
+            # 2.1 持久化到 mcp.json（使用全局名称作为键）
+            if self._unified_config and service_config:
+                try:
+                    mcp_config = self._extract_standard_mcp_config(service_config)
+                    success = self._unified_config.add_service_config(
+                        service_name=service_global_name,
+                        config=mcp_config
+                    )
+                    if success:
+                        logger.debug(f"[JSON_PERSIST] 服务配置已写入 mcp.json: global_name={service_global_name}")
+                    else:
+                        logger.warning(f"[JSON_PERSIST] 写入 mcp.json 失败: global_name={service_global_name}")
+                except Exception as e:
+                    logger.error(f"[JSON_PERSIST] 持久化服务配置时出错: global_name={service_global_name}, error={e}")
+
+            # 3. 使用 RelationshipManager 创建 Agent-Service 关系
+            client_id = f"client_{agent_id}_{name}"
+            await self._relation_manager.add_agent_service(
+                agent_id=agent_id,
+                service_original_name=name,
+                service_global_name=service_global_name,
+                client_id=client_id
+            )
+
+        # 4. 使用 StateManager 创建服务状态
+        tools_status = []
+        await self._state_manager.update_service_status(
+            service_global_name=service_global_name,
+            health_status=state.value,
+            tools_status=tools_status
+        )
+
+        # 存储会话（仅内存）
+        self.sessions[agent_id][name] = session
+
+        # 5. 使用 ToolEntityManager 注册工具
+        added_tool_names = []
+        for tool_name, tool_definition in tools:
+            tool_service_name = None
+            if "function" in tool_definition:
+                tool_service_name = tool_definition["function"].get("service_name")
+            else:
+                tool_service_name = tool_definition.get("service_name")
+
+            if tool_service_name and tool_service_name != name:
+                logger.warning(f"Tool '{tool_name}' belongs to service '{tool_service_name}', not '{name}'. Skipping.")
+                continue
+
+            existing_session = self.tool_to_session_map[agent_id].get(tool_name)
+            if existing_session and existing_session is not session:
+                logger.warning(f"Tool name conflict: '{tool_name}' from {name} for agent {agent_id}. Skipping.")
+                continue
+
+            actual_original_name = tool_name
+            if "function" in tool_definition:
+                func_name = tool_definition["function"].get("name")
+                if func_name:
+                    actual_original_name = func_name
+
+            tool_global_name = self._naming.generate_tool_global_name(service_global_name, tool_name)
+
+            await self._tool_manager.create_tool(
+                service_global_name=service_global_name,
+                service_original_name=name,
+                source_agent=agent_id,
+                tool_original_name=actual_original_name,
+                tool_def=tool_definition
+            )
+
+            # 6. 使用 RelationshipManager 创建 Service-Tool 关系
+            await self._relation_manager.add_service_tool(
+                service_global_name=service_global_name,
+                service_original_name=name,
+                source_agent=agent_id,
+                tool_global_name=tool_global_name,
+                tool_original_name=actual_original_name
+            )
+
+            self.tool_to_session_map[agent_id][tool_name] = session
+            added_tool_names.append((tool_global_name, actual_original_name))
+
+        # 7. 更新服务状态中的工具列表
+        if added_tool_names:
+            tools_status = [
+                {
+                    "tool_global_name": tgn,
+                    "tool_original_name": ton,
+                    "status": "available"
+                }
+                for tgn, ton in added_tool_names
+            ]
+            await self._state_manager.update_service_status(
+                service_global_name=service_global_name,
+                health_status=state.value,
+                tools_status=tools_status
+            )
+
+        tool_global_names = [t[0] for t in added_tool_names]
+        logger.debug(f"Service added (async): {name} ({state.value}, {len(tools)} tools) for agent {agent_id}")
+        logger.debug(f"Global name: {service_global_name}, Added tools: {tool_global_names}")
+        return tool_global_names
+
     def add_failed_service(self, agent_id: str, name: str, service_config: Dict[str, Any],
                            error_message: str, state: 'ServiceConnectionState' = None):
         """
@@ -881,6 +1110,102 @@ class ServiceRegistry:
             return {"replaced": replaced_count, "invalid": invalid_count}
         except Exception as e:
             logger.error(f"[REGISTRY] replace_service_tools failed: agent={agent_id} service={service_name} err={e}")
+            return {"replaced": replaced_count, "invalid": invalid_count + 1}
+
+    async def replace_service_tools_async(
+        self,
+        agent_id: str,
+        service_name: str,
+        session: Any,
+        remote_tools: List[Any]
+    ) -> Dict[str, int]:
+        """
+        规范化并原子替换某服务的工具缓存（纯异步版本）
+        
+        这是 replace_service_tools 的异步版本，直接使用 await 调用缓存操作，
+        避免在异步上下文中使用 _sync_to_kv 导致的事件循环冲突。
+        
+        - 强制键名使用带前缀全名: {service}_{original}
+        - 强制 schema 写入 function.parameters（将 inputSchema 统一转换）
+        - 设置 function.display_name=original_name, function.service_name=service_name
+        - 保留现有的 Agent-Client 映射与 service 配置与状态
+
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+            session: 服务会话对象
+            remote_tools: 远程工具列表
+
+        Returns:
+            Dict: {"replaced": int, "invalid": int}
+        """
+        replaced_count = 0
+        invalid_count = 0
+
+        try:
+            # 仅清理工具，不动映射
+            self.clear_service_tools_only(agent_id, service_name)
+
+            processed: List[Tuple[str, Dict[str, Any]]] = []
+
+            def _get(original: Any, key: str, default: Any = None) -> Any:
+                # 支持对象或字典两种形态读取
+                if isinstance(original, dict):
+                    return original.get(key, default)
+                return getattr(original, key, default)
+
+            for tool in remote_tools or []:
+                try:
+                    original_name = _get(tool, 'name')
+                    if not original_name or not isinstance(original_name, str):
+                        invalid_count += 1
+                        continue
+
+                    # 归一 schema: 优先 inputSchema → parameters
+                    schema = _get(tool, 'inputSchema')
+                    if schema is None and isinstance(tool, dict):
+                        # 兼容 function.parameters 已存在的情况
+                        fn = tool.get('function')
+                        if isinstance(fn, dict):
+                            schema = fn.get('parameters')
+
+                    description = _get(tool, 'description', '')
+
+                    full_name = f"{service_name}_{original_name}"
+                    tool_def: Dict[str, Any] = {
+                        'type': 'function',
+                        'function': {
+                            'name': original_name,
+                            'description': description or '',
+                            'parameters': schema or {},
+                            'display_name': original_name,
+                            'service_name': service_name,
+                        }
+                    }
+                    processed.append((full_name, tool_def))
+                except Exception:
+                    invalid_count += 1
+                    continue
+
+            # 使用现有状态与配置
+            current_state = self.get_service_state(agent_id, service_name)
+            service_config = self.get_service_config_from_cache(agent_id, service_name)
+
+            # 使用异步版本避免事件循环冲突
+            await self.add_service_async(
+                agent_id=agent_id,
+                name=service_name,
+                session=session,
+                tools=processed,
+                service_config=service_config or {},
+                state=current_state,
+                preserve_mappings=True
+            )
+            replaced_count = len(processed)
+
+            return {"replaced": replaced_count, "invalid": invalid_count}
+        except Exception as e:
+            logger.error(f"[REGISTRY] replace_service_tools_async failed: agent={agent_id} service={service_name} err={e}")
             return {"replaced": replaced_count, "invalid": invalid_count + 1}
 
     @atomic_write(agent_id_param="agent_id", use_lock=True)
@@ -1039,6 +1364,155 @@ class ServiceRegistry:
         
         logger.info(
             f"[REMOVE_SERVICE] 服务删除完成: agent_id={agent_id}, "
+            f"name={name}, global_name={service_global_name}"
+        )
+        
+        return session
+
+    async def remove_service_async(self, agent_id: str, name: str) -> Optional[Any]:
+        """
+        异步移除指定 agent_id 下的服务及其所有工具（使用新的三层缓存架构）
+        
+        这是 remove_service 的纯异步版本，用于在异步上下文中直接调用，
+        避免 _sync_to_kv 的同步转换导致的事件循环冲突。
+        
+        删除顺序：
+        1. 生成服务全局名称
+        2. 获取服务的所有工具（从关系层）
+        3. 删除所有工具实体（从实体层）
+        4. 删除 Service-Tool 关系（从关系层）
+        5. 删除 Agent-Service 关系（从关系层）
+        6. 删除服务状态（从状态层）
+        7. 删除服务实体（从实体层）
+        8. 从 mcp.json 删除配置
+        9. 清理内存中的会话和工具映射
+        
+        Args:
+            agent_id: Agent ID
+            name: 服务原始名称
+            
+        Returns:
+            服务会话对象，如果不存在返回 None
+        """
+        # 1. 生成服务全局名称
+        service_global_name = self._naming.generate_service_global_name(name, agent_id)
+        
+        logger.info(
+            f"[REMOVE_SERVICE_ASYNC] 开始删除服务: agent_id={agent_id}, "
+            f"name={name}, global_name={service_global_name}"
+        )
+        
+        # 2. 获取服务的所有工具（从关系层）
+        service_tools = []
+        try:
+            service_tools = await self._relation_manager.get_service_tools(service_global_name)
+            if service_tools is None:
+                service_tools = []
+            
+            logger.debug(
+                f"[REMOVE_SERVICE_ASYNC] 找到 {len(service_tools)} 个工具需要删除"
+            )
+            
+            # 3. 删除所有工具实体（从实体层）
+            for tool_info in service_tools:
+                tool_global_name = tool_info.get("tool_global_name")
+                if tool_global_name:
+                    try:
+                        await self._tool_manager.delete_tool(tool_global_name)
+                        logger.debug(
+                            f"[REMOVE_SERVICE_ASYNC] 删除工具实体: {tool_global_name}"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"[REMOVE_SERVICE_ASYNC] 删除工具实体失败: "
+                            f"tool={tool_global_name}, error={e}"
+                        )
+        except Exception as e:
+            logger.warning(
+                f"[REMOVE_SERVICE_ASYNC] 获取服务工具失败: "
+                f"service={service_global_name}, error={e}"
+            )
+        
+        # 4. 删除关系（使用级联删除）
+        try:
+            await self._relation_manager.remove_service_cascade(
+                agent_id=agent_id,
+                service_global_name=service_global_name
+            )
+            logger.debug(
+                f"[REMOVE_SERVICE_ASYNC] 删除服务关系: {service_global_name}"
+            )
+        except Exception as e:
+            logger.warning(
+                f"[REMOVE_SERVICE_ASYNC] 删除服务关系失败: "
+                f"service={service_global_name}, error={e}"
+            )
+        
+        # 5. 删除服务状态（从状态层）
+        try:
+            await self._state_manager.delete_service_status(service_global_name)
+            logger.debug(
+                f"[REMOVE_SERVICE_ASYNC] 删除服务状态: {service_global_name}"
+            )
+        except Exception as e:
+            logger.warning(
+                f"[REMOVE_SERVICE_ASYNC] 删除服务状态失败: "
+                f"service={service_global_name}, error={e}"
+            )
+        
+        # 6. 删除服务实体（从实体层）
+        try:
+            await self._service_manager.delete_service(service_global_name)
+            logger.debug(
+                f"[REMOVE_SERVICE_ASYNC] 删除服务实体: {service_global_name}"
+            )
+        except Exception as e:
+            logger.warning(
+                f"[REMOVE_SERVICE_ASYNC] 删除服务实体失败: "
+                f"service={service_global_name}, error={e}"
+            )
+        
+        # 7. 从 mcp.json 删除配置
+        if self._unified_config:
+            try:
+                success = self._unified_config.remove_service_config(service_global_name)
+                if success:
+                    logger.debug(
+                        f"[JSON_PERSIST] 从 mcp.json 删除服务配置: "
+                        f"global_name={service_global_name}"
+                    )
+                else:
+                    logger.warning(
+                        f"[JSON_PERSIST] 从 mcp.json 删除服务配置失败: "
+                        f"global_name={service_global_name}"
+                    )
+            except Exception as e:
+                logger.error(
+                    f"[JSON_PERSIST] 删除服务配置时出错: "
+                    f"global_name={service_global_name}, error={e}"
+                )
+        
+        # 8. 清理内存中的会话
+        session = self.sessions.get(agent_id, {}).pop(name, None)
+        
+        # 9. 清理内存中的工具映射
+        if agent_id in self.tool_to_session_map:
+            # 找到所有属于该服务的工具
+            tools_to_remove = [
+                tool_name
+                for tool_name, tool_session in self.tool_to_session_map[agent_id].items()
+                if tool_session is session
+            ]
+            
+            # 删除工具映射
+            for tool_name in tools_to_remove:
+                self.tool_to_session_map[agent_id].pop(tool_name, None)
+                logger.debug(
+                    f"[REMOVE_SERVICE_ASYNC] 清理工具映射: tool={tool_name}"
+                )
+        
+        logger.info(
+            f"[REMOVE_SERVICE_ASYNC] 服务删除完成: agent_id={agent_id}, "
             f"name={name}, global_name={service_global_name}"
         )
         
@@ -1989,6 +2463,21 @@ class ServiceRegistry:
         
         return None
 
+    async def get_global_name_from_agent_service_async(self, agent_id: str, local_name: str) -> Optional[str]:
+        """获取 Agent 服务对应的全局名称（异步版本，直接调用关系层）"""
+        # 直接异步调用关系层
+        services = await self._relation_manager.get_agent_services(agent_id)
+        
+        if not services:
+            return None
+        
+        # 查找匹配的服务
+        for service in services:
+            if service.get("service_original_name") == local_name:
+                return service.get("service_global_name")
+        
+        return None
+
     def get_agent_service_from_global_name(self, global_name: str) -> Optional[Tuple[str, str]]:
         """获取全局服务名对应的 Agent 服务信息（从关系层读取）
         
@@ -2695,6 +3184,10 @@ class _AgentClientServiceAdapter:
                 if cid == client_id:
                     services.append((agent_id, service_name))
         return services
+    
+    def get_service_client_mapping(self, agent_id: str) -> Dict[str, str]:
+        """获取指定 agent 的所有 service-client 映射"""
+        return self._registry.service_to_client.get(agent_id, {}).copy()
 
 
 class _ClientConfigServiceAdapter:

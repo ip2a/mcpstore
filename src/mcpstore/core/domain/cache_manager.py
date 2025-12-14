@@ -82,7 +82,8 @@ class CacheManager:
             # 使用 per-agent 锁保证并发安全
             async with self._agent_locks.write(event.agent_id):
                 # 1. 添加服务到缓存（INITIALIZING 状态）
-                self._registry.add_service(
+                # 使用异步版本避免事件循环冲突
+                await self._registry.add_service_async(
                     agent_id=event.agent_id,
                     name=event.service_name,
                     session=None,  # 暂无连接
@@ -92,7 +93,7 @@ class CacheManager:
                 )
                 transaction.record(
                     "add_service",
-                    self._registry.remove_service,
+                    self._registry.remove_service_async,
                     event.agent_id, event.service_name
                 )
                 
@@ -187,7 +188,8 @@ class CacheManager:
                     self._registry.clear_service_tools_only(event.agent_id, event.service_name)
                 
                 # 更新服务缓存（保留映射）
-                self._registry.add_service(
+                # 使用异步版本避免事件循环冲突
+                await self._registry.add_service_async(
                     agent_id=event.agent_id,
                     name=event.service_name,
                     session=event.session,

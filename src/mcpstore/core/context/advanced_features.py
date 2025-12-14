@@ -175,16 +175,16 @@ class AdvancedFeaturesMixin:
                 # 重置整个mcp.json
                 logger.info(" [MCP_RESET] Clearing all services from mcp.json")
                 
-                # 1. 清空所有缓存（通过Registry公共API）
+                # 1. 清空所有缓存（通过Registry异步API）
                 try:
                     agent_ids = self._store.registry.get_all_agent_ids()
                 except Exception:
                     agent_ids = []
                 for agent_id in agent_ids:
                     try:
-                        self._store.registry.clear(agent_id)
-                    except Exception:
-                        pass
+                        await self._store.registry.clear_async(agent_id)
+                    except Exception as e:
+                        logger.warning(f"Failed to clear agent {agent_id}: {e}")
                 
                 # 2. 重置mcp.json为空
                 new_config = {"mcpServers": {}}
@@ -193,9 +193,9 @@ class AdvancedFeaturesMixin:
                 # 只清空Store级别的服务，保留Agent服务
                 logger.info(" [MCP_RESET] Clearing Store services, preserving Agent services")
                 
-                # 1. 清空global_agent_store缓存
+                # 1. 清空global_agent_store缓存（使用异步版本）
                 global_agent_store_id = self._store.client_manager.global_agent_store_id
-                self._store.registry.clear(global_agent_store_id)
+                await self._store.registry.clear_async(global_agent_store_id)
                 
                 # 2. 从mcp.json中移除非Agent服务（不带@后缀的服务）
                 preserved_services = {}
@@ -211,8 +211,8 @@ class AdvancedFeaturesMixin:
                 agent_id = scope
                 logger.info(f" [MCP_RESET] Clearing services for Agent: {agent_id}")
                 
-                # 1. 清空该Agent的缓存
-                self._store.registry.clear(agent_id)
+                # 1. 清空该Agent的缓存（使用异步版本）
+                await self._store.registry.clear_async(agent_id)
                 
                 # 2. 从mcp.json中移除该Agent的服务
                 preserved_services = {}

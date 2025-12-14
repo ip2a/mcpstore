@@ -73,8 +73,8 @@ class MCPOrchestrator(
         self._context_factory = None
 
         #  新增：异步同步助手（用于Resources和Prompts的同步方法）
-        from mcpstore.core.utils.async_sync_helper import AsyncSyncHelper
-        self._sync_helper = AsyncSyncHelper()
+        from mcpstore.core.utils.async_sync_helper import get_global_helper
+        self._sync_helper = get_global_helper()
 
         # 旧的心跳和重连配置已被ServiceLifecycleManager替代
         timing_config = config.get("timing", {})

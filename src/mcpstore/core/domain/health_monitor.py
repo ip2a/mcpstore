@@ -120,7 +120,7 @@ class HealthMonitor:
         处理健康检查请求 - 立即执行健康检查
         """
         # 统一使用全局命名空间读取状态
-        global_name = self._to_global_name(event.agent_id, event.service_name)
+        global_name = await self._to_global_name_async(event.agent_id, event.service_name)
         current_state = self._registry._service_state_service.get_service_state(self._global_agent_store_id, global_name)
         logger.info(f"[HEALTH] Manual health check requested: {event.service_name} (state={getattr(current_state,'value',str(current_state))}, bus={hex(id(self._event_bus))})")
 
@@ -151,7 +151,7 @@ class HealthMonitor:
         try:
             while self._is_running:
                 # 根据当前状态选择检查间隔
-                global_name = self._to_global_name(agent_id, service_name)
+                global_name = await self._to_global_name_async(agent_id, service_name)
                 current_state = self._registry._service_state_service.get_service_state(self._global_agent_store_id, global_name)
                 interval = self._warning_interval if current_state == ServiceConnectionState.WARNING else self._check_interval
                 await asyncio.sleep(interval)
@@ -172,7 +172,7 @@ class HealthMonitor:
 
         try:
             # 如果服务已不存在，跳过检查，且停止周期任务
-            global_name = self._to_global_name(agent_id, service_name)
+            global_name = await self._to_global_name_async(agent_id, service_name)
             if not self._registry.has_service(self._global_agent_store_id, global_name):
                 logger.info(f"[HEALTH] Skip check for removed service: {service_name}")
                 task_key = (agent_id, service_name)
@@ -276,10 +276,10 @@ class HealthMonitor:
         )
         await self._event_bus.publish(event, wait=wait)
 
-    def _to_global_name(self, agent_id: str, service_name: str) -> str:
-        """将本地服务名映射为全局服务名（映射失败则返回原名）。"""
+    async def _to_global_name_async(self, agent_id: str, service_name: str) -> str:
+        """将本地服务名映射为全局服务名（异步版本，映射失败则返回原名）。"""
         try:
-            mapping = self._registry.get_global_name_from_agent_service(agent_id, service_name)
+            mapping = await self._registry.get_global_name_from_agent_service_async(agent_id, service_name)
             return mapping or service_name
         except Exception:
             return service_name
