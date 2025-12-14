@@ -255,8 +255,8 @@ class StoreSetupManager:
         store._data_space_manager = dsm
 
         # 7) 同步初始化 orchestrator（无后台副作用）
-        from mcpstore.core.utils.async_sync_helper import AsyncSyncHelper
-        helper = AsyncSyncHelper()
+        from mcpstore.core.utils.async_sync_helper import get_global_helper
+        helper = get_global_helper()
         # 保持后台事件循环常驻，避免组件启动后立即被清理导致状态无法收敛
         helper.run_async(orchestrator.setup(), force_background=True)
 

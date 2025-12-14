@@ -361,9 +361,9 @@ class UnifiedMCPSyncManager:
                 self.orchestrator.client_manager._remove_client_and_mapping(global_agent_store_id, client_id)
                 logger.debug(f"Removed client {client_id} containing service {service_name}")
 
-            # 从Registry移除
-            if hasattr(self.orchestrator.registry, 'remove_service'):
-                self.orchestrator.registry.remove_service(global_agent_store_id, service_name)
+            # 从Registry移除（使用异步版本）
+            if hasattr(self.orchestrator.registry, 'remove_service_async'):
+                await self.orchestrator.registry.remove_service_async(global_agent_store_id, service_name)
 
             return len(matching_clients) > 0
 

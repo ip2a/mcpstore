@@ -197,8 +197,8 @@ class BidirectionalSyncManager:
     async def _delete_store_service(self, global_name: str):
         """从 Store 中删除服务"""
         try:
-            # 1. 从 Registry 中删除
-            self.store.registry.remove_service(
+            # 1. 从 Registry 中删除（使用异步版本）
+            await self.store.registry.remove_service_async(
                 self.store.client_manager.global_agent_store_id, 
                 global_name
             )
@@ -218,8 +218,8 @@ class BidirectionalSyncManager:
     async def _delete_agent_service(self, agent_id: str, local_name: str):
         """从 Agent 中删除服务"""
         try:
-            # 从 Registry 中删除
-            self.store.registry.remove_service(agent_id, local_name)
+            # 从 Registry 中删除（使用异步版本）
+            await self.store.registry.remove_service_async(agent_id, local_name)
             
             # 移除映射关系
             self.store.registry.remove_agent_service_mapping(agent_id, local_name)

@@ -40,8 +40,8 @@ class KVStorageAdapter:
     def _ensure_sync_helper(self):
         """Ensure AsyncSyncHelper is initialized (lazy initialization)."""
         if self._sync_helper is None:
-            from mcpstore.core.utils.async_sync_helper import AsyncSyncHelper
-            self._sync_helper = AsyncSyncHelper()
+            from mcpstore.core.utils.async_sync_helper import get_global_helper
+            self._sync_helper = get_global_helper()
             logger.debug("AsyncSyncHelper initialized for KVStorageAdapter")
         return self._sync_helper
     

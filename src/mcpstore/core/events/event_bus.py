@@ -22,6 +22,7 @@ from .service_events import (
     ServiceInitialized,
     ServiceConnectionRequested,
     HealthCheckRequested,
+    ServiceAddRequested,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,10 +58,12 @@ class EventBus:
 
         logger.info(f"EventBus initialized id={hex(id(self))}")
         # 关键事件白名单：这些事件将被强制以同步方式派发（wait=True）
+        # ServiceAddRequested 必须同步执行，确保缓存操作完成后再继续
         self._critical_sync_events = (
             ServiceInitialized,
             ServiceConnectionRequested,
             HealthCheckRequested,
+            ServiceAddRequested,
         )
 
     def subscribe(
