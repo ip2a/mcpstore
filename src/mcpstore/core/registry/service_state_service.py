@@ -71,35 +71,42 @@ class ServiceStateService:
     # === Service State Management Methods ===
     
     def set_service_state(self, agent_id: str, service_name: str, state: Optional[ServiceConnectionState]):
-        """设置服务生命周期状态并同步到 KV 存储。
+        """
+        设置服务生命周期状态并同步到 KV 存储。
 
-        ServiceStateService 只负责本地缓存和 KV，同步共享 Client ID
-        的跨服务状态由 ServiceRegistry 统一协调。
+        重要：状态是运行时数据，必须以 pykv 为真相源
         """
         # 记录旧状态（仅用于日志）
         old_state = self.service_states.get(agent_id, {}).get(service_name)
 
-        # 设置新状态（现有逻辑）
-        if agent_id not in self.service_states:
-            self.service_states[agent_id] = {}
-        
-        if state is None:
-            # 删除状态
-            if service_name in self.service_states[agent_id]:
-                del self.service_states[agent_id][service_name]
-                logger.debug(f"Service {service_name} (agent {agent_id}) state removed")
-        else:
-            # 设置状态
-            self.service_states[agent_id][service_name] = state
-            logger.debug(f"Service {service_name} (agent {agent_id}) state {getattr(old_state,'value',old_state)} -> {getattr(state,'value',state)}")
-            # INFO级别记录状态变化以辅助诊断
-            logger.info(f"[REGISTRY_STATE] {agent_id}:{service_name} {getattr(old_state,'value',old_state)} -> {getattr(state,'value',state)}")
-            
-            # Sync state to KV store
+        try:
+            # Phase 1: 先写入 pykv（真相源）
             self._kv_adapter.sync_to_kv(
                 self.set_service_state_async(agent_id, service_name, state),
                 f"service_state:{agent_id}:{service_name}"
             )
+
+            # Phase 2: pykv 写入成功后，再更新内存缓存
+            if agent_id not in self.service_states:
+                self.service_states[agent_id] = {}
+
+            if state is None:
+                # 删除状态
+                if service_name in self.service_states[agent_id]:
+                    del self.service_states[agent_id][service_name]
+                    logger.debug(f"Service {service_name} (agent {agent_id}) state removed")
+            else:
+                # 设置状态
+                self.service_states[agent_id][service_name] = state
+                logger.debug(f"Service {service_name} (agent {agent_id}) state {getattr(old_state,'value',old_state)} -> {getattr(state,'value',state)}")
+
+            # INFO级别记录状态变化以辅助诊断
+            logger.info(f"[REGISTRY_STATE] {agent_id}:{service_name} {getattr(old_state,'value',old_state)} -> {getattr(state,'value',state)}")
+
+        except Exception as e:
+            logger.error(f"Failed to set service state: agent={agent_id}, service={service_name}, error={e}")
+            # CRITICAL: pykv 写入失败，不更新内存缓存
+            raise RuntimeError(f"Service state update failed") from e
     
     def get_service_state(self, agent_id: str, service_name: str) -> ServiceConnectionState:
         """获取服务生命周期状态"""
@@ -117,25 +124,36 @@ class ServiceStateService:
         return self.service_states.get(agent_id, {}).get(service_name, ServiceConnectionState.DISCONNECTED)
     
     def set_service_metadata(self, agent_id: str, service_name: str, metadata: Optional[ServiceStateMetadata]):
-        """[REFACTOR] 设置服务状态元数据，支持删除操作"""
-        if agent_id not in self.service_metadata:
-            self.service_metadata[agent_id] = {}
-        
-        if metadata is None:
-            # 删除元数据
-            if service_name in self.service_metadata[agent_id]:
-                del self.service_metadata[agent_id][service_name]
-                logger.debug(f"Service {service_name} (agent {agent_id}) metadata removed")
-        else:
-            # 设置元数据
-            self.service_metadata[agent_id][service_name] = metadata
-            logger.debug(f"Service {service_name} (agent {agent_id}) metadata updated")
-            
-            # Sync metadata to KV store
+        """
+        设置服务状态元数据
+
+        重要：元数据是运行时数据，必须以 pykv 为真相源
+        """
+        try:
+            # Phase 1: 先写入 pykv（真相源）
             self._kv_adapter.sync_to_kv(
                 self.set_service_metadata_async(agent_id, service_name, metadata),
                 f"service_metadata:{agent_id}:{service_name}"
             )
+
+            # Phase 2: pykv 写入成功后，再更新内存缓存
+            if agent_id not in self.service_metadata:
+                self.service_metadata[agent_id] = {}
+
+            if metadata is None:
+                # 删除元数据
+                if service_name in self.service_metadata[agent_id]:
+                    del self.service_metadata[agent_id][service_name]
+                    logger.debug(f"Service {service_name} (agent {agent_id}) metadata removed")
+            else:
+                # 设置元数据
+                self.service_metadata[agent_id][service_name] = metadata
+                logger.debug(f"Service {service_name} (agent {agent_id}) metadata updated")
+
+        except Exception as e:
+            logger.error(f"Failed to set service metadata: agent={agent_id}, service={service_name}, error={e}")
+            # CRITICAL: pykv 写入失败，不更新内存缓存
+            raise RuntimeError(f"Service metadata update failed") from e
     
     def get_service_metadata(self, agent_id: str, service_name: str) -> Optional[ServiceStateMetadata]:
         """获取服务状态元数据"""
