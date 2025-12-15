@@ -136,6 +136,16 @@ class AsyncSyncHelper:
             RuntimeError: 执行失败
         """
         import time as _t
+        import traceback
+
+        # 添加调用栈追踪
+        logger.debug(f"[ASYNC_SYNC_HELPER] === RUN_ASYNC START ===")
+        logger.debug(f"[ASYNC_SYNC_HELPER] Helper type: {type(self).__name__}")
+        logger.debug(f"[ASYNC_SYNC_HELPER] force_background: {force_background}, timeout: {timeout}")
+        logger.debug(f"[ASYNC_SYNC_HELPER] Call stack: {traceback.format_stack()[-3].strip()}")
+        logger.debug(f"[ASYNC_SYNC_HELPER] Current thread: {threading.current_thread().name}")
+        logger.debug(f"[ASYNC_SYNC_HELPER] Coroutine: {coro}")
+
         t0 = _t.perf_counter()
         try:
             # 检查是否已经在事件循环中

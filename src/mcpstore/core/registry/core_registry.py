@@ -136,9 +136,16 @@ class ServiceRegistry:
     def _ensure_sync_helper(self):
         """Ensure AsyncSyncHelper is initialized (lazy initialization)."""
         if self._sync_helper is None:
-            from mcpstore.core.utils.async_sync_helper import get_global_helper
-            self._sync_helper = get_global_helper()
-            logger.debug("AsyncSyncHelper initialized for ServiceRegistry")
+            # 尝试使用死锁安全的助手
+            try:
+                from mcpstore.core.utils.deadlock_safe_async_helper import get_deadlock_safe_helper
+                self._sync_helper = get_deadlock_safe_helper()
+                logger.info("DeadlockSafeAsyncHelper initialized for ServiceRegistry")
+            except ImportError:
+                # 降级到原始助手
+                from mcpstore.core.utils.async_sync_helper import get_global_helper
+                self._sync_helper = get_global_helper()
+                logger.warning("Fallback to AsyncSyncHelper for ServiceRegistry (deadlock fix not available)")
         return self._sync_helper
 
     def set_unified_config(self, unified_config: Any) -> None:
@@ -368,36 +375,52 @@ class ServiceRegistry:
     def _sync_to_kv(self, coro, operation_name: str = "KV operation"):
         """
         Synchronously execute an async KV store operation.
-        
+
+        CRITICAL: KV operations are the source of truth. Failures must
+        be treated as hard errors to maintain data consistency.
+
         This method bridges synchronous code (like add_service) with async KV operations.
         It uses AsyncSyncHelper to handle event loop management intelligently.
-        
+
         Args:
             coro: Coroutine to execute
             operation_name: Description of the operation (for logging)
-        
+
         Returns:
-            The result of the coroutine execution, or None if operation fails
-        
+            The result of the coroutine execution
+
+        Raises:
+            RuntimeError: If KV operation fails (critical for data consistency)
+
         Note:
-            Failures are logged but don't raise exceptions to avoid breaking
-            the main flow. The in-memory cache remains the source of truth.
+            KV IS THE SOURCE OF TRUTH. All failures must be treated as hard errors
+            to maintain data consistency between memory and persistent storage.
         """
+        import traceback
+        import threading
+        logger.debug(f"[KV_SYNC] === SYNC_TO_KV START ===")
+        logger.debug(f"[KV_SYNC] Operation: {operation_name}")
+        logger.debug(f"[KV_SYNC] Call stack: {traceback.format_stack()[-3].strip()}")
+        logger.debug(f"[KV_SYNC] Current thread: {threading.current_thread().name}")
+        logger.debug(f"[KV_SYNC] Coroutine: {coro}")
+
         try:
-            logger.debug(f"[KV_SYNC] Starting sync: {operation_name}")
             helper = self._ensure_sync_helper()
+            logger.debug(f"[KV_SYNC] Helper type: {type(helper).__name__}")
+            logger.debug(f"[KV_SYNC] About to call helper.run_async with timeout=5.0")
             result = helper.run_async(coro, timeout=5.0)
             logger.debug(f"[KV_SYNC] Successfully synced: {operation_name}")
             return result
         except Exception as e:
-            # Log cache operation failure with context
-            logger.warning(
-                f"Cache operation failed: {operation_name}. "
-                f"Error: {type(e).__name__}: {e}. "
-                f"In-memory cache remains consistent."
+            # CRITICAL: Treat KV failures as hard errors
+            logger.error(
+                f"KV sync FAILED: {operation_name}. "
+                f"This is a DATA CONSISTENCY ERROR. "
+                f"Error: {type(e).__name__}: {e}",
+                exc_info=True
             )
-            # Don't raise - memory cache is still updated, KV sync is best-effort
-            return None
+            # MUST raise to maintain pykv as source of truth
+            raise RuntimeError(f"KV operation failed: {operation_name}") from e
 
 
 
@@ -627,8 +650,10 @@ class ServiceRegistry:
                     service_config: Dict[str, Any] = None, state: 'ServiceConnectionState' = None,
                     preserve_mappings: bool = False) -> List[str]:
         """
-        为指定 agent_id 注册服务及其工具（使用新的三层缓存架构）
-        
+        注册服务到注册表
+
+        关键原则：pykv 是唯一真相数据源，所有持久化数据必须先写入 pykv
+
         Args:
             agent_id: store/agent 的唯一标识
             name: 服务原始名称
@@ -637,14 +662,17 @@ class ServiceRegistry:
             service_config: 服务配置信息
             state: 服务状态（可选，如果不提供则根据session判断）
             preserve_mappings: 是否保留现有的映射关系（优雅修复用）
-            
+
         Returns:
             实际注册的工具名列表（全局名称）
+
+        Raises:
+            RuntimeError: 如果 pykv 写入失败（数据一致性错误）
         """
         tools = tools or []
         service_config = service_config or {}
 
-        # 初始化会话数据结构（仅内存）
+        # 初始化内存数据结构（仅会话信息）
         if agent_id not in self.sessions:
             self.sessions[agent_id] = {}
         if agent_id not in self.tool_to_session_map:
@@ -662,85 +690,198 @@ class ServiceRegistry:
                 from mcpstore.core.models.service import ServiceConnectionState
                 state = ServiceConnectionState.DISCONNECTED  # 连接失败
 
-        # 处理现有服务
-        service_exists = name in self.sessions[agent_id]
-        if service_exists:
-            if not preserve_mappings:
-                logger.debug(f"Re-registering service: {name} for agent {agent_id}. Removing old service.")
-                self.remove_service(agent_id, name)
-                service_exists = False  # 服务已被删除
-            else:
-                logger.debug(f"[ADD_SERVICE] Preserving mappings for service: {name}")
-
-        # 1. 使用 NamingService 生成全局名称
+        # Phase 1: 生成全局名称（不涉及持久化）
         service_global_name = self._naming.generate_service_global_name(name, agent_id)
         logger.debug(f"[ADD_SERVICE] Generated global name: {service_global_name} for {name}")
 
-        # 2. 使用 ServiceEntityManager 创建服务实体（仅当服务不存在时）
+        # Phase 2: 从 pykv 检查服务是否存在（真相源）
+        service_exists = False
+        try:
+            existing_service = self._sync_to_kv(
+                self._service_manager.get_service(service_global_name),
+                f"check_service_exists:{service_global_name}"
+            )
+            service_exists = existing_service is not None
+
+            if service_exists:
+                if not preserve_mappings:
+                    logger.debug(f"Re-registering service: {name} for agent {agent_id}. Removing old service.")
+                    self.remove_service(agent_id, name)
+                    service_exists = False
+                else:
+                    logger.debug(f"[ADD_SERVICE] Preserving existing service: {name} -> {service_global_name}")
+        except Exception as e:
+            logger.error(f"Failed to check service existence: {service_global_name}, error={e}")
+            service_exists = False
+
+        # Phase 3: 准备 pykv 写入操作（先准备，后执行）
+        pykv_operations = []
+
         if not service_exists:
-            self._sync_to_kv(
-                self._service_manager.create_service(
+            # 3.1 创建服务实体
+            pykv_operations.append(
+                ("create_service", self._service_manager.create_service(
                     agent_id=agent_id,
                     original_name=name,
                     config=service_config
-                ),
-                f"create_service:{service_global_name}"
+                ), f"create_service:{service_global_name}")
             )
 
-            # 2.1 持久化到 mcp.json（使用全局名称作为键）
-            if self._unified_config and service_config:
-                try:
-                    # 提取标准 MCP 配置字段（不包含 MCPStore 特定元数据）
-                    mcp_config = self._extract_standard_mcp_config(service_config)
-                    
-                    # 使用全局名称作为键写入 mcp.json
-                    success = self._unified_config.add_service_config(
-                        service_name=service_global_name,
-                        config=mcp_config
-                    )
-                    
-                    if success:
-                        logger.debug(
-                            f"[JSON_PERSIST] 服务配置已写入 mcp.json: "
-                            f"global_name={service_global_name}"
-                        )
-                    else:
-                        logger.warning(
-                            f"[JSON_PERSIST] 写入 mcp.json 失败: "
-                            f"global_name={service_global_name}"
-                        )
-                except Exception as e:
-                    logger.error(
-                        f"[JSON_PERSIST] 持久化服务配置时出错: "
-                        f"global_name={service_global_name}, error={e}"
-                    )
-
-            # 3. 使用 RelationshipManager 创建 Agent-Service 关系
-            # 生成 client_id（简化版本，实际应该从配置中获取）
+            # 3.2 创建 Agent-Service 关系
             client_id = f"client_{agent_id}_{name}"
-            self._sync_to_kv(
-                self._relation_manager.add_agent_service(
+            pykv_operations.append(
+                ("create_relation", self._relation_manager.add_agent_service(
                     agent_id=agent_id,
                     service_original_name=name,
                     service_global_name=service_global_name,
                     client_id=client_id
-                ),
-                f"add_agent_service:{agent_id}:{service_global_name}"
+                ), f"add_agent_service:{agent_id}:{service_global_name}")
             )
 
-        # 4. 使用 StateManager 创建服务状态
-        tools_status = []  # 工具状态将在注册工具时更新
-        self._sync_to_kv(
-            self._state_manager.update_service_status(
+        # 3.3 创建/更新服务状态
+        tools_status = []  # 工具状态后续更新
+        pykv_operations.append(
+            ("update_status", self._state_manager.update_service_status(
                 service_global_name=service_global_name,
                 health_status=state.value,
                 tools_status=tools_status
-            ),
-            f"update_service_status:{service_global_name}"
+            ), f"update_service_status:{service_global_name}")
         )
 
-        # 存储会话（仅内存）
-        self.sessions[agent_id][name] = session
+        # Phase 4: 执行所有 pykv 写入操作（原子性）
+        added_tool_names = []
+        try:
+            # 执行基础 pykv 操作
+            for op_name, operation, log_name in pykv_operations:
+                self._sync_to_kv(operation, log_name)
+                logger.debug(f"[PYKV] Successfully executed: {log_name}")
+
+            # Phase 5: 持久化配置到 JSON（独立于 pykv，但重要）
+            if self._unified_config and service_config:
+                try:
+                    mcp_config = self._extract_standard_mcp_config(service_config)
+                    success = self._unified_config.add_service_config(
+                        service_name=service_global_name,
+                        config=mcp_config
+                    )
+                    if not success:
+                        logger.warning(f"JSON config write failed: {service_global_name}")
+                except Exception as e:
+                    logger.error(f"JSON persistence failed: {service_global_name}, error={e}")
+
+            # Phase 6: 注册工具（每个工具独立写入 pykv）
+            for tool_name, tool_definition in tools:
+                try:
+                    # 验证工具归属
+                    tool_service_name = None
+                    if "function" in tool_definition:
+                        tool_service_name = tool_definition["function"].get("service_name")
+                    else:
+                        tool_service_name = tool_definition.get("service_name")
+
+                    if tool_service_name and tool_service_name != name:
+                        logger.warning(f"Tool '{tool_name}' belongs to service '{tool_service_name}', not '{name}'. Skipping.")
+                        continue
+
+                    # 检查工具名冲突（从内存检查，仅用于连接管理）
+                    existing_session = self.tool_to_session_map[agent_id].get(tool_name)
+                    if existing_session and existing_session is not session:
+                        logger.warning(f"Tool name conflict: '{tool_name}' from {name} for agent {agent_id}. Skipping.")
+                        continue
+
+                    # 生成工具全局名称
+                    tool_global_name = self._naming.generate_tool_global_name(service_global_name, tool_name)
+
+                    # 提取工具原始名称
+                    actual_original_name = tool_name
+                    if "function" in tool_definition:
+                        func_name = tool_definition["function"].get("name")
+                        if func_name:
+                            actual_original_name = func_name
+
+                    # Phase 6.1: 创建工具实体（写入 pykv）
+                    self._sync_to_kv(
+                        self._tool_manager.create_tool(
+                            service_global_name=service_global_name,
+                            service_original_name=name,
+                            source_agent=agent_id,
+                            tool_original_name=actual_original_name,
+                            tool_def=tool_definition
+                        ),
+                        f"create_tool:{tool_global_name}"
+                    )
+
+                    # Phase 6.2: 创建 Service-Tool 关系（写入 pykv）
+                    self._sync_to_kv(
+                        self._relation_manager.add_service_tool(
+                            service_global_name=service_global_name,
+                            service_original_name=name,
+                            source_agent=agent_id,
+                            tool_global_name=tool_global_name,
+                            tool_original_name=actual_original_name
+                        ),
+                        f"add_service_tool:{service_global_name}:{tool_global_name}"
+                    )
+
+                    # Phase 6.3: 更新工具-会话映射（仅内存，用于连接管理）
+                    self.tool_to_session_map[agent_id][tool_name] = session
+
+                    added_tool_names.append((tool_global_name, actual_original_name))
+                    logger.debug(f"[TOOL] Successfully registered: {tool_name} -> {tool_global_name}")
+
+                except Exception as e:
+                    logger.error(f"Failed to register tool: {tool_name}, error={e}")
+                    # 单个工具失败不影响服务主体，但需要清理可能的状态
+                    continue
+
+            # Phase 7: 更新服务状态中的工具列表（所有工具注册完成后）
+            if added_tool_names:
+                tools_status = [
+                    {
+                        "tool_global_name": tool_global_name,
+                        "tool_original_name": tool_original_name,
+                        "status": "available"
+                    }
+                    for tool_global_name, tool_original_name in added_tool_names
+                ]
+                self._sync_to_kv(
+                    self._state_manager.update_service_status(
+                        service_global_name=service_global_name,
+                        health_status=state.value,
+                        tools_status=tools_status
+                    ),
+                    f"update_service_status_with_tools:{service_global_name}"
+                )
+                logger.debug(f"[TOOL_STATUS] Updated service with {len(tools_status)} tools")
+
+            # Phase 8: 最后更新内存（仅会话信息，在所有 pykv 操作成功后）
+            self.sessions[agent_id][name] = session
+
+            logger.info(
+                f"Service added successfully: {name} -> {service_global_name}, "
+                f"agent={agent_id}, tools={len(added_tool_names)}, state={state.value}"
+            )
+
+        except Exception as e:
+            # CRITICAL: 任何 pykv 操作失败都要清理内存状态
+            logger.error(f"Failed to add service: {name}, agent={agent_id}, error={e}")
+
+            # 清理可能的部分内存状态（仅会话信息）
+            if agent_id in self.sessions and name in self.sessions[agent_id]:
+                del self.sessions[agent_id][name]
+
+            # 清理可能的部分工具-会话映射
+            for tool_name, _ in tools:
+                if agent_id in self.tool_to_session_map and tool_name in self.tool_to_session_map[agent_id]:
+                    if self.tool_to_session_map[agent_id][tool_name] is session:
+                        del self.tool_to_session_map[agent_id][tool_name]
+
+            # 重新抛出异常，确保调用方知道失败
+            raise RuntimeError(f"Service registration failed: {name}") from e
+
+        tool_global_names = [t[0] for t in added_tool_names]
+        logger.debug(f"Service {name} added successfully: global_name={service_global_name}, tools={tool_global_names}")
+        return tool_global_names
 
         # 5. 使用 ToolEntityManager 注册工具
         added_tool_names = []
@@ -834,6 +975,7 @@ class ServiceRegistry:
         logger.debug(f"Global name: {service_global_name}, Added tools: {tool_global_names}")
         return tool_global_names
 
+    @atomic_write(agent_id_param="agent_id", use_lock=True)
     async def add_service_async(
         self,
         agent_id: str,
@@ -845,11 +987,10 @@ class ServiceRegistry:
         preserve_mappings: bool = False
     ) -> List[str]:
         """
-        为指定 agent_id 注册服务及其工具（纯异步版本）
-        
-        这是 add_service 的异步版本，直接使用 await 调用缓存操作，
-        避免在异步上下文中使用 _sync_to_kv 导致的事件循环冲突。
-        
+        注册服务到注册表（异步版本）
+
+        关键原则：pykv 是唯一真相数据源，所有持久化数据必须先写入 pykv
+
         Args:
             agent_id: store/agent 的唯一标识
             name: 服务原始名称
@@ -858,14 +999,17 @@ class ServiceRegistry:
             service_config: 服务配置信息
             state: 服务状态（可选，如果不提供则根据session判断）
             preserve_mappings: 是否保留现有的映射关系（优雅修复用）
-            
+
         Returns:
             实际注册的工具名列表（全局名称）
+
+        Raises:
+            RuntimeError: 如果 pykv 写入失败（数据一致性错误）
         """
         tools = tools or []
         service_config = service_config or {}
 
-        # 初始化会话数据结构（仅内存）
+        # 初始化内存数据结构（仅会话信息）
         if agent_id not in self.sessions:
             self.sessions[agent_id] = {}
         if agent_id not in self.tool_to_session_map:
@@ -878,133 +1022,181 @@ class ServiceRegistry:
                 state = ServiceConnectionState.HEALTHY
             elif session is not None:
                 from mcpstore.core.models.service import ServiceConnectionState
-                state = ServiceConnectionState.WARNING
+                state = ServiceConnectionState.WARNING  # 有连接但无工具
             else:
                 from mcpstore.core.models.service import ServiceConnectionState
-                state = ServiceConnectionState.DISCONNECTED
+                state = ServiceConnectionState.DISCONNECTED  # 连接失败
 
-        # 处理现有服务
-        service_exists = name in self.sessions[agent_id]
-        if service_exists:
-            if not preserve_mappings:
-                logger.debug(f"Re-registering service: {name} for agent {agent_id}. Removing old service.")
-                await self.remove_service_async(agent_id, name)
-                service_exists = False
-            else:
-                logger.debug(f"[ADD_SERVICE_ASYNC] Preserving mappings for service: {name}")
-
-        # 1. 使用 NamingService 生成全局名称
+        # Phase 1: 生成全局名称（不涉及持久化）
         service_global_name = self._naming.generate_service_global_name(name, agent_id)
         logger.debug(f"[ADD_SERVICE_ASYNC] Generated global name: {service_global_name} for {name}")
 
-        # 2. 使用 ServiceEntityManager 创建服务实体（仅当服务不存在时）
-        if not service_exists:
-            await self._service_manager.create_service(
-                agent_id=agent_id,
-                original_name=name,
-                config=service_config
-            )
+        # Phase 2: 从 pykv 检查服务是否存在（真相源）
+        service_exists = False
+        try:
+            # 从真相源 pykv 检查服务是否已存在
+            existing_service = await self._service_manager.get_service(service_global_name)
+            service_exists = existing_service is not None
 
-            # 2.1 持久化到 mcp.json（使用全局名称作为键）
-            if self._unified_config and service_config:
-                try:
-                    mcp_config = self._extract_standard_mcp_config(service_config)
-                    success = self._unified_config.add_service_config(
-                        service_name=service_global_name,
-                        config=mcp_config
-                    )
-                    if success:
-                        logger.debug(f"[JSON_PERSIST] 服务配置已写入 mcp.json: global_name={service_global_name}")
-                    else:
-                        logger.warning(f"[JSON_PERSIST] 写入 mcp.json 失败: global_name={service_global_name}")
-                except Exception as e:
-                    logger.error(f"[JSON_PERSIST] 持久化服务配置时出错: global_name={service_global_name}, error={e}")
+            if service_exists:
+                if not preserve_mappings:
+                    logger.debug(f"Re-registering service: {name} for agent {agent_id}. Removing old service.")
+                    await self.remove_service_async(agent_id, name)
+                    service_exists = False
+                else:
+                    logger.debug(f"[ADD_SERVICE_ASYNC] Preserving existing service: {name} -> {service_global_name}")
+        except Exception as e:
+            logger.error(f"Failed to check service existence: {service_global_name}, error={e}")
+            service_exists = False
 
-            # 3. 使用 RelationshipManager 创建 Agent-Service 关系
-            client_id = f"client_{agent_id}_{name}"
-            await self._relation_manager.add_agent_service(
-                agent_id=agent_id,
-                service_original_name=name,
-                service_global_name=service_global_name,
-                client_id=client_id
-            )
-
-        # 4. 使用 StateManager 创建服务状态
-        tools_status = []
-        await self._state_manager.update_service_status(
-            service_global_name=service_global_name,
-            health_status=state.value,
-            tools_status=tools_status
-        )
-
-        # 存储会话（仅内存）
-        self.sessions[agent_id][name] = session
-
-        # 5. 使用 ToolEntityManager 注册工具
+        # Phase 3: 准备 pykv 写入操作（先准备，后执行）
         added_tool_names = []
-        for tool_name, tool_definition in tools:
-            tool_service_name = None
-            if "function" in tool_definition:
-                tool_service_name = tool_definition["function"].get("service_name")
-            else:
-                tool_service_name = tool_definition.get("service_name")
+        try:
+            # Phase 3.1: 创建服务实体（仅当服务不存在时）
+            if not service_exists:
+                await self._service_manager.create_service(
+                    agent_id=agent_id,
+                    original_name=name,
+                    config=service_config
+                )
+                logger.debug(f"[PYKV_ASYNC] Successfully created service entity: {service_global_name}")
 
-            if tool_service_name and tool_service_name != name:
-                logger.warning(f"Tool '{tool_name}' belongs to service '{tool_service_name}', not '{name}'. Skipping.")
-                continue
+                # Phase 3.2: 创建 Agent-Service 关系
+                client_id = f"client_{agent_id}_{name}"
+                await self._relation_manager.add_agent_service(
+                    agent_id=agent_id,
+                    service_original_name=name,
+                    service_global_name=service_global_name,
+                    client_id=client_id
+                )
+                logger.debug(f"[PYKV_ASYNC] Successfully created agent-service relation: {client_id}")
 
-            existing_session = self.tool_to_session_map[agent_id].get(tool_name)
-            if existing_session and existing_session is not session:
-                logger.warning(f"Tool name conflict: '{tool_name}' from {name} for agent {agent_id}. Skipping.")
-                continue
+                # Phase 3.3: 持久化配置到 JSON（独立于 pykv，但重要）
+                if self._unified_config and service_config:
+                    try:
+                        mcp_config = self._extract_standard_mcp_config(service_config)
+                        success = self._unified_config.add_service_config(
+                            service_name=service_global_name,
+                            config=mcp_config
+                        )
+                        if not success:
+                            logger.warning(f"JSON config write failed: {service_global_name}")
+                    except Exception as e:
+                        logger.error(f"JSON persistence failed: {service_global_name}, error={e}")
 
-            actual_original_name = tool_name
-            if "function" in tool_definition:
-                func_name = tool_definition["function"].get("name")
-                if func_name:
-                    actual_original_name = func_name
+            # Phase 4: 注册工具（每个工具独立写入 pykv）
+            for tool_name, tool_definition in tools:
+                try:
+                    # 验证工具归属
+                    tool_service_name = None
+                    if "function" in tool_definition:
+                        tool_service_name = tool_definition["function"].get("service_name")
+                    else:
+                        tool_service_name = tool_definition.get("service_name")
 
-            tool_global_name = self._naming.generate_tool_global_name(service_global_name, tool_name)
+                    if tool_service_name and tool_service_name != name:
+                        logger.warning(f"Tool '{tool_name}' belongs to service '{tool_service_name}', not '{name}'. Skipping.")
+                        continue
 
-            await self._tool_manager.create_tool(
-                service_global_name=service_global_name,
-                service_original_name=name,
-                source_agent=agent_id,
-                tool_original_name=actual_original_name,
-                tool_def=tool_definition
-            )
+                    # 检查工具名冲突（从内存检查，仅用于连接管理）
+                    existing_session = self.tool_to_session_map[agent_id].get(tool_name)
+                    if existing_session and existing_session is not session:
+                        logger.warning(f"Tool name conflict: '{tool_name}' from {name} for agent {agent_id}. Skipping.")
+                        continue
 
-            # 6. 使用 RelationshipManager 创建 Service-Tool 关系
-            await self._relation_manager.add_service_tool(
-                service_global_name=service_global_name,
-                service_original_name=name,
-                source_agent=agent_id,
-                tool_global_name=tool_global_name,
-                tool_original_name=actual_original_name
-            )
+                    # 生成工具全局名称
+                    tool_global_name = self._naming.generate_tool_global_name(service_global_name, tool_name)
 
-            self.tool_to_session_map[agent_id][tool_name] = session
-            added_tool_names.append((tool_global_name, actual_original_name))
+                    # 提取工具原始名称
+                    actual_original_name = tool_name
+                    if "function" in tool_definition:
+                        func_name = tool_definition["function"].get("name")
+                        if func_name:
+                            actual_original_name = func_name
 
-        # 7. 更新服务状态中的工具列表
-        if added_tool_names:
-            tools_status = [
-                {
-                    "tool_global_name": tgn,
-                    "tool_original_name": ton,
-                    "status": "available"
-                }
-                for tgn, ton in added_tool_names
-            ]
+                    # Phase 4.1: 创建工具实体（写入 pykv）
+                    await self._tool_manager.create_tool(
+                        service_global_name=service_global_name,
+                        service_original_name=name,
+                        source_agent=agent_id,
+                        tool_original_name=actual_original_name,
+                        tool_def=tool_definition
+                    )
+                    logger.debug(f"[PYKV_ASYNC] Successfully created tool entity: {tool_global_name}")
+
+                    # Phase 4.2: 创建 Service-Tool 关系（写入 pykv）
+                    await self._relation_manager.add_service_tool(
+                        service_global_name=service_global_name,
+                        service_original_name=name,
+                        source_agent=agent_id,
+                        tool_global_name=tool_global_name,
+                        tool_original_name=actual_original_name
+                    )
+                    logger.debug(f"[PYKV_ASYNC] Successfully created service-tool relation: {tool_global_name}")
+
+                    # Phase 4.3: 更新工具-会话映射（仅内存，用于连接管理）
+                    self.tool_to_session_map[agent_id][tool_name] = session
+
+                    added_tool_names.append((tool_global_name, actual_original_name))
+                    logger.debug(f"[TOOL_ASYNC] Successfully registered: {tool_name} -> {tool_global_name}")
+
+                except Exception as e:
+                    logger.error(f"Failed to register tool: {tool_name}, error={e}")
+                    # 单个工具失败不影响服务主体，但需要清理可能的状态
+                    continue
+
+            # Phase 5: 更新服务状态中的工具列表（所有工具注册完成后）
+            # 首先创建基础状态（无工具列表）
             await self._state_manager.update_service_status(
                 service_global_name=service_global_name,
                 health_status=state.value,
-                tools_status=tools_status
+                tools_status=[]
             )
 
+            # 然后如果成功注册了工具，更新工具列表
+            if added_tool_names:
+                tools_status = [
+                    {
+                        "tool_global_name": tool_global_name,
+                        "tool_original_name": tool_original_name,
+                        "status": "available"
+                    }
+                    for tool_global_name, tool_original_name in added_tool_names
+                ]
+                await self._state_manager.update_service_status(
+                    service_global_name=service_global_name,
+                    health_status=state.value,
+                    tools_status=tools_status
+                )
+                logger.debug(f"[STATE_ASYNC] Updated service with {len(tools_status)} tools")
+
+            # Phase 6: 最后更新内存（仅会话信息，在所有 pykv 操作成功后）
+            self.sessions[agent_id][name] = session
+
+            logger.info(
+                f"Service added successfully (async): {name} -> {service_global_name}, "
+                f"agent={agent_id}, tools={len(added_tool_names)}, state={state.value}"
+            )
+
+        except Exception as e:
+            # CRITICAL: 任何 pykv 操作失败都要清理内存状态
+            logger.error(f"Failed to add service (async): {name}, agent={agent_id}, error={e}")
+
+            # 清理可能的部分内存状态（仅会话信息）
+            if agent_id in self.sessions and name in self.sessions[agent_id]:
+                del self.sessions[agent_id][name]
+
+            # 清理可能的部分工具-会话映射
+            for tool_name, _ in tools:
+                if agent_id in self.tool_to_session_map and tool_name in self.tool_to_session_map[agent_id]:
+                    if self.tool_to_session_map[agent_id][tool_name] is session:
+                        del self.tool_to_session_map[agent_id][tool_name]
+
+            # 重新抛出异常，确保调用方知道失败
+            raise RuntimeError(f"Service registration failed (async): {name}") from e
+
         tool_global_names = [t[0] for t in added_tool_names]
-        logger.debug(f"Service added (async): {name} ({state.value}, {len(tools)} tools) for agent {agent_id}")
-        logger.debug(f"Global name: {service_global_name}, Added tools: {tool_global_names}")
+        logger.debug(f"Service {name} added successfully (async): global_name={service_global_name}, tools={tool_global_names}")
         return tool_global_names
 
     def add_failed_service(self, agent_id: str, name: str, service_config: Dict[str, Any],
@@ -1962,11 +2154,26 @@ class ServiceRegistry:
 
         Note: 使用新的三层缓存架构获取工具信息
         """
+        import traceback
+        import threading
+        logger.debug(f"[GET_TOOL_INFO] === GET_TOOL_INFO START ===")
+        logger.debug(f"[GET_TOOL_INFO] agent_id={agent_id}, tool_name={tool_name}")
+        logger.debug(f"[GET_TOOL_INFO] Call stack: {traceback.format_stack()[-3].strip()}")
+        logger.debug(f"[GET_TOOL_INFO] Current thread: {threading.current_thread().name}")
+
+        # 检查是否使用了死锁安全的助手
+        if hasattr(self, '_sync_helper'):
+            logger.debug(f"[GET_TOOL_INFO] Sync helper type: {type(self._sync_helper).__name__}")
+        else:
+            logger.debug(f"[GET_TOOL_INFO] No _sync_helper found!")
+
         # 使用新的缓存架构获取工具
+        logger.debug(f"[GET_TOOL_INFO] About to call _sync_to_kv for list_tools:{agent_id}")
         tools_dict = self._sync_to_kv(
             self._get_all_tools_dict_async(agent_id),
             f"list_tools:{agent_id}"
         )
+        logger.debug(f"[GET_TOOL_INFO] _sync_to_kv completed, result: {type(tools_dict)}")
         
         if tools_dict is None:
             tools_dict = {}
