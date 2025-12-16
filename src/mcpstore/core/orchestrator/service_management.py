@@ -15,222 +15,9 @@ logger = logging.getLogger(__name__)
 class ServiceManagementMixin:
     """Service management mixin class"""
 
-    async def _get_all_tools_from_cache(self, agent_id: str) -> Dict[str, Dict[str, Any]]:
-        """
-        从三层缓存架构获取指定 Agent 的所有工具
-        
-        使用新的缓存架构：
-        1. 从关系层获取 Agent 的所有服务
-        2. 从关系层获取每个服务的工具列表
-        3. 从实体层批量获取工具定义
-        
-        Args:
-            agent_id: Agent ID
-            
-        Returns:
-            工具字典 {tool_global_name: tool_definition}
-        """
-        tools_dict: Dict[str, Dict[str, Any]] = {}
-        
-        # 1. 获取 Agent 的所有服务关系
-        services = await self.registry._relation_manager.get_agent_services(agent_id)
-        
-        if not services:
-            logger.debug(f"[TOOLS] Agent {agent_id} 没有服务")
-            return tools_dict
-        
-        # 2. 收集所有工具全局名称
-        all_tool_global_names = []
-        for service in services:
-            service_global_name = service.get("service_global_name")
-            if not service_global_name:
-                continue
-            
-            # 获取服务的工具关系
-            tool_relations = await self.registry._relation_manager.get_service_tools(
-                service_global_name
-            )
-            
-            for tool_rel in tool_relations:
-                tool_global_name = tool_rel.get("tool_global_name")
-                if tool_global_name:
-                    all_tool_global_names.append(tool_global_name)
-        
-        if not all_tool_global_names:
-            logger.debug(f"[TOOLS] Agent {agent_id} 没有工具")
-            return tools_dict
-        
-        # 3. 批量获取工具实体
-        tool_entities = await self.registry._tool_manager.get_many_tools(
-            all_tool_global_names
-        )
-        
-        # 4. 构建工具字典
-        for i, entity in enumerate(tool_entities):
-            if entity is None:
-                continue
-            
-            tool_global_name = all_tool_global_names[i]
-            
-            # 转换为标准格式
-            tools_dict[tool_global_name] = {
-                "name": entity.tool_original_name,
-                "display_name": entity.tool_original_name,
-                "original_name": entity.tool_original_name,
-                "description": entity.description,
-                "inputSchema": entity.input_schema,
-                "parameters": entity.input_schema,
-                "service_name": entity.service_original_name,
-                "service_global_name": entity.service_global_name,
-                "tool_global_name": entity.tool_global_name,
-                "source_agent": entity.source_agent
-            }
-        
-        logger.debug(
-            f"[TOOLS] 获取到 {len(tools_dict)} 个工具: agent_id={agent_id}"
-        )
-        
-        return tools_dict
-
-    async def tools_snapshot(self, agent_id: Optional[str] = None) -> List[Any]:
-        """Public API: read tools directly from pyvk and project agent view.
-
-        - Always read global tools from pyvk (single source of truth).
-        - If agent_id provided, project the global services to agent-local names using
-          the current mapping state.
-        - Real-time data, no snapshot caching.
-        """
-        try:
-            global_agent_id = self.client_manager.global_agent_store_id
-
-            # 1. Read all tools from pyvk using new cache architecture
-            tools_dict = await self._get_all_tools_from_cache(global_agent_id)
-            logger.debug(f"[TOOLS] Loaded {len(tools_dict)} tools from pyvk for global_agent_id={global_agent_id}")
-
-            # 2. Get all service names
-            service_names = self.registry._service_state_service.get_all_service_names(global_agent_id)
-
-            # 3. Build services index: service_name -> [tool_info, ...]
-            services_index: Dict[str, List[Dict[str, Any]]] = {}
-            for service_name in service_names:
-                tool_names = self.registry.get_tools_for_service(global_agent_id, service_name)
-                if not tool_names:
-                    services_index[service_name] = []
-                    continue
-
-                items: List[Dict[str, Any]] = []
-                for tool_name in tool_names:
-                    tool_def = tools_dict.get(tool_name)
-                    if not tool_def:
-                        continue
-
-                    # Extract tool info from definition (inline logic)
-                    # Get Client ID using public method
-                    client_id = self.registry.get_service_client_id(global_agent_id, service_name) if service_name else None
-
-                    # Handle different tool definition formats
-                    if "function" in tool_def:
-                        function_data = tool_def["function"]
-                        tool_info = {
-                            'name': tool_name,
-                            'display_name': function_data.get('display_name', tool_name),
-                            'original_name': function_data.get('name', tool_name),
-                            'description': function_data.get('description', ''),
-                            'inputSchema': function_data.get('parameters', {}),
-                            'service_name': service_name,
-                            'client_id': client_id
-                        }
-                    else:
-                        tool_info = {
-                            'name': tool_name,
-                            'display_name': tool_def.get('display_name', tool_name),
-                            'original_name': tool_def.get('name', tool_name),
-                            'description': tool_def.get('description', ''),
-                            'inputSchema': tool_def.get('parameters', {}),
-                            'service_name': service_name,
-                            'client_id': client_id
-                        }
-
-                    if not tool_info:
-                        continue
-
-                    # Normalize to standard format
-                    full_name = tool_info.get("name", tool_name)
-                    item = {
-                        "name": full_name,
-                        "display_name": tool_info.get("display_name", tool_info.get("original_name", full_name.split(f"{service_name}_", 1)[-1] if isinstance(full_name, str) else full_name)),
-                        "description": tool_info.get("description", ""),
-                        "service_name": service_name,
-                        "client_id": tool_info.get("client_id"),
-                        "inputSchema": tool_info.get("inputSchema", {}),
-                        "original_name": tool_info.get("original_name", tool_info.get("name", tool_name))
-                    }
-                    items.append(item)
-
-                services_index[service_name] = items
-
-            # 4. Flatten global tools
-            flat_global: List[Dict[str, Any]] = []
-            for svc, items in services_index.items():
-                if not items:
-                    continue
-                for it in items:
-                    entry = dict(it)
-                    entry["service_name"] = svc
-                    flat_global.append(entry)
-
-            logger.debug(f"[TOOLS] Built {len(flat_global)} global tools from {len(services_index)} services")
-
-            # 5. If no agent_id, return global tools directly
-            if not agent_id:
-                return flat_global
-
-            # 6. Real-time agent projection: global -> local service names
-            # 从关系层获取 Agent 的服务映射
-            agent_services = await self.registry._relation_manager.get_agent_services(agent_id)
-            
-            # 构建 global_name -> local_name 的反向映射
-            reverse_map: Dict[str, str] = {}
-            for svc in agent_services:
-                global_name = svc.get("service_global_name")
-                local_name = svc.get("service_original_name")
-                if global_name and local_name:
-                    reverse_map[global_name] = local_name
-
-            logger.debug(f"[TOOLS] Agent projection for agent_id={agent_id}: reverse_map={reverse_map}")
-
-            # 7. Project tools to agent view
-            projected: List[Dict[str, Any]] = []
-            skipped_count = 0
-            for item in flat_global:
-                gsvc = item.get("service_name")
-                lsvc = reverse_map.get(gsvc)
-                if not lsvc:
-                    # Skip services without mapping for this agent
-                    skipped_count += 1
-                    continue
-
-                new_item = dict(item)
-                new_item["service_name"] = lsvc
-
-                # Rewrite tool name to use local service prefix
-                name = new_item.get("name")
-                if isinstance(name, str):
-                    if name.startswith(f"{gsvc}_"):
-                        suffix = name[len(gsvc) + 1:]
-                        new_item["name"] = f"{lsvc}_{suffix}"
-                    elif name.startswith(f"{gsvc}__"):
-                        suffix = name[len(gsvc) + 2:]
-                        new_item["name"] = f"{lsvc}_{suffix}"
-
-                projected.append(new_item)
-
-            logger.debug(f"[TOOLS] Agent view: {len(projected)} tools projected, {skipped_count} skipped")
-            return projected
-
-        except Exception as e:
-            logger.error(f"Failed to get tools snapshot: {e}")
-            return []
+    # tools_snapshot 和 _get_all_tools_from_cache 已删除
+    # 所有工具数据直接从 pykv 读取，不使用快照
+    # 参见 tool_operations.py 中的 list_tools_async 方法
 
     async def register_agent_client(self, agent_id: str, config: Dict[str, Any] = None) -> Client:
         """
@@ -485,11 +272,11 @@ class ServiceManagementMixin:
                 logger.warning(f"[RESTART_SERVICE] Service '{service_name}' not found in registry")
                 return False
 
-            # Get service metadata
-            metadata = self.registry.get_service_metadata(agent_key, service_name)
+            # 从 pykv 异步获取服务元数据
+            metadata = await self.registry.get_service_metadata_async(agent_key, service_name)
             if not metadata:
                 logger.error(f" [RESTART_SERVICE] No metadata found for service '{service_name}'")
-                return False
+                raise RuntimeError(f"No metadata found for service '{service_name}'")
 
             # Reset service state to INITIALIZING（通过 LifecycleManager 统一入口）
             await self.lifecycle_manager._transition_state(
@@ -608,16 +395,16 @@ class ServiceManagementMixin:
 
         return False
 
-    def get_service_status(self, service_name: str, client_id: str = None) -> dict:
+    async def get_service_status_async(self, service_name: str, client_id: str = None) -> dict:
         """
-        Get service status information - pure cache query, no business logic execution
+        异步获取服务状态信息 - 从 pykv 读取
 
         Args:
-            service_name: Service name
-            client_id: Client ID (optional, default uses global_agent_store_id)
+            service_name: 服务名称
+            client_id: Client ID（可选，默认使用 global_agent_store_id）
 
         Returns:
-            dict: Dictionary containing status information
+            dict: 包含状态信息的字典
             {
                 "service_name": str,
                 "status": str,  # "healthy", "warning", "disconnected", "unknown", etc.
@@ -631,9 +418,9 @@ class ServiceManagementMixin:
         try:
             agent_key = client_id or self.client_manager.global_agent_store_id
 
-            # Get service status from cache
+            # 从 pykv 异步获取服务状态
             state = self.registry._service_state_service.get_service_state(agent_key, service_name)
-            metadata = self.registry._service_state_service.get_service_metadata(agent_key, service_name)
+            metadata = await self.registry._service_state_service.get_service_metadata_async(agent_key, service_name)
 
             # Build status response
             status_response = {

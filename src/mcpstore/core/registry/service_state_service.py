@@ -155,20 +155,9 @@ class ServiceStateService:
             # CRITICAL: pykv 写入失败，不更新内存缓存
             raise RuntimeError(f"Service metadata update failed") from e
     
-    def get_service_metadata(self, agent_id: str, service_name: str) -> Optional[ServiceStateMetadata]:
-        """获取服务状态元数据"""
-        sync_helper = self._get_sync_helper()
-        try:
-            metadata = sync_helper.run_async(
-                self.get_service_metadata_async(agent_id, service_name),
-                timeout=5.0
-            )
-        except Exception as e:
-            logger.error(f"[REGISTRY] get_service_metadata async error for {agent_id}/{service_name}: {e}")
-            raise
-        if metadata is not None:
-            return metadata
-        return self.service_metadata.get(agent_id, {}).get(service_name)
+    # [已删除] get_service_metadata 同步方法
+    # 根据 "pykv 唯一真相数据源" 原则，请使用 get_service_metadata_async 异步方法
+    # 不允许从内存缓存回退读取
     
     def get_all_service_names(self, agent_id: str) -> List[str]:
         """
@@ -255,7 +244,7 @@ class ServiceStateService:
             metadata: 要设置的 ServiceStateMetadata
         
         Note:
-            此方法同时更新内存缓存（过渡期间保留）。
+            此方法同时更新内存缓存（需要重构！！不许从内存取数据）。
         
         Raises:
             CacheOperationError: 如果缓存操作失败
@@ -265,7 +254,7 @@ class ServiceStateService:
         # 委托给 KV 支持的状态后端
         await self._state_backend.set_service_metadata(agent_id, service_name, metadata)
         
-        # 同时更新内存缓存（过渡期间保留）
+        # 同时更新内存缓存（需要重构！！不许从内存取数据）
         if agent_id not in self.service_metadata:
             self.service_metadata[agent_id] = {}
         self.service_metadata[agent_id][service_name] = metadata
@@ -286,7 +275,7 @@ class ServiceStateService:
         
         Note:
             这是从 py-key-value 读取的异步版本。
-            同步版本仍使用内存缓存（过渡期间保留）。
+            同步版本仍使用内存缓存（需要重构！！不许从内存取数据）。
         
         Raises:
             CacheOperationError: 如果缓存操作失败

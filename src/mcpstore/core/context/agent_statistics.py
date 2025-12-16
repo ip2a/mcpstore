@@ -110,9 +110,9 @@ class AgentStatisticsMixin:
             AgentStatistics: Agent统计信息
         """
         try:
-            # 获取Agent的所有client
+            # 获取Agent的所有client - 从 pykv 获取
             logger.info(f" [AGENT_STATS] 获取Agent {agent_id} 的所有client...")
-            client_ids = self._store.registry.get_agent_clients_from_cache(agent_id)
+            client_ids = await self._store.registry.get_agent_clients_async(agent_id)
             logger.info(f" [AGENT_STATS] Agent {agent_id} 的client列表: {client_ids}")
 
             # 统计服务和工具

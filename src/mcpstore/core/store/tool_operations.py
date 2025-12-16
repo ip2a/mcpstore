@@ -163,44 +163,113 @@ class ToolOperationsMixin:
         """
         return await self.call_tool(tool_name, args)
 
-    def _get_client_id_for_service(self, agent_id: str, service_name: str) -> str:
-        """Get the client_id corresponding to the service"""
-        try:
-            # 1. Look up from agent_clients mapping
-            client_ids = self.registry.get_agent_clients_from_cache(agent_id)
-            if not client_ids:
-                self.logger.warning(f"No client_ids found for agent {agent_id}")
-                return ""
-
-            # 2. Iterate through each client_id to find the client containing this service
-            for client_id in client_ids:
-                client_config = self.registry.get_client_config_from_cache(client_id) or {}
-                if service_name in client_config.get("mcpServers", {}):
+    async def _get_client_id_for_service_async(self, agent_id: str, service_name: str) -> str:
+        """
+        获取服务对应的 client_id
+        
+        [pykv 唯一真相源] 从 pykv 关系层读取
+        """
+        # 从 pykv 关系层获取 Agent 的服务列表
+        relation_manager = self.registry._relation_manager
+        agent_services = await relation_manager.get_agent_services(agent_id)
+        
+        if not agent_services:
+            self.logger.warning(f"No services found in pykv for agent {agent_id}")
+            return ""
+        
+        # 查找指定服务的 client_id
+        for svc in agent_services:
+            if svc.get("service_global_name") == service_name or svc.get("service_original_name") == service_name:
+                client_id = svc.get("client_id")
+                if client_id:
                     return client_id
-
-            # 3. If not found, return the first client_id as default value
-            if client_ids:
-                self.logger.warning(f"Service {service_name} not found in any client config, using first client_id: {client_ids[0]}")
-                return client_ids[0]
-
-            return ""
-        except Exception as e:
-            self.logger.error(f"Error getting client_id for service {service_name}: {e}")
-            return ""
+        
+        # 如果没找到，返回第一个 client_id 作为默认值
+        first_client_id = agent_services[0].get("client_id") if agent_services else ""
+        if first_client_id:
+            self.logger.warning(f"Service {service_name} not found, using first client_id: {first_client_id}")
+        return first_client_id
 
     async def list_tools(self, id: Optional[str] = None, agent_mode: bool = False) -> List[ToolInfo]:
         """
-        列出工具列表（统一走 orchestrator.tools_snapshot 快照）：
-        - Store（id 为空或是 global_agent_store）：返回全局快照
-        - Agent（agent_mode=True 且 id 为 agent_id）：返回已投影为本地名称的快照
-        其他组合不再支持多路径读取，保持简洁一致。
+        列出工具列表（直接从 pykv 读取，不使用快照）
+        
+        遵循 Functional Core, Imperative Shell 架构：
+        - pykv 是唯一真相数据源
+        - 不使用内存快照
+        
+        Args:
+            id: Agent ID（可选）
+            agent_mode: 是否为 Agent 模式
+        
+        Returns:
+            工具列表
         """
-        try:
-            if agent_mode and id:
-                snapshot = await self.orchestrator.tools_snapshot(agent_id=id)
-            else:
-                snapshot = await self.orchestrator.tools_snapshot(agent_id=None)
-            return [ToolInfo(**t) for t in snapshot if isinstance(t, dict)]
-        except Exception as e:
-            self.logger.error(f"[STORE.LIST_TOOLS] snapshot error: {e}")
+        # 确定 agent_id
+        if agent_mode and id:
+            agent_id = id
+        else:
+            agent_id = self.client_manager.global_agent_store_id
+        
+        # 获取管理器
+        relation_manager = self.registry._relation_manager
+        tool_entity_manager = self.registry._cache_tool_manager
+        
+        # Step 1: 从关系层获取 Agent 的服务列表
+        agent_services = await relation_manager.get_agent_services(agent_id)
+        
+        if not agent_services:
+            self.logger.debug(f"[STORE.LIST_TOOLS] no services for agent_id={agent_id}")
             return []
+        
+        # Step 2: 从关系层获取每个服务的工具列表
+        all_tool_global_names: List[str] = []
+        
+        for svc in agent_services:
+            service_global_name = svc.get("service_global_name")
+            if not service_global_name:
+                continue
+            
+            tool_relations = await relation_manager.get_service_tools(service_global_name)
+            for tr in tool_relations:
+                tool_global_name = tr.get("tool_global_name")
+                if tool_global_name:
+                    all_tool_global_names.append(tool_global_name)
+        
+        if not all_tool_global_names:
+            self.logger.debug(f"[STORE.LIST_TOOLS] no tools for agent_id={agent_id}")
+            return []
+        
+        # Step 3: 从实体层批量获取工具实体
+        tool_entities = await tool_entity_manager.get_many_tools(all_tool_global_names)
+        
+        # 构建 client_id 映射
+        client_id_map: Dict[str, str] = {}
+        for svc in agent_services:
+            service_global_name = svc.get("service_global_name")
+            client_id = svc.get("client_id")
+            if service_global_name and client_id:
+                client_id_map[service_global_name] = client_id
+        
+        # Step 4: 构建工具列表
+        tools: List[ToolInfo] = []
+        for entity in tool_entities:
+            if entity is None:
+                continue
+            
+            entity_dict = entity.to_dict() if hasattr(entity, 'to_dict') else entity
+            service_global_name = entity_dict.get("service_global_name", "")
+            service_original_name = entity_dict.get("service_original_name", "")
+            client_id = client_id_map.get(service_global_name)
+            
+            tool_info = ToolInfo(
+                name=entity_dict.get("tool_global_name", ""),
+                description=entity_dict.get("description", ""),
+                service_name=service_original_name,
+                client_id=client_id,
+                inputSchema=entity_dict.get("input_schema", {})
+            )
+            tools.append(tool_info)
+        
+        self.logger.debug(f"[STORE.LIST_TOOLS] agent_id={agent_id} tools_count={len(tools)}")
+        return tools

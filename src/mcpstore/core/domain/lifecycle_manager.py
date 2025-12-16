@@ -55,28 +55,123 @@ class LifecycleManager:
         self._event_bus.subscribe(ReconnectionRequested, self._on_reconnection_requested, priority=30)
 
         logger.info("LifecycleManager initialized and subscribed to events")
+
+    async def _set_service_metadata_async(self, agent_id: str, service_name: str, metadata) -> None:
+        """
+        异步元数据设置：直接使用缓存层的异步API
+
+        严格按照 Functional Core, Imperative Shell 原则：
+        1. Imperative Shell: 直接使用异步API，避免同步/异步混用
+        2. 通过正确的异步渠道进行元数据管理
+        3. 避免复杂的线程池转换
+        """
+        try:
+            # 直接使用缓存层的异步API设置元数据
+            from mcpstore.core.cache.naming_service import NamingService
+            global_name = NamingService.generate_service_global_name(service_name, agent_id)
+
+            # 转换元数据为字典
+            if hasattr(metadata, 'to_dict'):
+                metadata_dict = metadata.to_dict()
+            else:
+                metadata_dict = metadata
+
+            # 直接通过缓存层异步保存元数据
+            await self._registry._cache_layer.put_state("service_metadata", global_name, metadata_dict)
+
+            logger.debug(f"[LIFECYCLE] Service metadata set successfully: {global_name}")
+        except Exception as e:
+            logger.error(f"[LIFECYCLE] Failed to set service metadata for {agent_id}:{service_name}: {e}")
+            # 不抛出异常，允许生命周期继续
+
+    async def _set_service_state_async(self, agent_id: str, service_name: str, state) -> None:
+        """
+        异步状态设置：直接使用 StateManager 的异步API
+
+        严格按照 Functional Core, Imperative Shell 原则：
+        1. Imperative Shell: 直接使用异步API，避免同步/异步混用
+        2. 通过正确的异步渠道进行状态管理
+        3. 避免复杂的线程池转换
+        4. 保留现有的工具状态，避免覆盖
+        """
+        try:
+            # 直接使用 StateManager 的异步API
+            from mcpstore.core.cache.naming_service import NamingService
+            global_name = NamingService.generate_service_global_name(service_name, agent_id)
+
+            # 直接调用 StateManager 的异步方法
+            # 转换 ServiceConnectionState 为字符串
+            if hasattr(state, 'value'):
+                health_status = state.value
+            else:
+                health_status = str(state)
+
+            # 使用缓存层状态管理器（cache/state_manager.py）
+            cache_state_manager = getattr(self._registry, '_cache_state_manager', None)
+            if cache_state_manager is None:
+                raise RuntimeError(
+                    "缓存层 StateManager 未初始化。"
+                    "请确保 ServiceRegistry 正确初始化了 _cache_state_manager 属性。"
+                )
+            
+            # 获取现有的服务状态，保留工具状态
+            existing_status = await cache_state_manager.get_service_status(global_name)
+            if existing_status and existing_status.tools:
+                # 保留现有的工具状态
+                tools_status = [
+                    {
+                        "tool_global_name": tool.tool_global_name,
+                        "tool_original_name": tool.tool_original_name,
+                        "status": tool.status
+                    }
+                    for tool in existing_status.tools
+                ]
+            else:
+                # 没有现有状态或工具列表为空
+                tools_status = []
+            
+            await cache_state_manager.update_service_status(
+                global_name,
+                health_status,
+                tools_status
+            )
+
+            logger.debug(f"[LIFECYCLE] Service state set successfully: {global_name} -> {state}")
+        except Exception as e:
+            logger.error(f"[LIFECYCLE] Failed to set service state for {agent_id}:{service_name}: {e}")
+            raise
     
     async def _on_service_cached(self, event: ServiceCached):
         """
         Handle service cached event - initialize lifecycle state
+
+        严格按照 Functional Core, Imperative Shell 原则：
+        1. 纯异步操作，避免任何同步/异步混用
+        2. 通过正确的异步API访问状态，而不是直接访问内部服务
+        3. 确保事件发布和健康检查触发的可靠性
         """
         logger.info(f"[LIFECYCLE] Initializing lifecycle for: {event.service_name}")
-        
+
         try:
-            # [FIX] Check if metadata already exists (CacheManager might have created it)
-            existing_metadata = self._registry._service_state_service.get_service_metadata(event.agent_id, event.service_name)
-            
+            # 1. 纯异步检查现有元数据（遵循核心原则）
+            existing_metadata = await self._registry.get_service_metadata_async(event.agent_id, event.service_name)
+
+            service_config = None
             if existing_metadata and existing_metadata.service_config:
-                # If metadata already exists and contains configuration, preserve existing configuration
+                # 保留现有配置信息
                 service_config = existing_metadata.service_config
                 logger.debug(f"[LIFECYCLE] Preserving existing service_config for: {event.service_name}")
             else:
-                # Otherwise, try to read from client configuration
-                client_config = self._registry.get_client_config_from_cache(event.client_id)
-                service_config = client_config.get("mcpServers", {}).get(event.service_name, {}) if client_config else {}
-                logger.debug(f"[LIFECYCLE] Loading service_config from client config for: {event.service_name}")
-            
-            # Create or update metadata (preserve configuration information)
+                # 从客户端配置读取（通过正确的异步API）
+                try:
+                    client_config = await self._registry.get_client_config_from_cache_async(event.client_id)
+                    service_config = client_config.get("mcpServers", {}).get(event.service_name, {}) if client_config else {}
+                    logger.debug(f"[LIFECYCLE] Loading service_config from client config for: {event.service_name}")
+                except Exception as config_error:
+                    logger.warning(f"[LIFECYCLE] Failed to load client config for {event.service_name}: {config_error}")
+                    service_config = {}
+
+            # 2. 创建元数据（纯函数操作）
             metadata = ServiceStateMetadata(
                 service_name=event.service_name,
                 agent_id=event.agent_id,
@@ -85,101 +180,194 @@ class LifecycleManager:
                 reconnect_attempts=0,
                 next_retry_time=None,
                 error_message=None,
-                service_config=service_config  # [FIX] Use correct configuration
+                service_config=service_config
             )
-            
-            self._registry.set_service_metadata(event.agent_id, event.service_name, metadata)
-            
-            # Verify configuration is correctly saved
+
+            # 3. 通过正确的异步API保存元数据
+            await self._set_service_metadata_async(event.agent_id, event.service_name, metadata)
+
+            # 验证保存成功
             logger.debug(f"[LIFECYCLE] Metadata saved with config keys: {list(service_config.keys()) if service_config else 'None'}")
-            
             logger.info(f"[LIFECYCLE] Lifecycle initialized: {event.service_name} -> INITIALIZING")
-            
-            # Publish initialization completion event
+
+            # 4. 发布初始化完成事件（同步等待确保完成）
             initialized_event = ServiceInitialized(
                 agent_id=event.agent_id,
                 service_name=event.service_name,
                 initial_state="initializing"
             )
             await self._event_bus.publish(initialized_event, wait=True)
-            
+            logger.debug(f"[LIFECYCLE] ServiceInitialized event published for: {event.service_name}")
+
+            # 5. 触发初始健康检查（关键修复：确保事件被正确发布）
+            logger.info(f"[LIFECYCLE] Triggering initial health check for {event.service_name}")
+            try:
+                from mcpstore.core.events.service_events import HealthCheckRequested
+                health_check_event = HealthCheckRequested(
+                    agent_id=event.agent_id,
+                    service_name=event.service_name,
+                    check_type="initial"
+                )
+                await self._event_bus.publish(health_check_event, wait=False)
+                logger.info(f"[LIFECYCLE] HealthCheckRequested event published for: {event.service_name}")
+            except Exception as health_event_error:
+                logger.error(f"[LIFECYCLE] Failed to publish HealthCheckRequested for {event.service_name}: {health_event_error}", exc_info=True)
+                # 不抛出异常，允许生命周期初始化继续
+
         except Exception as e:
             logger.error(f"[LIFECYCLE] Failed to initialize lifecycle for {event.service_name}: {e}", exc_info=True)
+            # 发布失败事件以便其他组件处理
+            try:
+                from mcpstore.core.events.service_events import ServiceOperationFailed
+                error_event = ServiceOperationFailed(
+                    agent_id=event.agent_id,
+                    service_name=event.service_name,
+                    operation="lifecycle_initialization",
+                    error_message=str(e),
+                    original_event=event
+                )
+                await self._event_bus.publish(error_event, wait=False)
+            except Exception as publish_error:
+                logger.error(f"[LIFECYCLE] Failed to publish error event for {event.service_name}: {publish_error}")
     
     async def _on_service_connected(self, event: ServiceConnected):
         """
         Handle successful service connection - transition state to HEALTHY
+
+        严格按照 Functional Core, Imperative Shell 原则：
+        1. 纯异步操作，使用正确的异步API
+        2. 状态转换和元数据更新分离
+        3. 错误处理和事件发布
         """
         logger.info(f"[LIFECYCLE] Service connected: {event.service_name}")
-        
+
         try:
-            self._registry.set_service_state(
+            # 1. 通过异步API转换状态到 HEALTHY
+            await self._set_service_state_async(
                 agent_id=event.agent_id,
                 service_name=event.service_name,
                 state=ServiceConnectionState.HEALTHY
             )
-            
-            # Reset failure counts
-            metadata = self._registry.get_service_metadata(event.agent_id, event.service_name)
+            logger.debug(f"[LIFECYCLE] State transitioned to HEALTHY for: {event.service_name}")
+
+            # 2. 获取并更新元数据（异步操作）
+            metadata = await self._registry.get_service_metadata_async(event.agent_id, event.service_name)
             if metadata:
+                # 更新失败计数和连接信息（纯函数操作）
                 metadata.consecutive_failures = 0
                 metadata.reconnect_attempts = 0
                 metadata.error_message = None
                 metadata.last_health_check = datetime.now()
                 metadata.last_response_time = event.connection_time
-                self._registry.set_service_metadata(event.agent_id, event.service_name, metadata)
-            
+
+                # 保存更新后的元数据（异步API）
+                await self._set_service_metadata_async(event.agent_id, event.service_name, metadata)
+                logger.debug(f"[LIFECYCLE] Metadata updated for connected service: {event.service_name}")
+            else:
+                logger.warning(f"[LIFECYCLE] No metadata found for connected service: {event.service_name}")
+
+            # 3. 发布状态转换事件
+            try:
+                from mcpstore.core.events.service_events import ServiceStateChanged
+                state_changed_event = ServiceStateChanged(
+                    agent_id=event.agent_id,
+                    service_name=event.service_name,
+                    old_state="initializing",
+                    new_state="healthy",
+                    reason="connection_successful"
+                )
+                await self._event_bus.publish(state_changed_event, wait=False)
+                logger.debug(f"[LIFECYCLE] ServiceStateChanged event published for: {event.service_name}")
+            except Exception as event_error:
+                logger.error(f"[LIFECYCLE] Failed to publish state change event for {event.service_name}: {event_error}")
+
         except Exception as e:
             logger.error(f"[LIFECYCLE] Failed to transition state for {event.service_name}: {e}", exc_info=True)
+            # 发布错误事件
+            try:
+                from mcpstore.core.events.service_events import ServiceOperationFailed
+                error_event = ServiceOperationFailed(
+                    agent_id=event.agent_id,
+                    service_name=event.service_name,
+                    operation="state_transition",
+                    error_message=str(e),
+                    original_event=event
+                )
+                await self._event_bus.publish(error_event, wait=False)
+            except Exception as publish_error:
+                logger.error(f"[LIFECYCLE] Failed to publish error event for {event.service_name}: {publish_error}")
     
     async def _on_service_connection_failed(self, event: ServiceConnectionFailed):
         """
-        Handle service connection failure - transition state to RECONNECTING
+        Handle service connection failure - update metadata but let health check manage state
+
+        严格按照 Functional Core, Imperative Shell 原则：
+        1. 纯异步操作，使用正确的异步API
+        2. 只更新元数据，不直接转换状态
+        3. 让 HealthMonitor 通过健康检查处理状态转换
         """
         logger.warning(f"[LIFECYCLE] Service connection failed: {event.service_name} ({event.error_message})")
-        
+
         try:
-            # Update metadata
-            metadata = self._registry._service_state_service.get_service_metadata(event.agent_id, event.service_name)
+            # 1. 通过异步API获取现有元数据
+            metadata = None
+            try:
+                metadata = await self._registry.get_service_metadata_async(event.agent_id, event.service_name)
+            except Exception as metadata_error:
+                logger.warning(f"[LIFECYCLE] Failed to get metadata for {event.service_name}: {metadata_error}")
+                metadata = None
+
+            # 2. 更新失败信息（纯函数操作）
             if metadata:
                 metadata.consecutive_failures += 1
                 metadata.error_message = event.error_message
                 metadata.last_failure_time = datetime.now()
-                self._registry.set_service_metadata(event.agent_id, event.service_name, metadata)
-            
-            # Determine target state based on current state
-            current_state = self._registry._service_state_service.get_service_state(event.agent_id, event.service_name)
-            
-            if current_state == ServiceConnectionState.INITIALIZING:
-                # First connection failure -> RECONNECTING
-                new_state = ServiceConnectionState.RECONNECTING
-                reason = "initial_connection_failed"
+                metadata.retry_count = event.retry_count
+
+                # 保存更新后的元数据（异步API）
+                await self._set_service_metadata_async(event.agent_id, event.service_name, metadata)
+                logger.info(f"[LIFECYCLE] Updated failure metadata for {event.service_name}: {metadata.consecutive_failures} failures, retry_count={event.retry_count}")
             else:
-                # Other cases also transition to RECONNECTING
-                new_state = ServiceConnectionState.RECONNECTING
-                reason = "connection_failed"
-            
-            await self._transition_state(
-                agent_id=event.agent_id,
-                service_name=event.service_name,
-                new_state=new_state,
-                reason=reason,
-                source="ConnectionManager"
-            )
-            
+                logger.warning(f"[LIFECYCLE] No metadata found for {event.service_name}, skipping failure update")
+
+            # 3. 明确记录：不立即转换状态，让 HealthMonitor 处理
+            logger.info(f"[LIFECYCLE] Connection failure handled, deferring state transition to health monitor")
+
+            # 4. 发布连接失败事件（可能触发其他组件的处理）
+            try:
+                # 这个事件可以用于通知外部监控系统
+                from mcpstore.core.events.service_events import ServiceOperationFailed
+                failure_event = ServiceOperationFailed(
+                    agent_id=event.agent_id,
+                    service_name=event.service_name,
+                    operation="connection",
+                    error_message=event.error_message,
+                    original_event=event
+                )
+                await self._event_bus.publish(failure_event, wait=False)
+                logger.debug(f"[LIFECYCLE] ServiceOperationFailed event published for connection failure: {event.service_name}")
+            except Exception as publish_error:
+                logger.error(f"[LIFECYCLE] Failed to publish failure event for {event.service_name}: {publish_error}")
+
         except Exception as e:
             logger.error(f"[LIFECYCLE] Failed to handle connection failure for {event.service_name}: {e}", exc_info=True)
 
     async def _on_health_check_completed(self, event: 'HealthCheckCompleted'):
         """
         Handle health check completion - transition service state based on health status
+
+        严格按照 Functional Core, Imperative Shell 原则：
+        1. 纯异步操作，使用正确的异步API
+        2. 状态转换逻辑清晰分离
+        3. 遵循阈值配置进行状态管理
         """
         logger.debug(f"[LIFECYCLE] Health check completed: {event.service_name} (success={event.success})")
 
         try:
-            # Update metadata
-            metadata = self._registry._service_state_service.get_service_metadata(event.agent_id, event.service_name)
+            # 1. 通过异步API获取现有元数据
+            metadata = await self._registry.get_service_metadata_async(event.agent_id, event.service_name)
             if metadata:
+                # 更新健康检查信息（纯函数操作）
                 metadata.last_health_check = datetime.now()
                 metadata.last_response_time = event.response_time
 
@@ -190,10 +378,12 @@ class LifecycleManager:
                     metadata.consecutive_failures += 1
                     metadata.error_message = event.error_message
 
-                self._registry.set_service_metadata(event.agent_id, event.service_name, metadata)
+                # 保存更新后的元数据（异步API）
+                await self._set_service_metadata_async(event.agent_id, event.service_name, metadata)
+                logger.debug(f"[LIFECYCLE] Updated health check metadata for: {event.service_name}")
 
-            # Transition rules based on failure count and current state (ignore suggested_state)
-            current_state = self._registry._service_state_service.get_service_state(event.agent_id, event.service_name)
+            # 2. 通过异步API获取当前状态
+            current_state = await self._registry.get_service_state_async(event.agent_id, event.service_name)
             failures = 0
             if metadata:
                 failures = metadata.consecutive_failures
@@ -250,11 +440,11 @@ class LifecycleManager:
         )
 
         try:
-            # Update metadata
-            metadata = self._registry._service_state_service.get_service_metadata(event.agent_id, event.service_name)
+            # Update metadata through async API
+            metadata = await self._registry.get_service_metadata_async(event.agent_id, event.service_name)
             if metadata:
                 metadata.error_message = f"Timeout: {event.timeout_type} ({event.elapsed_time:.1f}s)"
-                self._registry.set_service_metadata(event.agent_id, event.service_name, metadata)
+                await self._set_service_metadata_async(event.agent_id, event.service_name, metadata)
 
             # 转换到 UNREACHABLE 状态
             await self._transition_state(
@@ -279,10 +469,10 @@ class LifecycleManager:
 
         # Update metadata中的重连尝试次数
         try:
-            metadata = self._registry._service_state_service.get_service_metadata(event.agent_id, event.service_name)
+            metadata = await self._registry.get_service_metadata_async(event.agent_id, event.service_name)
             if metadata:
                 metadata.reconnect_attempts = event.retry_count
-                self._registry.set_service_metadata(event.agent_id, event.service_name, metadata)
+                await self._set_service_metadata_async(event.agent_id, event.service_name, metadata)
         except Exception as e:
             logger.error(f"[LIFECYCLE] Failed to update reconnection metadata: {e}")
     
@@ -374,11 +564,11 @@ class LifecycleManager:
         """
         try:
             # 更新断开原因
-            metadata = self._registry._service_state_service.get_service_metadata(agent_id, service_name)
+            metadata = await self._registry.get_service_metadata_async(agent_id, service_name)
             if metadata:
                 try:
                     metadata.disconnect_reason = reason
-                    self._registry.set_service_metadata(agent_id, service_name, metadata)
+                    await self._set_service_metadata_async(agent_id, service_name, metadata)
                 except Exception:
                     pass
 
@@ -413,8 +603,17 @@ class LifecycleManager:
         """
         执行状态转换（唯一入口）
         """
-        old_state = self._registry._service_state_service.get_service_state(agent_id, service_name)
-        
+        # 获取当前状态
+        try:
+            if hasattr(self._registry, 'get_service_state'):
+                old_state = self._registry.get_service_state(agent_id, service_name)
+            else:
+                logger.warning(f"[LIFECYCLE] No state access method found in registry for {service_name}")
+                old_state = None
+        except Exception as e:
+            logger.error(f"[LIFECYCLE] Failed to get current state for {service_name}: {e}")
+            old_state = None
+
         if old_state == new_state:
             logger.debug(f"[LIFECYCLE] State unchanged: {service_name} already in {new_state.value}")
             return
@@ -428,11 +627,21 @@ class LifecycleManager:
         # 更新状态
         self._registry.set_service_state(agent_id, service_name, new_state)
         
-        # Update metadata
-        metadata = self._registry._service_state_service.get_service_metadata(agent_id, service_name)
-        if metadata:
-            metadata.state_entered_time = datetime.now()
-            self._registry.set_service_metadata(agent_id, service_name, metadata)
+        # Update metadata（从 pykv 异步获取）
+        try:
+            metadata = await self._registry.get_service_metadata_async(agent_id, service_name)
+
+            if metadata:
+                if hasattr(metadata, 'state_entered_time'):
+                    metadata.state_entered_time = datetime.now()
+                try:
+                    self._registry.set_service_metadata(agent_id, service_name, metadata)
+                except Exception as e:
+                    logger.error(f"[LIFECYCLE] Failed to update metadata for {service_name}: {e}")
+                    raise
+        except Exception as e:
+            logger.error(f"[LIFECYCLE] Error updating metadata for {service_name}: {e}")
+            raise
         
         # 发布状态变化事件
         state_changed_event = ServiceStateChanged(
@@ -444,4 +653,152 @@ class LifecycleManager:
             source=source
         )
         await self._event_bus.publish(state_changed_event)
+
+    async def handle_health_check_result(
+        self,
+        agent_id: str,
+        service_name: str,
+        success: bool,
+        response_time: float,
+        error_message: str = None
+    ) -> None:
+        """
+        Handle health check result from service connection attempt.
+
+        This method is called by orchestrator when a service connection attempt
+        completes, allowing the LifecycleManager to transition service state
+        based on the connection result.
+
+        Args:
+            agent_id: Agent ID that owns the service
+            service_name: Service name
+            success: Whether the connection/health check succeeded
+            response_time: Response time of the health check
+            error_message: Error message if the check failed
+        """
+        logger.info(
+            f"[LIFECYCLE] Handle health check result: {service_name} "
+            f"(success={success}, response_time={response_time:.3f}s, error={error_message})"
+        )
+
+        try:
+            logger.info(f"[LIFECYCLE] Starting state transition logic for {service_name}")
+            # Update metadata
+            try:
+                logger.info(f"[LIFECYCLE] Registry type: {type(self._registry)}")
+                logger.info(f"[LIFECYCLE] Found get_service_metadata method: {hasattr(self._registry, 'get_service_metadata')}")
+
+                # 使用统一的异步API
+                metadata = await self._registry.get_service_metadata_async(agent_id, service_name)
+
+                logger.info(f"[LIFECYCLE] Retrieved metadata for {service_name}: {metadata is not None}")
+            except Exception as e:
+                logger.error(f"[LIFECYCLE] Failed to get metadata for {service_name}: {e}")
+                metadata = None
+
+            # 简化元数据处理
+            try:
+                if metadata:
+                    # 更新现有元数据
+                    logger.info(f"[LIFECYCLE] Updating existing metadata for {service_name}")
+                    if hasattr(metadata, 'last_health_check'):
+                        metadata.last_health_check = datetime.now()
+                    if hasattr(metadata, 'last_response_time'):
+                        metadata.last_response_time = response_time
+
+                    if success:
+                        if hasattr(metadata, 'consecutive_failures'):
+                            metadata.consecutive_failures = 0
+                        if hasattr(metadata, 'error_message'):
+                            metadata.error_message = None
+                    else:
+                        if hasattr(metadata, 'consecutive_failures'):
+                            metadata.consecutive_failures = getattr(metadata, 'consecutive_failures', 0) + 1
+                        if hasattr(metadata, 'error_message'):
+                            metadata.error_message = error_message
+
+                    try:
+                        self._registry.set_service_metadata(agent_id, service_name, metadata)
+                        logger.info(f"[LIFECYCLE] Updated metadata for {service_name}")
+                    except Exception as e:
+                        logger.warning(f"[LIFECYCLE] Failed to update metadata for {service_name}: {e}")
+                else:
+                    logger.info(f"[LIFECYCLE] No existing metadata found for {service_name}")
+            except Exception as e:
+                logger.warning(f"[LIFECYCLE] Error processing metadata for {service_name}: {e}")
+
+            # Get current state
+            try:
+                # 使用统一的异步API
+                current_state = await self._registry.get_service_state_async(agent_id, service_name)
+
+                logger.info(f"[LIFECYCLE] Current state for {service_name}: {current_state}")
+            except Exception as e:
+                logger.error(f"[LIFECYCLE] Failed to get current state for {service_name}: {e}")
+                current_state = None
+
+            # Transition state based on result
+            if success:
+                # Success: transition to HEALTHY from any state
+                if current_state != ServiceConnectionState.HEALTHY:
+                    await self._transition_state(
+                        agent_id=agent_id,
+                        service_name=service_name,
+                        new_state=ServiceConnectionState.HEALTHY,
+                        reason="connection_success",
+                        source="Orchestrator"
+                    )
+                    logger.info(f"[LIFECYCLE] Service {service_name} transitioned to HEALTHY (connection success)")
+                else:
+                    logger.debug(f"[LIFECYCLE] Service {service_name} already HEALTHY")
+            else:
+                # Failure: if no current state, assume INITIALIZING and transition to RECONNECTING
+                if current_state is None:
+                    logger.info(f"[LIFECYCLE] Assuming current state is INITIALIZING for {service_name}")
+                    current_state = ServiceConnectionState.INITIALIZING
+                # Failure: determine target state based on current state and failure count
+                failure_count = metadata.consecutive_failures if metadata else 1
+
+                if current_state == ServiceConnectionState.INITIALIZING:
+                    # First connection failure -> RECONNECTING
+                    new_state = ServiceConnectionState.RECONNECTING
+                    reason = "initial_connection_failed"
+                    logger.info(f"[LIFECYCLE] Will transition {service_name} from INITIALIZING to RECONNECTING (first failure)")
+                elif failure_count >= self._config.reconnecting_failure_threshold:
+                    # High failure count -> UNREACHABLE
+                    new_state = ServiceConnectionState.UNREACHABLE
+                    reason = "connection_unreachable"
+                elif failure_count >= self._config.warning_failure_threshold:
+                    # Medium failure count -> WARNING
+                    new_state = ServiceConnectionState.WARNING
+                    reason = "connection_warning"
+                else:
+                    # Low failure count -> RECONNECTING
+                    new_state = ServiceConnectionState.RECONNECTING
+                    reason = "connection_failed"
+
+                if current_state != new_state:
+                    try:
+                        logger.info(f"[LIFECYCLE] About to call _transition_state for {service_name}: {current_state.value} -> {new_state.value}")
+                        await self._transition_state(
+                            agent_id=agent_id,
+                            service_name=service_name,
+                            new_state=new_state,
+                            reason=reason,
+                            source="Orchestrator"
+                        )
+                        logger.info(
+                            f"[LIFECYCLE] Service {service_name} transitioned to {new_state.value} "
+                            f"(reason={reason}, failures={failure_count})"
+                        )
+                    except Exception as e:
+                        logger.error(f"[LIFECYCLE] Failed to transition {service_name} to {new_state.value}: {e}")
+                else:
+                    logger.debug(f"[LIFECYCLE] Service {service_name} already in {new_state.value}")
+
+        except Exception as e:
+            logger.error(
+                f"[LIFECYCLE] Failed to handle health check result for {service_name}: {e}",
+                exc_info=True
+            )
 

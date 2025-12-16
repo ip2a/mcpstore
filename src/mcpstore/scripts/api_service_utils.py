@@ -91,13 +91,14 @@ class ServiceOperationHelper:
                 "tools": tools_info
             }
             
-            # 添加生命周期信息
+            # 添加生命周期信息 - 从 pykv 异步获取元数据
             if hasattr(store, 'orchestrator') and store.orchestrator:
                 lifecycle_manager = store.orchestrator.lifecycle_manager
                 target_agent_id = agent_id or store.orchestrator.client_manager.global_agent_store_id
                 
                 state = lifecycle_manager.get_service_state(target_agent_id, service_name)
-                metadata = lifecycle_manager.get_service_metadata(target_agent_id, service_name)
+                # 从 pykv 异步获取元数据
+                metadata = await store.registry._service_state_service.get_service_metadata_async(target_agent_id, service_name)
                 
                 if state:
                     service_details["lifecycle"] = {

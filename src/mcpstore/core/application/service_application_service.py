@@ -169,8 +169,8 @@ class ServiceApplicationService:
                 )
                 return False
 
-            # 2. 读取并校验元数据
-            metadata = self._registry._service_state_service.get_service_metadata(agent_key, service_name)
+            # 2. 读取并校验元数据 - 从 pykv 异步获取
+            metadata = await self._registry._service_state_service.get_service_metadata_async(agent_key, service_name)
             if not metadata:
                 logger.error(
                     f"[RESTART_SERVICE_APP] No metadata found for service '{service_name}' (agent={agent_key})"
@@ -305,12 +305,12 @@ class ServiceApplicationService:
             )
             return False
     
-    async def get_service_status(self, agent_id: str, service_name: str) -> Dict[str, Any]:
-        """读取单个服务的状态信息（只读，纯缓存查询）"""
+    async def get_service_status_async(self, agent_id: str, service_name: str) -> Dict[str, Any]:
+        """读取单个服务的状态信息（只读，从 pykv 异步获取）"""
         try:
             state = self._registry._service_state_service.get_service_state(agent_id, service_name)
-            metadata = self._registry._service_state_service.get_service_metadata(agent_id, service_name)
-            client_id = self._registry._agent_client_service.get_service_client_id(agent_id, service_name)
+            metadata = await self._registry._service_state_service.get_service_metadata_async(agent_id, service_name)
+            client_id = self._registry.get_service_client_id(agent_id, service_name)
 
             status_response: Dict[str, Any] = {
                 "service_name": service_name,
@@ -398,8 +398,8 @@ class ServiceApplicationService:
         service_config: Dict[str, Any]
     ) -> str:
         """生成 client_id"""
-        # 检查是否已存在
-        existing_client_id = self._registry._agent_client_service.get_service_client_id(agent_id, service_name)
+        # 检查是否已存在（使用 Registry 提供的公开方法）
+        existing_client_id = self._registry.get_service_client_id(agent_id, service_name)
         if existing_client_id:
             logger.debug(f"Using existing client_id: {existing_client_id}")
             return existing_client_id

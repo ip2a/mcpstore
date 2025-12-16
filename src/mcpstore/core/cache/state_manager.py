@@ -364,3 +364,69 @@ class StateManager:
             f"[StateManager] 批量更新工具状态: service={service_global_name}, "
             f"tools_count={len(tool_original_names)}, status={status}"
         )
+
+    # ==================== 同步方法 (Functional Core) ====================
+
+    def set_state_sync(self, service_global_name: str, state) -> None:
+        """
+        同步设置服务状态 (Functional Core - 纯同步操作)
+
+        严格按照核心原则：
+        1. Functional Core: 纯同步操作，无IO，无副作用
+        2. 通过缓存层的同步接口实现
+        3. 简单直接的状态设置
+
+        Args:
+            service_global_name: 服务全局名称
+            state: 服务状态
+        """
+        try:
+            from mcpstore.core.models.service import ServiceConnectionState
+            # 转换为状态字典
+            if isinstance(state, ServiceConnectionState):
+                state_dict = {
+                    "health_status": state,
+                    "last_updated": str(datetime.now())
+                }
+            else:
+                state_dict = state
+
+            # Functional Core: 只准备数据，不进行IO操作
+            # IO操作应该在 Imperative Shell 层处理
+            # 这里我们返回需要保存的数据，由调用者决定如何保存
+            logger.debug(f"[StateManager] 准备状态数据: {service_global_name} -> {state_dict}")
+            # 注意：这个方法应该由 Imperative Shell 的异步包装器调用
+            raise NotImplementedError("请在异步上下文中使用 update_service_status 方法")
+            logger.debug(f"[StateManager] 同步设置状态: {service_global_name} -> {state}")
+
+        except Exception as e:
+            logger.error(f"[StateManager] 同步设置状态失败 {service_global_name}: {e}")
+            raise
+
+    def set_metadata_sync(self, service_global_name: str, metadata) -> None:
+        """
+        同步设置服务元数据 (Functional Core - 纯同步操作)
+
+        严格按照核心原则：
+        1. Functional Core: 纯同步操作，无IO，无副作用
+        2. 通过缓存层的同步接口实现
+        3. 简单直接的元数据设置
+
+        Args:
+            service_global_name: 服务全局名称
+            metadata: 服务元数据
+        """
+        try:
+            # 转换为元数据字典
+            if hasattr(metadata, 'to_dict'):
+                metadata_dict = metadata.to_dict()
+            else:
+                metadata_dict = metadata
+
+            # 使用缓存层的同步接口保存元数据
+            self._cache_layer.put_state_sync("service_metadata", service_global_name, metadata_dict)
+            logger.debug(f"[StateManager] 同步设置元数据: {service_global_name}")
+
+        except Exception as e:
+            logger.error(f"[StateManager] 同步设置元数据失败 {service_global_name}: {e}")
+            raise

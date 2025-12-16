@@ -39,6 +39,7 @@ __all__ = [
 ]
 
 # Main exports - maintain backward compatibility
+# Import from the new modular core_registry
 from .core_registry import ServiceRegistry
 # Protocols and type helpers are defined in types module
 from .types import SessionProtocol, SessionType, RegistryTypes

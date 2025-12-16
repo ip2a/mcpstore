@@ -55,31 +55,24 @@ class ToolManagementService:
     # === Tool List and Info Methods ===
 
     def list_tools(self, agent_id: str) -> List[Dict[str, Any]]:
-        """Return a list-like snapshot of tools for the given agent_id.
+        """
+        同步外壳：获取工具列表
 
-        The registry stores raw tool definitions; this method converts them
-        into a minimal, stable structure compatible with ToolInfo fields.
-        We avoid importing pydantic models here to keep registry free of heavy deps.
-
-        Note: This method now reads directly from pyvk (single source of truth).
+        严格按照Functional Core, Imperative Shell原则：
+        - 只在最外层进行一次同步转异步
+        - 完全避免sync_to_kv使用
         """
         import asyncio
 
-        # Read tools from pyvk using async method
+        async def _execute():
+            return await self._state_backend.list_tools(agent_id)
+
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If loop is running, we need to use sync helper
-                tools_map = self._kv_adapter.sync_to_kv(
-                    self._state_backend.list_tools(agent_id),
-                    f"list_tools:{agent_id}"
-                )
-            else:
-                # Loop exists but not running
-                tools_map = loop.run_until_complete(self._state_backend.list_tools(agent_id))
-        except RuntimeError:
-            # No event loop, create one
-            tools_map = asyncio.run(self._state_backend.list_tools(agent_id))
+            # 只在这里进行一次同步转异步
+            tools_map = asyncio.run(_execute())
+        except Exception as e:
+            logger.error(f"[TOOLS_LIST] 获取工具列表失败: {e}")
+            return []
 
         result: List[Dict[str, Any]] = []
         for tool_name, tool_def in tools_map.items():

@@ -152,7 +152,8 @@ class HealthMonitor:
             while self._is_running:
                 # 根据当前状态选择检查间隔
                 global_name = await self._to_global_name_async(agent_id, service_name)
-                current_state = self._registry._service_state_service.get_service_state(self._global_agent_store_id, global_name)
+                # 使用新的异步API获取服务状态
+                current_state = await self._registry.get_service_state_async(self._global_agent_store_id, service_name)
                 interval = self._warning_interval if current_state == ServiceConnectionState.WARNING else self._check_interval
                 await asyncio.sleep(interval)
 
@@ -227,13 +228,14 @@ class HealthMonitor:
                 except Exception:
                     pass
                 try:
-                    metadata = self._registry.get_service_metadata(self._global_agent_store_id, global_name)
+                    metadata = await self._registry.get_service_metadata_async(self._global_agent_store_id, global_name)
                     if metadata:
                         metadata.failure_reason = failure_reason
                         metadata.error_message = error_message
                         self._registry.set_service_metadata(self._global_agent_store_id, global_name, metadata)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error(f"[HEALTH] Failed to update metadata for {global_name}: {e}")
+                    raise
                 await self._publish_health_check_failed(
                     agent_id, global_name, response_time, error_message, wait=wait
                 )
@@ -290,23 +292,40 @@ class HealthMonitor:
         """
         current_time = time.time()
 
-        # 遍历所有服务，检查超时
-        for agent_id in self._registry.service_states.keys():
-            service_names = self._registry._service_state_service.get_all_service_names(agent_id)
+        try:
+            # 从缓存层获取所有服务并检查超时
+            service_entities = await self._registry._cache_layer.get_all_entities_async("services")
 
-            for service_name in service_names:
-                metadata = self._registry._service_state_service.get_service_metadata(agent_id, service_name)
+            for entity_key, entity_data in service_entities.items():
+                if hasattr(entity_data, 'value'):
+                    data = entity_data.value
+                elif isinstance(entity_data, dict):
+                    data = entity_data
+                else:
+                    continue
+
+                agent_id = data.get('source_agent', 'unknown')
+                service_name = data.get('service_original_name', entity_key)
+
+                # 从缓存层获取服务元数据
+                metadata = await self._registry.get_service_metadata_async(agent_id, service_name)
                 if not metadata:
                     continue
 
                 # 检查初始化超时
-                if metadata.state == ServiceConnectionState.INITIALIZING:
-                    elapsed = current_time - metadata.state_entered_time.timestamp()
-                    if elapsed > self._timeout_threshold:
-                        logger.warning(f"[HEALTH] Initialization timeout: {service_name} ({elapsed:.1f}s)")
-                        await self._publish_timeout_event(
-                            agent_id, service_name, "initialization", elapsed
-                        )
+                state = await self._registry.get_service_state_async(agent_id, service_name)
+                if state == ServiceConnectionState.INITIALIZING:
+                    state_entered_time = await self._get_state_entered_time(metadata)
+                    if state_entered_time:
+                        elapsed = current_time - state_entered_time.timestamp()
+                        if elapsed > self._timeout_threshold:
+                            logger.warning(f"[HEALTH] Initialization timeout: {service_name} ({elapsed:.1f}s)")
+                            await self._publish_timeout_event(
+                                agent_id, service_name, "initialization", elapsed
+                            )
+
+        except Exception as e:
+            logger.error(f"[HEALTH] 检查超时失败: {e}", exc_info=True)
 
     async def _publish_timeout_event(
         self,
@@ -323,4 +342,29 @@ class HealthMonitor:
             elapsed_time=elapsed_time
         )
         await self._event_bus.publish(event)
+
+    async def _get_state_entered_time(self, metadata):
+        """
+        从元数据中获取状态进入时间
+
+        Args:
+            metadata: 服务元数据
+
+        Returns:
+            状态进入时间的datetime对象，如果不存在则返回None
+        """
+        if hasattr(metadata, 'state_entered_time'):
+            return metadata.state_entered_time
+        elif isinstance(metadata, dict):
+            state_entered_time = metadata.get('state_entered_time')
+            if state_entered_time:
+                if isinstance(state_entered_time, str):
+                    # 尝试解析ISO格式时间字符串
+                    try:
+                        from datetime import datetime
+                        return datetime.fromisoformat(state_entered_time.replace('Z', '+00:00'))
+                    except:
+                        return None
+                return state_entered_time
+        return None
 

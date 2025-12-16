@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
 
-
+#TODO：这个是干什么的？
 @dataclass
 class ScopeContext:
     device_id: Optional[str] = None

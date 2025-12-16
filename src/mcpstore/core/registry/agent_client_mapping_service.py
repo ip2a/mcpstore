@@ -59,20 +59,15 @@ class AgentClientMappingService:
         logger.debug(f"[MAPPING] remove_agent_client_mapping is now a no-op (derived from service_client)")
         logger.debug(f"[MAPPING] agent_id={agent_id}, client_id={client_id}")
     
-    def get_agent_clients_from_cache(self, agent_id: str) -> List[str]:
-        """获取 Agent 的所有 Client ID (从 pyvk 读取)"""
-        # Single source of truth: read directly from pyvk
-        try:
-            helper = self._kv_adapter._ensure_sync_helper()
-            result = helper.run_async(
-                self._state_backend.list_agent_clients(agent_id),
-                timeout=5.0
-            )
-            logger.debug(f"[MAPPING] Get agent_clients for {agent_id} -> {len(result)} clients (pyvk)")
-            return result
-        except Exception as e:
-            logger.warning(f"[MAPPING] Failed to get agent_clients for {agent_id}: {e}")
-            return []
+    async def get_agent_clients_async(self, agent_id: str) -> List[str]:
+        """
+        从 pykv 获取 Agent 的所有 Client ID
+        
+        [pykv 唯一真相源] 所有数据必须从 pykv 读取
+        """
+        result = await self._state_backend.list_agent_clients(agent_id)
+        logger.debug(f"[MAPPING] Get agent_clients for {agent_id} -> {len(result)} clients (pykv)")
+        return result
     
     def get_all_agent_ids(self) -> List[str]:
         """获取所有Agent ID列表 (从运行时数据推导)"""

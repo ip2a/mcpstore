@@ -229,7 +229,7 @@ class UnifiedMCPSyncManager:
             global_agent_store_id = self.orchestrator.client_manager.global_agent_store_id
 
             # 获取当前global_agent_store的服务
-            current_services = self._get_current_global_agent_store_services()
+            current_services = await self._get_current_global_agent_store_services()
             
             # 计算差异
             current_names = set(current_services.keys())
@@ -329,16 +329,39 @@ class UnifiedMCPSyncManager:
             logger.error(f"Error syncing main client services: {e}")
             raise
 
-    def _get_current_global_agent_store_services(self) -> Dict[str, Any]:
+    async def _get_current_global_agent_store_services(self) -> Dict[str, Any]:
         """获取当前global_agent_store的服务配置"""
         try:
-            # single-source: derive current services from registry cache only
+            # single-source: derive current services from registry cache layer
             agent_id = self.orchestrator.client_manager.global_agent_store_id
             current_services = {}
-            for service_name in self.orchestrator.registry._service_state_service.get_all_service_names(agent_id):
-                config = self.orchestrator.mcp_config.get_service_config(service_name) or {}
-                if config:
-                    current_services[service_name] = config
+            try:
+                # 使用重构后的 ServiceRegistry 提供的方法
+                if hasattr(self.orchestrator.registry, 'get_all_entities_for_sync'):
+                    service_entities = await self.orchestrator.registry.get_all_entities_for_sync("services")
+                elif hasattr(self.orchestrator.registry, '_cache_layer') and hasattr(self.orchestrator.registry._cache_layer, 'get_all_entities_async'):
+                    service_entities = await self.orchestrator.registry._cache_layer.get_all_entities_async("services")
+                else:
+                    service_entities = {}
+
+                for entity_key, entity_data in service_entities.items():
+                    if hasattr(entity_data, 'value'):
+                        data = entity_data.value
+                    elif isinstance(entity_data, dict):
+                        data = entity_data
+                    else:
+                        continue
+
+                    # 只处理指定agent_id的服务
+                    if data.get('source_agent') == agent_id:
+                        service_name = data.get('service_original_name', entity_key)
+                        config = self.orchestrator.mcp_config.get_service_config(service_name) or {}
+                        if config:
+                            current_services[service_name] = config
+
+            except Exception as e:
+                logger.error(f"获取当前服务失败: {e}")
+                current_services = {}
 
             return current_services
 
@@ -433,7 +456,7 @@ class UnifiedMCPSyncManager:
                 return False
 
             #  修复：检查是否已存在该服务的client_id，避免重复生成
-            existing_client_id = self._find_existing_client_id_for_service(agent_id, service_name)
+            existing_client_id = await self._find_existing_client_id_for_service_async(agent_id, service_name)
 
             if existing_client_id:
                 # 使用现有的client_id，只更新配置
@@ -479,9 +502,9 @@ class UnifiedMCPSyncManager:
             logger.error(f"Failed to add service to cache mapping: {e}")
             return False
 
-    def _find_existing_client_id_for_service(self, agent_id: str, service_name: str) -> str:
+    async def _find_existing_client_id_for_service_async(self, agent_id: str, service_name: str) -> str:
         """
-        查找指定服务是否已有对应的client_id
+        查找指定服务是否已有对应的client_id（异步版本）
 
         Args:
             agent_id: Agent ID
@@ -495,8 +518,8 @@ class UnifiedMCPSyncManager:
             if not registry:
                 return None
 
-            # 获取该agent的所有client_id（通过Registry公共API）
-            client_ids = registry.get_agent_clients_from_cache(agent_id)
+            # 获取该agent的所有client_id（通过Registry公共API）- 从 pykv 获取
+            client_ids = await registry.get_agent_clients_async(agent_id)
 
             # 遍历每个client_id，检查是否包含目标服务
             for client_id in client_ids:

@@ -178,29 +178,38 @@ class AgentQueryBuilder:
     def __init__(self, registry):
         self.registry = registry
     
-    def with_services(self, min_count: int = 1):
-        """查询有服务的Agent"""
+    async def with_services_async(self, min_count: int = 1):
+        """查询有服务的Agent（异步版本）"""
         agents_with_services = []
         # Use get_all_agent_ids() instead of agent_clients.keys()
         for agent_id in self.registry.get_all_agent_ids():
             service_count = len(self.registry.get_all_service_names(agent_id))
             if service_count >= min_count:
-                # Get client_count from pyvk
-                client_ids = self.registry.get_agent_clients_from_cache(agent_id)
+                # 从 pykv 获取 client_ids
+                client_ids = await self.registry.get_agent_clients_async(agent_id)
                 agents_with_services.append({
                     'agent_id': agent_id,
                     'service_count': service_count,
                     'client_count': len(client_ids)
                 })
         return agents_with_services
-    
-    def get_all(self) -> List[Dict[str, Any]]:
-        """获取所有Agent信息"""
+
+    def with_services(self, min_count: int = 1):
+        """查询有服务的Agent（同步版本 - 使用 asyncio.run）"""
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            raise RuntimeError("with_services 不能在异步上下文中调用，请使用 with_services_async")
+        except RuntimeError:
+            return asyncio.run(self.with_services_async(min_count))
+
+    async def get_all_async(self) -> List[Dict[str, Any]]:
+        """获取所有Agent信息（异步版本）"""
         agents = []
         # Use get_all_agent_ids() instead of agent_clients.keys()
         for agent_id in self.registry.get_all_agent_ids():
-            # Get client_count from pyvk
-            client_ids = self.registry.get_agent_clients_from_cache(agent_id)
+            # 从 pykv 获取 client_ids
+            client_ids = await self.registry.get_agent_clients_async(agent_id)
             agents.append({
                 'agent_id': agent_id,
                 'service_count': len(self.registry.get_all_service_names(agent_id)),
@@ -210,6 +219,15 @@ class AgentQueryBuilder:
             })
         return agents
 
+    def get_all(self) -> List[Dict[str, Any]]:
+        """获取所有Agent信息（同步版本 - 使用 asyncio.run）"""
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            raise RuntimeError("get_all 不能在异步上下文中调用，请使用 get_all_async")
+        except RuntimeError:
+            return asyncio.run(self.get_all_async())
+
 
 class ClientQueryBuilder:
     """Client查询构建器"""
@@ -218,10 +236,11 @@ class ClientQueryBuilder:
         self.registry = registry
         self.agent_id = agent_id
     
-    def with_services(self, min_count: int = 1):
-        """查询有服务的Client"""
+    async def with_services_async(self, min_count: int = 1):
+        """查询有服务的Client（异步版本）"""
         clients_with_services = []
-        client_ids = self.registry.get_agent_clients_from_cache(self.agent_id)
+        # 从 pykv 获取 client_ids
+        client_ids = await self.registry.get_agent_clients_async(self.agent_id)
         
         for client_id in client_ids:
             client_config = self.registry.get_client_config_from_cache(client_id)
@@ -235,11 +254,21 @@ class ClientQueryBuilder:
                     })
         
         return clients_with_services
-    
-    def get_all(self) -> List[Dict[str, Any]]:
-        """获取Agent下所有Client信息"""
+
+    def with_services(self, min_count: int = 1):
+        """查询有服务的Client（同步版本 - 使用 asyncio.run）"""
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            raise RuntimeError("with_services 不能在异步上下文中调用，请使用 with_services_async")
+        except RuntimeError:
+            return asyncio.run(self.with_services_async(min_count))
+
+    async def get_all_async(self) -> List[Dict[str, Any]]:
+        """获取Agent下所有Client信息（异步版本）"""
         clients = []
-        client_ids = self.registry.get_agent_clients_from_cache(self.agent_id)
+        # 从 pykv 获取 client_ids
+        client_ids = await self.registry.get_agent_clients_async(self.agent_id)
         
         for client_id in client_ids:
             client_config = self.registry.get_client_config_from_cache(client_id)
@@ -251,6 +280,15 @@ class ClientQueryBuilder:
             })
         
         return clients
+
+    def get_all(self) -> List[Dict[str, Any]]:
+        """获取Agent下所有Client信息（同步版本 - 使用 asyncio.run）"""
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            raise RuntimeError("get_all 不能在异步上下文中调用，请使用 get_all_async")
+        except RuntimeError:
+            return asyncio.run(self.get_all_async())
 
 
 # 使用示例函数

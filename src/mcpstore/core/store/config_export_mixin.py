@@ -62,8 +62,8 @@ class ConfigExportMixin:
             logger.debug(f"Found {len(agent_ids)} agents in cache")
             
             for agent_id in agent_ids:
-                # Get all client IDs for this agent
-                client_ids = self.registry.get_agent_clients_from_cache(agent_id)
+                # Get all client IDs for this agent - 从 pykv 获取
+                client_ids = await self.registry.get_agent_clients_async(agent_id)
                 logger.debug(f"Agent {agent_id} has {len(client_ids)} clients")
                 
                 for client_id in client_ids:
@@ -157,8 +157,8 @@ class ConfigExportMixin:
             mcp_servers = {}
             
             for agent_id in agent_ids:
-                # Get client IDs for this agent
-                client_ids = self.registry.get_agent_clients_from_cache(agent_id)
+                # Get client IDs for this agent - 从 pykv 获取
+                client_ids = await self.registry.get_agent_clients_async(agent_id)
                 
                 for client_id in client_ids:
                     # Get client configuration

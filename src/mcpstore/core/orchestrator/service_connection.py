@@ -92,14 +92,25 @@ class ServiceConnectionMixin:
                     # ?????? client?async with ????????
                     # self.clients[name] = client
 
-                    #  ????????????????
-                    await self.lifecycle_manager.handle_health_check_result(
+                    #  发布连接成功事件
+                    from mcpstore.core.events.service_events import ServiceConnected
+                    # 构建完整的工具定义，包含 description 和 inputSchema
+                    tools_with_full_def = []
+                    for tool in tools:
+                        tool_def = {
+                            "description": getattr(tool, 'description', ''),
+                            "inputSchema": tool.inputSchema if hasattr(tool, 'inputSchema') else {}
+                        }
+                        tools_with_full_def.append((tool.name, tool_def))
+                    
+                    connection_event = ServiceConnected(
                         agent_id=agent_id,
                         service_name=name,
-                        success=True,
-                        response_time=0.0,
-                        error_message=None
+                        session=client,
+                        tools=tools_with_full_def,
+                        connection_time=0.0
                     )
+                    await self.container._event_bus.publish(connection_event)
 
                     logger.info(f"Local service {name} connected successfully with {len(tools)} tools for agent {agent_id}")
                     return True, f"Local service connected successfully with {len(tools)} tools"
@@ -126,14 +137,18 @@ class ServiceConnectionMixin:
                     except Exception as cleanup_error:
                         logger.error(f"Failed to cleanup client cache for {name}: {cleanup_error}")
 
-                # ?????????????
-                await self.lifecycle_manager.handle_health_check_result(
+                # 发布连接失败事件
+                from mcpstore.core.events.service_events import ServiceConnectionFailed
+                logger.info(f"[SERVICE_CONNECTION] Publishing ServiceConnectionFailed event for {name}: {error_msg}")
+                connection_failed_event = ServiceConnectionFailed(
                     agent_id=agent_id,
                     service_name=name,
-                    success=False,
-                    response_time=0.0,
-                    error_message=error_msg
+                    error_message=error_msg,
+                    error_type="connection",
+                    retry_count=0
                 )
+                await self.container._event_bus.publish(connection_failed_event)
+                logger.info(f"[SERVICE_CONNECTION] ServiceConnectionFailed event published for {name}")
 
                 return False, f"Failed to connect to local service: {error_msg}"
 
@@ -205,14 +220,25 @@ class ServiceConnectionMixin:
                     # ????? client?async with ?????????
                     # self.clients[name] = client
 
-                    #  ????????????????
-                    await self.lifecycle_manager.handle_health_check_result(
+                    # 发布连接成功事件
+                    from mcpstore.core.events.service_events import ServiceConnected
+                    # 构建完整的工具定义，包含 description 和 inputSchema
+                    tools_with_full_def = []
+                    for tool in tools:
+                        tool_def = {
+                            "description": getattr(tool, 'description', ''),
+                            "inputSchema": tool.inputSchema if hasattr(tool, 'inputSchema') else {}
+                        }
+                        tools_with_full_def.append((tool.name, tool_def))
+                    
+                    connection_event = ServiceConnected(
                         agent_id=agent_id,
                         service_name=name,
-                        success=True,
-                        response_time=0.0,
-                        error_message=None
+                        session=client,
+                        tools=tools_with_full_def,
+                        connection_time=0.0
                     )
+                    await self.container._event_bus.publish(connection_event)
 
                     logger.info(f"Remote service {name} connected successfully with {len(tools)} tools for agent {agent_id}")
                     return True, f"Remote service connected successfully with {len(tools)} tools"
@@ -253,22 +279,25 @@ class ServiceConnectionMixin:
                 except Exception:
                     pass
                 try:
-                    metadata = self.registry._service_state_service.get_service_metadata(agent_id, name)
+                    metadata = await self.registry._service_state_service.get_service_metadata_async(agent_id, name)
                     if metadata:
                         metadata.failure_reason = failure_reason
                         metadata.error_message = error_msg
                         self.registry.set_service_metadata(agent_id, name, metadata)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error(f"Failed to update metadata for {name}: {e}")
+                    raise
 
-                # ?????????????
-                await self.lifecycle_manager.handle_health_check_result(
+                # 发布连接失败事件
+                from mcpstore.core.events.service_events import ServiceConnectionFailed
+                connection_failed_event = ServiceConnectionFailed(
                     agent_id=agent_id,
                     service_name=name,
-                    success=False,
-                    response_time=0.0,
-                    error_message=error_msg
+                    error_message=error_msg,
+                    error_type=failure_reason or "connection",
+                    retry_count=0
                 )
+                await self.container._event_bus.publish(connection_failed_event)
 
                 return False, error_msg
 
@@ -301,22 +330,27 @@ class ServiceConnectionMixin:
             except Exception:
                 pass
             try:
-                metadata = self.registry._service_state_service.get_service_metadata(agent_id, name)
+                metadata = await self.registry._service_state_service.get_service_metadata_async(agent_id, name)
                 if metadata:
                     metadata.failure_reason = failure_reason
                     metadata.error_message = error_msg
                     self.registry.set_service_metadata(agent_id, name, metadata)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Failed to update metadata for {name}: {e}")
+                raise
 
-            # ?????????????
-            await self.lifecycle_manager.handle_health_check_result(
+            # 发布连接失败事件
+            from mcpstore.core.events.service_events import ServiceConnectionFailed
+            logger.info(f"[SERVICE_CONNECTION] Publishing ServiceConnectionFailed event for {name}: {error_msg}")
+            connection_failed_event = ServiceConnectionFailed(
                 agent_id=agent_id,
                 service_name=name,
-                success=False,
-                response_time=0.0,
-                error_message=error_msg
+                error_message=error_msg,
+                error_type="connection",
+                retry_count=0
             )
+            await self.container._event_bus.publish(connection_failed_event)
+            logger.info(f"[SERVICE_CONNECTION] ServiceConnectionFailed event published for {name}")
 
             return False, error_msg
 
@@ -394,12 +428,21 @@ class ServiceConnectionMixin:
                 if self._is_long_lived_service(service_config):
                     self.registry.mark_as_long_lived(agent_id, service_name)
 
-                client_id = self.registry._agent_client_service.get_service_client_id(agent_id, service_name)
-                if client_id:
-                    self.registry._agent_client_service.add_agent_client_mapping(agent_id, client_id)
-                    logger.debug(f" [CLIENT_REGISTER] 已注册 {client_id} 到 Agent {agent_id}")
+                # 获取或创建 client_id 映射（使用异步版本）
+                client_id = await self.registry.get_service_client_id_async(agent_id, service_name)
+                if not client_id:
+                    # 为远程服务生成新的 client_id
+                    import uuid
+                    client_id = f"remote_{service_name}_{uuid.uuid4().hex[:8]}"
+                    # 通过 CacheLayerManager 存储 service-client 映射
+                    await self.registry._cache_layer_manager.put_relation(
+                        "service_client",
+                        f"{agent_id}:{service_name}",
+                        {"agent_id": agent_id, "service_name": service_name, "client_id": client_id}
+                    )
+                    logger.info(f" [CLIENT_REGISTER] 为服务 {service_name} 创建新的 Client ID: {client_id}")
                 else:
-                    logger.warning(f" [CLIENT_REGISTER] 未找到服务 {service_name} 的 Client ID")
+                    logger.debug(f" [CLIENT_REGISTER] 已找到客户端 {client_id} 用于服务 {service_name}")
             else:
                 async with agent_locks.write(agent_id):
                     # 检查是否已有会话，保留 Agent-Client 映射
@@ -426,15 +469,23 @@ class ServiceConnectionMixin:
                     if self._is_long_lived_service(service_config):
                         self.registry.mark_as_long_lived(agent_id, service_name)
 
-                    # 确保客户端 Agent 映射存在
-                    client_id = self.registry._agent_client_service.get_service_client_id(agent_id, service_name)
-                    if client_id:
-                        self.registry._agent_client_service.add_agent_client_mapping(agent_id, client_id)
-                        logger.debug(f" [CLIENT_REGISTER] 已注册 {client_id} 到 Agent {agent_id}")
+                    # 获取或创建 client_id 映射（使用异步版本）
+                    client_id = await self.registry.get_service_client_id_async(agent_id, service_name)
+                    if not client_id:
+                        # 为远程服务生成新的 client_id
+                        import uuid
+                        client_id = f"remote_{service_name}_{uuid.uuid4().hex[:8]}"
+                        # 通过 CacheLayerManager 存储 service-client 映射
+                        await self.registry._cache_layer_manager.put_relation(
+                            "service_client",
+                            f"{agent_id}:{service_name}",
+                            {"agent_id": agent_id, "service_name": service_name, "client_id": client_id}
+                        )
+                        logger.info(f" [CLIENT_REGISTER] 为服务 {service_name} 创建新的 Client ID: {client_id}")
                     else:
-                        logger.warning(f" [CLIENT_REGISTER] 未找到服务 {service_name} 的 Client ID")
+                        logger.debug(f" [CLIENT_REGISTER] 已找到客户端 {client_id} 用于服务 {service_name}")
 
-            # ?????????????
+            # 触发健康检查结果处理
             await self.lifecycle_manager.handle_health_check_result(
                 agent_id=agent_id,
                 service_name=service_name,

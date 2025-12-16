@@ -183,23 +183,18 @@ class ServiceProxy:
     def list_tools(self) -> List[ToolInfo]:
         """
         列出服务工具（两个单词方法）
+        
+        直接从 pykv 读取，不使用快照。
 
         Returns:
             List[ToolInfo]: 工具列表
         """
-        try:
-            # 使用 orchestrator 快照：
-            # - Store: 全局服务名
-            # - Agent: 已投影为本地服务名
-            agent_id = self._context._agent_id if self._context_type == ContextType.AGENT else None
-            snapshot = self._context._sync_helper.run_async(
-                self._context._store.orchestrator.tools_snapshot(agent_id)
-            )
-            filtered = [t for t in snapshot if isinstance(t, dict) and t.get("service_name") == self._service_name]
-            return [ToolInfo(**t) for t in filtered]
-        except Exception as e:
-            logger.error(f"[SERVICE_PROXY.list_tools] failed: {e}")
-            return []
+        # 使用 list_tools_async 并按服务名筛选
+        import asyncio
+        tools = asyncio.run(
+            self._context.list_tools_async(service_name=self._service_name)
+        )
+        return tools
 
     def tools_stats(self) -> Dict[str, Any]:
         """
