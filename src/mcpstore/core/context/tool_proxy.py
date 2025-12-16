@@ -3,6 +3,7 @@ MCPStore Tool Proxy Module
 工具代理对象，提供具体工具的操作方法
 """
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Any
@@ -436,38 +437,22 @@ class ToolProxy:
                         'meta': {},
                         'scope': self._scope
                     }
-                    # 1) 从快照中尝试补充 original_name/display_name/tags/meta（若可用）
+                    # 1) 从 pykv 实体层补充 original_name/display_name（不使用快照）
                     try:
-                        agent_id = self._context._agent_id if self._context_type == ContextType.AGENT else None
-                        snapshot = self._context._sync_helper.run_async(
-                            self._context._store.orchestrator.tools_snapshot(agent_id)
+                        # 直接从 pykv 实体层获取工具实体
+                        tool_entity_manager = self._context._store.registry._cache_tool_manager
+                        tool_entity = asyncio.run(
+                            tool_entity_manager.get_tool(tool.name)
                         )
-                        matched = None
-                        for item in snapshot or []:
-                            if not isinstance(item, dict):
-                                continue
-                            if item.get('name') == tool.name and item.get('service_name') == tool.service_name:
-                                matched = item
-                                break
-                        if matched:
-                            # 部分实现可能包含 original_name/display_name/tags/meta
-                            if 'original_name' in matched and 'original_name' not in info:
-                                info['original_name'] = matched.get('original_name')
-                            if 'display_name' in matched and 'display_name' not in info:
-                                info['display_name'] = matched.get('display_name')
-                            if isinstance(matched.get('tags'), list):
-                                info['tags'] = list(matched.get('tags') or [])
-                            # 若存在服务端提供的 meta，合并之
-                            if isinstance(matched.get('meta'), dict):
-                                meta_from_snapshot = matched.get('meta') or {}
-                                if isinstance(info.get('meta'), dict):
-                                    merged = dict(info['meta'])
-                                    merged.update(meta_from_snapshot)
-                                    info['meta'] = merged
-                                else:
-                                    info['meta'] = meta_from_snapshot
+                        if tool_entity:
+                            entity_dict = tool_entity.to_dict() if hasattr(tool_entity, 'to_dict') else tool_entity
+                            if 'tool_original_name' in entity_dict:
+                                info['original_name'] = entity_dict.get('tool_original_name')
+                            # display_name 默认使用 original_name
+                            if 'original_name' in info:
+                                info['display_name'] = info.get('original_name')
                     except Exception as e:
-                        logger.debug(f"[TOOL_PROXY] snapshot enrichment failed: {e}")
+                        logger.debug(f"[TOOL_PROXY] pykv enrichment failed: {e}")
 
                     # 2) 从转换管理器补充 tags（如有）
                     try:

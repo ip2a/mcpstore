@@ -9,7 +9,6 @@
 
 from .cache_layer_manager import CacheLayerManager
 from .naming_service import NamingService
-from .scalar_value_wrapper import ScalarValueWrapper
 from .service_entity_manager import ServiceEntityManager
 from .tool_entity_manager import ToolEntityManager
 from .relationship_manager import RelationshipManager
@@ -31,7 +30,6 @@ __all__ = [
     # 管理器
     "CacheLayerManager",
     "NamingService",
-    "ScalarValueWrapper",
     "ServiceEntityManager",
     "ToolEntityManager",
     "RelationshipManager",

@@ -16,13 +16,13 @@ class IServiceStateService(Protocol):
     """服务状态服务接口"""
     def get_service_state(self, agent_id: str, service_name: str): ...
     def set_service_state(self, agent_id: str, service_name: str, state): ...
-    def get_service_metadata(self, agent_id: str, service_name: str): ...
+    async def get_service_metadata_async(self, agent_id: str, service_name: str): ...
     def set_service_metadata(self, agent_id: str, service_name: str, metadata): ...
     def has_service(self, agent_id: str, service_name: str) -> bool: ...
 
 class IAgentClientMappingService(Protocol):
     """代理客户端映射服务接口"""
-    def get_agent_clients_from_cache(self, agent_id: str) -> List[str]: ...
+    async def get_agent_clients_async(self, agent_id: str) -> List[str]: ...
     def add_service_client_mapping(self, agent_id: str, service_name: str, client_id: str): ...
     def get_service_client_id(self, agent_id: str, service_name: str): ...
 
@@ -132,9 +132,9 @@ class ElegantServiceRegistry:
         """显式委托方法 - 性能优化"""
         return self._factory.service_state_service.get_service_state(agent_id, service_name)
 
-    def get_service_metadata(self, agent_id: str, service_name: str):
-        """显式委托方法 - 性能优化"""
-        return self._factory.service_state_service.get_service_metadata(agent_id, service_name)
+    async def get_service_metadata_async(self, agent_id: str, service_name: str):
+        """显式委托方法 - 从 pykv 异步获取元数据"""
+        return await self._factory.service_state_service.get_service_metadata_async(agent_id, service_name)
 
     def set_service_metadata(self, agent_id: str, service_name: str, metadata):
         """显式委托方法 - 性能优化"""
@@ -144,9 +144,9 @@ class ElegantServiceRegistry:
         """显式委托方法 - 性能优化"""
         return self._factory.service_state_service.has_service(agent_id, service_name)
 
-    def get_agent_clients_from_cache(self, agent_id: str) -> List[str]:
-        """显式委托方法 - 性能优化"""
-        return self._factory.agent_client_service.get_agent_clients_from_cache(agent_id)
+    async def get_agent_clients_async(self, agent_id: str) -> List[str]:
+        """显式委托方法 - 从 pykv 获取 Agent 客户端"""
+        return await self._factory.agent_client_service.get_agent_clients_async(agent_id)
 
     def get_client_config_from_cache(self, client_id: str) -> Optional[Dict[str, Any]]:
         """显式委托方法 - 性能优化"""
@@ -190,7 +190,7 @@ def create_mock_services():
             return f"state_{agent_id}_{service_name}"
         def set_service_state(self, agent_id, service_name, state):
             pass
-        def get_service_metadata(self, agent_id, service_name):
+        async def get_service_metadata_async(self, agent_id, service_name):
             return f"metadata_{agent_id}_{service_name}"
         def set_service_metadata(self, agent_id, service_name, metadata):
             pass
@@ -237,16 +237,17 @@ def demo_elegant_implementation():
     print(f"   注册表类型: {type(registry)}")
 
     # 3. 测试服务调用
-    print("\n🧪 测试服务调用:")
+    print("\n测试服务调用:")
 
     # 这些方法会通过动态代理自动找到对应的服务
+    # 注意：get_service_metadata_async 是异步方法，需要在异步上下文中调用
     state = registry.get_service_state("agent1", "service1")
-    metadata = registry.get_service_metadata("agent1", "service1")
+    # metadata = await registry.get_service_metadata_async("agent1", "service1")  # 异步方法
     clients = registry.get_agent_clients_from_cache("agent1")
     config = registry.get_client_config_from_cache("client1")
 
     print(f"   服务状态: {state}")
-    print(f"   服务元数据: {metadata}")
+    print(f"   服务元数据: [需要异步调用 get_service_metadata_async]")
     print(f"   客户端列表: {clients}")
     print(f"   客户端配置: {config}")
 

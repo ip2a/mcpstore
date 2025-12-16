@@ -6,6 +6,8 @@ All data is retrieved on demand from registry/cache to ensure freshness.
 
 from typing import Any, Dict, List, TYPE_CHECKING
 
+from mcpstore.core.models.tool import ToolInfo
+
 if TYPE_CHECKING:
     from .base_context import MCPStoreContext
     from .service_proxy import ServiceProxy
@@ -54,33 +56,26 @@ class StoreProxy:
             result.append(s if isinstance(s, dict) else {"value": str(s)})
         return result
 
-    def list_tools(self, *args, **kwargs) -> List[Dict[str, Any]]:
-        items = self._context.list_tools(*args, **kwargs)
-        result: List[Dict[str, Any]] = []
-        for t in items:
-            if isinstance(t, dict):
-                result.append(t)
-                continue
-            if hasattr(t, "model_dump"):
-                try:
-                    result.append(t.model_dump())
-                    continue
-                except Exception:
-                    pass
-            if hasattr(t, "dict"):
-                try:
-                    result.append(t.dict())
-                    continue
-                except Exception:
-                    pass
-            result.append({"name": getattr(t, "name", str(t))})
-        return result
+    def list_tools(self, *args, **kwargs):
+        """
+        列出工具列表
+        
+        直接返回 ToolInfo 对象列表，不转换为字典。
+        
+        Returns:
+            List[ToolInfo]: 工具列表
+        """
+        return self._context.list_tools(*args, **kwargs)
 
     def find_service(self, name: str) -> "ServiceProxy":
         from .service_proxy import ServiceProxy
         return ServiceProxy(self._context, name)
 
     def list_agents(self) -> List[Dict[str, Any]]:
+        # 同步方法，使用 _sync_helper 调用异步版本
+        return self._context._sync_helper.run_async(self.list_agents_async())
+
+    async def list_agents_async(self) -> List[Dict[str, Any]]:
         # Aggregate from registry cache with agent→global mapping
         registry = self._context._store.registry
         global_agent_id = self._context._store.client_manager.global_agent_store_id
@@ -88,7 +83,8 @@ class StoreProxy:
 
         result: List[Dict[str, Any]] = []
         for agent_id in agent_ids:
-            client_ids = registry.get_agent_clients_from_cache(agent_id)
+            # 从 pykv 获取 Agent 客户端
+            client_ids = await registry.get_agent_clients_async(agent_id)
             # Use mapping to get this agent's global services
             global_service_names = registry.get_agent_services(agent_id) or []
             tool_count = 0

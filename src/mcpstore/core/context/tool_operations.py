@@ -1,18 +1,36 @@
 """
 MCPStore Tool Operations Module
 Implementation of tool-related operations
+
+架构原则：Functional Core, Imperative Shell
+- 同步版本 (list_tools): 使用 asyncio.run() 创建独立事件循环
+- 异步版本 (list_tools_async): 在现有事件循环中执行
+- 纯逻辑核心 (ToolLogicCore): 只做计算，不做 IO
+- pykv 是唯一真相数据源，不使用内存快照
 """
 
+import asyncio
 import logging
 from typing import Dict, List, Optional, Any, Union, Literal
 
 from mcpstore.core.models.tool import ToolInfo
+from mcpstore.core.logic.tool_logic import ToolLogicCore
 from .types import ContextType
 
 logger = logging.getLogger(__name__)
 
+
 class ToolOperationsMixin:
-    """Tool operations mixin class"""
+    """
+    工具操作混入类
+    
+    遵循 Functional Core, Imperative Shell 架构：
+    - 同步方法使用 asyncio.run() 创建独立事件循环
+    - 异步方法在现有事件循环中执行
+    - 所有数据从 pykv 读取，不使用内存快照
+    """
+
+    # ==================== 工具可用性检查 ====================
 
     def _is_tool_available(
         self,
@@ -20,23 +38,22 @@ class ToolOperationsMixin:
         tool_name: str
     ) -> bool:
         """
-        检查工具是否可用（同步版本）
+        检查工具是否可用（同步外壳）
         
-        使用状态层的 tools[].status 字段作为唯一数据源。
+        使用 asyncio.run() 创建独立事件循环执行异步操作。
         
         Args:
             service_global_name: 服务全局名称
-            tool_name: 工具名称（可以是全局名称或原始名称）
+            tool_name: 工具名称
         
         Returns:
             True 如果工具可用，否则 False
             
         Raises:
-            RuntimeError: 如果服务状态不存在
+            RuntimeError: 如果服务状态不存在或工具状态不存在
         """
-        return self._sync_helper.run_async(
-            self._is_tool_available_async(service_global_name, tool_name),
-            force_background=True
+        return asyncio.run(
+            self._is_tool_available_async(service_global_name, tool_name)
         )
 
     async def _is_tool_available_async(
@@ -45,55 +62,37 @@ class ToolOperationsMixin:
         tool_name: str
     ) -> bool:
         """
-        检查工具是否可用（异步版本）
+        检查工具是否可用（异步外壳）
         
-        使用状态层的 tools[].status 字段作为唯一数据源。
+        从 pykv 状态层读取数据，使用纯逻辑核心进行计算。
         
         Args:
             service_global_name: 服务全局名称
-            tool_name: 工具名称（可以是全局名称或原始名称）
+            tool_name: 工具名称
         
         Returns:
             True 如果工具可用，否则 False
             
         Raises:
-            RuntimeError: 如果服务状态不存在
+            RuntimeError: 如果服务状态不存在或工具状态不存在
         """
-        # 获取 StateManager
-        state_manager = self._store.registry._state_manager
-        
-        # 获取服务状态
+        # 从 pykv 状态层读取服务状态
+        state_manager = self._store.registry._cache_state_manager
         service_status = await state_manager.get_service_status(service_global_name)
         
-        if service_status is None:
-            raise RuntimeError(
-                f"服务状态不存在，无法检查工具可用性: "
-                f"service_global_name={service_global_name}, tool={tool_name}"
-            )
+        # 使用纯逻辑核心进行计算
+        # 将 ServiceStatus 对象转换为字典
+        status_dict = service_status.to_dict() if service_status else None
         
-        # 提取工具的原始名称（去除服务前缀）
-        original_tool_name = self._extract_original_tool_name(tool_name, service_global_name)
-        
-        # 在 tools 列表中查找工具状态
-        tool_status_item = None
-        for tool in service_status.tools:
-            if tool.tool_original_name == original_tool_name:
-                tool_status_item = tool
-                break
-        
-        if tool_status_item is None:
-            raise RuntimeError(
-                f"工具不存在于服务状态中: "
-                f"service_global_name={service_global_name}, tool={tool_name}, "
-                f"original_tool_name={original_tool_name}"
-            )
-        
-        is_available = tool_status_item.status == "available"
+        is_available = ToolLogicCore.check_tool_availability(
+            service_global_name,
+            tool_name,
+            status_dict
+        )
         
         logger.debug(
             f"工具可用性检查: service={service_global_name}, "
-            f"tool={tool_name}, original={original_tool_name}, "
-            f"status={tool_status_item.status}, available={is_available}"
+            f"tool={tool_name}, available={is_available}"
         )
         
         return is_available
@@ -102,18 +101,11 @@ class ToolOperationsMixin:
         """
         提取工具的原始名称（去除服务前缀）
         
-        Args:
-            tool_name: 完整工具名称（可能包含服务前缀）
-            service_name: 服务名称
-        
-        Returns:
-            原始工具名称
+        委托给纯逻辑核心。
         """
-        # 如果工具名以 "服务名_" 开头，则去除前缀
-        prefix = f"{service_name}_"
-        if tool_name.startswith(prefix):
-            return tool_name[len(prefix):]
-        return tool_name
+        return ToolLogicCore.extract_original_tool_name(tool_name, service_name)
+
+    # ==================== list_tools 双路外壳 ====================
 
     def list_tools(
         self,
@@ -122,42 +114,22 @@ class ToolOperationsMixin:
         filter: Literal["available", "all"] = "available"
     ) -> List[ToolInfo]:
         """
-        列出工具（同步版本）
+        列出工具（同步外壳）
         
-        参数说明：
-        - filter="available" (默认): 返回当前可用工具集
-        - filter="all": 返回原始完整工具集(忽略状态过滤)
+        使用 asyncio.run() 创建独立事件循环执行异步操作。
+        遵循 Functional Core, Imperative Shell 架构。
         
         Args:
             service_name: 服务名称(可选,None表示所有服务)
-            filter: 筛选范围,可选值:
+            filter: 筛选范围
                    - "available": 当前可用工具(默认)
                    - "all": 原始完整工具
         
         Returns:
             工具列表
-        
-        Examples:
-            # 1. 列出当前可用的工具(默认)
-            tools = ctx.list_tools()
-            
-            # 2. 明确指定显示可用工具
-            tools = ctx.list_tools(filter="available")
-            
-            # 3. 列出特定服务的当前可用工具
-            weather_tools = ctx.list_tools(service_name="weather")
-            
-            # 4. 列出原始完整工具集
-            all_tools = ctx.list_tools(filter="all")
-            
-            # 5. 对比当前和原始
-            current = ctx.list_tools(service_name="weather", filter="available")
-            original = ctx.list_tools(service_name="weather", filter="all")
-            removed = set(original) - set(current)
         """
-        return self._sync_helper.run_async(
-            self.list_tools_async(service_name, filter=filter),
-            force_background=True
+        return asyncio.run(
+            self.list_tools_async(service_name, filter=filter)
         )
 
     async def list_tools_async(
@@ -167,13 +139,20 @@ class ToolOperationsMixin:
         filter: Literal["available", "all"] = "available"
     ) -> List[ToolInfo]:
         """
-        列出工具（异步版本）
+        列出工具（异步外壳）
         
-        Store 和 Agent 模式都会根据状态层的 tools[].status 进行过滤。
+        直接从 pykv 读取数据，不使用内存快照。
+        遵循 Functional Core, Imperative Shell 架构。
+        
+        数据读取路径：
+        1. 关系层：获取 Agent 的服务列表
+        2. 关系层：获取每个服务的工具列表
+        3. 实体层：批量获取工具实体
+        4. 状态层：获取服务状态（用于可用性过滤）
         
         Args:
             service_name: 服务名称(可选,None表示所有服务)
-            filter: 筛选范围,可选值:
+            filter: 筛选范围
                    - "available": 当前可用工具(默认)
                    - "all": 原始完整工具
         
@@ -182,68 +161,146 @@ class ToolOperationsMixin:
         """
         logger.info(f"[LIST_TOOLS] start filter={filter} context_type={self._context_type.name}")
         
-        # 获取 agent_id（Store 模式使用 global_agent_store）
+        # 确定 agent_id
         if self._context_type == ContextType.AGENT:
             agent_id = self._agent_id
         else:
             agent_id = self._store.orchestrator.client_manager.global_agent_store_id
         
-        # 从 orchestrator 获取工具快照
-        snapshot = await self._store.orchestrator.tools_snapshot(agent_id)
-        all_tools = [ToolInfo(**t) for t in snapshot if isinstance(t, dict)]
+        # ==================== 从 pykv 读取数据 ====================
         
-        # 如果指定了服务名称，筛选该服务的工具
+        # 获取管理器
+        relation_manager = self._store.registry._relation_manager
+        tool_entity_manager = self._store.registry._cache_tool_manager
+        state_manager = self._store.registry._cache_state_manager
+        
+        # Step 1: 从关系层获取 Agent 的服务列表
+        agent_services = await relation_manager.get_agent_services(agent_id)
+        logger.debug(f"[LIST_TOOLS] agent_services count={len(agent_services)}")
+        
+        if not agent_services:
+            logger.info(f"[LIST_TOOLS] no services for agent_id={agent_id}")
+            return []
+        
+        # Step 2: 从关系层获取每个服务的工具列表
+        all_tool_global_names: List[str] = []
+        service_tool_map: Dict[str, List[str]] = {}  # service_global_name -> [tool_global_names]
+        
+        for svc in agent_services:
+            service_global_name = svc.get("service_global_name")
+            if not service_global_name:
+                continue
+            
+            tool_relations = await relation_manager.get_service_tools(service_global_name)
+            tool_names = [
+                tr.get("tool_global_name")
+                for tr in tool_relations
+                if tr.get("tool_global_name")
+            ]
+            
+            service_tool_map[service_global_name] = tool_names
+            all_tool_global_names.extend(tool_names)
+        
+        logger.debug(f"[LIST_TOOLS] total tools to fetch={len(all_tool_global_names)}")
+        
+        if not all_tool_global_names:
+            logger.info(f"[LIST_TOOLS] no tools for agent_id={agent_id}")
+            return []
+        
+        # Step 3: 从实体层批量获取工具实体
+        tool_entities = await tool_entity_manager.get_many_tools(all_tool_global_names)
+        
+        # 构建 client_id 映射
+        client_id_map: Dict[str, str] = {}
+        for svc in agent_services:
+            service_global_name = svc.get("service_global_name")
+            client_id = svc.get("client_id")
+            if service_global_name and client_id:
+                client_id_map[service_global_name] = client_id
+        
+        # ==================== 使用纯逻辑核心构建工具列表 ====================
+        
+        # 将实体对象转换为字典
+        entity_dicts = [
+            e.to_dict() if e else None
+            for e in tool_entities
+        ]
+        
+        # 构建工具列表
+        all_tools: List[ToolInfo] = []
+        for i, entity_dict in enumerate(entity_dicts):
+            if entity_dict is None:
+                continue
+            
+            service_global_name = entity_dict.get("service_global_name", "")
+            service_original_name = entity_dict.get("service_original_name", "")
+            client_id = client_id_map.get(service_global_name)
+            
+            tool_info = ToolInfo(
+                name=entity_dict.get("tool_global_name", ""),
+                description=entity_dict.get("description", ""),
+                service_name=service_original_name,
+                client_id=client_id,
+                inputSchema=entity_dict.get("input_schema", {})
+            )
+            all_tools.append(tool_info)
+        
+        # 按服务名筛选
         if service_name:
             all_tools = [t for t in all_tools if t.service_name == service_name]
         
-        # 如果 filter="all"，直接返回原始列表
+        # 如果 filter="all"，直接返回
         if filter == "all":
             logger.info(f"[LIST_TOOLS] filter=all count={len(all_tools)}")
             return all_tools
         
-        # filter="available"，使用状态层进行过滤
-        # Store 和 Agent 模式都进行过滤
+        # ==================== filter="available"，从状态层过滤 ====================
         
-        # Agent 模式下，需要构建本地服务名到全局服务名的映射
-        # 因为 tools_snapshot 返回的是投影后的本地名称，但状态层存储的是全局名称
-        local_to_global_map: Dict[str, str] = {}
-        if self._context_type == ContextType.AGENT and self._agent_id:
-            # 从关系层获取 Agent 的服务映射
-            agent_services = await self._store.registry._relation_manager.get_agent_services(self._agent_id)
-            for svc in agent_services:
-                global_name = svc.get("service_global_name")
-                local_name = svc.get("service_original_name")
-                if global_name and local_name:
-                    local_to_global_map[local_name] = global_name
-            logger.debug(f"[LIST_TOOLS] Agent local_to_global_map: {local_to_global_map}")
+        # Step 4: 从状态层获取服务状态
+        service_status_map: Dict[str, Dict[str, Any]] = {}
+        for svc in agent_services:
+            service_global_name = svc.get("service_global_name")
+            if not service_global_name:
+                continue
+            
+            status = await state_manager.get_service_status(service_global_name)
+            if status:
+                service_status_map[service_global_name] = status.to_dict()
         
-        filtered_tools = []
+        # 使用纯逻辑核心过滤工具
+        filtered_tools: List[ToolInfo] = []
         for tool in all_tools:
-            # 获取服务的全局名称
-            local_service_name = tool.service_name
+            # 从工具名中提取服务全局名称
+            # 工具名格式：{service_global_name}_{tool_original_name}
+            # 但这里 tool.name 是 tool_global_name，需要找到对应的 service_global_name
             
-            # Agent 模式下，将本地服务名映射到全局服务名
-            if self._context_type == ContextType.AGENT and local_service_name in local_to_global_map:
-                service_global_name = local_to_global_map[local_service_name]
-                # 同时需要将工具名也映射到全局名称
-                tool_global_name = tool.name.replace(
-                    f"{local_service_name}_",
-                    f"{service_global_name}_",
-                    1
+            # 遍历 service_tool_map 找到工具所属的服务
+            tool_service_global_name = None
+            for svc_global, tool_names in service_tool_map.items():
+                if tool.name in tool_names:
+                    tool_service_global_name = svc_global
+                    break
+            
+            if tool_service_global_name is None:
+                # 找不到服务，跳过（不应该发生）
+                logger.warning(f"[LIST_TOOLS] 找不到工具所属服务: tool={tool.name}")
+                continue
+            
+            # 获取服务状态
+            status_dict = service_status_map.get(tool_service_global_name)
+            
+            # 使用纯逻辑核心检查可用性
+            try:
+                is_available = ToolLogicCore.check_tool_availability(
+                    tool_service_global_name,
+                    tool.name,
+                    status_dict
                 )
-            else:
-                # Store 模式或没有映射的情况，直接使用原名称
-                service_global_name = local_service_name
-                tool_global_name = tool.name
-            
-            # 检查工具可用性
-            is_available = await self._is_tool_available_async(
-                service_global_name,
-                tool_global_name
-            )
-            
-            if is_available:
-                filtered_tools.append(tool)
+                if is_available:
+                    filtered_tools.append(tool)
+            except RuntimeError as e:
+                # 状态不存在，抛出错误
+                raise
         
         logger.info(
             f"[LIST_TOOLS] filter=available agent_id={agent_id} "

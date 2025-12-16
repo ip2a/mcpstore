@@ -162,8 +162,123 @@ class ServiceOperationsMixin:
                 return kernel.list_services()
             except Exception:
                 pass
-        # 回退：原实现
-        return self._sync_helper.run_async(self.list_services_async(), force_background=True)
+        # 新架构：避免_sync_helper.run_async，使用更安全的方式
+        try:
+            # 尝试使用同步外壳获取服务列表（如果实现了的话）
+            if hasattr(self, '_service_management_sync_shell'):
+                # 暂时使用简化实现，直接从缓存读取
+                return self._list_services_from_cache()
+
+            # 作为临时解决方案，使用更安全的同步调用
+            import asyncio
+            try:
+                # 检查是否已经有运行中的事件循环
+                loop = asyncio.get_running_loop()
+                # 如果有，使用线程安全的方式执行
+                if hasattr(self._sync_helper, '_background_loop') and self._sync_helper._background_loop:
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.list_services_async(),
+                        self._sync_helper._background_loop
+                    )
+                    return future.result(timeout=10.0)
+                else:
+                    # 临时创建新线程执行
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(lambda: asyncio.run(self.list_services_async()))
+                        return future.result(timeout=10.0)
+            except RuntimeError:
+                # 没有运行中的循环，可以直接使用 asyncio.run
+                return asyncio.run(self.list_services_async())
+        except Exception as e:
+            logger.error(f"[NEW_ARCH] list_services 失败: {e}")
+            # 作为最后的回退，返回空列表而不是崩溃
+            return []
+
+    def _list_services_from_cache(self) -> List[ServiceInfo]:
+        """
+        直接从缓存读取服务列表（纯同步实现）
+        这是新架构的临时实现，避免_sync_helper.run_async调用
+        """
+        try:
+            from mcpstore.core.models.service import ServiceInfo, ServiceConnectionState
+
+            if self._context_type == ContextType.STORE:
+                # Store模式：聚合global_agent_store下的所有服务
+                agent_id = self._store.client_manager.global_agent_store_id
+                service_names = self._store.registry._service_state_service.get_all_service_names(agent_id)
+
+                services = []
+                for service_name in service_names:
+                    complete_info = self._store.registry.get_complete_service_info(agent_id, service_name)
+                    if complete_info:
+                        state = complete_info.get("state", ServiceConnectionState.DISCONNECTED)
+                        if isinstance(state, str):
+                            try:
+                                state = ServiceConnectionState(state)
+                            except Exception:
+                                state = ServiceConnectionState.DISCONNECTED
+
+                        service_info = ServiceInfo(
+                            name=service_name,
+                            status=state,
+                            transport_type=self._store._infer_transport_type(complete_info.get("config", {})) if hasattr(self._store, '_infer_transport_type') else None,
+                            client_id=complete_info.get("client_id"),
+                            config=complete_info.get("config", {}),
+                            tool_count=complete_info.get("tool_count", 0),
+                            keep_alive=complete_info.get("config", {}).get("keep_alive", False),
+                        )
+                        services.append(service_info)
+
+                return services
+            else:
+                # Agent模式：返回Agent的服务视图（临时简化实现）
+                agent_id = self._agent_id
+                global_agent_id = self._store.client_manager.global_agent_store_id
+
+                # 获取Agent的服务映射
+                global_service_names = self._store.registry.get_agent_services(agent_id)
+                if not global_service_names:
+                    return []
+
+                services = []
+                for global_name in global_service_names:
+                    # 从全局命名空间获取服务信息
+                    complete_info = self._store.registry.get_complete_service_info(global_agent_id, global_name)
+                    if not complete_info:
+                        continue
+
+                    # 解析本地名称
+                    mapping = self._store.registry.get_agent_service_from_global_name(global_name)
+                    if not mapping or len(mapping) != 2:
+                        continue
+                    mapped_agent, local_name = mapping
+                    if mapped_agent != agent_id:
+                        continue
+
+                    state = complete_info.get("state", ServiceConnectionState.DISCONNECTED)
+                    if isinstance(state, str):
+                        try:
+                            state = ServiceConnectionState(state)
+                        except Exception:
+                            state = ServiceConnectionState.DISCONNECTED
+
+                    service_info = ServiceInfo(
+                        name=local_name,
+                        status=state,
+                        transport_type=self._store._infer_transport_type(complete_info.get("config", {})) if hasattr(self._store, '_infer_transport_type') else None,
+                        client_id=complete_info.get("client_id"),
+                        config=complete_info.get("config", {}),
+                        tool_count=complete_info.get("tool_count", 0),
+                        keep_alive=complete_info.get("config", {}).get("keep_alive", False),
+                    )
+                    services.append(service_info)
+
+                return services
+
+        except Exception as e:
+            logger.error(f"[NEW_ARCH] _list_services_from_cache 失败: {e}")
+            return []
 
     async def list_services_async(self) -> List[ServiceInfo]:
         """
@@ -195,8 +310,10 @@ class ServiceOperationsMixin:
                      api_key: Optional[str] = None,
                      headers: Optional[Dict[str, str]] = None) -> 'MCPStoreContext':
         """
-        添加服务（同步入口，FastMCP 薄封装，宽容输入，不等待）。
+        添加服务（同步入口，使用新架构避免死锁）。
 
+        - 使用Functional Core, Imperative Shell架构
+        - 完全避免_sync_helper.run_async和_sync_to_kv调用
         - 接受：单服务配置字典/JSON字符串/包含 mcpServers 的字典
         - 认证：token/api_key 会标准化为 headers 并仅以 headers 落盘
         - 等待：不等待连接；请使用 wait_service(...) 单独控制
@@ -204,11 +321,51 @@ class ServiceOperationsMixin:
         # 标准化认证（token/api_key/auth -> headers）
         final_config = self._apply_auth_to_config(config, auth, token, api_key, headers)
 
-        return self._sync_helper.run_async(
-            self.add_service_async(final_config, json_file),
-            timeout=120.0,
-            force_background=True
-        )
+        # 处理json_file参数（可选）
+        if json_file is not None:
+            logger.info(f"从JSON文件读取配置: {json_file}")
+            try:
+                import json
+                import os
+
+                if not os.path.exists(json_file):
+                    raise Exception(f"JSON文件不存在: {json_file}")
+
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    file_config = json.load(f)
+
+                logger.info(f"成功读取JSON文件，配置: {file_config}")
+
+                # 如果同时指定了config和json_file，优先使用json_file
+                if final_config is not None:
+                    logger.warning("同时指定了config和json_file参数，将使用json_file")
+
+                final_config = file_config
+
+            except Exception as e:
+                raise Exception(f"读取JSON文件失败: {e}")
+
+        # 支持 config 传入 JSON 字符串（单服务或 mcpServers/root 映射）
+        if isinstance(final_config, str):
+            try:
+                import json as _json
+                cfg = _json.loads(final_config)
+                final_config = cfg
+            except Exception:
+                raise Exception("config 为字符串时必须是合法的 JSON")
+
+        # 使用新架构：同步外壳
+        if not hasattr(self, '_service_management_sync_shell'):
+            from ..architecture import ServiceManagementFactory
+            self._service_management_sync_shell, _, _ = ServiceManagementFactory.create_service_management(
+                self._store.registry, self._store.orchestrator
+            )
+
+        # 直接调用同步外壳，完全避免_sync_helper.run_async
+        result = self._service_management_sync_shell.add_service(final_config)
+
+        logger.debug(f"[NEW_ARCH] add_service 结果: {result.get('success', False)}")
+        return self
 
     def add_service_with_details(self, config: Union[Dict[str, Any], List[Dict[str, Any]], str] = None) -> Dict[str, Any]:
         """
@@ -588,6 +745,7 @@ class ServiceOperationsMixin:
                 return self  # Agent 模式直接返回，不需要后续的 Store 逻辑
 
             for service_name, service_config in services_to_add.items():
+                logger.info(f"[ADD_SERVICE] processing service='{service_name}' config={service_config}")
                 # 1.1 立即添加到缓存（初始化状态）
                 cache_result = await self._add_service_to_cache_immediately(
                     agent_id, service_name, service_config
@@ -1220,11 +1378,11 @@ class ServiceOperationsMixin:
         return self._resolve_client_id(client_id_or_service_name, agent_id)
 
 
-    def _get_service_config_from_cache(self, agent_id: str, service_name: str) -> Optional[Dict[str, Any]]:
-        """从缓存获取服务配置"""
+    async def _get_service_config_from_cache_async(self, agent_id: str, service_name: str) -> Optional[Dict[str, Any]]:
+        """从缓存获取服务配置（异步版本）"""
         try:
-            # 方法1: 从 service_metadata 获取（优先）
-            metadata = self._store.registry.get_service_metadata(agent_id, service_name)
+            # 方法1: 从 service_metadata 获取（优先）- 从 pykv 异步读取
+            metadata = await self._store.registry._service_state_service.get_service_metadata_async(agent_id, service_name)
             if metadata and metadata.service_config:
                 logger.debug(f" [CONFIG] 从metadata获取配置: {service_name}")
                 return metadata.service_config
@@ -1239,7 +1397,7 @@ class ServiceOperationsMixin:
                         logger.debug(f" [CONFIG] 从client_config获取配置: {service_name}")
                         return service_config
 
-            logger.warning(f"⚠️ [CONFIG] 未找到服务配置: {service_name} (agent: {agent_id})")
+            logger.warning(f"[CONFIG] 未找到服务配置: {service_name} (agent: {agent_id})")
             return None
 
         except Exception as e:

@@ -54,7 +54,17 @@ class SetupMixin:
                 return existing_client_id
 
             # 检查agent_clients中是否有匹配的client_id（统一通过Registry API）
-            client_ids = self.registry.get_agent_clients_from_cache(agent_id)
+            # 注意：这是同步方法，需要使用 asyncio.run
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                # 在异步上下文中，使用 run_coroutine_threadsafe
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(lambda: asyncio.run(self.registry.get_agent_clients_async(agent_id)))
+                    client_ids = future.result(timeout=10.0)
+            except RuntimeError:
+                client_ids = asyncio.run(self.registry.get_agent_clients_async(agent_id))
             for client_id in client_ids:
                 # 优先解析确定性ID
                 try:
@@ -98,7 +108,17 @@ class SetupMixin:
                 return existing_client_id
 
             # 其次：检查 agent 的所有 client_ids（通过 Registry API）
-            client_ids = self.registry.get_agent_clients_from_cache(agent_id)
+            # 注意：这是同步方法，需要使用 asyncio.run
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                # 在异步上下文中，使用 run_coroutine_threadsafe
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(lambda: asyncio.run(self.registry.get_agent_clients_async(agent_id)))
+                    client_ids = future.result(timeout=10.0)
+            except RuntimeError:
+                client_ids = asyncio.run(self.registry.get_agent_clients_async(agent_id))
             for client_id in client_ids:
                 # 统一的确定性ID格式匹配：优先尝试解析
                 try:

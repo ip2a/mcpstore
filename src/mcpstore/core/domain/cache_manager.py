@@ -176,7 +176,7 @@ class CacheManager:
     
     async def _on_service_connected(self, event: ServiceConnected):
         """
-        处理服务连接成功 - 更新缓存中的 session 和 tools
+        处理服务连接成功 - 更新缓存中的 session 和 tools，并初始化工具状态
         """
         logger.info(f"[CACHE] Updating cache for connected service: {event.service_name}")
         
@@ -196,6 +196,14 @@ class CacheManager:
                     tools=event.tools,
                     preserve_mappings=True  # 保留已有的映射关系
                 )
+                
+                # 初始化工具状态到 pykv 状态层
+                # 这是 list_tools 链路能正确过滤工具的关键
+                await self._initialize_tool_status(
+                    event.agent_id,
+                    event.service_name,
+                    event.tools
+                )
             
             logger.info(f"[CACHE] Cache updated for {event.service_name} with {len(event.tools)} tools")
 
@@ -213,3 +221,65 @@ class CacheManager:
             )
             await self._event_bus.publish(error_event)
 
+    async def _initialize_tool_status(
+        self,
+        agent_id: str,
+        service_name: str,
+        tools: list
+    ) -> None:
+        """
+        初始化服务的工具状态到 pykv 状态层
+        
+        这是 list_tools 链路能正确过滤工具的关键。
+        所有工具默认状态为 "available"。
+        
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+            tools: 工具列表 [(tool_name, tool_def), ...]
+        """
+        # 获取服务的全局名称
+        service_global_name = self._registry._naming.generate_service_global_name(
+            service_name, agent_id
+        )
+        
+        logger.debug(
+            f"[CACHE] 初始化工具状态: agent_id={agent_id}, "
+            f"service_name={service_name}, service_global_name={service_global_name}, "
+            f"tools_count={len(tools)}"
+        )
+        
+        # 构建工具状态列表（所有工具默认 available）
+        tools_status = []
+        for tool_name, tool_def in tools:
+            # 生成工具全局名称
+            tool_global_name = self._registry._naming.generate_tool_global_name(
+                service_global_name, tool_name
+            )
+            
+            tools_status.append({
+                "tool_global_name": tool_global_name,
+                "tool_original_name": tool_name,
+                "status": "available"
+            })
+        
+        # 使用 StateManager 更新服务状态（包含工具状态）
+        # 获取 CacheStateManager（pykv 唯一真相数据源）
+        state_manager = self._registry._cache_state_manager
+        
+        if state_manager is None:
+            raise RuntimeError(
+                f"CacheStateManager 未初始化，无法初始化工具状态: "
+                f"service_global_name={service_global_name}"
+            )
+        
+        await state_manager.update_service_status(
+            service_global_name=service_global_name,
+            health_status="healthy",
+            tools_status=tools_status
+        )
+        
+        logger.info(
+            f"[CACHE] 工具状态初始化成功: service_global_name={service_global_name}, "
+            f"tools_count={len(tools_status)}"
+        )

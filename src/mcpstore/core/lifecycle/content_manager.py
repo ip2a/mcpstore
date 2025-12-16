@@ -222,6 +222,46 @@ class ServiceContentManager:
             await asyncio.gather(*update_tasks, return_exceptions=True)
 
 
+    async def _get_service_config_from_pykv_async(self, agent_id: str, service_name: str) -> Optional[Dict[str, Any]]:
+        """
+        从 pykv 获取服务配置
+
+        遵循 "pykv 唯一真相数据源" 原则，从 ServiceEntity 中读取配置。
+
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+
+        Returns:
+            服务配置字典，如果不存在返回 None
+        """
+        try:
+            # 生成服务全局名称
+            from mcpstore.core.cache.naming_service import NamingService
+            global_name = NamingService.generate_service_global_name(service_name, agent_id)
+
+            # 从 pykv 获取服务实体
+            # 使用 ServiceRegistry 的 _cache_service_manager（ServiceEntityManager）
+            service_entity_manager = self.registry._cache_service_manager
+            service_entity = await service_entity_manager.get_service(global_name)
+
+            if service_entity is None:
+                logger.debug(f"pykv 中未找到服务实体: {global_name}")
+                return None
+
+            # 返回服务配置（ServiceEntity 是 dataclass，直接访问 config 属性）
+            config = service_entity.config
+            if not config:
+                logger.debug(f"服务实体配置为空: {global_name}")
+                return None
+
+            logger.debug(f"从 pykv 获取服务配置成功: {global_name}")
+            return config
+
+        except Exception as e:
+            logger.error(f"从 pykv 获取服务配置失败: agent_id={agent_id}, service_name={service_name}, error={e}")
+            raise
+
     async def _update_service_content_with_cleanup(self, agent_id: str, service_name: str):
         """带清理的服务内容更新"""
         try:
@@ -239,10 +279,10 @@ class ServiceContentManager:
     async def _update_service_content(self, agent_id: str, service_name: str) -> bool:
         """更新服务内容（工具、资源、提示词）"""
         try:
-            # 获取服务配置
-            service_config = self.orchestrator.mcp_config.get_service_config(service_name)
+            # 从 pykv 获取服务配置（遵循 pykv 唯一真相数据源原则）
+            service_config = await self._get_service_config_from_pykv_async(agent_id, service_name)
             if not service_config:
-                logger.warning(f"No configuration found for service {service_name}")
+                logger.warning(f"pykv 中未找到服务配置: agent_id={agent_id}, service_name={service_name}")
                 return False
 
             # 创建临时客户端

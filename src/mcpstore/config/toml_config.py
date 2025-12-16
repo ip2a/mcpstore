@@ -758,7 +758,7 @@ class ConfigFlattener:
                     store_value = {"value": value}
 
                 await kv_store.put(key, store_value)
-                logger.debug(f"Put config key: {key} = {store_value}")
+                # logger.debug(f"Put config key: {key} = {store_value}")  # 注释掉：避免80个重复日志
 
             logger.info(f"Successfully wrote {len(flattened)} configuration keys to KV store")
             return True

@@ -64,13 +64,8 @@ class UpdateServiceAuthHelper:
 class ServiceManagementMixin:
     """服务管理混入类"""
 
-    def check_services(self) -> dict:
-        """
-        健康检查（同步版本），store/agent上下文自动判断
-        - store上下文：聚合 global_agent_store 下所有 client_id 的服务健康状态
-        - agent上下文：聚合 agent_id 下所有 client_id 的服务健康状态
-        """
-        return self._sync_helper.run_async(self.check_services_async(), force_background=True)
+    # [已删除] check_services 同步方法
+    # 根据 "pykv 唯一真相数据源" 原则，请使用 check_services_async 异步方法
 
     async def check_services_async(self) -> dict:
         """
@@ -91,8 +86,43 @@ class ServiceManagementMixin:
         获取服务详情（同步版本），支持 store/agent 上下文
         - store上下文：在 global_agent_store 下的所有 client 中查找服务
         - agent上下文：在指定 agent_id 下的所有 client 中查找服务
+
+        [新架构] 避免_sync_helper.run_async，使用更安全的同步实现
         """
-        return self._sync_helper.run_async(self.get_service_info_async(name), force_background=True)
+        try:
+            if not name:
+                return {}
+
+            if self._context_type == ContextType.STORE:
+                logger.debug(f"STORE mode - searching service in global_agent_store: {name}")
+                agent_id = self._store.client_manager.global_agent_store_id
+            else:
+                logger.debug(f"AGENT mode - searching service in agent({self._agent_id}): {name}")
+                agent_id = self._agent_id
+
+            # 直接从缓存获取服务信息
+            complete_info = self._store.registry.get_complete_service_info(agent_id, name)
+            if not complete_info:
+                logger.debug(f"Service {name} not found in agent {agent_id}")
+                return {}
+
+            # 构建返回信息
+            return {
+                "name": name,
+                "client_id": complete_info.get("client_id"),
+                "config": complete_info.get("config", {}),
+                "state": complete_info.get("state", "disconnected"),
+                "tool_count": complete_info.get("tool_count", 0),
+                "agent_id": agent_id
+            }
+
+        except Exception as e:
+            logger.error(f"[NEW_ARCH] get_service_info 失败: {e}")
+            return {
+                "name": name,
+                "error": str(e),
+                "agent_id": getattr(self, '_agent_id', 'unknown')
+            }
 
     async def get_service_info_async(self, name: str) -> Any:
         """
@@ -144,22 +174,62 @@ class ServiceManagementMixin:
             else:
                 final_config = config
 
-            self._sync_helper.run_async(
-                self.update_service_async(name, final_config),
-                timeout=60.0,
-                force_background=True
-            )
+            # 新架构：避免_sync_helper.run_async，使用更安全的同步执行
+            try:
+                import asyncio
+                try:
+                    # 检查是否已经有运行中的事件循环
+                    loop = asyncio.get_running_loop()
+                    # 如果有，使用线程安全的方式执行
+                    if hasattr(self._sync_helper, '_background_loop') and self._sync_helper._background_loop:
+                        future = asyncio.run_coroutine_threadsafe(
+                            self.update_service_async(name, final_config),
+                            self._sync_helper._background_loop
+                        )
+                        future.result(timeout=60.0)
+                    else:
+                        # 临时创建新线程执行
+                        import concurrent.futures
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            future = executor.submit(lambda: asyncio.run(self.update_service_async(name, final_config)))
+                            future.result(timeout=60.0)
+                except RuntimeError:
+                    # 没有运行中的循环，可以直接使用 asyncio.run
+                    asyncio.run(self.update_service_async(name, final_config))
+            except Exception as e:
+                logger.error(f"[NEW_ARCH] update_service 失败: {e}")
+                # 不抛出异常，保持向后兼容
             return self
         else:
             # 没有配置参数：
             if any([auth, token, api_key, headers]):
                 # 纯认证：立即执行（也走补丁合并语义）
                 final_config = self._apply_auth_to_update_config({}, auth, token, api_key, headers)
-                self._sync_helper.run_async(
-                    self.update_service_async(name, final_config),
-                    timeout=60.0,
-                    force_background=True
-                )
+                # 新架构：避免_sync_helper.run_async，使用更安全的同步执行
+                try:
+                    import asyncio
+                    try:
+                        # 检查是否已经有运行中的事件循环
+                        loop = asyncio.get_running_loop()
+                        # 如果有，使用线程安全的方式执行
+                        if hasattr(self._sync_helper, '_background_loop') and self._sync_helper._background_loop:
+                            future = asyncio.run_coroutine_threadsafe(
+                                self.update_service_async(name, final_config),
+                                self._sync_helper._background_loop
+                            )
+                            future.result(timeout=60.0)
+                        else:
+                            # 临时创建新线程执行
+                            import concurrent.futures
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                future = executor.submit(lambda: asyncio.run(self.update_service_async(name, final_config)))
+                                future.result(timeout=60.0)
+                    except RuntimeError:
+                        # 没有运行中的循环，可以直接使用 asyncio.run
+                        asyncio.run(self.update_service_async(name, final_config))
+                except Exception as e:
+                    logger.error(f"[NEW_ARCH] update_service (auth) 失败: {e}")
+                    # 不抛出异常，保持向后兼容
                 return self
             else:
                 # 什么都没有：返回助手用于链式调用
@@ -242,24 +312,27 @@ class ServiceManagementMixin:
 
                 # 更新缓存中的 metadata.service_config，确保一致性
                 try:
-                    # 将元数据更新到全局命名空间，保持与生命周期/工具缓存一致
+                    # 从 pykv 异步获取元数据
                     global_agent = self._store.client_manager.global_agent_store_id
-                    metadata = self._store.registry._service_state_service.get_service_metadata(global_agent, global_name)
+                    metadata = await self._store.registry._service_state_service.get_service_metadata_async(global_agent, global_name)
                     if metadata:
                         # 将变更合并到缓存元数据中
                         metadata.service_config = _deep_merge(metadata.service_config or {}, config)
                         self._store.registry.set_service_metadata(global_agent, global_name, metadata)
-                except Exception as _:
-                    pass
+                except Exception as e:
+                    logger.error(f"更新服务元数据失败: {e}")
+                    raise
 
                 return success
         except Exception as e:
             logger.error(f"Failed to update service {name}: {e}")
-            return False
+            raise
 
     def patch_service(self, name: str, updates: Dict[str, Any]) -> bool:
         """
         增量更新服务配置（同步版本）- 推荐使用
+
+        [新架构] 避免_sync_helper.run_async，使用更安全的同步执行
 
         Args:
             name: 服务名称
@@ -268,7 +341,30 @@ class ServiceManagementMixin:
         Returns:
             bool: 更新是否成功
         """
-        return self._sync_helper.run_async(self.patch_service_async(name, updates), timeout=60.0, force_background=True)
+        try:
+            import asyncio
+            try:
+                # 检查是否已经有运行中的事件循环
+                loop = asyncio.get_running_loop()
+                # 如果有，使用线程安全的方式执行
+                if hasattr(self._sync_helper, '_background_loop') and self._sync_helper._background_loop:
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.patch_service_async(name, updates),
+                        self._sync_helper._background_loop
+                    )
+                    return future.result(timeout=60.0)
+                else:
+                    # 临时创建新线程执行
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(lambda: asyncio.run(self.patch_service_async(name, updates)))
+                        return future.result(timeout=60.0)
+            except RuntimeError:
+                # 没有运行中的循环，可以直接使用 asyncio.run
+                return asyncio.run(self.patch_service_async(name, updates))
+        except Exception as e:
+            logger.error(f"[NEW_ARCH] patch_service 失败: {e}")
+            return False
 
     async def patch_service_async(self, name: str, updates: Dict[str, Any]) -> bool:
         """
@@ -334,23 +430,26 @@ class ServiceManagementMixin:
 
                 # 更新缓存中的 metadata.service_config，确保一致性
                 try:
-                    # 将元数据更新到全局命名空间，保持与生命周期/工具缓存一致
+                    # 从 pykv 异步获取元数据
                     global_agent = self._store.client_manager.global_agent_store_id
-                    metadata = self._store.registry._service_state_service.get_service_metadata(global_agent, global_name)
+                    metadata = await self._store.registry._service_state_service.get_service_metadata_async(global_agent, global_name)
                     if metadata:
                         metadata.service_config.update(updates)
                         self._store.registry.set_service_metadata(global_agent, global_name, metadata)
-                except Exception as _:
-                    pass
+                except Exception as e:
+                    logger.error(f"更新服务元数据失败: {e}")
+                    raise
 
                 return success
         except Exception as e:
             logger.error(f"Failed to patch service {name}: {e}")
-            return False
+            raise
 
     def delete_service(self, name: str) -> bool:
         """
         删除服务（同步版本）
+
+        [新架构] 避免_sync_helper.run_async，使用更安全的同步执行
 
         Args:
             name: 服务名称
@@ -358,7 +457,30 @@ class ServiceManagementMixin:
         Returns:
             bool: 删除是否成功
         """
-        return self._sync_helper.run_async(self.delete_service_async(name), timeout=60.0, force_background=True)
+        try:
+            import asyncio
+            try:
+                # 检查是否已经有运行中的事件循环
+                loop = asyncio.get_running_loop()
+                # 如果有，使用线程安全的方式执行
+                if hasattr(self._sync_helper, '_background_loop') and self._sync_helper._background_loop:
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.delete_service_async(name),
+                        self._sync_helper._background_loop
+                    )
+                    return future.result(timeout=60.0)
+                else:
+                    # 临时创建新线程执行
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(lambda: asyncio.run(self.delete_service_async(name)))
+                        return future.result(timeout=60.0)
+            except RuntimeError:
+                # 没有运行中的循环，可以直接使用 asyncio.run
+                return asyncio.run(self.delete_service_async(name))
+        except Exception as e:
+            logger.error(f"[NEW_ARCH] delete_service 失败: {e}")
+            return False
 
     async def delete_service_async(self, name: str) -> bool:
         """
@@ -573,7 +695,12 @@ class ServiceManagementMixin:
 
     async def show_config_async(self) -> Dict[str, Any]:
         """
-        显示配置信息（异步版本）- 从缓存获取
+        显示配置信息（异步版本）- 遵循 Functional Core, Imperative Shell 架构
+
+        架构说明：
+        - 使用 ShowConfigAsyncShell 作为异步外壳，负责 pykv IO 操作
+        - 使用 ShowConfigLogicCore 作为纯逻辑核心，负责数据组装
+        - 严格遵循 pykv 唯一真相数据源原则
 
         根据上下文类型执行不同的显示操作：
         - Store上下文：显示所有Agent的配置
@@ -583,139 +710,62 @@ class ServiceManagementMixin:
             Dict: 配置信息字典
         """
         try:
+            # 获取 CacheLayerManager 实例
+            cache_layer = self._get_cache_layer_manager()
+            
+            # 创建异步外壳实例
+            from mcpstore.core.architecture.show_config_shell import ShowConfigAsyncShell
+            shell = ShowConfigAsyncShell(cache_layer)
+            
             if self._context_type == ContextType.STORE:
-                return await self._show_store_config()
+                return await shell.show_store_config_async()
             else:
-                return await self._show_agent_config()
+                return await shell.show_agent_config_async(self._agent_id)
+                
         except Exception as e:
             logger.error(f"Failed to show config: {e}")
-            return {
-                "error": f"Failed to show config: {str(e)}",
-                "services": {},
-                "summary": {"total_services": 0, "total_clients": 0}
-            }
+            # 使用纯逻辑核心构建错误响应
+            from mcpstore.core.architecture.show_config_core import ShowConfigLogicCore
+            logic_core = ShowConfigLogicCore()
+            return logic_core.build_error_response(
+                f"Failed to show config: {str(e)}",
+                agent_id=self._agent_id if self._context_type != ContextType.STORE else None
+            )
 
-    async def _show_store_config(self) -> Dict[str, Any]:
-        """Store级别显示配置的内部实现"""
-        try:
-            logger.info("📋 Store级别：显示所有Agent的配置")
-
-            # 获取所有Agent ID
-            all_agent_ids = self._store.registry.get_all_agent_ids()
-
-            agents_config = {}
-            total_services = 0
-            total_clients = 0
-
-            for agent_id in all_agent_ids:
-                agent_services = {}
-                agent_client_count = 0
-
-                # 获取该Agent的所有服务
-                service_names = self._store.registry._service_state_service.get_all_service_names(agent_id)
-
-                for service_name in service_names:
-                    complete_info = self._store.registry.get_complete_service_info(agent_id, service_name)
-                    client_id = complete_info.get("client_id")
-                    config = complete_info.get("config", {})
-
-                    if client_id:
-                        agent_services[service_name] = {
-                            "client_id": client_id,
-                            "config": config
-                        }
-                        agent_client_count += 1
-
-                if agent_services:  # 只包含有服务的Agent
-                    agents_config[agent_id] = {
-                        "services": agent_services
-                    }
-                    total_services += len(agent_services)
-                    total_clients += agent_client_count
-
-            return {
-                "agents": agents_config,
-                "summary": {
-                    "total_agents": len(agents_config),
-                    "total_services": total_services,
-                    "total_clients": total_clients
-                }
-            }
-
-        except Exception as e:
-            logger.error(f"Store级别显示配置失败: {e}")
-            return {
-                "error": f"Failed to show store config: {str(e)}",
-                "services": {},
-                "summary": {"total_services": 0, "total_clients": 0}
-            }
-
-    async def _show_agent_config(self) -> Dict[str, Any]:
-        """Agent级别显示配置的内部实现"""
-        try:
-            logger.info(f" Agent级别：显示Agent {self._agent_id} 的配置")
-
-            # 检查Agent是否存在
-            all_agent_ids = self._store.registry.get_all_agent_ids()
-            if self._agent_id not in all_agent_ids:
-                logger.warning(f"Agent {self._agent_id} not found")
-                return {
-                    "error": f"Agent '{self._agent_id}' not found",
-                    "agent_id": self._agent_id,
-                    "services": {},
-                    "summary": {"total_services": 0, "total_clients": 0}
-                }
-
-            return await self._get_single_agent_config(self._agent_id)
-
-        except Exception as e:
-            logger.error(f"Agent级别显示配置失败: {e}")
-            return {
-                "error": f"Failed to show agent config: {str(e)}",
-                "agent_id": self._agent_id,
-                "services": {},
-                "summary": {"total_services": 0, "total_clients": 0}
-            }
-
-    async def _get_single_agent_config(self, agent_id: str) -> Dict[str, Any]:
-        """获取单个Agent的配置信息"""
-        try:
-            services_config = {}
-            client_count = 0
-
-            # 获取该Agent的所有服务
-            service_names = self._store.registry._service_state_service.get_all_service_names(agent_id)
-
-            for service_name in service_names:
-                complete_info = self._store.registry.get_complete_service_info(agent_id, service_name)
-                client_id = complete_info.get("client_id")
-                config = complete_info.get("config", {})
-
-                if client_id:
-                    # Agent级别显示实际的服务名（带后缀的版本）
-                    services_config[service_name] = {
-                        "client_id": client_id,
-                        "config": config
-                    }
-                    client_count += 1
-
-            return {
-                "agent_id": agent_id,
-                "services": services_config,
-                "summary": {
-                    "total_services": len(services_config),
-                    "total_clients": client_count
-                }
-            }
-
-        except Exception as e:
-            logger.error(f"获取Agent {agent_id} 配置失败: {e}")
-            return {
-                "error": f"Failed to get config for agent '{agent_id}': {str(e)}",
-                "agent_id": agent_id,
-                "services": {},
-                "summary": {"total_services": 0, "total_clients": 0}
-            }
+    def _get_cache_layer_manager(self):
+        """
+        获取 CacheLayerManager 实例
+        
+        遵循 pykv 唯一真相数据源原则，确保使用正确的缓存层管理器。
+        
+        Returns:
+            CacheLayerManager 实例
+            
+        Raises:
+            RuntimeError: 如果无法获取 CacheLayerManager
+        """
+        # 尝试从 registry 获取
+        if hasattr(self._store.registry, '_cache_layer_manager'):
+            cache_layer = self._store.registry._cache_layer_manager
+            if cache_layer is not None:
+                return cache_layer
+        
+        # 尝试从 registry._cache_layer 获取
+        if hasattr(self._store.registry, '_cache_layer'):
+            cache_layer = self._store.registry._cache_layer
+            if cache_layer is not None:
+                return cache_layer
+        
+        # 尝试从 store 获取
+        if hasattr(self._store, '_cache_layer_manager'):
+            cache_layer = self._store._cache_layer_manager
+            if cache_layer is not None:
+                return cache_layer
+        
+        raise RuntimeError(
+            "无法获取 CacheLayerManager 实例。"
+            "请确保 MCPStore 已正确初始化。"
+        )
 
     def delete_config(self, client_id_or_service_name: str) -> Dict[str, Any]:
         """
@@ -827,9 +877,9 @@ class ServiceManagementMixin:
             return client_id, parsed.get("service_name")
         raise ValueError(f"Cannot parse client_id format: {client_id}")
 
-    def _validate_resolved_mapping(self, client_id: str, service_name: str, agent_id: str) -> bool:
+    async def _validate_resolved_mapping_async(self, client_id: str, service_name: str, agent_id: str) -> bool:
         """
-        验证解析后的client_id和service_name映射是否有效
+        验证解析后的client_id和service_name映射是否有效（异步版本）
 
         Args:
             client_id: 解析出的client_id
@@ -840,8 +890,8 @@ class ServiceManagementMixin:
             bool: 映射是否有效
         """
         try:
-            # 检查client_id是否存在于agent的映射中
-            agent_clients = self._store.registry.get_agent_clients_from_cache(agent_id)
+            # 检查client_id是否存在于agent的映射中 - 从 pykv 获取
+            agent_clients = await self._store.registry.get_agent_clients_async(agent_id)
             if client_id not in agent_clients:
                 logger.debug(f" [VALIDATE_MAPPING] client_id '{client_id}' not found in agent '{agent_id}' clients")
                 return False
@@ -856,6 +906,39 @@ class ServiceManagementMixin:
         except Exception as e:
             logger.debug(f" [VALIDATE_MAPPING] 验证失败: {e}")
             return False
+
+    def _validate_resolved_mapping(self, client_id: str, service_name: str, agent_id: str) -> bool:
+        """
+        验证解析后的client_id和service_name映射是否有效（同步版本）
+
+        Args:
+            client_id: 解析出的client_id
+            service_name: 解析出的service_name
+            agent_id: Agent ID
+
+        Returns:
+            bool: 映射是否有效
+        """
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            # 在异步上下文中，使用 run_coroutine_threadsafe
+            if hasattr(self._sync_helper, '_background_loop') and self._sync_helper._background_loop:
+                future = asyncio.run_coroutine_threadsafe(
+                    self._validate_resolved_mapping_async(client_id, service_name, agent_id),
+                    self._sync_helper._background_loop
+                )
+                return future.result(timeout=10.0)
+            else:
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        lambda: asyncio.run(self._validate_resolved_mapping_async(client_id, service_name, agent_id))
+                    )
+                    return future.result(timeout=10.0)
+        except RuntimeError:
+            # 没有运行中的循环，可以直接使用 asyncio.run
+            return asyncio.run(self._validate_resolved_mapping_async(client_id, service_name, agent_id))
 
     def _resolve_client_id(self, client_id_or_service_name: str, agent_id: str) -> Tuple[str, str]:
         """
@@ -1138,8 +1221,8 @@ class ServiceManagementMixin:
                 source="ServiceManagement",
             )
 
-            # 更新服务元数据中的配置
-            metadata = self._store.registry._service_state_service.get_service_metadata(global_agent_store_id, service_name)
+            # 从 pykv 异步获取并更新服务元数据中的配置
+            metadata = await self._store.registry._service_state_service.get_service_metadata_async(global_agent_store_id, service_name)
             if metadata:
                 metadata.service_config = normalized_config
                 metadata.consecutive_failures = 0
@@ -1223,8 +1306,8 @@ class ServiceManagementMixin:
                 source="ServiceManagement",
             )
 
-            # 更新服务元数据中的配置
-            metadata = self._store.registry._service_state_service.get_service_metadata(self._agent_id, service_name)
+            # 从 pykv 异步获取并更新服务元数据中的配置
+            metadata = await self._store.registry._service_state_service.get_service_metadata_async(self._agent_id, service_name)
             if metadata:
                 metadata.service_config = normalized_config
                 metadata.consecutive_failures = 0
@@ -1284,9 +1367,35 @@ class ServiceManagementMixin:
             return {"status": "error", "error": str(e)}
 
     def restart_service(self, name: str) -> bool:
-        """重启指定服务（同步版本）"""
-        # 使用持久后台事件循环，避免 asyncio.run 的临时事件循环导致事件处理器被取消
-        return self._sync_helper.run_async(self.restart_service_async(name), force_background=True)
+        """
+        重启指定服务（同步版本）
+
+        [新架构] 避免_sync_helper.run_async，使用更安全的同步执行
+        """
+        try:
+            import asyncio
+            try:
+                # 检查是否已经有运行中的事件循环
+                loop = asyncio.get_running_loop()
+                # 如果有，使用线程安全的方式执行
+                if hasattr(self._sync_helper, '_background_loop') and self._sync_helper._background_loop:
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.restart_service_async(name),
+                        self._sync_helper._background_loop
+                    )
+                    return future.result(timeout=60.0)
+                else:
+                    # 临时创建新线程执行
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(lambda: asyncio.run(self.restart_service_async(name)))
+                        return future.result(timeout=60.0)
+            except RuntimeError:
+                # 没有运行中的循环，可以直接使用 asyncio.run
+                return asyncio.run(self.restart_service_async(name))
+        except Exception as e:
+            logger.error(f"[NEW_ARCH] restart_service 失败: {e}")
+            return False
 
     async def restart_service_async(self, name: str) -> bool:
         """重启指定服务（透明代理）"""
@@ -1473,24 +1582,30 @@ class ServiceManagementMixin:
                 return {"mcpServers": {}}
         else:
             # Agent上下文：返回所有相关client配置的字典
-            agent_id = self._agent_id
-            client_ids = self._store.registry.get_agent_clients_from_cache(agent_id)
+            # 需要异步获取 client_ids，使用 _sync_helper
+            return self._sync_helper.run_async(self._show_config_agent_async())
 
-            # 获取每个client的配置
-            result = {}
-            for client_id in client_ids:
-                client_config = self._store.orchestrator.client_manager.get_client_config(client_id)
-                if client_config:
-                    result[client_id] = client_config
+    async def _show_config_agent_async(self) -> Dict[str, Any]:
+        """Agent上下文的 show_config 异步实现"""
+        agent_id = self._agent_id
+        # 从 pykv 获取 client_ids
+        client_ids = await self._store.registry.get_agent_clients_async(agent_id)
 
-            return result
+        # 获取每个client的配置
+        result = {}
+        for client_id in client_ids:
+            client_config = self._store.orchestrator.client_manager.get_client_config(client_id)
+            if client_config:
+                result[client_id] = client_config
+
+        return result
 
     def wait_service(self, client_id_or_service_name: str,
                     status: Union[str, List[str]] = 'healthy',
                     timeout: float = 10.0,
                     raise_on_timeout: bool = False) -> bool:
         """
-        等待服务达到指定状态（同步版本）
+        等待服务达到指定状态（同步版本，使用新架构避免死锁）。
 
         Args:
             client_id_or_service_name: client_id或服务名（智能识别）
@@ -1505,11 +1620,30 @@ class ServiceManagementMixin:
             TimeoutError: 当raise_on_timeout=True且超时时抛出
             ValueError: 当参数无法解析时抛出
         """
-        return self._sync_helper.run_async(
-            self.wait_service_async(client_id_or_service_name, status, timeout, raise_on_timeout),
-            timeout=timeout + 1.0,  # 给异步版本额外1秒缓冲
-            force_background=True
-        )
+        try:
+            # 解析服务名称（简化版，实际可能需要更复杂的解析逻辑）
+            service_name = self._extract_service_name_from_identifier(client_id_or_service_name)
+
+            # 使用新架构：同步外壳
+            if not hasattr(self, '_service_management_sync_shell'):
+                from ..architecture import ServiceManagementFactory
+                self._service_management_sync_shell, _, _ = ServiceManagementFactory.create_service_management(
+                    self._store.registry, self._store.orchestrator
+                )
+
+            # 直接调用同步外壳，避免_sync_helper.run_async的复杂性
+            result = self._service_management_sync_shell.wait_service(service_name, timeout)
+
+            if not result and raise_on_timeout:
+                raise TimeoutError(f"服务 {service_name} 在 {timeout} 秒内未达到状态 {status}")
+
+            return result
+
+        except Exception as e:
+            logger.error(f"[NEW_ARCH] wait_service 失败: {e}")
+            if raise_on_timeout:
+                raise
+            return False
 
     async def wait_service_async(self, client_id_or_service_name: str,
                                status: Union[str, List[str]] = 'healthy',
@@ -1592,11 +1726,11 @@ class ServiceManagementMixin:
                         # 对比 orchestrator 与 registry 的状态及最近健康检查（节流打印）
                         try:
                             reg_state = self._store.registry.get_service_state(status_agent_key, service_name)
-                            meta = self._store.registry._service_state_service.get_service_metadata(status_agent_key, service_name)
+                            meta = await self._store.registry._service_state_service.get_service_metadata_async(status_agent_key, service_name)
                             last_check_ts = meta.last_health_check.isoformat() if getattr(meta, 'last_health_check', None) else None
                             logger.debug(f"[WAIT_SERVICE] compare orchestrator='{current_status}' registry='{getattr(reg_state,'value',reg_state)}' last_check={last_check_ts}")
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"[WAIT_SERVICE] 获取元数据失败: {e}")
 
                         prev_status, last_log = current_status, now
 
@@ -1688,5 +1822,35 @@ class ServiceManagementMixin:
                     final_config.pop(k, None)
 
         return final_config
+
+    def _extract_service_name_from_identifier(self, client_id_or_service_name: str) -> str:
+        """
+        从标识符中提取服务名称（新架构辅助方法）
+
+        Args:
+            client_id_or_service_name: client_id或服务名
+
+        Returns:
+            str: 服务名称
+        """
+        if not isinstance(client_id_or_service_name, str):
+            raise ValueError(f"标识符必须是字符串，实际类型: {type(client_id_or_service_name)}")
+
+        # 如果包含client_id格式，提取服务名称
+        if "::" in client_id_or_service_name:
+            # global_agent_store::service_name 格式
+            parts = client_id_or_service_name.split("::", 1)
+            if len(parts) == 2:
+                return parts[1]
+
+        # 如果是client_id格式，提取服务名称
+        if client_id_or_service_name.startswith("client_"):
+            # client_global_agent_store_service_name 格式
+            parts = client_id_or_service_name.split("_", 3)
+            if len(parts) >= 4:
+                return parts[3]
+
+        # 直接返回作为服务名称
+        return client_id_or_service_name
 
 
