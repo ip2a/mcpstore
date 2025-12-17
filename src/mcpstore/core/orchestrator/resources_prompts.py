@@ -3,6 +3,7 @@ MCPOrchestrator Resources and Prompts Module
 Resources/Prompts模块 - 包含FastMCP的Resources和Prompts功能支持
 """
 
+import asyncio
 import logging
 import time
 from typing import Dict, Any, Optional
@@ -110,9 +111,7 @@ class ResourcesPromptsMixin:
         Returns:
             Dict: 包含资源列表的响应
         """
-        return self._sync_helper.run_async(
-            self.list_resources_async(service_name, client_id)
-        )
+        return asyncio.run(self.list_resources_async(service_name, client_id))
 
     async def list_resources_async(
         self,
@@ -206,9 +205,7 @@ class ResourcesPromptsMixin:
         Returns:
             Dict: 包含资源模板列表的响应
         """
-        return self._sync_helper.run_async(
-            self.list_resource_templates_async(service_name, client_id)
-        )
+        return asyncio.run(self.list_resource_templates_async(service_name, client_id))
 
     async def list_resource_templates_async(
         self,
@@ -303,9 +300,7 @@ class ResourcesPromptsMixin:
         Returns:
             Dict: 包含资源内容的响应
         """
-        return self._sync_helper.run_async(
-            self.read_resource_async(uri, service_name, client_id)
-        )
+        return asyncio.run(self.read_resource_async(uri, service_name, client_id))
 
     async def read_resource_async(
         self,
@@ -423,9 +418,7 @@ class ResourcesPromptsMixin:
         Returns:
             Dict: 包含提示词列表的响应
         """
-        return self._sync_helper.run_async(
-            self.list_prompts_async(service_name, client_id)
-        )
+        return asyncio.run(self.list_prompts_async(service_name, client_id))
 
     async def list_prompts_async(
         self,
@@ -522,9 +515,7 @@ class ResourcesPromptsMixin:
         Returns:
             Dict: 包含提示词内容的响应
         """
-        return self._sync_helper.run_async(
-            self.get_prompt_async(name, arguments, service_name, client_id)
-        )
+        return asyncio.run(self.get_prompt_async(name, arguments, service_name, client_id))
 
     async def get_prompt_async(
         self,

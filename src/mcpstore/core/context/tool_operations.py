@@ -3,13 +3,12 @@ MCPStore Tool Operations Module
 Implementation of tool-related operations
 
 架构原则：Functional Core, Imperative Shell
-- 同步版本 (list_tools): 使用 asyncio.run() 创建独立事件循环
+- 同步版本 (list_tools): 通过 Async Orchestrated Bridge 运行在统一事件循环
 - 异步版本 (list_tools_async): 在现有事件循环中执行
 - 纯逻辑核心 (ToolLogicCore): 只做计算，不做 IO
 - pykv 是唯一真相数据源，不使用内存快照
 """
 
-import asyncio
 import logging
 from typing import Dict, List, Optional, Any, Union, Literal
 
@@ -25,7 +24,7 @@ class ToolOperationsMixin:
     工具操作混入类
     
     遵循 Functional Core, Imperative Shell 架构：
-    - 同步方法使用 asyncio.run() 创建独立事件循环
+    - 同步方法统一通过 Async Orchestrated Bridge 在后台事件循环运行
     - 异步方法在现有事件循环中执行
     - 所有数据从 pykv 读取，不使用内存快照
     """
@@ -40,7 +39,7 @@ class ToolOperationsMixin:
         """
         检查工具是否可用（同步外壳）
         
-        使用 asyncio.run() 创建独立事件循环执行异步操作。
+        通过 Async Orchestrated Bridge 在稳定事件循环中执行异步逻辑。
         
         Args:
             service_global_name: 服务全局名称
@@ -52,8 +51,9 @@ class ToolOperationsMixin:
         Raises:
             RuntimeError: 如果服务状态不存在或工具状态不存在
         """
-        return asyncio.run(
-            self._is_tool_available_async(service_global_name, tool_name)
+        return self._run_async_via_bridge(
+            self._is_tool_available_async(service_global_name, tool_name),
+            op_name="tool_operations.is_tool_available"
         )
 
     async def _is_tool_available_async(
@@ -116,7 +116,7 @@ class ToolOperationsMixin:
         """
         列出工具（同步外壳）
         
-        使用 asyncio.run() 创建独立事件循环执行异步操作。
+        通过 Async Orchestrated Bridge 在稳定事件循环中执行异步操作。
         遵循 Functional Core, Imperative Shell 架构。
         
         Args:
@@ -128,8 +128,9 @@ class ToolOperationsMixin:
         Returns:
             工具列表
         """
-        return asyncio.run(
-            self.list_tools_async(service_name, filter=filter)
+        return self._run_async_via_bridge(
+            self.list_tools_async(service_name, filter=filter),
+            op_name="tool_operations.list_tools"
         )
 
     async def list_tools_async(
@@ -266,6 +267,37 @@ class ToolOperationsMixin:
             status = await state_manager.get_service_status(service_global_name)
             if status:
                 service_status_map[service_global_name] = status.to_dict()
+
+                # region agent log
+                try:
+                    import json, time
+                    from pathlib import Path
+                    log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                    tools = getattr(status, "tools", []) or []
+                    log_record = {
+                        "sessionId": "debug-session",
+                        "runId": "pre-fix",
+                        "hypothesisId": "H3",
+                        "location": "tool_operations.py:list_tools_async",
+                        "message": "service_status_loaded_for_list_tools",
+                        "data": {
+                            "agent_id": agent_id,
+                            "service_global_name": service_global_name,
+                            "health_status": getattr(status, "health_status", None),
+                            "tools_count": len(tools),
+                            "tool_original_names": [
+                                getattr(t, "tool_original_name", None) for t in tools
+                            ],
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    }
+                    log_path.parent.mkdir(parents=True, exist_ok=True)
+                    with log_path.open("a", encoding="utf-8") as f:
+                        f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+                except Exception:
+                    # 调试日志失败不影响主流程
+                    pass
+                # endregion
         
         # 使用纯逻辑核心过滤工具
         filtered_tools: List[ToolInfo] = []
@@ -288,7 +320,37 @@ class ToolOperationsMixin:
             
             # 获取服务状态
             status_dict = service_status_map.get(tool_service_global_name)
-            
+
+            # region agent log: before_check_tool_availability (H4)
+            try:
+                import json, time
+                from pathlib import Path
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                tools_value = (status_dict or {}).get("tools") if isinstance(status_dict, dict) else None
+                tools_count = len(tools_value) if isinstance(tools_value, list) else 0
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H4",
+                    "location": "tool_operations.py:list_tools_async",
+                    "message": "before_check_tool_availability",
+                    "data": {
+                        "agent_id": agent_id,
+                        "service_global_name": tool_service_global_name,
+                        "tool_name": tool.name,
+                        "has_status": status_dict is not None,
+                        "tools_count_in_status": tools_count,
+                    },
+                    "timestamp": int(time.time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                # 调试日志失败不影响主流程
+                pass
+            # endregion
+
             # 使用纯逻辑核心检查可用性
             try:
                 is_available = ToolLogicCore.check_tool_availability(
@@ -299,7 +361,38 @@ class ToolOperationsMixin:
                 if is_available:
                     filtered_tools.append(tool)
             except RuntimeError as e:
-                # 状态不存在，抛出错误
+                # region agent log: check_tool_availability_error (H8)
+                try:
+                    import json, time
+                    from pathlib import Path
+                    log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                    tools_value = (status_dict or {}).get("tools") if isinstance(status_dict, dict) else None
+                    tools_count = len(tools_value) if isinstance(tools_value, list) else 0
+                    log_record = {
+                        "sessionId": "debug-session",
+                        "runId": "pre-fix",
+                        "hypothesisId": "H8",
+                        "location": "tool_operations.py:list_tools_async",
+                        "message": "check_tool_availability_error",
+                        "data": {
+                            "agent_id": agent_id,
+                            "service_global_name": tool_service_global_name,
+                            "tool_name": tool.name,
+                            "error": str(e),
+                            "has_status": status_dict is not None,
+                            "tools_count_in_status": tools_count,
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    }
+                    log_path.parent.mkdir(parents=True, exist_ok=True)
+                    with log_path.open("a", encoding="utf-8") as f:
+                        f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+                except Exception:
+                    # 调试日志失败不影响主流程
+                    pass
+                # endregion
+
+                # 状态/工具不存在，抛出错误
                 raise
         
         logger.info(
@@ -315,7 +408,10 @@ class ToolOperationsMixin:
         Returns:
             Dict: Tool list and statistics
         """
-        return self._sync_helper.run_async(self.get_tools_with_stats_async(), force_background=True)
+        return self._run_async_via_bridge(
+            self.get_tools_with_stats_async(),
+            op_name="tool_operations.get_tools_with_stats"
+        )
 
     async def get_tools_with_stats_async(self) -> Dict[str, Any]:
         """
@@ -378,7 +474,10 @@ class ToolOperationsMixin:
         Returns:
             Dict: 系统统计信息
         """
-        return self._sync_helper.run_async(self.get_system_stats_async())
+        return self._run_async_via_bridge(
+            self.get_system_stats_async(),
+            op_name="tool_operations.get_system_stats"
+        )
 
     async def get_system_stats_async(self) -> Dict[str, Any]:
         """
@@ -441,7 +540,10 @@ class ToolOperationsMixin:
         Returns:
             Dict: 批量添加结果
         """
-        return self._sync_helper.run_async(self.batch_add_services_async(services))
+        return self._run_async_via_bridge(
+            self.batch_add_services_async(services),
+            op_name="tool_operations.batch_add_services"
+        )
 
     async def batch_add_services_async(self, services: List[Union[str, Dict[str, Any]]]) -> Dict[str, Any]:
         """
@@ -507,9 +609,10 @@ class ToolOperationsMixin:
             - 单个内容块：直接返回字符串/数据
             - 多个内容块：返回列表
         """
-        # Use background event loop to preserve persistent FastMCP clients across sync calls
-        # Especially critical in auto-session mode to avoid per-call asyncio.run() closing loops
-        return self._sync_helper.run_async(self.call_tool_async(tool_name, args, return_extracted=return_extracted, **kwargs), force_background=True)
+        return self._run_async_via_bridge(
+            self.call_tool_async(tool_name, args, return_extracted=return_extracted, **kwargs),
+            op_name="tool_operations.call_tool"
+        )
 
     def use_tool(self, tool_name: str, args: Union[Dict[str, Any], str] = None, return_extracted: bool = False, **kwargs) -> Any:
         """
@@ -1067,9 +1170,9 @@ class ToolOperationsMixin:
         if self._context_type != ContextType.AGENT:
             raise ValueError("add_tools() 仅在 Agent 模式下可用")
         
-        return self._sync_helper.run_async(
+        return self._run_async_via_bridge(
             self.add_tools_async(service, tools),
-            force_background=True
+            op_name="tool_operations.add_tools"
         )
 
     async def add_tools_async(
@@ -1197,9 +1300,9 @@ class ToolOperationsMixin:
         if self._context_type != ContextType.AGENT:
             raise ValueError("remove_tools() 仅在 Agent 模式下可用")
         
-        return self._sync_helper.run_async(
+        return self._run_async_via_bridge(
             self.remove_tools_async(service, tools),
-            force_background=True
+            op_name="tool_operations.remove_tools"
         )
 
     async def remove_tools_async(
@@ -1317,9 +1420,9 @@ class ToolOperationsMixin:
         if self._context_type != ContextType.AGENT:
             raise ValueError("reset_tools() 仅在 Agent 模式下可用")
         
-        return self._sync_helper.run_async(
+        return self._run_async_via_bridge(
             self.reset_tools_async(service),
-            force_background=True
+            op_name="tool_operations.reset_tools"
         )
 
     async def reset_tools_async(
@@ -1425,9 +1528,9 @@ class ToolOperationsMixin:
         if self._context_type != ContextType.AGENT:
             raise ValueError("get_tool_set_info() 仅在 Agent 模式下可用")
         
-        return self._sync_helper.run_async(
+        return self._run_async_via_bridge(
             self.get_tool_set_info_async(service),
-            force_background=True
+            op_name="tool_operations.get_tool_set_info"
         )
 
     async def get_tool_set_info_async(
@@ -1542,9 +1645,9 @@ class ToolOperationsMixin:
         if self._context_type != ContextType.AGENT:
             raise ValueError("get_tool_set_summary() 仅在 Agent 模式下可用")
         
-        return self._sync_helper.run_async(
+        return self._run_async_via_bridge(
             self.get_tool_set_summary_async(),
-            force_background=True
+            op_name="tool_operations.get_tool_set_summary"
         )
 
     async def get_tool_set_summary_async(self) -> Dict[str, Any]:

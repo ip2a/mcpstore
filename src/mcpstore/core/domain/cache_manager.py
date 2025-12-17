@@ -176,7 +176,13 @@ class CacheManager:
     
     async def _on_service_connected(self, event: ServiceConnected):
         """
-        处理服务连接成功 - 更新缓存中的 session 和 tools，并初始化工具状态
+        处理服务连接成功 - 更新缓存中的 session 和 tools
+        
+        关键职责：
+        1. 更新服务的 session
+        2. 创建工具实体（写入实体层）
+        3. 创建 Service-Tool 关系（写入关系层）
+        4. 更新服务状态（写入状态层）
         """
         logger.info(f"[CACHE] Updating cache for connected service: {event.service_name}")
         
@@ -188,25 +194,30 @@ class CacheManager:
                     self._registry.clear_service_tools_only(event.agent_id, event.service_name)
                 
                 # 更新服务缓存（保留映射）
-                # 使用异步版本避免事件循环冲突
                 await self._registry.add_service_async(
                     agent_id=event.agent_id,
                     name=event.service_name,
                     session=event.session,
                     tools=event.tools,
-                    preserve_mappings=True  # 保留已有的映射关系
+                    preserve_mappings=True
                 )
                 
-                # 初始化工具状态到 pykv 状态层
-                # 这是 list_tools 链路能正确过滤工具的关键
-                await self._initialize_tool_status(
+                # 创建工具实体和 Service-Tool 关系（写入实体层和关系层）
+                # 这是 list_tools 链路能正确获取工具的关键
+                await self._create_tool_entities_and_relations(
+                    event.agent_id,
+                    event.service_name,
+                    event.tools
+                )
+                
+                # 更新服务状态（写入状态层）
+                await self._update_service_status(
                     event.agent_id,
                     event.service_name,
                     event.tools
                 )
             
             logger.info(f"[CACHE] Cache updated for {event.service_name} with {len(event.tools)} tools")
-
 
         except Exception as e:
             logger.error(f"[CACHE] Failed to update cache for {event.service_name}: {e}", exc_info=True)
@@ -221,22 +232,103 @@ class CacheManager:
             )
             await self._event_bus.publish(error_event)
 
-    async def _initialize_tool_status(
+    async def _create_tool_entities_and_relations(
         self,
         agent_id: str,
         service_name: str,
         tools: list
     ) -> None:
         """
-        初始化服务的工具状态到 pykv 状态层
+        创建工具实体和 Service-Tool 关系
         
-        这是 list_tools 链路能正确过滤工具的关键。
-        所有工具默认状态为 "available"。
+        写入实体层和关系层，这是 list_tools 链路能正确获取工具的关键。
         
         Args:
             agent_id: Agent ID
             service_name: 服务名称
             tools: 工具列表 [(tool_name, tool_def), ...]
+            
+        Raises:
+            RuntimeError: 如果必要的管理器未初始化
+        """
+        # 获取服务的全局名称
+        service_global_name = self._registry._naming.generate_service_global_name(
+            service_name, agent_id
+        )
+        
+        logger.info(
+            f"[CACHE] 创建工具实体和关系: agent_id={agent_id}, "
+            f"service_name={service_name}, service_global_name={service_global_name}, "
+            f"tools_count={len(tools)}"
+        )
+        
+        # 获取必要的管理器
+        tool_entity_manager = self._registry._cache_tool_manager
+        relation_manager = self._registry._relation_manager
+        
+        if tool_entity_manager is None:
+            raise RuntimeError(
+                f"ToolEntityManager 未初始化，无法创建工具实体: "
+                f"service_global_name={service_global_name}"
+            )
+        
+        if relation_manager is None:
+            raise RuntimeError(
+                f"RelationshipManager 未初始化，无法创建 Service-Tool 关系: "
+                f"service_global_name={service_global_name}"
+            )
+        
+        # 遍历工具列表，创建实体和关系
+        for tool_name, tool_def in tools:
+            # 生成工具全局名称
+            tool_global_name = self._registry._naming.generate_tool_global_name(
+                service_global_name, tool_name
+            )
+            
+            logger.debug(
+                f"[CACHE] 创建工具: tool_name={tool_name}, "
+                f"tool_global_name={tool_global_name}"
+            )
+            
+            # 1. 创建工具实体（写入实体层）
+            await tool_entity_manager.create_tool(
+                service_global_name=service_global_name,
+                service_original_name=service_name,
+                source_agent=agent_id,
+                tool_original_name=tool_name,
+                tool_def=tool_def
+            )
+            
+            # 2. 创建 Service-Tool 关系（写入关系层）
+            await relation_manager.add_service_tool(
+                service_global_name=service_global_name,
+                service_original_name=service_name,
+                source_agent=agent_id,
+                tool_global_name=tool_global_name,
+                tool_original_name=tool_name
+            )
+        
+        logger.info(
+            f"[CACHE] 工具实体和关系创建成功: service_global_name={service_global_name}, "
+            f"tools_count={len(tools)}"
+        )
+
+    async def _update_service_status(
+        self,
+        agent_id: str,
+        service_name: str,
+        tools: list
+    ) -> None:
+        """
+        更新服务状态到 pykv 状态层
+        
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+            tools: 工具列表 [(tool_name, tool_def), ...]
+            
+        Raises:
+            RuntimeError: 如果 CacheStateManager 未初始化
         """
         # 获取服务的全局名称
         service_global_name = self._registry._naming.generate_service_global_name(
@@ -244,10 +336,39 @@ class CacheManager:
         )
         
         logger.debug(
-            f"[CACHE] 初始化工具状态: agent_id={agent_id}, "
+            f"[CACHE] 更新服务状态: agent_id={agent_id}, "
             f"service_name={service_name}, service_global_name={service_global_name}, "
             f"tools_count={len(tools)}"
         )
+
+        # region agent log
+        try:
+            import json, time
+            from pathlib import Path
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            tool_names = [t[0] for t in tools]
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H1",
+                "location": "cache_manager.py:_update_service_status",
+                "message": "before_update_service_status",
+                "data": {
+                    "agent_id": agent_id,
+                    "service_name": service_name,
+                    "service_global_name": service_global_name,
+                    "tools_count": len(tools),
+                    "tool_names": tool_names,
+                },
+                "timestamp": int(time.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            # 调试日志失败不影响主流程
+            pass
+        # endregion
         
         # 构建工具状态列表（所有工具默认 available）
         tools_status = []
@@ -263,13 +384,12 @@ class CacheManager:
                 "status": "available"
             })
         
-        # 使用 StateManager 更新服务状态（包含工具状态）
         # 获取 CacheStateManager（pykv 唯一真相数据源）
         state_manager = self._registry._cache_state_manager
         
         if state_manager is None:
             raise RuntimeError(
-                f"CacheStateManager 未初始化，无法初始化工具状态: "
+                f"CacheStateManager 未初始化，无法更新服务状态: "
                 f"service_global_name={service_global_name}"
             )
         
@@ -280,6 +400,6 @@ class CacheManager:
         )
         
         logger.info(
-            f"[CACHE] 工具状态初始化成功: service_global_name={service_global_name}, "
+            f"[CACHE] 服务状态更新成功: service_global_name={service_global_name}, "
             f"tools_count={len(tools_status)}"
         )

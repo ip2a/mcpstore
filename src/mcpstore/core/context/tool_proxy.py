@@ -3,7 +3,6 @@ MCPStore Tool Proxy Module
 工具代理对象，提供具体工具的操作方法
 """
 
-import asyncio
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Any
@@ -249,7 +248,10 @@ class ToolProxy:
                 resolved_tool_name = self._tool_info.get('name', self._tool_name)
             else:
                 # 2) 进行后缀匹配解析：支持传入简名（如 get_current_weather）
-                tools = self._context._sync_helper.run_async(self._context.list_tools_async())
+                tools = self._context._run_async_via_bridge(
+                    self._context.list_tools_async(),
+                    op_name="tool_proxy.set_redirect.list_tools"
+                )
                 candidate = None
 
                 for t in tools:
@@ -297,9 +299,9 @@ class ToolProxy:
         Returns:
             Any: FastMCP CallToolResult（或当 return_extracted=True 时返回已提取的数据）
         """
-        return self._context._sync_helper.run_async(
+        return self._context._run_async_via_bridge(
             self.call_tool_async(arguments, return_extracted=return_extracted, **kwargs),
-            force_background=True
+            op_name="tool_proxy.call_tool"
         )
 
     async def call_tool_async(self, arguments: Dict[str, Any] = None, return_extracted: bool = False, **kwargs) -> Any:
@@ -417,7 +419,10 @@ class ToolProxy:
         """延迟加载工具信息"""
         try:
             # 获取所有工具信息
-            tools = self._context._sync_helper.run_async(self._context.list_tools_async())
+            tools = self._context._run_async_via_bridge(
+                self._context.list_tools_async(),
+                op_name="tool_proxy.load_tool_info.list_tools"
+            )
             
             for tool in tools:
                 if tool.name == self._tool_name:
@@ -441,8 +446,9 @@ class ToolProxy:
                     try:
                         # 直接从 pykv 实体层获取工具实体
                         tool_entity_manager = self._context._store.registry._cache_tool_manager
-                        tool_entity = asyncio.run(
-                            tool_entity_manager.get_tool(tool.name)
+                        tool_entity = self._context._run_async_via_bridge(
+                            tool_entity_manager.get_tool(tool.name),
+                            op_name="tool_proxy.load_tool_info.get_tool_entity"
                         )
                         if tool_entity:
                             entity_dict = tool_entity.to_dict() if hasattr(tool_entity, 'to_dict') else tool_entity

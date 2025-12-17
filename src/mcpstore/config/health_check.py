@@ -7,10 +7,10 @@ connection health without blocking main operations.
 
 import asyncio
 import logging
-from typing import Optional
+from typing import Optional, Any
 from redis.asyncio import Redis
 from .cache_config import RedisConfig
-
+from mcpstore.core.bridge import get_async_bridge
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +40,10 @@ class RedisHealthCheck:
         """
         self.config = config
         self.client = client
-        self.task: Optional[asyncio.Task] = None
+        self.task: Optional[Any] = None
         self._stop_event = asyncio.Event()
+        self._bridge_handle = None
+        self._bridge = get_async_bridge()
     
     async def _health_check_loop(self):
         """
@@ -109,33 +111,20 @@ class RedisHealthCheck:
         
         # Try to get the running event loop
         try:
-            loop = asyncio.get_running_loop()
-            # We're in an async context, create task directly
+            asyncio.get_running_loop()
             self.task = asyncio.create_task(self._health_check_loop())
             logger.info(
                 f"Started Redis health check (interval: {self.config.health_check_interval}s)"
             )
         except RuntimeError:
-            # No running event loop - we're in a sync context
-            # Use the global background loop from AsyncSyncHelper
             try:
-                from mcpstore.core.utils.async_sync_helper import get_global_helper
-                helper = get_global_helper()
-                loop = helper._ensure_loop()
-                
-                # Schedule the task on the background loop
-                future = asyncio.run_coroutine_threadsafe(
+                self._bridge_handle = self._bridge.create_background_task(
                     self._health_check_loop(),
-                    loop
+                    op_name="redis.health_check"
                 )
-                
-                # Wrap the future in a task-like object for compatibility
-                # We don't actually need to track it as a Task since it's
-                # running in the background loop
-                self.task = future
-                
+                self.task = self._bridge_handle
                 logger.info(
-                    f"Started Redis health check in background loop "
+                    f"Started Redis health check in background bridge "
                     f"(interval: {self.config.health_check_interval}s)"
                 )
             except Exception as e:
@@ -156,7 +145,18 @@ class RedisHealthCheck:
         """
         if self.task is None:
             return
-        
+
+        # bridge handle case
+        if self._bridge_handle is not None:
+            self._stop_event.set()
+            try:
+                self._bridge_handle.cancel()
+            finally:
+                self._bridge_handle = None
+                self.task = None
+                self._stop_event = asyncio.Event()
+            return
+
         # Check if task is done (works for both Task and Future)
         try:
             if self.task.done():
@@ -196,6 +196,10 @@ class RedisHealthCheck:
                     await self.task
                 except asyncio.CancelledError:
                     pass
+        finally:
+            self.task = None
+            self._bridge_handle = None
+            self._stop_event = asyncio.Event()
     
     def stop_sync(self):
         """
@@ -204,28 +208,16 @@ class RedisHealthCheck:
         This is a convenience method for stopping the health check
         when you're not in an async context.
         """
-        if self.task is None:
+        if self.task is None and self._bridge_handle is None:
             return
-        
-        # Signal stop
+
         try:
-            # Set the stop event in a thread-safe way
-            if hasattr(self._stop_event, '_loop'):
-                loop = self._stop_event._loop
-                loop.call_soon_threadsafe(self._stop_event.set)
-            else:
-                # Fallback: try to set it directly
-                self._stop_event.set()
+            self._bridge.run(
+                self.stop(),
+                op_name="redis.health_check.stop"
+            )
         except Exception as e:
-            logger.debug(f"Error setting stop event: {e}")
-        
-        # Wait for completion if it's a Future
-        if hasattr(self.task, 'result'):
-            try:
-                self.task.result(timeout=5.0)
-                logger.debug("Health check stopped (sync)")
-            except Exception as e:
-                logger.debug(f"Health check stop (sync) completed with: {e}")
+            logger.warning(f"Failed to stop health check synchronously: {e}")
 
 
 def start_health_check(

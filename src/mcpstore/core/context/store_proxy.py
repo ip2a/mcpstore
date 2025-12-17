@@ -72,8 +72,11 @@ class StoreProxy:
         return ServiceProxy(self._context, name)
 
     def list_agents(self) -> List[Dict[str, Any]]:
-        # 同步方法，使用 _sync_helper 调用异步版本
-        return self._context._sync_helper.run_async(self.list_agents_async())
+        # 同步方法，使用异步桥在统一事件循环中执行
+        return self._context._run_async_via_bridge(
+            self.list_agents_async(),
+            op_name="store_proxy.list_agents"
+        )
 
     async def list_agents_async(self) -> List[Dict[str, Any]]:
         # Aggregate from registry cache with agent→global mapping
@@ -135,6 +138,27 @@ class StoreProxy:
     def call_tool(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         # Delegate and normalize to dict as store layer does
         res = self._context.call_tool(tool_name, args)
+        # region agent log: call_tool normalization input
+        try:
+            import json as _json_ct
+            _payload_ct = {
+                "sessionId": "debug-session",
+                "runId": "initial",
+                "hypothesisId": "H4",
+                "location": "core/context/store_proxy.py:call_tool",
+                "message": "call_tool raw result",
+                "data": {
+                    "tool_name": tool_name,
+                    "result_type": type(res).__name__,
+                    "has_content_attr": hasattr(res, "content"),
+                },
+                "timestamp": __import__("time").time(),
+            }
+            with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f_ct:
+                _f_ct.write(_json_ct.dumps(_payload_ct, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # endregion agent log
         # Normalization: align with api_store _normalize_result behavior
         try:
             if hasattr(res, 'content'):
@@ -406,5 +430,3 @@ class StoreProxy:
     def __getattr__(self, name: str):
         # Fallback delegation to preserve existing callsites expecting context methods
         return getattr(self._context, name)
-
-

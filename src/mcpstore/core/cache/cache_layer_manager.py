@@ -267,31 +267,25 @@ class CacheLayerManager:
                 logger.debug(f"[CACHE] _get_all_entities_async: collection={collection}")
 
                 # 严格按照原则：通过 pykv 接口读取数据
-                try:
-                    # 获取所有键 - 这是 IO 操作，使用 await
-                    keys_coro = self._kv_store.keys()
-                    keys = await keys_coro  # 先获取协程结果
+                # 关键：必须传递 collection 参数给 keys() 方法
+                entity_keys = await self._kv_store.keys(collection=collection)
+                
+                logger.debug(f"[CACHE] 从 collection={collection} 获取到 {len(entity_keys)} 个键")
 
-                    # 过滤属于指定实体类型的键
-                    collection_prefix = f"{collection}:"
-                    entity_keys = [key for key in keys if key.startswith(collection_prefix)]
+                if not entity_keys:
+                    return {}
 
-                    # 批量获取实体数据 - 这是 IO 操作，使用 await
-                    entities = {}
-                    if entity_keys:
-                        results = await self._kv_store.get_many(entity_keys)
-                        for i, key in enumerate(entity_keys):
-                            if i < len(results) and results[i] is not None:
-                                # 提取实体键名（去掉集合前缀）
-                                entity_key = key[len(collection_prefix):]
-                                entities[entity_key] = results[i]
+                # 批量获取实体数据
+                results = await self._kv_store.get_many(entity_keys, collection=collection)
+                
+                # 构建返回字典
+                entities = {}
+                for i, key in enumerate(entity_keys):
+                    if i < len(results) and results[i] is not None:
+                        entities[key] = results[i]
 
-                    logger.debug(f"[CACHE] _get_all_entities_async 完成: 找到 {len(entities)} 个实体")
-                    return entities
-
-                except Exception as e:
-                    logger.error(f"[CACHE] 异步获取实体失败: {e}")
-                    raise
+                logger.debug(f"[CACHE] _get_all_entities_async 完成: 找到 {len(entities)} 个实体")
+                return entities
 
             # 在最外层使用一次同步异步转换 - 符合原则
             return asyncio.run(_get_all_entities_async())
@@ -308,110 +302,39 @@ class CacheLayerManager:
         - 只使用 await，不使用 asyncio.run()
         - 在现有事件循环中执行
         - 通过 pykv 接口读取数据
+        - 正确传递 collection 参数给 keys() 方法
 
         Args:
             entity_type: 实体类型
 
         Returns:
             Dict[str, Dict[str, Any]]: 实体数据字典 {key: entity_data}
+            
+        Raises:
+            RuntimeError: 如果 pykv 操作失败
         """
         collection = self._get_entity_collection(entity_type)
         logger.debug(f"[CACHE] get_all_entities_async: collection={collection}, entity_type={entity_type}")
-        logger.debug(f"[CACHE] 调试: kv_store 实例 = {id(self._kv_store)}, 类型 = {type(self._kv_store)}")
 
         try:
-            # 直接从 MemoryStore 的 _cache 获取数据，绕过有问题的 keys() 方法
-            if hasattr(self._kv_store, '_cache'):
-                # 直接访问内部 _cache 数据结构
-                cache_keys = list(self._kv_store._cache.keys())
-                logger.debug(f"[CACHE] 从 _cache 获取到 {len(cache_keys)} 个键: {cache_keys}")
+            # 使用 pykv 的 keys() 方法获取指定 collection 的所有键
+            # 关键：必须传递 collection 参数，否则会使用 default_collection
+            entity_keys = await self._kv_store.keys(collection=collection)
+            
+            logger.debug(f"[CACHE] 从 collection={collection} 获取到 {len(entity_keys)} 个键")
 
-                # 构造完整的键名
-                collection_key = f"{self._namespace}:entity:{entity_type}"
-                logger.debug(f"[CACHE] 查找集合键: {collection_key}")
+            if not entity_keys:
+                logger.debug(f"[CACHE] collection={collection} 为空")
+                return {}
 
-                # 检查是否有这个键，如果没有，检查可能的替代键
-                actual_collection_key = None
-                if collection_key in self._kv_store._cache:
-                    actual_collection_key = collection_key
-                else:
-                    # 检查是否有默认集合键（pykv内部可能使用不同的键名）
-                    possible_keys = [k for k in cache_keys if 'default' in k and ('entity' in k or 'collection' in k)]
-                    logger.debug(f"[CACHE] 可能的集合键: {possible_keys}")
-                    if possible_keys:
-                        actual_collection_key = possible_keys[0]
-                        logger.debug(f"[CACHE] 使用找到的集合键: {actual_collection_key}")
-
-                if actual_collection_key and actual_collection_key in self._kv_store._cache:
-                    # 从集合中获取所有实体数据
-                    entities_collection = self._kv_store._cache[actual_collection_key]
-                    logger.info(f"[CACHE] 集合数据类型: {type(entities_collection)}")
-                    logger.debug(f"[CACHE] 集合对象方法: {[m for m in dir(entities_collection) if not m.startswith('_')]}")
-
-                    # 如果是MemoryCollection对象，需要调用其get_all_items或类似方法
-                    if hasattr(entities_collection, 'get_all_items'):
-                        entities = entities_collection.get_all_items()
-                        logger.info(f"[CACHE] 从MemoryCollection获取到 {len(entities)} 个实体")
-                        return entities
-                    elif hasattr(entities_collection, 'items'):
-                        entities = dict(entities_collection.items())
-                        logger.info(f"[CACHE] 从Collection.items()获取到 {len(entities)} 个实体")
-                        return entities
-                    elif isinstance(entities_collection, dict):
-                        logger.info(f"[CACHE] 从字典获取到 {len(entities_collection)} 个实体")
-                        return entities_collection
-                    else:
-                        logger.info(f"[CACHE] 集合数据类型需要特殊处理: {type(entities_collection)}")
-                        # 使用MemoryCollection的keys()和get()方法构建字典
-                        try:
-                            entities = {}
-                            if hasattr(entities_collection, 'keys'):
-                                # 同步获取所有键
-                                collection_keys = list(entities_collection.keys())
-                                logger.info(f"[CACHE] MemoryCollection keys: {collection_keys}")
-
-                                # 获取每个键对应的值
-                                for key in collection_keys:
-                                    managed_entry = entities_collection.get(key)
-                                    if managed_entry is not None:
-                                        # ManagedEntry 对象有 value 属性，包含实际数据
-                                        if hasattr(managed_entry, 'value'):
-                                            entities[key] = managed_entry.value
-                                        else:
-                                            # 如果不是 ManagedEntry，直接使用
-                                            entities[key] = managed_entry
-
-                                logger.info(f"[CACHE] 从MemoryCollection获取到 {len(entities)} 个实体")
-                                return entities
-                            else:
-                                logger.warning(f"[CACHE] MemoryCollection没有keys方法")
-                                return {}
-                        except Exception as e:
-                            logger.error(f"[CACHE] MemoryCollection访问失败: {e}")
-                            raise RuntimeError(f"MemoryCollection访问失败: {e}") from e
-                else:
-                    logger.debug(f"[CACHE] 集合键不存在: {collection_key}")
-
-            # 回退方案：使用原来的 keys() 方法（可能有bug）
-            logger.debug("[CACHE] 回退到 keys() 方法")
-            keys_coro = self._kv_store.keys()
-            keys = await keys_coro
-
-            logger.debug(f"[CACHE] 回退方法获取到所有键: {len(keys)} 个")
-
-            # 过滤属于指定实体类型的键
-            collection_prefix = f"{collection}:"
-            entity_keys = [key for key in keys if key.startswith(collection_prefix)]
-
-            # 批量获取实体数据 - IO 操作，使用 await
-            entities = {}
-            if entity_keys:
-                results = await self._kv_store.get_many(entity_keys)
-                for i, key in enumerate(entity_keys):
-                    if i < len(results) and results[i] is not None:
-                        # 提取实体键名（去掉集合前缀）
-                        entity_key = key[len(collection_prefix):]
-                        entities[entity_key] = results[i]
+            # 批量获取实体数据
+            results = await self._kv_store.get_many(entity_keys, collection=collection)
+            
+            # 构建返回字典
+            entities: Dict[str, Dict[str, Any]] = {}
+            for i, key in enumerate(entity_keys):
+                if i < len(results) and results[i] is not None:
+                    entities[key] = results[i]
 
             logger.debug(f"[CACHE] get_all_entities_async 完成: 找到 {len(entities)} 个实体")
             return entities
@@ -558,7 +481,6 @@ class CacheLayerManager:
             f"[CACHE] put_state: collection={collection}, key={key}, "
             f"state_type={state_type}"
         )
-
         try:
             logger.info(f"[CACHE] 🔧 存储状态值: collection={collection}, key={key}, value={value}")
             await self._kv_store.put(key, value, collection=collection)
@@ -571,6 +493,35 @@ class CacheLayerManager:
             raise RuntimeError(
                 f"存储状态失败: collection={collection}, key={key}, error={e}"
             ) from e
+        else:
+            # region agent log
+            try:
+                import json, time
+                from pathlib import Path
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                tools_value = value.get("tools")
+                tools_count = len(tools_value) if isinstance(tools_value, list) else 0
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H2",
+                    "location": "cache_layer_manager.py:put_state",
+                    "message": "after_put_state_service_status",
+                    "data": {
+                        "collection": collection,
+                        "key": key,
+                        "has_tools_field": "tools" in value,
+                        "tools_count": tools_count,
+                    },
+                    "timestamp": int(time.time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                # 调试日志失败不影响主流程
+                pass
+            # endregion
     
     async def get_state(
         self,
@@ -636,6 +587,32 @@ class CacheLayerManager:
             raise RuntimeError(
                 f"删除状态失败: collection={collection}, key={key}, error={e}"
             ) from e
+        else:
+            # region agent log
+            try:
+                import json, time
+                from pathlib import Path
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H5",
+                    "location": "cache_layer_manager.py:delete_state",
+                    "message": "after_delete_state",
+                    "data": {
+                        "collection": collection,
+                        "state_type": state_type,
+                        "key": key,
+                    },
+                    "timestamp": int(time.time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                # 调试日志失败不影响主流程
+                pass
+            # endregion
 
     def put_state_sync(
         self,

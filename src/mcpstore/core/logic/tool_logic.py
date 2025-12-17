@@ -349,6 +349,44 @@ class ToolLogicCore:
         
         # 查找工具状态
         tools = service_status.get("tools", [])
+
+        # region agent log: check_tool_availability snapshot
+        try:
+            import json as _json_tl, time as _time_tl
+            from pathlib import Path as _Path_tl
+            _log_path_tl = _Path_tl("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            _tools_preview = []
+            if isinstance(tools, list):
+                for _ts in tools[:5]:
+                    if isinstance(_ts, dict):
+                        _tools_preview.append({
+                            "tool_global_name": _ts.get("tool_global_name"),
+                            "tool_original_name": _ts.get("tool_original_name"),
+                            "status": _ts.get("status"),
+                        })
+            _payload_tl = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H7",
+                "location": "core/logic/tool_logic.py:check_tool_availability",
+                "message": "check_tool_availability_snapshot",
+                "data": {
+                    "service_global_name": service_global_name,
+                    "tool_name": tool_name,
+                    "original_tool_name": original_tool_name,
+                    "health_status": service_status.get("health_status"),
+                    "tools_count": len(tools) if isinstance(tools, list) else 0,
+                    "tools_preview": _tools_preview,
+                },
+                "timestamp": int(_time_tl.time() * 1000),
+            }
+            _log_path_tl.parent.mkdir(parents=True, exist_ok=True)
+            with _log_path_tl.open("a", encoding="utf-8") as _f_tl:
+                _f_tl.write(_json_tl.dumps(_payload_tl, ensure_ascii=False) + "\n")
+        except Exception:
+            # 调试日志失败不影响主流程
+            pass
+        # endregion
         tool_status = None
         for ts in tools:
             if ts.get("tool_original_name") == original_tool_name:

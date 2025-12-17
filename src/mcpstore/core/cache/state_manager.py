@@ -85,7 +85,34 @@ class StateManager:
             current_error=current_error,
             tools=tools
         )
-        
+
+        # region agent log
+        try:
+            import json
+            from pathlib import Path
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H1",
+                "location": "state_manager.py:update_service_status",
+                "message": "before_put_state_service_status",
+                "data": {
+                    "service_global_name": service_global_name,
+                    "health_status": health_status,
+                    "tools_count": len(tools),
+                    "tool_original_names": [t.tool_original_name for t in tools],
+                },
+                "timestamp": int(time.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            # 调试日志失败不影响主流程
+            pass
+        # endregion
+
         # 存储到状态层
         await self._cache_layer.put_state(
             "service_status",
@@ -199,6 +226,30 @@ class StateManager:
         Args:
             service_global_name: 服务全局名称
         """
+        # region agent log
+        try:
+            import json, time
+            from pathlib import Path
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H5",
+                "location": "state_manager.py:delete_service_status",
+                "message": "before_delete_service_status",
+                "data": {
+                    "service_global_name": service_global_name,
+                },
+                "timestamp": int(time.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            # 调试日志失败不影响主流程
+            pass
+        # endregion
+
         await self._cache_layer.delete_state("service_status", service_global_name)
         
         logger.debug(

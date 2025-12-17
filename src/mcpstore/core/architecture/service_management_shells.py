@@ -9,6 +9,8 @@ import logging
 from typing import Dict, Any, Optional
 from .service_management_core import ServiceManagementCore, ServiceOperationPlan, WaitOperationPlan, ServiceOperation
 
+from ..bridge import get_async_bridge
+
 logger = logging.getLogger(__name__)
 
 
@@ -317,7 +319,7 @@ class ServiceManagementSyncShell:
     同步外壳：一次性同步转异步
 
     特点：
-    - 只在最外层使用一次 asyncio.run()
+    - 通过 Async Orchestrated Bridge 在稳定事件循环中执行
     - 内部调用异步外壳，不再有任何同步/异步混用
     - 完全避免_sync_to_kv的使用
     """
@@ -330,24 +332,22 @@ class ServiceManagementSyncShell:
             async_shell: 异步外壳实例
         """
         self.async_shell = async_shell
+        self._bridge = get_async_bridge()
         logger.debug("[SYNC_SHELL] 初始化 ServiceManagementSyncShell")
 
     def add_service(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
         同步外壳：添加服务
 
-        严格按照新架构原则：
-        - 只在最外层进行一次同步转异步
-        - 内部不再有任何_sync_to_kv调用
+        通过 AOB 在后台事件循环中执行异步壳，避免每次创建新循环。
         """
         logger.debug("[SYNC_SHELL] 开始同步添加服务")
 
         try:
-            async def _execute():
-                return await self.async_shell.add_service_async(config)
-
-            # 只在这里进行一次同步转异步
-            result = asyncio.run(_execute())
+            result = self._bridge.run(
+                self.async_shell.add_service_async(config),
+                op_name="service_management.add_service",
+            )
 
             logger.debug(f"[SYNC_SHELL] 同步添加服务完成: {result.get('success', False)}")
             return result
@@ -360,25 +360,22 @@ class ServiceManagementSyncShell:
                 "added_services": [],
                 "operations": [],
                 "total_operations": 0,
-                "successful_operations": 0
+                "successful_operations": 0,
             }
 
     def wait_service(self, service_name: str, timeout: float = 10.0) -> bool:
         """
         同步外壳：等待服务就绪
 
-        严格按照新架构原则：
-        - 只在最外层进行一次同步转异步
-        - 内部不再有任何_sync_to_kv调用
+        通过 AOB 在后台事件循环中执行异步壳。
         """
         logger.debug(f"[SYNC_SHELL] 开始同步等待服务: {service_name}")
 
         try:
-            async def _execute():
-                return await self.async_shell.wait_service_async(service_name, timeout)
-
-            # 只在这里进行一次同步转异步
-            result = asyncio.run(_execute())
+            result = self._bridge.run(
+                self.async_shell.wait_service_async(service_name, timeout),
+                op_name="service_management.wait_service",
+            )
 
             logger.debug(f"[SYNC_SHELL] 同步等待服务完成: {result}")
             return result

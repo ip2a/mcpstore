@@ -8,6 +8,7 @@ Extracted from core_registry.py to reduce God Object complexity.
 """
 
 import logging
+import asyncio
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -19,54 +20,61 @@ logger = logging.getLogger(__name__)
 class KVStorageAdapter:
     """
     Adapter for py-key-value storage operations.
-    
-    Provides:
-    - Sync-to-async conversion for KV operations
-    - Collection name generation strategy
-    - Value wrapping/unwrapping for scalar values
-    - Error handling and logging
+
+    根据MCPStore核心架构原则重构：
+    - 提供同步和异步两个版本的API
+    - 同步方法使用asyncio.run()桥接
+    - 不再使用AsyncSyncHelper
     """
-    
+
     def __init__(self, kv_store: 'AsyncKeyValue'):
         """
         Initialize KV storage adapter.
-        
+
         Args:
             kv_store: AsyncKeyValue instance for data storage
         """
         self._kv_store = kv_store
-        self._sync_helper: Optional[Any] = None  # Lazy initialization
-    
-    def _ensure_sync_helper(self):
-        """Ensure AsyncSyncHelper is initialized (lazy initialization)."""
-        if self._sync_helper is None:
-            from mcpstore.core.utils.async_sync_helper import get_global_helper
-            self._sync_helper = get_global_helper()
-            logger.debug("AsyncSyncHelper initialized for KVStorageAdapter")
-        return self._sync_helper
-    
+
     def sync_to_kv(self, coro, operation_name: str = "KV operation"):
         """
         Synchronously execute an async KV store operation.
-        
-        This is a bridge method for synchronous code that must perform KV
-        operations. It uses AsyncSyncHelper to run async operations in a
-        synchronous context.
-        
+
+        根据MCPStore核心架构原则，使用asyncio.run()来桥接同步和异步代码。
+
         Args:
             coro: Coroutine to execute
             operation_name: Description of the operation for logging
-        
         """
         try:
             logger.debug(f"[KV_SYNC] Starting sync: {operation_name}")
-            helper = self._ensure_sync_helper()
-            helper.run_async(coro, timeout=5.0)
+            asyncio.run(coro)
             logger.debug(f"[KV_SYNC] Successfully synced: {operation_name}")
         except Exception as e:
             # Treat KV sync failures as hard errors so they are not hidden
             logger.error(
                 f"[KV_SYNC] Failed to sync to KV store: {operation_name}. Error: {e}",
+                exc_info=True,
+            )
+            raise
+
+    async def async_to_kv(self, coro, operation_name: str = "KV operation"):
+        """
+        Asynchronously execute an async KV store operation.
+
+        异步版本的KV操作，直接await即可。
+
+        Args:
+            coro: Coroutine to execute
+            operation_name: Description of the operation for logging
+        """
+        try:
+            logger.debug(f"[KV_ASYNC] Starting async: {operation_name}")
+            await coro
+            logger.debug(f"[KV_ASYNC] Successfully completed: {operation_name}")
+        except Exception as e:
+            logger.error(
+                f"[KV_ASYNC] Failed to execute KV operation: {operation_name}. Error: {e}",
                 exc_info=True,
             )
             raise

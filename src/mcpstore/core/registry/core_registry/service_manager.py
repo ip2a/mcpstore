@@ -652,6 +652,26 @@ class ServiceManager(ServiceManagerInterface):
             agent_id: Agent ID
         """
         try:
+            # region agent log: service_manager.clear entry
+            try:
+                import json as _json_sm_clear
+                _payload_sm_clear = {
+                    "sessionId": "debug-session",
+                    "runId": "initial",
+                    "hypothesisId": "H8",
+                    "location": "core/registry/core_registry/service_manager.py:clear",
+                    "message": "service_manager.clear begin",
+                    "data": {
+                        "agent_id": agent_id,
+                    },
+                    "timestamp": __import__("time").time(),
+                }
+                with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f_sm_clear:
+                    _f_sm_clear.write(_json_sm_clear.dumps(_payload_sm_clear, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # endregion agent log
+
             # 获取所有服务
             services = self.get_services_for_agent(agent_id)
 
@@ -705,6 +725,28 @@ class ServiceManager(ServiceManagerInterface):
             tools: 工具列表
         """
         try:
+            # region agent log: add_tools entry
+            try:
+                import json as _json_sm
+                _payload_sm = {
+                    "sessionId": "debug-session",
+                    "runId": "initial",
+                    "hypothesisId": "H6",
+                    "location": "core/registry/core_registry/service_manager.py:_add_tools_to_service",
+                    "message": "add_tools begin",
+                    "data": {
+                        "agent_id": agent_id,
+                        "service_name": service_name,
+                        "tools_count": len(tools),
+                    },
+                    "timestamp": __import__("time").time(),
+                }
+                with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f_sm:
+                    _f_sm.write(_json_sm.dumps(_payload_sm, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # endregion agent log
+
             self._logger.info(f"[ADD_TOOLS] 开始添加工具到服务: agent={agent_id}, service={service_name}, tools_count={len(tools)}")
             service_global_name = self._naming.generate_service_global_name(service_name, agent_id)
 
@@ -765,6 +807,26 @@ class ServiceManager(ServiceManagerInterface):
                 try:
                     loop = asyncio.get_event_loop()
                     if loop.is_running():
+                        # region agent log: sync_operation loop running
+                        try:
+                            import json as _json_sync
+                            _payload_sync = {
+                                "sessionId": "debug-session",
+                                "runId": "initial",
+                                "hypothesisId": "H7",
+                                "location": "core/registry/core_registry/service_manager.py:_sync_operation",
+                                "message": "sync_operation loop running; using thread fallback",
+                                "data": {
+                                    "operation": operation_name,
+                                    "loop_running": True,
+                                },
+                                "timestamp": __import__("time").time(),
+                            }
+                            with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f_sync:
+                                _f_sync.write(_json_sync.dumps(_payload_sync, ensure_ascii=False) + "\n")
+                        except Exception:
+                            pass
+                        # endregion agent log
                         # 在新线程中运行
                         import concurrent.futures
 

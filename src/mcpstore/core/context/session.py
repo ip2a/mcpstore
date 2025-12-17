@@ -3,6 +3,7 @@ MCPStore Session Module
 User-friendly Session class that wraps AgentSession with rich functionality
 """
 
+import inspect
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
@@ -44,6 +45,10 @@ class Session:
         self._is_active = True
         
         logger.info(f"[SESSION:{session_id}] Initialized session for agent {agent_session.agent_id}")
+
+    def _run_async(self, coro, op_name: str, timeout: float | None = None):
+        """在统一事件循环中执行协程。"""
+        return self._context._run_async_via_bridge(coro, op_name=op_name, timeout=timeout)
     
     # === Core Properties ===
     
@@ -98,10 +103,10 @@ class Session:
             
             # Use context's sync helper to run async service binding
             # Bind service quickly; no need for background loop and long timeout
-            self._context._sync_helper.run_async(
+            self._run_async(
                 self._bind_service_async(service_name),
+                op_name="session.bind_service",
                 timeout=20.0,
-                force_background=True
             )
             
             logger.info(f"[SESSION:{self._session_id}] Successfully bound service '{service_name}'")
@@ -177,10 +182,10 @@ class Session:
         t_before_run_async = time.perf_counter()
         logger.debug(f"[TIMING] Before run_async: +{(t_before_run_async - t_start)*1000:.1f}ms")
 
-        result = self._context._sync_helper.run_async(
+        result = self._run_async(
             self.use_tool_async(tool_name, arguments, return_extracted=return_extracted, **kwargs),
+            op_name="session.use_tool",
             timeout=wrapper_timeout,
-            force_background=True
         )
 
         t_after_run_async = time.perf_counter()
@@ -215,6 +220,28 @@ class Session:
         
         logger.info(f"[SESSION:{self._session_id}] Tool '{tool_name}' executed successfully")
         return result
+    
+    async def _close_client_async(self, client: Any, service_name: str) -> None:
+        """异步关闭底层 FastMCP client。"""
+        close_candidates = [
+            ("close", ()),
+            ("_disconnect", ()),
+            ("__aexit__", (None, None, None)),
+        ]
+        for method_name, args in close_candidates:
+            method = getattr(client, method_name, None)
+            if not method:
+                continue
+            try:
+                result = method(*args)
+                if inspect.isawaitable(result):
+                    await result
+                return
+            except Exception as exc:
+                logger.debug(
+                    f"[SESSION:{self._session_id}] Error closing client via {method_name} for {service_name}: {exc}"
+                )
+        logger.debug(f"[SESSION:{self._session_id}] No async close method available for client of {service_name}")
     
     # === Session Information ===
     
@@ -338,19 +365,10 @@ class Session:
             # Close all existing connections
             for service_name, client in self._agent_session.services.items():
                 try:
-                    # Close client connection if it has close method
-                    # Best-effort async close without blocking current thread
-                    try:
-                        import asyncio as _asyncio
-                        loop = self._context._sync_helper._ensure_loop()
-                        if hasattr(client, 'close'):
-                            _asyncio.run_coroutine_threadsafe(client.close(), loop)
-                        elif hasattr(client, '_disconnect'):
-                            _asyncio.run_coroutine_threadsafe(client._disconnect(), loop)
-                        elif hasattr(client, '__aexit__'):
-                            _asyncio.run_coroutine_threadsafe(client.__aexit__(None, None, None), loop)
-                    except Exception as _e:
-                        logger.warning(f"[SESSION:{self._session_id}] Error scheduling client close for {service_name}: {_e}")
+                    self._run_async(
+                        self._close_client_async(client, service_name),
+                        op_name=f"session.restart.close_client[{service_name}]"
+                    )
                 except Exception as e:
                     logger.warning(f"[SESSION:{self._session_id}] Error closing client for {service_name}: {e}")
             
@@ -386,18 +404,10 @@ class Session:
             if self._agent_session:
                 for service_name, client in self._agent_session.services.items():
                     try:
-                        # Best-effort async close without blocking current thread
-                        try:
-                            import asyncio as _asyncio
-                            loop = self._context._sync_helper._ensure_loop()
-                            if hasattr(client, 'close'):
-                                _asyncio.run_coroutine_threadsafe(client.close(), loop)
-                            elif hasattr(client, '_disconnect'):
-                                _asyncio.run_coroutine_threadsafe(client._disconnect(), loop)
-                            elif hasattr(client, '__aexit__'):
-                                _asyncio.run_coroutine_threadsafe(client.__aexit__(None, None, None), loop)
-                        except Exception as _e:
-                            logger.warning(f"[SESSION:{self._session_id}] Error scheduling client close for {service_name}: {_e}")
+                        self._run_async(
+                            self._close_client_async(client, service_name),
+                            op_name=f"session.close.close_client[{service_name}]"
+                        )
                     except Exception as e:
                         logger.warning(f"[SESSION:{self._session_id}] Error closing client for {service_name}: {e}")
                 
@@ -463,6 +473,9 @@ class SessionContext:
         self._prev_active_session: Optional[Session] = None
 
         logger.debug(f"[SESSION_CONTEXT:{session_id}] Context manager initialized")
+
+    def _run_async(self, coro, op_name: str, timeout: float | None = None):
+        return self._context._run_async_via_bridge(coro, op_name=op_name, timeout=timeout)
 
     async def __aenter__(self) -> Session:
         """
@@ -549,12 +562,9 @@ class SessionContext:
             Session: New session instance
         """
         try:
-            # Use sync helper to run async session creation
-            from mcpstore.core.utils.async_sync_helper import get_global_helper
-            sync_helper = get_global_helper()
-            self._session = sync_helper.run_async(
+            self._session = self._run_async(
                 self._create_session_async(),
-                force_background=True
+                op_name=f"session_context.create[{self._session_id}]"
             )
             # Save previous and set current as active for implicit routing
             self._prev_active_session = getattr(self._context, "_active_session", None)

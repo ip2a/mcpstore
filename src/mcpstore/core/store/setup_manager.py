@@ -12,7 +12,7 @@ from hashlib import sha1
 from typing import Optional, Dict, Any, Union
 from copy import deepcopy
 
-from mcpstore.core.utils.async_sync_helper import run_async_sync
+import asyncio
 from mcpstore.config.toml_config import init_config
 
 logger = logging.getLogger(__name__)
@@ -86,7 +86,7 @@ class StoreSetupManager:
 
         # 1.5) Initialize TOML-based global configuration (config.toml + MCPStoreConfig)
         try:
-            run_async_sync(init_config())
+            asyncio.run(init_config())
         except Exception as e:
             logger.warning(f"Failed to initialize TOML configuration system, continuing with defaults: {e}")
 
@@ -148,6 +148,28 @@ class StoreSetupManager:
         # Detect data source strategy based on cache type and JSON path
         strategy = detect_strategy(cache, mcpjson_path)
         logger.info(f"Cache initialization: type={cache.cache_type.value}, strategy={strategy.value}")
+        
+        # region agent log: debug cache strategy
+        try:
+            import json as _json
+            _log_payload = {
+                "sessionId": "debug-session",
+                "runId": "initial",
+                "hypothesisId": "H1",
+                "location": "core/store/setup_manager.py:cache_strategy",
+                "message": "Cache strategy resolved",
+                "data": {
+                    "cache_type": getattr(cache, "cache_type", None).value if getattr(cache, "cache_type", None) is not None else None,
+                    "strategy": getattr(strategy, "value", str(strategy)),
+                    "has_namespace": bool(getattr(cache, "namespace", None)),
+                },
+                "timestamp": __import__("time").time(),
+            }
+            with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f:
+                _f.write(_json.dumps(_log_payload, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # endregion agent log
         
         # Set default namespace for RedisConfig if not provided
         if isinstance(cache, RedisConfig):
@@ -254,30 +276,22 @@ class StoreSetupManager:
         # Always set data space manager since we always create it now
         store._data_space_manager = dsm
 
-        # 7) 同步初始化 orchestrator（无后台副作用）
-        from mcpstore.core.utils.async_sync_helper import get_global_helper
-        helper = get_global_helper()
-        # 保持后台事件循环常驻，避免组件启动后立即被清理导致状态无法收敛
-        helper.run_async(orchestrator.setup(), force_background=True)
+        # 7) 同步初始化 orchestrator
+        asyncio.run(orchestrator.setup())
 
         if config_sync_manager is not None:
             try:
-                helper.run_async(
-                    config_sync_manager.sync_json_to_cache(config.json_path, overwrite=True),
-                    force_background=False,
+                asyncio.run(
+                    config_sync_manager.sync_json_to_cache(config.json_path, overwrite=True)
                 )
             except Exception as e:
                 logger.warning(f"Initial JSON to KV config sync failed: {e}")
-        try:
-            setattr(store, "_background_helper", helper)
-        except Exception:
-            pass
 
         # 8) 可选：预热缓存
         features = stat.get("features", {}) if isinstance(stat, dict) else {}
         if features.get("preload_cache"):
             try:
-                helper.run_async(store.initialize_cache_from_files(), force_background=False)
+                asyncio.run(store.initialize_cache_from_files())
             except Exception as e:
                 if features.get("fail_on_cache_preload_error"):
                     raise
@@ -319,5 +333,27 @@ class StoreSetupManager:
             setattr(store, "_health_check_task", _health_check_task)
         except Exception:
             pass
+
+        # region agent log: debug store setup snapshot
+        try:
+            import json as _json2
+            _log_payload2 = {
+                "sessionId": "debug-session",
+                "runId": "initial",
+                "hypothesisId": "H2",
+                "location": "core/store/setup_manager.py:store_setup_done",
+                "message": "Store setup completed",
+                "data": {
+                    "mcp_json": snapshot.get("mcp_json"),
+                    "debug_level": snapshot.get("debug_level"),
+                    "cache_type": getattr(cache, "cache_type", None).value if getattr(cache, "cache_type", None) is not None else None,
+                },
+                "timestamp": __import__("time").time(),
+            }
+            with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f2:
+                _f2.write(_json2.dumps(_log_payload2, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # endregion agent log
 
         return store
