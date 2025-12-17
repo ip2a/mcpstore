@@ -12,7 +12,7 @@ from ..performance import get_performance_optimizer
 from ..integration.openapi_integration import get_openapi_manager
 from mcpstore.extensions.monitoring import MonitoringManager
 from mcpstore.extensions.monitoring.analytics import get_monitoring_manager
-from ..utils.async_sync_helper import get_global_helper
+from ..bridge import get_async_bridge
 
 # Create logger instance
 logger = logging.getLogger(__name__)
@@ -54,10 +54,9 @@ class MCPStoreContext(
         self._store = store
         self._agent_id = agent_id
         self._context_type = ContextType.STORE if agent_id is None else ContextType.AGENT
+        self._bridge = get_async_bridge()
 
-        # Async/sync compatibility helper
-        self._sync_helper = get_global_helper()
-
+  
         # Initialize wait strategy for service operations
         from .service_operations import AddServiceWaitStrategy
         self.wait_strategy = AddServiceWaitStrategy()
@@ -108,6 +107,11 @@ class MCPStoreContext(
             self._kernel = create_kernel(self)
         except Exception:
             self._kernel = None
+
+    # internal helper for sync methods
+    def _run_async_via_bridge(self, coro, op_name: str, timeout: float | None = None):
+        """使用 Async Orchestrated Bridge 在同步环境中执行协程。"""
+        return self._bridge.run(coro, op_name=op_name, timeout=timeout)
 
     # ---- Objectified entries ----
     def for_store(self) -> 'StoreProxy':

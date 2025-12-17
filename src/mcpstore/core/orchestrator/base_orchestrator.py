@@ -72,10 +72,6 @@ class MCPOrchestrator(
         #  新增：Context工厂函数（用于服务注册，替代 store.for_store()）
         self._context_factory = None
 
-        #  新增：异步同步助手（用于Resources和Prompts的同步方法）
-        from mcpstore.core.utils.async_sync_helper import get_global_helper
-        self._sync_helper = get_global_helper()
-
         # 旧的心跳和重连配置已被ServiceLifecycleManager替代
         timing_config = config.get("timing", {})
         # 保留http_timeout，其他配置已废弃

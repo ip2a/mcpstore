@@ -55,7 +55,10 @@ class AgentProxy:
     def get_stats(self) -> Dict[str, Any]:
         # Reuse AgentStatisticsMixin via context
         try:
-            stats = self._context._sync_helper.run_async(self._context._get_agent_statistics(self._agent_id))
+            stats = self._context._run_async_via_bridge(
+                self._context._get_agent_statistics(self._agent_id),
+                op_name="agent_proxy.get_stats"
+            )
             if hasattr(stats, "__dict__"):
                 d = dict(stats.__dict__)
                 # Normalize dataclass-like nested services
@@ -233,7 +236,10 @@ class AgentProxy:
 
     # ---- Health & runtime ----
     def check_services(self) -> Dict[str, Any]:
-        return self._context._sync_helper.run_async(self._context._store.get_health_status(self._agent_id, agent_mode=True))
+        return self._context._run_async_via_bridge(
+            self._context._store.get_health_status(self._agent_id, agent_mode=True),
+            op_name="agent_proxy.check_services"
+        )
 
     def call_tool(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         # Delegate to agent-view context and normalize
@@ -626,5 +632,4 @@ class AgentProxy:
     def __getattr__(self, name: str):
         target = self._agent_ctx or self._context
         return getattr(target, name)
-
 

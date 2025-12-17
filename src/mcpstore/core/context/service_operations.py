@@ -162,37 +162,20 @@ class ServiceOperationsMixin:
                 return kernel.list_services()
             except Exception:
                 pass
-        # 新架构：避免_sync_helper.run_async，使用更安全的方式
-        try:
-            # 尝试使用同步外壳获取服务列表（如果实现了的话）
-            if hasattr(self, '_service_management_sync_shell'):
-                # 暂时使用简化实现，直接从缓存读取
-                return self._list_services_from_cache()
-
-            # 作为临时解决方案，使用更安全的同步调用
-            import asyncio
+        # 如果可用，直接从缓存读取（完全同步）
+        if hasattr(self, '_service_management_sync_shell'):
             try:
-                # 检查是否已经有运行中的事件循环
-                loop = asyncio.get_running_loop()
-                # 如果有，使用线程安全的方式执行
-                if hasattr(self._sync_helper, '_background_loop') and self._sync_helper._background_loop:
-                    future = asyncio.run_coroutine_threadsafe(
-                        self.list_services_async(),
-                        self._sync_helper._background_loop
-                    )
-                    return future.result(timeout=10.0)
-                else:
-                    # 临时创建新线程执行
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor() as executor:
-                        future = executor.submit(lambda: asyncio.run(self.list_services_async()))
-                        return future.result(timeout=10.0)
-            except RuntimeError:
-                # 没有运行中的循环，可以直接使用 asyncio.run
-                return asyncio.run(self.list_services_async())
+                return self._list_services_from_cache()
+            except Exception as e:
+                logger.debug(f"[NEW_ARCH] _list_services_from_cache failed: {e}")
+
+        try:
+            return self._run_async_via_bridge(
+                self.list_services_async(),
+                op_name="service_operations.list_services"
+            )
         except Exception as e:
             logger.error(f"[NEW_ARCH] list_services 失败: {e}")
-            # 作为最后的回退，返回空列表而不是崩溃
             return []
 
     def _list_services_from_cache(self) -> List[ServiceInfo]:
@@ -377,12 +360,22 @@ class ServiceOperationsMixin:
         Returns:
             Dict: 包含添加结果的详细信息
         """
-        #  修复：使用后台循环来支持后台任务
-        return self._sync_helper.run_async(
-            self.add_service_with_details_async(config),
-            timeout=120.0,
-            force_background=True  # 强制使用后台循环
-        )
+        try:
+            return self._run_async_via_bridge(
+                self.add_service_with_details_async(config),
+                op_name="service_operations.add_service_with_details"
+            )
+        except Exception as e:
+            logger.error(f"[NEW_ARCH] add_service_with_details 失败: {e}")
+            return {
+                "success": False,
+                "added_services": [],
+                "failed_services": self._extract_service_names(config),
+                "service_details": {},
+                "total_services": 0,
+                "total_tools": 0,
+                "message": str(e)
+            }
 
     async def add_service_with_details_async(self, config: Union[Dict[str, Any], List[Dict[str, Any]], str] = None) -> Dict[str, Any]:
         """
@@ -1269,11 +1262,14 @@ class ServiceOperationsMixin:
             store.for_agent("agent1").init_service(client_id="client_456") # 明确client_id
             store.for_agent("agent1").init_service(service_name="weather") # 明确service_name
         """
-        return self._sync_helper.run_async(
-            self.init_service_async(client_id_or_service_name, client_id=client_id, service_name=service_name),
-            timeout=30.0,
-            force_background=True
-        )
+        try:
+            return self._run_async_via_bridge(
+                self.init_service_async(client_id_or_service_name, client_id=client_id, service_name=service_name),
+                op_name="service_operations.init_service"
+            )
+        except Exception as e:
+            logger.error(f"[NEW_ARCH] init_service 失败: {e}")
+            return self
 
     async def init_service_async(self, client_id_or_service_name: str = None, *,
                                 client_id: str = None, service_name: str = None) -> 'MCPStoreContext':

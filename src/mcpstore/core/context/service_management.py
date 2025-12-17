@@ -174,62 +174,26 @@ class ServiceManagementMixin:
             else:
                 final_config = config
 
-            # 新架构：避免_sync_helper.run_async，使用更安全的同步执行
             try:
-                import asyncio
-                try:
-                    # 检查是否已经有运行中的事件循环
-                    loop = asyncio.get_running_loop()
-                    # 如果有，使用线程安全的方式执行
-                    if hasattr(self._sync_helper, '_background_loop') and self._sync_helper._background_loop:
-                        future = asyncio.run_coroutine_threadsafe(
-                            self.update_service_async(name, final_config),
-                            self._sync_helper._background_loop
-                        )
-                        future.result(timeout=60.0)
-                    else:
-                        # 临时创建新线程执行
-                        import concurrent.futures
-                        with concurrent.futures.ThreadPoolExecutor() as executor:
-                            future = executor.submit(lambda: asyncio.run(self.update_service_async(name, final_config)))
-                            future.result(timeout=60.0)
-                except RuntimeError:
-                    # 没有运行中的循环，可以直接使用 asyncio.run
-                    asyncio.run(self.update_service_async(name, final_config))
+                self._run_async_via_bridge(
+                    self.update_service_async(name, final_config),
+                    op_name="service_management.update_service"
+                )
             except Exception as e:
                 logger.error(f"[NEW_ARCH] update_service 失败: {e}")
-                # 不抛出异常，保持向后兼容
             return self
         else:
             # 没有配置参数：
             if any([auth, token, api_key, headers]):
                 # 纯认证：立即执行（也走补丁合并语义）
                 final_config = self._apply_auth_to_update_config({}, auth, token, api_key, headers)
-                # 新架构：避免_sync_helper.run_async，使用更安全的同步执行
                 try:
-                    import asyncio
-                    try:
-                        # 检查是否已经有运行中的事件循环
-                        loop = asyncio.get_running_loop()
-                        # 如果有，使用线程安全的方式执行
-                        if hasattr(self._sync_helper, '_background_loop') and self._sync_helper._background_loop:
-                            future = asyncio.run_coroutine_threadsafe(
-                                self.update_service_async(name, final_config),
-                                self._sync_helper._background_loop
-                            )
-                            future.result(timeout=60.0)
-                        else:
-                            # 临时创建新线程执行
-                            import concurrent.futures
-                            with concurrent.futures.ThreadPoolExecutor() as executor:
-                                future = executor.submit(lambda: asyncio.run(self.update_service_async(name, final_config)))
-                                future.result(timeout=60.0)
-                    except RuntimeError:
-                        # 没有运行中的循环，可以直接使用 asyncio.run
-                        asyncio.run(self.update_service_async(name, final_config))
+                    self._run_async_via_bridge(
+                        self.update_service_async(name, final_config),
+                        op_name="service_management.update_service_auth"
+                    )
                 except Exception as e:
                     logger.error(f"[NEW_ARCH] update_service (auth) 失败: {e}")
-                    # 不抛出异常，保持向后兼容
                 return self
             else:
                 # 什么都没有：返回助手用于链式调用
@@ -332,8 +296,6 @@ class ServiceManagementMixin:
         """
         增量更新服务配置（同步版本）- 推荐使用
 
-        [新架构] 避免_sync_helper.run_async，使用更安全的同步执行
-
         Args:
             name: 服务名称
             updates: 要更新的配置项
@@ -342,26 +304,10 @@ class ServiceManagementMixin:
             bool: 更新是否成功
         """
         try:
-            import asyncio
-            try:
-                # 检查是否已经有运行中的事件循环
-                loop = asyncio.get_running_loop()
-                # 如果有，使用线程安全的方式执行
-                if hasattr(self._sync_helper, '_background_loop') and self._sync_helper._background_loop:
-                    future = asyncio.run_coroutine_threadsafe(
-                        self.patch_service_async(name, updates),
-                        self._sync_helper._background_loop
-                    )
-                    return future.result(timeout=60.0)
-                else:
-                    # 临时创建新线程执行
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor() as executor:
-                        future = executor.submit(lambda: asyncio.run(self.patch_service_async(name, updates)))
-                        return future.result(timeout=60.0)
-            except RuntimeError:
-                # 没有运行中的循环，可以直接使用 asyncio.run
-                return asyncio.run(self.patch_service_async(name, updates))
+            return self._run_async_via_bridge(
+                self.patch_service_async(name, updates),
+                op_name="service_management.patch_service"
+            )
         except Exception as e:
             logger.error(f"[NEW_ARCH] patch_service 失败: {e}")
             return False
@@ -449,8 +395,6 @@ class ServiceManagementMixin:
         """
         删除服务（同步版本）
 
-        [新架构] 避免_sync_helper.run_async，使用更安全的同步执行
-
         Args:
             name: 服务名称
 
@@ -458,26 +402,10 @@ class ServiceManagementMixin:
             bool: 删除是否成功
         """
         try:
-            import asyncio
-            try:
-                # 检查是否已经有运行中的事件循环
-                loop = asyncio.get_running_loop()
-                # 如果有，使用线程安全的方式执行
-                if hasattr(self._sync_helper, '_background_loop') and self._sync_helper._background_loop:
-                    future = asyncio.run_coroutine_threadsafe(
-                        self.delete_service_async(name),
-                        self._sync_helper._background_loop
-                    )
-                    return future.result(timeout=60.0)
-                else:
-                    # 临时创建新线程执行
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor() as executor:
-                        future = executor.submit(lambda: asyncio.run(self.delete_service_async(name)))
-                        return future.result(timeout=60.0)
-            except RuntimeError:
-                # 没有运行中的循环，可以直接使用 asyncio.run
-                return asyncio.run(self.delete_service_async(name))
+            return self._run_async_via_bridge(
+                self.delete_service_async(name),
+                op_name="service_management.delete_service"
+            )
         except Exception as e:
             logger.error(f"[NEW_ARCH] delete_service 失败: {e}")
             return False
@@ -563,18 +491,28 @@ class ServiceManagementMixin:
                 - "all": 重置所有缓存和所有JSON文件（默认）
                 - "global_agent_store": 只重置global_agent_store
         """
-        return self._sync_helper.run_async(self.reset_config_async(scope), timeout=60.0, force_background=True)
+        try:
+            return self._run_async_via_bridge(
+                self.reset_config_async(scope),
+                op_name="service_management.reset_config"
+            )
+        except Exception as e:
+            logger.error(f"[NEW_ARCH] reset_config 失败: {e}")
+            return False
 
     def switch_cache(self, cache_config: Any) -> bool:
         """运行时切换缓存后端（同步版本）。
 
         仅支持 Store 上下文；Agent 上下文会抛出 ValueError。
         """
-        return self._sync_helper.run_async(
-            self.switch_cache_async(cache_config),
-            timeout=120.0,
-            force_background=True,
-        )
+        try:
+            return self._run_async_via_bridge(
+                self.switch_cache_async(cache_config),
+                op_name="service_management.switch_cache"
+            )
+        except Exception as e:
+            logger.error(f"[NEW_ARCH] switch_cache 失败: {e}")
+            return False
 
     async def switch_cache_async(self, cache_config: Any) -> bool:
         """运行时切换缓存后端（异步版本）。"""
@@ -691,7 +629,14 @@ class ServiceManagementMixin:
         Returns:
             Dict: 配置信息字典
         """
-        return self._sync_helper.run_async(self.show_config_async(), timeout=60.0, force_background=True)
+        try:
+            return self._run_async_via_bridge(
+                self.show_config_async(),
+                op_name="service_management.show_config"
+            )
+        except Exception as e:
+            logger.error(f"[NEW_ARCH] show_config 失败: {e}")
+            return {}
 
     async def show_config_async(self) -> Dict[str, Any]:
         """
@@ -777,7 +722,19 @@ class ServiceManagementMixin:
         Returns:
             Dict: 删除结果
         """
-        return self._sync_helper.run_async(self.delete_config_async(client_id_or_service_name), timeout=60.0, force_background=True)
+        try:
+            return self._run_async_via_bridge(
+                self.delete_config_async(client_id_or_service_name),
+                op_name="service_management.delete_config"
+            )
+        except Exception as e:
+            logger.error(f"[NEW_ARCH] delete_config 失败: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "client_id": None,
+                "service_name": None
+            }
 
     async def delete_config_async(self, client_id_or_service_name: str) -> Dict[str, Any]:
         """
@@ -819,7 +776,21 @@ class ServiceManagementMixin:
         Returns:
             Dict: 更新结果
         """
-        return self._sync_helper.run_async(self.update_config_async(client_id_or_service_name, new_config), timeout=60.0, force_background=True)
+        try:
+            return self._run_async_via_bridge(
+                self.update_config_async(client_id_or_service_name, new_config),
+                op_name="service_management.update_config"
+            )
+        except Exception as e:
+            logger.error(f"[NEW_ARCH] update_config 失败: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "client_id": None,
+                "service_name": None,
+                "old_config": None,
+                "new_config": None
+            }
 
     async def update_config_async(self, client_id_or_service_name: str, new_config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -919,26 +890,14 @@ class ServiceManagementMixin:
         Returns:
             bool: 映射是否有效
         """
-        import asyncio
         try:
-            loop = asyncio.get_running_loop()
-            # 在异步上下文中，使用 run_coroutine_threadsafe
-            if hasattr(self._sync_helper, '_background_loop') and self._sync_helper._background_loop:
-                future = asyncio.run_coroutine_threadsafe(
-                    self._validate_resolved_mapping_async(client_id, service_name, agent_id),
-                    self._sync_helper._background_loop
-                )
-                return future.result(timeout=10.0)
-            else:
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(
-                        lambda: asyncio.run(self._validate_resolved_mapping_async(client_id, service_name, agent_id))
-                    )
-                    return future.result(timeout=10.0)
-        except RuntimeError:
-            # 没有运行中的循环，可以直接使用 asyncio.run
-            return asyncio.run(self._validate_resolved_mapping_async(client_id, service_name, agent_id))
+            return self._run_async_via_bridge(
+                self._validate_resolved_mapping_async(client_id, service_name, agent_id),
+                op_name="service_management.validate_mapping"
+            )
+        except Exception as e:
+            logger.error(f"[NEW_ARCH] validate_mapping 失败: {e}")
+            return False
 
     def _resolve_client_id(self, client_id_or_service_name: str, agent_id: str) -> Tuple[str, str]:
         """
@@ -1348,7 +1307,14 @@ class ServiceManagementMixin:
 
     def get_service_status(self, name: str) -> dict:
         """获取单个服务的状态信息（同步版本）"""
-        return self._sync_helper.run_async(self.get_service_status_async(name), force_background=True)
+        try:
+            return self._run_async_via_bridge(
+                self.get_service_status_async(name),
+                op_name="service_management.get_service_status"
+            )
+        except Exception as e:
+            logger.error(f"[NEW_ARCH] get_service_status 失败: {e}")
+            return {"status": "error", "error": str(e)}
 
     async def get_service_status_async(self, name: str) -> dict:
         """获取单个服务的状态信息"""
@@ -1373,26 +1339,10 @@ class ServiceManagementMixin:
         [新架构] 避免_sync_helper.run_async，使用更安全的同步执行
         """
         try:
-            import asyncio
-            try:
-                # 检查是否已经有运行中的事件循环
-                loop = asyncio.get_running_loop()
-                # 如果有，使用线程安全的方式执行
-                if hasattr(self._sync_helper, '_background_loop') and self._sync_helper._background_loop:
-                    future = asyncio.run_coroutine_threadsafe(
-                        self.restart_service_async(name),
-                        self._sync_helper._background_loop
-                    )
-                    return future.result(timeout=60.0)
-                else:
-                    # 临时创建新线程执行
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor() as executor:
-                        future = executor.submit(lambda: asyncio.run(self.restart_service_async(name)))
-                        return future.result(timeout=60.0)
-            except RuntimeError:
-                # 没有运行中的循环，可以直接使用 asyncio.run
-                return asyncio.run(self.restart_service_async(name))
+            return self._run_async_via_bridge(
+                self.restart_service_async(name),
+                op_name="service_management.restart_service"
+            )
         except Exception as e:
             logger.error(f"[NEW_ARCH] restart_service 失败: {e}")
             return False
@@ -1419,11 +1369,14 @@ class ServiceManagementMixin:
         - 不从注册表删除服务
         - 将状态置为 disconnected，并清空工具展示
         """
-        return self._sync_helper.run_async(
-            self.disconnect_service_async(name, reason=reason),
-            timeout=60.0,
-            force_background=True
-        )
+        try:
+            return self._run_async_via_bridge(
+                self.disconnect_service_async(name, reason=reason),
+                op_name="service_management.disconnect_service"
+            )
+        except Exception as e:
+            logger.error(f"[NEW_ARCH] disconnect_service 失败: {e}")
+            return False
 
     async def disconnect_service_async(self, name: str, reason: str = "user_requested") -> bool:
         """
@@ -1582,8 +1535,10 @@ class ServiceManagementMixin:
                 return {"mcpServers": {}}
         else:
             # Agent上下文：返回所有相关client配置的字典
-            # 需要异步获取 client_ids，使用 _sync_helper
-            return self._sync_helper.run_async(self._show_config_agent_async())
+            return self._run_async_via_bridge(
+                self._show_config_agent_async(),
+                op_name="service_management.show_config_agent"
+            )
 
     async def _show_config_agent_async(self) -> Dict[str, Any]:
         """Agent上下文的 show_config 异步实现"""
@@ -1737,11 +1692,55 @@ class ServiceManagementMixin:
                     if change_mode:
                         if current_status != initial_status:
                             logger.info(f"[WAIT_SERVICE] done mode=change service='{service_name}' from='{initial_status}' to='{current_status}' elapsed={elapsed:.2f}s")
+                            # region agent log: wait_service change-mode success
+                            try:
+                                import json as _json_ws_change
+                                _payload_ws_change = {
+                                    "sessionId": "debug-session",
+                                    "runId": "initial",
+                                    "hypothesisId": "H3",
+                                    "location": "core/context/service_management.py:wait_service_async",
+                                    "message": "wait_service change-mode success",
+                                    "data": {
+                                        "service": service_name,
+                                        "initial_status": initial_status,
+                                        "final_status": current_status,
+                                        "elapsed": elapsed,
+                                    },
+                                    "timestamp": __import__("time").time(),
+                                }
+                                with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f_ws_change:
+                                    _f_ws_change.write(_json_ws_change.dumps(_payload_ws_change, ensure_ascii=False) + "\n")
+                            except Exception:
+                                pass
+                            # endregion agent log
                             return True
                     else:
                         # 检查是否达到目标状态
                         if current_status in target_statuses:
                             logger.info(f"[WAIT_SERVICE] done mode=target service='{service_name}' reached='{current_status}' elapsed={elapsed:.2f}s")
+                            # region agent log: wait_service target-mode success
+                            try:
+                                import json as _json_ws_target
+                                _payload_ws_target = {
+                                    "sessionId": "debug-session",
+                                    "runId": "initial",
+                                    "hypothesisId": "H3",
+                                    "location": "core/context/service_management.py:wait_service_async",
+                                    "message": "wait_service target-mode success",
+                                    "data": {
+                                        "service": service_name,
+                                        "final_status": current_status,
+                                        "target_statuses": target_statuses,
+                                        "elapsed": elapsed,
+                                    },
+                                    "timestamp": __import__("time").time(),
+                                }
+                                with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f_ws_target:
+                                    _f_ws_target.write(_json_ws_target.dumps(_payload_ws_target, ensure_ascii=False) + "\n")
+                            except Exception:
+                                pass
+                            # endregion agent log
                             return True
                 except Exception as e:
                     # 降级到 debug，避免无意义刷屏
@@ -1852,5 +1851,3 @@ class ServiceManagementMixin:
 
         # 直接返回作为服务名称
         return client_id_or_service_name
-
-

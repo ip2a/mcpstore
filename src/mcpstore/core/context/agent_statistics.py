@@ -19,7 +19,10 @@ class AgentStatisticsMixin:
         Returns:
             AgentsSummary: Agent summary information
         """
-        return self._sync_helper.run_async(self.get_agents_summary_async())
+        return self._run_async_via_bridge(
+            self.get_agents_summary_async(),
+            op_name="agent_statistics.get_agents_summary"
+        )
 
     async def get_agents_summary_async(self) -> AgentsSummary:
         """

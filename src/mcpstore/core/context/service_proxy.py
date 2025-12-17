@@ -166,13 +166,14 @@ class ServiceProxy:
         try:
             # 通过orchestrator检查服务健康状态
             if self._context_type == ContextType.STORE:
-                # 使用同步助手运行异步方法
-                return self._context._sync_helper.run_async(
-                    self._context._store.orchestrator.is_service_healthy(self._service_name)
+                return self._context._run_async_via_bridge(
+                    self._context._store.orchestrator.is_service_healthy(self._service_name),
+                    op_name="service_proxy.is_healthy.store"
                 )
             else:
-                return self._context._sync_helper.run_async(
-                    self._context._store.orchestrator.is_service_healthy(self._service_name, self._agent_id)
+                return self._context._run_async_via_bridge(
+                    self._context._store.orchestrator.is_service_healthy(self._service_name, self._agent_id),
+                    op_name="service_proxy.is_healthy.agent"
                 )
         except Exception as e:
             logger.error(f"Failed to check health for {self._service_name}: {e}")
@@ -189,12 +190,10 @@ class ServiceProxy:
         Returns:
             List[ToolInfo]: 工具列表
         """
-        # 使用 list_tools_async 并按服务名筛选
-        import asyncio
-        tools = asyncio.run(
-            self._context.list_tools_async(service_name=self._service_name)
+        return self._context._run_async_via_bridge(
+            self._context.list_tools_async(service_name=self._service_name),
+            op_name="service_proxy.list_tools"
         )
-        return tools
 
     def tools_stats(self) -> Dict[str, Any]:
         """
@@ -275,18 +274,17 @@ class ServiceProxy:
         # 通过orchestrator移除服务（同步封装）
         try:
             if self._context_type == ContextType.STORE:
-                return self._context._sync_helper.run_async(
-                    self._context._store.orchestrator.remove_service(
-                        self._service_name
-                    )
+                return self._context._run_async_via_bridge(
+                    self._context._store.orchestrator.remove_service(self._service_name),
+                    op_name="service_proxy.remove_service"
                 )
             else:
                 # Agent 模式需要传递 agent_id
-                return self._context._sync_helper.run_async(
+                return self._context._run_async_via_bridge(
                     self._context._store.orchestrator.remove_service(
-                        self._service_name,
-                        self._agent_id
-                    )
+                        self._service_name, self._agent_id
+                    ),
+                    op_name="service_proxy.remove_service"
                 )
         except Exception as e:
             logger.error(f"Failed to remove service {self._service_name}: {e}")
@@ -303,12 +301,14 @@ class ServiceProxy:
         """
         try:
             if self._context_type == ContextType.STORE:
-                return self._context._sync_helper.run_async(
-                    self._context._store.orchestrator.refresh_service_content(self._service_name)
+                return self._context._run_async_via_bridge(
+                    self._context._store.orchestrator.refresh_service_content(self._service_name),
+                    op_name="service_proxy.refresh_content"
                 )
             else:
-                return self._context._sync_helper.run_async(
-                    self._context._store.orchestrator.refresh_service_content(self._service_name, self._agent_id)
+                return self._context._run_async_via_bridge(
+                    self._context._store.orchestrator.refresh_service_content(self._service_name, self._agent_id),
+                    op_name="service_proxy.refresh_content"
                 )
         except Exception as e:
             logger.error(f"Failed to refresh content for {self._service_name}: {e}")

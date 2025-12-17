@@ -75,7 +75,10 @@ class AdvancedFeaturesMixin:
         Returns:
             MCPStoreContext: 支持链式调用
         """
-        return self._sync_helper.run_async(self.import_api_async(api_url, api_name))
+        return self._run_async_via_bridge(
+            self.import_api_async(api_url, api_name),
+            op_name="advanced_features.import_api"
+        )
 
     async def import_api_async(self, api_url: str, api_name: str = None) -> 'MCPStoreContext':
         """
@@ -147,7 +150,11 @@ class AdvancedFeaturesMixin:
 
     def reset_mcp_json_file(self) -> bool:
         """重置MCP JSON配置文件（同步版本）- 缓存优先模式"""
-        return self._sync_helper.run_async(self.reset_mcp_json_file_async(), timeout=60.0)
+        return self._run_async_via_bridge(
+            self.reset_mcp_json_file_async(),
+            op_name="advanced_features.reset_mcp_json_file",
+            timeout=60.0
+        )
 
     async def reset_mcp_json_file_async(self, scope: str = "all") -> bool:
         """
@@ -244,5 +251,4 @@ class AdvancedFeaturesMixin:
         except Exception as e:
             logger.error(f" [MCP_RESET] Failed to reset MCP JSON file with scope {scope}: {e}")
             return False
-
 

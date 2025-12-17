@@ -10,9 +10,12 @@ Cache Manager - 缓存管理模块
 
 import logging
 import asyncio
+import time
 from typing import Dict, Any, Optional, Callable, List
 
 from .base import CacheManagerInterface
+from ...bridge import get_async_bridge
+from ...bridge import get_async_bridge
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +37,7 @@ class CacheManager(CacheManagerInterface):
         # 缓存后端配置
         self._cache_backend = None
 
-        # 同步助手（懒加载）
-        self._sync_helper = None
+        self._bridge = get_async_bridge()
 
         # 缓存同步状态
         self._sync_status = {}
@@ -220,13 +222,9 @@ class CacheManager(CacheManagerInterface):
 
     def ensure_sync_helper(self):
         """
-        确保同步助手存在（懒加载）
+        向后兼容的同步助手接口，实际返回异步桥实例。
         """
-        if self._sync_helper is None:
-            self._sync_helper = AsyncSyncHelper()
-            self._logger.debug("创建了异步同步助手")
-
-        return self._sync_helper
+        return self._bridge
 
     def sync_to_storage(self, operation_name: str = "缓存同步") -> Any:
         """
@@ -239,8 +237,6 @@ class CacheManager(CacheManagerInterface):
             异步操作的结果
         """
         try:
-            sync_helper = self.ensure_sync_helper()
-
             # 创建一个异步操作来执行同步
             async def sync_operation():
                 # 这里可以添加具体的同步逻辑
@@ -248,11 +244,14 @@ class CacheManager(CacheManagerInterface):
                 return {"status": "success", "operation": operation_name}
 
             # 执行同步操作
-            result = sync_helper.run_sync(sync_operation())
+            result = self._bridge.run(
+                sync_operation(),
+                op_name=f"cache_manager.sync_to_storage[{operation_name}]"
+            )
 
             # 更新同步状态
             self._sync_status[operation_name] = {
-                "last_sync": asyncio.get_event_loop().time(),
+                "last_sync": time.time(),
                 "status": "success",
                 "result": result
             }
@@ -265,7 +264,7 @@ class CacheManager(CacheManagerInterface):
 
             # 更新错误状态
             self._sync_status[operation_name] = {
-                "last_sync": asyncio.get_event_loop().time(),
+                "last_sync": time.time(),
                 "status": "error",
                 "error": str(e)
             }
@@ -284,8 +283,10 @@ class CacheManager(CacheManagerInterface):
             异步协程的结果
         """
         try:
-            sync_helper = self.ensure_sync_helper()
-            result = sync_helper.run_sync(async_coro)
+            result = self._bridge.run(
+                async_coro,
+                op_name=f"cache_manager.async_to_sync[{operation_name}]"
+            )
 
             self._logger.debug(f"异步转同步操作完成: {operation_name}")
             return result

@@ -91,8 +91,9 @@ class ResourcesPromptsMixin:
                 "resource_count": int     # 资源数量
             }
         """
-        return self._sync_helper.run_async(
-            self.list_resources_async(service_name)
+        return self._run_async_via_bridge(
+            self.list_resources_async(service_name),
+            op_name="resources_prompts.list_resources"
         )
 
     async def list_resources_async(self, service_name: Optional[str] = None) -> Dict[str, Any]:
@@ -133,8 +134,9 @@ class ResourcesPromptsMixin:
                 "template_count": int     # 模板数量
             }
         """
-        return self._sync_helper.run_async(
-            self.list_resource_templates_async(service_name)
+        return self._run_async_via_bridge(
+            self.list_resource_templates_async(service_name),
+            op_name="resources_prompts.list_resource_templates"
         )
 
     async def list_resource_templates_async(self, service_name: Optional[str] = None) -> Dict[str, Any]:
@@ -177,8 +179,9 @@ class ResourcesPromptsMixin:
                 "content_count": int      # 内容块数量
             }
         """
-        return self._sync_helper.run_async(
-            self.read_resource_async(uri, service_name)
+        return self._run_async_via_bridge(
+            self.read_resource_async(uri, service_name),
+            op_name="resources_prompts.read_resource"
         )
 
     async def read_resource_async(self, uri: str, service_name: Optional[str] = None) -> Dict[str, Any]:
@@ -221,8 +224,9 @@ class ResourcesPromptsMixin:
                 "prompt_count": int       # 提示词数量
             }
         """
-        return self._sync_helper.run_async(
-            self.list_prompts_async(service_name)
+        return self._run_async_via_bridge(
+            self.list_prompts_async(service_name),
+            op_name="resources_prompts.list_prompts"
         )
 
     async def list_prompts_async(self, service_name: Optional[str] = None) -> Dict[str, Any]:
@@ -271,8 +275,9 @@ class ResourcesPromptsMixin:
                 "arguments": Dict         # 使用的参数
             }
         """
-        return self._sync_helper.run_async(
-            self.get_prompt_async(name, arguments, service_name)
+        return self._run_async_via_bridge(
+            self.get_prompt_async(name, arguments, service_name),
+            op_name="resources_prompts.get_prompt"
         )
 
     async def get_prompt_async(
