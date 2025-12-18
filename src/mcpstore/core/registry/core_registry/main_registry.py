@@ -270,6 +270,33 @@ class ServiceRegistry:
 
     def _run_async(self, coro, op_name: str):
         from mcpstore.core.bridge import get_async_bridge
+
+        # region agent log
+        try:
+            import asyncio, json, time as _t
+            _in_async = True
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                _in_async = False
+            _payload = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H2",
+                "location": "core/registry/core_registry/main_registry.py:_run_async:entry",
+                "message": "_run_async entry",
+                "data": {
+                    "op_name": op_name,
+                    "in_async_context": _in_async,
+                },
+                "timestamp": int(_t.time() * 1000),
+            }
+            with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f:
+                _f.write(json.dumps(_payload, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # endregion
+
         return get_async_bridge().run(coro, op_name=op_name)
 
     def _map_health_status(self, health_status: Any):
@@ -401,8 +428,11 @@ class ServiceRegistry:
     def get_session_tools(self, session_id: str) -> Set[str]:
         return self._session_manager.get_session_tools(session_id)
 
-    def clear_agent_sessions(self, agent_id: str) -> int:
-        return self._session_manager.clear_agent_sessions(agent_id)
+    def clear_agent_sessions(self, agent_id: str) -> None:
+        raise_legacy_error(
+            "ServiceRegistry.clear_agent_sessions",
+            "Use session_manager.clear_all_sessions via the cache-backed architecture.",
+        )
 
     def clear(self, agent_id: str) -> bool:
         """
@@ -444,7 +474,7 @@ class ServiceRegistry:
         self.service_metadata.pop(agent_id, None)
         self.sessions.pop(agent_id, None)
         if self._session_manager:
-            self._session_manager.clear_agent_sessions(agent_id)
+            self._session_manager.clear_all_sessions(agent_id)
         return True
 
     # ========================================
@@ -893,6 +923,11 @@ class ServiceRegistry:
 
         return self._run_async(_fetch_all(), op_name="ServiceRegistry.get_all_services_complete_info")
 
+    # ========================================
+    # Legacy ServiceManager 方法 (已禁用)
+    # 这些方法委托给 LegacyManagerProxy，调用时会抛出错误
+    # ========================================
+
     def clear_agent_lifecycle_data(self, agent_id: str) -> bool:
         return self._service_manager.clear_agent_lifecycle_data(agent_id)
 
@@ -903,13 +938,6 @@ class ServiceRegistry:
         return self._service_manager.is_long_lived_service(service_name)
 
     def mark_as_long_lived(self, agent_id: str, service_name: str):
-        """
-        标记服务为长生命周期连接
-
-        Args:
-            agent_id: Agent ID
-            service_name: 服务名称
-        """
         return self._service_manager.mark_as_long_lived(agent_id, service_name)
 
     def set_long_lived_service(self, service_name: str, is_long_lived: bool) -> bool:

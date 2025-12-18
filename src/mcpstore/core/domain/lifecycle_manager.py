@@ -104,9 +104,10 @@ class LifecycleManager:
 
             logger.debug(f"[LIFECYCLE] Service metadata set successfully: {global_name}")
         except Exception as e:
-
             logger.error(f"[LIFECYCLE] Failed to set service metadata for {agent_id}:{service_name}: {e}")
-            # 不抛出异常，允许生命周期继续
+            raise RuntimeError(
+                f"设置服务元数据失败: agent_id={agent_id}, service_name={service_name}, error={e}"
+            ) from e
 
     async def _set_service_state_async(self, agent_id: str, service_name: str, state) -> None:
         """
@@ -341,7 +342,11 @@ class LifecycleManager:
             await self._set_service_metadata_async(event.agent_id, event.service_name, metadata)
             logger.debug(f"[LIFECYCLE] Metadata updated for connected service: {event.service_name}")
         else:
-            logger.warning(f"[LIFECYCLE] No metadata found for connected service: {event.service_name}")
+            raise RuntimeError(
+                f"服务元数据不存在，数据不一致: "
+                f"service_name={event.service_name}, agent_id={event.agent_id}. "
+                f"元数据应该在 ServiceCached 事件处理时创建。"
+            )
 
         # 3. 发布状态转换事件
         try:

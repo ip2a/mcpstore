@@ -59,8 +59,8 @@ class ConnectionManager:
         """
         logger.info(f"[CONNECTION] Triggering connection for: {event.service_name}")
 
-        # Get service configuration
-        service_config = self._get_service_config(event.agent_id, event.service_name)
+        # Get service configuration（使用异步版本）
+        service_config = await self._get_service_config_async(event.agent_id, event.service_name)
         if not service_config:
             logger.error(f"[CONNECTION] No config found for {event.service_name}")
             return
@@ -274,8 +274,8 @@ class ConnectionManager:
         """
         logger.info(f"[CONNECTION] Reconnection requested: {event.service_name} (retry={event.retry_count})")
 
-        # Get service configuration
-        service_config = self._get_service_config(event.agent_id, event.service_name)
+        # Get service configuration（使用异步版本）
+        service_config = await self._get_service_config_async(event.agent_id, event.service_name)
         if not service_config:
             logger.error(f"[CONNECTION] No config found for reconnection: {event.service_name}")
             return
@@ -289,77 +289,38 @@ class ConnectionManager:
         )
         await self._event_bus.publish(connection_request, wait=True)
 
-    def _get_service_config(self, agent_id: str, service_name: str) -> Dict[str, Any]:
-        """Get service configuration from cache"""
+    async def _get_service_config_async(self, agent_id: str, service_name: str) -> Dict[str, Any]:
+        """
+        从服务实体中获取服务配置（异步版本）
+        
+        在新架构中，服务配置存储在服务实体中（service_entity.config），
+        不再从 client_config 中获取。
+        """
         logger.debug(f"[CONNECTION] Getting config for {agent_id}:{service_name}")
 
-        # Handle service name mapping for agent services
-        actual_service_name = service_name
-
-        # If this is a local service name for global_agent_store,
-        # check if there's a global name mapping
-        if agent_id == "global_agent_store" and not service_name.startswith("_"):
-            # 使用 ServiceRegistry 暴露的方法接口
-            # 检查 service_name 是否是一个全局名称（对应某个 Agent 服务）
-            agent_service_info = self._registry.get_agent_service_from_global_name(service_name)
-            if agent_service_info:
-                # service_name 已经是全局名称
-                actual_service_name = service_name
-                logger.debug(f"[CONNECTION] Service name {service_name} is already a global name")
-            else:
-                # service_name 可能是本地名称，尝试获取对应的全局名称
-                global_name = self._registry.get_global_name_from_agent_service(agent_id, service_name)
-                if global_name:
-                    actual_service_name = global_name
-                    logger.debug(f"[CONNECTION] Mapped local name {service_name} to global name {actual_service_name}")
-
-        # Get configuration strictly through client_id → client_config → mcpServers
-        client_id = self._registry.get_service_client_id(agent_id, actual_service_name)
-        if not client_id:
-            # 诊断信息: 从 pyvk 读取所有映射
-            try:
-                all_mappings = self._registry._agent_client_service.get_service_client_mapping(agent_id)
-                logger.error(f"[CONNECTION] All service_to_client mappings for {agent_id}: {all_mappings}")
-            except Exception as e:
-                logger.error(f"[CONNECTION] Failed to get service_to_client mappings: {e}")
-
-            msg = f"No client_id mapping found for {agent_id}:{actual_service_name}"
-            if actual_service_name != service_name:
-                msg += f" (original: {service_name})"
-            logger.error(f"[CONNECTION] {msg}")
-            raise RuntimeError(msg)
-
-        logger.debug(f"[CONNECTION] Found client_id for {agent_id}:{actual_service_name}: {client_id}")
-
-        client_config = self._registry.get_client_config_from_cache(client_id)
-        if not client_config:
-            msg = (
-                f"No client config found for client_id={client_id} "
-                f"when resolving service {service_name} (agent={agent_id})"
+        # 生成服务全局名称
+        service_global_name = self._registry._naming.generate_service_global_name(
+            service_name, agent_id
+        )
+        
+        # 从 pykv 获取服务实体
+        service_entity = await self._registry._cache_service_manager.get_service(
+            service_global_name
+        )
+        
+        if service_entity is None:
+            raise RuntimeError(
+                f"服务实体不存在: service_name={service_name}, "
+                f"agent_id={agent_id}, global_name={service_global_name}"
             )
-            logger.error(f"[CONNECTION] {msg}")
-            raise RuntimeError(msg)
-
-        mcp_servers = client_config.get("mcpServers")
-        if not isinstance(mcp_servers, dict):
-            msg = (
-                f"Invalid client config for client_id={client_id}: "
-                f"'mcpServers' must be a dict, got {type(mcp_servers).__name__}"
+        
+        service_config = service_entity.config
+        if not service_config:
+            raise RuntimeError(
+                f"服务配置为空: service_name={service_name}, "
+                f"agent_id={agent_id}, global_name={service_global_name}"
             )
-            logger.error(f"[CONNECTION] {msg}")
-            raise RuntimeError(msg)
-
-        service_config = mcp_servers.get(actual_service_name)
-        if not isinstance(service_config, dict) or not service_config:
-            msg = (
-                f"Service {actual_service_name} not found in client config for client_id={client_id} "
-                f"(agent={agent_id})"
-            )
-            if actual_service_name != service_name:
-                msg += f" (original: {service_name})"
-            logger.error(f"[CONNECTION] {msg}")
-            raise RuntimeError(msg)
-
-        logger.debug(f"[CONNECTION] Found config for {actual_service_name}: {list(service_config.keys())}")
+        
+        logger.debug(f"[CONNECTION] Found config for {service_name}: {list(service_config.keys())}")
         return service_config
 

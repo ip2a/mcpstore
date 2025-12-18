@@ -28,6 +28,28 @@ class ToolOperationsMixin:
         """
         start_time = time.time()
 
+        # region agent log
+        try:
+            import json, time as _t
+            _payload = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H1",
+                "location": "core/store/tool_operations.py:process_tool_request:entry",
+                "message": "process_tool_request entry",
+                "data": {
+                    "agent_id": getattr(request, "agent_id", None),
+                    "service_name": getattr(request, "service_name", None),
+                    "tool_name": getattr(request, "tool_name", None),
+                },
+                "timestamp": int(_t.time() * 1000),
+            }
+            with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f:
+                _f.write(json.dumps(_payload, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # endregion
+
         try:
             # Validate request parameters
             if not request.tool_name:
@@ -46,8 +68,30 @@ class ToolOperationsMixin:
                 # Store mode or normal Agent services
                 state_check_agent_id = request.agent_id or self.client_manager.global_agent_store_id
 
+            # region agent log
+            try:
+                import json, time as _t
+                _payload = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H2",
+                    "location": "core/store/tool_operations.py:process_tool_request:before_state_check",
+                    "message": "before get_service_state",
+                    "data": {
+                        "state_check_agent_id": state_check_agent_id,
+                        "service_name": request.service_name,
+                    },
+                    "timestamp": int(_t.time() * 1000),
+                }
+                with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f:
+                    _f.write(json.dumps(_payload, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # endregion
+
             # Event-driven architecture: get state directly from registry (no longer through lifecycle_manager)
-            service_state = self.registry._service_state_service.get_service_state(state_check_agent_id, request.service_name)
+            # 在 async 方法中必须使用 async 版本，避免 AOB 检测到已有事件循环抛出 RuntimeError
+            service_state = await self.registry._service_state_service.get_service_state_async(state_check_agent_id, request.service_name)
 
             # If service is in unavailable state, return error
             from mcpstore.core.models.service import ServiceConnectionState
@@ -125,6 +169,27 @@ class ToolOperationsMixin:
                 )
             except Exception as monitor_error:
                 logger.warning(f"Failed to record failed tool execution: {monitor_error}")
+
+            # region agent log
+            try:
+                import json, time as _t
+                _payload = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H3",
+                    "location": "core/store/tool_operations.py:process_tool_request:exception",
+                    "message": "process_tool_request exception",
+                    "data": {
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                    },
+                    "timestamp": int(_t.time() * 1000),
+                }
+                with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f:
+                    _f.write(json.dumps(_payload, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # endregion
 
             logger.error(f"Tool execution failed: {e}")
             return ExecutionResponse(

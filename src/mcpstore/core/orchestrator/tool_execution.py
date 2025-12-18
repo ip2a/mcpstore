@@ -110,6 +110,32 @@ class ToolExecutionMixin:
             if not service_entity:
                 raise Exception(f"Service entity not found in pykv: {service_name}")
             
+            # region agent log - H3: service_entity_before_config_check
+            try:
+                import json, time as _t
+                from pathlib import Path
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H3",
+                    "location": "tool_execution.py:traditional_mode",
+                    "message": "service_entity_before_config_check",
+                    "data": {
+                        "service_name": service_name,
+                        "entity_has_config_attr": hasattr(service_entity, "config"),
+                        "config_is_empty": (not bool(getattr(service_entity, "config", None))),
+                    },
+                    "timestamp": int(_t.time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                # 调试日志失败不影响主流程
+                pass
+            # endregion
+
             service_config = service_entity.config
             if not service_config:
                 raise Exception(f"Service configuration is empty in pykv: {service_name}")
