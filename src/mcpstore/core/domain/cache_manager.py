@@ -422,12 +422,18 @@ class CacheManager:
                 pass
             # endregion
             
+            # 提取工具原始名称（去除服务前缀）
+            from mcpstore.core.logic.tool_logic import ToolLogicCore
+            original_tool_name = ToolLogicCore.extract_original_tool_name(
+                tool_name, service_global_name
+            )
+            
             # 1. 创建工具实体（写入实体层）
             await tool_entity_manager.create_tool(
                 service_global_name=service_global_name,
                 service_original_name=service_name,
                 source_agent=agent_id,
-                tool_original_name=tool_name,
+                tool_original_name=original_tool_name,
                 tool_def=tool_def
             )
             
@@ -437,7 +443,7 @@ class CacheManager:
                 service_original_name=service_name,
                 source_agent=agent_id,
                 tool_global_name=tool_global_name,
-                tool_original_name=tool_name
+                tool_original_name=original_tool_name
             )
         
         logger.info(
@@ -510,9 +516,17 @@ class CacheManager:
                 service_global_name, tool_name
             )
             
+            # 提取工具原始名称（去除服务前缀）
+            # 注意：MCP 服务返回的工具名称可能已经带有服务前缀
+            # 例如：mcpstore_get_current_weather -> get_current_weather
+            from mcpstore.core.logic.tool_logic import ToolLogicCore
+            original_tool_name = ToolLogicCore.extract_original_tool_name(
+                tool_name, service_global_name
+            )
+            
             tools_status.append({
                 "tool_global_name": tool_global_name,
-                "tool_original_name": tool_name,
+                "tool_original_name": original_tool_name,
                 "status": "available"
             })
         
