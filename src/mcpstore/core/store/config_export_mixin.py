@@ -58,7 +58,7 @@ class ConfigExportMixin:
             mcp_servers = {}
             
             # Get all agent IDs
-            agent_ids = self.registry.get_all_agent_ids()
+            agent_ids = await self.registry.get_all_agent_ids_async()
             logger.debug(f"Found {len(agent_ids)} agents in cache")
             
             for agent_id in agent_ids:
@@ -199,7 +199,7 @@ class ConfigExportMixin:
         """
         try:
             # Use Registry API to get all Agent IDs from cache
-            agent_ids = self.registry.get_all_agent_ids()
+            agent_ids = await self.registry.get_all_agent_ids_async()
             return list(agent_ids)
             
         except Exception as e:

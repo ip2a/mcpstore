@@ -5,136 +5,122 @@ ServiceRegistry - 主服务注册表门面类
 """
 
 import logging
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List, Optional, Any, Set, Tuple
 from datetime import datetime
 
 # 导入所有管理器
 from .errors import ERROR_PREFIX, raise_legacy_error, LegacyManagerProxy
+from mcpstore.core.models.service import ServiceConnectionState, ServiceStateMetadata
 
 
-class AgentClientMappingServiceAdapter:
+class CacheBackedAgentClientService:
     """
-    AgentClientMappingService 适配器
+    Agent-Client 映射服务（新架构）
 
-    legacy 适配器，已禁用。
+    所有数据来源于关系管理器（pykv 唯一真相源）。
     """
 
-    def __init__(self, mapping_manager):
-        """
-        初始化适配器
+    def __init__(self, registry: 'ServiceRegistry'):
+        self._registry = registry
+        self._relation_manager = registry._relation_manager
+        self._run_async = registry._run_async
+        self._logger = logging.getLogger(f"{__name__}.AgentClient")
 
-        Args:
-            mapping_manager: MappingManager 实例
+    def add_agent_client_mapping(self, agent_id: str, client_id: str) -> bool:
         """
-        self._mapping_manager = mapping_manager
-        self._legacy_name = "AgentClientMappingServiceAdapter"
+        Agent-Client 映射由服务映射派生，这里仅保留方法以保持 API 自洽。
+        """
+        self._logger.debug(
+            "[AGENT_CLIENT] add_agent_client_mapping is a no-op (derived from service mappings) "
+            "agent_id=%s client_id=%s", agent_id, client_id
+        )
+        return True
 
-    def _legacy(self, method: str) -> None:
-        raise_legacy_error(
-            f"{self._legacy_name}.{method}",
-            "Compatibility adapters are disabled; use core/cache relationship managers.",
+    def remove_agent_client_mapping(self, agent_id: str, client_id: str) -> bool:
+        """见 add_agent_client_mapping 说明。"""
+        self._logger.debug(
+            "[AGENT_CLIENT] remove_agent_client_mapping is a no-op agent_id=%s client_id=%s",
+            agent_id,
+            client_id,
+        )
+        return True
+
+    def add_service_client_mapping(self, agent_id: str, service_name: str, client_id: str) -> bool:
+        return self._registry.set_service_client_mapping(agent_id, service_name, client_id)
+
+    def remove_service_client_mapping(self, agent_id: str, service_name: str) -> bool:
+        return self._registry.remove_service_client_mapping(agent_id, service_name)
+
+    def get_service_client_id(self, agent_id: str, service_name: str) -> Optional[str]:
+        return self._registry.get_service_client_id(agent_id, service_name)
+
+    async def get_agent_clients_async(self, agent_id: str) -> List[str]:
+        return await self._registry.get_agent_clients_async(agent_id)
+
+    def get_service_client_mapping(self, agent_id: str) -> Dict[str, str]:
+        """
+        获取 agent 下所有服务与 client_id 的映射。
+
+        同时返回本地名称和全局名称，保证旧代码能识别。
+        """
+        return self._run_async(
+            self.get_service_client_mapping_async(agent_id),
+            op_name="AgentClientService.get_service_client_mapping",
         )
 
-    def add_agent_client_mapping(self, agent_id: str, client_id: str) -> None:
-        """
-        添加 Agent-Client 映射
-        
-        注意：该接口已禁用。
-        """
-        self._legacy("add_agent_client_mapping")
-
-    def remove_agent_client_mapping(self, agent_id: str, client_id: str) -> None:
-        """
-        移除 Agent-Client 映射
-        
-        注意：该接口已禁用。
-        """
-        self._legacy("remove_agent_client_mapping")
-
-    def add_service_client_mapping(self, agent_id: str, service_name: str, client_id: str) -> None:
-        """添加 Service-Client 映射"""
-        self._legacy("add_service_client_mapping")
-
-    def remove_service_client_mapping(self, agent_id: str, service_name: str) -> None:
-        """移除 Service-Client 映射"""
-        self._legacy("remove_service_client_mapping")
-
-    def get_service_client_id(self, agent_id: str, service_name: str) -> str:
-        """获取服务对应的 Client ID"""
-        self._legacy("get_service_client_id")
-
-    def get_service_client_mapping(self, agent_id: str) -> dict:
-        """获取指定 agent 的所有 service-client 映射"""
-        self._legacy("get_service_client_mapping")
-
-    async def get_agent_clients_async(self, agent_id: str) -> list:
-        """异步获取 Agent 的所有 Client ID"""
-        self._legacy("get_agent_clients_async")
+    async def get_service_client_mapping_async(self, agent_id: str) -> Dict[str, str]:
+        mapping: Dict[str, str] = {}
+        services = await self._relation_manager.get_agent_services(agent_id)
+        for svc in services:
+            client_id = svc.get("client_id")
+            if not client_id:
+                continue
+            original = svc.get("service_original_name")
+            global_name = svc.get("service_global_name")
+            if original:
+                mapping[original] = client_id
+            if global_name and global_name != original:
+                mapping[global_name] = client_id
+        return mapping
 
 
-class ServiceStateServiceAdapter:
+class CacheBackedServiceStateService:
     """
-    ServiceStateService 适配器
+    ServiceStateService 新实现
 
-    legacy 适配器，已禁用。
+    直接委托给 ServiceRegistry 的新式接口，确保所有数据来自 pykv。
     """
 
-    def __init__(self, state_manager, naming_service):
-        """
-        初始化适配器
-
-        Args:
-            state_manager: StateManager 实例
-            naming_service: NamingService 实例
-        """
-        self._state_manager = state_manager
-        self._naming = naming_service
-        self._legacy_name = "ServiceStateServiceAdapter"
-
-    def _legacy(self, method: str) -> None:
-        raise_legacy_error(
-            f"{self._legacy_name}.{method}",
-            "Compatibility adapters are disabled; use core/cache state managers.",
-        )
+    def __init__(self, registry: 'ServiceRegistry'):
+        self._registry = registry
+        self._logger = logging.getLogger(f"{__name__}.ServiceState")
 
     def get_service_state(self, agent_id: str, service_name: str) -> Optional[Any]:
-        """获取服务状态"""
-        self._legacy("get_service_state")
-
-    # [已删除] get_service_metadata 同步方法
-    # 根据 "pykv 唯一真相数据源" 原则，请使用 get_service_metadata_async 异步方法
+        return self._registry.get_service_state(agent_id, service_name)
 
     def set_service_state(self, agent_id: str, service_name: str, state: Any) -> bool:
-        """设置服务状态"""
-        self._legacy("set_service_state")
+        return self._registry.set_service_state(agent_id, service_name, state)
 
-    def set_service_metadata(self, agent_id: str, service_name: str, metadata: Any) -> bool:
-        """设置服务元数据"""
-        self._legacy("set_service_metadata")
-
-    def get_all_service_names(self, agent_id: str) -> List[str]:
-        """
-        获取指定 Agent 的所有服务名称
-
-        从 StateManager 的状态缓存中提取服务名称
-        """
-        self._legacy("get_all_service_names")
-
-    def clear_service_state(self, agent_id: str, service_name: str) -> bool:
-        """清除服务状态"""
-        self._legacy("clear_service_state")
-
-    def clear_service_metadata(self, agent_id: str, service_name: str) -> bool:
-        """清除服务元数据"""
-        self._legacy("clear_service_metadata")
+    async def get_service_state_async(self, agent_id: str, service_name: str) -> Optional[Any]:
+        return await self._registry.get_service_state_async(agent_id, service_name)
 
     async def delete_service_state_async(self, agent_id: str, service_name: str) -> bool:
-        """异步删除服务状态"""
-        self._legacy("delete_service_state_async")
+        return await self._registry.delete_service_state_async(agent_id, service_name)
+
+    def get_all_service_names(self, agent_id: str) -> List[str]:
+        return self._registry.get_all_service_names(agent_id)
+
+    def clear_service_state(self, agent_id: str, service_name: str) -> bool:
+        return self._registry.clear_service_state(agent_id, service_name)
+
+    def set_service_metadata(self, agent_id: str, service_name: str, metadata: Any) -> bool:
+        return self._registry.set_service_metadata(agent_id, service_name, metadata)
+
+    async def get_service_metadata_async(self, agent_id: str, service_name: str) -> Optional[Any]:
+        return await self._registry.get_service_metadata_async(agent_id, service_name)
 
     async def delete_service_metadata_async(self, agent_id: str, service_name: str) -> bool:
-        """异步删除服务元数据"""
-        self._legacy("delete_service_metadata_async")
+        return await self._registry.delete_service_metadata_async(agent_id, service_name)
 
 
 class ServiceRegistry:
@@ -177,6 +163,8 @@ class ServiceRegistry:
 
         # 会话存储（内存中）
         self.sessions: Dict[str, Dict[str, Any]] = {}
+        self.service_states: Dict[str, Dict[str, Any]] = {}
+        self.service_metadata: Dict[str, Dict[str, Any]] = {}
 
         # 统一配置管理器
         self._unified_config = None
@@ -191,14 +179,9 @@ class ServiceRegistry:
             "core_registry.ManagerCoordinator",
             "ManagerCoordinator is disabled; use CacheLayerManager.",
         )
-        self._session_manager = LegacyManagerProxy(
-            "core_registry.SessionManager",
-            "SessionManager is disabled; manage sessions explicitly.",
-        )
-        self._state_manager = LegacyManagerProxy(
-            "core_registry.StateManager",
-            "StateManager is disabled; use core/cache state manager.",
-        )
+        from mcpstore.core.registry.core_registry.session_manager import SessionManager
+        self._session_manager = SessionManager(cache_layer_manager, naming_service, namespace)
+        self.sessions = self._session_manager.sessions
         self._tool_manager = LegacyManagerProxy(
             "core_registry.ToolManager",
             "ToolManager is disabled; use core/cache tool managers.",
@@ -232,6 +215,7 @@ class ServiceRegistry:
         self._cache_service_manager = ServiceEntityManager(cache_layer_manager, naming_service)
         self._cache_tool_manager = ToolEntityManager(cache_layer_manager, naming_service)
         self._cache_state_manager = CacheStateManager(cache_layer_manager)
+        self._state_manager = self._cache_state_manager
         self._cache_layer_manager = cache_layer_manager
 
         # 创建关系管理器（使用 CacheLayerManager）
@@ -240,11 +224,9 @@ class ServiceRegistry:
         
         # 映射管理器已禁用
 
-        # 创建 ServiceStateService 适配器（legacy）
-        self._service_state_service = ServiceStateServiceAdapter(self._state_manager, self._naming)
-
-        # 创建 AgentClientMappingService 适配器（legacy）
-        self._agent_client_service = AgentClientMappingServiceAdapter(self._mapping_manager)
+        # 面向核心模块的 façade，统一通过新的缓存管理器实现
+        self._service_state_service = CacheBackedServiceStateService(self)
+        self._agent_client_service = CacheBackedAgentClientService(self)
 
         self._logger.info("ServiceRegistry initialized with all managers")
 
@@ -285,6 +267,88 @@ class ServiceRegistry:
             raise RuntimeError(
                 f"{ERROR_PREFIX} NamingService import failed; no fallback is allowed."
             )
+
+    def _run_async(self, coro, op_name: str):
+        from mcpstore.core.bridge import get_async_bridge
+        return get_async_bridge().run(coro, op_name=op_name)
+
+    def _map_health_status(self, health_status: Any):
+        if isinstance(health_status, ServiceConnectionState):
+            return health_status
+        if isinstance(health_status, str):
+            try:
+                return ServiceConnectionState(health_status)
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"{ERROR_PREFIX} Invalid service health_status: {health_status}"
+                ) from exc
+        raise RuntimeError(
+            f"{ERROR_PREFIX} Invalid service health_status type: {type(health_status).__name__}"
+        )
+
+    def _cache_state_snapshot(self, agent_id: str, service_name: str, state_value: Optional[Any]) -> None:
+        """
+        维护内存中的运行时状态快照，供共享 client 状态同步和事务快照使用。
+        """
+        if not agent_id or not service_name:
+            return
+        if state_value is None:
+            agent_states = self.service_states.get(agent_id)
+            if agent_states and service_name in agent_states:
+                agent_states.pop(service_name, None)
+                if not agent_states:
+                    self.service_states.pop(agent_id, None)
+            return
+        mapped_state = self._map_health_status(state_value)
+        self.service_states.setdefault(agent_id, {})[service_name] = mapped_state
+
+    def _cache_metadata_snapshot(self, agent_id: str, service_name: str, metadata: Optional[Any]) -> None:
+        """
+        维护内存中的服务元数据快照。
+        """
+        if not agent_id or not service_name:
+            return
+        if metadata is None:
+            agent_meta = self.service_metadata.get(agent_id)
+            if agent_meta and service_name in agent_meta:
+                agent_meta.pop(service_name, None)
+                if not agent_meta:
+                    self.service_metadata.pop(agent_id, None)
+            return
+        if isinstance(metadata, ServiceStateMetadata):
+            metadata_obj = metadata
+        elif hasattr(metadata, "model_dump"):
+            metadata_obj = ServiceStateMetadata.model_validate(metadata.model_dump())
+        elif isinstance(metadata, dict):
+            metadata_obj = ServiceStateMetadata.model_validate(metadata)
+        else:
+            # 无法识别的类型，直接存储原值，便于调试
+            metadata_obj = metadata
+        self.service_metadata.setdefault(agent_id, {})[service_name] = metadata_obj
+
+    async def _resolve_global_name_async(self, agent_id: str, service_name: str) -> Optional[str]:
+        if not agent_id:
+            raise ValueError("Agent ID 不能为空")
+        if not service_name:
+            raise ValueError("服务名称不能为空")
+
+        if agent_id == self._naming.GLOBAL_AGENT_STORE:
+            return service_name
+
+        if self._naming.AGENT_SEPARATOR in service_name:
+            global_name = service_name
+        else:
+            services = await self._relation_manager.get_agent_services(agent_id)
+            for svc in services:
+                if svc.get("service_original_name") == service_name:
+                    return svc.get("service_global_name")
+            return None
+
+        services = await self._relation_manager.get_agent_services(agent_id)
+        for svc in services:
+            if svc.get("service_global_name") == global_name:
+                return global_name
+        return None
 
     # ========================================
     # 会话管理方法 (委托给SessionManager)
@@ -340,6 +404,49 @@ class ServiceRegistry:
     def clear_agent_sessions(self, agent_id: str) -> int:
         return self._session_manager.clear_agent_sessions(agent_id)
 
+    def clear(self, agent_id: str) -> bool:
+        """
+        同步清空指定 Agent 的所有注册信息。
+        """
+        return self._run_async(
+            self.clear_async(agent_id),
+            op_name="ServiceRegistry.clear",
+        )
+
+    async def clear_async(self, agent_id: str) -> bool:
+        """
+        异步清空指定 Agent 的所有注册信息。
+
+        Args:
+            agent_id: Agent ID
+        """
+        if not agent_id:
+            raise ValueError("Agent ID 不能为空")
+
+        services = await self._relation_manager.get_agent_services(agent_id)
+        seen: Set[str] = set()
+        for svc in services:
+            service_name = svc.get("service_original_name") or svc.get("service_global_name")
+            if not service_name or service_name in seen:
+                continue
+            seen.add(service_name)
+            try:
+                await self.remove_service_async(agent_id, service_name)
+            except Exception as exc:
+                self._logger.warning(
+                    "Failed to remove service '%s' for agent '%s' during clear_async: %s",
+                    service_name,
+                    agent_id,
+                    exc,
+                )
+
+        self.service_states.pop(agent_id, None)
+        self.service_metadata.pop(agent_id, None)
+        self.sessions.pop(agent_id, None)
+        if self._session_manager:
+            self._session_manager.clear_agent_sessions(agent_id)
+        return True
+
     # ========================================
     # 服务管理方法 (委托给ServiceManager)
     # ========================================
@@ -361,19 +468,22 @@ class ServiceRegistry:
         Returns:
             是否成功添加
         """
-        return self._service_manager.add_service(
-            agent_id=agent_id,
-            name=name,
-            session=session,
-            tools=tools,
-            service_config=service_config,
-            auto_connect=auto_connect
+        return self._run_async(
+            self.add_service_async(
+                agent_id=agent_id,
+                name=name,
+                session=session,
+                tools=tools,
+                service_config=service_config,
+                auto_connect=auto_connect,
+            ),
+            op_name="ServiceRegistry.add_service",
         )
 
     async def add_service_async(self, agent_id: str, name: str, session: Any = None,
                                tools: List[tuple] = None, service_config: Dict[str, Any] = None,
                                auto_connect: bool = True, preserve_mappings: bool = False,
-                               state: Any = None) -> bool:
+                               state: Any = None, client_id: Optional[str] = None) -> bool:
         """
         异步添加服务
 
@@ -390,21 +500,92 @@ class ServiceRegistry:
         Returns:
             是否成功添加
         """
-        # 添加服务
-        result = await self._service_manager.add_service_async(
+        if not agent_id:
+            raise ValueError("Agent ID 不能为空")
+        if not name:
+            raise ValueError("服务名称不能为空")
+
+        tools = tools or []
+        service_config = service_config or {}
+
+        service_global_name = await self._cache_service_manager.create_service(
             agent_id=agent_id,
-            name=name,
-            session=session,
-            tools=tools,
-            service_config=service_config,
-            auto_connect=auto_connect
+            original_name=name,
+            config=service_config
         )
 
-        # 如果指定了状态，设置服务状态
-        if state is not None and result:
-            self._state_manager.set_service_state(agent_id, name, state)
+        existing_client_id = None
+        if preserve_mappings:
+            services = await self._relation_manager.get_agent_services(agent_id)
+            for svc in services:
+                if svc.get("service_global_name") == service_global_name or svc.get("service_original_name") == name:
+                    existing_client_id = svc.get("client_id")
+                    break
 
-        return result
+        if existing_client_id:
+            client_id = existing_client_id
+        if not client_id:
+            from mcpstore.core.utils.id_generator import ClientIDGenerator
+            client_id = ClientIDGenerator.generate_deterministic_id(
+                agent_id=agent_id,
+                service_name=name,
+                service_config=service_config,
+                global_agent_store_id=self._naming.GLOBAL_AGENT_STORE,
+            )
+
+        await self._relation_manager.add_agent_service(
+            agent_id=agent_id,
+            service_original_name=name,
+            service_global_name=service_global_name,
+            client_id=client_id
+        )
+
+        tools_status = []
+        for tool in tools:
+            if isinstance(tool, tuple) and len(tool) == 2:
+                tool_name, tool_def = tool
+            elif isinstance(tool, dict):
+                tool_name = tool.get("name")
+                tool_def = tool
+            else:
+                raise ValueError(f"无效的工具定义: {tool}")
+
+            tool_global_name = await self._cache_tool_manager.create_tool(
+                service_global_name=service_global_name,
+                service_original_name=name,
+                source_agent=agent_id,
+                tool_original_name=tool_name,
+                tool_def=tool_def
+            )
+            await self._relation_manager.add_service_tool(
+                service_global_name=service_global_name,
+                service_original_name=name,
+                source_agent=agent_id,
+                tool_global_name=tool_global_name,
+                tool_original_name=tool_name
+            )
+            tools_status.append({
+                "tool_global_name": tool_global_name,
+                "tool_original_name": tool_name,
+                "status": "available"
+            })
+
+        if state is None:
+            from mcpstore.core.models.service import ServiceConnectionState
+            state = ServiceConnectionState.INITIALIZING
+
+        health_status = state.value if hasattr(state, "value") else str(state)
+        await self._cache_state_manager.update_service_status(
+            service_global_name=service_global_name,
+            health_status=health_status,
+            tools_status=tools_status
+        )
+        self._cache_state_snapshot(agent_id, name, state)
+
+        if session is not None:
+            self._session_manager.set_session(agent_id, name, session)
+
+        return True
 
     async def remove_service_async(self, agent_id: str, name: str) -> Optional[Any]:
         """
@@ -417,7 +598,34 @@ class ServiceRegistry:
         Returns:
             被移除的会话对象
         """
-        return await self._service_manager.remove_service_async(agent_id, name)
+        if not agent_id:
+            raise ValueError("Agent ID 不能为空")
+        if not name:
+            raise ValueError("服务名称不能为空")
+
+        global_name = await self._resolve_global_name_async(agent_id, name)
+        if not global_name:
+            return None
+
+        tool_relations = await self._relation_manager.get_service_tools(global_name)
+
+        await self._relation_manager.remove_service_cascade(agent_id, global_name)
+        await self._cache_layer_manager.delete_entity("services", global_name)
+        await self._cache_layer_manager.delete_state("service_status", global_name)
+        await self._cache_layer_manager.delete_state("service_metadata", global_name)
+
+        for tool in tool_relations:
+            tool_global_name = tool.get("tool_global_name")
+            if tool_global_name:
+                await self._cache_tool_manager.delete_tool(tool_global_name)
+
+        if self._session_manager:
+            self._session_manager.clear_session(agent_id, name)
+
+        self._cache_state_snapshot(agent_id, name, None)
+        self._cache_metadata_snapshot(agent_id, name, None)
+
+        return None
 
     def register_service(self, service_config: Dict[str, Any]) -> bool:
         return self._service_manager.register_service(service_config)
@@ -431,14 +639,35 @@ class ServiceRegistry:
     async def unregister_service_async(self, service_name: str) -> bool:
         return await self._service_manager.unregister_service_async(service_name)
 
-    def get_service_details(self, service_name: str) -> Optional[Dict[str, Any]]:
-        return self._service_manager.get_service_details(service_name)
+    def get_service_details(self, agent_id: str, service_name: str) -> Optional[Dict[str, Any]]:
+        info = self.get_complete_service_info(agent_id, service_name)
+        if not info:
+            return None
+        return {
+            "service_name": info.get("service_original_name"),
+            "service_global_name": info.get("service_global_name"),
+            "config": info.get("config", {}),
+            "state": info.get("state"),
+            "state_metadata": info.get("state_metadata"),
+            "state_entered_time": info.get("state_entered_time"),
+            "last_heartbeat": info.get("last_heartbeat"),
+            "client_id": info.get("client_id"),
+            "tools": info.get("tools", []),
+            "tool_count": info.get("tool_count", 0),
+        }
 
     def get_services_for_agent(self, agent_id: str) -> List[str]:
-        return self._service_manager.get_services_for_agent(agent_id)
+        return self._run_async(
+            self.get_services_for_agent_async(agent_id),
+            op_name="ServiceRegistry.get_services_for_agent",
+        )
 
     def is_service_registered(self, service_name: str) -> bool:
-        return self._service_manager.is_service_registered(service_name)
+        entity = self._run_async(
+            self._cache_layer_manager.get_entity("services", service_name),
+            op_name="ServiceRegistry.is_service_registered",
+        )
+        return entity is not None
 
     def has_service(self, agent_id: str, service_name: str) -> bool:
         """
@@ -451,8 +680,10 @@ class ServiceRegistry:
         Returns:
             服务是否存在
         """
-        services = self._service_manager.get_services_for_agent(agent_id)
-        return service_name in services
+        return self._run_async(
+            self.has_service_async(agent_id, service_name),
+            op_name="ServiceRegistry.has_service",
+        )
 
     async def has_service_async(self, agent_id: str, service_name: str) -> bool:
         """
@@ -469,8 +700,11 @@ class ServiceRegistry:
         Returns:
             服务是否存在
         """
-        services = await self._service_manager.get_services_for_agent_async(agent_id)
-        return service_name in services
+        global_name = await self._resolve_global_name_async(agent_id, service_name)
+        if not global_name:
+            return False
+        entity = await self._cache_layer_manager.get_entity("services", global_name)
+        return entity is not None
 
     async def get_services_for_agent_async(self, agent_id: str) -> List[str]:
         """
@@ -482,28 +716,74 @@ class ServiceRegistry:
         Returns:
             服务名称列表
         """
-        return await self._service_manager.get_services_for_agent_async(agent_id)
+        services = await self._relation_manager.get_agent_services(agent_id)
+        return [svc.get("service_original_name") for svc in services if svc.get("service_original_name")]
 
     def get_all_services(self) -> List[str]:
-        return self._service_manager.get_all_services()
+        services = self._run_async(
+            self._cache_layer_manager.get_all_entities_async("services"),
+            op_name="ServiceRegistry.get_all_services",
+        )
+        return list(services.keys())
 
     def get_service_count(self) -> int:
-        return self._service_manager.get_service_count()
+        return len(self.get_all_services())
 
     def update_service_config(self, service_name: str, updates: Dict[str, Any]) -> bool:
-        return self._service_manager.update_service_config(service_name, updates)
+        return self._run_async(
+            self.update_service_config_async(service_name, updates),
+            op_name="ServiceRegistry.update_service_config",
+        )
 
     async def update_service_config_async(self, service_name: str, updates: Dict[str, Any]) -> bool:
-        return await self._service_manager.update_service_config_async(service_name, updates)
+        if not service_name:
+            raise ValueError("服务名称不能为空")
+        if not isinstance(updates, dict):
+            raise ValueError("updates 必须是字典类型")
+
+        entity = await self._cache_layer_manager.get_entity("services", service_name)
+        if entity is None:
+            return False
+        config = entity.get("config", {})
+        if not isinstance(config, dict):
+            config = {}
+        config.update(updates)
+        entity["config"] = config
+        await self._cache_layer_manager.put_entity("services", service_name, entity)
+        return True
 
     def get_service_config(self, service_name: str) -> Optional[Dict[str, Any]]:
-        return self._service_manager.get_service_config(service_name)
+        entity = self._run_async(
+            self._cache_layer_manager.get_entity("services", service_name),
+            op_name="ServiceRegistry.get_service_config",
+        )
+        if not entity:
+            return None
+        return entity.get("config")
 
     def get_service_summary(self, service_name: str) -> Optional[Dict[str, Any]]:
-        return self._service_manager.get_service_summary(service_name)
+        info = self.get_complete_service_info(self._naming.GLOBAL_AGENT_STORE, service_name)
+        if not info:
+            return None
+        return {
+            "service_name": info.get("service_original_name"),
+            "service_global_name": info.get("service_global_name"),
+            "state": info.get("state"),
+            "tool_count": info.get("tool_count", 0),
+            "client_id": info.get("client_id"),
+        }
 
     async def get_service_summary_async(self, service_name: str) -> Optional[Dict[str, Any]]:
-        return await self._service_manager.get_service_summary_async(service_name)
+        info = await self.get_complete_service_info_async(self._naming.GLOBAL_AGENT_STORE, service_name)
+        if not info:
+            return None
+        return {
+            "service_name": info.get("service_original_name"),
+            "service_global_name": info.get("service_global_name"),
+            "state": info.get("state"),
+            "tool_count": info.get("tool_count", 0),
+            "client_id": info.get("client_id"),
+        }
 
     def get_complete_service_info(self, agent_id: str, service_name: str) -> Optional[Dict[str, Any]]:
         """
@@ -516,7 +796,10 @@ class ServiceRegistry:
         Returns:
             服务完整信息字典
         """
-        return self._service_manager.get_complete_service_info(agent_id, service_name)
+        return self._run_async(
+            self.get_complete_service_info_async(agent_id, service_name),
+            op_name="ServiceRegistry.get_complete_service_info",
+        )
 
     async def get_complete_service_info_async(self, agent_id: str, service_name: str) -> Optional[Dict[str, Any]]:
         """
@@ -529,10 +812,86 @@ class ServiceRegistry:
         Returns:
             服务完整信息字典
         """
-        return self._service_manager.get_complete_service_info_async(agent_id, service_name)
+        global_name = await self._resolve_global_name_async(agent_id, service_name)
+        if not global_name:
+            return None
 
-    def get_all_services_complete_info(self) -> Dict[str, Any]:
-        return self._service_manager.get_all_services_complete_info()
+        entity = await self._cache_layer_manager.get_entity("services", global_name)
+        if not entity:
+            return None
+
+        config = entity.get("config", {}) if isinstance(entity, dict) else {}
+        service_original_name = entity.get("service_original_name", service_name)
+
+        state = None
+        status = await self._cache_state_manager.get_service_status(global_name)
+        if status is not None:
+            health_status = status.health_status if hasattr(status, "health_status") else status.get("health_status")
+            state = self._map_health_status(health_status)
+
+        metadata = await self._cache_layer_manager.get_state("service_metadata", global_name)
+        metadata_obj = None
+        if metadata:
+            from mcpstore.core.models.service import ServiceStateMetadata
+            metadata_obj = ServiceStateMetadata.model_validate(metadata)
+
+        client_id = None
+        agent_services = await self._relation_manager.get_agent_services(agent_id)
+        for svc in agent_services:
+            if svc.get("service_global_name") == global_name:
+                client_id = svc.get("client_id")
+                break
+
+        tool_relations = await self._relation_manager.get_service_tools(global_name)
+        tool_global_names = [
+            tool.get("tool_global_name")
+            for tool in tool_relations
+            if tool.get("tool_global_name")
+        ]
+        tool_entities = await self._cache_tool_manager.get_many_tools(tool_global_names) if tool_global_names else []
+
+        tools_info: List[Dict[str, Any]] = []
+        if tool_entities:
+            from mcpstore.core.logic.tool_logic import ToolInfo as ToolInfoCore
+            for tool_entity in tool_entities:
+                if tool_entity is None:
+                    continue
+                entity_dict = tool_entity.to_dict() if hasattr(tool_entity, "to_dict") else tool_entity
+                tool_info = ToolInfoCore.from_entity(
+                    entity_dict,
+                    service_original_name,
+                    client_id=client_id
+                )
+                tools_info.append(tool_info.to_dict())
+
+        return {
+            "service_global_name": global_name,
+            "service_original_name": service_original_name,
+            "config": config,
+            "state": state,
+            "state_metadata": metadata_obj,
+            "state_entered_time": getattr(metadata_obj, "state_entered_time", None) if metadata_obj else None,
+            "last_heartbeat": getattr(metadata_obj, "last_ping_time", None) if metadata_obj else None,
+            "client_id": client_id,
+            "tools": tools_info,
+            "tool_count": len(tool_global_names),
+        }
+
+    def get_all_services_complete_info(self, agent_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        async def _fetch_all():
+            effective_agent = agent_id or self._naming.GLOBAL_AGENT_STORE
+            services = await self._relation_manager.get_agent_services(effective_agent)
+            results: List[Dict[str, Any]] = []
+            for svc in services:
+                global_name = svc.get("service_global_name")
+                if not global_name:
+                    continue
+                info = await self.get_complete_service_info_async(effective_agent, global_name)
+                if info:
+                    results.append(info)
+            return results
+
+        return self._run_async(_fetch_all(), op_name="ServiceRegistry.get_all_services_complete_info")
 
     def clear_agent_lifecycle_data(self, agent_id: str) -> bool:
         return self._service_manager.clear_agent_lifecycle_data(agent_id)
@@ -582,10 +941,17 @@ class ServiceRegistry:
     # ========================================
 
     async def get_service_client_id_async(self, agent_id: str, service_name: str) -> Optional[str]:
-        return await self._mapping_manager.get_service_client_id_async(agent_id, service_name)
+        services = await self._relation_manager.get_agent_services(agent_id)
+        for svc in services:
+            if svc.get("service_original_name") == service_name or svc.get("service_global_name") == service_name:
+                return svc.get("client_id")
+        return None
 
     def get_service_client_id(self, agent_id: str, service_name: str) -> Optional[str]:
-        return self._mapping_manager.get_service_client_id(agent_id, service_name)
+        return self._run_async(
+            self.get_service_client_id_async(agent_id, service_name),
+            op_name="ServiceRegistry.get_service_client_id",
+        )
 
     async def get_agent_clients_async(self, agent_id: str) -> List[str]:
         """
@@ -599,7 +965,9 @@ class ServiceRegistry:
         Returns:
             客户端ID列表
         """
-        return await self._mapping_manager.get_agent_clients_async(agent_id)
+        services = await self._relation_manager.get_agent_services(agent_id)
+        client_ids = {svc.get("client_id") for svc in services if svc.get("client_id")}
+        return list(client_ids)
 
     def get_client_config_from_cache(self, client_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -611,7 +979,10 @@ class ServiceRegistry:
         Returns:
             客户端配置或None
         """
-        return self._mapping_manager.get_client_config_from_cache(client_id)
+        return self._run_async(
+            self.get_client_config_from_cache_async(client_id),
+            op_name="ServiceRegistry.get_client_config_from_cache",
+        )
 
     async def get_client_config_from_cache_async(self, client_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -623,69 +994,196 @@ class ServiceRegistry:
         Returns:
             客户端配置或None
         """
-        # 使用同步方法，因为 mapping_manager 使用内存缓存
-        return self._mapping_manager.get_client_config_from_cache(client_id)
+        return await self._cache_layer_manager.get_entity("client_configs", client_id)
 
-    def add_client_config(self, agent_id: str, client_config: Dict[str, Any]) -> str:
-        return self._mapping_manager.add_client_config(agent_id, client_config)
+    def add_client_config(self, client_id: str, client_config: Dict[str, Any]) -> str:
+        if not client_id:
+            raise ValueError("client_id 不能为空")
+        if not isinstance(client_config, dict):
+            raise ValueError("client_config 必须是字典类型")
+        self._run_async(
+            self._cache_layer_manager.put_entity("client_configs", client_id, client_config),
+            op_name="ServiceRegistry.add_client_config",
+        )
+        return client_id
 
     def set_service_client_mapping(self, agent_id: str, service_name: str, client_id: str) -> bool:
-        return self._mapping_manager.set_service_client_mapping(agent_id, service_name, client_id)
+        return self._run_async(
+            self.set_service_client_mapping_async(agent_id, service_name, client_id),
+            op_name="ServiceRegistry.set_service_client_mapping",
+        )
 
     async def set_service_client_mapping_async(self, agent_id: str, service_name: str, client_id: str) -> bool:
-        return await self._mapping_manager.set_service_client_mapping_async(agent_id, service_name, client_id)
+        if not client_id:
+            raise ValueError("client_id 不能为空")
+        global_name = await self._resolve_global_name_async(agent_id, service_name)
+        if not global_name:
+            global_name = self._naming.generate_service_global_name(service_name, agent_id)
+
+        if self._naming.AGENT_SEPARATOR in service_name:
+            service_original_name, _ = self._naming.parse_service_global_name(service_name)
+        else:
+            service_original_name = service_name
+
+        await self._relation_manager.add_agent_service(
+            agent_id=agent_id,
+            service_original_name=service_original_name,
+            service_global_name=global_name,
+            client_id=client_id
+        )
+        return True
 
     def remove_service_client_mapping(self, agent_id: str, service_name: str) -> bool:
-        return self._mapping_manager.remove_service_client_mapping(agent_id, service_name)
+        return self._run_async(
+            self.delete_service_client_mapping_async(agent_id, service_name),
+            op_name="ServiceRegistry.remove_service_client_mapping",
+        )
 
     async def delete_service_client_mapping_async(self, agent_id: str, service_name: str) -> bool:
-        return await self._mapping_manager.delete_service_client_mapping_async(agent_id, service_name)
+        global_name = await self._resolve_global_name_async(agent_id, service_name)
+        if not global_name:
+            global_name = self._naming.generate_service_global_name(service_name, agent_id)
+        await self._relation_manager.remove_agent_service(agent_id, global_name)
+        return True
 
     def add_agent_service_mapping(self, agent_id: str, service_name: str, global_name: str) -> bool:
-        return self._mapping_manager.add_agent_service_mapping(agent_id, service_name, global_name)
+        from mcpstore.core.utils.id_generator import ClientIDGenerator
+        client_id = ClientIDGenerator.generate_deterministic_id(
+            agent_id=agent_id,
+            service_name=service_name,
+            service_config={},
+            global_agent_store_id=self._naming.GLOBAL_AGENT_STORE,
+        )
+        self._run_async(
+            self._relation_manager.add_agent_service(
+                agent_id=agent_id,
+                service_original_name=service_name,
+                service_global_name=global_name,
+                client_id=client_id,
+            ),
+            op_name="ServiceRegistry.add_agent_service_mapping",
+        )
+        return True
 
     def get_global_name_from_agent_service(self, agent_id: str, service_name: str) -> Optional[str]:
-        return self._mapping_manager.get_global_name_from_agent_service(agent_id, service_name)
+        return self._run_async(
+            self.get_global_name_from_agent_service_async(agent_id, service_name),
+            op_name="ServiceRegistry.get_global_name_from_agent_service",
+        )
 
     async def get_global_name_from_agent_service_async(self, agent_id: str, service_name: str) -> Optional[str]:
-        return await self._mapping_manager.get_global_name_from_agent_service_async(agent_id, service_name)
+        services = await self._relation_manager.get_agent_services(agent_id)
+        for svc in services:
+            if svc.get("service_original_name") == service_name:
+                return svc.get("service_global_name")
+        return None
 
-    def get_agent_service_from_global_name(self, global_name: str) -> Optional[Dict[str, Any]]:
-        return self._mapping_manager.get_agent_service_from_global_name(global_name)
+    def get_agent_service_from_global_name(self, global_name: str) -> Optional[Tuple[str, str]]:
+        return self._run_async(
+            self.get_agent_service_from_global_name_async(global_name),
+            op_name="ServiceRegistry.get_agent_service_from_global_name",
+        )
+
+    async def get_agent_service_from_global_name_async(self, global_name: str) -> Optional[Tuple[str, str]]:
+        if not global_name:
+            raise ValueError("服务全局名称不能为空")
+        original_name, agent_id = self._naming.parse_service_global_name(global_name)
+        services = await self._relation_manager.get_agent_services(agent_id)
+        for svc in services:
+            if svc.get("service_global_name") == global_name:
+                return (agent_id, svc.get("service_original_name") or original_name)
+        return None
 
     def get_agent_services(self, agent_id: str) -> List[str]:
-        return self._mapping_manager.get_agent_services(agent_id)
+        services = self._run_async(
+            self._relation_manager.get_agent_services(agent_id),
+            op_name="ServiceRegistry.get_agent_services",
+        )
+        return [svc.get("service_global_name") for svc in services if svc.get("service_global_name")]
 
     def is_agent_service(self, agent_id: str, service_name: str) -> bool:
-        return self._mapping_manager.is_agent_service(agent_id, service_name)
+        return self._naming.AGENT_SEPARATOR in service_name
 
     def remove_agent_service_mapping(self, agent_id: str, service_name: str) -> bool:
-        return self._mapping_manager.remove_agent_service_mapping(agent_id, service_name)
+        return self._run_async(
+            self.delete_service_client_mapping_async(agent_id, service_name),
+            op_name="ServiceRegistry.remove_agent_service_mapping",
+        )
 
     def clear_agent_mappings(self, agent_id: str) -> bool:
-        return self._mapping_manager.clear_agent_mappings(agent_id)
+        async def _clear():
+            services = await self._relation_manager.get_agent_services(agent_id)
+            for svc in services:
+                global_name = svc.get("service_global_name")
+                if global_name:
+                    await self._relation_manager.remove_agent_service(agent_id, global_name)
+            return True
+
+        return self._run_async(_clear(), op_name="ServiceRegistry.clear_agent_mappings")
 
     def clear_all_mappings(self) -> bool:
-        return self._mapping_manager.clear_all_mappings()
+        return self._legacy("clear_all_mappings")
 
     def get_mapping_stats(self) -> Dict[str, Any]:
-        return self._mapping_manager.get_mapping_stats()
+        services = self._run_async(
+            self._cache_layer_manager.get_all_entities_async("services"),
+            op_name="ServiceRegistry.get_mapping_stats",
+        )
+        return {
+            "services_count": len(services),
+            "client_configs": len(
+                self._run_async(
+                    self._cache_layer_manager.get_all_entities_async("client_configs"),
+                    op_name="ServiceRegistry.get_mapping_stats.client_configs",
+                )
+            ),
+        }
 
     # ========================================
     # 工具管理方法 (委托给ToolManager)
     # ========================================
 
     def get_tools_for_service(self, agent_id: str, service_name: str) -> List[str]:
-        return self._tool_manager.get_tools_for_service(agent_id, service_name)
+        return self._run_async(
+            self.get_tools_for_service_async(agent_id, service_name),
+            op_name="ServiceRegistry.get_tools_for_service",
+        )
 
     async def get_tools_for_service_async(self, agent_id: str, service_name: str) -> List[str]:
-        return await self._tool_manager.get_tools_for_service_async(agent_id, service_name)
+        global_name = await self._resolve_global_name_async(agent_id, service_name)
+        if not global_name:
+            return []
+        tool_relations = await self._relation_manager.get_service_tools(global_name)
+        return [
+            tool.get("tool_global_name")
+            for tool in tool_relations
+            if tool.get("tool_global_name")
+        ]
 
-    def get_tool_info(self, service_name: str, tool_name: str) -> Optional[Dict[str, Any]]:
-        return self._tool_manager.get_tool_info(service_name, tool_name)
+    def get_tool_info(self, agent_id: str, tool_name: str) -> Optional[Dict[str, Any]]:
+        return self._run_async(
+            self.get_tool_info_async(agent_id, tool_name),
+            op_name="ServiceRegistry.get_tool_info",
+        )
 
-    async def get_tool_info_async(self, service_name: str, tool_name: str) -> Optional[Dict[str, Any]]:
-        return await self._tool_manager.get_tool_info_async(service_name, tool_name)
+    async def get_tool_info_async(self, agent_id: str, tool_name: str) -> Optional[Dict[str, Any]]:
+        tool_entity = await self._cache_tool_manager.get_tool(tool_name)
+        if tool_entity is None:
+            return None
+        entity_dict = tool_entity.to_dict() if hasattr(tool_entity, "to_dict") else tool_entity
+        service_global_name = entity_dict.get("service_global_name")
+        client_id = None
+        if service_global_name:
+            client_id = await self.get_service_client_id_async(agent_id, service_global_name)
+        return {
+            "name": entity_dict.get("tool_global_name"),
+            "display_name": entity_dict.get("tool_original_name"),
+            "description": entity_dict.get("description", ""),
+            "service_name": entity_dict.get("service_original_name"),
+            "service_global_name": service_global_name,
+            "inputSchema": entity_dict.get("input_schema", {}),
+            "client_id": client_id,
+        }
 
     def add_tool_to_service(self, service_name: str, tool_name: str, tool_config: Dict[str, Any]) -> bool:
         return self._tool_manager.add_tool_to_service(service_name, tool_name, tool_config)
@@ -785,7 +1283,10 @@ class ServiceRegistry:
         Returns:
             服务状态
         """
-        return self._state_manager.get_service_state(agent_id, service_name)
+        return self._run_async(
+            self.get_service_state_async(agent_id, service_name),
+            op_name="ServiceRegistry.get_service_state",
+        )
 
     def set_service_state(self, agent_id: str, service_name: str, state: Any) -> bool:
         """
@@ -799,7 +1300,10 @@ class ServiceRegistry:
         Returns:
             是否成功
         """
-        return self._state_manager.set_service_state(agent_id, service_name, state)
+        return self._run_async(
+            self.set_service_state_async(agent_id, service_name, state),
+            op_name="ServiceRegistry.set_service_state",
+        )
 
     async def set_service_state_async(self, agent_id: str, service_name: str, state: Any) -> bool:
         """
@@ -813,7 +1317,23 @@ class ServiceRegistry:
         Returns:
             是否成功
         """
-        return await self._state_manager.set_service_state_async(agent_id, service_name, state)
+        global_name = await self._resolve_global_name_async(agent_id, service_name)
+        if not global_name:
+            raise RuntimeError(f"{ERROR_PREFIX} service not found for {agent_id}:{service_name}")
+
+        status = await self._cache_state_manager.get_service_status(global_name)
+        tools_status = []
+        if status and getattr(status, "tools", None):
+            tools_status = [tool.to_dict() for tool in status.tools]
+
+        health_status = state.value if hasattr(state, "value") else str(state)
+        await self._cache_state_manager.update_service_status(
+            service_global_name=global_name,
+            health_status=health_status,
+            tools_status=tools_status,
+        )
+        self._cache_state_snapshot(agent_id, service_name, state)
+        return True
 
     def get_all_service_states(self, agent_id: str) -> Dict[str, Any]:
         """
@@ -825,7 +1345,24 @@ class ServiceRegistry:
         Returns:
             服务状态字典
         """
-        return self._state_manager.get_all_service_states(agent_id)
+        return self._run_async(
+            self.get_all_service_states_async(agent_id),
+            op_name="ServiceRegistry.get_all_service_states",
+        )
+
+    async def get_all_service_states_async(self, agent_id: str) -> Dict[str, Any]:
+        services = await self._relation_manager.get_agent_services(agent_id)
+        result: Dict[str, Any] = {}
+        for svc in services:
+            global_name = svc.get("service_global_name")
+            original_name = svc.get("service_original_name")
+            if not global_name:
+                continue
+            status = await self._cache_state_manager.get_service_status(global_name)
+            if status is None:
+                continue
+            result[original_name or global_name] = self._map_health_status(status.health_status)
+        return result
 
     def get_services_by_state(self, agent_id: str, states: List[Any]) -> List[str]:
         """
@@ -838,7 +1375,24 @@ class ServiceRegistry:
         Returns:
             服务名称列表
         """
-        return self._state_manager.get_services_by_state(agent_id, states)
+        return self._run_async(
+            self.get_services_by_state_async(agent_id, states),
+            op_name="ServiceRegistry.get_services_by_state",
+        )
+
+    async def get_services_by_state_async(self, agent_id: str, states: List[Any]) -> List[str]:
+        target_states = {self._map_health_status(state).value if not isinstance(state, str) else state for state in states}
+        services = await self._relation_manager.get_agent_services(agent_id)
+        matched: List[str] = []
+        for svc in services:
+            global_name = svc.get("service_global_name")
+            original_name = svc.get("service_original_name")
+            if not global_name:
+                continue
+            status = await self._cache_state_manager.get_service_status(global_name)
+            if status and status.health_status in target_states:
+                matched.append(original_name or global_name)
+        return matched
 
     def clear_service_state(self, agent_id: str, service_name: str) -> bool:
         """
@@ -851,7 +1405,10 @@ class ServiceRegistry:
         Returns:
             是否成功
         """
-        return self._state_manager.clear_service_state(agent_id, service_name)
+        return self._run_async(
+            self.delete_service_state_async(agent_id, service_name),
+            op_name="ServiceRegistry.clear_service_state",
+        )
 
     # [已删除] get_service_metadata 同步方法（重复定义）
     # 根据 "pykv 唯一真相数据源" 原则，请使用 get_service_metadata_async 异步方法
@@ -868,7 +1425,10 @@ class ServiceRegistry:
         Returns:
             是否成功
         """
-        return self._state_manager.set_service_metadata(agent_id, service_name, metadata)
+        return self._run_async(
+            self.set_service_metadata_async(agent_id, service_name, metadata),
+            op_name="ServiceRegistry.set_service_metadata",
+        )
 
     async def set_service_metadata_async(self, agent_id: str, service_name: str, metadata: Any) -> bool:
         """
@@ -882,7 +1442,27 @@ class ServiceRegistry:
         Returns:
             是否成功
         """
-        return await self._state_manager.set_service_metadata_async(agent_id, service_name, metadata)
+        global_name = await self._resolve_global_name_async(agent_id, service_name)
+        if not global_name:
+            raise RuntimeError(f"{ERROR_PREFIX} service not found for {agent_id}:{service_name}")
+
+        if metadata is None:
+            return False
+        if isinstance(metadata, ServiceStateMetadata):
+            metadata_obj = metadata
+            metadata_dict = metadata.model_dump(mode="json")
+        elif hasattr(metadata, "model_dump"):
+            metadata_obj = ServiceStateMetadata.model_validate(metadata.model_dump())
+            metadata_dict = metadata.model_dump(mode="json")
+        elif isinstance(metadata, dict):
+            metadata_obj = ServiceStateMetadata.model_validate(metadata)
+            metadata_dict = metadata_obj.model_dump(mode="json")
+        else:
+            raise ValueError("metadata 必须是字典或 ServiceStateMetadata")
+
+        await self._cache_layer_manager.put_state("service_metadata", global_name, metadata_dict)
+        self._cache_metadata_snapshot(agent_id, service_name, metadata_obj)
+        return True
 
     def get_service_status(self, agent_id: str, service_name: str) -> Optional[str]:
         """
@@ -895,29 +1475,36 @@ class ServiceRegistry:
         Returns:
             服务状态字符串
         """
-        return self._state_manager.get_service_status(agent_id, service_name)
+        state = self.get_service_state(agent_id, service_name)
+        return state.value if hasattr(state, "value") else state
 
     def update_service_metadata(self, service_name: str, updates: Dict[str, Any], agent_id: Optional[str] = None) -> bool:
-        return self._state_manager.update_service_metadata(service_name, updates, agent_id)
+        self._legacy("update_service_metadata")
+        return False
 
     def get_service_metadata_timestamp(self, service_name: str, key: str, agent_id: Optional[str] = None) -> Optional[datetime]:
-        return self._state_manager.get_service_metadata_timestamp(service_name, key, agent_id)
+        self._legacy("get_service_metadata_timestamp")
 
     def clear_service_metadata(self, service_name: str, keys: Optional[List[str]] = None, agent_id: Optional[str] = None) -> bool:
-        return self._state_manager.clear_service_metadata(service_name, keys, agent_id)
+        self._legacy("clear_service_metadata")
+        return False
 
     def get_all_service_metadata(self, service_name: Optional[str] = None, agent_id: Optional[str] = None) -> Dict[str, Any]:
-        return self._state_manager.get_all_service_metadata(service_name, agent_id)
+        self._legacy("get_all_service_metadata")
+        return {}
 
     def cleanup_old_metadata(self, service_name: Optional[str] = None, agent_id: Optional[str] = None,
                            older_than: Optional[datetime] = None) -> int:
-        return self._state_manager.cleanup_old_metadata(service_name, agent_id, older_than)
+        self._legacy("cleanup_old_metadata")
+        return 0
 
     def get_metadata_stats(self) -> Dict[str, Any]:
-        return self._state_manager.get_metadata_stats()
+        self._legacy("get_metadata_stats")
+        return {}
 
     def has_metadata(self, service_name: str, agent_id: Optional[str] = None) -> bool:
-        return self._state_manager.has_metadata(service_name, agent_id)
+        self._legacy("has_metadata")
+        return False
 
     # ========================================
     # 缓存管理方法 (委托给CacheManager)
@@ -976,7 +1563,9 @@ class ServiceRegistry:
         Args:
             unified_config: UnifiedConfigManager 实例
         """
-        self._legacy("set_unified_config")
+        if unified_config is None:
+            raise ValueError("unified_config 不能为空")
+        self._unified_config = unified_config
 
     # ========================================
     # legacy 方法
@@ -990,6 +1579,22 @@ class ServiceRegistry:
             加载结果统计信息
         """
         self._legacy("load_services_from_json_async")
+
+    async def delete_service_state_async(self, agent_id: str, service_name: str) -> bool:
+        global_name = await self._resolve_global_name_async(agent_id, service_name)
+        if not global_name:
+            return False
+        await self._cache_layer_manager.delete_state("service_status", global_name)
+        self._cache_state_snapshot(agent_id, service_name, None)
+        return True
+
+    async def delete_service_metadata_async(self, agent_id: str, service_name: str) -> bool:
+        global_name = await self._resolve_global_name_async(agent_id, service_name)
+        if not global_name:
+            return False
+        await self._cache_layer_manager.delete_state("service_metadata", global_name)
+        self._cache_metadata_snapshot(agent_id, service_name, None)
+        return True
 
     async def get_service_state_async(self, agent_id: str, service_name: str) -> Optional[Any]:
         """
@@ -1005,7 +1610,14 @@ class ServiceRegistry:
         Returns:
             服务状态或None
         """
-        self._legacy("get_service_state_async")
+        global_name = await self._resolve_global_name_async(agent_id, service_name)
+        if not global_name:
+            return None
+        status = await self._cache_state_manager.get_service_status(global_name)
+        if status is None:
+            return None
+        health_status = status.health_status if hasattr(status, "health_status") else status.get("health_status")
+        return self._map_health_status(health_status)
 
     async def get_service_metadata_async(self, agent_id: str, service_name: str) -> Optional[Any]:
         """
@@ -1020,7 +1632,16 @@ class ServiceRegistry:
         Returns:
             服务元数据或None
         """
-        self._legacy("get_service_metadata_async")
+        global_name = await self._resolve_global_name_async(agent_id, service_name)
+        if not global_name:
+            return None
+        metadata = await self._cache_layer_manager.get_state("service_metadata", global_name)
+        if not metadata:
+            self._cache_metadata_snapshot(agent_id, service_name, None)
+            return None
+        metadata_obj = ServiceStateMetadata.model_validate(metadata)
+        self._cache_metadata_snapshot(agent_id, service_name, metadata_obj)
+        return metadata_obj
 
     def get_service_status(self, agent_id: str, service_name: str) -> Optional[str]:
         """
@@ -1033,7 +1654,8 @@ class ServiceRegistry:
         Returns:
             服务状态或None
         """
-        self._legacy("get_service_status")
+        state = self.get_service_state(agent_id, service_name)
+        return state.value if hasattr(state, "value") else state
 
     # ========================================
     # legacy 方法 - 使用 (agent_id, service_name) 签名
@@ -1099,18 +1721,28 @@ class ServiceRegistry:
         Returns:
             Dict[str, Dict[str, Any]]: 实体数据字典
         """
-        self._legacy("get_all_entities_for_sync")
+        return await self._cache_layer_manager.get_all_entities_async(entity_type)
+
+    async def get_all_agent_ids_async(self) -> List[str]:
+        """
+        异步获取所有 Agent ID 列表。
+        """
+        services = await self._cache_layer_manager.get_all_entities_async("services")
+        agent_ids = {
+            data.get("source_agent")
+            for data in services.values()
+            if isinstance(data, dict) and data.get("source_agent")
+        }
+        return list(agent_ids)
 
     def get_all_agent_ids(self) -> List[str]:
         """
-        获取所有 Agent ID 列表
-
-        从会话信息和映射中收集所有已知的 Agent ID。
-
-        Returns:
-            List[str]: 所有 Agent ID 的列表
+        获取所有 Agent ID 列表（同步包装）
         """
-        self._legacy("get_all_agent_ids")
+        return self._run_async(
+            self.get_all_agent_ids_async(),
+            op_name="ServiceRegistry.get_all_agent_ids",
+        )
 
     def get_all_service_names(self, agent_id: str) -> List[str]:
         """
@@ -1122,4 +1754,7 @@ class ServiceRegistry:
         Returns:
             List[str]: 服务名称列表
         """
-        self._legacy("get_all_service_names")
+        return self._run_async(
+            self.get_services_for_agent_async(agent_id),
+            op_name="ServiceRegistry.get_all_service_names",
+        )

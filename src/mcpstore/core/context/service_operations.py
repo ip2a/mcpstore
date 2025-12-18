@@ -1021,7 +1021,7 @@ class ServiceOperationsMixin:
         )
         
         # 2. 从关系层获取服务的工具列表
-        state_manager = self._store.registry._state_manager
+        state_manager = self._store.registry._cache_state_manager
         relation_manager = self._store.registry._relation_manager
         
         tool_relations = await relation_manager.get_service_tools(service_global_name)

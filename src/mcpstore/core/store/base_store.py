@@ -41,6 +41,7 @@ class BaseMCPStore:
         # Unified configuration manager (pass instance reference)
         self._unified_config = UnifiedConfigManager(mcp_config=config)
 
+
         # Set unified config to registry for JSON persistence
         self.registry.set_unified_config(self._unified_config)
 

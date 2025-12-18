@@ -46,6 +46,8 @@ class AsyncOrchestratedBridge:
         self._stop_event = threading.Event()
         self._active_calls: Dict[str, Dict[str, Any]] = {}
         self._background_tasks: Dict[str, "_BackgroundEntry"] = {}
+        self._heartbeat_task: Optional[asyncio.Task[Any]] = None
+        self._heartbeat_interval = 0.05
 
     # ------------------------------------------------------------------ #
     # 外部接口
@@ -175,9 +177,23 @@ class AsyncOrchestratedBridge:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 self._loop = loop
+                self._heartbeat_task = loop.create_task(
+                    self._loop_heartbeat(),
+                    name="AOB:heartbeat",
+                )
+                self._heartbeat_task.add_done_callback(
+                    lambda task: logger.debug("[AOB] Heartbeat stopped: %s", task)
+                )
                 loop_ready.set()
                 logger.info("[AOB] event loop started (thread=%s)", threading.current_thread().name)
                 loop.run_forever()
+                if self._heartbeat_task and not self._heartbeat_task.done():
+                    self._heartbeat_task.cancel()
+                    try:
+                        loop.run_until_complete(self._heartbeat_task)
+                    except Exception:
+                        pass
+                self._heartbeat_task = None
                 loop.close()
                 logger.info("[AOB] event loop stopped")
 
@@ -215,6 +231,20 @@ class AsyncOrchestratedBridge:
 
     def _generate_task_id(self, op_name: str) -> str:
         return f"{op_name}:{uuid.uuid4()}"
+
+    async def _loop_heartbeat(self) -> None:
+        """
+        Keep the async loop from idling forever on selectors.
+
+        Some environments don't deliver selector wakeups reliably when the loop
+        is completely idle, so we yield periodically to guarantee forward
+        progress for run_coroutine_threadsafe() calls.
+        """
+        try:
+            while not self._stop_event.is_set():
+                await asyncio.sleep(self._heartbeat_interval)
+        except asyncio.CancelledError:
+            pass
 
     @staticmethod
     def _in_async_context() -> bool:

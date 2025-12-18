@@ -184,7 +184,7 @@ class AdvancedFeaturesMixin:
                 
                 # 1. 清空所有缓存（通过Registry异步API）
                 try:
-                    agent_ids = self._store.registry.get_all_agent_ids()
+                    agent_ids = await self._store.registry.get_all_agent_ids_async()
                 except Exception:
                     agent_ids = []
                 for agent_id in agent_ids:
@@ -251,4 +251,3 @@ class AdvancedFeaturesMixin:
         except Exception as e:
             logger.error(f" [MCP_RESET] Failed to reset MCP JSON file with scope {scope}: {e}")
             return False
-

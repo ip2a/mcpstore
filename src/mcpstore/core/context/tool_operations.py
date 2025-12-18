@@ -1102,7 +1102,7 @@ class ToolOperationsMixin:
             )
         
         # 检查服务状态是否存在
-        state_manager = self._store.registry._state_manager
+        state_manager = self._store.registry._cache_state_manager
         service_status = await state_manager.get_service_status(service_global_name)
         
         if not service_status:
@@ -1202,7 +1202,7 @@ class ToolOperationsMixin:
             service_names = [service_names]
         
         # 获取 StateManager
-        state_manager = self._store.registry._state_manager
+        state_manager = self._store.registry._cache_state_manager
         
         # 对每个服务执行添加操作
         for service_name in service_names:
@@ -1332,7 +1332,7 @@ class ToolOperationsMixin:
             service_names = [service_names]
         
         # 获取 StateManager
-        state_manager = self._store.registry._state_manager
+        state_manager = self._store.registry._cache_state_manager
         
         # 对每个服务执行移除操作
         for service_name in service_names:
@@ -1450,7 +1450,7 @@ class ToolOperationsMixin:
             service_names = [service_names]
         
         # 获取 StateManager
-        state_manager = self._store.registry._state_manager
+        state_manager = self._store.registry._cache_state_manager
         
         # 对每个服务执行重置操作
         for service_name in service_names:
@@ -1570,7 +1570,7 @@ class ToolOperationsMixin:
             )
         
         # 获取 StateManager
-        state_manager = self._store.registry._state_manager
+        state_manager = self._store.registry._cache_state_manager
         
         # 获取服务状态
         service_status = await state_manager.get_service_status(service_global_name)
