@@ -14,6 +14,7 @@ import time
 from typing import Dict, Any, Optional, Callable, List
 
 from .base import CacheManagerInterface
+from .errors import raise_legacy_error
 from ...bridge import get_async_bridge
 from ...bridge import get_async_bridge
 
@@ -51,6 +52,12 @@ class CacheManager(CacheManagerInterface):
 
         self._logger.info(f"初始化CacheManager，命名空间: {namespace}")
 
+    def _legacy(self, method: str) -> None:
+        raise_legacy_error(
+            f"core_registry.CacheManager.{method}",
+            "Use CacheLayerManager and domain shells for cache operations.",
+        )
+
     def initialize(self) -> None:
         """初始化缓存管理器"""
         self._logger.info("CacheManager 初始化完成")
@@ -84,25 +91,7 @@ class CacheManager(CacheManagerInterface):
         Args:
             cache_config: 缓存配置字典
         """
-        try:
-            self._logger.info(f"配置缓存后端: {cache_config}")
-
-            # 如果有现有的后端，先清理
-            if self._cache_backend:
-                self.cleanup_cache_backend()
-
-            # 创建新的缓存后端
-            self._cache_backend = self._create_cache_backend(cache_config)
-
-            # 更新缓存层的后端配置
-            if hasattr(self._cache_layer, 'set_backend'):
-                self._cache_layer.set_backend(self._cache_backend)
-
-            self._logger.info("缓存后端配置完成")
-
-        except Exception as e:
-            self._logger.error(f"配置缓存后端失败: {e}")
-            raise
+        self._legacy("configure_cache_backend")
 
     def _create_cache_backend(self, cache_config: Dict[str, Any]):
         """
@@ -114,117 +103,29 @@ class CacheManager(CacheManagerInterface):
         Returns:
             缓存后端实例
         """
-        backend_type = cache_config.get('type', 'memory')
-
-        if backend_type == 'memory':
-            return self._create_memory_backend(cache_config)
-        elif backend_type == 'redis':
-            return self._create_redis_backend(cache_config)
-        elif backend_type == 'file':
-            return self._create_file_backend(cache_config)
-        else:
-            raise ValueError(f"不支持的缓存后端类型: {backend_type}")
+        self._legacy("_create_cache_backend")
 
     def _create_memory_backend(self, config: Dict[str, Any]):
         """创建内存缓存后端"""
-        try:
-            # 使用 kv_store_factory 创建真实的内存缓存后端
-            from mcpstore.core.registry.kv_store_factory import _build_kv_store
-
-            factory_config = {
-                "type": "memory",
-                "enable_statistics": True,
-                "enable_size_limit": True,
-                "max_item_size": config.get("max_item_size", 1024 * 1024),  # 1MB默认
-                "namespace": config.get("namespace", "mcpstore_cache")
-            }
-
-            backend = _build_kv_store(factory_config)
-            self._logger.info(f"创建内存缓存后端: namespace={factory_config['namespace']}")
-            return backend
-
-        except Exception as e:
-            self._logger.error(f"创建内存缓存后端失败: {e}")
-            # 如果创建失败，创建一个简单的内存字典作为后备
-            return SimpleMemoryBackend(config)
+        self._legacy("_create_memory_backend")
 
     def _create_redis_backend(self, config: Dict[str, Any]):
         """创建Redis缓存后端"""
-        try:
-            # 使用 kv_store_factory 创建真实的Redis缓存后端
-            from mcpstore.core.registry.kv_store_factory import _build_kv_store
-
-            factory_config = {
-                "type": "redis",
-                "url": config.get("url", "redis://localhost:6379"),
-                "password": config.get("password"),
-                "namespace": config.get("namespace", "mcpstore_cache"),
-                "enable_statistics": True,
-                "enable_size_limit": True,
-                "max_item_size": config.get("max_item_size", 1024 * 1024),  # 1MB默认
-            }
-
-            # 只添加非None的可选参数
-            if config.get("socket_timeout") is not None:
-                factory_config["socket_timeout"] = config.get("socket_timeout")
-            if config.get("healthcheck_interval") is not None:
-                factory_config["healthcheck_interval"] = config.get("healthcheck_interval")
-            if config.get("max_connections") is not None:
-                factory_config["max_connections"] = config.get("max_connections")
-
-            backend = _build_kv_store(factory_config)
-            self._logger.info(f"创建Redis缓存后端: namespace={factory_config['namespace']}, url={config.get('url', 'redis://localhost:6379')}")
-            return backend
-
-        except Exception as e:
-            self._logger.error(f"创建Redis缓存后端失败: {e}")
-            # 如果Redis连接失败，降级到内存缓存
-            self._logger.warning("Redis创建失败，降级使用内存缓存")
-            return self._create_memory_backend(config)
+        self._legacy("_create_redis_backend")
 
     def _create_file_backend(self, config: Dict[str, Any]):
         """创建文件缓存后端"""
-        try:
-            # 使用 kv_store_factory 创建真实的文件缓存后端
-            from mcpstore.core.registry.kv_store_factory import _build_kv_store
-
-            factory_config = {
-                "type": "file",
-                "directory": config.get("directory", "/tmp/mcpstore_cache"),
-                "namespace": config.get("namespace", "mcpstore_cache"),
-                "enable_statistics": True,
-                "enable_size_limit": True,
-                "max_item_size": config.get("max_item_size", 1024 * 1024),  # 1MB默认
-            }
-
-            backend = _build_kv_store(factory_config)
-            self._logger.info(f"创建文件缓存后端: directory={factory_config['directory']}, namespace={factory_config['namespace']}")
-            return backend
-
-        except Exception as e:
-            self._logger.error(f"创建文件缓存后端失败: {e}")
-            # 如果文件缓存创建失败，降级到内存缓存
-            self._logger.warning("文件缓存创建失败，降级使用内存缓存")
-            return self._create_memory_backend(config)
+        self._legacy("_create_file_backend")
 
     def cleanup_cache_backend(self):
         """清理现有的缓存后端"""
-        if self._cache_backend:
-            try:
-                if hasattr(self._cache_backend, 'cleanup'):
-                    self._cache_backend.cleanup()
-                elif hasattr(self._cache_backend, 'close'):
-                    self._cache_backend.close()
-            except Exception as e:
-                self._logger.warning(f"清理缓存后端时出错: {e}")
-            finally:
-                self._cache_backend = None
+        self._legacy("cleanup_cache_backend")
 
     def ensure_sync_helper(self):
         """
         向后兼容的同步助手接口，实际返回异步桥实例。
         """
-        return self._bridge
+        self._legacy("ensure_sync_helper")
 
     def sync_to_storage(self, operation_name: str = "缓存同步") -> Any:
         """
@@ -236,40 +137,7 @@ class CacheManager(CacheManagerInterface):
         Returns:
             异步操作的结果
         """
-        try:
-            # 创建一个异步操作来执行同步
-            async def sync_operation():
-                # 这里可以添加具体的同步逻辑
-                # 目前返回一个简单的成功状态
-                return {"status": "success", "operation": operation_name}
-
-            # 执行同步操作
-            result = self._bridge.run(
-                sync_operation(),
-                op_name=f"cache_manager.sync_to_storage[{operation_name}]"
-            )
-
-            # 更新同步状态
-            self._sync_status[operation_name] = {
-                "last_sync": time.time(),
-                "status": "success",
-                "result": result
-            }
-
-            self._logger.debug(f"同步操作完成: {operation_name}")
-            return result
-
-        except Exception as e:
-            self._logger.error(f"同步操作失败: {operation_name}, 错误: {e}")
-
-            # 更新错误状态
-            self._sync_status[operation_name] = {
-                "last_sync": time.time(),
-                "status": "error",
-                "error": str(e)
-            }
-
-            raise
+        self._legacy("sync_to_storage")
 
     def async_to_sync(self, async_coro, operation_name: str = "异步转同步") -> Any:
         """
@@ -282,50 +150,7 @@ class CacheManager(CacheManagerInterface):
         Returns:
             异步协程的结果
         """
-        try:
-            # region agent log: cache_manager.async_to_sync entry
-            try:
-                import json as _json_cm
-                import asyncio as _asyncio_cm
-                import threading as _th_cm
-
-                _in_async = False
-                try:
-                    _asyncio_cm.get_running_loop()
-                    _in_async = True
-                except RuntimeError:
-                    _in_async = False
-
-                _payload_cm = {
-                    "sessionId": "debug-session",
-                    "runId": "initial",
-                    "hypothesisId": "H1",
-                    "location": "core/registry/core_registry/cache_manager.py:async_to_sync",
-                    "message": "cache_manager.async_to_sync called",
-                    "data": {
-                        "operation": operation_name,
-                        "in_async_context": _in_async,
-                        "thread": _th_cm.current_thread().name,
-                    },
-                    "timestamp": __import__("time").time(),
-                }
-                with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f_cm:
-                    _f_cm.write(_json_cm.dumps(_payload_cm, ensure_ascii=False) + "\n")
-            except Exception:
-                pass
-            # endregion agent log
-
-            result = self._bridge.run(
-                async_coro,
-                op_name=f"cache_manager.async_to_sync[{operation_name}]"
-            )
-
-            self._logger.debug(f"异步转同步操作完成: {operation_name}")
-            return result
-
-        except Exception as e:
-            self._logger.error(f"异步转同步操作失败: {operation_name}, 错误: {e}")
-            raise
+        self._legacy("async_to_sync")
 
     def retry_operation(self, operation: Callable, *args, **kwargs) -> Any:
         """
@@ -339,35 +164,7 @@ class CacheManager(CacheManagerInterface):
         Returns:
             操作结果
         """
-        max_retries = kwargs.pop('max_retries', self._retry_config['max_retries'])
-        retry_delay = kwargs.pop('retry_delay', self._retry_config['retry_delay'])
-        backoff_factor = kwargs.pop('backoff_factor', self._retry_config['backoff_factor'])
-
-        last_exception = None
-
-        for attempt in range(max_retries + 1):
-            try:
-                result = operation(*args, **kwargs)
-
-                if attempt > 0:
-                    self._logger.info(f"操作在第 {attempt + 1} 次尝试后成功")
-
-                return result
-
-            except Exception as e:
-                last_exception = e
-
-                if attempt < max_retries:
-                    delay = retry_delay * (backoff_factor ** attempt)
-                    self._logger.warning(
-                        f"操作失败，{delay}秒后重试 (尝试 {attempt + 1}/{max_retries + 1}): {e}"
-                    )
-                    import time
-                    time.sleep(delay)
-                else:
-                    self._logger.error(f"操作最终失败，已重试 {max_retries} 次: {e}")
-
-        raise last_exception
+        self._legacy("retry_operation")
 
     def get_sync_status(self, operation_name: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -379,10 +176,7 @@ class CacheManager(CacheManagerInterface):
         Returns:
             同步状态信息
         """
-        if operation_name:
-            return self._sync_status.get(operation_name, {})
-        else:
-            return self._sync_status.copy()
+        self._legacy("get_sync_status")
 
     def clear_sync_status(self, operation_name: Optional[str] = None):
         """
@@ -391,12 +185,7 @@ class CacheManager(CacheManagerInterface):
         Args:
             operation_name: 可选的操作名称，如果为None则清理所有状态
         """
-        if operation_name:
-            self._sync_status.pop(operation_name, None)
-            self._logger.debug(f"清理操作状态: {operation_name}")
-        else:
-            self._sync_status.clear()
-            self._logger.debug("清理所有同步状态")
+        self._legacy("clear_sync_status")
 
     def get_backend_info(self) -> Dict[str, Any]:
         """
@@ -405,21 +194,7 @@ class CacheManager(CacheManagerInterface):
         Returns:
             后端信息字典
         """
-        info = {
-            "backend_type": "none",
-            "is_configured": self._cache_backend is not None,
-            "namespace": self._namespace
-        }
-
-        if self._cache_backend:
-            info["backend_type"] = getattr(self._cache_backend, 'type', 'unknown')
-
-            # 获取更多后端特定信息
-            if hasattr(self._cache_backend, 'get_info'):
-                backend_info = self._cache_backend.get_info()
-                info.update(backend_info)
-
-        return info
+        self._legacy("get_backend_info")
 
     def get_stats(self) -> Dict[str, Any]:
         """
@@ -428,14 +203,7 @@ class CacheManager(CacheManagerInterface):
         Returns:
             统计信息字典
         """
-        return {
-            "namespace": self._namespace,
-            "backend_configured": self._cache_backend is not None,
-            "sync_helper_exists": self._sync_helper is not None,
-            "sync_operations_count": len(self._sync_status),
-            "retry_config": self._retry_config,
-            "backend_info": self.get_backend_info()
-        }
+        self._legacy("get_stats")
 
 
 class AsyncSyncHelper:
