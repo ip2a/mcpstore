@@ -119,9 +119,9 @@ class HealthMonitor:
         """
         处理健康检查请求 - 立即执行健康检查
         """
-        # 统一使用全局命名空间读取状态
+        # 统一使用全局命名空间读取状态（使用异步版本）
         global_name = await self._to_global_name_async(event.agent_id, event.service_name)
-        current_state = self._registry._service_state_service.get_service_state(self._global_agent_store_id, global_name)
+        current_state = await self._registry.get_service_state_async(self._global_agent_store_id, global_name)
         logger.info(f"[HEALTH] Manual health check requested: {event.service_name} (state={getattr(current_state,'value',str(current_state))}, bus={hex(id(self._event_bus))})")
 
         # 执行一次健康检查（关键路径使用同步派发，确保状态及时收敛）

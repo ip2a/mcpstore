@@ -160,30 +160,23 @@ class CacheManager:
                     event.agent_id, event.client_id
                 )
                 
-                # 3. 添加 Client 配置
-                self._registry._mapping_manager.add_client_config(event.client_id, {
-                    "mcpServers": {event.service_name: event.service_config}
-                })
-                # 注意：MappingManager 没有 remove_client_config 方法，使用 lambda 占位
-                transaction.record(
-                    "add_client_config",
-                    lambda cid: None,  # Client 配置清理由其他机制处理
-                    event.client_id
-                )
+                # 注意：在新架构中，client_config 不再需要单独存储
+                # 服务配置已经存储在服务实体中（service_entity.config）
+                # MappingManager 已被禁用，使用 RelationshipManager 管理关系
                 
-                # 4. 添加 Service-Client 映射
+                # 3. 添加 Service-Client 映射（使用异步版本）
                 logger.debug(f"[CACHE] Adding service-client mapping: {event.agent_id}:{event.service_name} -> {event.client_id}")
-                self._registry.set_service_client_mapping(
+                await self._registry.set_service_client_mapping_async(
                     event.agent_id, event.service_name, event.client_id
                 )
                 transaction.record(
                     "set_service_client_mapping",
-                    self._registry.remove_service_client_mapping,
+                    self._registry.delete_service_client_mapping_async,
                     event.agent_id, event.service_name
                 )
 
-                # 立即验证映射是否成功建立
-                verify_client_id = self._registry.get_service_client_id(event.agent_id, event.service_name)
+                # 立即验证映射是否成功建立（使用异步版本）
+                verify_client_id = await self._registry.get_service_client_id_async(event.agent_id, event.service_name)
                 if verify_client_id != event.client_id:
                     error_msg = (
                         f"Service-client mapping verification failed! "
@@ -196,8 +189,8 @@ class CacheManager:
             logger.info(f"[CACHE] Service cached: {event.service_name}")
             logger.debug(f"[CACHE] Verification - client_id mapping: {verify_client_id}")
             
-            verify_config = self._registry.get_client_config_from_cache(event.client_id)
-            logger.debug(f"[CACHE] Verification - client config exists: {verify_config is not None}")
+            # 注意：在新架构中，client_config 不再单独存储
+            # 服务配置已经存储在服务实体中（service_entity.config）
             
             # 发布成功事件
             cached_event = ServiceCached(
@@ -274,17 +267,41 @@ class CacheManager:
                 event.agent_id, 
                 operation="cache_on_service_connected"
             ):
+                # 从 pykv 读取现有服务配置（保持配置不丢失）
+                # 这是关键：ServiceConnected 事件中没有 service_config 字段，
+                # 必须从 pykv 读取已有配置，否则 add_service_async 会用空字典覆盖
+                service_global_name = self._registry._naming.generate_service_global_name(
+                    event.service_name, event.agent_id
+                )
+                service_entity = await self._registry._cache_service_manager.get_service(
+                    service_global_name
+                )
+                if service_entity is None:
+                    raise RuntimeError(
+                        f"服务实体不存在，无法更新缓存: "
+                        f"service_name={event.service_name}, agent_id={event.agent_id}, "
+                        f"global_name={service_global_name}"
+                    )
+                existing_config = service_entity.config
+                if not existing_config:
+                    raise RuntimeError(
+                        f"服务配置为空，数据不一致: "
+                        f"service_name={event.service_name}, agent_id={event.agent_id}, "
+                        f"global_name={service_global_name}"
+                    )
+                
                 # 清理旧的工具缓存（如果存在）
                 existing_session = self._registry.get_session(event.agent_id, event.service_name)
                 if existing_session:
                     self._registry.clear_service_tools_only(event.agent_id, event.service_name)
                 
-                # 更新服务缓存（保留映射）
+                # 更新服务缓存（保留映射和配置）
                 await self._registry.add_service_async(
                     agent_id=event.agent_id,
                     name=event.service_name,
                     session=event.session,
                     tools=event.tools,
+                    service_config=existing_config,
                     preserve_mappings=True
                 )
                 

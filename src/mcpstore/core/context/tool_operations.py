@@ -711,27 +711,6 @@ class ToolOperationsMixin:
             if isinstance(t, dict) and t.get("service_name")
         })
 
-        # 极简兜底：若当前无法从工具列表推导服务（例如工具缓存暂空），
-        # 则从 Registry 的同步缓存读取服务名，避免跨异步边界
-        if not derived_services:
-            try:
-                if self._context_type == ContextType.STORE:
-                    agent_id = self._store.client_manager.global_agent_store_id
-                    cached_services = self._store.registry.get_all_service_names(agent_id)
-                    derived_services = sorted(set(cached_services or []))
-                else:
-                    # Agent 模式：需要将全局服务名映射回本地服务名
-                    global_names = self._store.registry.get_agent_services(self._agent_id)
-                    local_names = set()
-                    for g in (global_names or []):
-                        mapping = self._store.registry.get_agent_service_from_global_name(g)
-                        if mapping and mapping[0] == self._agent_id:
-                            local_names.add(mapping[1])
-                    derived_services = sorted(local_names)
-                logger.debug(f"[RESOLVE_FALLBACK] derived_services from registry cache: {len(derived_services)}")
-            except Exception as e:
-                logger.debug(f"[RESOLVE_FALLBACK] failed to derive services from cache: {e}")
-
         is_multi_server = len(derived_services) > 1
 
         resolver = ToolNameResolver(
