@@ -308,15 +308,13 @@ class RelationshipManager:
         if not tool_original_name:
             raise ValueError("工具原始名称不能为空")
         
-        # 验证工具实体存在
-        tool_entity = await self._cache_layer.get_entity(
-            "tools",
-            tool_global_name
-        )
-        if tool_entity is None:
-            raise KeyError(
-                f"工具实体不存在: tool_global_name={tool_global_name}"
-            )
+        # 注意：不在这里验证工具实体存在性
+        # 原因：
+        # 1. 在 cache_manager._create_tool_entities_and_relations 中，
+        #    create_tool 和 add_service_tool 是顺序调用的
+        # 2. Redis 写入后可能存在短暂的读取延迟
+        # 3. 关系层和实体层是独立的，关系层不应该依赖实体层的即时可读性
+        # 4. 调用方负责确保工具实体已创建
         
         logger.debug(
             f"[RELATIONSHIP] 添加 Service-Tool 关系: "

@@ -144,6 +144,23 @@ class ElegantServiceRegistry:
         """显式委托方法 - 性能优化"""
         return self._factory.service_state_service.has_service(agent_id, service_name)
 
+    async def has_service_async(self, agent_id: str, service_name: str) -> bool:
+        """
+        异步检查指定 Agent 是否拥有指定服务
+
+        遵循 "Functional Core, Imperative Shell" 架构原则：
+        - 异步外壳直接使用 await 调用异步操作
+        - 在异步上下文中必须使用此方法，而非同步版本
+
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+
+        Returns:
+            服务是否存在
+        """
+        return await self._factory.service_state_service.has_service_async(agent_id, service_name)
+
     async def get_agent_clients_async(self, agent_id: str) -> List[str]:
         """显式委托方法 - 从 pykv 获取 Agent 客户端"""
         return await self._factory.agent_client_service.get_agent_clients_async(agent_id)

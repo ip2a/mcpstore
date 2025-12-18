@@ -71,7 +71,8 @@ class ServiceContainer:
         self._lifecycle_manager = LifecycleManager(
             event_bus=self._event_bus,
             registry=self._registry,
-            lifecycle_config=lifecycle_config
+            lifecycle_config=lifecycle_config,
+            agent_locks=self._agent_locks
         )
 
         self._connection_manager = ConnectionManager(

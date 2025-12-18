@@ -283,6 +283,38 @@ class CacheManager(CacheManagerInterface):
             异步协程的结果
         """
         try:
+            # region agent log: cache_manager.async_to_sync entry
+            try:
+                import json as _json_cm
+                import asyncio as _asyncio_cm
+                import threading as _th_cm
+
+                _in_async = False
+                try:
+                    _asyncio_cm.get_running_loop()
+                    _in_async = True
+                except RuntimeError:
+                    _in_async = False
+
+                _payload_cm = {
+                    "sessionId": "debug-session",
+                    "runId": "initial",
+                    "hypothesisId": "H1",
+                    "location": "core/registry/core_registry/cache_manager.py:async_to_sync",
+                    "message": "cache_manager.async_to_sync called",
+                    "data": {
+                        "operation": operation_name,
+                        "in_async_context": _in_async,
+                        "thread": _th_cm.current_thread().name,
+                    },
+                    "timestamp": __import__("time").time(),
+                }
+                with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f_cm:
+                    _f_cm.write(_json_cm.dumps(_payload_cm, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # endregion agent log
+
             result = self._bridge.run(
                 async_coro,
                 op_name=f"cache_manager.async_to_sync[{operation_name}]"

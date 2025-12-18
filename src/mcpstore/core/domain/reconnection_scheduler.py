@@ -222,13 +222,9 @@ class ReconnectionScheduler:
             # 从缓存层获取所有服务实体
             services = []
 
-            # 使用重构后的 ServiceRegistry 提供的方法
-            if hasattr(self._registry, 'get_all_entities_for_sync'):
-                service_entities = await self._registry.get_all_entities_for_sync("services")
-            elif hasattr(self._registry, '_cache_layer') and hasattr(self._registry._cache_layer, 'get_all_entities_async'):
-                service_entities = await self._registry._cache_layer.get_all_entities_async("services")
-            else:
-                service_entities = {}
+            # 使用 _cache_layer_manager（CacheLayerManager）获取所有服务实体
+            # 不再使用 _cache_layer，因为它在 Redis 模式下是 RedisStore，没有 get_all_entities_async 方法
+            service_entities = await self._registry._cache_layer_manager.get_all_entities_async("services")
 
             for entity_key, entity_data in service_entities.items():
                 if hasattr(entity_data, 'value'):

@@ -133,8 +133,8 @@ class ServiceManagementMixin:
             current_state = self.registry._service_state_service.get_service_state(agent_key, service_name)
             if current_state is None:
                 logger.warning(f"Service {service_name} not found in lifecycle manager for agent {agent_key}")
-                # Check if it exists in the registry
-                if not self.registry.has_service(agent_key, service_name):
+                # Check if it exists in the registry（使用异步 API）
+                if not await self.registry.has_service_async(agent_key, service_name):
                     logger.warning(f"Service {service_name} not found in registry for agent {agent_key}, skipping removal")
                     return
                 else:
@@ -293,8 +293,8 @@ class ServiceManagementMixin:
 
             logger.debug(f"Restarting service {service_name} for agent {agent_key}")
 
-            # Check if service exists
-            if not self.registry.has_service(agent_key, service_name):
+            # Check if service exists（使用异步 API）
+            if not await self.registry.has_service_async(agent_key, service_name):
                 logger.warning(f"[RESTART_SERVICE] Service '{service_name}' not found in registry")
                 return False
 

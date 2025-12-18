@@ -156,7 +156,7 @@ class ShowConfigAsyncShell:
         
         Returns:
             所有服务的配置数据
-            格式: {service_original_name: {"config": {...}}}
+            格式: {service_original_name: {"config": {...}, "source_agent": "..."}}
         """
         services_data = {}
         
@@ -181,8 +181,14 @@ class ShowConfigAsyncShell:
                 # 提取服务配置
                 config = self._logic_core.extract_service_config(service_entity)
                 
+                # 提取 source_agent
+                source_agent = service_entity.get("source_agent", "global_agent_store")
+                
                 if config:
-                    services_data[service_name] = {"config": config}
+                    services_data[service_name] = {
+                        "config": config,
+                        "source_agent": source_agent
+                    }
             
             logger.debug(f"[SHOW_CONFIG_SHELL] 提取到 {len(services_data)} 个服务配置")
             

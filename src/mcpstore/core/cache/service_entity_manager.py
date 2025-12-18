@@ -221,13 +221,37 @@ class ServiceEntityManager:
         """
         if not global_name:
             raise ValueError("服务全局名称不能为空")
-        
+
         # 从实体层删除
         await self._cache_layer.delete_entity("services", global_name)
-        
+
         logger.info(
             f"[SERVICE_ENTITY] 删除服务实体: global_name={global_name}"
         )
+
+        # region agent log - H11: service_entity_deleted
+        try:
+            import json, time
+            from pathlib import Path
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix-2",
+                "hypothesisId": "H11",
+                "location": "service_entity_manager.py:delete_service",
+                "message": "service_entity_deleted",
+                "data": {
+                    "service_global_name": global_name,
+                },
+                "timestamp": int(time.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            # 调试日志失败不影响主流程
+            pass
+        # endregion
     
     async def list_services_by_agent(
         self,

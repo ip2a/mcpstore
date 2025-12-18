@@ -360,8 +360,8 @@ async def store_reset_service(request: Request):
     if not resolved_service_name:
         resolved_service_name = used_identifier
 
-    # 校验服务是否存在
-    if not registry.has_service(agent_id, resolved_service_name):
+    # 校验服务是否存在（使用异步 API）
+    if not await registry.has_service_async(agent_id, resolved_service_name):
         return ResponseBuilder.error(
             code=ErrorCode.SERVICE_NOT_FOUND,
             message=f"Service '{resolved_service_name}' not found",
@@ -1020,8 +1020,8 @@ async def store_get_service_status(service_name: str):
     store = get_store()
     agent_id = store.client_manager.global_agent_store_id
 
-    # 先按 Registry 视角检查服务是否存在
-    if not store.registry.has_service(agent_id, service_name):
+    # 先按 Registry 视角检查服务是否存在（使用异步 API）
+    if not await store.registry.has_service_async(agent_id, service_name):
         return ResponseBuilder.error(
             code=ErrorCode.SERVICE_NOT_FOUND,
             message=f"Service '{service_name}' not found",

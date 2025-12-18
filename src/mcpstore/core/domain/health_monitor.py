@@ -174,7 +174,8 @@ class HealthMonitor:
         try:
             # 如果服务已不存在，跳过检查，且停止周期任务
             global_name = await self._to_global_name_async(agent_id, service_name)
-            if not self._registry.has_service(self._global_agent_store_id, global_name):
+            # 使用异步 API 检查服务是否存在，避免在异步上下文中调用同步 API
+            if not await self._registry.has_service_async(self._global_agent_store_id, global_name):
                 logger.info(f"[HEALTH] Skip check for removed service: {service_name}")
                 task_key = (agent_id, service_name)
                 if task_key in self._health_check_tasks:
@@ -183,11 +184,26 @@ class HealthMonitor:
                         task.cancel()
                 return
 
-            # 获取服务配置（优先缓存）
-            service_config = self._registry.get_service_config_from_cache(self._global_agent_store_id, global_name) \
-                or self._registry.get_service_config(self._global_agent_store_id, global_name)
+            # 获取服务配置（新架构：通过 client_id 获取）
+            # 步骤1: 获取 client_id
+            client_id = self._registry.get_service_client_id(self._global_agent_store_id, global_name)
+            if not client_id:
+                logger.warning(f"[HEALTH] No client_id found for {service_name} (skip without state change)")
+                return
+            
+            # 步骤2: 获取 client_config
+            client_config = self._registry.get_client_config_from_cache(client_id)
+            if not client_config:
+                logger.warning(f"[HEALTH] No client config found for {client_id} (skip without state change)")
+                return
+            
+            # 步骤3: 从 client_config 中提取服务配置
+            service_config = client_config.get("mcpServers", {}).get(global_name)
             if not service_config:
-                logger.warning(f"[HEALTH] No service config found: {service_name} (skip without state change)")
+                # 尝试使用原始服务名
+                service_config = client_config.get("mcpServers", {}).get(service_name)
+            if not service_config:
+                logger.warning(f"[HEALTH] No service config found in mcpServers: {service_name} (skip without state change)")
                 return
 
             # 执行健康检查（使用临时 client + async with）
@@ -294,7 +310,8 @@ class HealthMonitor:
 
         try:
             # 从缓存层获取所有服务并检查超时
-            service_entities = await self._registry._cache_layer.get_all_entities_async("services")
+            # 使用 _cache_layer_manager（CacheLayerManager），它有 get_all_entities_async 方法
+            service_entities = await self._registry._cache_layer_manager.get_all_entities_async("services")
 
             for entity_key, entity_data in service_entities.items():
                 if hasattr(entity_data, 'value'):

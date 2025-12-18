@@ -44,6 +44,27 @@ class ClientIDGenerator:
         - Agent service: client_{agent_id}_{service_name}_{config_hash}
         """
         try:
+            # region agent log
+            try:
+                import json as _debug_json  # type: ignore
+                with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f:
+                    _f.write(_debug_json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "H1",
+                        "location": "id_generator.py:ClientIDGenerator.generate_deterministic_id",
+                        "message": "generate_deterministic_id entry",
+                        "data": {
+                            "agent_id": agent_id,
+                            "service_name": service_name,
+                            "service_config_type": str(type(service_config)),
+                            "service_config_keys": list(service_config.keys()) if isinstance(service_config, dict) else None
+                        },
+                        "timestamp": __import__("time").time()
+                    }) + "\n")
+            except Exception:
+                pass
+            # endregion
             # Generate configuration hash (ensure deterministic)
             config_str = str(sorted(service_config.items())) if service_config else ""
             config_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]
