@@ -47,6 +47,12 @@ class PersistenceManager(PersistenceManagerInterface):
 
         self._logger.info(f"初始化PersistenceManager，命名空间: {namespace}")
 
+    def _legacy(self, method: str) -> None:
+        raise_legacy_error(
+            f"core_registry.PersistenceManager.{method}",
+            "Use core/cache managers and shells for persistence workflows.",
+        )
+
     def initialize(self) -> None:
         """初始化持久化管理器"""
         self._logger.info("PersistenceManager 初始化完成")
