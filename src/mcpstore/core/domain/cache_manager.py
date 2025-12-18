@@ -35,6 +35,30 @@ class CacheTransaction:
     async def rollback(self):
         """Rollback all operations"""
         logger.warning(f"Rolling back {len(self.operations)} cache operations for agent {self.agent_id}")
+        # region agent log: cache_transaction_rollback (H3)
+        try:
+            import json as _json_ct, time as _time_ct
+            from pathlib import Path as _Path_ct
+            _log_path_ct = _Path_ct("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            _payload_ct = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H3",
+                "location": "core/domain/cache_manager.py:CacheTransaction.rollback",
+                "message": "cache_transaction_rollback_begin",
+                "data": {
+                    "agent_id": self.agent_id,
+                    "operations_count": len(self.operations),
+                },
+                "timestamp": int(_time_ct.time() * 1000),
+            }
+            _log_path_ct.parent.mkdir(parents=True, exist_ok=True)
+            with _log_path_ct.open("a", encoding="utf-8") as _f_ct:
+                _f_ct.write(_json_ct.dumps(_payload_ct, ensure_ascii=False) + "\n")
+        except Exception:
+            # 调试日志失败不影响主流程
+            pass
+        # endregion
         for op_name, rollback_func, args in reversed(self.operations):
             try:
                 if asyncio.iscoroutinefunction(rollback_func):
@@ -79,8 +103,38 @@ class CacheManager:
         transaction = CacheTransaction(agent_id=event.agent_id)
         
         try:
+            # region agent log: on_service_add_requested entry (H1)
+            try:
+                import json as _json_cm1, time as _time_cm1
+                from pathlib import Path as _Path_cm1
+                _log_path_cm1 = _Path_cm1("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                _payload_cm1 = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H1",
+                    "location": "core/domain/cache_manager.py:_on_service_add_requested",
+                    "message": "before_add_service_and_rollback_registration",
+                    "data": {
+                        "agent_id": event.agent_id,
+                        "service_name": event.service_name,
+                        "registry_type": type(self._registry).__name__,
+                        "has_add_service_async": hasattr(self._registry, "add_service_async"),
+                        "has_remove_service_async": hasattr(self._registry, "remove_service_async"),
+                    },
+                    "timestamp": int(_time_cm1.time() * 1000),
+                }
+                _log_path_cm1.parent.mkdir(parents=True, exist_ok=True)
+                with _log_path_cm1.open("a", encoding="utf-8") as _f_cm1:
+                    _f_cm1.write(_json_cm1.dumps(_payload_cm1, ensure_ascii=False) + "\n")
+            except Exception:
+                # 调试日志失败不影响主流程
+                pass
+            # endregion
             # 使用 per-agent 锁保证并发安全
-            async with self._agent_locks.write(event.agent_id):
+            async with self._agent_locks.write(
+                event.agent_id, 
+                operation="cache_on_service_add_requested"
+            ):
                 # 1. 添加服务到缓存（INITIALIZING 状态）
                 # 使用异步版本避免事件循环冲突
                 await self._registry.add_service_async(
@@ -97,7 +151,8 @@ class CacheManager:
                     event.agent_id, event.service_name
                 )
                 
-                # 2. 添加 Agent-Client 映射
+                # 2. 添加 Agent-Client 映射（在新架构中是 no-op，但保留用于兼容性）
+                # 使用 _agent_client_service 适配器
                 self._registry._agent_client_service.add_agent_client_mapping(event.agent_id, event.client_id)
                 transaction.record(
                     "add_agent_client_mapping",
@@ -106,28 +161,29 @@ class CacheManager:
                 )
                 
                 # 3. 添加 Client 配置
-                self._registry._client_config_service.add_client_config(event.client_id, {
+                self._registry._mapping_manager.add_client_config(event.client_id, {
                     "mcpServers": {event.service_name: event.service_config}
                 })
+                # 注意：MappingManager 没有 remove_client_config 方法，使用 lambda 占位
                 transaction.record(
                     "add_client_config",
-                    self._registry._client_config_service.remove_client_config,
+                    lambda cid: None,  # Client 配置清理由其他机制处理
                     event.client_id
                 )
                 
                 # 4. 添加 Service-Client 映射
                 logger.debug(f"[CACHE] Adding service-client mapping: {event.agent_id}:{event.service_name} -> {event.client_id}")
-                self._registry._agent_client_service.add_service_client_mapping(
+                self._registry.set_service_client_mapping(
                     event.agent_id, event.service_name, event.client_id
                 )
                 transaction.record(
-                    "add_service_client_mapping",
-                    self._registry._agent_client_service.remove_service_client_mapping,
+                    "set_service_client_mapping",
+                    self._registry.remove_service_client_mapping,
                     event.agent_id, event.service_name
                 )
 
                 # 立即验证映射是否成功建立
-                verify_client_id = self._registry._agent_client_service.get_service_client_id(event.agent_id, event.service_name)
+                verify_client_id = self._registry.get_service_client_id(event.agent_id, event.service_name)
                 if verify_client_id != event.client_id:
                     error_msg = (
                         f"Service-client mapping verification failed! "
@@ -140,7 +196,7 @@ class CacheManager:
             logger.info(f"[CACHE] Service cached: {event.service_name}")
             logger.debug(f"[CACHE] Verification - client_id mapping: {verify_client_id}")
             
-            verify_config = self._registry._client_config_service.get_client_config_from_cache(event.client_id)
+            verify_config = self._registry.get_client_config_from_cache(event.client_id)
             logger.debug(f"[CACHE] Verification - client config exists: {verify_config is not None}")
             
             # 发布成功事件
@@ -160,6 +216,33 @@ class CacheManager:
             
         except Exception as e:
             logger.error(f"[CACHE] Failed to cache service {event.service_name}: {e}", exc_info=True)
+            
+            # region agent log: on_service_add_requested exception (H2)
+            try:
+                import json as _json_cm2, time as _time_cm2
+                from pathlib import Path as _Path_cm2
+                _log_path_cm2 = _Path_cm2("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                _payload_cm2 = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H2",
+                    "location": "core/domain/cache_manager.py:_on_service_add_requested",
+                    "message": "exception_in_on_service_add_requested",
+                    "data": {
+                        "agent_id": event.agent_id,
+                        "service_name": event.service_name,
+                        "exception_type": type(e).__name__,
+                        "exception_str": str(e),
+                    },
+                    "timestamp": int(_time_cm2.time() * 1000),
+                }
+                _log_path_cm2.parent.mkdir(parents=True, exist_ok=True)
+                with _log_path_cm2.open("a", encoding="utf-8") as _f_cm2:
+                    _f_cm2.write(_json_cm2.dumps(_payload_cm2, ensure_ascii=False) + "\n")
+            except Exception:
+                # 调试日志失败不影响主流程
+                pass
+            # endregion
             
             # 回滚事务
             await transaction.rollback()
@@ -187,7 +270,10 @@ class CacheManager:
         logger.info(f"[CACHE] Updating cache for connected service: {event.service_name}")
         
         try:
-            async with self._agent_locks.write(event.agent_id):
+            async with self._agent_locks.write(
+                event.agent_id, 
+                operation="cache_on_service_connected"
+            ):
                 # 清理旧的工具缓存（如果存在）
                 existing_session = self._registry.get_session(event.agent_id, event.service_name)
                 if existing_session:
@@ -211,6 +297,7 @@ class CacheManager:
                 )
                 
                 # 更新服务状态（写入状态层）
+                # 关键：这里写入完整的工具状态，LifecycleManager 只更新健康状态
                 await self._update_service_status(
                     event.agent_id,
                     event.service_name,
@@ -289,6 +376,34 @@ class CacheManager:
                 f"[CACHE] 创建工具: tool_name={tool_name}, "
                 f"tool_global_name={tool_global_name}"
             )
+
+            # region agent log: before_create_tool_entity (H9)
+            try:
+                import json as _json_cm, time as _time_cm
+                from pathlib import Path as _Path_cm
+                _log_path_cm = _Path_cm("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                _payload_cm = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H9",
+                    "location": "core/domain/cache_manager.py:_create_tool_entities_and_relations",
+                    "message": "before_create_tool_entity",
+                    "data": {
+                        "agent_id": agent_id,
+                        "service_name": service_name,
+                        "service_global_name": service_global_name,
+                        "tool_name": tool_name,
+                        "tool_global_name": tool_global_name,
+                    },
+                    "timestamp": int(_time_cm.time() * 1000),
+                }
+                _log_path_cm.parent.mkdir(parents=True, exist_ok=True)
+                with _log_path_cm.open("a", encoding="utf-8") as _f_cm:
+                    _f_cm.write(_json_cm.dumps(_payload_cm, ensure_ascii=False) + "\n")
+            except Exception:
+                # 调试日志失败不影响主流程
+                pass
+            # endregion
             
             # 1. 创建工具实体（写入实体层）
             await tool_entity_manager.create_tool(

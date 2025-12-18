@@ -296,30 +296,22 @@ class ConnectionManager:
         # Handle service name mapping for agent services
         actual_service_name = service_name
 
-        # DEBUG: Show current mappings
-        logger.debug(f"[CONNECTION] global_to_agent_mappings count: {len(self._registry.global_to_agent_mappings)}")
-        if hasattr(self._registry, 'global_to_agent_mappings'):
-            for global_name, (mapped_agent_id, local_name) in list(self._registry.global_to_agent_mappings.items())[:3]:
-                logger.debug(f"[CONNECTION] Found mapping: {global_name} -> agent:{mapped_agent_id}, local:{local_name}")
-
         # If this is a local service name for global_agent_store,
         # check if there's a global name mapping
         if agent_id == "global_agent_store" and not service_name.startswith("_"):
-            # Try to get global name from registry mappings
-            global_name = self._registry.get_agent_service_from_global_name(service_name)
-            if global_name:
-                # service_name is actually a local name, need to find its global counterpart
-                # Search through all agent mappings
-                for mapped_global_name, (mapped_agent_id, mapped_local_name) in self._registry.global_to_agent_mappings.items():
-                    if mapped_local_name == service_name:
-                        actual_service_name = mapped_global_name
-                        logger.debug(f"[CONNECTION] Mapped local name {service_name} to global name {actual_service_name}")
-                        break
+            # 使用 ServiceRegistry 暴露的方法接口
+            # 检查 service_name 是否是一个全局名称（对应某个 Agent 服务）
+            agent_service_info = self._registry.get_agent_service_from_global_name(service_name)
+            if agent_service_info:
+                # service_name 已经是全局名称
+                actual_service_name = service_name
+                logger.debug(f"[CONNECTION] Service name {service_name} is already a global name")
             else:
-                # Check if service_name is already a global name
-                if service_name in self._registry.global_to_agent_mappings:
-                    actual_service_name = service_name
-                    logger.debug(f"[CONNECTION] Service name {service_name} is already a global name")
+                # service_name 可能是本地名称，尝试获取对应的全局名称
+                global_name = self._registry.get_global_name_from_agent_service(agent_id, service_name)
+                if global_name:
+                    actual_service_name = global_name
+                    logger.debug(f"[CONNECTION] Mapped local name {service_name} to global name {actual_service_name}")
 
         # Get configuration strictly through client_id → client_config → mcpServers
         client_id = self._registry.get_service_client_id(agent_id, actual_service_name)

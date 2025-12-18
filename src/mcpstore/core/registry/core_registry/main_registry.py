@@ -22,6 +22,71 @@ from .mapping_manager import MappingManager
 from .utils import JSONSchemaUtils, ConfigUtils, ServiceUtils, DataUtils
 
 
+class AgentClientMappingServiceAdapter:
+    """
+    AgentClientMappingService 适配器
+
+    提供与原始架构中 _agent_client_service 相同的接口，
+    内部委托给 MappingManager 实现。
+    """
+
+    def __init__(self, mapping_manager):
+        """
+        初始化适配器
+
+        Args:
+            mapping_manager: MappingManager 实例
+        """
+        self._mapping_manager = mapping_manager
+
+    def add_agent_client_mapping(self, agent_id: str, client_id: str) -> None:
+        """
+        添加 Agent-Client 映射
+        
+        注意：在新架构中，Agent-Client 映射是从 Service-Client 映射派生的，
+        此方法为 no-op，仅用于兼容性。
+        """
+        # Agent-client mappings are derived from service_client mappings
+        # No need to store separately
+        pass
+
+    def remove_agent_client_mapping(self, agent_id: str, client_id: str) -> None:
+        """
+        移除 Agent-Client 映射
+        
+        注意：在新架构中，Agent-Client 映射是从 Service-Client 映射派生的，
+        此方法为 no-op，仅用于兼容性。
+        """
+        pass
+
+    def add_service_client_mapping(self, agent_id: str, service_name: str, client_id: str) -> None:
+        """添加 Service-Client 映射"""
+        self._mapping_manager.set_service_client_mapping(agent_id, service_name, client_id)
+
+    def remove_service_client_mapping(self, agent_id: str, service_name: str) -> None:
+        """移除 Service-Client 映射"""
+        self._mapping_manager.remove_service_client_mapping(agent_id, service_name)
+
+    def get_service_client_id(self, agent_id: str, service_name: str) -> str:
+        """获取服务对应的 Client ID"""
+        return self._mapping_manager.get_service_client_id(agent_id, service_name)
+
+    def get_service_client_mapping(self, agent_id: str) -> dict:
+        """获取指定 agent 的所有 service-client 映射"""
+        # 从 MappingManager 的内部缓存中提取
+        result = {}
+        prefix = f"{agent_id}:"
+        for cache_key, client_id in self._mapping_manager._service_client_mapping.items():
+            if cache_key.startswith(prefix):
+                service_name = cache_key.split(":", 1)[1]
+                result[service_name] = client_id
+        return result
+
+    async def get_agent_clients_async(self, agent_id: str) -> list:
+        """异步获取 Agent 的所有 Client ID"""
+        return await self._mapping_manager.get_agent_clients_async(agent_id)
+
+
 class ServiceStateServiceAdapter:
     """
     ServiceStateService 适配器
@@ -111,14 +176,14 @@ class ServiceRegistry:
 
     def __init__(self,
                  kv_store: Optional['AsyncKeyValue'] = None,
-                 namespace: str = "default"):
+                 namespace: str = "mcpstore"):
         """
         Initialize ServiceRegistry with new cache architecture.
 
         Args:
             kv_store: AsyncKeyValue instance for data storage. If None, uses MemoryStore.
                      Session data is always kept in memory regardless of kv_store type.
-            namespace: Cache namespace for data isolation (default: "default")
+            namespace: Cache namespace for data isolation (default: "mcpstore")
 
         Note:
             - Sessions are stored in memory (not serializable)
@@ -243,118 +308,32 @@ class ServiceRegistry:
         # 这个适配器委托给 _state_manager，提供与原始架构相同的接口
         self._service_state_service = ServiceStateServiceAdapter(self._state_manager, self._naming)
 
+        # 创建 AgentClientMappingService 适配器（兼容原始架构）
+        # 这个适配器委托给 _mapping_manager，提供与原始架构相同的接口
+        self._agent_client_service = AgentClientMappingServiceAdapter(self._mapping_manager)
+
         self._logger.info("ServiceRegistry initialized with all managers")
 
     def _create_cache_layer(self, kv_store=None):
-        """创建缓存层"""
-        # 如果提供了kv_store，直接使用；否则创建简单的内存缓存层
-        if kv_store:
-            return kv_store
-
-        # 创建一个简单的内存缓存层作为备用
-        class SimpleCacheLayer:
-            def __init__(self):
-                self._cache = {}
-
-            def get(self, key):
-                return self._cache.get(key)
-
-            def set(self, key, value):
-                self._cache[key] = value
-
-            def delete(self, key):
-                self._cache.pop(key, None)
-
-            def clear(self):
-                self._cache.clear()
-
-            # 新增：支持重构后的缓存层接口
-            async def get_all_entities_async(self, entity_type: str) -> Dict[str, Dict[str, Any]]:
-                """
-                异步获取指定类型的所有实体
-
-                Args:
-                    entity_type: 实体类型 (如 "services", "tools", "agents")
-
-                Returns:
-                    Dict[str, Dict[str, Any]]: 实体数据字典
-                """
-                try:
-                    # 简化实现：从内部缓存中查找匹配的实体
-                    result = {}
-                    prefix = f"entity:{entity_type}:"
-
-                    for key, value in self._cache.items():
-                        if key.startswith(prefix):
-                            entity_key = key[len(prefix):]
-                            result[entity_key] = value
-
-                    return result
-                except Exception as e:
-                    # 出错时返回空字典而不是抛出异常
-                    return {}
-
-            async def put_entity(self, entity_type: str, key: str, data: Any) -> None:
-                """存储实体"""
-                cache_key = f"entity:{entity_type}:{key}"
-                self._cache[cache_key] = data
-
-            async def get_entity(self, entity_type: str, key: str) -> Optional[Any]:
-                """获取实体"""
-                cache_key = f"entity:{entity_type}:{key}"
-                return self._cache.get(cache_key)
-
-            async def delete_entity(self, entity_type: str, key: str) -> None:
-                """删除实体"""
-                cache_key = f"entity:{entity_type}:{key}"
-                self._cache.pop(cache_key, None)
-
-            async def put_state(self, state_type: str, key: str, data: Any) -> None:
-                """存储状态"""
-                cache_key = f"state:{state_type}:{key}"
-                self._cache[cache_key] = data
-
-            async def get_state(self, state_type: str, key: str) -> Optional[Any]:
-                """获取状态"""
-                cache_key = f"state:{state_type}:{key}"
-                return self._cache.get(cache_key)
-
-            async def delete_state(self, state_type: str, key: str) -> None:
-                """删除状态"""
-                cache_key = f"state:{state_type}:{key}"
-                self._cache.pop(cache_key, None)
-
-            # 新增：支持 unified_sync_manager 的实体访问接口
-            async def get_all_entities_sync(self, entity_type: str) -> Dict[str, Dict[str, Any]]:
-                """
-                同步获取所有实体（为了兼容性）
-
-                Args:
-                    entity_type: 实体类型
-
-                Returns:
-                    Dict[str, Dict[str, Any]]: 实体数据字典
-                """
-                try:
-                    # 对于服务实体，从当前会话中获取
-                    if entity_type == "services":
-                        result = {}
-                        for service_name, session_info in self._registry.sessions.items():
-                            result[service_name] = {
-                                'value': {
-                                    'service_name': service_name,
-                                    'agent_id': session_info.get('agent_id', 'unknown'),
-                                    'state': 'active',
-                                    'client_id': session_info.get('client_id'),
-                                    'connected_at': session_info.get('connected_at')
-                                }
-                            }
-                        return result
-                    return {}
-                except Exception as e:
-                    return {}
-
-        return SimpleCacheLayer()
+        """
+        创建缓存层
+        
+        Args:
+            kv_store: AsyncKeyValue 实例，必须提供
+            
+        Returns:
+            传入的 kv_store 实例
+            
+        Raises:
+            RuntimeError: 如果 kv_store 为 None
+        """
+        if kv_store is None:
+            raise RuntimeError(
+                "kv_store 参数不能为 None。"
+                "ServiceRegistry 必须传入有效的 AsyncKeyValue 实例。"
+                "请使用 MemoryStore 或 RedisStore 初始化。"
+            )
+        return kv_store
 
     def _create_naming_service(self):
         """创建命名服务"""
@@ -507,6 +486,19 @@ class ServiceRegistry:
 
         return result
 
+    async def remove_service_async(self, agent_id: str, name: str) -> Optional[Any]:
+        """
+        异步移除服务（代理到 ServiceManager）
+
+        Args:
+            agent_id: Agent ID
+            name: 服务名称
+
+        Returns:
+            被移除的会话对象
+        """
+        return await self._service_manager.remove_service_async(agent_id, name)
+
     def register_service(self, service_config: Dict[str, Any]) -> bool:
         return self._service_manager.register_service(service_config)
 
@@ -527,6 +519,50 @@ class ServiceRegistry:
 
     def is_service_registered(self, service_name: str) -> bool:
         return self._service_manager.is_service_registered(service_name)
+
+    def has_service(self, agent_id: str, service_name: str) -> bool:
+        """
+        检查指定 Agent 是否拥有指定服务
+
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+
+        Returns:
+            服务是否存在
+        """
+        services = self._service_manager.get_services_for_agent(agent_id)
+        return service_name in services
+
+    async def has_service_async(self, agent_id: str, service_name: str) -> bool:
+        """
+        异步检查指定 Agent 是否拥有指定服务
+
+        遵循 "Functional Core, Imperative Shell" 架构原则：
+        - 异步外壳直接使用 await 调用异步操作
+        - 在异步上下文中必须使用此方法，而非同步版本
+
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+
+        Returns:
+            服务是否存在
+        """
+        services = await self._service_manager.get_services_for_agent_async(agent_id)
+        return service_name in services
+
+    async def get_services_for_agent_async(self, agent_id: str) -> List[str]:
+        """
+        异步获取指定 Agent 的所有服务
+
+        Args:
+            agent_id: Agent ID
+
+        Returns:
+            服务名称列表
+        """
+        return await self._service_manager.get_services_for_agent_async(agent_id)
 
     def get_all_services(self) -> List[str]:
         return self._service_manager.get_all_services()

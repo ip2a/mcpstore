@@ -20,10 +20,19 @@ class CacheType(Enum):
 
 
 class DataSourceStrategy(Enum):
-    """Data source strategy enumeration."""
-    JSON_MEMORY = "json_memory"      # JSON file + Memory (standard configuration)
-    JSON_CUSTOM = "json_custom"      # JSON file + Custom data source (e.g., Redis)
-    CUSTOM_ONLY = "custom_only"      # Custom data source only (no JSON sync)
+    """
+    数据源策略枚举
+    
+    定义了三种数据源策略，决定数据如何存储和同步：
+    - local_memory: JSON + Memory 缓存，标准本地配置
+    - local_db: JSON + Redis 缓存，本地配置 + 远程存储
+    - only_db: 仅 Redis 缓存，无本地 JSON 文件
+    
+    注意: 所有一致性数据统一通过 add_service() 写入三层缓存架构
+    """
+    LOCAL_MEMORY = "local_memory"    # JSON + Memory 缓存 (标准本地配置)
+    LOCAL_DB = "local_db"            # JSON + Redis 缓存 (本地配置 + 远程存储)
+    ONLY_DB = "only_db"              # 仅 Redis 缓存 (无本地 JSON 文件)
 
 
 
@@ -134,41 +143,43 @@ def detect_strategy(
     json_path: Optional[str]
 ) -> DataSourceStrategy:
     """
-    Automatically detect data source strategy based on configuration.
+    根据配置自动检测数据源策略
     
     Args:
-        cache_config: Cache configuration object (MemoryConfig or RedisConfig)
-        json_path: JSON file path (optional)
+        cache_config: 缓存配置对象 (MemoryConfig 或 RedisConfig)
+        json_path: JSON 文件路径 (可选)
     
     Returns:
-        DataSourceStrategy enum value
+        DataSourceStrategy 枚举值
     
-    Strategy Detection Logic:
-    - JSON + Memory → JSON_MEMORY (standard configuration)
-    - JSON + Redis/Custom → JSON_CUSTOM (needs synchronization)
-    - No JSON + Any → CUSTOM_ONLY (no synchronization needed)
+    策略检测逻辑:
+    - JSON + Memory → LOCAL_MEMORY (标准本地配置)
+    - JSON + Redis → LOCAL_DB (本地配置 + 远程存储)
+    - 无 JSON + 任意 → ONLY_DB (仅远程存储)
+    
+    注意: 所有一致性数据统一通过 add_service() 写入三层缓存架构
     
     Examples:
         >>> detect_strategy(MemoryConfig(), "mcp.json")
-        DataSourceStrategy.JSON_MEMORY
+        DataSourceStrategy.LOCAL_MEMORY
         
         >>> detect_strategy(RedisConfig(url="redis://localhost:6379/0"), "mcp.json")
-        DataSourceStrategy.JSON_CUSTOM
+        DataSourceStrategy.LOCAL_DB
         
         >>> detect_strategy(RedisConfig(url="redis://localhost:6379/0"), None)
-        DataSourceStrategy.CUSTOM_ONLY
+        DataSourceStrategy.ONLY_DB
     """
     has_json = json_path is not None
     is_memory = isinstance(cache_config, MemoryConfig)
     
     if has_json:
         if is_memory:
-            return DataSourceStrategy.JSON_MEMORY  # Standard configuration
+            return DataSourceStrategy.LOCAL_MEMORY  # 标准本地配置
         else:
-            return DataSourceStrategy.JSON_CUSTOM  # JSON + custom data source
+            return DataSourceStrategy.LOCAL_DB  # 本地配置 + 远程存储
     else:
-        # No JSON file
-        return DataSourceStrategy.CUSTOM_ONLY  # Only use data source
+        # 无 JSON 文件
+        return DataSourceStrategy.ONLY_DB  # 仅远程存储
 
 
 async def create_kv_store_async(cache_config: Union[MemoryConfig, RedisConfig], test_connection: bool = True):

@@ -213,6 +213,10 @@ class ServiceManager(ServiceManagerInterface):
         """
         异步添加服务
 
+        遵循 "Functional Core, Imperative Shell" 架构原则：
+        - 异步外壳直接使用 await 调用异步操作
+        - 不通过 _sync_operation 转换
+
         Args:
             agent_id: Agent ID
             name: 服务名称
@@ -224,8 +228,85 @@ class ServiceManager(ServiceManagerInterface):
         Returns:
             是否成功添加
         """
-        # 简化实现：同步调用
-        return self.add_service(agent_id, name, session, tools, service_config, auto_connect)
+        try:
+            tools = tools or []
+            service_config = service_config or {}
+
+            # 生成全局名称
+            service_global_name = self._naming.generate_service_global_name(name, agent_id)
+
+            # 确定服务状态
+            if session is not None and len(tools) > 0:
+                from mcpstore.core.models.service import ServiceConnectionState
+                state = ServiceConnectionState.HEALTHY
+            elif session is not None:
+                from mcpstore.core.models.service import ServiceConnectionState
+                state = ServiceConnectionState.WARNING
+            else:
+                from mcpstore.core.models.service import ServiceConnectionState
+                state = ServiceConnectionState.DISCONNECTED
+
+            # 检查服务是否已存在（异步）
+            service_exists = False
+            if self._service_entity_manager:
+                existing_service = await self._service_entity_manager.get_service(service_global_name)
+                if existing_service:
+                    logger.debug(f"服务已存在: {service_global_name}，将更新工具")
+                    service_exists = True
+
+            # 创建服务实体（仅当服务不存在时）
+            if not service_exists and self._service_entity_manager:
+                await self._service_entity_manager.create_service(
+                    agent_id=agent_id,
+                    original_name=name,
+                    config=service_config
+                )
+
+            # 创建Agent-Service关系（仅当服务不存在时）
+            if not service_exists and self._relation_manager:
+                client_id = f"client_{agent_id}_{name}"
+                await self._relation_manager.add_agent_service(
+                    agent_id=agent_id,
+                    service_original_name=name,
+                    service_global_name=service_global_name,
+                    client_id=client_id
+                )
+
+            # 设置服务状态（同步操作，使用内存缓存）
+            if self._state_manager:
+                self._state_manager.set_service_state(agent_id, name, state)
+
+            # 设置服务会话（同步操作，使用内存缓存）
+            if self._session_manager and session:
+                self._session_manager.set_session(agent_id, name, session)
+
+                # 设置工具会话映射
+                for tool_name, tool_def in tools:
+                    self._session_manager.add_tool_session_mapping(agent_id, tool_name, session)
+
+            # 添加工具（异步）
+            self._logger.info(f"[ADD_SERVICE_ASYNC] 检查工具添加条件: _tool_manager={self._tool_manager is not None}, tools={tools is not None}, tools_count={len(tools) if tools else 0}")
+            if self._tool_manager and tools:
+                await self._add_tools_to_service_async(agent_id, name, tools)
+            else:
+                self._logger.warning(f"[ADD_SERVICE_ASYNC] 跳过工具添加: _tool_manager={self._tool_manager}, tools={tools}")
+
+            # 更新缓存（同步操作，使用内存缓存）
+            cache_key = f"{agent_id}:{name}"
+            self._service_cache[cache_key] = {
+                "name": name,
+                "global_name": service_global_name,
+                "state": state,
+                "config": service_config,
+                "added_time": datetime.now()
+            }
+
+            self._logger.info(f"异步添加服务成功: {service_global_name}")
+            return True
+
+        except Exception as e:
+            self._logger.error(f"异步添加服务失败 {agent_id}:{name}: {e}")
+            return False
 
     def remove_service(self, agent_id: str, name: str) -> Optional[Any]:
         """
@@ -425,6 +506,38 @@ class ServiceManager(ServiceManagerInterface):
             服务名称列表
         """
         try:
+            # region agent log: get_services_for_agent entry
+            try:
+                import json as _json_gs
+                import asyncio as _asyncio_gs
+                import threading as _th_gs
+
+                _in_async = False
+                try:
+                    _asyncio_gs.get_running_loop()
+                    _in_async = True
+                except RuntimeError:
+                    _in_async = False
+
+                _payload_gs = {
+                    "sessionId": "debug-session",
+                    "runId": "initial",
+                    "hypothesisId": "H1",
+                    "location": "core/registry/core_registry/service_manager.py:get_services_for_agent",
+                    "message": "get_services_for_agent called",
+                    "data": {
+                        "agent_id": agent_id,
+                        "in_async_context": _in_async,
+                        "thread": _th_gs.current_thread().name,
+                    },
+                    "timestamp": __import__("time").time(),
+                }
+                with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f_gs:
+                    _f_gs.write(_json_gs.dumps(_payload_gs, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # endregion agent log
+
             # 从关系管理器获取服务
             if self._relation_manager:
                 services = self._sync_operation(
@@ -446,6 +559,40 @@ class ServiceManager(ServiceManagerInterface):
         except Exception as e:
             self._logger.error(f"获取agent服务列表失败 {agent_id}: {e}")
             return []
+
+    async def get_services_for_agent_async(self, agent_id: str) -> List[str]:
+        """
+        异步获取指定agent的所有服务
+
+        遵循 "Functional Core, Imperative Shell" 架构原则：
+        - 异步外壳直接使用 await 调用异步操作
+        - 不通过 _sync_operation 转换
+
+        Args:
+            agent_id: Agent ID
+
+        Returns:
+            服务名称列表
+        """
+        try:
+            # 从关系管理器获取服务（异步）
+            if self._relation_manager:
+                services = await self._relation_manager.get_agent_services(agent_id)
+                return [service.get("service_original_name", "") for service in services]
+
+            # 从缓存获取（同步操作，使用内存缓存）
+            service_names = []
+            cache_prefix = f"{agent_id}:"
+            for cache_key in self._service_cache:
+                if cache_key.startswith(cache_prefix):
+                    service_name = cache_key.split(":", 1)[1]
+                    service_names.append(service_name)
+
+            return service_names
+
+        except Exception as e:
+            self._logger.error(f"异步获取agent服务列表失败 {agent_id}: {e}")
+            raise
 
     def get_service_details(self, agent_id: str, name: str) -> Dict[str, Any]:
         """
@@ -786,6 +933,52 @@ class ServiceManager(ServiceManagerInterface):
             self._logger.error(f"添加工具到服务失败 {agent_id}:{service_name}: {e}")
             raise
 
+    async def _add_tools_to_service_async(self, agent_id: str, service_name: str,
+                                          tools: List[Tuple[str, Dict[str, Any]]]):
+        """
+        异步添加工具到服务
+
+        遵循 "Functional Core, Imperative Shell" 架构原则：
+        - 异步外壳直接使用 await 调用异步操作
+        - 不通过 _sync_operation 转换
+
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+            tools: 工具列表
+        """
+        try:
+            self._logger.info(f"[ADD_TOOLS_ASYNC] 开始异步添加工具到服务: agent={agent_id}, service={service_name}, tools_count={len(tools)}")
+            service_global_name = self._naming.generate_service_global_name(service_name, agent_id)
+
+            for tool_name, tool_def in tools:
+                # 生成工具全局名称
+                tool_global_name = self._naming.generate_tool_global_name(service_global_name, tool_name)
+
+                # 创建工具实体（异步）
+                if self._tool_entity_manager:
+                    await self._tool_entity_manager.create_tool(
+                        service_global_name=service_global_name,
+                        service_original_name=service_name,
+                        source_agent=agent_id,
+                        tool_original_name=tool_name,
+                        tool_def=tool_def
+                    )
+
+                # 创建服务-工具关系（异步）
+                if self._relation_manager:
+                    await self._relation_manager.add_service_tool(
+                        service_global_name=service_global_name,
+                        service_original_name=service_name,
+                        source_agent=agent_id,
+                        tool_global_name=tool_global_name,
+                        tool_original_name=tool_name
+                    )
+
+        except Exception as e:
+            self._logger.error(f"异步添加工具到服务失败 {agent_id}:{service_name}: {e}")
+            raise
+
     def _sync_operation(self, async_coro, operation_name: str = "同步操作"):
         """
         执行同步操作
@@ -799,6 +992,36 @@ class ServiceManager(ServiceManagerInterface):
         """
         try:
             if self._cache_manager:
+                # region agent log: _sync_operation via cache_manager
+                try:
+                    import json as _json_so
+                    import asyncio as _asyncio_so
+
+                    _in_async = False
+                    try:
+                        _asyncio_so.get_running_loop()
+                        _in_async = True
+                    except RuntimeError:
+                        _in_async = False
+
+                    _payload_so = {
+                        "sessionId": "debug-session",
+                        "runId": "initial",
+                        "hypothesisId": "H2",
+                        "location": "core/registry/core_registry/service_manager.py:_sync_operation",
+                        "message": "sync_operation using cache_manager.async_to_sync",
+                        "data": {
+                            "operation": operation_name,
+                            "in_async_context": _in_async,
+                        },
+                        "timestamp": __import__("time").time(),
+                    }
+                    with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f_so:
+                        _f_so.write(_json_so.dumps(_payload_so, ensure_ascii=False) + "\n")
+                except Exception:
+                    pass
+                # endregion agent log
+
                 # 使用 async_to_sync 方法执行异步协程
                 return self._cache_manager.async_to_sync(async_coro, operation_name)
             else:

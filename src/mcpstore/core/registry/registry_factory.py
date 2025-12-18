@@ -36,13 +36,13 @@ class ProductionRegistryFactory(RegistryFactoryInterface):
     """
 
     @staticmethod
-    def create_service_registry(kv_store, namespace: str = "default") -> 'ServiceRegistry':
+    def create_service_registry(kv_store, namespace: str = "mcpstore") -> 'ServiceRegistry':
         """
         通过工厂模式创建ServiceRegistry实例
 
         Args:
             kv_store: 键值存储实例（由kv_store_factory创建）
-            namespace: 缓存命名空间（默认: "default"）
+            namespace: 缓存命名空间（默认: "mcpstore"）
 
         Returns:
             ServiceRegistry: 配置完成的注册表实例
@@ -128,21 +128,22 @@ def create_registry_from_config(config: Optional[Dict[str, Any]] = None,
         return ProductionRegistryFactory.create_from_config(config)
 
 
-def create_registry_from_kv_store(kv_store, test_mode: bool = False) -> 'ServiceRegistry':
+def create_registry_from_kv_store(kv_store, test_mode: bool = False, namespace: str = "mcpstore") -> 'ServiceRegistry':
     """
     从KV存储创建注册表
 
     Args:
         kv_store: KV存储实例
         test_mode: 是否使用测试工厂
+        namespace: 缓存命名空间（默认: "mcpstore"）
 
     Returns:
         ServiceRegistry: 创建的注册表实例
     """
     if test_mode:
-        return TestRegistryFactory().create_service_registry(kv_store)
+        return TestRegistryFactory(namespace=namespace).create_service_registry(kv_store)
     else:
-        return ProductionRegistryFactory.create_service_registry(kv_store)
+        return ProductionRegistryFactory.create_service_registry(kv_store, namespace=namespace)
 
 
 # 向后兼容的工厂函数

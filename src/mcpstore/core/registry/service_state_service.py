@@ -172,7 +172,25 @@ class ServiceStateService:
         修复：从service_states判断服务是否存在，而不是sessions（sessions可能为空）
         """
         return name in self.service_states.get(agent_id, {})
-    
+
+    async def has_service_async(self, agent_id: str, name: str) -> bool:
+        """
+        异步判断指定 agent_id 下是否存在某服务。
+
+        遵循 "Functional Core, Imperative Shell" 架构原则：
+        - 异步外壳直接使用 await 调用异步操作
+        - 从 pykv 读取服务状态，而非内存缓存
+
+        Args:
+            agent_id: Agent ID
+            name: 服务名称
+
+        Returns:
+            服务是否存在
+        """
+        state = await self.get_service_state_async(agent_id, name)
+        return state is not None
+
     # === Async Methods for KV Storage ===
     
     @map_kv_exception

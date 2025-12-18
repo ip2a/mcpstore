@@ -8,7 +8,6 @@ with modern cache configuration (RedisConfig/MemoryConfig).
 
 import logging
 import os
-from hashlib import sha1
 from typing import Optional, Dict, Any, Union
 from copy import deepcopy
 
@@ -17,26 +16,12 @@ from mcpstore.config.toml_config import init_config
 
 logger = logging.getLogger(__name__)
 
+# 默认 namespace 常量
+DEFAULT_NAMESPACE = "mcpstore"
+
 
 class StoreSetupManager:
     """Setup Manager - Keep only single setup_store interface"""
-
-    @staticmethod
-    def _generate_namespace(mcpjson_path: str) -> str:
-        """
-        Automatically generate namespace based on mcp.json path
-
-        Args:
-            mcpjson_path: mcp.json file path
-
-        Returns:
-            Generated namespace string
-        """
-        # Use SHA1 hash of the absolute path to generate a unique namespace
-        abs_path = os.path.abspath(mcpjson_path)
-        hash_obj = sha1(abs_path.encode('utf-8'))
-        hash_hex = hash_obj.hexdigest()[:12]  # Use first 12 characters
-        return f"mcpstore_{hash_hex}"
 
     @staticmethod
     def setup_store(
@@ -138,7 +123,7 @@ class StoreSetupManager:
             MemoryConfig, RedisConfig, detect_strategy,
             create_kv_store, get_namespace, start_health_check
         )
-        from mcpstore.core.registry.config_sync_manager import ConfigSyncManager
+        from mcpstore.core.bridge import get_async_bridge
 
         # Handle cache configuration (default to MemoryConfig if not provided)
         if cache is None:
@@ -149,55 +134,57 @@ class StoreSetupManager:
         strategy = detect_strategy(cache, mcpjson_path)
         logger.info(f"Cache initialization: type={cache.cache_type.value}, strategy={strategy.value}")
         
-        # region agent log: debug cache strategy
-        try:
-            import json as _json
-            _log_payload = {
-                "sessionId": "debug-session",
-                "runId": "initial",
-                "hypothesisId": "H1",
-                "location": "core/store/setup_manager.py:cache_strategy",
-                "message": "Cache strategy resolved",
-                "data": {
-                    "cache_type": getattr(cache, "cache_type", None).value if getattr(cache, "cache_type", None) is not None else None,
-                    "strategy": getattr(strategy, "value", str(strategy)),
-                    "has_namespace": bool(getattr(cache, "namespace", None)),
-                },
-                "timestamp": __import__("time").time(),
-            }
-            with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f:
-                _f.write(_json.dumps(_log_payload, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
-        # endregion agent log
-        
-        # Set default namespace for RedisConfig if not provided
+        # 设置 namespace：统一使用默认值 "mcpstore"，用户可通过 RedisConfig.namespace 覆盖
+        namespace = DEFAULT_NAMESPACE
         if isinstance(cache, RedisConfig):
             if cache.namespace is None:
-                if mcpjson_path:
-                    # Auto-generate namespace based on mcp.json path
-                    cache.namespace = StoreSetupManager._generate_namespace(mcpjson_path)
-                    logger.info(f"Generated namespace from JSON path: {cache.namespace}")
-                else:
-                    # Use default namespace
-                    cache.namespace = "mcpstore"
-                    logger.info(f"Using default namespace: {cache.namespace}")
+                cache.namespace = DEFAULT_NAMESPACE
+                logger.info(f"Using default namespace: {cache.namespace}")
             else:
+                namespace = cache.namespace
                 logger.info(f"Using user-provided namespace: {cache.namespace}")
         
-        # Create KV store using create_kv_store
-        kv_store = create_kv_store(cache)
-        logger.info(f"Created KV store: {type(kv_store).__name__}")
+        # 关键修复：对于 Redis 后端，必须在 AOB 的后台事件循环中创建 KV store
+        # 这样 Redis 连接就绑定到 AOB 的事件循环，后续所有操作都在同一个事件循环中执行
+        if isinstance(cache, RedisConfig):
+            # 获取 AOB 实例，确保后台事件循环已启动
+            bridge = get_async_bridge()
+            
+            # 在 AOB 的后台事件循环中创建 Redis KV store
+            async def _create_redis_kv_store():
+                from key_value.aio.stores.redis import RedisStore
+                namespace = get_namespace(cache)
+                
+                if cache.client:
+                    logger.debug(f"Creating RedisStore with user-provided client in AOB loop, namespace={namespace}")
+                    return RedisStore(client=cache.client, default_collection=namespace)
+                elif cache.url:
+                    logger.debug(f"Creating RedisStore with URL in AOB loop, namespace={namespace}")
+                    return RedisStore(url=cache.url, default_collection=namespace)
+                else:
+                    logger.debug(f"Creating RedisStore with parameters in AOB loop: host={cache.host}, port={cache.port or 6379}, db={cache.db or 0}, namespace={namespace}")
+                    return RedisStore(
+                        host=cache.host,
+                        port=cache.port or 6379,
+                        db=cache.db or 0,
+                        password=cache.password,
+                        default_collection=namespace
+                    )
+            
+            kv_store = bridge.run(_create_redis_kv_store(), op_name="create_redis_kv_store")
+            logger.info(f"Created Redis KV store in AOB event loop: {type(kv_store).__name__}")
+        else:
+            # 对于 MemoryStore，可以直接创建（不涉及事件循环绑定问题）
+            kv_store = create_kv_store(cache)
+            logger.info(f"Created KV store: {type(kv_store).__name__}")
         
         # Use factory pattern for zero delegation
-        registry = create_registry_from_kv_store(kv_store, test_mode=False)
+        # 传递统一的 namespace 给 registry
+        registry = create_registry_from_kv_store(kv_store, test_mode=False, namespace=namespace)
 
-        config_sync_manager = None
-        if strategy.value == "json_custom":
-            namespace = None
-            if isinstance(cache, RedisConfig):
-                namespace = get_namespace(cache)
-            config_sync_manager = ConfigSyncManager(kv_store, namespace=namespace)
+        # [已移除] ConfigSyncManager 配置备份功能
+        # 原因: 所有一致性数据统一通过 add_service() 写入三层缓存架构
+        # 初始化时的配置备份会导致数据不一致，因此移除
         
         # Track Redis client lifecycle (for cleanup)
         _user_provided_redis_client = None
@@ -249,26 +236,22 @@ class StoreSetupManager:
             except Exception as e:
                 logger.error(f"Failed to initialize Redis connection: {e}", exc_info=True)
         
-        # Detect cache mode if set to "auto" (for backward compatibility)
+        # 根据策略自动检测缓存模式
         if cache_mode == "auto":
-            # Map strategy to cache_mode
-            if strategy.value == "json_memory":
+            # 策略到缓存模式的映射
+            if strategy.value == "local_memory":
                 cache_mode = "local"
-            elif strategy.value == "json_custom":
+            elif strategy.value == "local_db":
                 cache_mode = "hybrid"
-            elif strategy.value == "custom_only":
+            elif strategy.value == "only_db":
                 cache_mode = "shared"
-            logger.debug(f"Mapped strategy {strategy.value} to cache_mode: {cache_mode}")
+            logger.debug(f"策略 {strategy.value} 映射到缓存模式: {cache_mode}")
 
         # 5) 编排器
         from mcpstore.core.orchestrator import MCPOrchestrator
         orchestrator = MCPOrchestrator(base_cfg, registry, mcp_config=config)
 
-        if config_sync_manager is not None:
-            try:
-                orchestrator.config_sync_manager = config_sync_manager
-            except Exception:
-                pass
+
 
         # 6) 实例化 Store（固定组合类）
         from mcpstore.core.store.composed_store import MCPStore as _MCPStore
@@ -277,21 +260,24 @@ class StoreSetupManager:
         store._data_space_manager = dsm
 
         # 7) 同步初始化 orchestrator
-        asyncio.run(orchestrator.setup())
+        # 关键：对于 Redis 后端，必须使用 AOB 确保在同一个事件循环中执行
+        if isinstance(cache, RedisConfig):
+            bridge.run(orchestrator.setup(), op_name="orchestrator.setup")
+        else:
+            asyncio.run(orchestrator.setup())
 
-        if config_sync_manager is not None:
-            try:
-                asyncio.run(
-                    config_sync_manager.sync_json_to_cache(config.json_path, overwrite=True)
-                )
-            except Exception as e:
-                logger.warning(f"Initial JSON to KV config sync failed: {e}")
+        # [已移除] Phase 11: 配置同步 (sync_json_to_cache)
+        # 原因: 所有一致性数据统一通过 add_service() 写入三层缓存架构
+        # mcp.json 配置在服务连接时通过 add_service() 写入实体层/关系层/状态层
 
         # 8) 可选：预热缓存
         features = stat.get("features", {}) if isinstance(stat, dict) else {}
         if features.get("preload_cache"):
             try:
-                asyncio.run(store.initialize_cache_from_files())
+                if isinstance(cache, RedisConfig):
+                    bridge.run(store.initialize_cache_from_files(), op_name="store.initialize_cache_from_files")
+                else:
+                    asyncio.run(store.initialize_cache_from_files())
             except Exception as e:
                 if features.get("fail_on_cache_preload_error"):
                     raise

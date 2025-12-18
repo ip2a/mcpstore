@@ -12,6 +12,7 @@ import logging
 from typing import Dict, Any, Optional, List, Set
 
 from .base import PersistenceManagerInterface
+from .errors import raise_legacy_error
 
 logger = logging.getLogger(__name__)
 
@@ -514,13 +515,11 @@ class PersistenceManager(PersistenceManagerInterface):
                         self._cache_layer.set_service_state(service_name, state)
 
                         # 如果有注册时间，保存到元数据
+                        # 注意：元数据保存功能暂时跳过，因为 _cache_layer 是 RedisStore，没有 set_entity_metadata 方法
+                        # 如果需要保存元数据，应该通过 CacheLayerManager.put_state() 方法
+                        # TODO: 如果需要此功能，需要注入 CacheLayerManager 实例
                         if "registered_at" in service_data:
-                            metadata = {
-                                "registered_at": service_data["registered_at"],
-                                "imported_at": datetime.now().isoformat(),
-                                "import_source": "persistence_import"
-                            }
-                            self._cache_layer.set_entity_metadata("service", service_name, metadata)
+                            self._logger.debug(f"跳过元数据保存（需要 CacheLayerManager）: {service_name}")
 
                         stats["imported"] += 1
                         self._logger.debug(f"成功导入服务: {service_name}")

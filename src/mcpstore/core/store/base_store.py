@@ -65,11 +65,10 @@ class BaseMCPStore:
         from mcpstore.core.registry.agent_locks import AgentLocks
         self.agent_locks = AgentLocks()
 
-        # [NEW] Smart query interface
-        from mcpstore.core.registry.smart_query import SmartCacheQuery
-        self.query = SmartCacheQuery(self.registry)
+        # [已删除] SmartCacheQuery 接口
+        # 原因: 功能冗余，可通过 registry 直接实现
 
-        # [NEW] Event-driven architecture: Initialize ServiceContainer
+        # 事件驱动架构: 初始化 ServiceContainer
         from mcpstore.core.infrastructure.container import ServiceContainer
         from mcpstore.core.configuration.config_processor import ConfigProcessor
 

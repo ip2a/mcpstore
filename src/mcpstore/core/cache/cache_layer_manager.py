@@ -320,8 +320,35 @@ class CacheLayerManager:
             # 使用 pykv 的 keys() 方法获取指定 collection 的所有键
             # 关键：必须传递 collection 参数，否则会使用 default_collection
             entity_keys = await self._kv_store.keys(collection=collection)
-            
+
             logger.debug(f"[CACHE] 从 collection={collection} 获取到 {len(entity_keys)} 个键")
+
+            # region agent log - H12: get_all_entities_async_keys
+            try:
+                import json, time
+                from pathlib import Path
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix-2",
+                    "hypothesisId": "H12",
+                    "location": "cache_layer_manager.py:get_all_entities_async",
+                    "message": "get_all_entities_async_keys",
+                    "data": {
+                        "collection": collection,
+                        "entity_type": entity_type,
+                        "keys_count": len(entity_keys),
+                        "keys_preview": entity_keys[:5],
+                    },
+                    "timestamp": int(time.time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                # 调试日志失败不影响主流程
+                pass
+            # endregion
 
             if not entity_keys:
                 logger.debug(f"[CACHE] collection={collection} 为空")
@@ -337,6 +364,34 @@ class CacheLayerManager:
                     entities[key] = results[i]
 
             logger.debug(f"[CACHE] get_all_entities_async 完成: 找到 {len(entities)} 个实体")
+
+            # region agent log - H12: get_all_entities_async_entities
+            try:
+                import json, time
+                from pathlib import Path
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix-2",
+                    "hypothesisId": "H12",
+                    "location": "cache_layer_manager.py:get_all_entities_async",
+                    "message": "get_all_entities_async_entities",
+                    "data": {
+                        "collection": collection,
+                        "entity_type": entity_type,
+                        "entity_count": len(entities),
+                        "keys_preview": list(entities.keys())[:5],
+                    },
+                    "timestamp": int(time.time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                # 调试日志失败不影响主流程
+                pass
+            # endregion
+
             return entities
 
         except Exception as e:

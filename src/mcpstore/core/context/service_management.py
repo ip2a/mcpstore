@@ -689,27 +689,20 @@ class ServiceManagementMixin:
         Raises:
             RuntimeError: 如果无法获取 CacheLayerManager
         """
-        # 尝试从 registry 获取
-        if hasattr(self._store.registry, '_cache_layer_manager'):
-            cache_layer = self._store.registry._cache_layer_manager
-            if cache_layer is not None:
-                return cache_layer
-        
-        # 尝试从 registry._cache_layer 获取
-        if hasattr(self._store.registry, '_cache_layer'):
-            cache_layer = self._store.registry._cache_layer
-            if cache_layer is not None:
-                return cache_layer
+        # 从 registry 获取 _cache_layer_manager
+        # 注意：不再使用 _cache_layer，因为它在 Redis 模式下是 RedisStore，没有所需的方法
+        cache_layer = getattr(self._store.registry, '_cache_layer_manager', None)
+        if cache_layer is not None:
+            return cache_layer
         
         # 尝试从 store 获取
-        if hasattr(self._store, '_cache_layer_manager'):
-            cache_layer = self._store._cache_layer_manager
-            if cache_layer is not None:
-                return cache_layer
+        cache_layer = getattr(self._store, '_cache_layer_manager', None)
+        if cache_layer is not None:
+            return cache_layer
         
         raise RuntimeError(
             "无法获取 CacheLayerManager 实例。"
-            "请确保 MCPStore 已正确初始化。"
+            "请确保 MCPStore 已正确初始化，且 registry._cache_layer_manager 已设置。"
         )
 
     def delete_config(self, client_id_or_service_name: str) -> Dict[str, Any]:

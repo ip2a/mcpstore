@@ -336,13 +336,9 @@ class UnifiedMCPSyncManager:
             agent_id = self.orchestrator.client_manager.global_agent_store_id
             current_services = {}
             try:
-                # 使用重构后的 ServiceRegistry 提供的方法
-                if hasattr(self.orchestrator.registry, 'get_all_entities_for_sync'):
-                    service_entities = await self.orchestrator.registry.get_all_entities_for_sync("services")
-                elif hasattr(self.orchestrator.registry, '_cache_layer') and hasattr(self.orchestrator.registry._cache_layer, 'get_all_entities_async'):
-                    service_entities = await self.orchestrator.registry._cache_layer.get_all_entities_async("services")
-                else:
-                    service_entities = {}
+                # 使用 _cache_layer_manager（CacheLayerManager）获取所有服务实体
+                # 不再使用 _cache_layer，因为它在 Redis 模式下是 RedisStore，没有 get_all_entities_async 方法
+                service_entities = await self.orchestrator.registry._cache_layer_manager.get_all_entities_async("services")
 
                 for entity_key, entity_data in service_entities.items():
                     if hasattr(entity_data, 'value'):
@@ -407,7 +403,8 @@ class UnifiedMCPSyncManager:
             skipped_count = 0
 
             for service_name, config in services_to_register.items():
-                if self.orchestrator.registry.has_service(agent_id, service_name):
+                # 使用异步 API 检查服务是否存在，避免在异步上下文中调用同步 API
+                if await self.orchestrator.registry.has_service_async(agent_id, service_name):
                     skipped_count += 1
                     continue
                 try:
@@ -468,6 +465,29 @@ class UnifiedMCPSyncManager:
                 
                 # UnifiedMCPSyncManager主要处理Store级别的服务，所以使用global_agent_store_id
                 global_agent_store_id = getattr(self.orchestrator.client_manager, 'global_agent_store_id', 'global_agent_store')
+
+                # region agent log
+                try:
+                    import json as _debug_json  # type: ignore
+                    with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f:
+                        _f.write(_debug_json.dumps({
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "H1",
+                            "location": "unified_sync_manager.py:_add_service_to_cache_mapping",
+                            "message": "before_generate_client_id",
+                            "data": {
+                                "agent_id": agent_id,
+                                "service_name": service_name,
+                                "service_config_type": str(type(service_config)),
+                                "service_config_keys": list(service_config.keys()) if isinstance(service_config, dict) else None,
+                                "service_config_str_preview": str(service_config)[:32] if not isinstance(service_config, dict) else None
+                            },
+                            "timestamp": __import__("time").time()
+                        }) + "\n")
+                except Exception:
+                    pass
+                # endregion
                 
                 client_id = ClientIDGenerator.generate_deterministic_id(
                     agent_id=agent_id,

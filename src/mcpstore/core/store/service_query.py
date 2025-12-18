@@ -66,19 +66,10 @@ class ServiceQueryMixin:
         if not agent_mode and (not id or id == self.client_manager.global_agent_store_id):
             agent_id = self.client_manager.global_agent_store_id
 
-            # 关键：使用缓存层管理器的异步方法，遵循核心原则
-            # 优先使用 _cache_layer_manager（CacheLayerManager），它有 get_all_entities_async 方法
+            # 使用 _cache_layer_manager（CacheLayerManager）获取所有服务实体
+            # 不再使用 _cache_layer，因为它在 Redis 模式下是 RedisStore，没有 get_all_entities_async 方法
             try:
-                cache_layer_manager = getattr(self.registry, '_cache_layer_manager', None)
-                if cache_layer_manager is not None and hasattr(cache_layer_manager, 'get_all_entities_async'):
-                    services = await cache_layer_manager.get_all_entities_async("services")
-                elif hasattr(self.registry._cache_layer, 'get_all_entities_async'):
-                    services = await self.registry._cache_layer.get_all_entities_async("services")
-                else:
-                    raise RuntimeError(
-                        "缓存层不支持 get_all_entities_async 方法。"
-                        "请确保 ServiceRegistry 正确初始化了 _cache_layer_manager 属性。"
-                    )
+                services = await self.registry._cache_layer_manager.get_all_entities_async("services")
                 logger.debug(f"[QUERY] 获取到的服务数据: {services}")
             except Exception as e:
                 logger.error(f"Failed to get services from cache: {e}")

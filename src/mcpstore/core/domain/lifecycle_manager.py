@@ -30,11 +30,23 @@ class LifecycleManager:
     2. Listen to ServiceConnected/ServiceConnectionFailed events, transition states
     3. Publish ServiceStateChanged events
     4. Manage state metadata
+    
+    重要设计原则：
+    - 使用 AgentLocks 保证与 CacheManager 的操作顺序一致
+    - 只更新健康状态，不触碰工具状态（工具状态由 CacheManager 管理）
     """
     
-    def __init__(self, event_bus: EventBus, registry: 'CoreRegistry', lifecycle_config: 'ServiceLifecycleConfig' = None):
+    def __init__(
+        self, 
+        event_bus: EventBus, 
+        registry: 'CoreRegistry', 
+        lifecycle_config: 'ServiceLifecycleConfig' = None,
+        agent_locks: 'AgentLocks' = None
+    ):
         self._event_bus = event_bus
         self._registry = registry
+        self._agent_locks = agent_locks
+        
         # Configuration (thresholds/heartbeat intervals)
         if lifecycle_config is None:
             # 从 MCPStoreConfig 获取配置（有默认回退）
@@ -71,35 +83,50 @@ class LifecycleManager:
             global_name = NamingService.generate_service_global_name(service_name, agent_id)
 
             # 转换元数据为字典
-            if hasattr(metadata, 'to_dict'):
-                metadata_dict = metadata.to_dict()
-            else:
+            # ServiceStateMetadata 是 Pydantic BaseModel，使用 model_dump() 或 dict() 方法
+            if hasattr(metadata, 'model_dump'):
+                # Pydantic v2
+                metadata_dict = metadata.model_dump(mode='json')
+            elif hasattr(metadata, 'dict'):
+                # Pydantic v1
+                metadata_dict = metadata.dict()
+            elif isinstance(metadata, dict):
                 metadata_dict = metadata
+            else:
+                raise TypeError(
+                    f"metadata 必须是字典或 Pydantic BaseModel，实际类型: {type(metadata).__name__}"
+                )
 
-            # 直接通过缓存层异步保存元数据
-            await self._registry._cache_layer.put_state("service_metadata", global_name, metadata_dict)
+            # 通过 CacheLayerManager 异步保存元数据
+            # 注意：必须使用 _cache_layer_manager，而不是 _cache_layer
+            # _cache_layer 在 Redis 模式下是 RedisStore，没有 put_state 方法
+            await self._registry._cache_layer_manager.put_state("service_metadata", global_name, metadata_dict)
 
             logger.debug(f"[LIFECYCLE] Service metadata set successfully: {global_name}")
         except Exception as e:
+
             logger.error(f"[LIFECYCLE] Failed to set service metadata for {agent_id}:{service_name}: {e}")
             # 不抛出异常，允许生命周期继续
 
     async def _set_service_state_async(self, agent_id: str, service_name: str, state) -> None:
         """
-        异步状态设置：直接使用 StateManager 的异步API
+        异步状态设置：只更新健康状态，不触碰工具状态
+        
+        重要设计原则（方案 C）：
+        - LifecycleManager 只负责管理健康状态
+        - 工具状态由 CacheManager 独占管理
+        - 避免竞态条件导致工具状态被覆盖
 
         严格按照 Functional Core, Imperative Shell 原则：
         1. Imperative Shell: 直接使用异步API，避免同步/异步混用
         2. 通过正确的异步渠道进行状态管理
         3. 避免复杂的线程池转换
-        4. 保留现有的工具状态，避免覆盖
         """
         try:
             # 直接使用 StateManager 的异步API
             from mcpstore.core.cache.naming_service import NamingService
             global_name = NamingService.generate_service_global_name(service_name, agent_id)
 
-            # 直接调用 StateManager 的异步方法
             # 转换 ServiceConnectionState 为字符串
             if hasattr(state, 'value'):
                 health_status = state.value
@@ -114,10 +141,12 @@ class LifecycleManager:
                     "请确保 ServiceRegistry 正确初始化了 _cache_state_manager 属性。"
                 )
             
-            # 获取现有的服务状态，保留工具状态
+            # 获取现有的服务状态
             existing_status = await cache_state_manager.get_service_status(global_name)
-            if existing_status and existing_status.tools:
-                # 保留现有的工具状态
+            
+            if existing_status:
+                # 关键修复（方案 C）：保留现有的工具状态，只更新健康状态
+                # 工具状态由 CacheManager._update_service_status 独占管理
                 tools_status = [
                     {
                         "tool_global_name": tool.tool_global_name,
@@ -126,17 +155,24 @@ class LifecycleManager:
                     }
                     for tool in existing_status.tools
                 ]
+                
+                await cache_state_manager.update_service_status(
+                    global_name,
+                    health_status,
+                    tools_status
+                )
+                logger.debug(
+                    f"[LIFECYCLE] 更新健康状态: {global_name} -> {health_status}, "
+                    f"保留工具数量: {len(tools_status)}"
+                )
             else:
-                # 没有现有状态或工具列表为空
-                tools_status = []
-            
-            await cache_state_manager.update_service_status(
-                global_name,
-                health_status,
-                tools_status
-            )
+                # 状态不存在时，不创建新状态
+                # 状态应该由 CacheManager 在处理 ServiceConnected 事件时创建
+                logger.warning(
+                    f"[LIFECYCLE] 服务状态不存在，跳过更新: {global_name}. "
+                    f"状态将由 CacheManager 创建。"
+                )
 
-            logger.debug(f"[LIFECYCLE] Service state set successfully: {global_name} -> {state}")
         except Exception as e:
             logger.error(f"[LIFECYCLE] Failed to set service state for {agent_id}:{service_name}: {e}")
             raise
@@ -234,6 +270,10 @@ class LifecycleManager:
         """
         Handle successful service connection - transition state to HEALTHY
 
+        重要设计原则（方案 A + C）：
+        - 使用 AgentLocks 保证与 CacheManager 的操作顺序一致
+        - 只更新健康状态，不触碰工具状态
+
         严格按照 Functional Core, Imperative Shell 原则：
         1. 纯异步操作，使用正确的异步API
         2. 状态转换和元数据更新分离
@@ -242,44 +282,21 @@ class LifecycleManager:
         logger.info(f"[LIFECYCLE] Service connected: {event.service_name}")
 
         try:
-            # 1. 通过异步API转换状态到 HEALTHY
-            await self._set_service_state_async(
-                agent_id=event.agent_id,
-                service_name=event.service_name,
-                state=ServiceConnectionState.HEALTHY
-            )
-            logger.debug(f"[LIFECYCLE] State transitioned to HEALTHY for: {event.service_name}")
-
-            # 2. 获取并更新元数据（异步操作）
-            metadata = await self._registry.get_service_metadata_async(event.agent_id, event.service_name)
-            if metadata:
-                # 更新失败计数和连接信息（纯函数操作）
-                metadata.consecutive_failures = 0
-                metadata.reconnect_attempts = 0
-                metadata.error_message = None
-                metadata.last_health_check = datetime.now()
-                metadata.last_response_time = event.connection_time
-
-                # 保存更新后的元数据（异步API）
-                await self._set_service_metadata_async(event.agent_id, event.service_name, metadata)
-                logger.debug(f"[LIFECYCLE] Metadata updated for connected service: {event.service_name}")
+            # 方案 A：使用 AgentLocks 保证与 CacheManager 的操作顺序一致
+            # CacheManager 先执行（priority=50），写入工具状态
+            # LifecycleManager 后执行（priority=40），只更新健康状态
+            if self._agent_locks:
+                async with self._agent_locks.write(
+                    event.agent_id, 
+                    operation="lifecycle_on_service_connected"
+                ):
+                    await self._handle_service_connected_internal(event)
             else:
-                logger.warning(f"[LIFECYCLE] No metadata found for connected service: {event.service_name}")
-
-            # 3. 发布状态转换事件
-            try:
-                from mcpstore.core.events.service_events import ServiceStateChanged
-                state_changed_event = ServiceStateChanged(
-                    agent_id=event.agent_id,
-                    service_name=event.service_name,
-                    old_state="initializing",
-                    new_state="healthy",
-                    reason="connection_successful"
+                # 没有锁时直接执行（向后兼容，但会记录警告）
+                logger.warning(
+                    f"[LIFECYCLE] AgentLocks 未配置，可能存在竞态条件: {event.service_name}"
                 )
-                await self._event_bus.publish(state_changed_event, wait=False)
-                logger.debug(f"[LIFECYCLE] ServiceStateChanged event published for: {event.service_name}")
-            except Exception as event_error:
-                logger.error(f"[LIFECYCLE] Failed to publish state change event for {event.service_name}: {event_error}")
+                await self._handle_service_connected_internal(event)
 
         except Exception as e:
             logger.error(f"[LIFECYCLE] Failed to transition state for {event.service_name}: {e}", exc_info=True)
@@ -296,6 +313,50 @@ class LifecycleManager:
                 await self._event_bus.publish(error_event, wait=False)
             except Exception as publish_error:
                 logger.error(f"[LIFECYCLE] Failed to publish error event for {event.service_name}: {publish_error}")
+
+    async def _handle_service_connected_internal(self, event: ServiceConnected):
+        """
+        处理服务连接成功的内部逻辑（在锁保护下执行）
+        """
+        # 1. 通过异步API转换状态到 HEALTHY
+        # 方案 C：只更新健康状态，不触碰工具状态
+        await self._set_service_state_async(
+            agent_id=event.agent_id,
+            service_name=event.service_name,
+            state=ServiceConnectionState.HEALTHY
+        )
+        logger.debug(f"[LIFECYCLE] State transitioned to HEALTHY for: {event.service_name}")
+
+        # 2. 获取并更新元数据（异步操作）
+        metadata = await self._registry.get_service_metadata_async(event.agent_id, event.service_name)
+        if metadata:
+            # 更新失败计数和连接信息（纯函数操作）
+            metadata.consecutive_failures = 0
+            metadata.reconnect_attempts = 0
+            metadata.error_message = None
+            metadata.last_health_check = datetime.now()
+            metadata.last_response_time = event.connection_time
+
+            # 保存更新后的元数据（异步API）
+            await self._set_service_metadata_async(event.agent_id, event.service_name, metadata)
+            logger.debug(f"[LIFECYCLE] Metadata updated for connected service: {event.service_name}")
+        else:
+            logger.warning(f"[LIFECYCLE] No metadata found for connected service: {event.service_name}")
+
+        # 3. 发布状态转换事件
+        try:
+            from mcpstore.core.events.service_events import ServiceStateChanged
+            state_changed_event = ServiceStateChanged(
+                agent_id=event.agent_id,
+                service_name=event.service_name,
+                old_state="initializing",
+                new_state="healthy",
+                reason="connection_successful"
+            )
+            await self._event_bus.publish(state_changed_event, wait=False)
+            logger.debug(f"[LIFECYCLE] ServiceStateChanged event published for: {event.service_name}")
+        except Exception as event_error:
+            logger.error(f"[LIFECYCLE] Failed to publish state change event for {event.service_name}: {event_error}")
     
     async def _on_service_connection_failed(self, event: ServiceConnectionFailed):
         """
