@@ -492,10 +492,14 @@ class ServiceManagementMixin:
                 - "global_agent_store": 只重置global_agent_store
         """
         try:
-            return self._run_async_via_bridge(
-                self.reset_config_async(scope),
-                op_name="service_management.reset_config"
-            )
+            try:
+                return asyncio.run(self.reset_config_async(scope))
+            except RuntimeError:
+                # 已有事件循环时退回到桥接执行
+                return self._run_async_via_bridge(
+                    self.reset_config_async(scope),
+                    op_name="service_management.reset_config"
+                )
         except Exception as e:
             logger.error(f"[NEW_ARCH] reset_config 失败: {e}")
             return False
@@ -557,7 +561,7 @@ class ServiceManagementMixin:
 
                 # 1. 清空所有Agent在缓存中的数据（通过Registry异步API）
                 try:
-                    agent_ids = self._store.registry.get_all_agent_ids()
+                    agent_ids = await self._store.registry.get_all_agent_ids_async()
                 except Exception:
                     agent_ids = []
                 for agent_id in agent_ids:
@@ -1484,9 +1488,9 @@ class ServiceManagementMixin:
             else:
                 logger.error(f" [SERVICE_DELETE] Agent 服务删除失败: {local_name} → {global_name}")
 
-            # 6. 清理服务状态数据（使用 StateManager）
+            # 6. 清理服务状态数据
             try:
-                state_manager = self._store.registry._state_manager
+                state_manager = self._store.registry._cache_state_manager
                 await state_manager.delete_service_status(global_name)
                 logger.info(
                     f"[SERVICE_DELETE] 服务状态清理成功: "

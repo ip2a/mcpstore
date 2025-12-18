@@ -34,7 +34,7 @@ class AgentStatisticsMixin:
         try:
             #  [REFACTOR] Get all Agent IDs from Registry cache
             logger.info(" [AGENT_STATS] 开始获取Agent统计信息...")
-            all_agent_ids = self._store.registry.get_all_agent_ids()
+            all_agent_ids = await self._store.registry.get_all_agent_ids_async()
             logger.info(f" [AGENT_STATS] 从Registry缓存获取到的Agent IDs: {all_agent_ids}")
 
             # Statistical information

@@ -224,8 +224,8 @@ class ServiceManagementMixin:
                         pass
                     # endregion
 
-                    # 使用 StateManager 删除服务状态
-                    state_manager = self.registry._state_manager
+                    # 使用新的状态管理器删除服务状态
+                    state_manager = self.registry._cache_state_manager
                     await state_manager.delete_service_status(service_global_name)
                     logger.info(
                         f"服务状态清理成功: service_global_name={service_global_name}"
