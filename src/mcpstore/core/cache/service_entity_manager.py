@@ -350,7 +350,6 @@ class ServiceEntityManager:
         严格按照核心原则：
         1. Functional Core: 纯同步操作，无IO，无副作用
         2. 使用现有同步接口，遵循架构模式
-        3. 优雅降级：在同步环境中提供基本的服务访问
 
         Args:
             global_name: 服务全局名称
@@ -358,17 +357,12 @@ class ServiceEntityManager:
         Returns:
             ServiceEntity 如果存在，否则 None
         """
-        try:
-            # Functional Core: 使用现有的同步接口获取所有服务
-            all_entities = self._cache_layer.get_all_entities_sync("services")
+        # Functional Core: 使用现有的同步接口获取所有服务
+        all_entities = self._cache_layer.get_all_entities_sync("services")
 
-            # 纯函数操作：从字典中查找指定的实体
-            entity_data = all_entities.get(global_name)
+        # 纯函数操作：从字典中查找指定的实体
+        entity_data = all_entities.get(global_name)
 
-            if entity_data:
-                return ServiceEntity.from_dict(entity_data)
-            return None
-
-        except Exception as e:
-            logger.error(f"[SERVICE_ENTITY] 同步获取服务实体失败 {global_name}: {e}")
-            return None
+        if entity_data:
+            return ServiceEntity.from_dict(entity_data)
+        return None

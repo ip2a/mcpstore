@@ -1,33 +1,22 @@
 """
 ServiceRegistry - 主服务注册表门面类
 
-这是重构后的主门面类，整合所有专门管理器，提供与原始ServiceRegistry
-完全相同的接口，确保100%向后兼容性。
+这是主门面类，legacy 接口已禁用，统一通过核心缓存管理器工作。
 """
 
-import asyncio
 import logging
 from typing import Dict, List, Optional, Any, Set
 from datetime import datetime
 
 # 导入所有管理器
-from .base import ManagerFactory, ManagerCoordinator
-from .session_manager import SessionManager
-from .state_manager import StateManager
-from .tool_manager import ToolManager
-from .cache_manager import CacheManager
-from .persistence import PersistenceManager
-from .service_manager import ServiceManager
-from .mapping_manager import MappingManager
-from .utils import JSONSchemaUtils, ConfigUtils, ServiceUtils, DataUtils
+from .errors import ERROR_PREFIX, raise_legacy_error, LegacyManagerProxy
 
 
 class AgentClientMappingServiceAdapter:
     """
     AgentClientMappingService 适配器
 
-    提供与原始架构中 _agent_client_service 相同的接口，
-    内部委托给 MappingManager 实现。
+    legacy 适配器，已禁用。
     """
 
     def __init__(self, mapping_manager):
@@ -38,61 +27,56 @@ class AgentClientMappingServiceAdapter:
             mapping_manager: MappingManager 实例
         """
         self._mapping_manager = mapping_manager
+        self._legacy_name = "AgentClientMappingServiceAdapter"
+
+    def _legacy(self, method: str) -> None:
+        raise_legacy_error(
+            f"{self._legacy_name}.{method}",
+            "Compatibility adapters are disabled; use core/cache relationship managers.",
+        )
 
     def add_agent_client_mapping(self, agent_id: str, client_id: str) -> None:
         """
         添加 Agent-Client 映射
         
-        注意：在新架构中，Agent-Client 映射是从 Service-Client 映射派生的，
-        此方法为 no-op，仅用于兼容性。
+        注意：该接口已禁用。
         """
-        # Agent-client mappings are derived from service_client mappings
-        # No need to store separately
-        pass
+        self._legacy("add_agent_client_mapping")
 
     def remove_agent_client_mapping(self, agent_id: str, client_id: str) -> None:
         """
         移除 Agent-Client 映射
         
-        注意：在新架构中，Agent-Client 映射是从 Service-Client 映射派生的，
-        此方法为 no-op，仅用于兼容性。
+        注意：该接口已禁用。
         """
-        pass
+        self._legacy("remove_agent_client_mapping")
 
     def add_service_client_mapping(self, agent_id: str, service_name: str, client_id: str) -> None:
         """添加 Service-Client 映射"""
-        self._mapping_manager.set_service_client_mapping(agent_id, service_name, client_id)
+        self._legacy("add_service_client_mapping")
 
     def remove_service_client_mapping(self, agent_id: str, service_name: str) -> None:
         """移除 Service-Client 映射"""
-        self._mapping_manager.remove_service_client_mapping(agent_id, service_name)
+        self._legacy("remove_service_client_mapping")
 
     def get_service_client_id(self, agent_id: str, service_name: str) -> str:
         """获取服务对应的 Client ID"""
-        return self._mapping_manager.get_service_client_id(agent_id, service_name)
+        self._legacy("get_service_client_id")
 
     def get_service_client_mapping(self, agent_id: str) -> dict:
         """获取指定 agent 的所有 service-client 映射"""
-        # 从 MappingManager 的内部缓存中提取
-        result = {}
-        prefix = f"{agent_id}:"
-        for cache_key, client_id in self._mapping_manager._service_client_mapping.items():
-            if cache_key.startswith(prefix):
-                service_name = cache_key.split(":", 1)[1]
-                result[service_name] = client_id
-        return result
+        self._legacy("get_service_client_mapping")
 
     async def get_agent_clients_async(self, agent_id: str) -> list:
         """异步获取 Agent 的所有 Client ID"""
-        return await self._mapping_manager.get_agent_clients_async(agent_id)
+        self._legacy("get_agent_clients_async")
 
 
 class ServiceStateServiceAdapter:
     """
     ServiceStateService 适配器
 
-    提供与原始架构中 _service_state_service 相同的接口，
-    内部委托给 StateManager 实现。
+    legacy 适配器，已禁用。
     """
 
     def __init__(self, state_manager, naming_service):
@@ -105,21 +89,28 @@ class ServiceStateServiceAdapter:
         """
         self._state_manager = state_manager
         self._naming = naming_service
+        self._legacy_name = "ServiceStateServiceAdapter"
+
+    def _legacy(self, method: str) -> None:
+        raise_legacy_error(
+            f"{self._legacy_name}.{method}",
+            "Compatibility adapters are disabled; use core/cache state managers.",
+        )
 
     def get_service_state(self, agent_id: str, service_name: str) -> Optional[Any]:
         """获取服务状态"""
-        return self._state_manager.get_service_state(agent_id, service_name)
+        self._legacy("get_service_state")
 
     # [已删除] get_service_metadata 同步方法
     # 根据 "pykv 唯一真相数据源" 原则，请使用 get_service_metadata_async 异步方法
 
     def set_service_state(self, agent_id: str, service_name: str, state: Any) -> bool:
         """设置服务状态"""
-        return self._state_manager.set_service_state(agent_id, service_name, state)
+        self._legacy("set_service_state")
 
     def set_service_metadata(self, agent_id: str, service_name: str, metadata: Any) -> bool:
         """设置服务元数据"""
-        return self._state_manager.set_service_metadata(agent_id, service_name, metadata)
+        self._legacy("set_service_metadata")
 
     def get_all_service_names(self, agent_id: str) -> List[str]:
         """
@@ -127,43 +118,23 @@ class ServiceStateServiceAdapter:
 
         从 StateManager 的状态缓存中提取服务名称
         """
-        service_names = []
-        # 从状态缓存中获取服务名称
-        if hasattr(self._state_manager, '_state_cache'):
-            cache_prefix = f"{agent_id}:"
-            for cache_key in self._state_manager._state_cache:
-                if cache_key.startswith(cache_prefix):
-                    service_name = cache_key.split(":", 1)[1]
-                    service_names.append(service_name)
-        return service_names
+        self._legacy("get_all_service_names")
 
     def clear_service_state(self, agent_id: str, service_name: str) -> bool:
         """清除服务状态"""
-        try:
-            cache_key = f"{agent_id}:{service_name}"
-            if hasattr(self._state_manager, '_state_cache'):
-                self._state_manager._state_cache.pop(cache_key, None)
-            return True
-        except Exception:
-            return False
+        self._legacy("clear_service_state")
 
     def clear_service_metadata(self, agent_id: str, service_name: str) -> bool:
         """清除服务元数据"""
-        try:
-            cache_key = f"{agent_id}:{service_name}"
-            if hasattr(self._state_manager, '_metadata_cache'):
-                self._state_manager._metadata_cache.pop(cache_key, None)
-            return True
-        except Exception:
-            return False
+        self._legacy("clear_service_metadata")
 
     async def delete_service_state_async(self, agent_id: str, service_name: str) -> bool:
         """异步删除服务状态"""
-        return self.clear_service_state(agent_id, service_name)
+        self._legacy("delete_service_state_async")
 
     async def delete_service_metadata_async(self, agent_id: str, service_name: str) -> bool:
         """异步删除服务元数据"""
-        return self.clear_service_metadata(agent_id, service_name)
+        self._legacy("delete_service_metadata_async")
 
 
 class ServiceRegistry:
@@ -171,7 +142,7 @@ class ServiceRegistry:
     主服务注册表门面类
 
     通过门面模式整合所有专门管理器，提供统一的接口。
-    保持与原始ServiceRegistry完全相同的方法签名和行为。
+    legacy 方法已禁用，调用将直接报错。
     """
 
     def __init__(self,
@@ -181,7 +152,7 @@ class ServiceRegistry:
         Initialize ServiceRegistry with new cache architecture.
 
         Args:
-            kv_store: AsyncKeyValue instance for data storage. If None, uses MemoryStore.
+            kv_store: AsyncKeyValue instance for data storage (required).
                      Session data is always kept in memory regardless of kv_store type.
             namespace: Cache namespace for data isolation (default: "mcpstore")
 
@@ -191,17 +162,18 @@ class ServiceRegistry:
             - Uses CacheLayerManager for all cache operations
         """
         self._config = {}
-        self._kv_store = kv_store
+        self._kv_store = self._create_cache_layer(kv_store)
         self._namespace = namespace
         self._logger = logging.getLogger(__name__)
 
         # 创建缓存层和命名服务
-        cache_layer = self._create_cache_layer(kv_store)
         naming_service = self._create_naming_service()
+        from mcpstore.core.cache.cache_layer_manager import CacheLayerManager
+        cache_layer_manager = CacheLayerManager(self._kv_store, namespace)
 
-        # 兼容性属性 - 为了兼容原有代码，需要暴露这些属性
-        self._cache_layer = cache_layer  # 重要：外部代码依赖此属性
-        self._naming = naming_service    # 重要：外部代码依赖此属性
+        # 统一缓存入口
+        self._cache_layer = cache_layer_manager
+        self._naming = naming_service
 
         # 会话存储（内存中）
         self.sessions: Dict[str, Dict[str, Any]] = {}
@@ -215,49 +187,46 @@ class ServiceRegistry:
         # 状态同步管理器
         self._state_sync_manager = None
 
-        # 创建管理器协调器
-        self._coordinator = ManagerCoordinator(cache_layer, naming_service, namespace)
+        self._coordinator = LegacyManagerProxy(
+            "core_registry.ManagerCoordinator",
+            "ManagerCoordinator is disabled; use CacheLayerManager.",
+        )
+        self._session_manager = LegacyManagerProxy(
+            "core_registry.SessionManager",
+            "SessionManager is disabled; manage sessions explicitly.",
+        )
+        self._state_manager = LegacyManagerProxy(
+            "core_registry.StateManager",
+            "StateManager is disabled; use core/cache state manager.",
+        )
+        self._tool_manager = LegacyManagerProxy(
+            "core_registry.ToolManager",
+            "ToolManager is disabled; use core/cache tool managers.",
+        )
+        self._cache_manager = LegacyManagerProxy(
+            "core_registry.CacheManager",
+            "CacheManager is disabled; use CacheLayerManager.",
+        )
+        self._persistence_manager = LegacyManagerProxy(
+            "core_registry.PersistenceManager",
+            "PersistenceManager is disabled; use core/cache shells.",
+        )
+        self._service_manager = LegacyManagerProxy(
+            "core_registry.ServiceManager",
+            "ServiceManager is disabled; use core/cache service managers.",
+        )
 
-        # 初始化管理器
-        self._coordinator.initialize_managers()
-
-        # 获取所有管理器实例
-        self._session_manager = self._coordinator.get_manager('session')
-        self._state_manager = self._coordinator.get_manager('state')
-        self._tool_manager = self._coordinator.get_manager('tool')
-        self._cache_manager = self._coordinator.get_manager('cache')
-        self._persistence_manager = self._coordinator.get_manager('persistence')
-        self._service_manager = self._coordinator.get_manager('service')
-
-        # 创建映射管理器（ManagerCoordinator中没有包含）
-        # 注意：MappingManager 需要在 CacheLayerManager 创建后初始化
-        # 这里先声明，稍后初始化
-        self._mapping_manager = None
+        self._mapping_manager = LegacyManagerProxy(
+            "core_registry.MappingManager",
+            "MappingManager is disabled; use core/cache relationship managers.",
+        )
 
         # 创建缓存层管理器（原始架构中的核心组件）
         # 这些管理器直接操作 pykv，是数据的唯一真相源
         from mcpstore.core.cache.service_entity_manager import ServiceEntityManager
         from mcpstore.core.cache.tool_entity_manager import ToolEntityManager
         from mcpstore.core.cache.state_manager import StateManager as CacheStateManager
-        from mcpstore.core.cache.cache_layer_manager import CacheLayerManager
         from mcpstore.core.cache.relationship_manager import RelationshipManager
-
-        # 创建 CacheLayerManager
-        # 必须使用 kv_store（AsyncKeyValue 实例），而不是 cache_layer
-        if kv_store is not None:
-            # 使用传入的 kv_store 创建 CacheLayerManager
-            cache_layer_manager = CacheLayerManager(kv_store, namespace)
-            self._logger.debug(f"使用传入的 kv_store 创建 CacheLayerManager: {type(kv_store)}")
-        elif isinstance(cache_layer, CacheLayerManager):
-            # cache_layer 已经是 CacheLayerManager
-            cache_layer_manager = cache_layer
-            self._logger.debug("使用现有的 CacheLayerManager")
-        else:
-            # 没有可用的 kv_store，抛出错误（不做降级处理）
-            raise RuntimeError(
-                "无法创建 CacheLayerManager：kv_store 为 None 且 cache_layer 不是 CacheLayerManager。"
-                "请确保传入有效的 AsyncKeyValue 实例。"
-            )
 
         # 缓存层实体管理器（用于直接操作 pykv）
         self._cache_service_manager = ServiceEntityManager(cache_layer_manager, naming_service)
@@ -269,50 +238,21 @@ class ServiceRegistry:
         self._relation_manager = RelationshipManager(cache_layer_manager)
         self._logger.debug("缓存层管理器初始化成功")
         
-        # 创建映射管理器（使用 CacheLayerManager）
-        from .mapping_manager import MappingManager
-        self._mapping_manager = MappingManager(cache_layer_manager, naming_service, namespace=namespace)
-        self._mapping_manager.initialize()
+        # 映射管理器已禁用
 
-        # 设置 service_manager 的依赖管理器
-        # 这些管理器用于工具存储和关系管理
-        if hasattr(self._service_manager, 'set_managers'):
-            self._service_manager.set_managers(
-                service_entity_manager=self._cache_service_manager,
-                relation_manager=self._relation_manager,
-                tool_manager=self._tool_manager,
-                state_manager=self._state_manager,
-                session_manager=self._session_manager,
-                cache_manager=self._cache_manager,
-                mapping_manager=self._mapping_manager,
-                tool_entity_manager=self._cache_tool_manager
-            )
-            self._logger.debug("已设置 service_manager 的依赖管理器")
-
-        # 设置 tool_manager 的依赖管理器
-        if hasattr(self._tool_manager, 'set_managers'):
-            self._tool_manager.set_managers(
-                relation_manager=self._relation_manager,
-                tool_entity_manager=self._cache_tool_manager,
-                cache_manager=self._cache_manager
-            )
-            self._logger.debug("已设置 tool_manager 的依赖管理器")
-
-        # 设置 state_manager 的 CacheLayerManager
-        # StateManager 需要 CacheLayerManager 来执行 pykv 操作（如 get_state）
-        if hasattr(self._state_manager, 'set_cache_layer_manager'):
-            self._state_manager.set_cache_layer_manager(self._cache_layer_manager)
-            self._logger.debug("已设置 state_manager 的 CacheLayerManager")
-
-        # 创建 ServiceStateService 适配器（兼容原始架构）
-        # 这个适配器委托给 _state_manager，提供与原始架构相同的接口
+        # 创建 ServiceStateService 适配器（legacy）
         self._service_state_service = ServiceStateServiceAdapter(self._state_manager, self._naming)
 
-        # 创建 AgentClientMappingService 适配器（兼容原始架构）
-        # 这个适配器委托给 _mapping_manager，提供与原始架构相同的接口
+        # 创建 AgentClientMappingService 适配器（legacy）
         self._agent_client_service = AgentClientMappingServiceAdapter(self._mapping_manager)
 
         self._logger.info("ServiceRegistry initialized with all managers")
+
+    def _legacy(self, method: str) -> None:
+        raise_legacy_error(
+            f"ServiceRegistry.{method}",
+            "Legacy interface disabled; use core/cache managers and shells.",
+        )
 
     def _create_cache_layer(self, kv_store=None):
         """
@@ -329,7 +269,7 @@ class ServiceRegistry:
         """
         if kv_store is None:
             raise RuntimeError(
-                "kv_store 参数不能为 None。"
+                f"{ERROR_PREFIX} kv_store 参数不能为 None。"
                 "ServiceRegistry 必须传入有效的 AsyncKeyValue 实例。"
                 "请使用 MemoryStore 或 RedisStore 初始化。"
             )
@@ -342,29 +282,9 @@ class ServiceRegistry:
             from mcpstore.core.cache.naming_service import NamingService
             return NamingService()
         except ImportError:
-            pass
-
-        # 备用的简单命名服务
-        class SimpleNamingService:
-            def get_global_service_name(self, agent_id: str, service_name: str) -> str:
-                return f"{agent_id}:{service_name}"
-
-            def generate_service_global_name(self, service_name: str, agent_id: str) -> str:
-                """生成服务全局名称"""
-                # 如果 agent_id 是 global_agent_store，直接返回服务名
-                if agent_id == "global_agent_store":
-                    return service_name
-                return f"{agent_id}:{service_name}"
-
-            def parse_global_name(self, global_name: str) -> tuple:
-                parts = global_name.split(":", 1)
-                return (parts[0], parts[1]) if len(parts) == 2 else (None, global_name)
-
-            def parse_service_global_name(self, global_name: str) -> tuple:
-                """解析服务全局名称（兼容性方法）"""
-                return self.parse_global_name(global_name)
-
-        return SimpleNamingService()
+            raise RuntimeError(
+                f"{ERROR_PREFIX} NamingService import failed; no fallback is allowed."
+            )
 
     # ========================================
     # 会话管理方法 (委托给SessionManager)
@@ -372,11 +292,11 @@ class ServiceRegistry:
 
     async def initialize(self) -> None:
         """初始化所有管理器"""
-        await self._coordinator.initialize_all()
+        self._legacy("initialize")
 
     async def cleanup(self) -> None:
         """清理所有管理器资源"""
-        await self._coordinator.cleanup_all()
+        self._legacy("cleanup")
 
     def create_session(self, agent_id: str, session_type: str = "default",
                       metadata: Optional[Dict[str, Any]] = None) -> str:
@@ -966,7 +886,7 @@ class ServiceRegistry:
 
     def get_service_status(self, agent_id: str, service_name: str) -> Optional[str]:
         """
-        获取服务状态（兼容性方法）
+        获取服务状态（legacy 方法）
 
         Args:
             agent_id: Agent ID
@@ -1004,62 +924,50 @@ class ServiceRegistry:
     # ========================================
 
     def get_service_names(self) -> List[str]:
-        return self._cache_manager.get_service_names()
+        self._legacy("get_service_names")
 
     async def get_service_names_async(self) -> List[str]:
-        return await self._cache_manager.get_service_names_async()
+        self._legacy("get_service_names_async")
 
     def get_agents_for_service(self, service_name: str) -> List[str]:
-        return self._cache_manager.get_agents_for_service(service_name)
+        self._legacy("get_agents_for_service")
 
     async def get_agents_for_service_async(self, service_name: str) -> List[str]:
-        return await self._cache_manager.get_agents_for_service_async(service_name)
-
-    def register_service(self, service_name: str) -> bool:
-        return self._cache_manager.register_service(service_name)
-
-    async def register_service_async(self, service_name: str) -> bool:
-        return await self._cache_manager.register_service_async(service_name)
-
-    def unregister_service(self, service_name: str) -> bool:
-        return self._cache_manager.unregister_service(service_name)
-
-    async def unregister_service_async(self, service_name: str) -> bool:
-        return await self._cache_manager.unregister_service_async(service_name)
+        self._legacy("get_agents_for_service_async")
 
     def clear_cache(self) -> bool:
-        return self._cache_manager.clear_cache()
+        self._legacy("clear_cache")
 
     def get_stats(self) -> Dict[str, Any]:
-        return self._cache_manager.get_stats()
+        self._legacy("get_stats")
 
     # ========================================
     # 持久化管理方法 (委托给PersistenceManager)
     # ========================================
 
     def save_to_file(self, filepath: str) -> bool:
-        return self._persistence_manager.save_to_file(filepath)
+        self._legacy("save_to_file")
 
     def load_from_file(self, filepath: str) -> bool:
-        return self._persistence_manager.load_from_file(filepath)
+        self._legacy("load_from_file")
 
     async def save_services_async(self, filepath: str) -> bool:
-        return await self._persistence_manager.save_services_async(filepath)
+        self._legacy("save_services_async")
 
     async def load_services_async(self, filepath: str) -> bool:
-        return await self._persistence_manager.load_services_async(filepath)
+        self._legacy("load_services_async")
 
     async def save_tools_async(self, filepath: str) -> bool:
-        return await self._persistence_manager.save_tools_async(filepath)
+        self._legacy("save_tools_async")
 
     async def load_tools_async(self, filepath: str) -> bool:
-        return await self._persistence_manager.load_tools_async(filepath)
+        self._legacy("load_tools_async")
 
     def get_last_save_time(self) -> Optional[datetime]:
-        return self._persistence_manager.get_last_save_time()
+        self._legacy("get_last_save_time")
 
     def get_file_info(self) -> Dict[str, Any]:
-        return self._persistence_manager.get_file_info()
+        self._legacy("get_file_info")
 
     def set_unified_config(self, unified_config: Any) -> None:
         """
@@ -1068,11 +976,10 @@ class ServiceRegistry:
         Args:
             unified_config: UnifiedConfigManager 实例
         """
-        self._unified_config = unified_config
-        self._logger.debug("UnifiedConfigManager 已设置，JSON 配置持久化已启用")
+        self._legacy("set_unified_config")
 
     # ========================================
-    # 兼容性方法 - 为了兼容原有代码
+    # legacy 方法
     # ========================================
 
     async def load_services_from_json_async(self) -> Dict[str, Any]:
@@ -1082,12 +989,7 @@ class ServiceRegistry:
         Returns:
             加载结果统计信息
         """
-        # 简化实现：返回基础统计信息
-        return {
-            "loaded": len(self.sessions),
-            "services": list(self.sessions.keys()),
-            "status": "success"
-        }
+        self._legacy("load_services_from_json_async")
 
     async def get_service_state_async(self, agent_id: str, service_name: str) -> Optional[Any]:
         """
@@ -1103,29 +1005,7 @@ class ServiceRegistry:
         Returns:
             服务状态或None
         """
-        # 使用缓存层状态管理器
-        if self._cache_state_manager is None:
-            raise RuntimeError(
-                "缓存层 StateManager 未初始化。"
-                "请确保 ServiceRegistry 正确初始化了 _cache_state_manager 属性。"
-            )
-
-        # 生成全局名称
-        global_name = self._naming.generate_service_global_name(service_name, agent_id)
-
-        # 使用 cache/state_manager.py 的 get_service_status 方法
-        status = await self._cache_state_manager.get_service_status(global_name)
-
-        if status is None:
-            return None
-
-        # 返回 health_status 作为状态
-        if hasattr(status, 'health_status'):
-            return status.health_status
-        elif isinstance(status, dict):
-            return status.get('health_status')
-        else:
-            return status
+        self._legacy("get_service_state_async")
 
     async def get_service_metadata_async(self, agent_id: str, service_name: str) -> Optional[Any]:
         """
@@ -1140,12 +1020,11 @@ class ServiceRegistry:
         Returns:
             服务元数据或None
         """
-        # 从 pykv 读取元数据
-        return await self._state_manager.get_service_metadata_async(agent_id, service_name)
+        self._legacy("get_service_metadata_async")
 
     def get_service_status(self, agent_id: str, service_name: str) -> Optional[str]:
         """
-        获取服务状态（兼容性方法）
+        获取服务状态（legacy 方法）
 
         Args:
             agent_id: Agent ID
@@ -1154,10 +1033,10 @@ class ServiceRegistry:
         Returns:
             服务状态或None
         """
-        return self._state_manager.get_service_status(agent_id, service_name)
+        self._legacy("get_service_status")
 
     # ========================================
-    # 原始架构兼容方法 - 使用 (agent_id, service_name) 签名
+    # legacy 方法 - 使用 (agent_id, service_name) 签名
     # ========================================
 
     def set_service_state_v2(self, agent_id: str, service_name: str, state: Optional['ServiceConnectionState']):
@@ -1169,7 +1048,7 @@ class ServiceRegistry:
             service_name: 服务名称
             state: 服务连接状态
         """
-        return self._state_manager.set_service_state(agent_id, service_name, state)
+        self._legacy("set_service_state_v2")
 
     def set_service_metadata_v2(self, agent_id: str, service_name: str, metadata: Optional['ServiceStateMetadata']):
         """
@@ -1180,7 +1059,7 @@ class ServiceRegistry:
             service_name: 服务名称
             metadata: 服务状态元数据
         """
-        return self._state_manager.set_service_metadata(agent_id, service_name, metadata)
+        self._legacy("set_service_metadata_v2")
 
     # [已删除] get_service_metadata_v2 同步方法
     # 根据 "pykv 唯一真相数据源" 原则，请使用 get_service_metadata_async 异步方法
@@ -1197,22 +1076,17 @@ class ServiceRegistry:
         Returns:
             是否成功
         """
-        try:
-            self._state_manager.set_service_metadata(agent_id, service_name, metadata)
-            return True
-        except Exception as e:
-            self._logger.error(f"设置服务元数据失败 {agent_id}:{service_name}: {e}")
-            return False
+        self._legacy("set_service_metadata_async_v2")
 
     @property
     def kv_store(self):
-        """获取KV存储实例（兼容性属性）"""
-        return self._kv_store
+        """获取KV存储实例（legacy 属性）"""
+        raise_legacy_error("ServiceRegistry.kv_store", "Direct kv_store access is disabled.")
 
     @property
     def naming(self):
-        """获取命名服务实例（兼容性属性）"""
-        return self._naming
+        """获取命名服务实例（legacy 属性）"""
+        raise_legacy_error("ServiceRegistry.naming", "Direct naming access is disabled.")
 
     # 新增：支持 unified_sync_manager 的接口
     async def get_all_entities_for_sync(self, entity_type: str) -> Dict[str, Dict[str, Any]]:
@@ -1225,23 +1099,7 @@ class ServiceRegistry:
         Returns:
             Dict[str, Dict[str, Any]]: 实体数据字典
         """
-        try:
-            if entity_type == "services":
-                result = {}
-                for service_name, session_info in self.sessions.items():
-                    result[service_name] = {
-                        'value': {
-                            'service_name': service_name,
-                            'agent_id': session_info.get('agent_id', 'unknown'),
-                            'state': 'active',
-                            'client_id': session_info.get('client_id'),
-                            'connected_at': session_info.get('connected_at')
-                        }
-                    }
-                return result
-            return {}
-        except Exception as e:
-            return {}
+        self._legacy("get_all_entities_for_sync")
 
     def get_all_agent_ids(self) -> List[str]:
         """
@@ -1252,23 +1110,7 @@ class ServiceRegistry:
         Returns:
             List[str]: 所有 Agent ID 的列表
         """
-        agent_ids = set()
-
-        # 从会话信息中获取
-        agent_ids.update(self.sessions.keys())
-
-        # 从映射管理器获取（如果可用）
-        if self._mapping_manager:
-            try:
-                mapping_stats = self._mapping_manager.get_mapping_stats()
-                if 'agent_ids' in mapping_stats:
-                    agent_ids.update(mapping_stats['agent_ids'])
-            except Exception:
-                pass
-
-        result = list(agent_ids)
-        self._logger.debug(f"get_all_agent_ids: {len(result)} agents")
-        return result
+        self._legacy("get_all_agent_ids")
 
     def get_all_service_names(self, agent_id: str) -> List[str]:
         """
@@ -1280,11 +1122,4 @@ class ServiceRegistry:
         Returns:
             List[str]: 服务名称列表
         """
-        service_names = []
-
-        # 从会话信息获取服务名称
-        if agent_id in self.sessions:
-            service_names.extend(self.sessions[agent_id].keys())
-
-        self._logger.debug(f"get_all_service_names: {len(service_names)} services for agent {agent_id}")
-        return service_names
+        self._legacy("get_all_service_names")
