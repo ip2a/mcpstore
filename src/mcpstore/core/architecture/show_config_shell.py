@@ -8,13 +8,18 @@ ShowConfigAsyncShell - show_config 的异步外壳
 - 调用纯逻辑核心进行数据处理
 
 返回格式说明：
-show_config 返回类似 mcp.json 的格式：
+show_config 返回与 mcp.json 完全一致的格式：
 {
     "mcpServers": {
         "context7": {"url": "https://mcp.context7.com/mcp"},
-        "grep": {"url": "https://mcp.grep.app"}
+        "weather_byagent_agent1": {"url": "https://weather.api/mcp"}
     }
 }
+
+服务名称规则：
+- Store 添加的服务：使用原始名称（如 "context7"）
+- Agent 添加的服务：使用全局名称（如 "weather_byagent_agent1"）
+- mcp.json 中始终使用 service_global_name
 """
 
 import logging
@@ -35,7 +40,7 @@ class ShowConfigAsyncShell:
     职责：
     - 从 pykv 读取所有需要的数据
     - 调用纯逻辑核心处理数据
-    - 返回类似 mcp.json 格式的配置
+    - 返回与 mcp.json 格式完全一致的配置
     
     严格约束：
     - 只使用 await，不使用 asyncio.run()
@@ -57,19 +62,19 @@ class ShowConfigAsyncShell:
     
     async def show_store_config_async(self) -> Dict[str, Any]:
         """
-        异步获取 Store 级别配置（类似 mcp.json 格式）
+        异步获取 Store 级别配置（与 mcp.json 格式一致）
         
         执行流程：
         1. 从 pykv 异步读取所有服务实体
-        2. 提取服务配置
+        2. 提取服务配置（使用 service_global_name 作为 key）
         3. 调用纯逻辑核心组装 mcpServers 格式
         
         Returns:
-            类似 mcp.json 的配置:
+            与 mcp.json 格式一致的配置:
             {
                 "mcpServers": {
-                    "context7": {"url": "https://mcp.context7.com/mcp"},
-                    "grep": {"url": "https://mcp.grep.app"}
+                    "context7": {"url": "..."},
+                    "weather_byagent_agent1": {"url": "..."}
                 }
             }
         """
@@ -97,7 +102,7 @@ class ShowConfigAsyncShell:
     
     async def show_agent_config_async(self, agent_id: str) -> Dict[str, Any]:
         """
-        异步获取 Agent 级别配置（类似 mcp.json 格式）
+        异步获取 Agent 级别配置（与 mcp.json 格式一致）
         
         执行流程：
         1. 从 pykv 异步检查 Agent 是否存在
@@ -108,11 +113,10 @@ class ShowConfigAsyncShell:
             agent_id: Agent ID
         
         Returns:
-            类似 mcp.json 的配置（带 agent_id）:
+            与 mcp.json 格式一致的配置:
             {
-                "agent_id": "...",
                 "mcpServers": {
-                    "context7": {"url": "https://mcp.context7.com/mcp"}
+                    "weather_byagent_agent1": {"url": "..."}
                 }
             }
         """
@@ -153,10 +157,11 @@ class ShowConfigAsyncShell:
         从 pykv 异步读取所有服务数据
         
         遵循 pykv 唯一真相数据源原则，直接从 pykv 实体层读取。
+        使用 service_global_name 作为 key（与 mcp.json 一致）。
         
         Returns:
             所有服务的配置数据
-            格式: {service_original_name: {"config": {...}, "source_agent": "..."}}
+            格式: {service_global_name: {"config": {...}}}
         """
         services_data = {}
         
@@ -168,27 +173,17 @@ class ShowConfigAsyncShell:
             
             # 提取每个服务的配置
             for global_name, service_entity in all_services.items():
-                # 提取服务原始名称（用于 mcpServers 的 key）
-                service_name = service_entity.get("service_original_name")
-                if not service_name:
-                    # 尝试从 global_name 解析
-                    # global_name 格式: service_name@agent_id
-                    if "@" in global_name:
-                        service_name = global_name.split("@")[0]
-                    else:
-                        service_name = global_name
+                # 使用 service_global_name 作为 key（与 mcp.json 一致）
+                service_global_name = service_entity.get("service_global_name")
+                if not service_global_name:
+                    # 如果实体中没有 service_global_name，使用 pykv 的 key
+                    service_global_name = global_name
                 
                 # 提取服务配置
                 config = self._logic_core.extract_service_config(service_entity)
                 
-                # 提取 source_agent
-                source_agent = service_entity.get("source_agent", "global_agent_store")
-                
                 if config:
-                    services_data[service_name] = {
-                        "config": config,
-                        "source_agent": source_agent
-                    }
+                    services_data[service_global_name] = {"config": config}
             
             logger.debug(f"[SHOW_CONFIG_SHELL] 提取到 {len(services_data)} 个服务配置")
             
@@ -205,12 +200,14 @@ class ShowConfigAsyncShell:
         """
         从 pykv 异步读取指定 Agent 的服务数据
         
+        使用 service_global_name 作为 key（与 mcp.json 一致）。
+        
         Args:
             agent_id: Agent ID
         
         Returns:
             该 Agent 的服务配置数据
-            格式: {service_original_name: {"config": {...}}}
+            格式: {service_global_name: {"config": {...}}}
         """
         services_data = {}
         
@@ -224,26 +221,23 @@ class ShowConfigAsyncShell:
                 entity_agent_id = service_entity.get("source_agent")
                 if not entity_agent_id:
                     # 尝试从 global_name 解析
-                    # global_name 格式: service_name@agent_id
-                    if "@" in global_name:
-                        _, entity_agent_id = global_name.rsplit("@", 1)
+                    # global_name 格式: service_name_byagent_agent_id
+                    if "_byagent_" in global_name:
+                        _, entity_agent_id = global_name.rsplit("_byagent_", 1)
                     else:
                         entity_agent_id = "global_agent_store"
                 
                 if entity_agent_id == agent_id:
-                    # 提取服务原始名称
-                    service_name = service_entity.get("service_original_name")
-                    if not service_name:
-                        if "@" in global_name:
-                            service_name = global_name.split("@")[0]
-                        else:
-                            service_name = global_name
+                    # 使用 service_global_name 作为 key（与 mcp.json 一致）
+                    service_global_name = service_entity.get("service_global_name")
+                    if not service_global_name:
+                        service_global_name = global_name
                     
                     # 提取服务配置
                     config = self._logic_core.extract_service_config(service_entity)
                     
                     if config:
-                        services_data[service_name] = {"config": config}
+                        services_data[service_global_name] = {"config": config}
             
             logger.debug(
                 f"[SHOW_CONFIG_SHELL] Agent {agent_id} 的服务数据: "
@@ -278,8 +272,8 @@ class ShowConfigAsyncShell:
             all_services = await self._cache_layer.get_all_entities_async("services")
             for global_name, service_entity in all_services.items():
                 entity_agent_id = service_entity.get("source_agent")
-                if not entity_agent_id and "@" in global_name:
-                    _, entity_agent_id = global_name.rsplit("@", 1)
+                if not entity_agent_id and "_byagent_" in global_name:
+                    _, entity_agent_id = global_name.rsplit("_byagent_", 1)
                 
                 if entity_agent_id == agent_id:
                     return True
