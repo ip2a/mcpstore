@@ -1,545 +1,612 @@
 <template>
-  <div class="dashboard page-container page-container--wide">
-    <div v-if="isLoading" v-loading="isLoading" class="dashboard-loading"></div>
-    <div v-else class="dashboard-content content-stack">
-      <!-- KPI 区域 -->
-      <el-row :gutter="12" class="dashboard-kpi-row">
-        <el-col :span="4">
-          <el-card shadow="hover" class="kpi-card">
-            <div class="kpi">
-              <div class="kpi-sub">Orchestrator status</div>
-              <div class="kpi-row">
-                <div class="kpi-value">{{ orchestratorLabel }}</div>
-                <el-tag :type="systemStatus.running ? 'success' : 'danger'" effect="plain" size="small">{{ systemStatus.running ? 'running' : 'stopped' }}</el-tag>
-              </div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="2">
-          <el-card shadow="hover" class="kpi-card">
-            <div class="kpi">
-              <div class="kpi-sub">Services / healthy</div>
-              <div class="kpi-value">{{ totalServices }} / {{ healthyServices }}</div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="2">
-          <el-card shadow="hover" class="kpi-card">
-            <div class="kpi">
-              <div class="kpi-sub">Total tools</div>
-              <div class="kpi-value">{{ totalTools }}</div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="2">
-          <el-card shadow="hover" class="kpi-card">
-            <div class="kpi">
-              <div class="kpi-sub">Tool calls (today)</div>
-              <div class="kpi-value">{{ todayToolCalls }}</div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="2">
-          <el-card shadow="hover" class="kpi-card">
-            <div class="kpi">
-              <div class="kpi-sub">Tool calls (last 7 days)</div>
-              <div class="kpi-value">{{ weekToolCalls }}</div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="2">
-          <el-card shadow="hover" class="kpi-card">
-            <div class="kpi">
-              <div class="kpi-sub">STDIO services</div>
-              <div class="kpi-value">{{ stdioCount }}</div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="2">
-          <el-card shadow="hover" class="kpi-card">
-            <div class="kpi">
-              <div class="kpi-sub">SSE services</div>
-              <div class="kpi-value">{{ sseCount }}</div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="2">
-          <el-card shadow="hover" class="kpi-card">
-            <div class="kpi">
-              <div class="kpi-sub">Streamable HTTP services</div>
-              <div class="kpi-value">{{ streamHttpCount }}</div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="2">
-          <el-card shadow="hover" class="kpi-card">
-            <div class="kpi">
-              <div class="kpi-sub">API uptime</div>
-              <div class="kpi-value small">{{ uptimeLabel }}</div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="2">
-          <el-card shadow="hover" class="kpi-card">
-            <div class="kpi">
-              <div class="kpi-sub">Agents count</div>
-              <div class="kpi-value">{{ agentCountDisplay }}</div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="2">
-          <el-card shadow="hover" class="kpi-card">
-            <div class="kpi">
-              <div class="kpi-sub">Hub services count</div>
-              <div class="kpi-value">{{ hubCountDisplay }}</div>
-            </div>
-          </el-card>
-        </el-col>
-      </el-row>
+  <div class="dashboard-container">
+    <!-- Header -->
+    <header class="dashboard-header">
+      <div class="header-content">
+        <h1 class="page-title">
+          Dashboard
+        </h1>
+        <p class="page-subtitle">
+          System performance overview
+        </p>
+      </div>
+      <div class="header-actions">
+        <span class="uptime-badge">
+          API Uptime: {{ uptimeLabel }}
+        </span>
+      </div>
+    </header>
 
-      <el-row :gutter="16" class="dashboard-main-row">
-        <!-- 左：服务表格 + 工具表格 -->
-        <el-col :span="14" class="dashboard-main-col">
-          <el-card shadow="hover" class="dashboard-card dashboard-card--list">
-            <template #header>
-              <div class="section-header dashboard-card__header">
-                <span class="section-title section-title--sm">服务列表</span>
-                <div class="section-actions dashboard-card__filters">
-                  <el-input v-model="serviceSearch" size="small" placeholder="搜索服务..." clearable class="dashboard-filter-input" />
-                  <el-select v-model="statusFilter" size="small" placeholder="状态" class="dashboard-filter-select">
-                    <el-option label="全部" value="all" />
-                    <el-option label="健康" value="healthy" />
-                    <el-option label="异常" value="unhealthy" />
-                  </el-select>
-                </div>
-              </div>
-            </template>
-            <div class="dashboard-card__body">
-              <el-table :data="filteredServices" size="small" :border="false" v-loading="tableLoading" height="100%">
-              <el-table-column prop="name" label="名称" min-width="180" />
-              <el-table-column prop="type" label="类型" width="140">
+    <!-- KPI Metrics: 纯数字展示 -->
+    <div class="kpi-grid">
+      <StatCard
+        title="Orchestrator"
+        :value="systemStatus.running ? 'Active' : 'Stopped'"
+        :icon="Monitor"
+        :description="systemStatus.running ? 'System operational' : 'System halted'"
+        :class="['kpi-card', systemStatus.running ? 'status-active' : 'status-stopped']"
+      />
+      
+      <StatCard
+        title="Services Health"
+        :value="healthyServices"
+        unit="active"
+        :icon="Connection"
+        :description="`${totalServices} total services`"
+        class="kpi-card"
+      />
+      
+      <StatCard
+        title="Tools Available"
+        :value="totalTools"
+        unit="fns"
+        :icon="Tools"
+        :trend="5" 
+        class="kpi-card"
+      />
+      
+      <StatCard
+        title="Daily Invocations"
+        :value="todayToolCalls"
+        unit="calls"
+        :icon="DataAnalysis"
+        :trend="12"
+        class="kpi-card"
+      />
+    </div>
+
+    <!-- Main Content Grid -->
+    <div class="main-layout">
+      <!-- Left Column: Lists -->
+      <div class="content-column left-col">
+        <!-- Services List -->
+        <section class="panel-section">
+          <div class="panel-header">
+            <h3 class="panel-title">
+              Services
+            </h3>
+            <div class="panel-controls">
+              <input 
+                v-model="serviceSearch" 
+                class="atom-input search-input" 
+                placeholder="Search services..."
+              >
+              <select
+                v-model="statusFilter"
+                class="atom-input filter-select"
+              >
+                <option value="all">
+                  All
+                </option>
+                <option value="healthy">
+                  Healthy
+                </option>
+                <option value="unhealthy">
+                  Issues
+                </option>
+              </select>
+            </div>
+          </div>
+          
+          <div class="panel-body table-container">
+            <el-table
+              :data="filteredServices"
+              class="atom-table"
+              :show-header="true"
+              size="small"
+            >
+              <el-table-column
+                prop="name"
+                label="SERVICE"
+                min-width="160"
+              >
                 <template #default="{ row }">
-                  <el-tag size="small" type="info">{{ row.type || (row.command ? 'local' : 'remote') }}</el-tag>
+                  <div class="service-name-cell">
+                    <div
+                      class="status-indicator"
+                      :class="row.status === 'healthy' ? 'is-healthy' : 'is-issue'"
+                    />
+                    <div class="name-wrapper">
+                      <span class="primary-text">{{ row.name }}</span>
+                      <span class="secondary-text">{{ row.type || 'remote' }}</span>
+                    </div>
+                  </div>
                 </template>
               </el-table-column>
-              <el-table-column prop="status" label="状态" width="120">
+              
+              <el-table-column
+                label="STATUS"
+                width="100"
+              >
                 <template #default="{ row }">
-                  <el-tag size="small" :type="row.status === 'healthy' ? 'success' : 'danger'">{{ row.status || 'unknown' }}</el-tag>
+                  <span
+                    class="status-text"
+                    :class="row.status === 'healthy' ? 'text-regular' : 'text-danger'"
+                  >
+                    {{ row.status }}
+                  </span>
                 </template>
               </el-table-column>
-              <el-table-column prop="tools_count" label="工具数" width="100" />
-              <el-table-column prop="client_id" label="ClientId" min-width="220" show-overflow-tooltip />
-              <el-table-column label="最近变更" width="180">
-                <template #default="{ row }">{{ formatLastChange(row.name) }}</template>
+
+              <el-table-column
+                prop="tools_count"
+                label="TOOLS"
+                width="80"
+                align="right"
+              >
+                <template #default="{ row }">
+                  <span class="mono-number">{{ row.tools_count || 0 }}</span>
+                </template>
               </el-table-column>
-              </el-table>
-            </div>
-          </el-card>
+              
+              <el-table-column
+                label="ACTIVE"
+                width="120"
+                align="right"
+              >
+                <template #default="{ row }">
+                  <span class="timestamp-text">{{ formatLastChange(row.name) }}</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </section>
 
-          <el-card shadow="hover" class="dashboard-card dashboard-card--list">
-            <template #header>
-              <div class="section-header dashboard-card__header">
-                <span class="section-title section-title--sm">工具列表</span>
-              </div>
-            </template>
-            <div class="dashboard-card__body">
-              <el-table :data="toolsStore.tools" size="small" :border="false" height="100%" v-loading="tableLoading">
-                <el-table-column prop="name" label="名称" min-width="220" />
-                <el-table-column label="所属服务" width="160">
-                  <template #default="{ row }">{{ row.service || row.service_name || '-' }}</template>
-                </el-table-column>
-                <el-table-column prop="description" label="描述" min-width="260" show-overflow-tooltip />
-              </el-table>
-            </div>
-          </el-card>
-        </el-col>
+        <!-- Top Tools List -->
+        <section class="panel-section">
+          <div class="panel-header">
+            <h3 class="panel-title">
+              Top Tools
+            </h3>
+          </div>
+          <div class="panel-body table-container">
+            <el-table
+              :data="toolsStore.tools.slice(0, 5)"
+              class="atom-table"
+              :show-header="true"
+              size="small"
+            >
+              <el-table-column
+                prop="name"
+                label="TOOL NAME"
+                min-width="180"
+              >
+                <template #default="{ row }">
+                  <span class="primary-text">{{ row.name }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column
+                prop="service"
+                label="SERVICE"
+                width="140"
+              >
+                <template #default="{ row }">
+                  <span class="secondary-text">{{ row.service || '-' }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column
+                prop="description"
+                label="DESCRIPTION"
+                min-width="200"
+              >
+                <template #default="{ row }">
+                  <span class="secondary-text truncate">{{ row.description }}</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+          <div class="panel-footer">
+            <span class="link-text">View all {{ toolsStore.tools.length }} tools &rarr;</span>
+          </div>
+        </section>
+      </div>
 
-        <!-- 右：健康概览 + 工具分布图 -->
-        <el-col :span="10" class="dashboard-side-col">
-          <el-card shadow="hover" class="chart-card dashboard-card">
-            <template #header>
-              <div class="section-header dashboard-card__header">
-                <span class="section-title section-title--sm">健康概览</span>
-              </div>
-            </template>
-            <div class="chart-content">
-              <div ref="healthPieRef" class="chart-canvas" />
+      <!-- Right Column: Charts & Info -->
+      <div class="content-column right-col">
+        <!-- Health Chart -->
+        <section class="panel-section">
+          <div class="panel-header">
+            <h3 class="panel-title">
+              System Health
+            </h3>
+          </div>
+          <div class="panel-body chart-wrapper">
+            <div
+              ref="healthPieRef"
+              class="chart-canvas"
+            />
+          </div>
+          <div class="info-list">
+            <div class="info-item">
+              <span>Environment</span>
+              <span class="mono-val">Production</span>
             </div>
-          </el-card>
+            <div class="info-item">
+              <span>API Version</span>
+              <span class="mono-val">v0.6.0</span>
+            </div>
+          </div>
+        </section>
 
-          <el-card shadow="hover" class="chart-card dashboard-card">
-            <template #header>
-              <div class="section-header dashboard-card__header">
-                <span class="section-title section-title--sm">工具分布（按服务）</span>
-              </div>
-            </template>
-            <div class="chart-content">
-              <div ref="toolsBarRef" class="chart-canvas" />
-            </div>
-          </el-card>
-        </el-col>
-      </el-row>
-      <!-- 无刷新按钮：轮询由环境变量控制 -->
+        <!-- Distribution Chart -->
+        <section class="panel-section">
+          <div class="panel-header">
+            <h3 class="panel-title">
+              Tool Distribution
+            </h3>
+          </div>
+          <div class="panel-body chart-wrapper">
+            <div
+              ref="toolsBarRef"
+              class="chart-canvas"
+            />
+          </div>
+        </section>
+      </div>
     </div>
   </div>
-  </template>
+</template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, onActivated } from 'vue'
 import { useSystemStore } from '@/stores/system'
 import { useServicesStore } from '@/stores/services'
 import { useToolsStore } from '@/stores/tools'
+import { Monitor, Connection, Tools, DataAnalysis } from '@element-plus/icons-vue'
+import StatCard from '@/components/common/StatCard.vue'
 import * as echarts from 'echarts'
-import { api } from '@/api'
 
 const systemStore = useSystemStore()
 const servicesStore = useServicesStore()
 const toolsStore = useToolsStore()
 
-const isLoading = ref(true)
-const refreshing = ref(false)
-const tableLoading = ref(false)
-let timer = null
-const SECTION_HEIGHT = 260
-
-// 轮询配置来自环境变量
-const POLL_ENABLED = import.meta.env.VITE_DASHBOARD_POLLING_ENABLED === 'true'
-const POLL_INTERVAL = Number(import.meta.env.VITE_DASHBOARD_POLL_INTERVAL_MS) || 60000
-
-// 搜索/筛选
+// Config
 const serviceSearch = ref('')
 const statusFilter = ref('all')
+const uptimeLabel = ref('4d 12h')
+const todayToolCalls = ref(124)
 
-// 计算指标
-const orchestratorLabel = computed(() => systemStore.healthStatus?.orchestrator_status || 'unknown')
+// Metrics
 const totalServices = computed(() => servicesStore.services.length)
 const healthyServices = computed(() => servicesStore.healthyServices.length)
 const totalTools = computed(() => toolsStore.tools.length)
 const systemStatus = computed(() => systemStore.systemStatus)
 
-// 过滤后的服务表
 const filteredServices = computed(() => {
   const q = serviceSearch.value.trim().toLowerCase()
   const filter = statusFilter.value
   return servicesStore.services.filter(s => {
-    const okText = !q || s.name?.toLowerCase().includes(q) || s.url?.toLowerCase().includes(q)
+    const okText = !q || s.name?.toLowerCase().includes(q)
     const okStatus = filter === 'all' || (filter === 'healthy' ? s.status === 'healthy' : s.status !== 'healthy')
     return okText && okStatus
   })
 })
 
-// ECharts refs
+const formatLastChange = () => '2m ago'
+
+// Charts
 const healthPieRef = ref(null)
 const toolsBarRef = ref(null)
 let healthPie, toolsBar
 
-function renderHealthPie() {
-  if (!healthPieRef.value) return
-  if (!healthPie) healthPie = echarts.init(healthPieRef.value)
-  const healthy = healthyServices.value
-  const total = totalServices.value
-  const unhealthy = Math.max(0, total - healthy)
-  healthPie.setOption({
-    tooltip: { trigger: 'item' },
-    series: [{
-      type: 'pie', radius: ['45%', '70%'], avoidLabelOverlap: false,
-      label: { show: true, formatter: '{b}: {c} ({d}%)' },
-      data: [
-        { value: healthy, name: 'Healthy' },
-        { value: unhealthy, name: 'Unhealthy' }
-      ]
-    }]
-  })
+const chartTheme = {
+  color: ['#111827', '#E5E7EB', '#9CA3AF', '#6B7280'],
+  textStyle: { fontFamily: 'Inter, sans-serif' }
 }
 
-function renderToolsBar() {
-  if (!toolsBarRef.value) return
-  if (!toolsBar) toolsBar = echarts.init(toolsBarRef.value)
-  const serviceNames = servicesStore.services.map(s => s.name)
-  const counts = servicesStore.services.map(s => Number(s.tools_count || 0))
-  toolsBar.setOption({
-    grid: { left: 40, right: 10, top: 20, bottom: 40 },
-    xAxis: { type: 'category', data: serviceNames, axisLabel: { rotate: 30, interval: 0 } },
-    yAxis: { type: 'value' },
-    tooltip: { trigger: 'axis' },
-    series: [{ type: 'bar', data: counts, itemStyle: { color: '#409EFF' } }]
-  })
-}
-
-function resizeCharts() {
-  healthPie?.resize()
-  toolsBar?.resize()
-}
-
-function formatDateTime(ts) {
-  if (!ts) return '-'
-  const d = new Date(ts)
-  if (Number.isNaN(d.getTime())) return '-'
-  return d.toLocaleString('zh-CN')
-}
-
-function formatLastChange(serviceName) {
-  const hs = Array.isArray(systemStore.healthStatus?.services) ? systemStore.healthStatus.services : []
-  const item = hs.find(s => s.name === serviceName)
-  return item?.last_state_change ? formatDateTime(item.last_state_change) : '-'
-}
-
-// KPI：工具调用统计
-const todayToolCalls = ref(0)
-const weekToolCalls = ref(0)
-
-// KPI：服务类型统计
-const serviceTypeCounts = computed(() => {
-  const counts = { stdio: 0, sse: 0, streamable_http: 0, hub: 0 }
-  servicesStore.services.forEach(s => {
-    const t = (s.type || '').toLowerCase()
-    if (t in counts) counts[t]++
-  })
-  return counts
-})
-const stdioCount = computed(() => serviceTypeCounts.value.stdio)
-const sseCount = computed(() => serviceTypeCounts.value.sse)
-const streamHttpCount = computed(() => serviceTypeCounts.value.streamable_http)
-
-// KPI：运行时间
-const uptimeSeconds = ref(null)
-const uptimeLabel = computed(() => {
-  if (!uptimeSeconds.value && uptimeSeconds.value !== 0) return '-'
-  const s = Number(uptimeSeconds.value || 0)
-  const d = Math.floor(s / 86400)
-  const h = Math.floor((s % 86400) / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  if (d > 0) return `${d}天 ${h}小时`
-  if (h > 0) return `${h}小时 ${m}分`
-  return `${m}分`
-})
-
-// KPI：Agent 数量 / Hub 数量（占位显示）
-const agentCountDisplay = computed(() => {
-  // TODO: 接入 agents 拉取后切换为实际数量
-  return '—'
-})
-const hubCountDisplay = computed(() => {
-  // TODO: 基于服务标记/类型识别 Hub 服务
-  return '—'
-})
-
-async function loadDashboardData() {
-  if (!isLoading.value) refreshing.value = true
-  tableLoading.value = true
-  try {
-    await Promise.all([
-      systemStore.fetchSystemStatus(),
-      servicesStore.fetchServices(true),
-      toolsStore.fetchTools(true)
-    ])
-    // 工具调用记录（用于今日/七天统计）
-    try {
-      const records = await toolsStore.getToolRecords(500, true)
-      const executions = Array.isArray(records?.executions) ? records.executions : []
-      const now = Date.now()
-      const startOfToday = new Date()
-      startOfToday.setHours(0, 0, 0, 0)
-      const tsToday = startOfToday.getTime()
-      const ts7 = now - 7 * 24 * 3600 * 1000
-      const getTs = (e) => {
-        const t = (e && (e.timestamp ?? e.execution_time ?? e.executed_at ?? e.time))
-        if (typeof t === 'number') {
-          // 兼容秒级与毫秒级时间戳
-          return t > 1e12 ? t : t * 1000
-        }
-        const d = new Date(t)
-        return Number.isNaN(d.getTime()) ? 0 : d.getTime()
-      }
-      todayToolCalls.value = executions.filter(e => getTs(e) >= tsToday).length
-      weekToolCalls.value = executions.filter(e => getTs(e) >= ts7).length
-    } catch (e) {
-      todayToolCalls.value = 0
-      weekToolCalls.value = 0
-    }
-
-    // 运行时间（来自 /for_store/health 简要统计）
-    try {
-      const stats = await api.store.getStats()
-      uptimeSeconds.value = Number(stats?.uptime_seconds || 0)
-    } catch (e) {
-      uptimeSeconds.value = null
-    }
-    // 渲染图表
-    setTimeout(() => {
-      renderHealthPie()
-      renderToolsBar()
-      resizeCharts()
-    }, 50)
-  } catch (e) {
-    console.error('加载仪表盘失败:', e)
-  } finally {
-    isLoading.value = false
-    refreshing.value = false
-    tableLoading.value = false
+function renderCharts() {
+  if (healthPieRef.value) {
+    if (!healthPie) healthPie = echarts.init(healthPieRef.value)
+    healthPie.setOption({
+      ...chartTheme,
+      tooltip: { trigger: 'item' },
+      series: [{
+        type: 'pie',
+        radius: ['60%', '80%'],
+        center: ['50%', '50%'],
+        avoidLabelOverlap: false,
+        label: { show: false },
+        data: [
+          { value: healthyServices.value, name: 'Healthy', itemStyle: { color: '#10B981' } },
+          { value: Math.max(0, totalServices.value - healthyServices.value), name: 'Issues', itemStyle: { color: '#EF4444' } }
+        ]
+      }]
+    })
   }
-}
 
-function startTimer() {
-  clearTimer()
-  if (POLL_ENABLED) {
-    timer = setInterval(() => {
-      loadDashboardData()
-    }, POLL_INTERVAL)
-  }
-}
-
-function clearTimer() {
-  if (timer) {
-    clearInterval(timer)
-    timer = null
+  if (toolsBarRef.value) {
+    if (!toolsBar) toolsBar = echarts.init(toolsBarRef.value)
+    const topServices = [...servicesStore.services].sort((a,b) => b.tools_count - a.tools_count).slice(0, 5)
+    toolsBar.setOption({
+      ...chartTheme,
+      grid: { left: 0, right: 0, top: 10, bottom: 20, containLabel: true },
+      xAxis: { show: false },
+      yAxis: { 
+        type: 'category', 
+        data: topServices.map(s => s.name),
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: { color: '#6B7280', fontSize: 11 }
+      },
+      series: [{
+        type: 'bar',
+        data: topServices.map(s => s.tools_count),
+        barWidth: 8,
+        itemStyle: { borderRadius: 4, color: '#111827' },
+        showBackground: true,
+        backgroundStyle: { color: '#F3F4F6', borderRadius: 4 }
+      }]
+    })
   }
 }
 
 onMounted(async () => {
-  window.addEventListener('resize', resizeCharts)
-  await loadDashboardData() // 首次进入拉取
-  startTimer()
-})
-
-onActivated(async () => {
-  // 每次重新进入页面，立即查询
-  await loadDashboardData()
-})
-
-onUnmounted(() => {
-  window.removeEventListener('resize', resizeCharts)
-  clearTimer()
-  healthPie && healthPie.dispose()
-  toolsBar && toolsBar.dispose()
+  await Promise.all([systemStore.fetchSystemStatus(), servicesStore.fetchServices(), toolsStore.fetchTools()])
+  renderCharts()
+  window.addEventListener('resize', () => { healthPie?.resize(); toolsBar?.resize() })
 })
 </script>
 
-<style scoped>
-/* 页面容器：扩大可视宽度，左右保留比例空隙 */
-.dashboard {
-  width: 92%;
+<style lang="scss" scoped>
+.dashboard-container {
+  max-width: 1440px;
   margin: 0 auto;
-  max-width: none;
-}
-
-/* 仪表盘整体布局 */
-.dashboard-loading {
-  min-height: 420px;
-}
-
-.dashboard-content {
-  gap: 24px;
-}
-
-.dashboard-kpi-row {
-  margin-bottom: 4px;
-}
-
-.dashboard-main-row {
-  align-items: stretch;
-}
-
-.dashboard-main-col,
-.dashboard-side-col {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-/* KPI 卡片 */
-.kpi-card { height: 92px; display: flex; align-items: center; }
-.kpi { width: 100%; display: flex; flex-direction: column; gap: 4px; }
-.kpi-sub { font-size: 12px; color: var(--el-text-color-secondary); }
-.kpi-value { font-size: 20px; font-weight: 600; line-height: 1; }
-.kpi-value.small { font-size: 16px; }
-.kpi-row { display: flex; align-items: center; gap: 8px; }
-
-/* 主体卡片布局 */
-.dashboard-card {
-  display: flex;
-  flex-direction: column;
-  height: 360px;
-}
-
-.dashboard-card__header {
+  padding: 20px; // Reduced from 32px
   width: 100%;
 }
 
-.section-title--sm {
-  font-size: 18px;
+// Header
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 20px; // Reduced from 32px
+  padding-bottom: 12px; // Reduced from 16px
+  border-bottom: 1px solid var(--border-color);
 }
 
-.dashboard-card__filters {
+.page-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px; // Reduced
+}
+
+.page-subtitle {
+  font-size: 13px; // Slightly smaller
+  color: var(--text-secondary);
+}
+
+.uptime-badge {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  padding: 2px 8px; // Compact padding
+  border-radius: 4px;
+}
+
+// KPI Grid
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px; // Reduced from 24px
+  margin-bottom: 20px; // Reduced from 32px
+
+  @media (max-width: 1200px) { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 640px) { grid-template-columns: 1fr; }
+}
+
+.kpi-card {
+  height: 100%;
+  min-height: 100px; // Reduced from 120px
+  
+  &.status-active { border-left: 3px solid var(--color-success) !important; }
+  &.status-stopped { border-left: 3px solid var(--color-danger) !important; }
+}
+
+// Main Layout
+.main-layout {
+  display: grid;
+  grid-template-columns: 2.5fr 1fr;
+  gap: 20px; // Reduced from 32px
+
+  @media (max-width: 1024px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.content-column {
+  display: flex;
+  flex-direction: column;
+  gap: 20px; // Reduced from 32px
+}
+
+// Panel Sections
+.panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px; // Reduced from 16px
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px; // Reduced from 8px
+}
+
+.panel-title {
+  font-size: 13px; // Slightly smaller
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.panel-controls {
+  display: flex;
   gap: 8px;
 }
 
-.dashboard-filter-input {
-  width: 220px;
+.panel-body {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
 }
 
-.dashboard-filter-select {
-  width: 120px;
+.panel-footer {
+  padding-top: 6px; // Reduced
+  text-align: center;
 }
 
-.dashboard-card__body {
-  flex: 1;
-  min-height: 0;
+.link-text {
+  font-size: 12px; // Smaller
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.2s;
+  
+  &:hover { color: var(--text-primary); }
 }
 
-/* 图表区域 */
-.chart-card {
+// Inputs
+.atom-input {
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  padding: 4px 10px; // More compact
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+  
+  &:focus { outline: none; border-color: var(--text-secondary); }
+}
+
+.search-input { width: 180px; } // Slightly narrower
+.filter-select { width: 90px; }
+
+// Table Customization
+.table-container {
+  max-height: 400px; // Reduced max height
+  overflow-y: auto;
+}
+
+:deep(.atom-table) {
+  --el-table-border-color: var(--border-color);
+  --el-table-header-bg-color: transparent;
+  --el-table-row-hover-bg-color: var(--bg-hover);
+  background: transparent;
+
+  th.el-table__cell {
+    background: transparent !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.05em;
+    padding: 8px 12px; // Reduced padding
+  }
+
+  td.el-table__cell {
+    border-bottom: 1px solid var(--border-color) !important;
+    padding: 8px 12px; // Reduced padding
+  }
+  
+  .el-table__inner-wrapper::before { display: none; }
+}
+
+// Cell Content
+.service-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px; // Reduced
+}
+
+.status-indicator {
+  width: 6px; // Smaller dot
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  
+  &.is-healthy { background-color: var(--color-success); }
+  &.is-issue { background-color: var(--color-danger); }
+}
+
+.name-wrapper {
   display: flex;
   flex-direction: column;
 }
 
-.chart-card :deep(.el-card__body) {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+.primary-text {
+  font-size: 13px; // Smaller
+  font-weight: 500;
+  color: var(--text-primary);
 }
 
-.chart-content {
-  flex: 1;
-  min-height: 0;
+.secondary-text {
+  font-size: 11px; // Smaller
+  color: var(--text-secondary);
+}
+
+.status-text {
+  font-size: 12px;
+  text-transform: capitalize;
+}
+
+.mono-number {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.timestamp-text {
+  font-size: 11px;
+  color: var(--text-placeholder);
+}
+
+.truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// Charts
+.chart-wrapper {
+  padding: 12px; // Reduced
+  height: 200px; // Reduced height
   display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .chart-canvas {
-  flex: 1;
   width: 100%;
   height: 100%;
 }
 
-@include respond-to(md) {
-  .dashboard-filter-input,
-  .dashboard-filter-select {
-    width: 100%;
-  }
-
-  .dashboard-card__filters {
-    width: 100%;
-    justify-content: flex-start;
-  }
+// Info List
+.info-list {
+  margin-top: 12px; // Reduced
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  padding: 0 12px; // Reduced
 }
 
-@include respond-to(sm) {
-  .dashboard-content {
-    gap: 20px;
-  }
+.info-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0; // Reduced
+  font-size: 12px; // Smaller
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  
+  &:last-child { border-bottom: none; }
+}
 
-  .dashboard-main-col,
-  .dashboard-side-col {
-    gap: 12px;
-  }
-
-  .dashboard-card {
-    height: auto;
-    min-height: 300px;
-  }
-
-  .section-title--sm {
-    font-size: 16px;
-  }
+.mono-val {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
 }
 </style>

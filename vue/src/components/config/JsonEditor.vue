@@ -6,10 +6,10 @@
       type="textarea"
       :rows="Math.floor(height / 20)"
       placeholder="MCP JSON配置内容..."
-      @focus="onFocus"
-      @blur="onBlur"
       class="json-textarea"
       :class="{ 'has-error': !isValid && errorMessage }"
+      @focus="onFocus"
+      @blur="onBlur"
     />
 
     <!-- 编辑器工具栏 -->
@@ -18,8 +18,8 @@
         <el-button
           size="small"
           :icon="Refresh"
-          @click="formatCode"
           :disabled="!modelValue"
+          @click="formatCode"
         >
           格式化
         </el-button>
@@ -35,8 +35,8 @@
         <el-button
           size="small"
           :icon="CopyDocument"
-          @click="copyCode"
           :disabled="!modelValue"
+          @click="copyCode"
         >
           复制
         </el-button>
@@ -44,15 +44,26 @@
 
       <div class="toolbar-right">
         <span class="status-info">
-          <el-tag v-if="isValid && modelValue" type="success" size="small">语法正确</el-tag>
-          <el-tag v-else-if="errorMessage" type="danger" size="small">语法错误</el-tag>
+          <el-tag
+            v-if="isValid && modelValue"
+            type="success"
+            size="small"
+          >语法正确</el-tag>
+          <el-tag
+            v-else-if="errorMessage"
+            type="danger"
+            size="small"
+          >语法错误</el-tag>
           <span class="char-count">字符: {{ modelValue.length }}</span>
         </span>
       </div>
     </div>
 
     <!-- 错误提示 -->
-    <div v-if="errorMessage" class="error-panel">
+    <div
+      v-if="errorMessage"
+      class="error-panel"
+    >
       <el-alert
         :title="errorMessage"
         type="error"

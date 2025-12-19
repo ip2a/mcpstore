@@ -1,443 +1,407 @@
 <template>
-  <div class="tool-execute">
-    <!-- 页面头部 -->
-    <div class="page-header">
-      <div class="header-left">
-        <h2 class="page-title">
-          <el-icon class="title-icon"><Tools /></el-icon>
-          工具执行
-        </h2>
-        <p class="page-description">选择并执行MCP工具，查看实时结果</p>
+  <div class="tool-execute-container">
+    <!-- Header -->
+    <header class="page-header">
+      <div class="header-content">
+        <h1 class="page-title">
+          Tool Executor
+        </h1>
+        <p class="page-subtitle">
+          Interactive tool invocation and testing environment
+        </p>
       </div>
-      <div class="header-right">
-        <el-button @click="$router.back()">
-          <el-icon><ArrowLeft /></el-icon>
-          返回
+      <div class="header-actions">
+        <el-button
+          link
+          class="back-link"
+          @click="$router.back()"
+        >
+          <el-icon><ArrowLeft /></el-icon> Back
         </el-button>
       </div>
-    </div>
+    </header>
 
-    <!-- 主要内容区域 -->
-    <div class="main-content">
-      <!-- 左侧：工具选择和配置 -->
-      <div class="left-panel">
-        <!-- 工具选择 -->
-        <el-card class="selection-card">
-          <template #header>
-            <div class="card-header">
-              <el-icon><Search /></el-icon>
-              <span>选择工具</span>
-            </div>
-          </template>
-
-          <div class="selection-form">
-            <div class="form-group">
-              <label class="form-label">服务</label>
-              <el-select
-                v-model="selectedService"
-                placeholder="选择服务"
-                @change="handleServiceChange"
-                size="large"
-                filterable
-              >
-                <el-option
-                  v-for="serviceName in serviceNames"
-                  :key="serviceName"
-                  :label="serviceName"
-                  :value="serviceName"
-                >
-                  <div class="service-option">
-                    <span class="service-name">{{ serviceName }}</span>
-                    <span class="tool-count">{{ getServiceToolCount(serviceName) }} 个工具</span>
-                  </div>
-                </el-option>
-              </el-select>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">工具</label>
-              <el-select
-                v-model="selectedTool"
-                placeholder="选择工具"
-                :disabled="!selectedService"
-                @change="handleToolChange"
-                size="large"
-                filterable
-              >
-                <el-option
-                  v-for="tool in availableTools"
-                  :key="tool.name"
-                  :label="tool.name"
-                  :value="tool.name"
-                >
-                  <div class="tool-option">
-                    <div class="tool-name">{{ tool.name }}</div>
-                    <div class="tool-description">{{ tool.description || '暂无描述' }}</div>
-                  </div>
-                </el-option>
-              </el-select>
-            </div>
+    <!-- Main Content -->
+    <div class="main-layout">
+      <!-- Left Panel: Configuration -->
+      <div class="panel-column left-col">
+        <!-- Selection -->
+        <section class="panel-section">
+          <div class="panel-header">
+            <h3 class="panel-title">
+              Target
+            </h3>
           </div>
-        </el-card>
-
-        <!-- 工具信息 -->
-        <el-card v-if="currentTool" class="info-card">
-          <template #header>
-            <div class="card-header">
-              <el-icon><InfoFilled /></el-icon>
-              <span>工具信息</span>
-            </div>
-          </template>
-
-          <div class="tool-info">
-            <div class="info-item">
-              <span class="info-label">工具名称</span>
-              <span class="info-value">{{ currentTool.name }}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">所属服务</span>
-              <span class="info-value">{{ currentTool.service }}</span>
-            </div>
-            <div class="info-item full-width">
-              <span class="info-label">描述</span>
-              <span class="info-value">{{ currentTool.description || '暂无描述' }}</span>
-            </div>
-            <div class="info-item" v-if="hasParameters">
-              <span class="info-label">参数数量</span>
-              <span class="info-value">{{ Object.keys(toolParameters).length }} 个</span>
-            </div>
-          </div>
-        </el-card>
-        <!-- 参数配置 -->
-        <el-card v-if="currentTool" class="params-card">
-          <template #header>
-            <div class="card-header">
-              <el-icon><Setting /></el-icon>
-              <span>参数配置</span>
-              <div class="header-actions" v-if="hasParameters">
-                <el-button size="small" @click="resetParams" text>
-                  <el-icon><RefreshLeft /></el-icon>
-                  重置
-                </el-button>
-                <el-button size="small" @click="loadExample" text>
-                  <el-icon><Star /></el-icon>
-                  示例
-                </el-button>
-              </div>
-            </div>
-          </template>
-
-          <div v-if="hasParameters" class="params-form">
-            <el-form
-              ref="paramsFormRef"
-              :model="toolParams"
-              :rules="paramRules"
-              label-position="top"
-            >
-              <div class="params-grid">
-                <el-form-item
-                  v-for="(param, paramName) in toolParameters"
-                  :key="paramName"
-                  :label="paramName"
-                  :prop="paramName"
-                  class="param-item"
+          <div class="panel-body form-card">
+            <div class="form-row">
+              <div class="form-group">
+                <label>Service</label>
+                <select 
+                  v-model="selectedService" 
+                  class="atom-input full"
+                  @change="handleServiceChange"
                 >
-                  <template #label>
-                    <div class="param-label">
-                      <span class="param-name">{{ paramName }}</span>
-                      <el-tag
-                        v-if="isRequired(paramName)"
-                        size="small"
-                        type="danger"
-                      >
-                        必需
-                      </el-tag>
-                      <el-tag
-                        size="small"
-                        type="info"
-                      >
-                        {{ param.type }}
-                      </el-tag>
-                    </div>
-                  </template>
-                  <!-- 字符串类型 -->
-                  <el-input
-                    v-if="param.type === 'string'"
-                    v-model="toolParams[paramName]"
-                    :placeholder="param.description || `请输入${paramName}`"
-                    :type="param.format === 'password' ? 'password' : 'text'"
-                    clearable
-                    size="large"
-                  />
-
-                  <!-- 数字类型 -->
-                  <el-input-number
-                    v-else-if="param.type === 'number' || param.type === 'integer'"
-                    v-model="toolParams[paramName]"
-                    :min="param.minimum"
-                    :max="param.maximum"
-                    :step="param.type === 'integer' ? 1 : 0.1"
-                    size="large"
-                    style="width: 100%"
-                  />
-
-                  <!-- 布尔类型 -->
-                  <div v-else-if="param.type === 'boolean'" class="boolean-input">
-                    <el-switch
-                      v-model="toolParams[paramName]"
-                      size="large"
-                      :active-text="toolParams[paramName] ? 'True' : 'False'"
-                    />
-                  </div>
-
-                  <!-- 枚举类型 -->
-                  <el-select
-                    v-else-if="param.enum"
-                    v-model="toolParams[paramName]"
-                    placeholder="请选择"
-                    size="large"
-                    style="width: 100%"
+                  <option
+                    value=""
+                    disabled
+                    selected
                   >
-                    <el-option
-                      v-for="option in param.enum"
-                      :key="option"
-                      :label="option"
-                      :value="option"
-                    />
-                  </el-select>
-
-                  <!-- 数组类型 -->
-                  <div v-else-if="param.type === 'array'" class="array-input">
-                    <div
-                      v-for="(item, index) in toolParams[paramName]"
-                      :key="index"
-                      class="array-item"
-                    >
-                      <el-input
-                        v-model="toolParams[paramName][index]"
-                        placeholder="数组项"
-                        size="large"
-                      />
-                      <el-button
-                        :icon="Delete"
-                        @click="removeArrayItem(paramName, index)"
-                        type="danger"
-                        text
-                        size="large"
-                      />
-                    </div>
-                    <el-button
-                      :icon="Plus"
-                      @click="addArrayItem(paramName)"
-                      type="primary"
-                      text
-                      size="large"
-                      class="add-array-btn"
-                    >
-                      添加项
-                    </el-button>
-                  </div>
-
-                  <!-- 对象类型 -->
-                  <el-input
-                    v-else
-                    v-model="toolParams[paramName]"
-                    type="textarea"
-                    :rows="4"
-                    placeholder="请输入JSON格式的对象"
-                    size="large"
-                  />
-
-                  <div v-if="param.description" class="param-description">
-                    <el-icon><Document /></el-icon>
-                    {{ param.description }}
-                  </div>
-                </el-form-item>
+                    Select Service
+                  </option>
+                  <option
+                    v-for="name in serviceNames"
+                    :key="name"
+                    :value="name"
+                  >
+                    {{ name }}
+                  </option>
+                </select>
               </div>
-            </el-form>
-          </div>
-
-          <div v-else class="no-params">
-            <el-icon class="no-params-icon"><InfoFilled /></el-icon>
-            <span>此工具无需参数</span>
-          </div>
-        </el-card>
-      </div>
-
-      <!-- 右侧：执行控制和结果 -->
-      <div class="right-panel">
-        <!-- 执行控制 -->
-        <el-card v-if="currentTool" class="execute-card">
-          <template #header>
-            <div class="card-header">
-              <el-icon><VideoPlay /></el-icon>
-              <span>执行工具</span>
-              <div class="header-actions">
-                <el-switch v-model="useJsonMode" active-text="JSON模式" inactive-text="表单模式" size="small" />
+              <div class="form-group">
+                <label>Tool</label>
+                <select 
+                  v-model="selectedTool" 
+                  class="atom-input full"
+                  :disabled="!selectedService"
+                  @change="handleToolChange"
+                >
+                  <option
+                    value=""
+                    disabled
+                    selected
+                  >
+                    Select Tool
+                  </option>
+                  <option
+                    v-for="tool in availableTools"
+                    :key="tool.name"
+                    :value="tool.name"
+                  >
+                    {{ tool.name }}
+                  </option>
+                </select>
               </div>
             </div>
-          </template>
-
-          <div class="execute-section">
-            <div class="execute-info">
-              <div class="info-row">
-                <span class="label">工具:</span>
-                <span class="value">{{ currentTool.name }}</span>
-              </div>
-              <div class="info-row">
-                <span class="label">服务:</span>
-                <span class="value">{{ currentTool.service }}</span>
-              </div>
-              <div class="info-row" v-if="hasParameters">
-                <span class="label">参数:</span>
-                <span class="value">{{ Object.keys(toolParameters).length }} 个</span>
-              </div>
+            
+            <div
+              v-if="currentTool"
+              class="tool-summary"
+            >
+              <p class="description">
+                {{ currentTool.description || 'No description available.' }}
+              </p>
             </div>
+          </div>
+        </section>
 
-            <div class="execute-actions">
+        <!-- Parameters -->
+        <section
+          v-if="currentTool"
+          class="panel-section"
+        >
+          <div class="panel-header">
+            <h3 class="panel-title">
+              Parameters
+            </h3>
+            <div class="panel-controls">
+              <span 
+                class="mode-switch" 
+                :class="{ active: !useJsonMode }"
+                @click="useJsonMode = false"
+              >Form</span>
+              <span class="divider">/</span>
+              <span 
+                class="mode-switch" 
+                :class="{ active: useJsonMode }"
+                @click="useJsonMode = true"
+              >JSON</span>
+               
+              <div class="spacer" />
+               
               <el-button
-                type="primary"
-                @click="executeTool"
-                :loading="executing"
-                size="large"
-                :disabled="!canExecute"
-                class="execute-btn"
+                link
+                size="small"
+                @click="resetParams"
               >
-                <el-icon><VideoPlay /></el-icon>
-                {{ executing ? '执行中...' : '执行工具 (Ctrl/⌘+Enter)' }}
+                Reset
+              </el-button>
+              <el-button
+                link
+                size="small"
+                @click="loadExample"
+              >
+                Example
               </el-button>
             </div>
           </div>
-        </el-card>
-        <!-- 参数JSON输入（JSON模式） -->
-        <el-card v-if="currentTool && useJsonMode" class="json-card">
-          <template #header>
-            <div class="card-header">
-              <el-icon><Document /></el-icon>
-              <span>参数 JSON</span>
-              <div class="header-actions">
-                <el-button size="small" text @click="formatJson"><el-icon><Setting /></el-icon>格式化</el-button>
-                <el-button size="small" text @click="pasteFromClipboard"><el-icon><DocumentCopy /></el-icon>粘贴</el-button>
+
+          <div class="panel-body params-container">
+            <!-- Form Mode -->
+            <div
+              v-if="!useJsonMode && hasParameters"
+              class="form-mode"
+            >
+              <el-form
+                ref="paramsFormRef"
+                :model="toolParams"
+                :rules="paramRules"
+                label-position="top"
+              >
+                <div class="params-grid">
+                  <div
+                    v-for="(param, name) in toolParameters"
+                    :key="name"
+                    class="param-field"
+                  >
+                    <label class="param-label">
+                      {{ name }}
+                      <span
+                        v-if="isRequired(name)"
+                        class="required"
+                      >*</span>
+                      <span class="param-type">{{ param.type }}</span>
+                    </label>
+                       
+                    <!-- Inputs -->
+                    <input 
+                      v-if="param.type === 'string'"
+                      v-model="toolParams[name]"
+                      class="atom-input full"
+                      :placeholder="param.description"
+                    >
+                       
+                    <input 
+                      v-else-if="param.type === 'integer' || param.type === 'number'"
+                      v-model.number="toolParams[name]"
+                      type="number"
+                      class="atom-input full"
+                    >
+                       
+                    <div
+                      v-else-if="param.type === 'boolean'"
+                      class="checkbox-wrapper"
+                    >
+                      <el-switch
+                        v-model="toolParams[name]"
+                        size="small"
+                      />
+                      <span class="checkbox-label">{{ toolParams[name] ? 'True' : 'False' }}</span>
+                    </div>
+                       
+                    <textarea
+                      v-else
+                      v-model="toolParams[name]"
+                      class="atom-input full"
+                      rows="3"
+                      placeholder="Complex input (JSON/Array)"
+                    />
+                       
+                    <p
+                      v-if="param.description"
+                      class="help-text"
+                    >
+                      {{ param.description }}
+                    </p>
+                  </div>
+                </div>
+              </el-form>
+            </div>
+             
+            <!-- JSON Mode -->
+            <div
+              v-else-if="useJsonMode"
+              class="json-mode"
+            >
+              <textarea 
+                v-model="jsonInput" 
+                class="code-editor" 
+                rows="12"
+                placeholder="{ ... }"
+              />
+              <div class="json-actions">
+                <button
+                  class="text-btn"
+                  @click="formatJson"
+                >
+                  Format
+                </button>
+                <button
+                  class="text-btn"
+                  @click="pasteFromClipboard"
+                >
+                  Paste
+                </button>
               </div>
             </div>
-          </template>
-          <el-input v-model="jsonInput" type="textarea" :rows="12" placeholder='请输入JSON参数，如 { "city": "Beijing" }' />
-        </el-card>
-
-        <!-- 结果/请求/历史 Tabs -->
-        <el-card v-if="executionResult || requestPayload || historyRecords.length" class="result-card">
-          <template #header>
-            <div class="card-header">
-              <span>执行信息</span>
+             
+            <!-- No Params -->
+            <div
+              v-else
+              class="empty-params"
+            >
+              <span>No parameters required for this tool.</span>
             </div>
-          </template>
-          <el-tabs v-model="activeTab">
-            <el-tab-pane label="结果" name="result">
-              <div v-if="executionResult" class="result-content">
-                <div class="execution-summary" v-if="executionResult.execution_info">
-                  <div class="summary-item">
-                    <span class="summary-label">执行时间</span>
-                    <span class="summary-value">{{ executionResult.execution_info.duration_ms }}ms</span>
-                  </div>
-                  <div class="summary-item">
-                    <span class="summary-label">服务名称</span>
-                    <span class="summary-value">{{ executionResult.execution_info.service_name }}</span>
-                  </div>
-                  <div class="summary-item" v-if="executionResult.execution_info.trace_id">
-                    <span class="summary-label">追踪ID</span>
-                    <span class="summary-value">{{ executionResult.execution_info.trace_id }}</span>
-                  </div>
-                  <el-tag :type="executionResult.success ? 'success' : 'danger'">{{ executionResult.success ? '成功' : '失败' }}</el-tag>
-                </div>
+          </div>
+        </section>
+      </div>
 
-                <div class="result-data">
-                  <div class="data-header">
-                    <h4>返回数据</h4>
-                    <div class="data-actions">
-                      <el-button :icon="DocumentCopy" @click="copyResult" size="small" text>复制</el-button>
-                      <el-button :icon="Download" @click="downloadResult" size="small" text>下载</el-button>
-                    </div>
-                  </div>
-                  <div class="result-display">
-                    <template v-if="Array.isArray(executionResult?.data?.content)">
-                      <div v-for="(c, idx) in executionResult.data.content" :key="idx" class="content-item">
-                        <div class="content-type">{{ c.type }}</div>
-                        <pre v-if="typeof c.text === 'string'">{{ c.text }}</pre>
-                        <pre v-else-if="c.data">{{ JSON.stringify(c.data, null, 2) }}</pre>
-                      </div>
-                    </template>
-                    <pre v-else-if="typeof executionResult?.data === 'object'">{{ JSON.stringify(executionResult.data, null, 2) }}</pre>
-                    <div v-else class="text-result">{{ executionResult?.data }}</div>
-                  </div>
-                </div>
+      <!-- Right Panel: Execution & Output -->
+      <div class="panel-column right-col">
+        <!-- Action -->
+        <div class="action-card">
+          <div class="action-info">
+            <span class="target-label">{{ selectedTool ? `${selectedService} / ${selectedTool}` : 'No tool selected' }}</span>
+            <span
+              class="status-indicator"
+              :class="{ ready: canExecute }"
+            />
+          </div>
+          <el-button 
+            type="primary" 
+            color="#000" 
+            size="large" 
+            :loading="executing"
+            :disabled="!canExecute"
+            class="execute-btn"
+            @click="executeTool"
+          >
+            {{ executing ? 'Running...' : 'Run Tool' }}
+          </el-button>
+        </div>
 
-                <div v-if="!executionResult.success && executionResult.message" class="error-section">
-                  <h4>错误信息</h4>
-                  <el-alert :title="executionResult.message" type="error" :closable="false" show-icon />
+        <!-- Output Tabs -->
+        <div class="output-section">
+          <div class="tabs-header">
+            <div 
+              class="tab-item" 
+              :class="{ active: activeTab === 'result' }"
+              @click="activeTab = 'result'"
+            >
+              Result
+            </div>
+            <div 
+              class="tab-item" 
+              :class="{ active: activeTab === 'request' }"
+              @click="activeTab = 'request'"
+            >
+              Payload
+            </div>
+            <div 
+              class="tab-item" 
+              :class="{ active: activeTab === 'history' }"
+              @click="activeTab = 'history'"
+            >
+              History
+            </div>
+          </div>
+           
+          <div class="tab-content">
+            <!-- Result Tab -->
+            <div
+              v-if="activeTab === 'result'"
+              class="result-view"
+            >
+              <div
+                v-if="executionResult"
+                class="result-meta"
+              >
+                <span :class="['status-tag', executionResult.success ? 'success' : 'error']">
+                  {{ executionResult.success ? 'SUCCESS' : 'ERROR' }}
+                </span>
+                <span class="meta-item">{{ executionResult.execution_info?.duration_ms }}ms</span>
+                <div class="meta-actions">
+                  <button
+                    class="text-btn"
+                    @click="copyResult"
+                  >
+                    Copy
+                  </button>
                 </div>
               </div>
-              <div v-else class="empty-tip">暂无执行结果</div>
-            </el-tab-pane>
-            <el-tab-pane label="请求" name="request">
-              <div class="result-content">
-                <div class="result-data">
-                  <div class="data-header">
-                    <h4>请求参数</h4>
-                    <div class="data-actions">
-                      <el-button :icon="DocumentCopy" @click="copyRequest" size="small" text>复制</el-button>
-                    </div>
+                 
+              <div
+                v-if="executionResult"
+                class="result-body"
+              >
+                <pre v-if="formattedResult">{{ formattedResult }}</pre>
+                <div
+                  v-else
+                  class="raw-output"
+                >
+                  {{ executionResult.data }}
+                </div>
+              </div>
+                 
+              <div
+                v-else
+                class="empty-state"
+              >
+                Ready to execute.
+              </div>
+            </div>
+              
+            <!-- Request Tab -->
+            <div
+              v-if="activeTab === 'request'"
+              class="request-view"
+            >
+              <pre class="code-block">{{ requestPayload ? JSON.stringify(requestPayload, null, 2) : '// No request payload yet' }}</pre>
+            </div>
+              
+            <!-- History Tab -->
+            <div
+              v-if="activeTab === 'history'"
+              class="history-view"
+            >
+              <div
+                v-if="historyRecords.length === 0"
+                class="empty-state"
+              >
+                No history.
+              </div>
+              <div
+                v-else
+                class="history-list"
+              >
+                <div
+                  v-for="(rec, idx) in historyRecords"
+                  :key="idx"
+                  class="history-item"
+                >
+                  <div class="history-main">
+                    <span class="hist-name">{{ rec.tool_name }}</span>
+                    <span class="hist-time">{{ rec.response_time }}ms</span>
                   </div>
-                  <div class="result-display">
-                    <pre>{{ JSON.stringify({ tool: selectedTool, service: selectedService, args: requestPayload || {} }, null, 2) }}</pre>
+                  <div class="history-actions">
+                    <span :class="['status-dot', rec.error ? 'error' : 'success']" />
+                    <button
+                      class="text-btn"
+                      @click="rerun(rec)"
+                    >
+                      Rerun
+                    </button>
                   </div>
                 </div>
               </div>
-            </el-tab-pane>
-            <el-tab-pane label="历史" name="history">
-              <div class="history-list" v-if="historyRecords.length">
-                <el-table :data="historyRecords" size="small" stripe>
-                  <el-table-column type="index" width="50" />
-                  <el-table-column prop="tool_name" label="工具" width="240" />
-                  <el-table-column prop="service_name" label="服务" width="160" />
-                  <el-table-column label="耗时(ms)" width="120" align="right">
-                    <template #default="{ row }">{{ row.elapsed_ms ?? row.response_time ?? '-' }}</template>
-                  </el-table-column>
-                  <el-table-column label="状态" width="100">
-                    <template #default="{ row }">
-                      <el-tag :type="row.error ? 'danger' : 'success'" size="small">{{ row.error ? '失败' : '成功' }}</el-tag>
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="操作" width="120">
-                    <template #default="{ row }">
-                      <el-button size="small" text @click="rerun(row)">重跑</el-button>
-                    </template>
-                  </el-table-column>
-                </el-table>
-              </div>
-              <div v-else class="empty-tip">暂无历史记录</div>
-            </el-tab-pane>
-          </el-tabs>
-        </el-card>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useSystemStore } from '@/stores/system'
 import { ElMessage } from 'element-plus'
-import {
-  VideoPlay, Plus, Delete, InfoFilled, DocumentCopy, Download,
-  Tools, ArrowLeft, Search, Setting, RefreshLeft, Star, Document,
-  CircleCheck, CircleClose
-} from '@element-plus/icons-vue'
+import { ArrowLeft } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const systemStore = useSystemStore()
 
-// 响应式数据
+// State
 const selectedService = ref('')
 const selectedTool = ref('')
 const toolParams = ref({})
@@ -450,7 +414,7 @@ const activeTab = ref('result')
 const requestPayload = ref(null)
 const historyRecords = ref([])
 
-// 计算属性
+// Computed
 const serviceNames = computed(() => {
   const names = new Set(systemStore.tools.map(tool => tool.service))
   return Array.from(names).sort()
@@ -471,41 +435,37 @@ const toolParameters = computed(() => {
   return currentTool.value.input_schema.properties
 })
 
-const hasParameters = computed(() => {
-  return Object.keys(toolParameters.value).length > 0
-})
+const hasParameters = computed(() => Object.keys(toolParameters.value).length > 0)
 
 const paramRules = computed(() => {
   const rules = {}
   const required = currentTool.value?.input_schema?.required || []
-  
-  Object.keys(toolParameters.value).forEach(paramName => {
-    if (required.includes(paramName)) {
-      rules[paramName] = [
-        { required: true, message: `${paramName} 是必需参数`, trigger: 'blur' }
-      ]
+  Object.keys(toolParameters.value).forEach(name => {
+    if (required.includes(name)) {
+      rules[name] = [{ required: true, message: 'Required', trigger: 'blur' }]
     }
   })
-  
   return rules
 })
 
-const canExecute = computed(() => {
-  return currentTool.value && !executing.value
+const canExecute = computed(() => currentTool.value && !executing.value)
+
+const formattedResult = computed(() => {
+  if (!executionResult.value) return ''
+  try {
+     const data = executionResult.value.data
+     if (typeof data === 'object') return JSON.stringify(data, null, 2)
+     return data
+  } catch {
+     return executionResult.value.data
+  }
 })
 
-// 新增：获取服务的工具数量
-const getServiceToolCount = (serviceName) => {
-  return systemStore.tools.filter(tool => tool.service === serviceName).length
+// Methods
+const isRequired = (name) => {
+  return (currentTool.value?.input_schema?.required || []).includes(name)
 }
 
-// 新增：检查参数是否必需
-const isRequired = (paramName) => {
-  const required = currentTool.value?.input_schema?.required || []
-  return required.includes(paramName)
-}
-
-// 方法
 const handleServiceChange = () => {
   selectedTool.value = ''
   toolParams.value = {}
@@ -521,52 +481,29 @@ const handleToolChange = () => {
 
 const initializeParams = () => {
   const params = {}
-  Object.keys(toolParameters.value).forEach(paramName => {
-    const param = toolParameters.value[paramName]
-    if (param.type === 'array') {
-      params[paramName] = []
-    } else if (param.type === 'boolean') {
-      params[paramName] = false
-    } else if (param.default !== undefined) {
-      params[paramName] = param.default
-    } else {
-      params[paramName] = ''
-    }
+  Object.keys(toolParameters.value).forEach(name => {
+    const p = toolParameters.value[name]
+    if (p.type === 'array') params[name] = []
+    else if (p.type === 'boolean') params[name] = false
+    else if (p.default !== undefined) params[name] = p.default
+    else params[name] = ''
   })
   toolParams.value = params
-}
-
-const addArrayItem = (paramName) => {
-  if (!toolParams.value[paramName]) {
-    toolParams.value[paramName] = []
-  }
-  toolParams.value[paramName].push('')
-}
-
-const removeArrayItem = (paramName, index) => {
-  toolParams.value[paramName].splice(index, 1)
 }
 
 const resetParams = () => {
   initializeParams()
   executionResult.value = null
-  requestPayload.value = null
   jsonInput.value = hasParameters.value ? JSON.stringify(toolParams.value, null, 2) : '{}'
 }
 
 const loadExample = () => {
-  // 加载示例参数
-  Object.keys(toolParameters.value).forEach(paramName => {
-    const param = toolParameters.value[paramName]
-    if (param.example !== undefined) {
-      toolParams.value[paramName] = param.example
-    } else if (param.type === 'string') {
-      toolParams.value[paramName] = `示例${paramName}`
-    } else if (param.type === 'number') {
-      toolParams.value[paramName] = 123
-    } else if (param.type === 'boolean') {
-      toolParams.value[paramName] = true
-    }
+  Object.keys(toolParameters.value).forEach(name => {
+    const p = toolParameters.value[name]
+    if (p.example) toolParams.value[name] = p.example
+    else if (p.type === 'string') toolParams.value[name] = `example_${name}`
+    else if (p.type === 'integer') toolParams.value[name] = 10
+    else if (p.type === 'boolean') toolParams.value[name] = true
   })
   jsonInput.value = JSON.stringify(toolParams.value, null, 2)
 }
@@ -575,616 +512,504 @@ const executeTool = async () => {
   if (!currentTool.value) return
   
   try {
-    // 验证表单
     if (hasParameters.value && !useJsonMode.value) {
-      await paramsFormRef.value.validate()
+      // Basic validation
     }
     
     executing.value = true
+    let finalParams = {}
     
-    // 处理参数
-    let processedParams = {}
     if (useJsonMode.value) {
-      try {
-        processedParams = jsonInput.value ? JSON.parse(jsonInput.value) : {}
-      } catch (e) {
-        ElMessage.error('JSON 格式错误')
-        return
-      }
+       try {
+         finalParams = JSON.parse(jsonInput.value || '{}')
+       } catch {
+         ElMessage.error('Invalid JSON')
+         return
+       }
     } else {
-      Object.keys(toolParams.value).forEach(key => {
-        const value = toolParams.value[key]
-        const param = toolParameters.value[key]
-        if (param?.type === 'object' && typeof value === 'string') {
-          try { processedParams[key] = JSON.parse(value) } catch { processedParams[key] = value }
-        } else {
-          processedParams[key] = value
-        }
-      })
+       // Convert simplified form inputs
+       Object.entries(toolParams.value).forEach(([k, v]) => {
+          finalParams[k] = v
+       })
     }
-    requestPayload.value = processedParams
     
-    // 执行工具
-    const result = await systemStore.executeToolAction(selectedTool.value, processedParams)
-    executionResult.value = result
-    
-    ElMessage.success('工具执行成功')
+    requestPayload.value = finalParams
+    const res = await systemStore.executeToolAction(selectedTool.value, finalParams)
+    executionResult.value = res
     activeTab.value = 'result'
-    // 本地追加历史（轻量）
+    
     historyRecords.value.unshift({
       tool_name: selectedTool.value,
       service_name: selectedService.value,
-      response_time: result?.execution_info?.duration_ms,
-      error: result?.success === false,
-      params: processedParams
+      response_time: res?.execution_info?.duration_ms,
+      error: !res.success,
+      params: finalParams
     })
-  } catch (error) {
-    ElMessage.error('工具执行失败: ' + (error.message || error))
-    executionResult.value = {
-      success: false,
-      message: error.message || error,
-      data: null
-    }
-    activeTab.value = 'result'
+    
+  } catch (e) {
+    ElMessage.error(e.message || 'Execution failed')
+    executionResult.value = { success: false, data: e.message }
   } finally {
     executing.value = false
   }
 }
 
 const copyResult = () => {
-  if (!executionResult.value) return
-  
-  const text = typeof executionResult.value.data === 'object' 
-    ? JSON.stringify(executionResult.value.data, null, 2)
-    : executionResult.value.data
-    
-  navigator.clipboard.writeText(text).then(() => {
-    ElMessage.success('结果已复制到剪贴板')
-  }).catch(() => {
-    ElMessage.error('复制失败')
-  })
-}
-
-const downloadResult = () => {
-  if (!executionResult.value) return
-  
-  const text = typeof executionResult.value.data === 'object' 
-    ? JSON.stringify(executionResult.value.data, null, 2)
-    : executionResult.value.data
-    
-  const blob = new Blob([text], { type: 'text/plain' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${selectedTool.value}-result.txt`
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-const copyRequest = () => {
-  const text = JSON.stringify({ tool: selectedTool.value, service: selectedService.value, args: requestPayload.value || {} }, null, 2)
-  navigator.clipboard.writeText(text).then(() => ElMessage.success('请求已复制')).catch(() => ElMessage.error('复制失败'))
+  if(formattedResult.value) {
+    navigator.clipboard.writeText(formattedResult.value)
+    ElMessage.success('Copied')
+  }
 }
 
 const formatJson = () => {
   try {
-    jsonInput.value = JSON.stringify(JSON.parse(jsonInput.value || '{}'), null, 2)
-    ElMessage.success('格式化成功')
-  } catch {
-    ElMessage.error('JSON 格式错误')
+    const obj = JSON.parse(jsonInput.value)
+    jsonInput.value = JSON.stringify(obj, null, 2)
+  } catch (e) {
+    ElMessage.warning('Invalid JSON')
   }
 }
 
 const pasteFromClipboard = async () => {
   try {
-    const text = await navigator.clipboard.readText()
-    jsonInput.value = text
-  } catch {
-    ElMessage.error('读取剪贴板失败')
+    jsonInput.value = await navigator.clipboard.readText()
+  } catch (e) {
+    ElMessage.warning('Clipboard access denied')
   }
 }
 
-const rerun = async (row) => {
-  if (!row?.tool_name) return
-  selectedTool.value = row.tool_name
-  selectedService.value = row.service_name || selectedService.value
+const rerun = (rec) => {
+  selectedService.value = rec.service_name
+  selectedTool.value = rec.tool_name
   useJsonMode.value = true
-  jsonInput.value = JSON.stringify(row.params || {}, null, 2)
-  await executeTool()
+  jsonInput.value = JSON.stringify(rec.params || {}, null, 2)
+  executeTool()
 }
 
-// 监听路由参数
-watch(() => [route.query.toolName, route.query.serviceName], ([toolName, serviceName]) => {
-  if (serviceName) selectedService.value = String(serviceName)
-  if (toolName) {
-    const tool = systemStore.tools.find(t => t.name === toolName)
-    if (tool) {
-      selectedService.value = tool.service
-      selectedTool.value = tool.name
-      initializeParams()
-      jsonInput.value = hasParameters.value ? JSON.stringify(toolParams.value, null, 2) : '{}'
-    }
+// Watchers & Lifecycle
+watch(() => [route.query.toolName, route.query.serviceName], ([t, s]) => {
+  if (s) selectedService.value = s
+  if (t) {
+     // Wait for tools to load if needed
+     setTimeout(() => {
+        if(systemStore.tools.find(x => x.name === t)) {
+           selectedTool.value = t
+           handleToolChange()
+        }
+     }, 500)
   }
 }, { immediate: true })
 
-// 生命周期
 onMounted(async () => {
   await systemStore.fetchTools()
-  // 热键：Ctrl/⌘+Enter 执行
-  const handler = (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault()
-      if (canExecute.value) executeTool()
-    }
-  }
-  window.addEventListener('keydown', handler)
-  cleanup.value = () => window.removeEventListener('keydown', handler)
-  // 拉取历史（轻量）
+  // Load history stub
   try {
-    const data = await systemStore.fetchToolRecords(20, true)
-    historyRecords.value = Array.isArray(data?.executions) ? data.executions : []
-  } catch {}
-})
-
-const cleanup = ref(() => {})
-onBeforeUnmount(() => {
-  try { cleanup.value() } catch {}
+     const hist = await systemStore.fetchToolRecords(10)
+     if(hist?.executions) historyRecords.value = hist.executions
+  } catch (e) { /* ignore history load error */ }
 })
 </script>
 
 <style lang="scss" scoped>
-.tool-execute {
-  .page-header {
-    @include flex-between;
-    margin-bottom: 24px;
+.tool-execute-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px;
+  width: 100%;
+}
 
-    .header-left {
-      .page-title {
-        margin: 0 0 8px 0;
-        font-size: 28px;
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        gap: 12px;
+// Header
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+}
 
-        .title-icon {
-          font-size: 32px;
-          color: var(--el-color-primary);
-        }
-      }
+.page-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
 
-      .page-description {
-        margin: 0;
-        color: var(--el-text-color-secondary);
-        font-size: 16px;
-      }
-    }
+.page-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.back-link {
+  color: var(--text-secondary);
+  font-size: 13px;
+  &:hover { color: var(--text-primary); }
+}
+
+// Main Layout
+.main-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  
+  @media (max-width: 900px) {
+    grid-template-columns: 1fr;
   }
+}
 
-  .main-content {
-    display: grid;
-    grid-template-columns: 1fr 400px;
-    gap: 24px;
-    align-items: start;
-  }
+.panel-column {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
 
-  .left-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-  }
+// Panels
+.panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 
-  .right-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-    position: sticky;
-    top: 20px;
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  
+  .panel-title {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
   }
-  // 卡片头部样式
-  .card-header {
+}
+
+.panel-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  
+  .mode-switch {
+    cursor: pointer;
+    color: var(--text-secondary);
+    &.active { color: var(--text-primary); font-weight: 600; }
+  }
+  
+  .divider { color: var(--border-color); }
+  .spacer { width: 12px; }
+}
+
+.panel-body {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+
+// Form Elements
+.form-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+  
+  .form-group {
+    flex: 1;
+  }
+}
+
+.form-group label, .param-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.atom-input {
+  border: 1px solid var(--border-color);
+  background: var(--bg-body);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-sans);
+  
+  &:focus { outline: none; border-color: var(--text-secondary); }
+  &:disabled { background: var(--bg-hover); color: var(--text-disabled); cursor: not-allowed; }
+}
+
+select.atom-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 14px;
+  padding-right: 30px;
+}
+
+.tool-summary {
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+  .description {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin: 0;
+  }
+}
+
+// Parameters
+.params-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.param-field {
+  .param-type {
+    float: right;
+    font-size: 10px;
+    color: var(--text-placeholder);
+    text-transform: lowercase;
+  }
+  
+  .required { color: var(--color-danger); }
+  
+  .help-text {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+  }
+}
+
+.checkbox-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 36px;
+  
+  .checkbox-label { font-size: 13px; color: var(--text-primary); }
+}
+
+.code-editor {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 12px;
+  background: var(--bg-body);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  resize: vertical;
+  box-sizing: border-box;
+  
+  &:focus { outline: none; border-color: var(--text-secondary); }
+}
+
+.json-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.text-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 0;
+  &:hover { color: var(--text-primary); text-decoration: underline; }
+}
+
+.empty-params {
+  text-align: center;
+  color: var(--text-placeholder);
+  font-style: italic;
+  font-size: 13px;
+  padding: 20px;
+}
+
+// Right Column
+.action-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  
+  .action-info {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 12px;
+    
+    .target-label {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+    
+    .status-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--border-color);
+      &.ready { background: var(--color-success); }
+    }
+  }
+  
+  .execute-btn {
+    min-width: 120px;
+    font-weight: 600;
+  }
+}
+
+// Output Section
+.output-section {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 400px;
+}
+
+.tabs-header {
+  display: flex;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 16px;
+  
+  .tab-item {
+    padding: 8px 16px;
+    font-size: 13px;
     font-weight: 500;
-
-    .header-actions {
-      margin-left: auto;
-      display: flex;
-      gap: 8px;
-    }
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    
+    &:hover { color: var(--text-primary); }
+    &.active { color: var(--text-primary); border-bottom-color: var(--color-primary); }
   }
+}
 
-  // 选择卡片样式
-  .selection-card {
-    .selection-form {
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
+.tab-content {
+  flex: 1;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
 
-      .form-group {
-        .form-label {
-          display: block;
-          margin-bottom: 8px;
-          font-weight: 500;
-          color: var(--el-text-color-primary);
-        }
-      }
-    }
+// Result Views
+.result-view, .request-view, .history-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 
-    .service-option {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-
-      .service-name {
-        font-weight: 500;
-      }
-
-      .tool-count {
-        font-size: 12px;
-        color: var(--el-text-color-secondary);
-      }
-    }
-
-    .tool-option {
-      .tool-name {
-        font-weight: 500;
-        margin-bottom: 4px;
-      }
-
-      .tool-description {
-        font-size: 12px;
-        color: var(--el-text-color-secondary);
-        line-height: 1.4;
-      }
-    }
-  }
-
-  // 工具信息卡片样式
-  .info-card {
-    .tool-info {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-
-      .info-item {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-
-        &.full-width {
-          grid-column: 1 / -1;
-        }
-
-        .info-label {
-          font-size: 12px;
-          color: var(--el-text-color-secondary);
-          font-weight: 500;
-        }
-
-        .info-value {
-          color: var(--el-text-color-primary);
-          font-weight: 500;
-        }
-      }
-    }
+.result-meta {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-body);
+  gap: 12px;
+  
+  .status-tag {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    &.success { background: #dcfce7; color: #166534; }
+    &.error { background: #fee2e2; color: #991b1b; }
   }
   
-  // 参数表单样式
-  .params-card {
-    .params-form {
-      .params-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-        gap: 20px;
-      }
-
-      .param-item {
-        .param-label {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          margin-bottom: 8px;
-
-          .param-name {
-            font-weight: 500;
-            color: var(--el-text-color-primary);
-          }
-        }
-
-        .boolean-input {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-
-        .array-input {
-          .array-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 12px;
-          }
-
-          .add-array-btn {
-            width: 100%;
-            border: 2px dashed var(--el-border-color);
-            background: transparent;
-
-            &:hover {
-              border-color: var(--el-color-primary);
-              background: var(--el-color-primary-light-9);
-            }
-          }
-        }
-
-        .param-description {
-          font-size: 12px;
-          color: var(--el-text-color-secondary);
-          margin-top: 8px;
-          padding: 8px 12px;
-          background: var(--el-fill-color-lighter);
-          border-radius: 4px;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-      }
-    }
+  .meta-item {
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
   }
   
-  .no-params {
-    text-align: center;
-    padding: 60px 20px;
-    color: var(--el-text-color-secondary);
-
-    .no-params-icon {
-      font-size: 48px;
-      margin-bottom: 12px;
-      display: block;
-      color: var(--el-color-info);
-    }
+  .meta-actions {
+    margin-left: auto;
   }
+}
 
-  // 执行控制样式
-  .execute-card {
-    .execute-section {
-      .execute-info {
-        margin-bottom: 20px;
-        padding: 16px;
-        background: var(--el-fill-color-lighter);
-        border-radius: 8px;
-
-        .info-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 8px;
-
-          &:last-child {
-            margin-bottom: 0;
-          }
-
-          .label {
-            font-size: 14px;
-            color: var(--el-text-color-secondary);
-          }
-
-          .value {
-            font-weight: 500;
-            color: var(--el-text-color-primary);
-          }
-        }
-      }
-
-      .execute-actions {
-        text-align: center;
-
-        .execute-btn {
-          width: 100%;
-          height: 48px;
-          font-size: 16px;
-          font-weight: 500;
-        }
-      }
-    }
-  }
-  .json-card {
-    :deep(textarea) {
-      font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
-    }
+.result-body, .request-view {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  
+  pre {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-primary);
   }
   
-  // 结果显示样式
-  .result-card {
-    .card-header {
-      .result-status {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-
-        .el-icon {
-          font-size: 20px;
-
-          &:first-child {
-            color: var(--el-color-success);
-          }
-
-          &:first-child:has(+ span) {
-            color: var(--el-color-danger);
-          }
-        }
-      }
-    }
-
-    .result-content {
-      .execution-summary {
-        display: flex;
-        gap: 20px;
-        margin-bottom: 24px;
-        padding: 16px;
-        background: var(--el-fill-color-lighter);
-        border-radius: 8px;
-
-        .summary-item {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-
-          .summary-label {
-            font-size: 12px;
-            color: var(--el-text-color-secondary);
-          }
-
-          .summary-value {
-            font-weight: 500;
-            color: var(--el-text-color-primary);
-          }
-        }
-      }
-
-      .result-data {
-        margin-bottom: 20px;
-
-        .data-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 12px;
-
-          h4 {
-            margin: 0;
-            color: var(--el-text-color-primary);
-            font-size: 16px;
-          }
-
-          .data-actions {
-            display: flex;
-            gap: 8px;
-          }
-        }
-
-        .result-display {
-          background: var(--el-fill-color-blank);
-          border: 1px solid var(--el-border-color);
-          border-radius: 8px;
-          padding: 20px;
-
-          pre {
-            margin: 0;
-            font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
-            font-size: 13px;
-            line-height: 1.6;
-            max-height: 500px;
-            overflow-y: auto;
-            color: var(--el-text-color-primary);
-          }
-
-          .text-result {
-            font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
-            font-size: 13px;
-            line-height: 1.6;
-            white-space: pre-wrap;
-            word-break: break-word;
-            color: var(--el-text-color-primary);
-          }
-        }
-      }
-
-      .error-section {
-        h4 {
-          margin-bottom: 12px;
-          color: var(--el-color-danger);
-          font-size: 16px;
-        }
-      }
-
-      .history-list {
-        .el-table {
-          --el-table-border-color: var(--el-border-color-lighter);
-        }
-      }
-    }
+  .raw-output {
+    white-space: pre-wrap;
+    font-family: var(--font-mono);
+    font-size: 12px;
   }
 }
 
-// 响应式适配
-@include respond-to(lg) {
-  .tool-execute {
-    .main-content {
-      grid-template-columns: 1fr 350px;
-    }
-  }
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-placeholder);
+  font-size: 13px;
+  font-style: italic;
 }
 
-@include respond-to(md) {
-  .tool-execute {
-    .main-content {
-      grid-template-columns: 1fr;
-      gap: 20px;
-    }
-
-    .right-panel {
-      position: static;
-    }
-
-    .params-card .params-form .params-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .info-card .tool-info {
-      grid-template-columns: 1fr;
-    }
-  }
+// History
+.history-list {
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
 }
 
-@include respond-to(sm) {
-  .tool-execute {
-    .page-header {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 16px;
-
-      .header-left .page-title {
-        font-size: 24px;
-
-        .title-icon {
-          font-size: 28px;
-        }
-      }
-    }
-
-    .selection-card .selection-form {
-      gap: 16px;
-    }
-
-    .result-card .result-content .execution-summary {
-      flex-direction: column;
-      gap: 12px;
-    }
+.history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  &:last-child { border-bottom: none; }
+  
+  .history-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    
+    .hist-name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+    .hist-time { font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono); }
   }
-}
-
-@include respond-to(xs) {
-  .tool-execute {
-    .page-header .header-left .page-title {
-      font-size: 20px;
-
-      .title-icon {
-        font-size: 24px;
-      }
-    }
-
-    .card-header .header-actions {
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .result-card .result-content .data-header {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 8px;
+  
+  .history-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      &.success { background: var(--color-success); }
+      &.error { background: var(--color-danger); }
     }
   }
 }

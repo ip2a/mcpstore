@@ -5,7 +5,9 @@
       <div class="header-content">
         <div class="header-title">
           <h1>工作空间管理</h1>
-          <p class="subtitle">管理和切换不同的数据工作空间</p>
+          <p class="subtitle">
+            管理和切换不同的数据工作空间
+          </p>
         </div>
         <div class="header-actions">
           <el-button
@@ -17,8 +19,8 @@
           </el-button>
           <el-button
             :icon="Refresh"
-            @click="refreshWorkspaces"
             :loading="isLoading"
+            @click="refreshWorkspaces"
           >
             刷新
           </el-button>
@@ -34,8 +36,12 @@
             <el-icon><FolderOpened /></el-icon>
           </div>
           <div class="stat-content">
-            <div class="stat-value">{{ workspaceStats.total }}</div>
-            <div class="stat-label">总工作空间</div>
+            <div class="stat-value">
+              {{ workspaceStats.total }}
+            </div>
+            <div class="stat-label">
+              总工作空间
+            </div>
           </div>
         </div>
         <div class="stat-card">
@@ -43,8 +49,12 @@
             <el-icon><FolderOpened /></el-icon>
           </div>
           <div class="stat-content">
-            <div class="stat-value">{{ workspaceStats.active }}</div>
-            <div class="stat-label">当前活跃</div>
+            <div class="stat-value">
+              {{ workspaceStats.active }}
+            </div>
+            <div class="stat-label">
+              当前活跃
+            </div>
           </div>
         </div>
         <div class="stat-card">
@@ -52,8 +62,12 @@
             <el-icon><Document /></el-icon>
           </div>
           <div class="stat-content">
-            <div class="stat-value">{{ workspaceStats.totalServices }}</div>
-            <div class="stat-label">服务总数</div>
+            <div class="stat-value">
+              {{ workspaceStats.totalServices }}
+            </div>
+            <div class="stat-label">
+              服务总数
+            </div>
           </div>
         </div>
         <div class="stat-card">
@@ -61,8 +75,12 @@
             <el-icon><Tools /></el-icon>
           </div>
           <div class="stat-content">
-            <div class="stat-value">{{ workspaceStats.totalTools }}</div>
-            <div class="stat-label">工具总数</div>
+            <div class="stat-value">
+              {{ workspaceStats.totalTools }}
+            </div>
+            <div class="stat-label">
+              工具总数
+            </div>
           </div>
         </div>
       </div>
@@ -80,10 +98,23 @@
             clearable
             style="width: 300px"
           />
-          <el-select v-model="sortBy" placeholder="排序方式" style="width: 150px">
-            <el-option label="名称" value="name" />
-            <el-option label="创建时间" value="created" />
-            <el-option label="最后更新" value="updated" />
+          <el-select
+            v-model="sortBy"
+            placeholder="排序方式"
+            style="width: 150px"
+          >
+            <el-option
+              label="名称"
+              value="name"
+            />
+            <el-option
+              label="创建时间"
+              value="created"
+            />
+            <el-option
+              label="最后更新"
+              value="updated"
+            />
           </el-select>
         </div>
       </div>
@@ -98,7 +129,9 @@
           <div class="card-header">
             <div class="workspace-info">
               <h3>{{ workspace.name }}</h3>
-              <p class="path">{{ workspace.path }}</p>
+              <p class="path">
+                {{ workspace.path }}
+              </p>
             </div>
             <div class="workspace-status">
               <el-tag
@@ -145,8 +178,8 @@
             <el-button
               size="small"
               type="danger"
-              @click="confirmDelete(workspace)"
               :disabled="workspace.is_current"
+              @click="confirmDelete(workspace)"
             >
               删除
             </el-button>
@@ -154,11 +187,17 @@
         </div>
 
         <!-- Empty State -->
-        <div v-if="filteredWorkspaces.length === 0" class="empty-state">
+        <div
+          v-if="filteredWorkspaces.length === 0"
+          class="empty-state"
+        >
           <el-icon><Box /></el-icon>
           <h3>暂无工作空间</h3>
           <p>创建您的第一个工作空间来开始管理服务</p>
-          <el-button type="primary" @click="showCreateDialog = true">
+          <el-button
+            type="primary"
+            @click="showCreateDialog = true"
+          >
             创建工作空间
           </el-button>
         </div>
@@ -177,24 +216,35 @@
         :rules="workspaceRules"
         label-width="100px"
       >
-        <el-form-item label="名称" prop="name">
+        <el-form-item
+          label="名称"
+          prop="name"
+        >
           <el-input
             v-model="workspaceForm.name"
             placeholder="请输入工作空间名称"
             :disabled="!!editingWorkspace"
           />
         </el-form-item>
-        <el-form-item label="路径" prop="path">
+        <el-form-item
+          label="路径"
+          prop="path"
+        >
           <el-input
             v-model="workspaceForm.path"
             placeholder="请输入工作空间路径"
           >
             <template #append>
-              <el-button @click="selectPath">选择</el-button>
+              <el-button @click="selectPath">
+                选择
+              </el-button>
             </template>
           </el-input>
         </el-form-item>
-        <el-form-item label="描述" prop="description">
+        <el-form-item
+          label="描述"
+          prop="description"
+        >
           <el-input
             v-model="workspaceForm.description"
             type="textarea"
@@ -204,11 +254,13 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showCreateDialog = false">取消</el-button>
+        <el-button @click="showCreateDialog = false">
+          取消
+        </el-button>
         <el-button
           type="primary"
-          @click="saveWorkspace"
           :loading="isSaving"
+          @click="saveWorkspace"
         >
           {{ editingWorkspace ? '保存' : '创建' }}
         </el-button>
@@ -222,16 +274,22 @@
       width="400px"
     >
       <div class="delete-confirm">
-        <el-icon class="warning-icon"><WarningFilled /></el-icon>
+        <el-icon class="warning-icon">
+          <WarningFilled />
+        </el-icon>
         <p>确定要删除工作空间 "{{ deletingWorkspace?.name }}" 吗？</p>
-        <p class="warning-text">此操作不可撤销，所有相关数据将被永久删除。</p>
+        <p class="warning-text">
+          此操作不可撤销，所有相关数据将被永久删除。
+        </p>
       </div>
       <template #footer>
-        <el-button @click="showDeleteDialog = false">取消</el-button>
+        <el-button @click="showDeleteDialog = false">
+          取消
+        </el-button>
         <el-button
           type="danger"
-          @click="deleteWorkspace"
           :loading="isDeleting"
+          @click="deleteWorkspace"
         >
           删除
         </el-button>

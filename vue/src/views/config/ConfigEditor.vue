@@ -5,7 +5,9 @@
       <div class="header-content">
         <div class="header-title">
           <h1>高级配置编辑器</h1>
-          <p class="subtitle">可视化编辑和管理系统配置文件</p>
+          <p class="subtitle">
+            可视化编辑和管理系统配置文件
+          </p>
         </div>
         <div class="header-actions">
           <el-button
@@ -61,10 +63,17 @@
                   </el-icon>
                 </div>
                 <div class="file-details">
-                  <div class="file-name">{{ file.name }}</div>
-                  <div class="file-path">{{ file.path }}</div>
+                  <div class="file-name">
+                    {{ file.name }}
+                  </div>
+                  <div class="file-path">
+                    {{ file.path }}
+                  </div>
                   <div class="file-meta">
-                    <el-tag size="small" :type="file.type === 'json' ? 'primary' : 'info'">
+                    <el-tag
+                      size="small"
+                      :type="file.type === 'json' ? 'primary' : 'info'"
+                    >
                       {{ file.type.toUpperCase() }}
                     </el-tag>
                     <span class="file-size">{{ formatFileSize(file.size) }}</span>
@@ -72,16 +81,43 @@
                 </div>
               </div>
               <div class="file-actions">
-                <el-dropdown @command="(cmd) => handleFileAction(cmd, file)" trigger="click">
-                  <el-button text size="small">
+                <el-dropdown
+                  trigger="click"
+                  @command="(cmd) => handleFileAction(cmd, file)"
+                >
+                  <el-button
+                    text
+                    size="small"
+                  >
                     <el-icon><MoreFilled /></el-icon>
                   </el-button>
                   <template #dropdown>
                     <el-dropdown-menu>
-                      <el-dropdown-item command="edit" :icon="Edit">编辑</el-dropdown-item>
-                      <el-dropdown-item command="duplicate" :icon="CopyDocument">复制</el-dropdown-item>
-                      <el-dropdown-item command="export" :icon="Download">导出</el-dropdown-item>
-                      <el-dropdown-item command="delete" divided :icon="Delete">删除</el-dropdown-item>
+                      <el-dropdown-item
+                        command="edit"
+                        :icon="Edit"
+                      >
+                        编辑
+                      </el-dropdown-item>
+                      <el-dropdown-item
+                        command="duplicate"
+                        :icon="CopyDocument"
+                      >
+                        复制
+                      </el-dropdown-item>
+                      <el-dropdown-item
+                        command="export"
+                        :icon="Download"
+                      >
+                        导出
+                      </el-dropdown-item>
+                      <el-dropdown-item
+                        command="delete"
+                        divided
+                        :icon="Delete"
+                      >
+                        删除
+                      </el-dropdown-item>
                     </el-dropdown-menu>
                   </template>
                 </el-dropdown>
@@ -99,7 +135,10 @@
 
       <!-- Editor Panel -->
       <el-col :span="16">
-        <el-card v-if="selectedFile" class="editor-card">
+        <el-card
+          v-if="selectedFile"
+          class="editor-card"
+        >
           <template #header>
             <div class="editor-header">
               <div class="file-info">
@@ -130,8 +169,8 @@
                   size="small"
                   type="success"
                   :icon="Check"
-                  @click="saveConfig"
                   :loading="saving"
+                  @click="saveConfig"
                 >
                   保存
                 </el-button>
@@ -140,22 +179,45 @@
           </template>
 
           <!-- Tree View Editor -->
-          <div v-if="viewMode === 'tree'" class="tree-editor">
+          <div
+            v-if="viewMode === 'tree'"
+            class="tree-editor"
+          >
             <div class="editor-toolbar">
-              <el-button size="small" :icon="Plus" @click="addProperty">
+              <el-button
+                size="small"
+                :icon="Plus"
+                @click="addProperty"
+              >
                 添加属性
               </el-button>
-              <el-button size="small" :icon="FolderOpened" @click="addObject">
+              <el-button
+                size="small"
+                :icon="FolderOpened"
+                @click="addObject"
+              >
                 添加对象
               </el-button>
-              <el-button size="small" :icon="Collection" @click="addArray">
+              <el-button
+                size="small"
+                :icon="Collection"
+                @click="addArray"
+              >
                 添加数组
               </el-button>
               <el-divider direction="vertical" />
-              <el-button size="small" :icon="RefreshLeft" @click="resetConfig">
+              <el-button
+                size="small"
+                :icon="RefreshLeft"
+                @click="resetConfig"
+              >
                 重置
               </el-button>
-              <el-button size="small" :icon="MagicStick" @click="formatConfig">
+              <el-button
+                size="small"
+                :icon="MagicStick"
+                @click="formatConfig"
+              >
                 格式化
               </el-button>
             </div>
@@ -174,7 +236,10 @@
           </div>
 
           <!-- Code Editor -->
-          <div v-else class="code-editor">
+          <div
+            v-else
+            class="code-editor"
+          >
             <el-input
               v-model="configText"
               type="textarea"
@@ -193,7 +258,10 @@
                 {{ validation.isValid ? '验证通过' : '验证失败' }}
               </el-tag>
             </div>
-            <div v-if="!validation.isValid" class="validation-errors">
+            <div
+              v-if="!validation.isValid"
+              class="validation-errors"
+            >
               <div
                 v-for="(error, index) in validation.errors"
                 :key="index"
@@ -207,9 +275,14 @@
         </el-card>
 
         <!-- Empty State -->
-        <el-card v-else class="empty-card">
+        <el-card
+          v-else
+          class="empty-card"
+        >
           <div class="empty-state">
-            <el-icon class="empty-icon"><Document /></el-icon>
+            <el-icon class="empty-icon">
+              <Document />
+            </el-icon>
             <h3>选择配置文件</h3>
             <p>从左侧列表中选择一个配置文件进行编辑</p>
           </div>
@@ -224,10 +297,16 @@
       width="800px"
     >
       <el-tabs v-model="activeSchemaTab">
-        <el-tab-pane label="MCP 配置" name="mcp">
+        <el-tab-pane
+          label="MCP 配置"
+          name="mcp"
+        >
           <div class="schema-content">
             <h4>MCP Server 配置架构</h4>
-            <el-descriptions :column="1" border>
+            <el-descriptions
+              :column="1"
+              border
+            >
               <el-descriptions-item label="mcpServers">
                 <code>object</code> - MCP服务器配置对象
               </el-descriptions-item>
@@ -243,10 +322,16 @@
             </el-descriptions>
           </div>
         </el-tab-pane>
-        <el-tab-pane label="数据空间" name="dataspace">
+        <el-tab-pane
+          label="数据空间"
+          name="dataspace"
+        >
           <div class="schema-content">
             <h4>数据空间配置架构</h4>
-            <el-descriptions :column="1" border>
+            <el-descriptions
+              :column="1"
+              border
+            >
               <el-descriptions-item label="dataSpaces">
                 <code>object</code> - 数据空间配置对象
               </el-descriptions-item>
@@ -263,7 +348,9 @@
         </el-tab-pane>
       </el-tabs>
       <template #footer>
-        <el-button @click="showSchemaDialog = false">关闭</el-button>
+        <el-button @click="showSchemaDialog = false">
+          关闭
+        </el-button>
       </template>
     </el-dialog>
 
@@ -273,16 +360,34 @@
       title="导入配置"
       width="500px"
     >
-      <el-form :model="importForm" label-width="80px">
+      <el-form
+        :model="importForm"
+        label-width="80px"
+      >
         <el-form-item label="配置类型">
-          <el-select v-model="importForm.type" placeholder="选择配置类型">
-            <el-option label="MCP 配置" value="mcp" />
-            <el-option label="数据空间" value="dataspace" />
-            <el-option label="自定义" value="custom" />
+          <el-select
+            v-model="importForm.type"
+            placeholder="选择配置类型"
+          >
+            <el-option
+              label="MCP 配置"
+              value="mcp"
+            />
+            <el-option
+              label="数据空间"
+              value="dataspace"
+            />
+            <el-option
+              label="自定义"
+              value="custom"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="文件名">
-          <el-input v-model="importForm.name" placeholder="输入配置文件名" />
+          <el-input
+            v-model="importForm.name"
+            placeholder="输入配置文件名"
+          />
         </el-form-item>
         <el-form-item label="配置内容">
           <el-input
@@ -294,8 +399,15 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showImportDialog = false">取消</el-button>
-        <el-button type="primary" @click="confirmImport">导入</el-button>
+        <el-button @click="showImportDialog = false">
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          @click="confirmImport"
+        >
+          导入
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -460,14 +572,14 @@ const configFiles = ref([
     size: 2048,
     content: {
       mcpServers: {
-        "filesystem": {
-          command: "npx",
-          args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/files"],
+        'filesystem': {
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-filesystem', '/path/to/allowed/files'],
           env: {}
         },
-        "git": {
-          command: "npx",
-          args: ["-y", "@modelcontextprotocol/server-git", "--repository", "/path/to/git/repo"],
+        'git': {
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-git', '--repository', '/path/to/git/repo'],
           env: {}
         }
       }

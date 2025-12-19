@@ -1,119 +1,129 @@
 <template>
-  <div class="agent-list">
-    <!-- 页面头部 -->
-    <div class="page-header">
-      <div class="header-left">
-        <h2 class="page-title">Agent管理</h2>
-        <p class="page-description">管理Agent和对应的MCP服务</p>
+  <div class="agent-list-container">
+    <!-- Header -->
+    <header class="page-header">
+      <div class="header-content">
+        <h1 class="page-title">
+          Agents
+        </h1>
+        <p class="page-subtitle">
+          Manage isolated agent contexts and their services
+        </p>
       </div>
-      <div class="header-right">
-        <el-button
+      <div class="header-actions">
+        <el-button 
+          :icon="Plus" 
           type="primary"
-          :icon="Plus"
+          color="#000"
+          class="create-btn"
           @click="$router.push('/for_store/add_service')"
         >
-          添加服务
+          Create Service
         </el-button>
-        <el-button
-          :icon="Refresh"
-          @click="refreshAgents"
+        <el-button 
+          :icon="Refresh" 
           :loading="agentsStore.loading"
-        >
-          刷新
-        </el-button>
+          circle
+          plain
+          class="refresh-btn"
+          @click="refreshAgents"
+        />
       </div>
-    </div>
-    
-    <!-- Agent列表 -->
-    <el-card class="agents-card">
-      <div v-if="agentsStore.agents.length === 0 && !agentsStore.loading" class="empty-container">
-        <el-icon class="empty-icon"><User /></el-icon>
-        <div class="empty-text">暂无Agent</div>
-        <div class="empty-description">还没有任何Agent，通过添加服务来创建第一个Agent</div>
-        <el-button
-          type="primary"
-          @click="$router.push('/for_store/add_service')"
-        >
-          添加第一个服务
+    </header>
+
+    <!-- Content -->
+    <div class="main-content">
+      <!-- Empty State -->
+      <div
+        v-if="!agentsStore.loading && agentsStore.agents.length === 0"
+        class="empty-state"
+      >
+        <el-icon class="empty-icon">
+          <User />
+        </el-icon>
+        <h3>No Agents Found</h3>
+        <p>Create your first service to initialize an agent context.</p>
+        <el-button @click="$router.push('/for_store/add_service')">
+          Add Service
         </el-button>
       </div>
 
-      <div v-else class="agents-grid">
-        <div
-          v-for="agent in agentsStore.agents"
-          :key="agent.id"
+      <!-- Agent Grid -->
+      <div
+        v-else
+        class="agent-grid"
+      >
+        <div 
+          v-for="agent in agentsStore.agents" 
+          :key="agent.id" 
           class="agent-card"
           @click="viewAgentDetails(agent)"
         >
-          <div class="agent-header">
-            <div class="agent-info">
-              <div class="agent-name">{{ agent.name }}</div>
-              <div class="agent-id">ID: {{ agent.id }}</div>
+          <div class="card-header">
+            <div class="header-main">
+              <h3 class="agent-name">
+                {{ agent.name }}
+              </h3>
+              <span class="agent-id">ID: {{ agent.id }}</span>
             </div>
-            <el-tag
-              :type="getStatusType(agent.status)"
-              size="small"
+            <span
+              class="status-indicator"
+              :class="getStatusClass(agent.status)"
+            />
+          </div>
+            
+          <div class="card-body">
+            <p class="description">
+              {{ agent.description || 'No description provided.' }}
+            </p>
+               
+            <div class="stats-row">
+              <div class="stat">
+                <span class="val">{{ agent.services || 0 }}</span>
+                <span class="lbl">Services</span>
+              </div>
+              <div class="stat">
+                <span class="val">{{ agent.tools || 0 }}</span>
+                <span class="lbl">Tools</span>
+              </div>
+              <div class="stat">
+                <span class="val success">{{ agent.healthy_services || 0 }}</span>
+                <span class="lbl">Healthy</span>
+              </div>
+              <div class="stat">
+                <span class="val error">{{ agent.unhealthy_services || 0 }}</span>
+                <span class="lbl">Issues</span>
+              </div>
+            </div>
+               
+            <div class="last-active">
+              Last Active: {{ formatTime(agent.last_activity) }}
+            </div>
+          </div>
+            
+          <div class="card-footer">
+            <button
+              class="text-btn"
+              @click.stop="addServiceToAgent(agent)"
             >
-              {{ getStatusText(agent.status) }}
-            </el-tag>
-          </div>
-          
-          <div class="agent-body">
-            <div class="agent-description">
-              {{ agent.description || '暂无描述' }}
-            </div>
-
-            <div class="agent-stats">
-              <div class="stat-item">
-                <span class="stat-label">服务数:</span>
-                <span class="stat-value">{{ agent.services || 0 }}</span>
-              </div>
-              <div class="stat-item">
-                <span class="stat-label">工具数:</span>
-                <span class="stat-value">{{ agent.tools || 0 }}</span>
-              </div>
-              <div class="stat-item">
-                <span class="stat-label">健康服务:</span>
-                <span class="stat-value">{{ agent.healthy_services || 0 }}</span>
-              </div>
-              <div class="stat-item">
-                <span class="stat-label">不健康服务:</span>
-                <span class="stat-value">{{ agent.unhealthy_services || 0 }}</span>
-              </div>
-              <div class="stat-item">
-                <span class="stat-label">最后活动:</span>
-                <span class="stat-value">{{ formatTime(agent.last_activity) }}</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="agent-footer">
-            <el-button-group>
-              <el-button
-                size="small"
-                @click.stop="addServiceToAgent(agent)"
-                type="primary"
-              >
-                添加服务
-              </el-button>
-              <el-button
-                size="small"
-                @click.stop="manageAgent(agent)"
-              >
-                管理服务
-              </el-button>
-              <el-button
-                size="small"
-                type="danger"
-                @click.stop="resetAgent(agent)"
-              >
-                重置
-              </el-button>
-            </el-button-group>
+              Add Service
+            </button>
+            <button
+              class="text-btn"
+              @click.stop="manageAgent(agent)"
+            >
+              Manage
+            </button>
+            <button
+              class="text-btn danger"
+              @click.stop="resetAgent(agent)"
+            >
+              Reset
+            </button>
           </div>
         </div>
       </div>
-    </el-card>
+    </div>
   </div>
 </template>
 
@@ -124,41 +134,25 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import { Plus, Refresh, User } from '@element-plus/icons-vue'
 import { useAgentsStore } from '@/stores/agents'
+
 const router = useRouter()
 const agentsStore = useAgentsStore()
 
-// Agent状态映射
-const AGENT_STATUS_MAP = {
-  active: '活跃',
-  inactive: '非活跃',
-  partial: '部分可用',
-  error: '错误'
+const getStatusClass = (status) => {
+  switch (status) {
+    case 'active': return 'active'
+    case 'partial': return 'warn'
+    case 'error': return 'error'
+    default: return 'inactive'
+  }
 }
 
-const AGENT_STATUS_COLORS = {
-  active: 'success',
-  inactive: 'info',
-  partial: 'warning',
-  error: 'danger'
-}
-
-// 状态处理函数
-const getStatusType = (status) => {
-  return AGENT_STATUS_COLORS[status] || 'info'
-}
-
-const getStatusText = (status) => {
-  return AGENT_STATUS_MAP[status] || '未知'
-}
-
-// 方法
 const refreshAgents = async () => {
   try {
     await agentsStore.fetchAgents()
-    ElMessage.success('Agent列表刷新成功')
-  } catch (error) {
-    console.error('刷新Agent列表失败:', error)
-    ElMessage.error('刷新失败: ' + (error.message || error))
+    ElMessage.success('Refreshed')
+  } catch (e) {
+    ElMessage.error('Failed to refresh')
   }
 }
 
@@ -177,155 +171,190 @@ const manageAgent = (agent) => {
 const resetAgent = async (agent) => {
   try {
     await ElMessageBox.confirm(
-      `确定要重置Agent "${agent.name}" 吗？这将删除该Agent下的所有服务。`,
-      '重置确认',
-      {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
+      `Reset agent "${agent.name}"? All services within this agent will be removed.`,
+      'Confirm Reset',
+      { type: 'warning' }
     )
-
-    const result = await agentsStore.resetAgentConfig(agent.id)
-    if (result.success) {
-      ElMessage.success(`Agent ${agent.name} 重置成功`)
-    } else {
-      ElMessage.error(`Agent ${agent.name} 重置失败: ${result.error}`)
-    }
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error(`Agent ${agent.name} 重置失败`)
-    }
-  }
+    const res = await agentsStore.resetAgentConfig(agent.id)
+    if (res.success) ElMessage.success('Agent reset')
+    else ElMessage.error(res.error || 'Reset failed')
+  } catch (e) { /* cancelled */ }
 }
 
-const formatTime = (time) => {
-  if (!time) return '未知'
-  return dayjs(time).format('YYYY-MM-DD HH:mm')
-}
+const formatTime = (t) => t ? dayjs(t).format('MMM D, HH:mm') : 'Never'
 
-// 生命周期
-onMounted(async () => {
-  await refreshAgents()
+onMounted(() => {
+  refreshAgents()
 })
 </script>
 
 <style lang="scss" scoped>
-.agent-list {
-  width: 92%;
+.agent-list-container {
+  max-width: 1200px;
   margin: 0 auto;
-  max-width: none;
-  .page-header {
-    @include flex-between;
-    margin-bottom: 20px;
-    
-    .header-left {
-      .page-title {
-        margin: 0 0 4px 0;
-        font-size: 24px;
-        font-weight: var(--font-weight-medium);
-      }
-      
-      .page-description {
-        margin: 0;
-        color: var(--text-secondary);
-      }
+  padding: 20px;
+  width: 100%;
+}
+
+// Header
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 32px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.page-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.page-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.header-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.create-btn {
+  font-weight: 500;
+  border-radius: 6px;
+}
+
+.refresh-btn {
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+  &:hover { color: var(--text-primary); border-color: var(--text-secondary); background: transparent; }
+}
+
+// Grid
+.agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 20px;
+}
+
+// Card
+.agent-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  display: flex;
+  flex-direction: column;
+  
+  &:hover { border-color: var(--text-secondary); }
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  
+  .header-main {
+    .agent-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 4px;
     }
-    
-    .header-right {
-      display: flex;
-      gap: 12px;
+    .agent-id {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--text-placeholder);
     }
   }
   
-  .agents-card {
-    .agents-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-      gap: 20px;
-      
-      .agent-card {
-        @include card-shadow;
-        padding: 16px;
-        border-radius: var(--border-radius-base);
-        cursor: pointer;
-        transition: all 0.3s ease;
-
-        &:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-        }
-        
-        .agent-header {
-          @include flex-between;
-          margin-bottom: 12px;
-          
-          .agent-info {
-            .agent-name {
-              font-weight: var(--font-weight-medium);
-              margin-bottom: 4px;
-            }
-            
-            .agent-id {
-              font-size: var(--font-size-xs);
-              color: var(--text-secondary);
-            }
-          }
-        }
-        
-        .agent-body {
-          margin-bottom: 16px;
-          
-          .agent-description {
-            color: var(--text-regular);
-            margin-bottom: 12px;
-            font-size: var(--font-size-sm);
-          }
-          
-          .agent-stats {
-            .stat-item {
-              @include flex-between;
-              padding: 4px 0;
-              font-size: var(--font-size-sm);
-              
-              .stat-label {
-                color: var(--text-secondary);
-              }
-              
-              .stat-value {
-                color: var(--text-primary);
-                font-weight: var(--font-weight-medium);
-              }
-            }
-          }
-        }
-        
-        .agent-footer {
-          border-top: 1px solid var(--border-extra-light);
-          padding-top: 12px;
-        }
-      }
-    }
+  .status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--border-color);
+    
+    &.active { background: var(--color-success); box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1); }
+    &.warn { background: var(--color-warning); }
+    &.error { background: var(--color-danger); }
   }
 }
 
-// 响应式适配
-@include respond-to(xs) {
-  .agent-list {
-    .page-header {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 16px;
-      
-      .header-right {
-        width: 100%;
-        justify-content: flex-end;
-      }
-    }
+.card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  
+  .description {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin-bottom: 20px;
+    flex: 1;
+  }
+  
+  .stats-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    padding: 12px 0;
+    border-top: 1px solid var(--bg-hover);
+    border-bottom: 1px solid var(--bg-hover);
     
-    .agents-grid {
-      grid-template-columns: 1fr !important;
+    .stat {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      
+      .val { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+      .lbl { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; }
+      
+      .val.success { color: var(--color-success); }
+      .val.error { color: var(--color-danger); }
     }
   }
+  
+  .last-active {
+    font-size: 11px;
+    color: var(--text-placeholder);
+    text-align: right;
+    margin-bottom: 16px;
+  }
+}
+
+.card-footer {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 16px;
+  
+  .text-btn {
+    background: none;
+    border: none;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0;
+    
+    &:hover { color: var(--text-primary); text-decoration: underline; }
+    &.danger:hover { color: var(--color-danger); }
+  }
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  
+  .empty-icon { font-size: 48px; color: var(--text-placeholder); margin-bottom: 16px; }
+  h3 { font-size: 16px; margin-bottom: 8px; color: var(--text-primary); }
+  p { font-size: 13px; color: var(--text-secondary); margin-bottom: 24px; }
 }
 </style>

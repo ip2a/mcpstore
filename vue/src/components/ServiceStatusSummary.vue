@@ -1,53 +1,105 @@
 <template>
   <div class="service-status-summary">
     <!-- 状态统计卡片 -->
-    <a-row :gutter="16" class="status-cards">
+    <a-row
+      :gutter="16"
+      class="status-cards"
+    >
       <a-col :span="3">
-        <a-card size="small" class="status-card total">
-          <div class="status-number">{{ stats.total }}</div>
-          <div class="status-label">总服务</div>
+        <a-card
+          size="small"
+          class="status-card total"
+        >
+          <div class="status-number">
+            {{ stats.total }}
+          </div>
+          <div class="status-label">
+            总服务
+          </div>
         </a-card>
       </a-col>
       
       <a-col :span="3">
-        <a-card size="small" class="status-card healthy">
-          <div class="status-number">{{ stats.healthy }}</div>
-          <div class="status-label">健康</div>
+        <a-card
+          size="small"
+          class="status-card healthy"
+        >
+          <div class="status-number">
+            {{ stats.healthy }}
+          </div>
+          <div class="status-label">
+            健康
+          </div>
         </a-card>
       </a-col>
       
       <a-col :span="3">
-        <a-card size="small" class="status-card warning">
-          <div class="status-number">{{ stats.warning }}</div>
-          <div class="status-label">警告</div>
+        <a-card
+          size="small"
+          class="status-card warning"
+        >
+          <div class="status-number">
+            {{ stats.warning }}
+          </div>
+          <div class="status-label">
+            警告
+          </div>
         </a-card>
       </a-col>
       
       <a-col :span="3">
-        <a-card size="small" class="status-card reconnecting">
-          <div class="status-number">{{ stats.reconnecting }}</div>
-          <div class="status-label">重连中</div>
+        <a-card
+          size="small"
+          class="status-card reconnecting"
+        >
+          <div class="status-number">
+            {{ stats.reconnecting }}
+          </div>
+          <div class="status-label">
+            重连中
+          </div>
         </a-card>
       </a-col>
       
       <a-col :span="3">
-        <a-card size="small" class="status-card unreachable">
-          <div class="status-number">{{ stats.unreachable }}</div>
-          <div class="status-label">无法访问</div>
+        <a-card
+          size="small"
+          class="status-card unreachable"
+        >
+          <div class="status-number">
+            {{ stats.unreachable }}
+          </div>
+          <div class="status-label">
+            无法访问
+          </div>
         </a-card>
       </a-col>
       
       <a-col :span="3">
-        <a-card size="small" class="status-card initializing">
-          <div class="status-number">{{ stats.initializing }}</div>
-          <div class="status-label">初始化中</div>
+        <a-card
+          size="small"
+          class="status-card initializing"
+        >
+          <div class="status-number">
+            {{ stats.initializing }}
+          </div>
+          <div class="status-label">
+            初始化中
+          </div>
         </a-card>
       </a-col>
       
       <a-col :span="3">
-        <a-card size="small" class="status-card disconnected">
-          <div class="status-number">{{ stats.disconnected + stats.disconnecting }}</div>
-          <div class="status-label">已断连</div>
+        <a-card
+          size="small"
+          class="status-card disconnected"
+        >
+          <div class="status-number">
+            {{ stats.disconnected + stats.disconnecting }}
+          </div>
+          <div class="status-label">
+            已断连
+          </div>
         </a-card>
       </a-col>
     </a-row>
@@ -58,19 +110,22 @@
         <div 
           class="health-progress healthy" 
           :style="{ width: healthPercentage + '%' }"
-        ></div>
+        />
         <div 
           class="health-progress warning" 
           :style="{ width: warningPercentage + '%' }"
-        ></div>
+        />
         <div 
           class="health-progress error" 
           :style="{ width: errorPercentage + '%' }"
-        ></div>
+        />
       </div>
       <div class="health-text">
         <span class="health-score">系统健康度: {{ healthScore }}%</span>
-        <span class="health-status" :class="healthStatusClass">{{ healthStatusText }}</span>
+        <span
+          class="health-status"
+          :class="healthStatusClass"
+        >{{ healthStatusText }}</span>
       </div>
     </div>
 
@@ -78,23 +133,23 @@
     <div class="summary-actions">
       <a-button-group>
         <a-button 
-          @click="handleRefreshAll"
           :loading="refreshingAll"
           icon="reload"
           type="primary"
+          @click="handleRefreshAll"
         >
           刷新所有服务
         </a-button>
         <a-button 
-          @click="handleRefreshStatus"
           :loading="refreshingStatus"
           icon="sync"
+          @click="handleRefreshStatus"
         >
           刷新状态
         </a-button>
         <a-button 
-          @click="$emit('show-details')"
           icon="eye"
+          @click="$emit('show-details')"
         >
           查看详情
         </a-button>
