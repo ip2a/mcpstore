@@ -2,103 +2,145 @@
   <div id="app">
     <!-- 主布局 -->
     <el-container style="height: 100vh">
-      <!-- 侧边栏 -->
-      <el-aside width="200px" class="app-aside">
+      <!-- 侧边栏：极简线框风格 -->
+      <el-aside
+        width="240px"
+        class="app-aside"
+      >
         <div class="brand">
+          <div class="logo-circle">
+            M
+          </div>
           <span class="brand-text">MCPStore</span>
         </div>
 
         <el-menu
           :default-active="$route.path"
           router
+          class="atom-menu"
         >
-          <!-- 仪表板 -->
+          <!-- 核心功能组 -->
+          <div class="menu-group-label">
+            Core
+          </div>
+          
           <el-menu-item index="/system/dashboard">
             <el-icon><Monitor /></el-icon>
-            <span>仪表板</span>
+            <span>Dashboard</span>
           </el-menu-item>
 
-          <!-- 服务列表 -->
           <el-menu-item index="/for_store/list_services">
             <el-icon><Connection /></el-icon>
-            <span>服务列表</span>
+            <span>Services</span>
           </el-menu-item>
 
-          <!-- 添加服务 -->
-          <el-menu-item index="/for_store/add_service">
-            <el-icon><Plus /></el-icon>
-            <span>添加服务</span>
-          </el-menu-item>
-
-          <!-- 工具列表 -->
           <el-menu-item index="/for_store/list_tools">
             <el-icon><Tools /></el-icon>
-            <span>工具列表</span>
+            <span>Tools</span>
           </el-menu-item>
 
-          <!-- 工具执行 -->
+          <!-- 操作组 -->
+          <div class="menu-group-label">
+            Operations
+          </div>
+
+          <el-menu-item index="/for_store/add_service">
+            <el-icon><Plus /></el-icon>
+            <span>Add Service</span>
+          </el-menu-item>
+          
           <el-menu-item index="/for_store/call_tool">
             <el-icon><VideoPlay /></el-icon>
-            <span>工具执行</span>
+            <span>Execute Tool</span>
           </el-menu-item>
-
-          <!-- 工具记录 -->
+          
           <el-menu-item index="/for_store/tool_records">
             <el-icon><Document /></el-icon>
-            <span>工具记录</span>
+            <span>History</span>
           </el-menu-item>
 
-          <!-- Agent列表 -->
+          <!-- 系统组 -->
+          <div class="menu-group-label">
+            System
+          </div>
+
           <el-menu-item index="/for_store/list_agents">
             <el-icon><User /></el-icon>
-            <span>Agent列表</span>
+            <span>Agents</span>
           </el-menu-item>
 
-          <!-- 配置中心 -->
           <el-menu-item index="/for_store/show_config">
             <el-icon><Setting /></el-icon>
-            <span>配置中心</span>
+            <span>Configuration</span>
           </el-menu-item>
-
-          <!-- 文档中心 -->
-          <el-menu-item index="/docs">
-            <el-icon><Reading /></el-icon>
-            <span>文档中心</span>
-          </el-menu-item>
-
-          <!-- 外链：GitHub 项目 -->
-          <el-menu-item index="/external/github">
-            <el-icon><Link /></el-icon>
-            <span>GitHub 项目</span>
-          </el-menu-item>
-
-          <!-- 外链：PyPI 页面 -->
-          <el-menu-item index="/external/pypi">
-            <el-icon><Link /></el-icon>
-            <span>PyPI 页面</span>
-          </el-menu-item>
-
-          <!-- 缓存空间 -->
+          
           <el-menu-item index="/for_store/show_cache">
             <el-icon><Coin /></el-icon>
-            <span>缓存空间</span>
+            <span>Cache</span>
+          </el-menu-item>
+
+          <!-- 外部链接 -->
+          <div class="menu-group-label">
+            External
+          </div>
+           
+          <el-menu-item index="/docs">
+            <el-icon><Reading /></el-icon>
+            <span>Docs</span>
+          </el-menu-item>
+          
+          <el-menu-item index="/external/github">
+            <el-icon><Link /></el-icon>
+            <span>GitHub</span>
           </el-menu-item>
         </el-menu>
+        
+        <!-- 底部用户/状态区 (可选) -->
+        <div class="aside-footer">
+          <div class="status-indicator is-active" />
+          <span class="text-xs text-secondary">System Online</span>
+        </div>
       </el-aside>
 
 
       <!-- 主内容区 -->
-      <el-container>
-        <!-- 顶部导航栏 -->
-        <el-header height="60px" class="app-header">
-          <div class="header-left">
-            <h3 class="page-title">{{ currentPageTitle }}</h3>
+      <el-container class="main-container">
+        <!-- 顶部导航栏：仅保留面包屑或极简标题，与 Tab 融合 -->
+        <el-header
+          height="50px"
+          class="app-header"
+        >
+          <!-- 左侧：面包屑或当前路径 -->
+          <div class="header-breadcrumbs">
+            <span class="text-secondary">MCPStore</span>
+            <span class="separator">/</span>
+            <span class="text-primary">{{ currentPageTitle }}</span>
           </div>
-
-          <div class="header-right"></div>
+           
+          <!-- 右侧：全局操作 -->
+          <div class="header-actions">
+            <button
+              class="icon-btn"
+              :class="{ spinning: isRefreshing }"
+              @click="refreshData"
+            >
+              <el-icon><Refresh /></el-icon>
+            </button>
+            <button
+              class="icon-btn"
+              @click="toggleTheme"
+            >
+              <el-icon v-if="isDark">
+                <Sunny />
+              </el-icon>
+              <el-icon v-else>
+                <Moon />
+              </el-icon>
+            </button>
+          </div>
         </el-header>
 
-        <!-- 标签页（简洁版） -->
+        <!-- 标签页（极简版） -->
         <div class="tabs-wrap">
           <TabsView />
         </div>
@@ -106,9 +148,15 @@
         <!-- 主内容 -->
         <el-main class="app-main">
           <router-view v-slot="{ Component, route }">
-            <transition name="fade-transform" mode="out-in">
+            <transition
+              name="fade-transform"
+              mode="out-in"
+            >
               <keep-alive :include="route.meta?.keepAlive ? [route.name] : []">
-                <component :is="Component" :key="route.path" />
+                <component
+                  :is="Component"
+                  :key="route.path"
+                />
               </keep-alive>
             </transition>
           </router-view>
@@ -127,7 +175,7 @@ import { useSystemStore } from '@/stores/system'
 import { useServicesStore } from '@/stores/services'
 import { useToolsStore } from '@/stores/tools'
 import {
-  Monitor, Connection, Tools, User, Document, Setting, FolderOpened,
+  Monitor, Connection, Tools, User, Document, Setting, 
   SuccessFilled, WarningFilled, Refresh, Moon, Sunny, Plus, Link, VideoPlay, Reading, Coin
 } from '@element-plus/icons-vue'
 
@@ -144,8 +192,6 @@ const isDark = computed({
 })
 
 const isRefreshing = computed(() => appStore.isLoading || systemStore.isLoading)
-
-const systemStatus = computed(() => systemStore.systemStatus)
 
 const currentPageTitle = computed(() => route.meta?.title || 'MCPStore')
 
@@ -170,75 +216,194 @@ const refreshData = async () => {
     appStore.setGlobalLoading(false)
   }
 }
-
-const checkSystemStatus = async () => {
-  await systemStore.safeCheckSystemStatus()
-}
-
-const openGitHub = () => {
-  const url = appStore.config.githubUrl || 'https://github.com/whillhill/mcpstore'
-  window.open(url, '_blank')
-}
-
-const openPyPI = () => {
-  const url = appStore.config.pypiUrl || 'https://pypi.org/project/mcpstore'
-  window.open(url, '_blank')
-}
-
 </script>
 
-<style scoped>
-/* 统一的布局边界与留白，遵循 Element Plus 设计变量 */
+<style lang="scss" scoped>
+// 布局基础
 .app-aside {
-  background: var(--el-bg-color);
-  border-right: 1px solid var(--el-border-color-light);
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
 }
+
+.main-container {
+  background: var(--bg-body);
+}
+
+// 侧边栏品牌
 .brand {
-  padding: 16px;
-  text-align: center;
-  border-bottom: 1px solid var(--el-border-color-light);
+  height: 60px;
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border-color);
+  gap: 12px;
 }
+
+.logo-circle {
+  width: 24px;
+  height: 24px;
+  background: var(--color-primary);
+  color: #fff;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+}
+
 .brand-text {
   font-weight: 600;
-  font-size: 18px;
-  color: var(--el-text-color-primary);
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
 }
+
+// 侧边栏菜单 (自定义覆盖 Element Plus)
+.atom-menu {
+  border-right: none;
+  background: transparent;
+  padding: 16px 12px;
+  flex: 1;
+}
+
+.menu-group-label {
+  padding: 16px 12px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-placeholder);
+  letter-spacing: 0.05em;
+  
+  &:first-child { padding-top: 0; }
+}
+
+:deep(.el-menu-item) {
+  height: 36px;
+  line-height: 36px;
+  border-radius: 6px;
+  margin-bottom: 2px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 0 12px !important; // Override element style
+  
+  &:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+  }
+  
+  &.is-active {
+    background-color: var(--bg-active);
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+  
+  .el-icon {
+    font-size: 16px;
+    margin-right: 10px;
+    color: inherit;
+  }
+}
+
+.aside-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  
+  &.is-active {
+    background-color: var(--color-success);
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2); // 仅此处保留微弱光晕
+  }
+}
+
+// 顶部 Header
 .app-header {
+  background: var(--bg-body); // 与背景同色，去边框
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--el-border-color-light);
-  background: var(--el-bg-color);
-}
-.page-title { margin: 0; font-weight: 600; color: var(--el-text-color-primary); }
-.tabs-wrap {
-  background: var(--el-bg-color);
-  border-bottom: 1px solid var(--el-border-color-light);
-}
-.app-main {
-  padding: 16px;
-  background: var(--el-bg-color-page, #f5f7fa);
-  position: relative;
-  overflow: auto;
+  padding: 0 20px;
+  // border-bottom: 1px solid var(--border-color); // 可选：移除顶部边框，更极简
 }
 
-/* 路由过渡动画 - 轻量级淡入淡出 */
+.header-breadcrumbs {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  
+  .separator {
+    margin: 0 8px;
+    color: var(--border-color-dark);
+  }
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  transition: all 0.2s;
+  
+  &:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+  }
+  
+  &.spinning {
+    animation: spin 1s linear infinite;
+  }
+}
+
+// Tabs
+.tabs-wrap {
+  padding: 0 20px;
+  margin-bottom: 16px;
+}
+
+// Main Content
+.app-main {
+  padding: 0; // Remove default padding
+  position: relative;
+  overflow-x: hidden;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 路由过渡动画 */
 .fade-transform-enter-active,
 .fade-transform-leave-active {
-  transition: opacity 0.15s ease-in-out;
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
 .fade-transform-enter-from {
   opacity: 0;
+  transform: translateY(4px);
 }
 
 .fade-transform-leave-to {
   opacity: 0;
-}
-
-.fade-transform-enter-to,
-.fade-transform-leave-from {
-  opacity: 1;
+  transform: translateY(-4px);
 }
 </style>

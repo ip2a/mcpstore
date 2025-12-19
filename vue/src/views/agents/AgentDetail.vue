@@ -5,14 +5,18 @@
       <div class="header-left">
         <el-button
           :icon="ArrowLeft"
-          @click="$router.back()"
           class="back-btn"
+          @click="$router.back()"
         >
           返回
         </el-button>
         <div class="title-section">
-          <h2 class="page-title">Agent详情</h2>
-          <p class="page-description">{{ agentId }}</p>
+          <h2 class="page-title">
+            Agent详情
+          </h2>
+          <p class="page-description">
+            {{ agentId }}
+          </p>
         </div>
       </div>
       <div class="header-right">
@@ -25,8 +29,8 @@
         </el-button>
         <el-button
           :icon="Refresh"
-          @click="refreshData"
           :loading="loading"
+          @click="refreshData"
         >
           刷新
         </el-button>
@@ -34,36 +38,55 @@
     </div>
 
     <!-- Agent统计信息 -->
-    <el-row :gutter="20" class="stats-row">
+    <el-row
+      :gutter="20"
+      class="stats-row"
+    >
       <el-col :span="6">
         <el-card class="stat-card">
           <div class="stat-content">
-            <div class="stat-value">{{ agentStats.services || 0 }}</div>
-            <div class="stat-label">服务数量</div>
+            <div class="stat-value">
+              {{ agentStats.services || 0 }}
+            </div>
+            <div class="stat-label">
+              服务数量
+            </div>
           </div>
         </el-card>
       </el-col>
       <el-col :span="6">
         <el-card class="stat-card">
           <div class="stat-content">
-            <div class="stat-value">{{ agentStats.tools || 0 }}</div>
-            <div class="stat-label">工具数量</div>
+            <div class="stat-value">
+              {{ agentStats.tools || 0 }}
+            </div>
+            <div class="stat-label">
+              工具数量
+            </div>
           </div>
         </el-card>
       </el-col>
       <el-col :span="6">
         <el-card class="stat-card">
           <div class="stat-content">
-            <div class="stat-value">{{ agentStats.healthy_services || 0 }}</div>
-            <div class="stat-label">健康服务</div>
+            <div class="stat-value">
+              {{ agentStats.healthy_services || 0 }}
+            </div>
+            <div class="stat-label">
+              健康服务
+            </div>
           </div>
         </el-card>
       </el-col>
       <el-col :span="6">
         <el-card class="stat-card">
           <div class="stat-content">
-            <div class="stat-value">{{ agentStats.total_tool_executions || 0 }}</div>
-            <div class="stat-label">工具执行次数</div>
+            <div class="stat-value">
+              {{ agentStats.total_tool_executions || 0 }}
+            </div>
+            <div class="stat-label">
+              工具执行次数
+            </div>
           </div>
         </el-card>
       </el-col>
@@ -84,21 +107,43 @@
         </div>
       </template>
 
-      <div v-if="services.length === 0" class="empty-container">
+      <div
+        v-if="services.length === 0"
+        class="empty-container"
+      >
         <el-empty description="暂无服务">
-          <el-button type="primary" @click="addService">添加第一个服务</el-button>
+          <el-button
+            type="primary"
+            @click="addService"
+          >
+            添加第一个服务
+          </el-button>
         </el-empty>
       </div>
 
-      <el-table v-else :data="services" style="width: 100%">
-        <el-table-column prop="name" label="服务名称" width="200">
+      <el-table
+        v-else
+        :data="services"
+        style="width: 100%"
+      >
+        <el-table-column
+          prop="name"
+          label="服务名称"
+          width="200"
+        >
           <template #default="{ row }">
             <div class="service-name">
               <div class="service-status-indicator">
-                <el-icon v-if="row.command" class="service-icon local">
+                <el-icon
+                  v-if="row.command"
+                  class="service-icon local"
+                >
                   <FolderOpened />
                 </el-icon>
-                <el-icon v-else class="service-icon remote">
+                <el-icon
+                  v-else
+                  class="service-icon remote"
+                >
                   <Link />
                 </el-icon>
                 <el-badge
@@ -116,13 +161,19 @@
               </div>
               <div class="service-name-content">
                 <span class="service-name-text">{{ row.name }}</span>
-                <span v-if="!row.is_active" class="config-only-hint">仅配置</span>
+                <span
+                  v-if="!row.is_active"
+                  class="config-only-hint"
+                >仅配置</span>
               </div>
             </div>
           </template>
         </el-table-column>
 
-        <el-table-column label="类型" width="80">
+        <el-table-column
+          label="类型"
+          width="80"
+        >
           <template #default="{ row }">
             <el-tag
               :type="row.command ? 'success' : 'info'"
@@ -133,28 +184,58 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="连接信息" min-width="250">
+        <el-table-column
+          label="连接信息"
+          min-width="250"
+        >
           <template #default="{ row }">
-            <div v-if="row.url" class="connection-info">
-              <div class="url">{{ row.url }}</div>
-              <div class="transport">{{ row.transport || 'http' }}</div>
+            <div
+              v-if="row.url"
+              class="connection-info"
+            >
+              <div class="url">
+                {{ row.url }}
+              </div>
+              <div class="transport">
+                {{ row.transport || 'http' }}
+              </div>
             </div>
-            <div v-else-if="row.command" class="connection-info">
-              <div class="command">{{ row.command }} {{ (row.args || []).join(' ') }}</div>
-              <div class="working-dir" v-if="row.working_dir">{{ row.working_dir }}</div>
+            <div
+              v-else-if="row.command"
+              class="connection-info"
+            >
+              <div class="command">
+                {{ row.command }} {{ (row.args || []).join(' ') }}
+              </div>
+              <div
+                v-if="row.working_dir"
+                class="working-dir"
+              >
+                {{ row.working_dir }}
+              </div>
             </div>
           </template>
         </el-table-column>
 
-        <el-table-column label="状态" width="80">
+        <el-table-column
+          label="状态"
+          width="80"
+        >
           <template #default="{ row }">
-            <el-tag :type="getServiceStatusType(row.status)" size="small">
+            <el-tag
+              :type="getServiceStatusType(row.status)"
+              size="small"
+            >
               {{ getServiceStatusText(row.status) }}
             </el-tag>
           </template>
         </el-table-column>
 
-        <el-table-column label="工具数" width="80" align="center">
+        <el-table-column
+          label="工具数"
+          width="80"
+          align="center"
+        >
           <template #default="{ row }">
             <el-badge
               :value="row.tool_count || 0"
@@ -166,28 +247,55 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="客户端ID" width="150">
+        <el-table-column
+          label="客户端ID"
+          width="150"
+        >
           <template #default="{ row }">
-            <el-tag size="small" type="info" v-if="row.client_id">
+            <el-tag
+              v-if="row.client_id"
+              size="small"
+              type="info"
+            >
               {{ parseClientIdShort(row.client_id) }}
             </el-tag>
-            <span v-else class="text-muted">N/A</span>
+            <span
+              v-else
+              class="text-muted"
+            >N/A</span>
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="300">
+        <el-table-column
+          label="操作"
+          width="300"
+        >
           <template #default="{ row }">
             <el-button-group>
-              <el-button size="small" @click="viewServiceTools(row)">
+              <el-button
+                size="small"
+                @click="viewServiceTools(row)"
+              >
                 查看工具
               </el-button>
-              <el-button size="small" type="primary" @click="editService(row)">
+              <el-button
+                size="small"
+                type="primary"
+                @click="editService(row)"
+              >
                 编辑
               </el-button>
-              <el-button size="small" @click="restartService(row)">
+              <el-button
+                size="small"
+                @click="restartService(row)"
+              >
                 重启
               </el-button>
-              <el-button size="small" type="danger" @click="deleteService(row)">
+              <el-button
+                size="small"
+                type="danger"
+                @click="deleteService(row)"
+              >
                 删除
               </el-button>
             </el-button-group>
@@ -202,11 +310,17 @@
         <span>可用工具</span>
       </template>
 
-      <div v-if="tools.length === 0" class="empty-container">
+      <div
+        v-if="tools.length === 0"
+        class="empty-container"
+      >
         <el-empty description="暂无工具" />
       </div>
 
-      <div v-else class="tools-grid">
+      <div
+        v-else
+        class="tools-grid"
+      >
         <div
           v-for="tool in tools"
           :key="tool.name"
@@ -214,8 +328,12 @@
           @click="executeTool(tool)"
         >
           <div class="tool-header">
-            <div class="tool-name">{{ tool.name }}</div>
-            <div class="tool-service">{{ tool.service_name }}</div>
+            <div class="tool-name">
+              {{ tool.name }}
+            </div>
+            <div class="tool-service">
+              {{ tool.service_name }}
+            </div>
           </div>
           <div class="tool-description">
             {{ tool.description || '暂无描述' }}
@@ -231,19 +349,35 @@
       width="800px"
       :close-on-click-modal="false"
     >
-      <div v-if="editingService" class="edit-service-content">
+      <div
+        v-if="editingService"
+        class="edit-service-content"
+      >
         <!-- 编辑模式选择 -->
         <div class="edit-mode-selector">
-          <el-radio-group v-model="editMode" size="large">
-            <el-radio-button label="fields">字段编辑</el-radio-button>
-            <el-radio-button label="json">JSON编辑</el-radio-button>
+          <el-radio-group
+            v-model="editMode"
+            size="large"
+          >
+            <el-radio-button label="fields">
+              字段编辑
+            </el-radio-button>
+            <el-radio-button label="json">
+              JSON编辑
+            </el-radio-button>
           </el-radio-group>
         </div>
 
         <!-- 字段编辑模式 -->
-        <div v-if="editMode === 'fields'" class="fields-edit-mode">
+        <div
+          v-if="editMode === 'fields'"
+          class="fields-edit-mode"
+        >
           <!-- Client ID 展示 -->
-          <div v-if="editingServiceClientId" class="client-id-display">
+          <div
+            v-if="editingServiceClientId"
+            class="client-id-display"
+          >
             <el-form-item label="client_id">
               <el-input
                 :value="editingServiceClientId"
@@ -252,7 +386,9 @@
                 class="readonly-field"
               >
                 <template #suffix>
-                  <el-icon class="readonly-icon"><View /></el-icon>
+                  <el-icon class="readonly-icon">
+                    <View />
+                  </el-icon>
                 </template>
               </el-input>
             </el-form-item>
@@ -266,7 +402,10 @@
           >
             <!-- 远程服务字段 -->
             <template v-if="isRemoteService">
-              <el-form-item label="url" prop="url">
+              <el-form-item
+                label="url"
+                prop="url"
+              >
                 <el-input
                   v-model="editForm.url"
                   placeholder="Enter service URL, e.g.: https://example.com/mcp"
@@ -274,7 +413,11 @@
                 />
               </el-form-item>
 
-              <el-form-item label="transport" prop="transport" v-if="editForm.transport !== undefined">
+              <el-form-item
+                v-if="editForm.transport !== undefined"
+                label="transport"
+                prop="transport"
+              >
                 <el-input
                   v-model="editForm.transport"
                   placeholder="Enter transport type, e.g.: streamable-http"
@@ -282,7 +425,11 @@
                 />
               </el-form-item>
 
-              <el-form-item label="timeout" prop="timeout" v-if="editForm.timeout !== undefined">
+              <el-form-item
+                v-if="editForm.timeout !== undefined"
+                label="timeout"
+                prop="timeout"
+              >
                 <el-input-number
                   v-model="editForm.timeout"
                   :min="1"
@@ -296,7 +443,10 @@
 
             <!-- 本地服务字段 -->
             <template v-else>
-              <el-form-item label="command" prop="command">
+              <el-form-item
+                label="command"
+                prop="command"
+              >
                 <el-input
                   v-model="editForm.command"
                   placeholder="Enter command, e.g.: npx, python"
@@ -304,16 +454,26 @@
                 />
               </el-form-item>
 
-              <el-form-item label="args" prop="args" v-if="editForm.args !== undefined">
+              <el-form-item
+                v-if="editForm.args !== undefined"
+                label="args"
+                prop="args"
+              >
                 <el-input
                   v-model="editFormArgsString"
                   placeholder="Enter arguments separated by spaces"
                   size="large"
                 />
-                <div class="field-hint">Arguments will be split by spaces into an array</div>
+                <div class="field-hint">
+                  Arguments will be split by spaces into an array
+                </div>
               </el-form-item>
 
-              <el-form-item label="working_dir" prop="working_dir" v-if="editForm.working_dir !== undefined">
+              <el-form-item
+                v-if="editForm.working_dir !== undefined"
+                label="working_dir"
+                prop="working_dir"
+              >
                 <el-input
                   v-model="editForm.working_dir"
                   placeholder="Enter working directory path (optional)"
@@ -323,7 +483,11 @@
             </template>
 
             <!-- 通用字段 -->
-            <el-form-item label="env" prop="env" v-if="editForm.env !== undefined">
+            <el-form-item
+              v-if="editForm.env !== undefined"
+              label="env"
+              prop="env"
+            >
               <el-input
                 v-model="editFormEnvString"
                 type="textarea"
@@ -331,13 +495,18 @@
                 placeholder="Enter environment variables, format: KEY1=value1&#10;KEY2=value2"
                 size="large"
               />
-              <div class="field-hint">One environment variable per line, format: KEY=value</div>
+              <div class="field-hint">
+                One environment variable per line, format: KEY=value
+              </div>
             </el-form-item>
           </el-form>
         </div>
 
         <!-- JSON编辑模式 -->
-        <div v-else class="json-edit-mode">
+        <div
+          v-else
+          class="json-edit-mode"
+        >
           <el-form-item label="配置内容">
             <el-input
               v-model="editJsonContent"
@@ -349,11 +518,17 @@
           </el-form-item>
 
           <div class="json-actions">
-            <el-button @click="formatEditJson" size="large">
+            <el-button
+              size="large"
+              @click="formatEditJson"
+            >
               <el-icon><Setting /></el-icon>
               格式化
             </el-button>
-            <el-button @click="validateEditJson" size="large">
+            <el-button
+              size="large"
+              @click="validateEditJson"
+            >
               <el-icon><Check /></el-icon>
               验证
             </el-button>
@@ -363,11 +538,13 @@
 
       <template #footer>
         <div class="dialog-footer">
-          <el-button @click="editDialogVisible = false">取消</el-button>
+          <el-button @click="editDialogVisible = false">
+            取消
+          </el-button>
           <el-button
             type="primary"
-            @click="saveServiceEdit"
             :loading="editSaving"
+            @click="saveServiceEdit"
           >
             保存
           </el-button>

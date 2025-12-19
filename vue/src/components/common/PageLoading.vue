@@ -1,10 +1,22 @@
 <template>
-  <div v-if="loading" class="page-loading-overlay" :class="{ 'full-screen': fullScreen }">
+  <div
+    v-if="loading"
+    class="page-loading-overlay"
+    :class="{ 'full-screen': fullScreen }"
+  >
     <div class="loading-content">
-      <el-icon class="loading-icon" :size="size">
+      <el-icon
+        class="loading-icon"
+        :size="size"
+      >
         <Loading />
       </el-icon>
-      <div v-if="text" class="loading-text">{{ text }}</div>
+      <div
+        v-if="text"
+        class="loading-text"
+      >
+        {{ text }}
+      </div>
     </div>
   </div>
 </template>

@@ -5,7 +5,9 @@
         <el-icon><Document /></el-icon>
         MCP配置文件管理
       </h1>
-      <p class="page-description">查看和编辑MCP JSON配置文件，管理服务配置</p>
+      <p class="page-description">
+        查看和编辑MCP JSON配置文件，管理服务配置
+      </p>
     </div>
 
     <!-- 操作工具栏 -->
@@ -15,8 +17,8 @@
           <el-button 
             type="primary" 
             :icon="Refresh" 
-            @click="loadConfig"
             :loading="loading"
+            @click="loadConfig"
           >
             重新加载
           </el-button>
@@ -24,24 +26,22 @@
           <el-button 
             type="success" 
             :icon="Check" 
-            @click="saveConfig"
             :loading="saving"
             :disabled="!isModified || hasErrors"
+            @click="saveConfig"
           >
             保存配置
           </el-button>
-          
-
         </div>
         
         <div class="toolbar-right">
           <el-button 
             type="primary" 
             :icon="Upload" 
-            @click="registerServices"
             :loading="registering"
             :disabled="hasErrors || !hasServices"
             size="large"
+            @click="registerServices"
           >
             一键注册服务
           </el-button>
@@ -61,9 +61,27 @@
                 配置文件编辑器
               </span>
               <div class="header-status">
-                <el-tag v-if="isModified" type="warning" size="small">已修改</el-tag>
-                <el-tag v-if="hasErrors" type="danger" size="small">语法错误</el-tag>
-                <el-tag v-if="!hasErrors && configText" type="success" size="small">语法正确</el-tag>
+                <el-tag
+                  v-if="isModified"
+                  type="warning"
+                  size="small"
+                >
+                  已修改
+                </el-tag>
+                <el-tag
+                  v-if="hasErrors"
+                  type="danger"
+                  size="small"
+                >
+                  语法错误
+                </el-tag>
+                <el-tag
+                  v-if="!hasErrors && configText"
+                  type="success"
+                  size="small"
+                >
+                  语法正确
+                </el-tag>
               </div>
             </div>
           </template>
@@ -93,14 +111,20 @@
           <div class="file-info">
             <div class="info-item">
               <span class="label">文件状态:</span>
-              <el-tag :type="isModified ? 'warning' : 'success'" size="small">
+              <el-tag
+                :type="isModified ? 'warning' : 'success'"
+                size="small"
+              >
                 {{ isModified ? '已修改' : '已保存' }}
               </el-tag>
             </div>
             
             <div class="info-item">
               <span class="label">JSON格式:</span>
-              <el-tag :type="hasErrors ? 'danger' : 'success'" size="small">
+              <el-tag
+                :type="hasErrors ? 'danger' : 'success'"
+                size="small"
+              >
                 {{ hasErrors ? '格式错误' : '格式正确' }}
               </el-tag>
             </div>
@@ -126,11 +150,20 @@
             </span>
           </template>
           
-          <div v-if="!hasServices" class="no-services">
-            <el-empty description="暂无服务配置" :image-size="80" />
+          <div
+            v-if="!hasServices"
+            class="no-services"
+          >
+            <el-empty
+              description="暂无服务配置"
+              :image-size="80"
+            />
           </div>
           
-          <div v-else class="services-list">
+          <div
+            v-else
+            class="services-list"
+          >
             <div 
               v-for="service in servicesList" 
               :key="service.name"
@@ -138,23 +171,35 @@
             >
               <div class="service-header">
                 <span class="service-name">{{ service.name }}</span>
-                <el-tag :type="getServiceTypeTag(service)" size="small">
+                <el-tag
+                  :type="getServiceTypeTag(service)"
+                  size="small"
+                >
                   {{ getServiceType(service) }}
                 </el-tag>
               </div>
               
               <div class="service-details">
-                <div v-if="service.command" class="detail-item">
+                <div
+                  v-if="service.command"
+                  class="detail-item"
+                >
                   <span class="detail-label">命令:</span>
                   <span class="detail-value">{{ service.command }}</span>
                 </div>
                 
-                <div v-if="service.url" class="detail-item">
+                <div
+                  v-if="service.url"
+                  class="detail-item"
+                >
                   <span class="detail-label">URL:</span>
                   <span class="detail-value">{{ service.url }}</span>
                 </div>
                 
-                <div v-if="service.args && service.args.length" class="detail-item">
+                <div
+                  v-if="service.args && service.args.length"
+                  class="detail-item"
+                >
                   <span class="detail-label">参数:</span>
                   <span class="detail-value">{{ service.args.join(' ') }}</span>
                 </div>
@@ -174,31 +219,31 @@
           
           <div class="quick-actions">
             <el-button 
-              @click="addSampleService" 
               :icon="Plus" 
               type="primary" 
               plain 
-              block
+              block 
+              @click="addSampleService"
             >
               添加示例服务
             </el-button>
             
             <el-button 
-              @click="clearConfig" 
               :icon="Delete" 
               type="danger" 
               plain 
-              block
+              block 
+              @click="clearConfig"
             >
               清空配置
             </el-button>
             
             <el-button 
-              @click="resetToDefault" 
               :icon="RefreshLeft" 
               type="warning" 
               plain 
-              block
+              block 
+              @click="resetToDefault"
             >
               重置为默认
             </el-button>
@@ -396,11 +441,11 @@ const getServiceTypeTag = (service) => {
 const addSampleService = () => {
   const sampleService = {
     mcpServers: {
-      "sample-service": {
-        "command": "python",
-        "args": ["sample_service.py"],
-        "env": {
-          "DEBUG": "true"
+      'sample-service': {
+        'command': 'python',
+        'args': ['sample_service.py'],
+        'env': {
+          'DEBUG': 'true'
         }
       }
     }

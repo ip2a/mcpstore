@@ -10,15 +10,17 @@
       size="middle"
     >
       <!-- 服务名称列 -->
-      <template slot="serviceName" slot-scope="text, record">
+      <template #serviceName="text, record">
         <div class="service-name-cell">
           <strong>{{ record.serviceName }}</strong>
-          <div class="agent-info">{{ record.agentId }}</div>
+          <div class="agent-info">
+            {{ record.agentId }}
+          </div>
         </div>
       </template>
 
       <!-- 状态列 -->
-      <template slot="status" slot-scope="text, record">
+      <template #status="text, record">
         <ServiceLifecycleStatus
           :service-name="record.serviceName"
           :status="record.status"
@@ -38,22 +40,24 @@
       </template>
 
       <!-- 响应时间列 -->
-      <template slot="responseTime" slot-scope="text">
+      <template #responseTime="text">
         <span :class="getResponseTimeClass(text)">
           {{ formatResponseTime(text) }}
         </span>
       </template>
 
       <!-- 最后检查时间列 -->
-      <template slot="lastCheckTime" slot-scope="text">
+      <template #lastCheckTime="text">
         <div class="time-cell">
           <div>{{ formatTimestamp(text) }}</div>
-          <div class="time-ago">{{ getTimeDifference(text * 1000) }}</div>
+          <div class="time-ago">
+            {{ getTimeDifference(text * 1000) }}
+          </div>
         </div>
       </template>
 
       <!-- 失败/成功次数列 -->
-      <template slot="failures" slot-scope="text, record">
+      <template #failures="text, record">
         <div class="failure-success-cell">
           <a-badge 
             :count="record.consecutiveFailures" 
@@ -64,10 +68,12 @@
       </template>
 
       <!-- 内容快照列 -->
-      <template slot="contentSnapshot" slot-scope="text, record">
+      <template #contentSnapshot="text, record">
         <div class="content-snapshot-cell">
           <a-tooltip title="工具数量">
-            <a-tag color="blue">{{ record.toolsCount || 0 }} 工具</a-tag>
+            <a-tag color="blue">
+              {{ record.toolsCount || 0 }} 工具
+            </a-tag>
           </a-tooltip>
           <div class="snapshot-time">
             {{ formatISOTime(record.lastUpdated) }}
@@ -76,7 +82,7 @@
       </template>
 
       <!-- 操作列 -->
-      <template slot="actions" slot-scope="text, record">
+      <template #actions="text, record">
         <a-button-group size="small">
           <a-tooltip title="查看详情">
             <a-button 
@@ -87,29 +93,31 @@
           <a-tooltip title="刷新内容">
             <a-button 
               icon="reload" 
-              @click="refreshServiceContent(record)"
               :loading="record.refreshing"
+              @click="refreshServiceContent(record)"
             />
           </a-tooltip>
           <a-tooltip title="健康检查">
             <a-button 
               icon="heart" 
-              @click="triggerHealthCheck(record)"
               :loading="record.checking"
+              @click="triggerHealthCheck(record)"
             />
           </a-tooltip>
           <a-dropdown v-if="isServiceAvailable(record.status)">
             <a-button icon="more" />
-            <a-menu slot="overlay">
-              <a-menu-item @click="gracefulDisconnect(record)">
-                <a-icon type="disconnect" />
-                断开连接
-              </a-menu-item>
-              <a-menu-item @click="viewContentSnapshot(record)">
-                <a-icon type="camera" />
-                查看快照
-              </a-menu-item>
-            </a-menu>
+            <template #overlay>
+              <a-menu>
+                <a-menu-item @click="gracefulDisconnect(record)">
+                  <a-icon type="disconnect" />
+                  断开连接
+                </a-menu-item>
+                <a-menu-item @click="viewContentSnapshot(record)">
+                  <a-icon type="camera" />
+                  查看快照
+                </a-menu-item>
+              </a-menu>
+            </template>
           </a-dropdown>
         </a-button-group>
       </template>

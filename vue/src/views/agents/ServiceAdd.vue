@@ -5,13 +5,15 @@
       <div class="header-left">
         <el-button 
           :icon="ArrowLeft" 
-          @click="$router.back()"
           class="back-btn"
+          @click="$router.back()"
         >
           返回
         </el-button>
         <div class="title-section">
-          <h2 class="page-title">添加服务</h2>
+          <h2 class="page-title">
+            添加服务
+          </h2>
           <p class="page-description">
             {{ targetAgentId ? `为Agent ${targetAgentId} 添加服务` : '添加服务到新Agent' }}
           </p>
@@ -33,7 +35,10 @@
         class="service-form"
       >
         <!-- Agent ID -->
-        <el-form-item label="Agent ID" prop="agentId">
+        <el-form-item
+          label="Agent ID"
+          prop="agentId"
+        >
           <el-input 
             v-model="serviceForm.agentId" 
             placeholder="输入Agent ID，如果不存在将自动创建"
@@ -45,15 +50,28 @@
         </el-form-item>
         
         <!-- 服务类型 -->
-        <el-form-item label="服务类型" prop="serviceType">
-          <el-radio-group v-model="serviceForm.serviceType" @change="onServiceTypeChange">
-            <el-radio value="remote">远程服务</el-radio>
-            <el-radio value="local">本地服务</el-radio>
+        <el-form-item
+          label="服务类型"
+          prop="serviceType"
+        >
+          <el-radio-group
+            v-model="serviceForm.serviceType"
+            @change="onServiceTypeChange"
+          >
+            <el-radio value="remote">
+              远程服务
+            </el-radio>
+            <el-radio value="local">
+              本地服务
+            </el-radio>
           </el-radio-group>
         </el-form-item>
         
         <!-- 服务名称 -->
-        <el-form-item label="服务名称" prop="name">
+        <el-form-item
+          label="服务名称"
+          prop="name"
+        >
           <el-input 
             v-model="serviceForm.name" 
             placeholder="输入服务名称"
@@ -65,31 +83,52 @@
         
         <!-- 远程服务配置 -->
         <template v-if="serviceForm.serviceType === 'remote'">
-          <el-form-item label="服务URL" prop="url">
+          <el-form-item
+            label="服务URL"
+            prop="url"
+          >
             <el-input 
               v-model="serviceForm.url" 
               placeholder="输入服务URL，如: http://example.com/mcp"
             />
           </el-form-item>
           
-          <el-form-item label="传输方式" prop="transport">
-            <el-select v-model="serviceForm.transport" placeholder="选择传输方式">
-              <el-option label="Streamable HTTP" value="streamable-http" />
-              <el-option label="SSE" value="sse" />
+          <el-form-item
+            label="传输方式"
+            prop="transport"
+          >
+            <el-select
+              v-model="serviceForm.transport"
+              placeholder="选择传输方式"
+            >
+              <el-option
+                label="Streamable HTTP"
+                value="streamable-http"
+              />
+              <el-option
+                label="SSE"
+                value="sse"
+              />
             </el-select>
           </el-form-item>
         </template>
         
         <!-- 本地服务配置 -->
         <template v-if="serviceForm.serviceType === 'local'">
-          <el-form-item label="命令" prop="command">
+          <el-form-item
+            label="命令"
+            prop="command"
+          >
             <el-input 
               v-model="serviceForm.command" 
               placeholder="输入执行命令，如: python"
             />
           </el-form-item>
           
-          <el-form-item label="参数" prop="args">
+          <el-form-item
+            label="参数"
+            prop="args"
+          >
             <el-input 
               v-model="argsText" 
               type="textarea" 
@@ -105,14 +144,20 @@
             </div>
           </el-form-item>
           
-          <el-form-item label="工作目录" prop="working_dir">
+          <el-form-item
+            label="工作目录"
+            prop="working_dir"
+          >
             <el-input 
               v-model="serviceForm.working_dir" 
               placeholder="输入工作目录路径（可选）"
             />
           </el-form-item>
           
-          <el-form-item label="环境变量" prop="env">
+          <el-form-item
+            label="环境变量"
+            prop="env"
+          >
             <div class="env-vars">
               <div 
                 v-for="(envVar, index) in envVars" 
@@ -133,8 +178,8 @@
                 <el-button 
                   type="danger" 
                   size="small" 
-                  @click="removeEnvVar(index)"
                   style="width: 15%"
+                  @click="removeEnvVar(index)"
                 >
                   删除
                 </el-button>
@@ -142,8 +187,8 @@
               <el-button 
                 type="primary" 
                 size="small" 
-                @click="addEnvVar"
                 class="add-env-btn"
+                @click="addEnvVar"
               >
                 添加环境变量
               </el-button>
@@ -152,7 +197,10 @@
         </template>
         
         <!-- 服务描述 -->
-        <el-form-item label="服务描述" prop="description">
+        <el-form-item
+          label="服务描述"
+          prop="description"
+        >
           <el-input 
             v-model="serviceForm.description" 
             type="textarea" 
@@ -165,13 +213,16 @@
         <el-form-item>
           <el-button 
             type="primary" 
-            @click="addService" 
-            :loading="adding"
+            :loading="adding" 
             size="large"
+            @click="addService"
           >
             {{ adding ? '添加中...' : '添加服务' }}
           </el-button>
-          <el-button @click="resetForm" size="large">
+          <el-button
+            size="large"
+            @click="resetForm"
+          >
             重置
           </el-button>
         </el-form-item>

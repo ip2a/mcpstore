@@ -1,7 +1,10 @@
 <template>
   <div class="batch-operations">
     <!-- Selection Header -->
-    <div v-if="showHeader" class="selection-header">
+    <div
+      v-if="showHeader"
+      class="selection-header"
+    >
       <div class="selection-info">
         <el-checkbox
           v-model="allSelected"
@@ -11,13 +14,26 @@
           已选择 {{ selectedItems.length }} / {{ totalItems }} 项
         </el-checkbox>
       </div>
-      <div class="batch-actions" v-if="selectedItems.length > 0">
-        <slot name="batch-actions" :selectedItems="selectedItems">
+      <div
+        v-if="selectedItems.length > 0"
+        class="batch-actions"
+      >
+        <slot
+          name="batch-actions"
+          :selected-items="selectedItems"
+        >
           <!-- Default batch actions -->
-          <el-button size="small" @click="$emit('batch-edit', selectedItems)">
+          <el-button
+            size="small"
+            @click="$emit('batch-edit', selectedItems)"
+          >
             批量编辑
           </el-button>
-          <el-button size="small" type="danger" @click="$emit('batch-delete', selectedItems)">
+          <el-button
+            size="small"
+            type="danger"
+            @click="$emit('batch-delete', selectedItems)"
+          >
             批量删除
           </el-button>
         </slot>
@@ -25,19 +41,37 @@
     </div>
 
     <!-- Selection Overlay -->
-    <div v-if="showOverlay && selectedItems.length > 0" class="selection-overlay">
+    <div
+      v-if="showOverlay && selectedItems.length > 0"
+      class="selection-overlay"
+    >
       <div class="overlay-content">
         <span class="selection-count">{{ selectedItems.length }} 项已选中</span>
         <div class="overlay-actions">
-          <slot name="overlay-actions" :selectedItems="selectedItems">
-            <el-button size="small" @click="$emit('batch-edit', selectedItems)">
+          <slot
+            name="overlay-actions"
+            :selected-items="selectedItems"
+          >
+            <el-button
+              size="small"
+              @click="$emit('batch-edit', selectedItems)"
+            >
               编辑
             </el-button>
-            <el-button size="small" type="danger" @click="$emit('batch-delete', selectedItems)">
+            <el-button
+              size="small"
+              type="danger"
+              @click="$emit('batch-delete', selectedItems)"
+            >
               删除
             </el-button>
           </slot>
-          <el-button size="small" @click="clearSelection">清除选择</el-button>
+          <el-button
+            size="small"
+            @click="clearSelection"
+          >
+            清除选择
+          </el-button>
         </div>
       </div>
     </div>
@@ -49,7 +83,10 @@
       width="600px"
       @close="resetBatchEditForm"
     >
-      <el-form :model="batchEditForm" label-width="100px">
+      <el-form
+        :model="batchEditForm"
+        label-width="100px"
+      >
         <el-form-item label="编辑字段">
           <el-select
             v-model="batchEditForm.field"
@@ -106,11 +143,13 @@
       </el-form>
       
       <template #footer>
-        <el-button @click="showBatchEditDialog = false">取消</el-button>
+        <el-button @click="showBatchEditDialog = false">
+          取消
+        </el-button>
         <el-button
           type="primary"
-          @click="confirmBatchEdit"
           :loading="isBatchEditing"
+          @click="confirmBatchEdit"
         >
           确定
         </el-button>
@@ -124,9 +163,13 @@
       width="500px"
     >
       <div class="batch-delete-confirm">
-        <el-icon class="warning-icon"><WarningFilled /></el-icon>
+        <el-icon class="warning-icon">
+          <WarningFilled />
+        </el-icon>
         <p>确定要删除选中的 {{ selectedItems.length }} 项吗？</p>
-        <p class="warning-text">此操作不可撤销，请谨慎操作。</p>
+        <p class="warning-text">
+          此操作不可撤销，请谨慎操作。
+        </p>
         <div class="delete-preview">
           <div
             v-for="item in selectedItems.slice(0, 5)"
@@ -135,18 +178,23 @@
           >
             {{ getItemName(item) }}
           </div>
-          <div v-if="selectedItems.length > 5" class="preview-more">
+          <div
+            v-if="selectedItems.length > 5"
+            class="preview-more"
+          >
             ... 还有 {{ selectedItems.length - 5 }} 项
           </div>
         </div>
       </div>
       
       <template #footer>
-        <el-button @click="showBatchDeleteDialog = false">取消</el-button>
+        <el-button @click="showBatchDeleteDialog = false">
+          取消
+        </el-button>
         <el-button
           type="danger"
-          @click="confirmBatchDelete"
           :loading="isBatchDeleting"
+          @click="confirmBatchDelete"
         >
           删除
         </el-button>

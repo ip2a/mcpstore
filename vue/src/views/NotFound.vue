@@ -1,13 +1,20 @@
 <template>
   <div class="not-found">
     <div class="not-found-content">
-      <div class="error-code">404</div>
-      <div class="error-title">页面未找到</div>
+      <div class="error-code">
+        404
+      </div>
+      <div class="error-title">
+        页面未找到
+      </div>
       <div class="error-description">
         抱歉，您访问的页面不存在或已被移除
       </div>
       <div class="error-actions">
-        <el-button type="primary" @click="goHome">
+        <el-button
+          type="primary"
+          @click="goHome"
+        >
           返回首页
         </el-button>
         <el-button @click="goBack">
