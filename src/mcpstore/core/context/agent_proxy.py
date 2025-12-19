@@ -303,9 +303,9 @@ class AgentProxy:
         ctx = self._agent_ctx or self._context
         return await ctx.update_config_async(client_id_or_service_name, new_config)
 
-    async def reset_config_async(self, scope: str = "all") -> bool:
+    async def reset_config_async(self) -> bool:
         ctx = self._agent_ctx or self._context
-        return await ctx.reset_config_async(scope)
+        return await ctx.reset_config_async()
 
     async def get_tool_records_async(self, limit: int = 50) -> Dict[str, Any]:
         ctx = self._agent_ctx or self._context
@@ -616,9 +616,9 @@ class AgentProxy:
         return ctx.list_changed_tools(service_name, force_refresh)
 
     # ---- Config management ----
-    def reset_config(self, scope: str = "all") -> bool:
+    def reset_config(self) -> bool:
         ctx = self._agent_ctx or self._context
-        return bool(ctx.reset_config(scope))
+        return bool(ctx.reset_config())
 
     def show_config(self) -> Dict[str, Any]:
         ctx = self._agent_ctx or self._context

@@ -9,14 +9,18 @@ ShowConfigLogicCore - show_config 的纯逻辑核心
 - 只做数据组装和计算，不执行实际操作
 
 返回格式说明：
-show_config 返回类似 mcp.json 的格式：
+show_config 返回与 mcp.json 完全一致的格式：
 {
     "mcpServers": {
         "context7": {"url": "https://mcp.context7.com/mcp"},
-        "grep": {"url": "https://mcp.grep.app"},
-        "spec-workflow-mcp": {"command": "npx", "args": ["-y", "spec-workflow-mcp@latest"]}
+        "weather_byagent_agent1": {"url": "https://weather.api/mcp"}
     }
 }
+
+服务名称规则：
+- Store 添加的服务：使用原始名称（如 "context7"）
+- Agent 添加的服务：使用全局名称（如 "weather_byagent_agent1"）
+- mcp.json 中始终使用 service_global_name
 """
 
 import logging
@@ -30,7 +34,7 @@ class ShowConfigLogicCore:
     show_config 的纯逻辑核心
     
     职责：
-    - 组装配置数据结构（类似 mcp.json 格式）
+    - 组装配置数据结构（与 mcp.json 格式完全一致）
     - 数据格式转换
     
     严格约束：
@@ -44,82 +48,37 @@ class ShowConfigLogicCore:
         services_data: Dict[str, Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
-        构建 Store 级别配置
+        构建 Store 级别配置（与 mcp.json 格式一致）
         
         纯同步计算，组装 Store 级别配置数据结构。
-        返回兼容旧格式的结构（包含 summary 和 agents）。
         
         Args:
             services_data: 从 pykv 预读取的服务数据
                 格式: {
-                    service_original_name: {
+                    service_global_name: {
                         "config": {"url": "..."} 或 {"command": "...", "args": [...]}
                     }
                 }
         
         Returns:
-            配置结构（兼容旧格式）:
+            与 mcp.json 格式一致的配置:
             {
-                "summary": {
-                    "total_agents": 1,
-                    "total_services": 2,
-                    "total_clients": 2
-                },
-                "agents": {
-                    "global_agent_store": {
-                        "services": {
-                            "service_name": {"config": {...}, "client_id": "..."}
-                        }
-                    }
-                },
                 "mcpServers": {
-                    "service_name": {"url": "..."} 或 {"command": "...", "args": [...]}
+                    "context7": {"url": "..."},
+                    "weather_byagent_agent1": {"url": "..."}
                 }
             }
         """
         mcp_servers = {}
-        agents = {}
         
-        # 按 agent_id 分组服务
-        agent_services: Dict[str, Dict[str, Any]] = {}
-        
-        for service_name, service_info in services_data.items():
+        for service_global_name, service_info in services_data.items():
             # 提取服务配置（url/command/args 等）
             config = service_info.get("config", {})
             if config:
-                mcp_servers[service_name] = config
-            
-            # 提取 agent_id（默认为 global_agent_store）
-            agent_id = service_info.get("source_agent", "global_agent_store")
-            
-            if agent_id not in agent_services:
-                agent_services[agent_id] = {}
-            
-            agent_services[agent_id][service_name] = {
-                "config": config,
-                "client_id": service_info.get("client_id", f"client_{agent_id}_{service_name}")
-            }
+                # 使用全局名称作为 key（与 mcp.json 一致）
+                mcp_servers[service_global_name] = config
         
-        # 构建 agents 结构
-        for agent_id, services in agent_services.items():
-            agents[agent_id] = {
-                "services": services
-            }
-        
-        # 计算统计信息
-        total_services = len(mcp_servers)
-        total_agents = len(agents) if agents else (1 if total_services > 0 else 0)
-        total_clients = total_services  # 简化：每个服务一个 client
-        
-        return {
-            "summary": {
-                "total_agents": total_agents,
-                "total_services": total_services,
-                "total_clients": total_clients
-            },
-            "agents": agents,
-            "mcpServers": mcp_servers
-        }
+        return {"mcpServers": mcp_servers}
     
     def build_agent_config(
         self,
@@ -127,40 +86,38 @@ class ShowConfigLogicCore:
         services_data: Dict[str, Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
-        构建 Agent 级别配置（类似 mcp.json 格式）
+        构建 Agent 级别配置（与 mcp.json 格式一致）
         
         纯同步计算，组装 Agent 级别配置数据结构。
+        只返回属于该 Agent 的服务。
         
         Args:
             agent_id: Agent ID
             services_data: 从 pykv 预读取的服务数据
                 格式: {
-                    service_original_name: {
+                    service_global_name: {
                         "config": {"url": "..."} 或 {"command": "...", "args": [...]}
                     }
                 }
         
         Returns:
-            类似 mcp.json 的配置结构（带 agent_id）:
+            与 mcp.json 格式一致的配置:
             {
-                "agent_id": "...",
                 "mcpServers": {
-                    "service_name": {"url": "..."} 或 {"command": "...", "args": [...]}
+                    "weather_byagent_agent1": {"url": "..."}
                 }
             }
         """
         mcp_servers = {}
         
-        for service_name, service_info in services_data.items():
+        for service_global_name, service_info in services_data.items():
             # 提取服务配置（url/command/args 等）
             config = service_info.get("config", {})
             if config:
-                mcp_servers[service_name] = config
+                # 使用全局名称作为 key（与 mcp.json 一致）
+                mcp_servers[service_global_name] = config
         
-        return {
-            "agent_id": agent_id,
-            "mcpServers": mcp_servers
-        }
+        return {"mcpServers": mcp_servers}
     
     def build_error_response(
         self,
@@ -174,20 +131,15 @@ class ShowConfigLogicCore:
         
         Args:
             error_message: 错误信息
-            agent_id: 可选的 Agent ID
+            agent_id: 可选的 Agent ID（仅用于日志，不包含在返回中）
         
         Returns:
             标准化的错误响应结构
         """
-        response = {
+        return {
             "error": error_message,
             "mcpServers": {}
         }
-        
-        if agent_id:
-            response["agent_id"] = agent_id
-        
-        return response
     
     def extract_service_config(
         self,
@@ -200,10 +152,10 @@ class ShowConfigLogicCore:
         
         ServiceEntity 结构:
         {
-            "service_global_name": "context7@global_agent_store",
-            "service_original_name": "context7",
-            "source_agent": "global_agent_store",
-            "config": {"url": "https://mcp.context7.com/mcp"},
+            "service_global_name": "weather_byagent_agent1",
+            "service_original_name": "weather",
+            "source_agent": "agent1",
+            "config": {"url": "https://weather.api/mcp"},
             "added_time": 1234567890
         }
         

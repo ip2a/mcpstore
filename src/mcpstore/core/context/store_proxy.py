@@ -207,8 +207,8 @@ class StoreProxy:
     async def delete_config_async(self, client_id_or_service_name: str) -> Dict[str, Any]:
         return await self._context.delete_config_async(client_id_or_service_name)
 
-    async def reset_config_async(self, scope: str = "all") -> bool:
-        return await self._context.reset_config_async(scope)
+    async def reset_config_async(self) -> bool:
+        return await self._context.reset_config_async()
 
     async def get_tool_records_async(self, limit: int = 50) -> Dict[str, Any]:
         return await self._context.get_tool_records_async(limit)
@@ -306,8 +306,8 @@ class StoreProxy:
         return self._context.list_changed_tools(service_name, force_refresh)
 
     # ---- Config management ----
-    def reset_config(self, scope: str = "all") -> bool:
-        return bool(self._context.reset_config(scope))
+    def reset_config(self) -> bool:
+        return bool(self._context.reset_config())
 
     def show_config(self) -> Dict[str, Any]:
         return self._context.show_config()

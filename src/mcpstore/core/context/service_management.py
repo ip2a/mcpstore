@@ -482,27 +482,17 @@ class ServiceManagementMixin:
         result["overall_success"] = result["step1_config_removal"] and result["step2_registry_cleanup"]
         return result
 
-    def reset_config(self, scope: str = "all") -> bool:
+    def reset_config(self) -> bool:
         """
         重置配置（同步版本）
-
-        Args:
-            scope: 重置范围（仅Store级别有效）
-                - "all": 重置所有缓存和所有JSON文件（默认）
-                - "global_agent_store": 只重置global_agent_store
+        
+        清空所有 pykv 缓存数据和 mcp.json 文件。
+        相当于批量执行 delete_service 操作。
         """
-        try:
-            try:
-                return asyncio.run(self.reset_config_async(scope))
-            except RuntimeError:
-                # 已有事件循环时退回到桥接执行
-                return self._run_async_via_bridge(
-                    self.reset_config_async(scope),
-                    op_name="service_management.reset_config"
-                )
-        except Exception as e:
-            logger.error(f"[NEW_ARCH] reset_config 失败: {e}")
-            return False
+        return self._run_async_via_bridge(
+            self.reset_config_async(),
+            op_name="service_management.reset_config"
+        )
 
     def switch_cache(self, cache_config: Any) -> bool:
         """运行时切换缓存后端（同步版本）。
@@ -531,79 +521,57 @@ class ServiceManagementMixin:
             logger.error(f"Failed to switch cache backend: {e}")
             return False
 
-    async def reset_config_async(self, scope: str = "all") -> bool:
+    async def reset_config_async(self) -> bool:
         """
-        重置配置（异步版本）- 缓存优先模式
-
+        重置配置（异步版本）
+        
+        清空所有 pykv 缓存数据和 mcp.json 文件。
+        相当于批量执行 delete_service 操作。
+        
+        清理内容：
+        - pykv 实体层：services, tools
+        - pykv 关系层：agent_services, service_tools
+        - pykv 状态层：service_status, service_metadata
+        - mcp.json 文件
+        - 健康检查任务（通过服务不存在检测自动停止）
+        
         根据上下文类型执行不同的重置操作：
-        - Store上下文：根据scope参数重置不同范围
-        - Agent上下文：重置该Agent的所有配置（忽略scope参数）
-
-        Args:
-            scope: 重置范围（仅Store级别有效）
-                - "all": 重置所有缓存和所有JSON文件（默认）
-                - "global_agent_store": 只重置global_agent_store
+        - Store 上下文：清空所有 Agent 的配置
+        - Agent 上下文：只清空该 Agent 的配置
         """
-        try:
-            if self._context_type == ContextType.STORE:
-                return await self._reset_store_config(scope)
-            else:
-                return await self._reset_agent_config()
-        except Exception as e:
-            logger.error(f"Failed to reset config: {e}")
-            return False
+        if self._context_type == ContextType.STORE:
+            return await self._reset_store_config()
+        else:
+            return await self._reset_agent_config()
 
-    async def _reset_store_config(self, scope: str) -> bool:
-        """Store级别重置配置的内部实现"""
-        try:
-            if scope == "all":
-                logger.debug("Store level: resetting all caches and JSON files")
-
-                # 1. 清空所有Agent在缓存中的数据（通过Registry异步API）
-                try:
-                    agent_ids = await self._store.registry.get_all_agent_ids_async()
-                except Exception:
-                    agent_ids = []
-                for agent_id in agent_ids:
-                    try:
-                        await self._store.registry.clear_async(agent_id)
-                    except Exception as e:
-                        logger.warning(f"Failed to clear agent {agent_id}: {e}")
-
-                # 2. 重置mcp.json文件（使用 UnifiedConfigManager 自动刷新缓存）
-                default_config = {"mcpServers": {}}
-                mcp_success = self._store._unified_config.update_mcp_config(default_config)
-
-                # 3. 单源模式：不再维护分片映射文件
-                logger.debug("Single-source mode: skip shard mapping files (agent_clients/client_services)")
-
-                logger.debug("Store level: all configuration reset completed")
-                return mcp_success
-
-            elif scope == "global_agent_store":
-                logger.info(" Store级别：只重置global_agent_store")
-
-                # 1. 清空global_agent_store在缓存中的数据（使用异步版本）
-                global_agent_store_id = self._store.client_manager.global_agent_store_id
-                await self._store.registry.clear_async(global_agent_store_id)
-
-                # 2. 清空mcp.json文件（使用 UnifiedConfigManager 自动刷新缓存）
-                default_config = {"mcpServers": {}}
-                mcp_success = self._store._unified_config.update_mcp_config(default_config)
-
-                # 3. 单源模式：不再维护分片映射文件
-                logger.debug("Single-source mode: skip shard mapping files (agent_clients/client_services)")
-
-                logger.info(" Store级别：global_agent_store重置完成")
-                return mcp_success
-
-            else:
-                logger.error(f"不支持的scope参数: {scope}")
-                return False
-
-        except Exception as e:
-            logger.error(f"Store级别重置配置失败: {e}")
-            return False
+    async def _reset_store_config(self) -> bool:
+        """
+        Store 级别重置配置
+        
+        清理流程：
+        1. 获取所有 Agent ID
+        2. 对每个 Agent 调用 registry.clear_async()
+           - clear_async 内部调用 remove_service_async 逐个删除服务
+           - remove_service_async 清理：实体层、关系层、状态层、工具实体
+        3. 重置 mcp.json 为空配置
+        """
+        logger.info("[RESET_CONFIG] Store 级别：开始重置所有配置")
+        
+        # 1. 获取所有 Agent ID
+        agent_ids = await self._store.registry.get_all_agent_ids_async()
+        logger.debug(f"[RESET_CONFIG] 发现 {len(agent_ids)} 个 Agent 需要清理")
+        
+        # 2. 清空每个 Agent 的缓存数据
+        for agent_id in agent_ids:
+            logger.debug(f"[RESET_CONFIG] 清理 Agent: {agent_id}")
+            await self._store.registry.clear_async(agent_id)
+        
+        # 3. 重置 mcp.json 文件
+        default_config = {"mcpServers": {}}
+        mcp_success = self._store._unified_config.update_mcp_config(default_config)
+        
+        logger.info("[RESET_CONFIG] Store 级别：配置重置完成")
+        return mcp_success
 
     async def _reset_agent_config(self) -> bool:
         """Agent级别重置配置的内部实现"""
