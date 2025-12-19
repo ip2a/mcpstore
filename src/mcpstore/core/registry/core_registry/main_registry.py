@@ -110,6 +110,14 @@ class CacheBackedServiceStateService:
     def get_all_service_names(self, agent_id: str) -> List[str]:
         return self._registry.get_all_service_names(agent_id)
 
+    async def get_all_service_names_async(self, agent_id: str) -> List[str]:
+        """
+        异步获取指定 agent_id 下所有已注册服务名。
+        
+        [pykv 唯一真相源] 委托给 ServiceRegistry 的异步方法从 pykv 读取。
+        """
+        return await self._registry.get_all_service_names_async(agent_id)
+
     def clear_service_state(self, agent_id: str, service_name: str) -> bool:
         return self._registry.clear_service_state(agent_id, service_name)
 
@@ -1814,3 +1822,17 @@ class ServiceRegistry:
             self.get_services_for_agent_async(agent_id),
             op_name="ServiceRegistry.get_all_service_names",
         )
+
+    async def get_all_service_names_async(self, agent_id: str) -> List[str]:
+        """
+        异步获取指定 Agent 的所有服务名称
+        
+        [pykv 唯一真相源] 从 pykv 关系层读取，不从内存缓存读取。
+        
+        Args:
+            agent_id: Agent ID
+
+        Returns:
+            List[str]: 服务名称列表
+        """
+        return await self.get_services_for_agent_async(agent_id)

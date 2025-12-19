@@ -163,8 +163,47 @@ class ServiceStateService:
         """
         获取指定 agent_id 下所有已注册服务名。
         修复：从service_states获取服务列表，而不是sessions（sessions可能为空）
+        
+        [注意] 此同步方法从内存缓存读取，在 Redis 模式下可能不完整。
+        在 async 上下文中请使用 get_all_service_names_async() 从 pykv 读取。
         """
         return list(self.service_states.get(agent_id, {}).keys())
+
+    async def get_all_service_names_async(self, agent_id: str) -> List[str]:
+        """
+        异步获取指定 agent_id 下所有已注册服务名。
+        
+        [pykv 唯一真相源] 从 pykv 状态层读取，不从内存缓存读取。
+        
+        遵循 "Functional Core, Imperative Shell" 架构原则：
+        - 异步外壳直接使用 await 调用异步操作
+        - 从 pykv 读取服务状态键列表
+        
+        Args:
+            agent_id: Agent ID
+            
+        Returns:
+            服务名称列表
+        """
+        try:
+            # 从 pykv 状态层获取所有服务状态的键
+            # Collection 格式: {agent_id}:states
+            collection = f"{agent_id}:states"
+            
+            if hasattr(self._kv_store, 'keys'):
+                keys = await self._kv_store.keys(collection=collection)
+                logger.debug(f"[STATE_SERVICE] get_all_service_names_async: agent_id={agent_id}, found {len(keys)} services from pykv")
+                return list(keys) if keys else []
+            else:
+                logger.warning(f"[STATE_SERVICE] KV store does not support keys() method, falling back to memory cache")
+                # 如果 pykv 不支持 keys() 方法，抛出错误而不是降级
+                raise RuntimeError(
+                    f"KV store does not support keys() method. "
+                    f"Cannot get service names for agent_id={agent_id}"
+                )
+        except Exception as e:
+            logger.error(f"[STATE_SERVICE] get_all_service_names_async failed: agent_id={agent_id}, error={e}")
+            raise
     
     def has_service(self, agent_id: str, name: str) -> bool:
         """

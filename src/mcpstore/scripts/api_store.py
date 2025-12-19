@@ -571,9 +571,12 @@ async def store_list_agents():
     """Store 级列出所有 Agents 概要信息（增强版，无分页）
 
     返回统一结构，包含 agents 明细与汇总 summary。
+    
+    [架构说明] 使用异步方法 list_agents_async() 避免在 FastAPI 事件循环中触发 AOB 冲突
     """
     store = get_store()
-    agents = store.for_store().list_agents()  # List[Dict[str, Any]]
+    # 使用异步方法，避免在 FastAPI 事件循环中调用同步方法触发 AOB 冲突
+    agents = await store.for_store().list_agents_async()
 
     total_agents = len(agents)
     total_services = sum(int(a.get("service_count", 0)) for a in agents)
@@ -732,14 +735,14 @@ async def store_disconnect_service(request: Request):
 
 @store_router.get("/for_store/show_config", response_model=APIResponse)
 @timed_response
-async def store_show_config(scope: str = "all"):
+async def store_show_config():
     """获取运行时配置和服务映射关系
     
-    Args:
-        scope: 显示范围 ("all" 或 "global_agent_store")
+    返回格式与 mcp.json 一致：{"mcpServers": {...}}
+    服务名称使用全局名称（Store 添加的服务使用原始名称，Agent 添加的服务使用 name_byagent_agentId 格式）
     """
     store = get_store()
-    config_data = await store.for_store().show_config_async(scope=scope)
+    config_data = await store.for_store().show_config_async()
     
     # 检查是否有错误
     if "error" in config_data:
@@ -749,9 +752,8 @@ async def store_show_config(scope: str = "all"):
             details=config_data
         )
     
-    scope_desc = "所有Agent配置" if scope == "all" else "global_agent_store配置"
     return ResponseBuilder.success(
-        message=f"Retrieved {scope_desc}",
+        message="Retrieved service configuration",
         data=config_data
     )
 
@@ -802,25 +804,32 @@ async def store_update_config(client_id_or_service_name: str, new_config: dict):
 
 @store_router.post("/for_store/reset_config", response_model=APIResponse)
 @timed_response
-async def store_reset_config(scope: str = "all"):
+async def store_reset_config():
     """重置配置（缓存+文件全量重置）
     
-    ⚠️ 此操作不可逆，请谨慎使用
+    清空所有 pykv 缓存数据和 mcp.json 文件。
+    相当于批量执行 delete_service 操作。
+    
+    清理内容：
+    - pykv 实体层：services, tools
+    - pykv 关系层：agent_services, service_tools
+    - pykv 状态层：service_status, service_metadata
+    - mcp.json 文件
+    
+    [警告] 此操作不可逆，请谨慎使用
     """
     store = get_store()
-    success = await store.for_store().reset_config_async(scope=scope)
+    success = await store.for_store().reset_config_async()
     
     if not success:
         return ResponseBuilder.error(
             code=ErrorCode.CONFIGURATION_ERROR,
-            message=f"Failed to reset configuration",
-            details={"scope": scope}
+            message="Failed to reset configuration"
         )
     
-    scope_desc = "所有配置" if scope == "all" else "global_agent_store配置"
     return ResponseBuilder.success(
-        message=f"{scope_desc} reset successfully",
-        data={"scope": scope, "reset": True}
+        message="All configuration reset successfully",
+        data={"reset": True}
     )
 
 # Removed shard-file reset APIs (client_services.json / agent_clients.json) in single-source mode

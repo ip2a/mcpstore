@@ -283,7 +283,8 @@ class ServiceQueryMixin:
         except Exception:
             pass
 
-        service_names = self.registry._service_state_service.get_all_service_names(agent_id_for_query)
+        # [pykv 唯一真相源] 在 async 上下文中必须使用 async 方法从 pykv 读取
+        service_names = await self.registry._service_state_service.get_all_service_names_async(agent_id_for_query)
 
         # 遍历候选名称，找到第一个匹配的（在 agent 命名空间）
         match_name = next((qn for qn in query_names if qn in service_names), None)
@@ -313,14 +314,15 @@ class ServiceQueryMixin:
             tools_service = global_name if agent_id else match_name
 
             # 找到服务，需要确定它属于哪个client_id（保持 agent 视角）
-            service_client_id = self.registry._agent_client_service.get_service_client_id(agent_id_for_query, match_name)
+            # [pykv 唯一真相源] 使用异步方法从 pykv 读取
+            service_client_id = await self.registry._agent_client_service.get_service_client_id_async(agent_id_for_query, match_name)
             if service_client_id and service_client_id in client_ids:
                 # 找到服务，获取详细信息
                 # 从 mcp.json 读取（使用全局名）
                 config = self.config.get_service_config(config_key) or {}
 
-                # 🆕 事件驱动架构：直接从 registry 获取生命周期状态（优先全局命名空间）
-                service_state = self.registry._service_state_service.get_service_state(lifecycle_agent, lifecycle_name)
+                # [pykv 唯一真相源] 使用异步方法获取生命周期状态
+                service_state = await self.registry._service_state_service.get_service_state_async(lifecycle_agent, lifecycle_name)
 
                 # 获取工具信息（优先全局命名空间）
                 tool_names = self.registry.get_tools_for_service(tools_agent, tools_service)
@@ -392,15 +394,16 @@ class ServiceQueryMixin:
         # 1. store未传id 或 id==global_agent_store，聚合 global_agent_store 下所有 client_id 的服务健康状态
         if not agent_mode and (not id or id == self.client_manager.global_agent_store_id):
             agent_ns = self.client_manager.global_agent_store_id
-            # 在 Agent 命名空间读取所有服务，再标注其归属 client_id
-            service_names = self.registry._service_state_service.get_all_service_names(agent_ns)
+            # [pykv 唯一真相源] 在 async 上下文中必须使用 async 方法从 pykv 读取
+            # 修复：将同步调用改为异步调用，避免在 FastAPI 事件循环中触发 AOB 冲突
+            service_names = await self.registry._service_state_service.get_all_service_names_async(agent_ns)
             for name in service_names:
                 config = self.config.get_service_config(name) or {}
-                # 生命周期与元数据：按 Agent 命名空间读取
-                service_state = self.registry._service_state_service.get_service_state(agent_ns, name)
+                # 生命周期与元数据：按 Agent 命名空间读取（使用异步版本）
+                service_state = await self.registry._service_state_service.get_service_state_async(agent_ns, name)
                 state_metadata = await self.registry._service_state_service.get_service_metadata_async(agent_ns, name)
-                # 标注该服务当前映射到哪个 client_id（若存在）
-                client_id = self.registry._agent_client_service.get_service_client_id(agent_ns, name)
+                # 标注该服务当前映射到哪个 client_id（使用异步版本）
+                client_id = await self.registry._agent_client_service.get_service_client_id_async(agent_ns, name)
 
                 service_status = {
                     "name": name,
@@ -431,14 +434,15 @@ class ServiceQueryMixin:
                     "services": []
                 }
             # 仅返回当前 client_id 映射到的服务（仍按 Agent 命名空间读状态）
+            # [pykv 唯一真相源] 使用异步方法从 pykv 读取
             agent_ns = self.client_manager.global_agent_store_id
-            all_names = self.registry._service_state_service.get_all_service_names(agent_ns)
+            all_names = await self.registry._service_state_service.get_all_service_names_async(agent_ns)
             for name in all_names:
-                mapped = self.registry._agent_client_service.get_service_client_id(agent_ns, name)
+                mapped = await self.registry._agent_client_service.get_service_client_id_async(agent_ns, name)
                 if mapped != id:
                     continue
                 config = self.config.get_service_config(name) or {}
-                service_state = self.registry._service_state_service.get_service_state(agent_ns, name)
+                service_state = await self.registry._service_state_service.get_service_state_async(agent_ns, name)
                 state_metadata = await self.registry._service_state_service.get_service_metadata_async(agent_ns, name)
                 service_status = {
                     "name": name,
@@ -466,12 +470,13 @@ class ServiceQueryMixin:
             client_ids = list(set(svc.get("client_id") for svc in agent_services_for_id if svc.get("client_id")))
             if client_ids:
                 agent_ns = id
-                names = self.registry._service_state_service.get_all_service_names(agent_ns)
+                # [pykv 唯一真相源] 使用异步方法从 pykv 读取
+                names = await self.registry._service_state_service.get_all_service_names_async(agent_ns)
                 for name in names:
                     config = self.config.get_service_config(name) or {}
-                    service_state = self.registry._service_state_service.get_service_state(agent_ns, name)
+                    service_state = await self.registry._service_state_service.get_service_state_async(agent_ns, name)
                     state_metadata = await self.registry._service_state_service.get_service_metadata_async(agent_ns, name)
-                    mapped_client = self.registry._agent_client_service.get_service_client_id(agent_ns, name)
+                    mapped_client = await self.registry._agent_client_service.get_service_client_id_async(agent_ns, name)
                     if mapped_client not in (client_ids or []):
                         continue
                     service_status = {
@@ -495,14 +500,15 @@ class ServiceQueryMixin:
                 }
             else:
                 # id 不是 agent_id，则视为 client_id：过滤 agent 命名空间下映射到该 client 的服务
+                # [pykv 唯一真相源] 使用异步方法从 pykv 读取
                 agent_ns = self.client_manager.global_agent_store_id
-                names = self.registry._service_state_service.get_all_service_names(agent_ns)
+                names = await self.registry._service_state_service.get_all_service_names_async(agent_ns)
                 for name in names:
-                    mapped_client = self.registry._agent_client_service.get_service_client_id(agent_ns, name)
+                    mapped_client = await self.registry._agent_client_service.get_service_client_id_async(agent_ns, name)
                     if mapped_client != id:
                         continue
                     config = self.config.get_service_config(name) or {}
-                    service_state = self.registry._service_state_service.get_service_state(agent_ns, name)
+                    service_state = await self.registry._service_state_service.get_service_state_async(agent_ns, name)
                     state_metadata = await self.registry._service_state_service.get_service_metadata_async(agent_ns, name)
                     service_status = {
                         "name": name,
