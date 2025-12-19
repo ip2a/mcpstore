@@ -72,7 +72,51 @@ class AsyncOrchestratedBridge:
         if timeout is None:
             timeout = self._default_timeout
 
+        # region agent log
+        try:
+            import json, time as _t
+            _in_async = self._in_async_context()
+            _payload = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H2",
+                "location": "core/bridge/async_orchestrated_bridge.py:run:before_check",
+                "message": "Before _in_async_context check",
+                "data": {
+                    "op_name": op_name,
+                    "in_async_context": _in_async,
+                    "has_loop": self._loop is not None,
+                    "loop_running": self._loop.is_running() if self._loop else False,
+                },
+                "timestamp": int(_t.time() * 1000),
+            }
+            with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f:
+                _f.write(json.dumps(_payload, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # endregion
+
         if self._in_async_context():
+            # region agent log
+            try:
+                import json, time as _t
+                _payload = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H2",
+                    "location": "core/bridge/async_orchestrated_bridge.py:run:raising_error",
+                    "message": "Raising RuntimeError due to async context",
+                    "data": {
+                        "op_name": op_name,
+                        "error_message": f"检测到正在运行的事件循环：请使用 {op_name}_async() 接口。",
+                    },
+                    "timestamp": int(_t.time() * 1000),
+                }
+                with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f:
+                    _f.write(json.dumps(_payload, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # endregion
             raise RuntimeError(
                 f"检测到正在运行的事件循环：请使用 {op_name}_async() 接口。"
             )
@@ -248,6 +292,35 @@ class AsyncOrchestratedBridge:
 
     @staticmethod
     def _in_async_context() -> bool:
+        # region agent log
+        try:
+            import json, time as _t
+            _has_loop = False
+            _loop_id = None
+            try:
+                _loop = asyncio.get_running_loop()
+                _has_loop = True
+                _loop_id = id(_loop)
+            except RuntimeError:
+                pass
+            _payload = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H3",
+                "location": "core/bridge/async_orchestrated_bridge.py:_in_async_context",
+                "message": "_in_async_context check",
+                "data": {
+                    "has_running_loop": _has_loop,
+                    "loop_id": _loop_id,
+                    "current_task": str(asyncio.current_task()),
+                },
+                "timestamp": int(_t.time() * 1000),
+            }
+            with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f:
+                _f.write(json.dumps(_payload, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # endregion
         try:
             asyncio.get_running_loop()
             return True

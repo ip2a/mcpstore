@@ -186,13 +186,41 @@ class HealthMonitor:
 
             # 获取服务配置（新架构：通过 client_id 获取）
             # 步骤1: 获取 client_id
-            client_id = self._registry.get_service_client_id(self._global_agent_store_id, global_name)
+            # region agent log
+            try:
+                import json, time as _t
+                _has_loop = False
+                try:
+                    asyncio.get_running_loop()
+                    _has_loop = True
+                except RuntimeError:
+                    pass
+                _payload = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H1",
+                    "location": "core/domain/health_monitor.py:_execute_health_check:before_get_service_client_id",
+                    "message": "Before calling get_service_client_id",
+                    "data": {
+                        "agent_id": self._global_agent_store_id,
+                        "global_name": global_name,
+                        "has_running_loop": _has_loop,
+                        "current_task": str(asyncio.current_task()),
+                    },
+                    "timestamp": int(_t.time() * 1000),
+                }
+                with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f:
+                    _f.write(json.dumps(_payload, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # endregion
+            client_id = await self._registry.get_service_client_id_async(self._global_agent_store_id, global_name)
             if not client_id:
                 logger.warning(f"[HEALTH] No client_id found for {service_name} (skip without state change)")
                 return
             
             # 步骤2: 获取 client_config
-            client_config = self._registry.get_client_config_from_cache(client_id)
+            client_config = await self._registry.get_client_config_from_cache_async(client_id)
             if not client_config:
                 logger.warning(f"[HEALTH] No client config found for {client_id} (skip without state change)")
                 return
@@ -248,7 +276,7 @@ class HealthMonitor:
                     if metadata:
                         metadata.failure_reason = failure_reason
                         metadata.error_message = error_message
-                        self._registry.set_service_metadata(self._global_agent_store_id, global_name, metadata)
+                        await self._registry.set_service_metadata_async(self._global_agent_store_id, global_name, metadata)
                 except Exception as e:
                     logger.error(f"[HEALTH] Failed to update metadata for {global_name}: {e}")
                     raise
