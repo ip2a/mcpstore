@@ -688,8 +688,43 @@ class ServiceOperationsMixin:
 
             # 处理字典格式的配置（包括从批量配置转换来的）
             if isinstance(config, dict):
-                #  新增：缓存优先的添加服务流程
-                return await self._add_service_cache_first(config, agent_id)
+                # ========== 使用新架构 AsyncShell 执行 ==========
+                # [架构说明] 2024-12 重构
+                # 
+                # 本方法现在使用新架构 ServiceManagementAsyncShell，与同步方法 add_service() 
+                # 共享同一套 Core + Shell 实现，确保：
+                # 
+                # 1. 同步/异步路径统一：
+                #    - add_service() [同步] → SyncShell → AOB 桥接 → AsyncShell → pykv
+                #    - add_service_async() [异步] → AsyncShell → pykv（直接调用，无需桥接）
+                # 
+                # 2. 避免同步/异步混用问题：
+                #    旧实现 _add_service_cache_first() 内部调用了同步方法（如 _get_or_create_client_id），
+                #    这些同步方法通过 AOB 桥接执行异步操作。当在 FastAPI 等已有事件循环的环境中调用时，
+                #    AOB 检测到事件循环会抛出 RuntimeError。
+                #    新实现直接使用 AsyncShell，全程异步，不触发 AOB 检测。
+                # 
+                # 3. API 模式作为 SDK 薄封装：
+                #    FastAPI 路由可以直接调用本方法，无需担心事件循环冲突。
+                # 
+                # [待清理] 旧方法 _add_service_cache_first、_get_or_create_client_id 等可在确认稳定后删除。
+                
+                logger.info(f"[ADD_SERVICE_ASYNC] 使用新架构 AsyncShell 添加服务")
+
+                # 确保异步外壳已初始化（与同步方法共享）
+                if not hasattr(self, '_service_management_async_shell'):
+                    from ..architecture import ServiceManagementFactory
+                    sync_shell, async_shell, core = ServiceManagementFactory.create_service_management(
+                        self._store.registry, self._store.orchestrator
+                    )
+                    self._service_management_sync_shell = sync_shell
+                    self._service_management_async_shell = async_shell
+
+                # 直接调用异步外壳（无需 AOB 桥接，已在事件循环中）
+                result = await self._service_management_async_shell.add_service_async(config)
+
+                logger.debug(f"[ADD_SERVICE_ASYNC] 结果: {result.get('success', False)}")
+                return self
 
         except Exception as e:
             logger.error(f"服务添加失败: {e}")
