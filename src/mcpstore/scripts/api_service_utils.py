@@ -98,7 +98,12 @@ class ServiceOperationHelper:
                 
                 state = lifecycle_manager.get_service_state(target_agent_id, service_name)
                 # 从 pykv 异步获取元数据
-                metadata = await store.registry._service_state_service.get_service_metadata_async(target_agent_id, service_name)
+                metadata = await context.bridge_execute(
+                    store.registry._service_state_service.get_service_metadata_async(
+                        target_agent_id,
+                        service_name
+                    )
+                )
                 
                 if state:
                     service_details["lifecycle"] = {
@@ -136,7 +141,7 @@ class ServiceOperationHelper:
         try:
             # 使用 asyncio.wait_for 实现超时控制
             return await asyncio.wait_for(
-                context.get_config_async(),
+                context.bridge_execute(context.get_config_async()),
                 timeout=timeout
             )
         except asyncio.TimeoutError:
@@ -169,7 +174,7 @@ class ServiceOperationHelper:
         try:
             # 使用 asyncio.wait_for 实现超时控制
             return await asyncio.wait_for(
-                context.update_config_async(config_data),
+                context.bridge_execute(context.update_config_async(config_data)),
                 timeout=timeout
             )
         except asyncio.TimeoutError:

@@ -137,13 +137,13 @@ class AgentStatisticsMixin:
                     # 统计服务
                     for service_name, service_config in client_config.get("mcpServers", {}).items():
                         try:
-                            #  [REFACTOR] 使用正确的Registry方法获取服务工具
-                            service_tools = self._store.registry.get_tools_for_service(agent_id, service_name)
+                            #  [REFACTOR] 使用正确的Registry方法获取服务工具（异步）
+                            service_tools = await self._store.registry.get_tools_for_service_async(agent_id, service_name)
                             tool_count = len(service_tools) if service_tools else 0
                             total_tools += tool_count
 
-                            #  [REFACTOR] 使用正确的Registry方法获取服务状态
-                            service_state = self._store.registry.get_service_state(agent_id, service_name)
+                            #  [REFACTOR] 使用正确的Registry方法获取服务状态（异步）
+                            service_state = await self._store.registry.get_service_state_async(agent_id, service_name)
 
                             # 检查服务是否活跃（有工具且状态不是DISCONNECTED）
                             from mcpstore.core.models.service import ServiceConnectionState

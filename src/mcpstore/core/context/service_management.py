@@ -833,7 +833,7 @@ class ServiceManagementMixin:
                 return False
 
             # 检查service_name是否存在于Registry中
-            existing_client_id = self._store.registry._agent_client_service.get_service_client_id(agent_id, service_name)
+            existing_client_id = await self._store.registry._agent_client_service.get_service_client_id_async(agent_id, service_name)
             if existing_client_id != client_id:
                 logger.debug(f" [VALIDATE_MAPPING] service '{service_name}' maps to different client_id: expected={client_id}, actual={existing_client_id}")
                 return False
@@ -844,27 +844,9 @@ class ServiceManagementMixin:
             return False
 
     def _validate_resolved_mapping(self, client_id: str, service_name: str, agent_id: str) -> bool:
-        """
-        验证解析后的client_id和service_name映射是否有效（同步版本）
+        raise RuntimeError("[SERVICE_MANAGEMENT] 同步 validate_mapping 已禁用，请使用 _validate_resolved_mapping_async。")
 
-        Args:
-            client_id: 解析出的client_id
-            service_name: 解析出的service_name
-            agent_id: Agent ID
-
-        Returns:
-            bool: 映射是否有效
-        """
-        try:
-            return self._run_async_via_bridge(
-                self._validate_resolved_mapping_async(client_id, service_name, agent_id),
-                op_name="service_management.validate_mapping"
-            )
-        except Exception as e:
-            logger.error(f"[NEW_ARCH] validate_mapping 失败: {e}")
-            return False
-
-    def _resolve_client_id(self, client_id_or_service_name: str, agent_id: str) -> Tuple[str, str]:
+    async def _resolve_client_id_async(self, client_id_or_service_name: str, agent_id: str) -> Tuple[str, str]:
         """
         智能解析client_id或服务名（使用最新的确定性算法）
 
@@ -910,18 +892,18 @@ class ServiceManagementMixin:
                     raise ValueError(f"Invalid agent service name '{input_name}': {e}")
             else:
                 # 输入是本地名：优先用映射，其次用规则推导
-                mapped = self._store.registry.get_global_name_from_agent_service(agent_id, input_name)
+                mapped = await self._store.registry.get_global_name_from_agent_service_async(agent_id, input_name)
                 global_service_name = mapped or AgentServiceMapper(agent_id).to_global_name(input_name)
 
             # 2.2 优先在 Agent 命名空间解析 client_id，再回退到 Store 命名空间
-            client_id = self._store.registry._agent_client_service.get_service_client_id(agent_id, input_name)
+            client_id = await self._store.registry._agent_client_service.get_service_client_id_async(agent_id, input_name)
             if not client_id:
                 # 回退到 Store 命名空间
-                client_id = self._store.registry._agent_client_service.get_service_client_id(global_agent_id, global_service_name)
+                client_id = await self._store.registry._agent_client_service.get_service_client_id_async(global_agent_id, global_service_name)
 
             if not client_id:
-                available_agent = ', '.join(self._store.registry._service_state_service.get_all_service_names(agent_id)) or 'None'
-                available_global = ', '.join(self._store.registry._service_state_service.get_all_service_names(global_agent_id)) or 'None'
+                available_agent = ', '.join(await self._store.registry.get_all_service_names_async(agent_id)) or 'None'
+                available_global = ', '.join(await self._store.registry.get_all_service_names_async(global_agent_id)) or 'None'
                 raise ValueError(
                     f"Service '{input_name}' (global '{global_service_name}') not found. "
                     f"Agent services: {available_agent}. Store services: {available_global}"
@@ -932,9 +914,9 @@ class ServiceManagementMixin:
 
         # 3) Store 模式：直接在 Store 命名空间解析
         service_name = client_id_or_service_name
-        service_names = self._store.registry._service_state_service.get_all_service_names(agent_id)
+        service_names = await self._store.registry.get_all_service_names_async(agent_id)
         if service_name in service_names:
-            client_id = self._store.registry._agent_client_service.get_service_client_id(agent_id, service_name)
+            client_id = await self._store.registry._agent_client_service.get_service_client_id_async(agent_id, service_name)
             if client_id:
                 logger.debug(f"[RESOLVE_CLIENT_ID] store_lookup_ok service={service_name} client_id={client_id}")
                 return client_id, service_name
@@ -944,6 +926,15 @@ class ServiceManagementMixin:
         available_services = ', '.join(service_names) if service_names else 'None'
         raise ValueError(f"Service '{service_name}' not found in store. Available services: {available_services}")
 
+    def _resolve_client_id(self, client_id_or_service_name: str, agent_id: str) -> Tuple[str, str]:
+        """
+        同步包装，保留给旧代码使用；内部通过 AOB 执行异步解析。
+        """
+        return self._run_async_via_bridge(
+            self._resolve_client_id_async(client_id_or_service_name, agent_id),
+            op_name="service_management.resolve_client_id"
+        )
+
     async def _delete_store_config(self, client_id_or_service_name: str) -> Dict[str, Any]:
         """Store级别删除配置的内部实现"""
         try:
@@ -952,7 +943,7 @@ class ServiceManagementMixin:
             global_agent_store_id = self._store.client_manager.global_agent_store_id
 
             # 解析client_id和服务名
-            client_id, service_name = self._resolve_client_id(client_id_or_service_name, global_agent_store_id)
+            client_id, service_name = await self._resolve_client_id_async(client_id_or_service_name, global_agent_store_id)
 
             logger.info(f"🗑️ 解析结果: client_id={client_id}, service_name={service_name}")
 
@@ -1005,7 +996,7 @@ class ServiceManagementMixin:
             logger.info(f"🗑️ Agent级别：删除Agent {self._agent_id} 的配置 {client_id_or_service_name}")
 
             # 解析client_id和服务名
-            client_id, service_name = self._resolve_client_id(client_id_or_service_name, self._agent_id)
+            client_id, service_name = await self._resolve_client_id_async(client_id_or_service_name, self._agent_id)
 
             logger.info(f"🗑️ 解析结果: client_id={client_id}, service_name={service_name}")
 
@@ -1111,12 +1102,12 @@ class ServiceManagementMixin:
             global_agent_store_id = self._store.client_manager.global_agent_store_id
 
             # 解析client_id和服务名
-            client_id, service_name = self._resolve_client_id(client_id_or_service_name, global_agent_store_id)
+            client_id, service_name = await self._resolve_client_id_async(client_id_or_service_name, global_agent_store_id)
 
             logger.info(f" 解析结果: client_id={client_id}, service_name={service_name}")
 
             # 获取当前配置
-            old_complete_info = self._store.registry.get_complete_service_info(global_agent_store_id, service_name)
+            old_complete_info = await self._store.registry.get_complete_service_info_async(global_agent_store_id, service_name)
             old_config = old_complete_info.get("config", {})
 
             if not old_config:
@@ -1196,12 +1187,12 @@ class ServiceManagementMixin:
             logger.info(f" Agent级别：更新Agent {self._agent_id} 的配置 {client_id_or_service_name}")
 
             # 解析client_id和服务名
-            client_id, service_name = self._resolve_client_id(client_id_or_service_name, self._agent_id)
+            client_id, service_name = await self._resolve_client_id_async(client_id_or_service_name, self._agent_id)
 
             logger.info(f" 解析结果: client_id={client_id}, service_name={service_name}")
 
             # 获取当前配置
-            old_complete_info = self._store.registry.get_complete_service_info(self._agent_id, service_name)
+            old_complete_info = await self._store.registry.get_complete_service_info_async(self._agent_id, service_name)
             old_config = old_complete_info.get("config", {})
 
             if not old_config:
@@ -1271,7 +1262,7 @@ class ServiceManagementMixin:
             }
 
     def get_service_status(self, name: str) -> dict:
-        """获取单个服务的状态信息（同步版本）"""
+        """获取单个服务的状态信息（同步版本，内部桥接异步）。"""
         try:
             return self._run_async_via_bridge(
                 self.get_service_status_async(name),
@@ -1285,32 +1276,20 @@ class ServiceManagementMixin:
         """获取单个服务的状态信息"""
         try:
             if self._context_type == ContextType.STORE:
-                return self._store.orchestrator.get_service_status(name)
+                return await self._store.orchestrator.get_service_status_async(name)
             else:
                 # Agent模式：转换服务名称
                 global_name = name
                 if self._service_mapper:
                     global_name = self._service_mapper.to_global_name(name)
                 # 透明代理：在全局命名空间查询状态
-                return self._store.orchestrator.get_service_status(global_name)
+                return await self._store.orchestrator.get_service_status_async(global_name)
         except Exception as e:
             logger.error(f"Failed to get service status for {name}: {e}")
             return {"status": "error", "error": str(e)}
 
     def restart_service(self, name: str) -> bool:
-        """
-        重启指定服务（同步版本）
-
-        [新架构] 避免_sync_helper.run_async，使用更安全的同步执行
-        """
-        try:
-            return self._run_async_via_bridge(
-                self.restart_service_async(name),
-                op_name="service_management.restart_service"
-            )
-        except Exception as e:
-            logger.error(f"[NEW_ARCH] restart_service 失败: {e}")
-            return False
+        raise RuntimeError("[SERVICE_MANAGEMENT] 同步 restart_service 已禁用，请使用 restart_service_async。")
 
     async def restart_service_async(self, name: str) -> bool:
         """重启指定服务（透明代理）"""
@@ -1328,20 +1307,7 @@ class ServiceManagementMixin:
 
     # === Lifecycle-only disconnection (no config/registry deletion) ===
     def disconnect_service(self, name: str, reason: str = "user_requested") -> bool:
-        """
-        断开服务（同步版本）- 仅生命周期断链：
-        - 不修改 mcp.json
-        - 不从注册表删除服务
-        - 将状态置为 disconnected，并清空工具展示
-        """
-        try:
-            return self._run_async_via_bridge(
-                self.disconnect_service_async(name, reason=reason),
-                op_name="service_management.disconnect_service"
-            )
-        except Exception as e:
-            logger.error(f"[NEW_ARCH] disconnect_service 失败: {e}")
-            return False
+        raise RuntimeError("[SERVICE_MANAGEMENT] 同步 disconnect_service 已禁用，请使用 disconnect_service_async。")
 
     async def disconnect_service_async(self, name: str, reason: str = "user_requested") -> bool:
         """
@@ -1588,7 +1554,7 @@ class ServiceManagementMixin:
         try:
             # 解析参数
             agent_scope = self._agent_id if self._context_type == ContextType.AGENT else self._store.client_manager.global_agent_store_id
-            client_id, service_name = self._resolve_client_id(client_id_or_service_name, agent_scope)
+            client_id, service_name = await self._resolve_client_id_async(client_id_or_service_name, agent_scope)
 
             # 在纯视图模式下，Agent 的状态查询统一使用全局命名空间
             status_agent_key = self._store.client_manager.global_agent_store_id
@@ -1606,7 +1572,7 @@ class ServiceManagementMixin:
                 change_mode = True
                 logger.info(f"[WAIT_SERVICE] start mode=change service='{service_name}' timeout={timeout}s")
                 try:
-                    initial_status = (self._store.orchestrator.get_service_status(service_name, status_agent_key) or {}).get("status", "unknown")
+                    initial_status = (await self._store.orchestrator.get_service_status_async(service_name, status_agent_key) or {}).get("status", "unknown")
                 except Exception as _e_init:
                     logger.debug(f"[WAIT_SERVICE] initial_status_error service='{service_name}' error={_e_init}")
                     initial_status = "unknown"
@@ -1636,7 +1602,7 @@ class ServiceManagementMixin:
                 # 获取当前状态（先读一次缓存，随后在必要时读一次新缓存以防止竞态）
                 try:
 
-                    status_dict = self._store.orchestrator.get_service_status(service_name, status_agent_key) or {}
+                    status_dict = await self._store.orchestrator.get_service_status_async(service_name, status_agent_key) or {}
                     current_status = status_dict.get("status", "unknown")
 
                     # 仅在状态变化或每2秒节流一次打印

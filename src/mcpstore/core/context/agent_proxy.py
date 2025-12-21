@@ -53,21 +53,19 @@ class AgentProxy:
         }
 
     def get_stats(self) -> Dict[str, Any]:
-        # Reuse AgentStatisticsMixin via context
+        raise RuntimeError("[AGENT_PROXY] 同步 get_stats 已禁用，请使用 get_stats_async。")
+
+    async def get_stats_async(self) -> Dict[str, Any]:
+        """异步获取 Agent 统计，供异步场景和 FastAPI 使用。"""
         try:
-            stats = self._context._run_async_via_bridge(
-                self._context._get_agent_statistics(self._agent_id),
-                op_name="agent_proxy.get_stats"
-            )
+            stats = await self._context._get_agent_statistics(self._agent_id)
             if hasattr(stats, "__dict__"):
                 d = dict(stats.__dict__)
-                # Normalize dataclass-like nested services
                 services = d.get("services", [])
                 d["services"] = [s.__dict__ if hasattr(s, "__dict__") else s for s in services]
                 return d
             return stats
         except Exception:
-            # Fallback minimal stats
             return {
                 "agent_id": self._agent_id,
                 "service_count": 0,
@@ -236,51 +234,20 @@ class AgentProxy:
 
     # ---- Health & runtime ----
     def check_services(self) -> Dict[str, Any]:
-        return self._context._run_async_via_bridge(
-            self._context._store.get_health_status(self._agent_id, agent_mode=True),
-            op_name="agent_proxy.check_services"
-        )
+        raise RuntimeError("[AGENT_PROXY] 同步 check_services 已禁用，请使用 check_services_async。")
 
     def call_tool(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
-        # Delegate to agent-view context and normalize
-        agent_ctx = self._agent_ctx or self._context
-        res = agent_ctx.call_tool(tool_name, args)
-        try:
-            if hasattr(res, 'content'):
-                items = []
-                for c in getattr(res, 'content', []) or []:
-                    try:
-                        if isinstance(c, dict):
-                            items.append(c)
-                        elif hasattr(c, 'type') and hasattr(c, 'text'):
-                            items.append({"type": getattr(c, 'type', 'text'), "text": getattr(c, 'text', '')})
-                        elif hasattr(c, 'type') and hasattr(c, 'uri'):
-                            items.append({"type": getattr(c, 'type', 'uri'), "uri": getattr(c, 'uri', '')})
-                        else:
-                            items.append(str(c))
-                    except Exception:
-                        items.append(str(c))
-                return {"content": items, "is_error": bool(getattr(res, 'is_error', False))}
-            if isinstance(res, dict):
-                return res
-            if isinstance(res, list):
-                return {"result": res}
-            return {"result": str(res)}
-        except Exception:
-            return {"result": str(res)}
+        raise RuntimeError("[AGENT_PROXY] 同步 call_tool 已禁用，请使用 call_tool_async。")
 
     # ---- Mutations ----
     def add_service(self, config: Dict[str, Any]) -> bool:
-        ctx = self._agent_ctx or self._context
-        return bool(ctx.add_service(config))
+        raise RuntimeError("[AGENT_PROXY] 同步 add_service 已禁用，请使用 add_service_async。")
 
     def update_service(self, name: str, patch: Dict[str, Any]) -> bool:
-        ctx = self._agent_ctx or self._context
-        return bool(ctx.update_service(name, patch))
+        raise RuntimeError("[AGENT_PROXY] 同步 update_service 已禁用，请使用 update_service_async。")
 
     def delete_service(self, name: str) -> bool:
-        ctx = self._agent_ctx or self._context
-        return bool(ctx.delete_service(name))
+        raise RuntimeError("[AGENT_PROXY] 同步 delete_service 已禁用，请使用 delete_service_async。")
 
     # Async counterparts (explicit wrappers)
     async def add_service_async(self, *args, **kwargs):
@@ -350,16 +317,14 @@ class AgentProxy:
         return await ctx.patch_service_async(name, updates)
 
     def restart_service(self, name: str) -> bool:
-        ctx = self._agent_ctx or self._context
-        return bool(ctx.restart_service(name))
+        raise RuntimeError("[AGENT_PROXY] 同步 restart_service 已禁用，请使用 restart_service_async。")
 
     async def restart_service_async(self, name: str) -> bool:
         ctx = self._agent_ctx or self._context
         return await ctx.restart_service_async(name)
 
     def use_tool(self, tool_name: str, args: Any = None, **kwargs) -> Any:
-        ctx = self._agent_ctx or self._context
-        return ctx.use_tool(tool_name, args, **kwargs)
+        raise RuntimeError("[AGENT_PROXY] 同步 use_tool 已禁用，请使用 call_tool_async。")
 
     async def check_services_async(self) -> Dict[str, Any]:
         ctx = self._agent_ctx or self._context
@@ -632,4 +597,3 @@ class AgentProxy:
     def __getattr__(self, name: str):
         target = self._agent_ctx or self._context
         return getattr(target, name)
-

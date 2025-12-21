@@ -82,21 +82,24 @@ class StoreProxy:
         # Aggregate from registry cache with agent→global mapping
         registry = self._context._store.registry
         global_agent_id = self._context._store.client_manager.global_agent_store_id
-        agent_ids = registry.get_all_agent_ids()
+        agent_ids = await registry.get_all_agent_ids_async()
 
         result: List[Dict[str, Any]] = []
         for agent_id in agent_ids:
             # 从 pykv 获取 Agent 客户端
             client_ids = await registry.get_agent_clients_async(agent_id)
             # Use mapping to get this agent's global services
-            global_service_names = registry.get_agent_services(agent_id) or []
+            global_service_names = await registry.get_agent_services_async(agent_id) or []
             tool_count = 0
             healthy = 0
             unhealthy = 0
             for gname in global_service_names:
-                tools = registry.get_tools_for_service(global_agent_id, gname) or []
+                tools = await registry.get_tools_for_service_async(global_agent_id, gname) or []
                 tool_count += len(tools)
-                state = registry._service_state_service.get_service_state(global_agent_id, gname)
+                state = await registry._service_state_service.get_service_state_async(
+                    global_agent_id,
+                    gname
+                )
                 state_value = getattr(state, "value", str(state))
                 if state_value in ("healthy", "warning"):
                     healthy += 1
