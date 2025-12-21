@@ -3,6 +3,7 @@ MCPStore Base Context Module
 Core context classes and basic functionality
 """
 
+import asyncio
 import logging
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
 
@@ -112,6 +113,28 @@ class MCPStoreContext(
     def _run_async_via_bridge(self, coro, op_name: str, timeout: float | None = None):
         """使用 Async Orchestrated Bridge 在同步环境中执行协程。"""
         return self._bridge.run(coro, op_name=op_name, timeout=timeout)
+
+    async def bridge_execute(self, coro, op_name: str | None = None):
+        """
+        在任意事件循环中安全执行需要访问 pykv 的协程。
+
+        - 如果当前运行在 AOB 的 loop 中，直接 await。
+        - 否则通过 asyncio.to_thread 调用同步桥，保证 Redis Future 仍在 AOB loop 上执行。
+        """
+        op_label = op_name or "context_bridge_execute"
+        bridge_loop = getattr(self._bridge, "_loop", None)
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if bridge_loop and running_loop is bridge_loop:
+            return await coro
+
+        if running_loop is None:
+            return self._bridge.run(coro, op_name=op_label)
+
+        return await asyncio.to_thread(self._bridge.run, coro, op_name=op_label)
 
     # ---- Objectified entries ----
     def for_store(self) -> 'StoreProxy':

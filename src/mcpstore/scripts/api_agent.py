@@ -36,11 +36,11 @@ async def agent_add_service(
     
     # Manually aggregate details after calling add_service
     try:
-        await context.add_service_async(payload)
+        await context.bridge_execute(context.add_service_async(payload))
         
         # Aggregate detailed information（使用 async 版本）
-        services = await context.list_services_async()
-        tools = await context.list_tools_async()
+        services = await context.bridge_execute(context.list_services_async())
+        tools = await context.bridge_execute(context.list_tools_async())
         
         result = {
             "success": True,
@@ -98,7 +98,7 @@ async def agent_list_services(
     context = store.for_agent(agent_id)
 
     # 1. Get all services
-    all_services = await context.list_services_async()
+    all_services = await context.bridge_execute(context.list_services_async())
 
     # 2. Build complete service data
     services_data = []
@@ -190,8 +190,16 @@ async def agent_summary(agent_id: str):
     """Return agent-level statistical summary (object-oriented entry point wrapper)."""
     validate_agent_id(agent_id)
     store = get_store()
-    proxy = store.for_agent(agent_id)
-    stats = proxy.get_stats()
+    context = store.for_agent(agent_id)
+    stats_obj = await context.bridge_execute(
+        context._get_agent_statistics(agent_id)
+    )
+    if hasattr(stats_obj, "__dict__"):
+        stats = dict(stats_obj.__dict__)
+        services = stats.get("services", [])
+        stats["services"] = [s.__dict__ if hasattr(s, "__dict__") else s for s in services]
+    else:
+        stats = stats_obj
     return ResponseBuilder.success(
         message=f"Agent '{agent_id}' summary returned",
         data=stats
@@ -224,7 +232,9 @@ async def agent_reset_service(agent_id: str, request: Request):
     # 解析到全局服务名（Agent 视角 → Store 全局命名空间）
     raw = service_name or identifier or client_id
     try:
-        resolved_client_id, resolved_service_name = context._resolve_client_id(raw, agent_id)
+        resolved_client_id, resolved_service_name = await context.bridge_execute(
+            context._resolve_client_id_async(raw, agent_id)
+        )
     except Exception as e:
         return ResponseBuilder.error(
             code=ErrorCode.VALIDATION_ERROR,
@@ -235,10 +245,12 @@ async def agent_reset_service(agent_id: str, request: Request):
     global_agent_id = store.client_manager.global_agent_store_id
     app_service = store.container.service_application_service
 
-    ok = await app_service.reset_service(
-        agent_id=global_agent_id,
-        service_name=resolved_service_name,
-        wait_timeout=0.0,
+    ok = await context.bridge_execute(
+        app_service.reset_service(
+            agent_id=global_agent_id,
+            service_name=resolved_service_name,
+            wait_timeout=0.0,
+        )
     )
 
     if not ok:
@@ -289,7 +301,7 @@ async def agent_list_tools(
     context = store.for_agent(agent_id)
 
     # 1. Get all tools（使用 async 版本）
-    all_tools = await context.list_tools_async()
+    all_tools = await context.bridge_execute(context.list_tools_async())
 
     # 2. Build tool data
     tools_data = [
@@ -367,7 +379,7 @@ async def agent_check_services(agent_id: str):
     validate_agent_id(agent_id)
     store = get_store()
     context = store.for_agent(agent_id)
-    health_status = await context.check_services_async()
+    health_status = await context.bridge_execute(context.check_services_async())
     
     return ResponseBuilder.success(
         message=f"Health check completed for agent '{agent_id}'",
@@ -382,7 +394,9 @@ async def agent_call_tool(agent_id: str, request: SimpleToolExecutionRequest):
     
     store = get_store()
     context = store.for_agent(agent_id)
-    result = await context.call_tool_async(request.tool_name, request.args)
+    result = await context.bridge_execute(
+        context.call_tool_async(request.tool_name, request.args)
+    )
     
     return ResponseBuilder.success(
         message=f"Tool '{request.tool_name}' executed successfully for agent '{agent_id}'",
@@ -398,7 +412,9 @@ async def agent_update_service(agent_id: str, service_name: str, request: Reques
     
     store = get_store()
     context = store.for_agent(agent_id)
-    result = await context.update_service_async(service_name, body)
+    result = await context.bridge_execute(
+        context.update_service_async(service_name, body)
+    )
     
     if not result:
         return ResponseBuilder.error(
@@ -419,7 +435,9 @@ async def agent_delete_service(agent_id: str, service_name: str):
     validate_agent_id(agent_id)
     store = get_store()
     context = store.for_agent(agent_id)
-    result = await context.delete_service_async(service_name)
+    result = await context.bridge_execute(
+        context.delete_service_async(service_name)
+    )
     
     if not result:
         return ResponseBuilder.error(
@@ -460,7 +478,9 @@ async def agent_disconnect_service(agent_id: str, request: Request):
     context = store.for_agent(agent_id)
 
     try:
-        ok = await context.disconnect_service_async(local_name, reason=reason)
+        ok = await context.bridge_execute(
+            context.disconnect_service_async(local_name, reason=reason)
+        )
         if ok:
             return ResponseBuilder.success(
                 message=f"Service '{local_name}' disconnected for agent '{agent_id}'",
@@ -485,7 +505,7 @@ async def agent_show_mcpconfig(agent_id: str):
     validate_agent_id(agent_id)
     store = get_store()
     context = store.for_agent(agent_id)
-    config = await context.show_mcpconfig_async()
+    config = await context.bridge_execute(context.show_mcpconfig_async())
     
     return ResponseBuilder.success(
         message=f"MCP configuration retrieved for agent '{agent_id}'",
@@ -498,7 +518,8 @@ async def agent_show_config(agent_id: str):
     """Display configuration information at agent level"""
     validate_agent_id(agent_id)
     store = get_store()
-    config_data = await store.for_agent(agent_id).show_config_async()
+    context = store.for_agent(agent_id)
+    config_data = await context.bridge_execute(context.show_config_async())
     
     # Check for errors
     if "error" in config_data:
@@ -519,7 +540,10 @@ async def agent_delete_config(agent_id: str, client_id_or_service_name: str):
     """Delete service configuration at agent level"""
     validate_agent_id(agent_id)
     store = get_store()
-    result = await store.for_agent(agent_id).delete_config_async(client_id_or_service_name)
+    context = store.for_agent(agent_id)
+    result = await context.bridge_execute(
+        context.delete_config_async(client_id_or_service_name)
+    )
     
     if result.get("success"):
         return ResponseBuilder.success(
@@ -539,7 +563,10 @@ async def agent_update_config(agent_id: str, client_id_or_service_name: str, new
     """Update service configuration at agent level"""
     validate_agent_id(agent_id)
     store = get_store()
-    result = await store.for_agent(agent_id).update_config_async(client_id_or_service_name, new_config)
+    context = store.for_agent(agent_id)
+    result = await context.bridge_execute(
+        context.update_config_async(client_id_or_service_name, new_config)
+    )
     
     if result.get("success"):
         return ResponseBuilder.success(
@@ -559,7 +586,8 @@ async def agent_reset_config(agent_id: str):
     """Reset configuration at agent level"""
     validate_agent_id(agent_id)
     store = get_store()
-    success = await store.for_agent(agent_id).reset_config_async()
+    context = store.for_agent(agent_id)
+    success = await context.bridge_execute(context.reset_config_async())
     
     if not success:
         return ResponseBuilder.error(
@@ -581,7 +609,10 @@ async def get_agent_tool_records(agent_id: str, limit: int = 50):
     """Get tool execution records at agent level"""
     validate_agent_id(agent_id)
     store = get_store()
-    records_data = await store.for_agent(agent_id).get_tool_records_async(limit)
+    context = store.for_agent(agent_id)
+    records_data = await context.bridge_execute(
+        context.get_tool_records_async(limit)
+    )
     
     return ResponseBuilder.success(
         message=f"Retrieved {len(records_data.get('executions', []))} tool execution records for agent '{agent_id}'",
@@ -612,11 +643,13 @@ async def agent_wait_service(agent_id: str, request: Request):
     store = get_store()
     context = store.for_agent(agent_id)
     
-    result = await context.wait_service_async(
-        client_id_or_service_name=client_id_or_service_name,
-        status=status,
-        timeout=timeout,
-        raise_on_timeout=raise_on_timeout
+    result = await context.bridge_execute(
+        context.wait_service_async(
+            client_id_or_service_name=client_id_or_service_name,
+            status=status,
+            timeout=timeout,
+            raise_on_timeout=raise_on_timeout
+        )
     )
     
     return ResponseBuilder.success(
@@ -648,7 +681,9 @@ async def agent_restart_service(agent_id: str, request: Request):
 
     # 使用 Agent 解析逻辑将本地服务名解析为全局服务名
     try:
-        _, global_service_name = context._resolve_client_id(service_name, agent_id)
+        _, global_service_name = await context.bridge_execute(
+            context._resolve_client_id_async(service_name, agent_id)
+        )
     except Exception as e:
         return ResponseBuilder.error(
             code=ErrorCode.SERVICE_NOT_FOUND,
@@ -659,10 +694,12 @@ async def agent_restart_service(agent_id: str, request: Request):
     global_agent_id = store.client_manager.global_agent_store_id
     app_service = store.container.service_application_service
 
-    result = await app_service.restart_service(
-        service_name=global_service_name,
-        agent_id=global_agent_id,
-        wait_timeout=0.0,
+    result = await context.bridge_execute(
+        app_service.restart_service(
+            service_name=global_service_name,
+            agent_id=global_agent_id,
+            wait_timeout=0.0,
+        )
     )
 
     if not result:
@@ -689,7 +726,9 @@ async def agent_get_service_info_detailed(agent_id: str, service_name: str):
     context = store.for_agent(agent_id)
 
     # Use SDK to get service information（使用 async 版本）
-    info = await context.get_service_info_async(service_name)
+    info = await context.bridge_execute(
+        context.get_service_info_async(service_name)
+    )
     if not info or not getattr(info, 'success', False):
         return ResponseBuilder.error(
             code=ErrorCode.SERVICE_NOT_FOUND,
@@ -721,7 +760,9 @@ async def agent_get_service_status(agent_id: str, service_name: str):
 
     # 使用 Agent 解析逻辑将本地服务名解析为全局服务名
     try:
-        _, global_service_name = context._resolve_client_id(service_name, agent_id)
+        _, global_service_name = await context.bridge_execute(
+            context._resolve_client_id_async(service_name, agent_id)
+        )
     except Exception as e:
         return ResponseBuilder.error(
             code=ErrorCode.SERVICE_NOT_FOUND,
@@ -732,9 +773,11 @@ async def agent_get_service_status(agent_id: str, service_name: str):
     global_agent_id = store.client_manager.global_agent_store_id
     app_service = store.container.service_application_service
 
-    status = await app_service.get_service_status(
-        agent_id=global_agent_id,
-        service_name=global_service_name,
+    status = await context.bridge_execute(
+        app_service.get_service_status_async(
+            agent_id=global_agent_id,
+            service_name=global_service_name,
+        )
     )
 
     # 如果状态为 unknown 且没有 client_id，视为服务不存在或已移除

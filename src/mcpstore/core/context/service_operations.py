@@ -920,10 +920,10 @@ class ServiceOperationsMixin:
             logger.error(f"Failed to add {service_name} to cache immediately: {e}")
             raise
 
-    def _get_or_create_client_id(self, agent_id: str, service_name: str, service_config: Dict[str, Any] = None) -> str:
+    async def _get_or_create_client_id_async(self, agent_id: str, service_name: str, service_config: Dict[str, Any] = None) -> str:
         """生成或获取 client_id（使用统一的ID生成器）"""
         # 检查是否已有client_id
-        existing_client_id = self._store.registry.get_service_client_id(agent_id, service_name)
+        existing_client_id = await self._store.registry.get_service_client_id_async(agent_id, service_name)
         if existing_client_id:
             logger.debug(f" [CLIENT_ID] 使用现有client_id: {service_name} -> {existing_client_id}")
             return existing_client_id
@@ -943,6 +943,15 @@ class ServiceOperationsMixin:
 
         logger.debug(f" [CLIENT_ID] 生成新client_id: {service_name} -> {client_id}")
         return client_id
+
+    def _get_or_create_client_id(self, agent_id: str, service_name: str, service_config: Dict[str, Any] = None) -> str:
+        """
+        同步包装，保留给旧代码；内部通过桥接执行异步实现。
+        """
+        return self._run_async_via_bridge(
+            self._get_or_create_client_id_async(agent_id, service_name, service_config),
+            op_name="service_operations.get_or_create_client_id"
+        )
 
     async def _get_service_tools_for_initialization(
         self,
@@ -1247,7 +1256,7 @@ class ServiceOperationsMixin:
             # 1. 更新缓存映射（单一数据源架构）
             for service_name, service_config in services_to_add.items():
                 # 获取或创建client_id
-                client_id = self._get_or_create_client_id(agent_id, service_name, service_config)
+                client_id = await self._get_or_create_client_id_async(agent_id, service_name, service_config)
 
                 # 使用统一API更新缓存映射，避免直访底层字典
                 async with self._store.agent_locks.write(agent_id):
@@ -1270,41 +1279,7 @@ class ServiceOperationsMixin:
 
     def init_service(self, client_id_or_service_name: str = None, *,
                      client_id: str = None, service_name: str = None) -> 'MCPStoreContext':
-        """
-        初始化服务到 INITIALIZING 状态
-
-        支持三种调用方式（只能使用其中一种）：
-        1. 通用参数：init_service("identifier")
-        2. 明确client_id：init_service(client_id="client_123")
-        3. 明确service_name：init_service(service_name="weather")
-
-        Args:
-            client_id_or_service_name: 通用标识符（客户端ID或服务名称）
-            client_id: 明确指定的客户端ID（关键字参数）
-            service_name: 明确指定的服务名称（关键字参数）
-
-        Returns:
-            MCPStoreContext: 支持链式调用
-
-        Usage:
-            # Store级别
-            store.for_store().init_service("weather")                    # 通用方式
-            store.for_store().init_service(client_id="client_123")       # 明确client_id
-            store.for_store().init_service(service_name="weather")       # 明确service_name
-
-            # Agent级别（自动处理名称映射）
-            store.for_agent("agent1").init_service("weather")           # 通用方式
-            store.for_agent("agent1").init_service(client_id="client_456") # 明确client_id
-            store.for_agent("agent1").init_service(service_name="weather") # 明确service_name
-        """
-        try:
-            return self._run_async_via_bridge(
-                self.init_service_async(client_id_or_service_name, client_id=client_id, service_name=service_name),
-                op_name="service_operations.init_service"
-            )
-        except Exception as e:
-            logger.error(f"[NEW_ARCH] init_service 失败: {e}")
-            return self
+        raise RuntimeError("[SERVICE_OPERATIONS] 同步 init_service 已禁用，请使用 init_service_async。")
 
     async def init_service_async(self, client_id_or_service_name: str = None, *,
                                 client_id: str = None, service_name: str = None) -> 'MCPStoreContext':
@@ -1322,20 +1297,26 @@ class ServiceOperationsMixin:
                 agent_id = self._agent_id
 
             # 3. 智能解析标识符（复用现有的完善逻辑）
-            resolved_client_id, resolved_service_name = self._resolve_client_id_or_service_name(
+            resolved_client_id, resolved_service_name = await self._resolve_client_id_or_service_name_async(
                 identifier, agent_id
             )
 
             logger.info(f" [INIT_SERVICE] 解析结果: client_id={resolved_client_id}, service_name={resolved_service_name}")
 
             # 4. 从缓存获取服务配置
-            service_config = self._get_service_config_from_cache(agent_id, resolved_service_name)
+            service_config = await self._get_service_config_from_cache_async(agent_id, resolved_service_name)
             if not service_config:
                 raise ValueError(f"Service configuration not found for {resolved_service_name}")
 
-            # 5. 调用生命周期管理器初始化服务
-            success = self._store.orchestrator.lifecycle_manager.initialize_service(
-                agent_id, resolved_service_name, service_config
+            # 5. 调用生命周期管理器初始化服务（通过 bridge 执行，保持单一事件循环）
+            success = await self._store.for_store()._run_async_via_bridge(  # type: ignore[attr-defined]
+                self._store.container.service_application_service.initialize_service(
+                    agent_id=agent_id,
+                    service_name=resolved_service_name,
+                    service_config=service_config,
+                    wait_timeout=0.0,
+                ),
+                op_name="service_operations.init_service_initialize"
             )
 
             if not success:
@@ -1408,6 +1389,12 @@ class ServiceOperationsMixin:
         # 直接调用 ServiceManagementMixin 中的方法
         return self._resolve_client_id(client_id_or_service_name, agent_id)
 
+    async def _resolve_client_id_or_service_name_async(self, client_id_or_service_name: str, agent_id: str) -> Tuple[str, str]:
+        """
+        智能解析（异步版本），直接调用 ServiceManagementMixin 的异步实现。
+        """
+        return await self._resolve_client_id_async(client_id_or_service_name, agent_id)
+
 
     async def _get_service_config_from_cache_async(self, agent_id: str, service_name: str) -> Optional[Dict[str, Any]]:
         """从缓存获取服务配置（异步版本）"""
@@ -1419,7 +1406,7 @@ class ServiceOperationsMixin:
                 return metadata.service_config
 
             # 方法2: 从 client_config 获取（备用）
-            client_id = self._store.registry.get_service_client_id(agent_id, service_name)
+            client_id = await self._store.registry.get_service_client_id_async(agent_id, service_name)
             if client_id:
                 client_config = self._store.registry.get_client_config_from_cache(client_id)
                 if client_config and 'mcpServers' in client_config:

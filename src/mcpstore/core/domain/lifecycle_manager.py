@@ -669,13 +669,9 @@ class LifecycleManager:
         """
         执行状态转换（唯一入口）
         """
-        # 获取当前状态
+        # 获取当前状态（异步接口）
         try:
-            if hasattr(self._registry, 'get_service_state'):
-                old_state = self._registry.get_service_state(agent_id, service_name)
-            else:
-                logger.warning(f"[LIFECYCLE] No state access method found in registry for {service_name}")
-                old_state = None
+            old_state = await self._registry.get_service_state_async(agent_id, service_name)
         except Exception as e:
             logger.error(f"[LIFECYCLE] Failed to get current state for {service_name}: {e}")
             old_state = None
@@ -690,8 +686,8 @@ class LifecycleManager:
             f"(reason={reason}, source={source})"
         )
         
-        # 更新状态
-        self._registry.set_service_state(agent_id, service_name, new_state)
+        # 更新状态（异步接口）
+        await self._registry.set_service_state_async(agent_id, service_name, new_state)
         
         # Update metadata（从 pykv 异步获取）
         try:
@@ -867,4 +863,3 @@ class LifecycleManager:
                 f"[LIFECYCLE] Failed to handle health check result for {service_name}: {e}",
                 exc_info=True
             )
-

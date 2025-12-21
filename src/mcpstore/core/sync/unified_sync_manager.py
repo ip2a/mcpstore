@@ -504,11 +504,13 @@ class UnifiedMCPSyncManager:
                 logger.error(f"Failed to add agent-client mapping for {agent_id}/{client_id}: {e}")
                 return False
 
-            # 更新缓存映射2：Client配置映射（通过Registry公共API）
+            # 更新缓存映射2：Client配置映射（异步写入 cache layer，避免同步壳）
             try:
-                registry.add_client_config(client_id, {
-                    "mcpServers": {service_name: service_config}
-                })
+                await registry._cache_layer_manager.put_entity(
+                    "client_configs",
+                    client_id,
+                    {"mcpServers": {service_name: service_config}},
+                )
             except Exception as e:
                 logger.error(f"Failed to add client config for {client_id}: {e}")
                 return False
@@ -543,7 +545,7 @@ class UnifiedMCPSyncManager:
 
             # 遍历每个client_id，检查是否包含目标服务
             for client_id in client_ids:
-                client_config = registry.get_client_config_from_cache(client_id) or {}
+                client_config = await registry.get_client_config_from_cache_async(client_id) or {}
                 if service_name in client_config.get("mcpServers", {}):
                     logger.debug(f" 找到现有client_id: {service_name} -> {client_id}")
                     return client_id

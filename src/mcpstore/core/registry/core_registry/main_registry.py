@@ -54,6 +54,14 @@ class CacheBackedAgentClientService:
     def get_service_client_id(self, agent_id: str, service_name: str) -> Optional[str]:
         return self._registry.get_service_client_id(agent_id, service_name)
 
+    async def get_service_client_id_async(self, agent_id: str, service_name: str) -> Optional[str]:
+        """
+        异步获取 service -> client_id 映射。
+
+        直接委托给 ServiceRegistry，保持 pyKV 作为唯一数据源。
+        """
+        return await self._registry.get_service_client_id_async(agent_id, service_name)
+
     async def get_agent_clients_async(self, agent_id: str) -> List[str]:
         return await self._registry.get_agent_clients_async(agent_id)
 
@@ -1158,12 +1166,18 @@ class ServiceRegistry:
                 return (agent_id, svc.get("service_original_name") or original_name)
         return None
 
+    async def get_agent_services_async(self, agent_id: str) -> List[str]:
+        """
+        异步获取指定 Agent 的所有服务（返回全局服务名列表）
+        """
+        services = await self._relation_manager.get_agent_services(agent_id)
+        return [svc.get("service_global_name") for svc in services if svc.get("service_global_name")]
+
     def get_agent_services(self, agent_id: str) -> List[str]:
-        services = self._run_async(
-            self._relation_manager.get_agent_services(agent_id),
+        return self._run_async(
+            self.get_agent_services_async(agent_id),
             op_name="ServiceRegistry.get_agent_services",
         )
-        return [svc.get("service_global_name") for svc in services if svc.get("service_global_name")]
 
     def is_agent_service(self, agent_id: str, service_name: str) -> bool:
         return self._naming.AGENT_SEPARATOR in service_name
