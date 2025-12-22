@@ -10,6 +10,8 @@ MCPOrchestrator Service Connection Module
 """
 
 import logging
+import json
+from datetime import datetime
 from typing import Dict, Any, Optional, Tuple
 
 from fastmcp import Client
@@ -81,6 +83,29 @@ class ServiceConnectionMixin:
                         f"[CONNECT_SERVICE] 服务 {name} 实体存在但 metadata 不存在，"
                         f"数据不一致，将走完整的添加流程"
                     )
+
+            # #region agent log
+            try:
+                log_payload = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H2",
+                    "location": "service_connection.py:connect_service",
+                    "message": "connect_service state pre-branch",
+                    "data": {
+                        "agent_id": agent_key,
+                        "service_name": name,
+                        "service_exists": service_exists,
+                        "metadata_exists": metadata_exists,
+                        "config_keys": list(service_config.keys()) if service_config else [],
+                    },
+                    "timestamp": datetime.now().timestamp(),
+                }
+                with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a") as f:
+                    f.write(json.dumps(log_payload, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # #endregion
             
             if not service_exists or not metadata_exists:
                 # 服务不存在，走完整的添加流程

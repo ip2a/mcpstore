@@ -137,6 +137,10 @@ class ServiceProxy:
             logger.error(f"Failed to get health details for {self._service_name}: {e}")
             return {"service_name": self._service_name, "status": "error", "error": str(e)}
 
+    def find_cache(self) -> "CacheProxy":
+        from .cache_proxy import CacheProxy
+        return CacheProxy(self._context, scope="service", scope_value=self._service_name)
+
     # === 服务健康检查方法（两个单词） ===
 
     def check_health(self) -> dict:

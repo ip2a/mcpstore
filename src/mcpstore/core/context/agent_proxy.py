@@ -78,6 +78,10 @@ class AgentProxy:
                 "services": [],
             }
 
+    def find_cache(self) -> "CacheProxy":
+        from .cache_proxy import CacheProxy
+        return CacheProxy(self._context, scope="agent", scope_value=self._agent_id)
+
     # ---- Services & tools ----
     def list_services(self) -> List[Dict[str, Any]]:
         # Delegate to agent-scoped context for consistent style; coerce to dicts preferring model_dump

@@ -26,13 +26,6 @@ __all__ = [
     # Type definitions
     'RegistryTypes',
 
-    # Data consistency
-    'ConsistencyChecker',
-    'ConsistencyReport',
-    'ConsistencyIssue',
-    'check_registry_consistency',
-    'fix_registry_consistency',
-
     # Compatibility exports
     'ServiceConnectionState',
     'ServiceStateMetadata'
@@ -45,15 +38,6 @@ from .core_registry import ServiceRegistry
 from .types import SessionProtocol, SessionType, RegistryTypes
 # SchemaManager removed in single-source mode; no longer exported
 from .tool_resolver import ToolNameResolver, ToolResolution
-# Data consistency checker
-from .consistency_checker import (
-    ConsistencyChecker,
-    ConsistencyReport,
-    ConsistencyIssue,
-    check_registry_consistency,
-    fix_registry_consistency
-)
-
 # 导出常用类型
 try:
     from ..models.service import ServiceConnectionState, ServiceStateMetadata

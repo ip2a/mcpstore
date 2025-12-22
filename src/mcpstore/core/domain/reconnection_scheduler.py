@@ -397,7 +397,7 @@ class ReconnectionScheduler:
             if metadata:
                 metadata.reconnect_attempts = 0
                 metadata.next_retry_time = None
-                self._registry.set_service_metadata(event.agent_id, event.service_name, metadata)
+                await self._registry.set_service_metadata_async(event.agent_id, event.service_name, metadata)
                 logger.info(f"[RECONNECT] Service recovered, resetting retry count: {event.service_name}")
 
         # 如果服务进入 RECONNECTING 状态，调度重连
@@ -428,7 +428,7 @@ class ReconnectionScheduler:
 
         # 更新元数据
         metadata.next_retry_time = next_retry_time
-        self._registry.set_service_metadata(agent_id, service_name, metadata)
+        await self._registry.set_service_metadata_async(agent_id, service_name, metadata)
         
         logger.info(
             f"[RECONNECT] Scheduled reconnection: {service_name} "

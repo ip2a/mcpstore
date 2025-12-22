@@ -9,6 +9,7 @@ Responsibilities:
 """
 
 import logging
+import json
 from datetime import datetime
 
 from mcpstore.core.events.event_bus import EventBus
@@ -385,10 +386,32 @@ class LifecycleManager:
 
             # 2. 更新失败信息（纯函数操作）
             if metadata:
+                # #region agent log
+                try:
+                    log_payload = {
+                        "sessionId": "debug-session",
+                        "runId": "pre-fix",
+                        "hypothesisId": "H3",
+                        "location": "lifecycle_manager.py:_on_service_connection_failed",
+                        "message": "metadata before failure update",
+                        "data": {
+                            "service_name": event.service_name,
+                            "agent_id": event.agent_id,
+                            "metadata_fields": list(metadata.__fields__),
+                            "event_retry_count": event.retry_count,
+                        },
+                        "timestamp": datetime.now().timestamp(),
+                    }
+                    with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a") as f:
+                        f.write(json.dumps(log_payload, ensure_ascii=False) + "\n")
+                except Exception:
+                    pass
+                # #endregion
                 metadata.consecutive_failures += 1
                 metadata.error_message = event.error_message
                 metadata.last_failure_time = datetime.now()
-                metadata.retry_count = event.retry_count
+                # 使用已有字段记录重连计数，避免写入不存在的属性
+                metadata.reconnect_attempts = event.retry_count
 
                 # 保存更新后的元数据（异步API）
                 await self._set_service_metadata_async(event.agent_id, event.service_name, metadata)

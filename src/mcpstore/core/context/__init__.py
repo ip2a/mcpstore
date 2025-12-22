@@ -29,6 +29,7 @@ from .tool_transformation import (
     TransformationType,
     get_transformation_manager
 )
+from .cache_proxy import CacheProxy
 from .types import ContextType
 
 __all__ = [
@@ -47,5 +48,6 @@ __all__ = [
     'ToolTransformConfig',
     'ArgumentTransform',
     'TransformationType',
-    'get_transformation_manager'
+    'get_transformation_manager',
+    'CacheProxy'
 ]
