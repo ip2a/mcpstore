@@ -352,20 +352,21 @@ class ToolProxy:
                 # 获取工具使用记录
                 records = self._context._monitoring.get_tool_records(limit=100)
                 
-                # 过滤当前工具的记录
-                tool_records = []
-                if 'records' in records:
-                    tool_records = [
-                        record for record in records['records'] 
-                        if record.get('tool_name') == self._tool_name
-                    ]
+                # 过滤当前工具的记录（新结构键为 executions）
+                executions = records.get('executions', [])
+                tool_records = [
+                    record for record in executions
+                    if record.get('tool_name') == self._tool_name
+                ]
+                warning_msg = records.get('warning')
                 
                 return {
                     "tool_name": self._tool_name,
                     "total_calls": len(tool_records),
                     "recent_calls": len([r for r in tool_records[-10:]]),  # 最近10次
                     "success_rate": self._calculate_success_rate(tool_records),
-                    "average_duration": self._calculate_average_duration(tool_records)
+                    "average_duration": self._calculate_average_duration(tool_records),
+                    **({"warning": warning_msg} if warning_msg else {})
                 }
             else:
                 return {
@@ -397,13 +398,14 @@ class ToolProxy:
             if hasattr(self._context, '_monitoring') and self._context._monitoring:
                 records = self._context._monitoring.get_tool_records(limit=limit * 2)  # 获取更多记录用于过滤
                 
-                # 过滤当前工具的记录
-                tool_records = []
-                if 'records' in records:
-                    tool_records = [
-                        record for record in records['records'] 
-                        if record.get('tool_name') == self._tool_name
-                    ]
+                # 过滤当前工具的记录（新结构键为 executions）
+                executions = records.get('executions', [])
+                tool_records = [
+                    record for record in executions
+                    if record.get('tool_name') == self._tool_name
+                ]
+                if records.get('warning'):
+                    tool_records.append({"warning": records.get('warning')})
                 
                 # 返回最近的记录
                 return tool_records[:limit]

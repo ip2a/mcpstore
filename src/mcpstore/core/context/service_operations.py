@@ -148,27 +148,8 @@ class ServiceOperationsMixin:
     # === Core service interface ===
     def list_services(self) -> List[ServiceInfo]:
         """
-        List services (synchronous version) - 纯缓存查询，立即返回
-        - store context: aggregate services from all client_ids under global_agent_store
-        - agent context: aggregate services from all client_ids under agent_id
-
-        🚀 优化：直接返回缓存状态，不等待任何连接
-        服务状态管理由生命周期管理器负责，查询和管理完全分离
+        List services (synchronous wrapper) - 始终桥接到异步实现
         """
-        # 使用内核（若可用）执行读路径，保持零破坏
-        kernel = getattr(self, "_kernel", None)
-        if kernel is not None:
-            try:
-                return kernel.list_services()
-            except Exception:
-                pass
-        # 如果可用，直接从缓存读取（完全同步）
-        if hasattr(self, '_service_management_sync_shell'):
-            try:
-                return self._list_services_from_cache()
-            except Exception as e:
-                logger.debug(f"[NEW_ARCH] _list_services_from_cache failed: {e}")
-
         try:
             return self._run_async_via_bridge(
                 self.list_services_async(),
@@ -176,91 +157,6 @@ class ServiceOperationsMixin:
             )
         except Exception as e:
             logger.error(f"[NEW_ARCH] list_services 失败: {e}")
-            return []
-
-    def _list_services_from_cache(self) -> List[ServiceInfo]:
-        """
-        直接从缓存读取服务列表（纯同步实现）
-        这是新架构的临时实现，避免_sync_helper.run_async调用
-        """
-        try:
-            from mcpstore.core.models.service import ServiceInfo, ServiceConnectionState
-
-            if self._context_type == ContextType.STORE:
-                # Store模式：聚合global_agent_store下的所有服务
-                agent_id = self._store.client_manager.global_agent_store_id
-                service_names = self._store.registry._service_state_service.get_all_service_names(agent_id)
-
-                services = []
-                for service_name in service_names:
-                    complete_info = self._store.registry.get_complete_service_info(agent_id, service_name)
-                    if complete_info:
-                        state = complete_info.get("state", ServiceConnectionState.DISCONNECTED)
-                        if isinstance(state, str):
-                            try:
-                                state = ServiceConnectionState(state)
-                            except Exception:
-                                state = ServiceConnectionState.DISCONNECTED
-
-                        service_info = ServiceInfo(
-                            name=service_name,
-                            status=state,
-                            transport_type=self._store._infer_transport_type(complete_info.get("config", {})) if hasattr(self._store, '_infer_transport_type') else None,
-                            client_id=complete_info.get("client_id"),
-                            config=complete_info.get("config", {}),
-                            tool_count=complete_info.get("tool_count", 0),
-                            keep_alive=complete_info.get("config", {}).get("keep_alive", False),
-                        )
-                        services.append(service_info)
-
-                return services
-            else:
-                # Agent模式：返回Agent的服务视图（临时简化实现）
-                agent_id = self._agent_id
-                global_agent_id = self._store.client_manager.global_agent_store_id
-
-                # 获取Agent的服务映射
-                global_service_names = self._store.registry.get_agent_services(agent_id)
-                if not global_service_names:
-                    return []
-
-                services = []
-                for global_name in global_service_names:
-                    # 从全局命名空间获取服务信息
-                    complete_info = self._store.registry.get_complete_service_info(global_agent_id, global_name)
-                    if not complete_info:
-                        continue
-
-                    # 解析本地名称
-                    mapping = self._store.registry.get_agent_service_from_global_name(global_name)
-                    if not mapping or len(mapping) != 2:
-                        continue
-                    mapped_agent, local_name = mapping
-                    if mapped_agent != agent_id:
-                        continue
-
-                    state = complete_info.get("state", ServiceConnectionState.DISCONNECTED)
-                    if isinstance(state, str):
-                        try:
-                            state = ServiceConnectionState(state)
-                        except Exception:
-                            state = ServiceConnectionState.DISCONNECTED
-
-                    service_info = ServiceInfo(
-                        name=local_name,
-                        status=state,
-                        transport_type=self._store._infer_transport_type(complete_info.get("config", {})) if hasattr(self._store, '_infer_transport_type') else None,
-                        client_id=complete_info.get("client_id"),
-                        config=complete_info.get("config", {}),
-                        tool_count=complete_info.get("tool_count", 0),
-                        keep_alive=complete_info.get("config", {}).get("keep_alive", False),
-                    )
-                    services.append(service_info)
-
-                return services
-
-        except Exception as e:
-            logger.error(f"[NEW_ARCH] _list_services_from_cache 失败: {e}")
             return []
 
     async def list_services_async(self) -> List[ServiceInfo]:

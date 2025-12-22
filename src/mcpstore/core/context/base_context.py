@@ -73,20 +73,24 @@ class MCPStoreContext(
 
         # Monitoring manager - unified behavior for both branches
         from pathlib import Path
+        data_dir = None
         if hasattr(self._store, '_data_space_manager') and self._store._data_space_manager:
-            # Use data space manager path - consistent with fallback branch
-            workspace_dir = self._store._data_space_manager.workspace_dir
-            data_dir = workspace_dir / "monitoring"
+            data_dir = self._store._data_space_manager.workspace_dir / "monitoring"
         else:
-            # Use default path (backward compatibility)
-            config_dir = Path(self._store.config.json_path).parent
-            data_dir = config_dir / "monitoring"
+            logger.warning("[MONITORING] Data space manager not initialized; monitoring disabled (no fallback path).")
 
-        self._monitoring = MonitoringManager(
-            data_dir,
-            self._store.tool_record_max_file_size,
-            self._store.tool_record_retention_days
-        )
+        if data_dir is not None:
+            try:
+                self._monitoring = MonitoringManager(
+                    data_dir,
+                    self._store.tool_record_max_file_size,
+                    self._store.tool_record_retention_days
+                )
+            except Exception as monitor_init_error:
+                logger.warning(f"[MONITORING] Failed to initialize monitoring at data space: {monitor_init_error}")
+                self._monitoring = None
+        else:
+            self._monitoring = None
 
         # Agent service name mapper
         # global_agent_store does not use service mapper as it uses original service names
@@ -332,18 +336,31 @@ class MCPStoreContext(
 
     def record_api_call(self, response_time: float):
         """Record API call"""
-        self._monitoring.record_api_call(response_time)
+        if self._monitoring:
+            self._monitoring.record_api_call(response_time)
 
     def increment_active_connections(self):
         """Increment active connection count"""
-        self._monitoring.increment_active_connections()
+        if self._monitoring:
+            self._monitoring.increment_active_connections()
 
     def decrement_active_connections(self):
         """Decrement active connection count"""
-        self._monitoring.decrement_active_connections()
+        if self._monitoring:
+            self._monitoring.decrement_active_connections()
 
     def get_tool_records(self, limit: int = 50) -> Dict[str, Any]:
         """Get tool execution records"""
+        if not self._monitoring:
+            return {
+                "executions": [],
+                "summary": {
+                    "total_executions": 0,
+                    "by_tool": {},
+                    "by_service": {}
+                },
+                "warning": "Monitoring disabled"
+            }
         return self._monitoring.get_tool_records(limit)
 
     async def get_tool_records_async(self, limit: int = 50) -> Dict[str, Any]:
