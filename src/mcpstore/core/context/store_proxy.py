@@ -111,11 +111,15 @@ class StoreProxy:
                 "service_count": len(global_service_names),
                 "tool_count": tool_count,
                 "healthy_services": healthy,
-                "unhealthy_services": unhealthy,
-                "is_active": bool(global_service_names and healthy > 0),
-                "last_activity": None,
-            })
+            "unhealthy_services": unhealthy,
+            "is_active": bool(global_service_names and healthy > 0),
+            "last_activity": None,
+        })
         return result
+
+    def find_cache(self) -> "CacheProxy":
+        from .cache_proxy import CacheProxy
+        return CacheProxy(self._context, scope="global", scope_value=None)
 
     def find_agent(self, agent_id: str) -> "AgentProxy":
         """

@@ -93,19 +93,12 @@ class DeadlockFixIntegration:
         logger.info("Migrating registry to async-safe version")
 
         try:
-            from ..registry.async_safe_core_registry import AsyncSafeRegistryFactory
+            # 异步安全注册表已废弃；保持兼容但不再迁移
+            logger.warning("Async-safe registry migration is deprecated; skipping.")
+            return
 
-            # 创建异步安全注册表
-            safe_registry = AsyncSafeRegistryFactory.migrate_from_standard_registry(current_registry)
-
-            # 在关键位置替换注册表引用
-            self._replace_registry_references(current_registry, safe_registry)
-
-            self._applied_fixes.append("registry_migrated")
-            logger.info("Registry migration completed")
-
-        except ImportError as e:
-            logger.error(f"Failed to import async-safe registry: {e}")
+        except Exception as e:
+            logger.error(f"Failed to migrate registry (deprecated path): {e}")
             raise
 
     def _migrate_service_management(self, current_service_management):
@@ -214,13 +207,8 @@ class DeadlockFixIntegration:
                 validation_results["individual_checks"]["deadlock_safe_helper"] = f"failed: {e}"
                 validation_results["issues"].append(f"Deadlock-safe helper issue: {e}")
 
-            # 验证2：检查异步安全注册表
-            try:
-                from ..registry.async_safe_core_registry import AsyncSafeCoreRegistry
-                validation_results["individual_checks"]["async_safe_registry"] = "passed"
-            except Exception as e:
-                validation_results["individual_checks"]["async_safe_registry"] = f"failed: {e}"
-                validation_results["issues"].append(f"Async-safe registry issue: {e}")
+            # 验证2：检查异步安全注册表（已废弃，标记为跳过）
+            validation_results["individual_checks"]["async_safe_registry"] = "skipped (deprecated)"
 
             # 验证3：检查异步安全服务管理
             try:
@@ -314,9 +302,9 @@ class DeadlockFixAutoApplier:
     def _get_current_async_helper():
         """获取当前异步助手实例"""
         try:
-            from ..utils.async_sync_helper import get_global_helper
-            return get_global_helper()
-        except ImportError:
+            from ..bridge import get_async_bridge
+            return get_async_bridge()
+        except Exception:
             return None
 
 

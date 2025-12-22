@@ -37,6 +37,7 @@ from .agent_statistics import AgentStatisticsMixin
 from .service_proxy import ServiceProxy
 from .internal.context_kernel import create_kernel
 from .store_proxy import StoreProxy
+from .cache_proxy import CacheProxy
 
 class MCPStoreContext(
     ServiceOperationsMixin,
@@ -144,6 +145,12 @@ class MCPStoreContext(
     def for_store(self) -> 'StoreProxy':
         """Return StoreProxy for objectified store-view."""
         return StoreProxy(self)
+
+    def find_cache(self) -> 'CacheProxy':
+        """Return CacheProxy (scope depends on context)."""
+        scope = "global" if self._context_type == ContextType.STORE else "agent"
+        scope_value = None if scope == "global" else self._agent_id
+        return CacheProxy(self, scope=scope, scope_value=scope_value)
 
     def find_agent(self, agent_id: str) -> 'AgentProxy':
         """

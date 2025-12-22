@@ -32,6 +32,10 @@ class ContextFactoryMixin:
         """Get store-level object (proxy)"""
         return self._store_context.for_store()
 
+    def find_cache(self):
+        """Get global cache proxy (store scope)."""
+        return self._store_context.find_cache()
+
     def for_agent(self, agent_id: str) -> AgentProxy:
         """
         Get agent-level object (proxy) with unified caching.

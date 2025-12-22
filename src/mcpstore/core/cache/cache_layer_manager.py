@@ -504,6 +504,30 @@ class CacheLayerManager:
             raise RuntimeError(
                 f"删除关系失败: collection={collection}, key={key}, error={e}"
             ) from e
+
+    async def get_all_relations_async(self, relation_type: str) -> Dict[str, Dict[str, Any]]:
+        """
+        异步获取指定类型的所有关系
+        """
+        collection = self._get_relation_collection(relation_type)
+        logger.debug(f"[CACHE] get_all_relations_async: collection={collection}, relation_type={relation_type}")
+        try:
+            relation_keys = await self._kv_store.keys(collection=collection)
+            if not relation_keys:
+                logger.debug(f"[CACHE] collection={collection} 为空")
+                return {}
+
+            results = await self._kv_store.get_many(relation_keys, collection=collection)
+            relations: Dict[str, Dict[str, Any]] = {}
+            for i, key in enumerate(relation_keys):
+                if i < len(results) and results[i] is not None:
+                    relations[key] = results[i]
+
+            logger.debug(f"[CACHE] get_all_relations_async 完成: 找到 {len(relations)} 条关系")
+            return relations
+        except Exception as e:
+            logger.error(f"[CACHE] 异步获取所有关系失败: relation_type={relation_type}, error={e}")
+            raise RuntimeError(f"异步获取所有关系失败: relation_type={relation_type}, error={e}") from e
     
     # ==================== 状态层操作 ====================
     
@@ -614,6 +638,30 @@ class CacheLayerManager:
             raise RuntimeError(
                 f"获取状态失败: collection={collection}, key={key}, error={e}"
             ) from e
+
+    async def get_all_states_async(self, state_type: str) -> Dict[str, Dict[str, Any]]:
+        """
+        异步获取指定类型的所有状态
+        """
+        collection = self._get_state_collection(state_type)
+        logger.debug(f"[CACHE] get_all_states_async: collection={collection}, state_type={state_type}")
+        try:
+            state_keys = await self._kv_store.keys(collection=collection)
+            if not state_keys:
+                logger.debug(f"[CACHE] collection={collection} 为空")
+                return {}
+
+            results = await self._kv_store.get_many(state_keys, collection=collection)
+            states: Dict[str, Dict[str, Any]] = {}
+            for i, key in enumerate(state_keys):
+                if i < len(results) and results[i] is not None:
+                    states[key] = results[i]
+
+            logger.debug(f"[CACHE] get_all_states_async 完成: 找到 {len(states)} 条状态")
+            return states
+        except Exception as e:
+            logger.error(f"[CACHE] 异步获取所有状态失败: state_type={state_type}, error={e}")
+            raise RuntimeError(f"异步获取所有状态失败: state_type={state_type}, error={e}") from e
     
     async def delete_state(self, state_type: str, key: str) -> None:
         """

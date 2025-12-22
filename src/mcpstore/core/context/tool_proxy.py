@@ -132,6 +132,10 @@ class ToolCallResult:
     def __repr__(self) -> str:
         return self.__str__()
 
+    def find_cache(self) -> "CacheProxy":
+        from .cache_proxy import CacheProxy
+        return CacheProxy(self._context, scope="tool", scope_value=self._tool_name)
+
 
 class ToolProxy:
     """
