@@ -232,14 +232,14 @@ class ServiceOperationsMixin:
             except Exception:
                 raise Exception("config 为字符串时必须是合法的 JSON")
 
-        # 使用新架构：同步外壳
-            if not hasattr(self, '_service_management_sync_shell'):
-                from ..architecture import ServiceManagementFactory
-                self._service_management_sync_shell, _, _ = ServiceManagementFactory.create_service_management(
-                    self._store.registry,
-                    self._store.orchestrator,
-                    agent_id=self._agent_id or self._store.client_manager.global_agent_store_id
-                )
+        # 使用新架构：同步外壳（需在方法作用域初始化，避免非字符串配置时缺失）
+        if not hasattr(self, '_service_management_sync_shell'):
+            from ..architecture import ServiceManagementFactory
+            self._service_management_sync_shell, _, _ = ServiceManagementFactory.create_service_management(
+                self._store.registry,
+                self._store.orchestrator,
+                agent_id=self._agent_id or self._store.client_manager.global_agent_store_id
+            )
 
         # 直接调用同步外壳，完全避免_sync_helper.run_async
         result = self._service_management_sync_shell.add_service(final_config)
@@ -1136,8 +1136,8 @@ class ServiceOperationsMixin:
             agent_id = self._agent_id
             global_agent_id = self._store.client_manager.global_agent_store_id
 
-            # 1) 通过映射获取该 Agent 的全局服务名集合
-            global_service_names = self._store.registry.get_agent_services(agent_id)
+            # 1) 通过映射获取该 Agent 的全局服务名集合（使用异步接口，避免事件循环冲突）
+            global_service_names = await self._store.registry.get_agent_services_async(agent_id)
             if not global_service_names:
                 logger.info(f" [AGENT_VIEW] Agent {agent_id} 服务视图: 0 个服务（无映射）")
                 return agent_services
@@ -1145,14 +1145,14 @@ class ServiceOperationsMixin:
             # 2) 遍历每个全局服务，从全局命名空间读取完整信息，并以本地名展示
             for global_name in global_service_names:
                 # 解析出 (agent_id, local_name)
-                mapping = self._store.registry.get_agent_service_from_global_name(global_name)
+                mapping = await self._store.registry.get_agent_service_from_global_name_async(global_name)
                 if not mapping:
                     continue
                 mapped_agent, local_name = mapping
                 if mapped_agent != agent_id:
                     continue
 
-                complete_info = self._store.registry.get_complete_service_info(global_agent_id, global_name)
+                complete_info = await self._store.registry.get_complete_service_info_async(global_agent_id, global_name)
                 if not complete_info:
                     logger.debug(f"[AGENT_VIEW] 全局缓存中未找到服务: {global_name}")
                     continue
@@ -1160,8 +1160,12 @@ class ServiceOperationsMixin:
                 # 状态转换
                 # 额外诊断：记录全局与Agent缓存的状态对比
                 try:
-                    global_state_dbg = self._store.registry._service_state_service.get_service_state(global_agent_id, global_name)
-                    agent_state_dbg = self._store.registry._service_state_service.get_service_state(agent_id, local_name)
+                    global_state_dbg = await self._store.registry._service_state_service.get_service_state_async(
+                        global_agent_id, global_name
+                    )
+                    agent_state_dbg = await self._store.registry._service_state_service.get_service_state_async(
+                        agent_id, local_name
+                    )
                     logger.debug(f"[AGENT_VIEW] state_compare local='{local_name}' global='{global_name}' global_state='{getattr(global_state_dbg,'value',global_state_dbg)}' agent_state='{getattr(agent_state_dbg,'value',agent_state_dbg)}'")
                 except Exception:
                     pass

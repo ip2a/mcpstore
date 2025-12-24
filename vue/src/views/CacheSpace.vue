@@ -259,6 +259,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import StatCard from '@/components/common/StatCard.vue'
+import { cacheApi } from '@/api/cache'
 import {
   Refresh, Coin, Connection, Tools, Search, Key
 } from '@element-plus/icons-vue'
@@ -268,103 +269,64 @@ const loading = ref(false)
 const searchQuery = ref('')
 const activeCategory = ref('all')
 const selectedKey = ref(null)
+const rawData = ref({
+  entities: [],
+  relations: [],
+  states: [],
+  counts: {}
+})
 
-// Mock Data (Preserved)
-const cacheKeys = ref([
-  {
-    key: 'store:services:list',
-    category: 'service',
-    type: 'json',
-    value: JSON.stringify({
-      services: [
-        { name: 'weather-api', status: 'healthy', tools_count: 5 },
-        { name: 'local-tool', status: 'active', tools_count: 3 }
-      ]
-    }, null, 2),
-    size: 2048,
-    ttl: -1,
-    created_at: Date.now() - 86400000,
-    updated_at: Date.now() - 3600000
-  },
-  {
-    key: 'store:tools:list',
-    category: 'tool',
-    type: 'json',
-    value: JSON.stringify({
-      tools: [
-        { name: 'get_weather', service: 'weather-api', description: 'Get weather data' },
-        { name: 'search_tool', service: 'local-tool', description: 'Search information' }
-      ]
-    }, null, 2),
-    size: 1536,
-    ttl: -1,
-    created_at: Date.now() - 43200000,
-    updated_at: Date.now() - 1800000
-  },
-  {
-    key: 'service:weather-api:status',
-    category: 'status',
-    type: 'hash',
-    value: {
-      status: 'healthy',
-      last_check: new Date().toISOString(),
-      response_time: '123ms',
-      consecutive_successes: 50
-    },
-    size: 512,
-    ttl: 300,
-    created_at: Date.now() - 7200000,
-    updated_at: Date.now() - 60000
-  },
-  {
-    key: 'config:mcp.json',
-    category: 'config',
-    type: 'json',
-    value: JSON.stringify({
-      mcpServers: {
-        'sequential-thinking': {
-          command: 'npx',
-          args: ['-y', '@modelcontextprotocol/server-sequential-thinking']
-        }
+// Computed - Transform API data to UI format
+const cacheKeys = computed(() => {
+  const keys = []
+  
+  // Helper to process items
+  const processItems = (items, categoryMap, defaultCategory) => {
+    if (!items) return
+    items.forEach(item => {
+      // Create a copy for value display, removing internal keys
+      const { _key, _type, _collection, ...rest } = item
+      
+      let category = defaultCategory
+      if (categoryMap && _type) {
+        // Simple mapping based on type string
+        if (_type.includes('service')) category = 'service'
+        else if (_type.includes('tool')) category = 'tool'
+        else if (_type.includes('config') || _type === 'store') category = 'config'
+        else if (_type.includes('status')) category = 'status'
       }
-    }, null, 2),
-    size: 1024,
-    ttl: -1,
-    created_at: Date.now() - 172800000,
-    updated_at: Date.now() - 7200000
-  },
-  {
-    key: 'tool:records:recent',
-    category: 'tool',
-    type: 'list',
-    value: [
-      'get_weather: Beijing -> 22°C',
-      'search_tool: AI -> 100 results',
-      'get_weather: Shanghai -> 25°C'
-    ],
-    size: 768,
-    ttl: 3600,
-    created_at: Date.now() - 3600000,
-    updated_at: Date.now() - 300000
-  },
-  {
-    key: 'service:tags',
-    category: 'service',
-    type: 'set',
-    value: ['weather', 'tool', 'api', 'mcp', 'stdio'],
-    size: 256,
-    ttl: -1,
-    created_at: Date.now() - 86400000,
-    updated_at: Date.now() - 86400000
-  }
-])
 
-// Computed
+      keys.push({
+        key: _key || `unknown:${Math.random()}`,
+        category: category,
+        originalType: _type, // keep original type for display
+        type: typeof rest === 'object' ? 'json' : 'string', // infer display type
+        value: rest,
+        // Metadata (simulated or if available in future API)
+        size: JSON.stringify(rest).length, 
+        ttl: -1, 
+        created_at: null,
+        updated_at: null
+      })
+    })
+  }
+
+  processItems(rawData.value.entities, null, 'config') // Default fallback, specific logic inside
+  processItems(rawData.value.relations, null, 'service') // Relations often relate to structure
+  processItems(rawData.value.states, null, 'status')
+
+  return keys
+})
+
 const filteredKeys = computed(() => {
   let keys = cacheKeys.value
+  
+  // Filter by Category
   if (activeCategory.value !== 'all') {
     keys = keys.filter(k => k.category === activeCategory.value)
   }
+  
+  // Filter by Search
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
     keys = keys.filter(k => k.key.toLowerCase().includes(q))
@@ -372,10 +334,15 @@ const filteredKeys = computed(() => {
   return keys
 })
 
+// KPI Computeds
 const totalKeys = computed(() => cacheKeys.value.length)
-const serviceKeys = computed(() => cacheKeys.value.filter(k => k.category === 'service').length)
-const toolKeys = computed(() => cacheKeys.value.filter(k => k.category === 'tool').length)
+const serviceKeys = computed(() => 
+  (rawData.value.counts?.entities?.services || 0) + 
+  (rawData.value.counts?.states?.service_status || 0)
+)
+const toolKeys = computed(() => rawData.value.counts?.entities?.tools || 0)
 
+// Value Display Computeds
 const displayValue = computed(() => {
   if (!selectedKey.value) return ''
   return typeof selectedKey.value.value === 'string' 
@@ -384,7 +351,8 @@ const displayValue = computed(() => {
 })
 
 const hashTableData = computed(() => {
-  if (selectedKey.value?.type !== 'hash') return []
+  // Fallback for object display if we force 'hash' view or just general object viewing
+  if (!selectedKey.value?.value || typeof selectedKey.value.value !== 'object') return []
   return Object.entries(selectedKey.value.value).map(([field, value]) => ({
     field,
     value: typeof value === 'object' ? JSON.stringify(value) : String(value)
@@ -392,18 +360,34 @@ const hashTableData = computed(() => {
 })
 
 const listTableData = computed(() => {
-  if (selectedKey.value?.type !== 'list') return []
-  return selectedKey.value.value.map(value => ({ value }))
+  if (!Array.isArray(selectedKey.value?.value)) return []
+  return selectedKey.value.value.map(value => ({ 
+    value: typeof value === 'object' ? JSON.stringify(value) : String(value)
+  }))
 })
 
 // Methods
 const refreshCache = async () => {
   loading.value = true
   try {
-    await new Promise(r => setTimeout(r, 500))
-    ElMessage.success('Refreshed')
+    const res = await cacheApi.inspect()
+    if (res.success) {
+      rawData.value = {
+        entities: res.data.entities || [],
+        relations: res.data.relations || [],
+        states: res.data.states || [],
+        counts: res.data.counts || {}
+      }
+      
+      // Auto-select first key if none selected or selection lost
+      if (!selectedKey.value && cacheKeys.value.length > 0) {
+        selectedKey.value = cacheKeys.value[0]
+      }
+      ElMessage.success('Cache refreshed')
+    }
   } catch (e) {
-    ElMessage.error(e.message)
+    ElMessage.error(e.message || 'Failed to load cache')
+    console.error(e)
   } finally {
     loading.value = false
   }
@@ -412,19 +396,23 @@ const refreshCache = async () => {
 const selectKey = (key) => selectedKey.value = key
 
 const formatTTL = (seconds) => {
-  if (seconds < 0) return '∞'
+  if (!seconds || seconds < 0) return '∞'
   if (seconds < 60) return `${seconds}s`
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
   return `${Math.floor(seconds / 3600)}h`
 }
 
 const formatSize = (bytes) => {
+  if (!bytes) return '0 B'
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
 }
 
-const formatTime = (ts) => new Date(ts).toLocaleString()
+const formatTime = (ts) => {
+  if (!ts) return '-'
+  return new Date(ts).toLocaleString()
+}
 
 const copyValue = async () => {
   try {
@@ -447,7 +435,7 @@ const exportValue = () => {
 }
 
 onMounted(() => {
-  if (cacheKeys.value.length > 0) selectedKey.value = cacheKeys.value[0]
+  refreshCache()
 })
 </script>
 

@@ -102,8 +102,15 @@ class AgentLocks:
         async with self._global_lock:
             # 双重检查
             if agent_id not in self._locks:
-                # 在桥接事件循环中创建锁，避免跨 loop 冲突
-                if self._bridge_loop and self._bridge_loop.is_running():
+                # 在有事件循环的线程直接创建锁，避免在运行中的 loop 上调用 bridge.run 触发 RuntimeError
+                try:
+                    running_loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    running_loop = None
+
+                if running_loop:
+                    lock = asyncio.Lock()
+                elif self._bridge_loop and self._bridge_loop.is_running():
                     async def _create_lock():
                         return asyncio.Lock()
                     lock = self._bridge.run(_create_lock(), op_name="agent_locks.create_lock")
@@ -166,7 +173,11 @@ class AgentLocks:
                 running_loop = None
 
             if self._bridge_loop and running_loop is not self._bridge_loop:
-                await asyncio.to_thread(self._bridge.run, _acquire(), f"agent_locks.acquire.{agent_id}")
+                await asyncio.to_thread(
+                    self._bridge.run,
+                    _acquire(),
+                    op_name=f"agent_locks.acquire.{agent_id}"
+                )
             else:
                 await _acquire()
             
@@ -213,7 +224,11 @@ class AgentLocks:
                 running_loop = None
 
             if self._bridge_loop and running_loop is not self._bridge_loop:
-                await asyncio.to_thread(self._bridge.run, _release(), f"agent_locks.release.{agent_id}")
+                await asyncio.to_thread(
+                    self._bridge.run,
+                    _release(),
+                    op_name=f"agent_locks.release.{agent_id}"
+                )
             else:
                 await _release()
             
