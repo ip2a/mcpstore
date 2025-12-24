@@ -18,6 +18,8 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Dict, AsyncIterator, Optional, Set
 
+from mcpstore.core.bridge import get_async_bridge
+
 logger = logging.getLogger(__name__)
 
 
@@ -64,6 +66,8 @@ class AgentLocks:
         Args:
             enable_diagnostics: 是否启用诊断功能（记录等待时间、持有者等）
         """
+        self._bridge = get_async_bridge()
+        self._bridge_loop = getattr(self._bridge, "_loop", None)
         # 每个 agent_id 对应一个锁
         self._locks: Dict[str, asyncio.Lock] = {}
         # 全局锁，用于保护 _locks 字典的创建
@@ -98,7 +102,14 @@ class AgentLocks:
         async with self._global_lock:
             # 双重检查
             if agent_id not in self._locks:
-                self._locks[agent_id] = asyncio.Lock()
+                # 在桥接事件循环中创建锁，避免跨 loop 冲突
+                if self._bridge_loop and self._bridge_loop.is_running():
+                    async def _create_lock():
+                        return asyncio.Lock()
+                    lock = self._bridge.run(_create_lock(), op_name="agent_locks.create_lock")
+                else:
+                    lock = asyncio.Lock()
+                self._locks[agent_id] = lock
                 if self._enable_diagnostics:
                     self._stats[agent_id] = LockStats(agent_id=agent_id)
                     self._waiting[agent_id] = set()
@@ -142,17 +153,22 @@ class AgentLocks:
         
         try:
             # 获取锁（支持超时）
-            if timeout is not None:
-                try:
+            async def _acquire():
+                if timeout is not None:
                     await asyncio.wait_for(lock.acquire(), timeout=timeout)
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        "[AgentLocks] 获取锁超时: agent_id=%s, operation=%s, timeout=%.2fs",
-                        agent_id, operation, timeout
-                    )
-                    raise
+                else:
+                    await lock.acquire()
+
+            # 在锁所属的桥接 loop 上执行，避免跨 loop 错误
+            try:
+                running_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                running_loop = None
+
+            if self._bridge_loop and running_loop is not self._bridge_loop:
+                await asyncio.to_thread(self._bridge.run, _acquire(), f"agent_locks.acquire.{agent_id}")
             else:
-                await lock.acquire()
+                await _acquire()
             
             # 记录诊断信息
             wait_time_ms = (time.monotonic() - start_time) * 1000
@@ -188,7 +204,18 @@ class AgentLocks:
             
         finally:
             # 释放锁
-            lock.release()
+            async def _release():
+                lock.release()
+
+            try:
+                running_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                running_loop = None
+
+            if self._bridge_loop and running_loop is not self._bridge_loop:
+                await asyncio.to_thread(self._bridge.run, _release(), f"agent_locks.release.{agent_id}")
+            else:
+                await _release()
             
             # 清理诊断信息
             if self._enable_diagnostics:

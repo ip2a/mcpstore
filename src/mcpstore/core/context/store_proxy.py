@@ -424,6 +424,66 @@ class StoreProxy:
     async def reset_mcp_json_file_async(self, scope: str = "all") -> bool:
         return await self._context.reset_mcp_json_file_async(scope)
 
+    # ---- Hub MCP helpers ----
+    def hub_http(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/mcp", **fastmcp_kwargs):
+        """
+        将当前 Store 暴露为 HTTP MCP 端点（阻塞运行）。
+
+        Args:
+            port: 监听端口
+            host: 监听地址
+            path: HTTP 路径
+            **fastmcp_kwargs: 透传给 FastMCP 的参数（如 auth）
+        """
+        from mcpstore.core.hub.server import HubMCPServer
+
+        hub = HubMCPServer(
+            exposed_object=self._context,
+            transport="http",
+            port=port,
+            host=host,
+            path=path,
+            **fastmcp_kwargs,
+        )
+        runner = getattr(hub._fastmcp, "run_http", None)
+        if runner is None:
+            raise RuntimeError("FastMCP 未提供 run_http 接口，无法启动 HTTP 服务")
+        runner(host=host, port=port, path=path)
+        return hub
+
+    def hub_sse(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/sse", **fastmcp_kwargs):
+        """将当前 Store 暴露为 SSE MCP 端点（阻塞运行）。"""
+        from mcpstore.core.hub.server import HubMCPServer
+
+        hub = HubMCPServer(
+            exposed_object=self._context,
+            transport="sse",
+            port=port,
+            host=host,
+            path=path,
+            **fastmcp_kwargs,
+        )
+        runner = getattr(hub._fastmcp, "run_sse", None)
+        if runner is None:
+            raise RuntimeError("FastMCP 未提供 run_sse 接口，无法启动 SSE 服务")
+        runner(host=host, port=port, path=path)
+        return hub
+
+    def hub_stdio(self, **fastmcp_kwargs):
+        """将当前 Store 暴露为 stdio MCP 端点（阻塞运行）。"""
+        from mcpstore.core.hub.server import HubMCPServer
+
+        hub = HubMCPServer(
+            exposed_object=self._context,
+            transport="stdio",
+            **fastmcp_kwargs,
+        )
+        runner = getattr(hub._fastmcp, "run_stdio", None)
+        if runner is None:
+            raise RuntimeError("FastMCP 未提供 run_stdio 接口，无法启动 stdio 服务")
+        runner()
+        return hub
+
     # ---- Tool lookup ----
     def find_tool(self, tool_name: str):
         from .tool_proxy import ToolProxy

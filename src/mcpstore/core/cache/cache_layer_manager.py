@@ -7,6 +7,7 @@
 - 状态层 (State Layer)
 """
 
+import asyncio
 import logging
 from typing import Any, Dict, Optional, List, TYPE_CHECKING
 
@@ -34,7 +35,37 @@ class CacheLayerManager:
         """
         self._kv_store = kv_store
         self._namespace = namespace
+        # 所有 pykv 调用统一通过 AOB 所属的事件循环执行，避免跨 loop Future 冲突
+        try:
+            from mcpstore.core.bridge import get_async_bridge  # 延迟导入避免循环依赖
+            self._bridge = get_async_bridge()
+        except Exception:
+            self._bridge = None
         logger.debug(f"[CACHE] 初始化 CacheLayerManager，命名空间: {namespace}")
+
+    async def _await_in_bridge(self, coro, op_name: str):
+        """
+        确保在 AOB 事件循环中执行 pykv 协程，防止不同事件循环的锁冲突。
+        """
+        if self._bridge is None:
+            return await coro
+
+        bridge_loop = getattr(self._bridge, "_loop", None)
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        # 已在桥接循环内，直接执行
+        if bridge_loop and running_loop is bridge_loop:
+            return await coro
+
+        # 无事件循环（同步调用场景）
+        if running_loop is None:
+            return self._bridge.run(coro, op_name=op_name)
+
+        # 其他事件循环内，切换到 AOB loop
+        return await asyncio.to_thread(self._bridge.run, coro, op_name=op_name)
     
     # ==================== Collection 命名方法 ====================
     
@@ -114,7 +145,10 @@ class CacheLayerManager:
         
         try:
             logger.debug(f"[CACHE] 调用 put: key={key}, collection={collection}, value={value}")
-            await self._kv_store.put(key, value, collection=collection)
+            await self._await_in_bridge(
+                self._kv_store.put(key, value, collection=collection),
+                f"cache.put_entity.{entity_type}"
+            )
 
             # 调试：检查写入后的内部状态
             if hasattr(self._kv_store, '_cache'):
@@ -153,6 +187,9 @@ class CacheLayerManager:
         Raises:
             RuntimeError: 如果 pykv 操作失败
         """
+        if entity_type == "client_configs":
+            raise RuntimeError("entity_type 'client_configs' 已废弃，请使用 'clients'")
+
         collection = self._get_entity_collection(entity_type)
         logger.debug(
             f"[CACHE] get_entity: collection={collection}, key={key}, "
@@ -160,7 +197,10 @@ class CacheLayerManager:
         )
         
         try:
-            result = await self._kv_store.get(key, collection=collection)
+            result = await self._await_in_bridge(
+                self._kv_store.get(key, collection=collection),
+                f"cache.get_entity.{entity_type}"
+            )
             return result
         except Exception as e:
             logger.error(
@@ -189,7 +229,10 @@ class CacheLayerManager:
         )
         
         try:
-            await self._kv_store.delete(key, collection=collection)
+            await self._await_in_bridge(
+                self._kv_store.delete(key, collection=collection),
+                f"cache.delete_entity.{entity_type}"
+            )
         except Exception as e:
             logger.error(
                 f"[CACHE] 删除实体失败: collection={collection}, key={key}, "
@@ -217,6 +260,9 @@ class CacheLayerManager:
         Raises:
             RuntimeError: 如果 pykv 操作失败
         """
+        if entity_type == "client_configs":
+            raise RuntimeError("entity_type 'client_configs' 已废弃，请使用 'clients'")
+
         collection = self._get_entity_collection(entity_type)
         logger.debug(
             f"[CACHE] get_many_entities: collection={collection}, "
@@ -224,7 +270,10 @@ class CacheLayerManager:
         )
         
         try:
-            results = await self._kv_store.get_many(keys, collection=collection)
+            results = await self._await_in_bridge(
+                self._kv_store.get_many(keys, collection=collection),
+                f"cache.get_many_entities.{entity_type}"
+            )
             return results
         except Exception as e:
             logger.error(
@@ -256,40 +305,35 @@ class CacheLayerManager:
         """
         logger.debug(f"[CACHE] get_all_entities_sync: entity_type={entity_type}")
 
+        if entity_type == "client_configs":
+            raise RuntimeError("entity_type 'client_configs' 已废弃，请使用 'clients'")
+
+        async def _get_all_entities_async():
+            """异步内部方法：只使用 await"""
+            entities: Dict[str, Dict[str, Any]] = {}
+            collection = self._get_entity_collection(entity_type)
+            logger.debug(f"[CACHE] _get_all_entities_async: collection={collection}")
+
+            entity_keys = await self._kv_store.keys(collection=collection)
+            logger.debug(f"[CACHE] 从 collection={collection} 获取到 {len(entity_keys)} 个键")
+
+            if not entity_keys:
+                return {}
+
+            results = await self._kv_store.get_many(entity_keys, collection=collection)
+            
+            for i, key in enumerate(entity_keys):
+                if i < len(results) and results[i] is not None:
+                    entities[key] = results[i]
+
+            logger.debug(f"[CACHE] _get_all_entities_async 完成: 找到 {len(entities)} 个实体")
+            return entities
+
         try:
-            # 核心原则：必须在最外层使用一次同步异步转换
-            # 这是唯一允许的 asyncio.run() 使用点
-            import asyncio
-
-            async def _get_all_entities_async():
-                """异步内部方法：遵循原则，只使用 await"""
-                collection = self._get_entity_collection(entity_type)
-                logger.debug(f"[CACHE] _get_all_entities_async: collection={collection}")
-
-                # 严格按照原则：通过 pykv 接口读取数据
-                # 关键：必须传递 collection 参数给 keys() 方法
-                entity_keys = await self._kv_store.keys(collection=collection)
-                
-                logger.debug(f"[CACHE] 从 collection={collection} 获取到 {len(entity_keys)} 个键")
-
-                if not entity_keys:
-                    return {}
-
-                # 批量获取实体数据
-                results = await self._kv_store.get_many(entity_keys, collection=collection)
-                
-                # 构建返回字典
-                entities = {}
-                for i, key in enumerate(entity_keys):
-                    if i < len(results) and results[i] is not None:
-                        entities[key] = results[i]
-
-                logger.debug(f"[CACHE] _get_all_entities_async 完成: 找到 {len(entities)} 个实体")
-                return entities
-
-            # 在最外层使用一次同步异步转换 - 符合原则
+            if self._bridge:
+                return self._bridge.run(_get_all_entities_async(), op_name=f"cache.get_all_entities_sync.{entity_type}")
+            # 回退：无桥接时使用 asyncio.run（MemoryStore 场景）
             return asyncio.run(_get_all_entities_async())
-
         except Exception as e:
             logger.error(f"[CACHE] 同步获取所有实体失败: entity_type={entity_type}, error={e}")
             raise RuntimeError(f"同步获取所有实体失败: entity_type={entity_type}, error={e}") from e
@@ -313,42 +357,18 @@ class CacheLayerManager:
         Raises:
             RuntimeError: 如果 pykv 操作失败
         """
-        collection = self._get_entity_collection(entity_type)
-        logger.debug(f"[CACHE] get_all_entities_async: collection={collection}, entity_type={entity_type}")
+        if entity_type == "client_configs":
+            raise RuntimeError("entity_type 'client_configs' 已废弃，请使用 'clients'")
 
-        try:
-            # 使用 pykv 的 keys() 方法获取指定 collection 的所有键
-            # 关键：必须传递 collection 参数，否则会使用 default_collection
+        logger.debug(f"[CACHE] get_all_entities_async: entity_type={entity_type}")
+
+        async def _read():
+            collection = self._get_entity_collection(entity_type)
+            logger.debug(f"[CACHE] get_all_entities_async: collection={collection}, entity_type={entity_type}")
+
             entity_keys = await self._kv_store.keys(collection=collection)
 
             logger.debug(f"[CACHE] 从 collection={collection} 获取到 {len(entity_keys)} 个键")
-
-            # region agent log - H12: get_all_entities_async_keys
-            try:
-                import json, time
-                from pathlib import Path
-                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                log_record = {
-                    "sessionId": "debug-session",
-                    "runId": "pre-fix-2",
-                    "hypothesisId": "H12",
-                    "location": "cache_layer_manager.py:get_all_entities_async",
-                    "message": "get_all_entities_async_keys",
-                    "data": {
-                        "collection": collection,
-                        "entity_type": entity_type,
-                        "keys_count": len(entity_keys),
-                        "keys_preview": entity_keys[:5],
-                    },
-                    "timestamp": int(time.time() * 1000),
-                }
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                with log_path.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-            except Exception:
-                # 调试日志失败不影响主流程
-                pass
-            # endregion
 
             if not entity_keys:
                 logger.debug(f"[CACHE] collection={collection} 为空")
@@ -357,7 +377,6 @@ class CacheLayerManager:
             # 批量获取实体数据
             results = await self._kv_store.get_many(entity_keys, collection=collection)
             
-            # 构建返回字典
             entities: Dict[str, Dict[str, Any]] = {}
             for i, key in enumerate(entity_keys):
                 if i < len(results) and results[i] is not None:
@@ -365,35 +384,10 @@ class CacheLayerManager:
 
             logger.debug(f"[CACHE] get_all_entities_async 完成: 找到 {len(entities)} 个实体")
 
-            # region agent log - H12: get_all_entities_async_entities
-            try:
-                import json, time
-                from pathlib import Path
-                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                log_record = {
-                    "sessionId": "debug-session",
-                    "runId": "pre-fix-2",
-                    "hypothesisId": "H12",
-                    "location": "cache_layer_manager.py:get_all_entities_async",
-                    "message": "get_all_entities_async_entities",
-                    "data": {
-                        "collection": collection,
-                        "entity_type": entity_type,
-                        "entity_count": len(entities),
-                        "keys_preview": list(entities.keys())[:5],
-                    },
-                    "timestamp": int(time.time() * 1000),
-                }
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                with log_path.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-            except Exception:
-                # 调试日志失败不影响主流程
-                pass
-            # endregion
-
             return entities
 
+        try:
+            return await self._await_in_bridge(_read(), f"cache.get_all_entities_async.{entity_type}")
         except Exception as e:
             logger.error(f"[CACHE] 异步获取所有实体失败: entity_type={entity_type}, error={e}")
             raise RuntimeError(f"异步获取所有实体失败: entity_type={entity_type}, error={e}") from e
@@ -431,7 +425,10 @@ class CacheLayerManager:
         )
         
         try:
-            await self._kv_store.put(key, value, collection=collection)
+            await self._await_in_bridge(
+                self._kv_store.put(key, value, collection=collection),
+                f"cache.put_relation.{relation_type}"
+            )
         except Exception as e:
             logger.error(
                 f"[CACHE] 存储关系失败: collection={collection}, key={key}, "
@@ -466,7 +463,10 @@ class CacheLayerManager:
         )
         
         try:
-            result = await self._kv_store.get(key, collection=collection)
+            result = await self._await_in_bridge(
+                self._kv_store.get(key, collection=collection),
+                f"cache.get_relation.{relation_type}"
+            )
             return result
         except Exception as e:
             logger.error(
@@ -495,7 +495,10 @@ class CacheLayerManager:
         )
         
         try:
-            await self._kv_store.delete(key, collection=collection)
+            await self._await_in_bridge(
+                self._kv_store.delete(key, collection=collection),
+                f"cache.delete_relation.{relation_type}"
+            )
         except Exception as e:
             logger.error(
                 f"[CACHE] 删除关系失败: collection={collection}, key={key}, "
@@ -511,7 +514,7 @@ class CacheLayerManager:
         """
         collection = self._get_relation_collection(relation_type)
         logger.debug(f"[CACHE] get_all_relations_async: collection={collection}, relation_type={relation_type}")
-        try:
+        async def _read():
             relation_keys = await self._kv_store.keys(collection=collection)
             if not relation_keys:
                 logger.debug(f"[CACHE] collection={collection} 为空")
@@ -525,6 +528,9 @@ class CacheLayerManager:
 
             logger.debug(f"[CACHE] get_all_relations_async 完成: 找到 {len(relations)} 条关系")
             return relations
+
+        try:
+            return await self._await_in_bridge(_read(), f"cache.get_all_relations_async.{relation_type}")
         except Exception as e:
             logger.error(f"[CACHE] 异步获取所有关系失败: relation_type={relation_type}, error={e}")
             raise RuntimeError(f"异步获取所有关系失败: relation_type={relation_type}, error={e}") from e
@@ -562,7 +568,10 @@ class CacheLayerManager:
         )
         try:
             logger.info(f"[CACHE] 🔧 存储状态值: collection={collection}, key={key}, value={value}")
-            await self._kv_store.put(key, value, collection=collection)
+            await self._await_in_bridge(
+                self._kv_store.put(key, value, collection=collection),
+                f"cache.put_state.{state_type}"
+            )
             logger.info(f"[CACHE] ✅ 状态存储成功: collection={collection}, key={key}")
         except Exception as e:
             logger.error(
@@ -572,35 +581,6 @@ class CacheLayerManager:
             raise RuntimeError(
                 f"存储状态失败: collection={collection}, key={key}, error={e}"
             ) from e
-        else:
-            # region agent log
-            try:
-                import json, time
-                from pathlib import Path
-                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                tools_value = value.get("tools")
-                tools_count = len(tools_value) if isinstance(tools_value, list) else 0
-                log_record = {
-                    "sessionId": "debug-session",
-                    "runId": "pre-fix",
-                    "hypothesisId": "H2",
-                    "location": "cache_layer_manager.py:put_state",
-                    "message": "after_put_state_service_status",
-                    "data": {
-                        "collection": collection,
-                        "key": key,
-                        "has_tools_field": "tools" in value,
-                        "tools_count": tools_count,
-                    },
-                    "timestamp": int(time.time() * 1000),
-                }
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                with log_path.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-            except Exception:
-                # 调试日志失败不影响主流程
-                pass
-            # endregion
     
     async def get_state(
         self,
@@ -627,7 +607,10 @@ class CacheLayerManager:
         )
 
         try:
-            result = await self._kv_store.get(key, collection=collection)
+            result = await self._await_in_bridge(
+                self._kv_store.get(key, collection=collection),
+                f"cache.get_state.{state_type}"
+            )
             logger.info(f"[CACHE] 🔧 读取状态值: collection={collection}, key={key}, result={result}")
             return result
         except Exception as e:
@@ -645,7 +628,7 @@ class CacheLayerManager:
         """
         collection = self._get_state_collection(state_type)
         logger.debug(f"[CACHE] get_all_states_async: collection={collection}, state_type={state_type}")
-        try:
+        async def _read():
             state_keys = await self._kv_store.keys(collection=collection)
             if not state_keys:
                 logger.debug(f"[CACHE] collection={collection} 为空")
@@ -659,6 +642,9 @@ class CacheLayerManager:
 
             logger.debug(f"[CACHE] get_all_states_async 完成: 找到 {len(states)} 条状态")
             return states
+
+        try:
+            return await self._await_in_bridge(_read(), f"cache.get_all_states_async.{state_type}")
         except Exception as e:
             logger.error(f"[CACHE] 异步获取所有状态失败: state_type={state_type}, error={e}")
             raise RuntimeError(f"异步获取所有状态失败: state_type={state_type}, error={e}") from e
@@ -681,7 +667,10 @@ class CacheLayerManager:
         )
         
         try:
-            await self._kv_store.delete(key, collection=collection)
+            await self._await_in_bridge(
+                self._kv_store.delete(key, collection=collection),
+                f"cache.delete_state.{state_type}"
+            )
         except Exception as e:
             logger.error(
                 f"[CACHE] 删除状态失败: collection={collection}, key={key}, "
@@ -690,32 +679,6 @@ class CacheLayerManager:
             raise RuntimeError(
                 f"删除状态失败: collection={collection}, key={key}, error={e}"
             ) from e
-        else:
-            # region agent log
-            try:
-                import json, time
-                from pathlib import Path
-                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                log_record = {
-                    "sessionId": "debug-session",
-                    "runId": "pre-fix",
-                    "hypothesisId": "H5",
-                    "location": "cache_layer_manager.py:delete_state",
-                    "message": "after_delete_state",
-                    "data": {
-                        "collection": collection,
-                        "state_type": state_type,
-                        "key": key,
-                    },
-                    "timestamp": int(time.time() * 1000),
-                }
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                with log_path.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-            except Exception:
-                # 调试日志失败不影响主流程
-                pass
-            # endregion
 
     def put_state_sync(
         self,
@@ -756,16 +719,9 @@ class CacheLayerManager:
             await self._kv_store.put(key, value, collection=collection)
 
         try:
-            # 检查是否已在事件循环中
-            try:
-                loop = asyncio.get_running_loop()
-                # 已在事件循环中，创建任务并等待
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, _put_state_async())
-                    future.result()
-            except RuntimeError:
-                # 不在事件循环中，直接使用 asyncio.run()
+            if self._bridge:
+                self._bridge.run(_put_state_async(), op_name=f"cache.put_state_sync.{state_type}")
+            else:
                 asyncio.run(_put_state_async())
             
             logger.info(f"[CACHE] 同步存储状态成功: collection={collection}, key={key}")
@@ -811,16 +767,9 @@ class CacheLayerManager:
             return await self._kv_store.get(key, collection=collection)
 
         try:
-            # 检查是否已在事件循环中
-            try:
-                loop = asyncio.get_running_loop()
-                # 已在事件循环中，创建任务并等待
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, _get_state_async())
-                    result = future.result()
-            except RuntimeError:
-                # 不在事件循环中，直接使用 asyncio.run()
+            if self._bridge:
+                result = self._bridge.run(_get_state_async(), op_name=f"cache.get_state_sync.{state_type}")
+            else:
                 result = asyncio.run(_get_state_async())
             
             logger.debug(f"[CACHE] 同步获取状态成功: collection={collection}, key={key}")

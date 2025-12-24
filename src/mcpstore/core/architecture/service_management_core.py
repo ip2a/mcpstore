@@ -62,9 +62,10 @@ class ServiceManagementCore:
     - ✅ 只返回操作计划，不执行实际操作
     """
 
-    def __init__(self):
+    def __init__(self, agent_id: str = "global_agent_store"):
         """初始化核心逻辑"""
         logger.debug("[SERVICE_CORE] 初始化 ServiceManagementCore")
+        self.agent_id = agent_id
 
     def add_service(self, config: Dict[str, Any]) -> ServiceOperationPlan:
         """
@@ -94,8 +95,8 @@ class ServiceManagementCore:
         for service_name, service_config in service_configs.items():
             logger.debug(f"[SERVICE_CORE] 处理服务: {service_name}")
 
-            # 固定使用global_agent_store（store模式）
-            agent_id = "global_agent_store"
+            # 使用当前上下文的 agent_id（store=global_agent_store，agent上下文则为具体ID）
+            agent_id = self.agent_id or "global_agent_store"
             # 使用NamingService生成全局名称，确保与缓存层一致
             from ..cache.naming_service import NamingService
             naming = NamingService()
@@ -176,6 +177,25 @@ class ServiceManagementCore:
                 }
             ))
 
+            # 操作4: 初始化 service_metadata
+            metadata_data = {
+                "service_global_name": global_name,
+                "agent_id": agent_id,
+                "created_time": int(time.time()),
+                "state_entered_time": int(time.time()),
+                "reconnect_attempts": 0,
+                "last_ping_time": None,
+            }
+            operations.append(ServiceOperation(
+                type="put_metadata",
+                collection="default:state:service_metadata",
+                key=global_name,
+                data={
+                    "key": global_name,
+                    "value": metadata_data,
+                }
+            ))
+
             service_names.append(service_name)
 
         logger.debug(f"[SERVICE_CORE] 生成操作计划: {len(operations)}个操作, {len(service_names)}个服务")
@@ -198,7 +218,7 @@ class ServiceManagementCore:
         """
         logger.debug(f"[SERVICE_CORE] 生成等待计划: {service_name}, timeout={timeout}")
 
-        agent_id = "global_agent_store"
+        agent_id = self.agent_id or "global_agent_store"
         # 使用NamingService生成全局名称，确保与缓存层一致
         from ..cache.naming_service import NamingService
         naming = NamingService()

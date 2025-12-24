@@ -435,7 +435,7 @@ class UnifiedMCPSyncManager:
 
         注意：
         - registry.agent_clients: 已移除 (Phase 4) - 现在从 pyvk 推导
-        - registry.client_configs: 已移除 (Phase 5) - 现在存储在 pyvk
+        - registry.clients: 已移除 (Phase 5) - 现在存储在 pyvk
 
         Args:
             agent_id: Agent ID
@@ -507,7 +507,7 @@ class UnifiedMCPSyncManager:
             # 更新缓存映射2：Client配置映射（异步写入 cache layer，避免同步壳）
             try:
                 await registry._cache_layer_manager.put_entity(
-                    "client_configs",
+                    "clients",
                     client_id,
                     {"mcpServers": {service_name: service_config}},
                 )
@@ -517,7 +517,7 @@ class UnifiedMCPSyncManager:
 
             logger.debug(f"缓存映射更新成功: {service_name} -> {client_id}")
             logger.debug(f"   - agent_clients[{agent_id}] 已通过Registry API更新")
-            logger.debug(f"   - client_configs[{client_id}] 已通过Registry API更新")
+            logger.debug(f"   - clients[{client_id}] 已通过Registry API更新")
             return True
 
         except Exception as e:

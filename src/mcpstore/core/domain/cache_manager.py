@@ -35,30 +35,6 @@ class CacheTransaction:
     async def rollback(self):
         """Rollback all operations"""
         logger.warning(f"Rolling back {len(self.operations)} cache operations for agent {self.agent_id}")
-        # region agent log: cache_transaction_rollback (H3)
-        try:
-            import json as _json_ct, time as _time_ct
-            from pathlib import Path as _Path_ct
-            _log_path_ct = _Path_ct("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-            _payload_ct = {
-                "sessionId": "debug-session",
-                "runId": "pre-fix",
-                "hypothesisId": "H3",
-                "location": "core/domain/cache_manager.py:CacheTransaction.rollback",
-                "message": "cache_transaction_rollback_begin",
-                "data": {
-                    "agent_id": self.agent_id,
-                    "operations_count": len(self.operations),
-                },
-                "timestamp": int(_time_ct.time() * 1000),
-            }
-            _log_path_ct.parent.mkdir(parents=True, exist_ok=True)
-            with _log_path_ct.open("a", encoding="utf-8") as _f_ct:
-                _f_ct.write(_json_ct.dumps(_payload_ct, ensure_ascii=False) + "\n")
-        except Exception:
-            # 调试日志失败不影响主流程
-            pass
-        # endregion
         for op_name, rollback_func, args in reversed(self.operations):
             try:
                 if asyncio.iscoroutinefunction(rollback_func):
@@ -103,33 +79,6 @@ class CacheManager:
         transaction = CacheTransaction(agent_id=event.agent_id)
         
         try:
-            # region agent log: on_service_add_requested entry (H1)
-            try:
-                import json as _json_cm1, time as _time_cm1
-                from pathlib import Path as _Path_cm1
-                _log_path_cm1 = _Path_cm1("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                _payload_cm1 = {
-                    "sessionId": "debug-session",
-                    "runId": "pre-fix",
-                    "hypothesisId": "H1",
-                    "location": "core/domain/cache_manager.py:_on_service_add_requested",
-                    "message": "before_add_service_and_rollback_registration",
-                    "data": {
-                        "agent_id": event.agent_id,
-                        "service_name": event.service_name,
-                        "registry_type": type(self._registry).__name__,
-                        "has_add_service_async": hasattr(self._registry, "add_service_async"),
-                        "has_remove_service_async": hasattr(self._registry, "remove_service_async"),
-                    },
-                    "timestamp": int(_time_cm1.time() * 1000),
-                }
-                _log_path_cm1.parent.mkdir(parents=True, exist_ok=True)
-                with _log_path_cm1.open("a", encoding="utf-8") as _f_cm1:
-                    _f_cm1.write(_json_cm1.dumps(_payload_cm1, ensure_ascii=False) + "\n")
-            except Exception:
-                # 调试日志失败不影响主流程
-                pass
-            # endregion
             # 使用 per-agent 锁保证并发安全
             async with self._agent_locks.write(
                 event.agent_id, 
@@ -209,33 +158,6 @@ class CacheManager:
             
         except Exception as e:
             logger.error(f"[CACHE] Failed to cache service {event.service_name}: {e}", exc_info=True)
-            
-            # region agent log: on_service_add_requested exception (H2)
-            try:
-                import json as _json_cm2, time as _time_cm2
-                from pathlib import Path as _Path_cm2
-                _log_path_cm2 = _Path_cm2("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                _payload_cm2 = {
-                    "sessionId": "debug-session",
-                    "runId": "pre-fix",
-                    "hypothesisId": "H2",
-                    "location": "core/domain/cache_manager.py:_on_service_add_requested",
-                    "message": "exception_in_on_service_add_requested",
-                    "data": {
-                        "agent_id": event.agent_id,
-                        "service_name": event.service_name,
-                        "exception_type": type(e).__name__,
-                        "exception_str": str(e),
-                    },
-                    "timestamp": int(_time_cm2.time() * 1000),
-                }
-                _log_path_cm2.parent.mkdir(parents=True, exist_ok=True)
-                with _log_path_cm2.open("a", encoding="utf-8") as _f_cm2:
-                    _f_cm2.write(_json_cm2.dumps(_payload_cm2, ensure_ascii=False) + "\n")
-            except Exception:
-                # 调试日志失败不影响主流程
-                pass
-            # endregion
             
             # 回滚事务
             await transaction.rollback()
@@ -394,34 +316,6 @@ class CacheManager:
                 f"tool_global_name={tool_global_name}"
             )
 
-            # region agent log: before_create_tool_entity (H9)
-            try:
-                import json as _json_cm, time as _time_cm
-                from pathlib import Path as _Path_cm
-                _log_path_cm = _Path_cm("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                _payload_cm = {
-                    "sessionId": "debug-session",
-                    "runId": "pre-fix",
-                    "hypothesisId": "H9",
-                    "location": "core/domain/cache_manager.py:_create_tool_entities_and_relations",
-                    "message": "before_create_tool_entity",
-                    "data": {
-                        "agent_id": agent_id,
-                        "service_name": service_name,
-                        "service_global_name": service_global_name,
-                        "tool_name": tool_name,
-                        "tool_global_name": tool_global_name,
-                    },
-                    "timestamp": int(_time_cm.time() * 1000),
-                }
-                _log_path_cm.parent.mkdir(parents=True, exist_ok=True)
-                with _log_path_cm.open("a", encoding="utf-8") as _f_cm:
-                    _f_cm.write(_json_cm.dumps(_payload_cm, ensure_ascii=False) + "\n")
-            except Exception:
-                # 调试日志失败不影响主流程
-                pass
-            # endregion
-            
             # 提取工具原始名称（去除服务前缀）
             from mcpstore.core.logic.tool_logic import ToolLogicCore
             original_tool_name = ToolLogicCore.extract_original_tool_name(
@@ -479,35 +373,6 @@ class CacheManager:
             f"tools_count={len(tools)}"
         )
 
-        # region agent log
-        try:
-            import json, time
-            from pathlib import Path
-            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-            tool_names = [t[0] for t in tools]
-            log_record = {
-                "sessionId": "debug-session",
-                "runId": "pre-fix",
-                "hypothesisId": "H1",
-                "location": "cache_manager.py:_update_service_status",
-                "message": "before_update_service_status",
-                "data": {
-                    "agent_id": agent_id,
-                    "service_name": service_name,
-                    "service_global_name": service_global_name,
-                    "tools_count": len(tools),
-                    "tool_names": tool_names,
-                },
-                "timestamp": int(time.time() * 1000),
-            }
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-        except Exception:
-            # 调试日志失败不影响主流程
-            pass
-        # endregion
-        
         # 构建工具状态列表（所有工具默认 available）
         tools_status = []
         for tool_name, tool_def in tools:

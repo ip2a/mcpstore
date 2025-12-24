@@ -245,7 +245,31 @@ class AgentProxy:
 
     # ---- Mutations ----
     def add_service(self, config: Dict[str, Any]) -> bool:
-        raise RuntimeError("[AGENT_PROXY] 同步 add_service 已禁用，请使用 add_service_async。")
+        """
+        同步添加服务（仅在当前线程不存在事件循环时使用）。
+
+        - 如果当前线程已有事件循环，会提醒使用 add_service_async 以避免 AOB 冲突。
+        - 在普通同步脚本中，可直接调用；内部通过 asyncio.run 执行异步逻辑。
+        """
+        return self.add_service_blocking(config)
+
+    def add_service_blocking(self, *args, **kwargs) -> bool:
+        """
+        便捷同步包装：在当前线程没有事件循环时，阻塞调用 add_service_async。
+        若线程已有事件循环，仍需显式使用 add_service_async 以避免死锁。
+        """
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                raise RuntimeError("[AGENT_PROXY] 当前线程已有事件循环，请使用 add_service_async。")
+        except RuntimeError:
+            # 没有运行中的事件循环，安全使用 asyncio.run
+            return asyncio.run(self.add_service_async(*args, **kwargs))
+
+        # 理论上不会走到这里
+        return False
 
     def update_service(self, name: str, patch: Dict[str, Any]) -> bool:
         raise RuntimeError("[AGENT_PROXY] 同步 update_service 已禁用，请使用 update_service_async。")
@@ -406,6 +430,66 @@ class AgentProxy:
     def for_openai(self):
         ctx = self._agent_ctx or self._context
         return ctx.for_openai()
+
+    # ---- Hub MCP helpers ----
+    def hub_http(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/mcp", **fastmcp_kwargs):
+        """
+        将当前 Agent 暴露为 HTTP MCP 端点（阻塞运行）。
+
+        Args:
+            port: 监听端口
+            host: 监听地址
+            path: HTTP 路径
+            **fastmcp_kwargs: 透传给 FastMCP 的参数（如 auth）
+        """
+        from mcpstore.core.hub.server import HubMCPServer
+
+        hub = HubMCPServer(
+            exposed_object=self._agent_ctx or self._context,
+            transport="http",
+            port=port,
+            host=host,
+            path=path,
+            **fastmcp_kwargs,
+        )
+        runner = getattr(hub._fastmcp, "run_http", None)
+        if runner is None:
+            raise RuntimeError("FastMCP 未提供 run_http 接口，无法启动 HTTP 服务")
+        runner(host=host, port=port, path=path)
+        return hub
+
+    def hub_sse(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/sse", **fastmcp_kwargs):
+        """将当前 Agent 暴露为 SSE MCP 端点（阻塞运行）。"""
+        from mcpstore.core.hub.server import HubMCPServer
+
+        hub = HubMCPServer(
+            exposed_object=self._agent_ctx or self._context,
+            transport="sse",
+            port=port,
+            host=host,
+            path=path,
+            **fastmcp_kwargs,
+        )
+        runner = getattr(hub._fastmcp, "run_sse", None)
+        if runner is None:
+            raise RuntimeError("FastMCP 未提供 run_sse 接口，无法启动 SSE 服务")
+        runner(host=host, port=port, path=path)
+        return hub
+
+    def hub_stdio(self, **fastmcp_kwargs):
+        """将当前 Agent 暴露为 stdio MCP 端点（阻塞运行）。"""
+        from mcpstore.core.hub.server import HubMCPServer
+
+        hub = HubMCPServer(
+            exposed_object=self._agent_ctx or self._context,
+            transport="stdio",
+            **fastmcp_kwargs,
+        )
+        runner = getattr(hub._fastmcp, "run_stdio", None)
+        if runner is None:
+            raise RuntimeError("FastMCP 未提供 run_stdio 接口，无法启动 stdio 服务")
+        runner()
+        return hub
 
     # ---- Sessions (delegations) ----
     def with_session(self, session_id: str):

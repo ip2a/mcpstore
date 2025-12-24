@@ -579,6 +579,27 @@ class ServiceRegistry:
                 global_agent_store_id=self._naming.GLOBAL_AGENT_STORE,
             )
 
+        # 写入/更新 clients 实体
+        import time
+        now_ts = int(time.time())
+        client_entity = await self._cache_layer_manager.get_entity("clients", client_id)
+        if not isinstance(client_entity, dict):
+            client_entity = {
+                "client_id": client_id,
+                "agent_id": agent_id,
+                "services": [],
+                "created_time": now_ts,
+            }
+        services_list = client_entity.get("services") or []
+        if service_global_name not in services_list:
+            services_list.append(service_global_name)
+        client_entity.update({
+            "agent_id": agent_id,
+            "services": services_list,
+            "updated_time": now_ts,
+        })
+        await self._cache_layer_manager.put_entity("clients", client_id, client_entity)
+
         await self._relation_manager.add_agent_service(
             agent_id=agent_id,
             service_original_name=name,
@@ -626,6 +647,20 @@ class ServiceRegistry:
             health_status=health_status,
             tools_status=tools_status
         )
+        # 初始化 service_metadata 状态
+        try:
+            metadata_state = {
+                "service_global_name": service_global_name,
+                "agent_id": agent_id,
+                "created_time": now_ts,
+                "state_entered_time": now_ts,
+                "reconnect_attempts": 0,
+                "last_ping_time": None,
+            }
+            await self._cache_layer_manager.put_state("service_metadata", service_global_name, metadata_state)
+        except Exception as meta_error:
+            logger.warning(f"[SERVICE_METADATA] init metadata failed for {service_global_name}: {meta_error}")
+
         self._cache_state_snapshot(agent_id, name, state)
 
         if session is not None:
@@ -1066,7 +1101,7 @@ class ServiceRegistry:
         Returns:
             客户端配置或None
         """
-        return await self._cache_layer_manager.get_entity("client_configs", client_id)
+        return await self._cache_layer_manager.get_entity("clients", client_id)
 
     def add_client_config(self, client_id: str, client_config: Dict[str, Any]) -> str:
         if not client_id:
@@ -1074,7 +1109,7 @@ class ServiceRegistry:
         if not isinstance(client_config, dict):
             raise ValueError("client_config 必须是字典类型")
         self._run_async(
-            self._cache_layer_manager.put_entity("client_configs", client_id, client_config),
+            self._cache_layer_manager.put_entity("clients", client_id, client_config),
             op_name="ServiceRegistry.add_client_config",
         )
         return client_id
@@ -1096,6 +1131,26 @@ class ServiceRegistry:
             service_original_name, _ = self._naming.parse_service_global_name(service_name)
         else:
             service_original_name = service_name
+
+        # 确保 clients 实体存在，并关联当前服务
+        import time
+        client_entity = await self._cache_layer_manager.get_entity("clients", client_id)
+        if not isinstance(client_entity, dict):
+            client_entity = {
+                "client_id": client_id,
+                "agent_id": agent_id,
+                "services": [],
+                "created_time": int(time.time()),
+            }
+        services = client_entity.get("services") or []
+        if global_name not in services:
+            services.append(global_name)
+        client_entity.update({
+            "agent_id": agent_id,
+            "services": services,
+            "updated_time": int(time.time()),
+        })
+        await self._cache_layer_manager.put_entity("clients", client_id, client_entity)
 
         await self._relation_manager.add_agent_service(
             agent_id=agent_id,
@@ -1209,10 +1264,10 @@ class ServiceRegistry:
         )
         return {
             "services_count": len(services),
-            "client_configs": len(
+            "clients": len(
                 self._run_async(
-                    self._cache_layer_manager.get_all_entities_async("client_configs"),
-                    op_name="ServiceRegistry.get_mapping_stats.client_configs",
+                    self._cache_layer_manager.get_all_entities_async("clients"),
+                    op_name="ServiceRegistry.get_mapping_stats.clients",
                 )
             ),
         }

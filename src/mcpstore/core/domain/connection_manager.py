@@ -111,6 +111,32 @@ class ConnectionManager:
             )
 
             # Publish connection success event
+            # region agent log
+            try:
+                import json
+                from pathlib import Path
+                import time as time_module
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H1",
+                    "location": "connection_manager.py:_on_connection_requested",
+                    "message": "before_publish_service_connected",
+                    "data": {
+                        "service_name": event.service_name,
+                        "agent_id": event.agent_id,
+                        "tools_count": len(tools),
+                        "connection_time": connection_time,
+                    },
+                    "timestamp": int(time_module.time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # endregion
             connected_event = ServiceConnected(
                 agent_id=event.agent_id,
                 service_name=event.service_name,
@@ -118,6 +144,30 @@ class ConnectionManager:
                 tools=tools,
                 connection_time=connection_time
             )
+            # region agent log
+            try:
+                import json
+                from pathlib import Path
+                import time as time_module
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H1",
+                    "location": "connection_manager.py:_on_connection_requested",
+                    "message": "after_publish_service_connected",
+                    "data": {
+                        "service_name": event.service_name,
+                        "event_id": str(connected_event.id) if hasattr(connected_event, 'id') else None,
+                    },
+                    "timestamp": int(time_module.time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # endregion
             await self._event_bus.publish(connected_event)
 
         except asyncio.TimeoutError:

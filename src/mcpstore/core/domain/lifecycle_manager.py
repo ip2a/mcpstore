@@ -144,7 +144,59 @@ class LifecycleManager:
                 )
             
             # 获取现有的服务状态
+            # region agent log
+            try:
+                import json
+                from pathlib import Path
+                import time as time_module
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H4",
+                    "location": "lifecycle_manager.py:_set_service_state_async",
+                    "message": "before_get_existing_status",
+                    "data": {
+                        "global_name": global_name,
+                        "health_status": health_status,
+                        "agent_id": agent_id,
+                        "service_name": service_name,
+                    },
+                    "timestamp": int(time_module.time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # endregion
             existing_status = await cache_state_manager.get_service_status(global_name)
+            # region agent log
+            try:
+                import json
+                from pathlib import Path
+                import time as time_module
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H4",
+                    "location": "lifecycle_manager.py:_set_service_state_async",
+                    "message": "after_get_existing_status",
+                    "data": {
+                        "global_name": global_name,
+                        "existing_status_is_none": existing_status is None,
+                        "existing_health_status": existing_status.health_status if existing_status else None,
+                        "tools_count": len(existing_status.tools) if existing_status else 0,
+                    },
+                    "timestamp": int(time_module.time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # endregion
             
             if existing_status:
                 # 关键修复（方案 C）：保留现有的工具状态，只更新健康状态
@@ -158,11 +210,60 @@ class LifecycleManager:
                     for tool in existing_status.tools
                 ]
                 
+                # region agent log
+                try:
+                    import json
+                    from pathlib import Path
+                    import time as time_module
+                    log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                    log_record = {
+                        "sessionId": "debug-session",
+                        "runId": "pre-fix",
+                        "hypothesisId": "H5",
+                        "location": "lifecycle_manager.py:_set_service_state_async",
+                        "message": "before_update_service_status",
+                        "data": {
+                            "global_name": global_name,
+                            "health_status": health_status,
+                            "tools_count": len(tools_status),
+                        },
+                        "timestamp": int(time_module.time() * 1000),
+                    }
+                    log_path.parent.mkdir(parents=True, exist_ok=True)
+                    with log_path.open("a", encoding="utf-8") as f:
+                        f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+                except Exception:
+                    pass
+                # endregion
                 await cache_state_manager.update_service_status(
                     global_name,
                     health_status,
                     tools_status
                 )
+                # region agent log
+                try:
+                    import json
+                    from pathlib import Path
+                    import time as time_module
+                    log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                    log_record = {
+                        "sessionId": "debug-session",
+                        "runId": "pre-fix",
+                        "hypothesisId": "H5",
+                        "location": "lifecycle_manager.py:_set_service_state_async",
+                        "message": "after_update_service_status",
+                        "data": {
+                            "global_name": global_name,
+                            "health_status": health_status,
+                        },
+                        "timestamp": int(time_module.time() * 1000),
+                    }
+                    log_path.parent.mkdir(parents=True, exist_ok=True)
+                    with log_path.open("a", encoding="utf-8") as f:
+                        f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+                except Exception:
+                    pass
+                # endregion
                 logger.debug(
                     f"[LIFECYCLE] 更新健康状态: {global_name} -> {health_status}, "
                     f"保留工具数量: {len(tools_status)}"
@@ -281,6 +382,30 @@ class LifecycleManager:
         2. 状态转换和元数据更新分离
         3. 错误处理和事件发布
         """
+        # region agent log
+        try:
+            import json
+            from pathlib import Path
+            import time as time_module
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H1",
+                "location": "lifecycle_manager.py:_on_service_connected",
+                "message": "service_connected_event_received",
+                "data": {
+                    "service_name": event.service_name,
+                    "agent_id": event.agent_id,
+                },
+                "timestamp": int(time_module.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # endregion
         logger.info(f"[LIFECYCLE] Service connected: {event.service_name}")
 
         try:
@@ -320,6 +445,30 @@ class LifecycleManager:
         """
         处理服务连接成功的内部逻辑（在锁保护下执行）
         """
+        # region agent log
+        try:
+            import json
+            from pathlib import Path
+            import time as time_module
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H1",
+                "location": "lifecycle_manager.py:_handle_service_connected_internal",
+                "message": "service_connected_handler_entered",
+                "data": {
+                    "service_name": event.service_name,
+                    "agent_id": event.agent_id,
+                },
+                "timestamp": int(time_module.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # endregion
         # 1. 通过异步API转换状态到 HEALTHY
         # 方案 C：只更新健康状态，不触碰工具状态
         await self._set_service_state_async(
@@ -373,6 +522,32 @@ class LifecycleManager:
         2. 只更新元数据，不直接转换状态
         3. 让 HealthMonitor 通过健康检查处理状态转换
         """
+        # region agent log
+        try:
+            import json
+            from pathlib import Path
+            import time as time_module
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H2",
+                "location": "lifecycle_manager.py:_on_service_connection_failed",
+                "message": "service_connection_failed_received",
+                "data": {
+                    "service_name": event.service_name,
+                    "agent_id": event.agent_id,
+                    "error_message": event.error_message,
+                    "error_type": getattr(event, 'error_type', None),
+                },
+                "timestamp": int(time_module.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # endregion
         logger.warning(f"[LIFECYCLE] Service connection failed: {event.service_name} ({event.error_message})")
 
         try:
@@ -386,27 +561,6 @@ class LifecycleManager:
 
             # 2. 更新失败信息（纯函数操作）
             if metadata:
-                # #region agent log
-                try:
-                    log_payload = {
-                        "sessionId": "debug-session",
-                        "runId": "pre-fix",
-                        "hypothesisId": "H3",
-                        "location": "lifecycle_manager.py:_on_service_connection_failed",
-                        "message": "metadata before failure update",
-                        "data": {
-                            "service_name": event.service_name,
-                            "agent_id": event.agent_id,
-                            "metadata_fields": list(metadata.__fields__),
-                            "event_retry_count": event.retry_count,
-                        },
-                        "timestamp": datetime.now().timestamp(),
-                    }
-                    with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a") as f:
-                        f.write(json.dumps(log_payload, ensure_ascii=False) + "\n")
-                except Exception:
-                    pass
-                # #endregion
                 metadata.consecutive_failures += 1
                 metadata.error_message = event.error_message
                 metadata.last_failure_time = datetime.now()
@@ -420,6 +574,31 @@ class LifecycleManager:
                 logger.warning(f"[LIFECYCLE] No metadata found for {event.service_name}, skipping failure update")
 
             # 3. 明确记录：不立即转换状态，让 HealthMonitor 处理
+            # region agent log
+            try:
+                import json
+                from pathlib import Path
+                import time as time_module
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H2",
+                    "location": "lifecycle_manager.py:_on_service_connection_failed",
+                    "message": "deferring_to_health_monitor",
+                    "data": {
+                        "service_name": event.service_name,
+                        "metadata_exists": metadata is not None,
+                        "consecutive_failures": metadata.consecutive_failures if metadata else None,
+                    },
+                    "timestamp": int(time_module.time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # endregion
             logger.info(f"[LIFECYCLE] Connection failure handled, deferring state transition to health monitor")
 
             # 4. 发布连接失败事件（可能触发其他组件的处理）
@@ -450,6 +629,32 @@ class LifecycleManager:
         2. 状态转换逻辑清晰分离
         3. 遵循阈值配置进行状态管理
         """
+        # region agent log
+        try:
+            import json
+            from pathlib import Path
+            import time as time_module
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H3",
+                "location": "lifecycle_manager.py:_on_health_check_completed",
+                "message": "health_check_completed_received",
+                "data": {
+                    "service_name": event.service_name,
+                    "agent_id": event.agent_id,
+                    "success": event.success,
+                    "response_time": getattr(event, 'response_time', None),
+                },
+                "timestamp": int(time_module.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # endregion
         logger.debug(f"[LIFECYCLE] Health check completed: {event.service_name} (success={event.success})")
 
         try:
@@ -476,6 +681,32 @@ class LifecycleManager:
             failures = 0
             if metadata:
                 failures = metadata.consecutive_failures
+            # region agent log
+            try:
+                import json
+                from pathlib import Path
+                import time as time_module
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H3",
+                    "location": "lifecycle_manager.py:_on_health_check_completed",
+                    "message": "before_state_transition",
+                    "data": {
+                        "service_name": event.service_name,
+                        "current_state": current_state.value if hasattr(current_state, 'value') else str(current_state),
+                        "failures": failures,
+                        "success": event.success,
+                    },
+                    "timestamp": int(time_module.time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # endregion
 
             # Success: return from INITIALIZING/WARNING to HEALTHY; HEALTHY stays
             if event.success:

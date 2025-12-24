@@ -7,6 +7,7 @@ with modern cache configuration (RedisConfig/MemoryConfig).
 """
 
 import logging
+import time
 import os
 from typing import Optional, Dict, Any, Union
 from copy import deepcopy
@@ -124,6 +125,7 @@ class StoreSetupManager:
             create_kv_store, get_namespace, start_health_check
         )
         from mcpstore.core.bridge import get_async_bridge
+        bridge = get_async_bridge()
 
         # Handle cache configuration (default to MemoryConfig if not provided)
         if cache is None:
@@ -147,9 +149,6 @@ class StoreSetupManager:
         # 关键修复：对于 Redis 后端，必须在 AOB 的后台事件循环中创建 KV store
         # 这样 Redis 连接就绑定到 AOB 的事件循环，后续所有操作都在同一个事件循环中执行
         if isinstance(cache, RedisConfig):
-            # 获取 AOB 实例，确保后台事件循环已启动
-            bridge = get_async_bridge()
-            
             # 在 AOB 的后台事件循环中创建 Redis KV store
             async def _create_redis_kv_store():
                 from key_value.aio.stores.redis import RedisStore
@@ -265,6 +264,136 @@ class StoreSetupManager:
             bridge.run(orchestrator.setup(), op_name="orchestrator.setup")
         else:
             asyncio.run(orchestrator.setup())
+
+        # 6.5) 预写核心实体（store / agents）
+        async def _seed_core_entities():
+            try:
+                cache_layer = getattr(registry, "_cache_layer_manager", None)
+                if cache_layer is None:
+                    logger.warning("[CACHE_SEED] cache_layer_manager not available; skip seeding core entities.")
+                    return
+
+                now = int(time.time())
+                # seed agent: global_agent_store
+                try:
+                    global_agent_id = getattr(store.client_manager, "global_agent_store_id", "global_agent_store")
+                except Exception:
+                    global_agent_id = "global_agent_store"
+
+                agent_exists = await cache_layer.get_entity("agents", global_agent_id)
+                if agent_exists is None:
+                    await cache_layer.put_entity(
+                        "agents",
+                        global_agent_id,
+                        {
+                            "agent_id": global_agent_id,
+                            "created_time": now,
+                            "last_active": now,
+                            "is_global": True,
+                        },
+                    )
+
+                # seed store entity
+                store_key = "mcpstore"
+                store_payload = {
+                    "store_id": store_key,
+                    "namespace": namespace,
+                    "cache_mode": cache_mode,
+                    "mcpjson_path": resolved_mcp_path,
+                    "workspace_dir": workspace_dir,
+                    "created_time": now,
+                }
+                existing_store = await cache_layer.get_entity("store", store_key)
+                if existing_store is None:
+                    await cache_layer.put_entity("store", store_key, store_payload)
+            except Exception as seed_error:
+                logger.warning(f"[CACHE_SEED] Failed to seed core entities: {seed_error}")
+
+        async def _backfill_clients_and_metadata():
+            try:
+                cache_layer = getattr(registry, "_cache_layer_manager", None)
+                if cache_layer is None:
+                    logger.warning("[CACHE_SEED] cache_layer_manager not available; skip backfill.")
+                    return
+                services = await cache_layer.get_all_entities_async("services")
+                relations = await cache_layer.get_all_relations_async("agent_services")
+
+                # 构建 service_global_name -> client_id 映射
+                client_by_service: dict[str, str] = {}
+                agent_by_service: dict[str, str] = {}
+                for agent_id, rel in relations.items():
+                    for svc in rel.get("services", []) if isinstance(rel, dict) else []:
+                        sg = svc.get("service_global_name")
+                        cid = svc.get("client_id")
+                        if sg:
+                            client_by_service[sg] = cid
+                            agent_by_service[sg] = agent_id
+
+                from mcpstore.core.utils.id_generator import ClientIDGenerator
+                now_ts = int(time.time())
+
+                for sg, data in services.items():
+                    if not isinstance(data, dict):
+                        continue
+                    agent_id = data.get("source_agent") or agent_by_service.get(sg) or "global_agent_store"
+                    client_id = client_by_service.get(sg)
+                    if not client_id:
+                        client_id = ClientIDGenerator.generate_deterministic_id(
+                            agent_id=agent_id,
+                            service_name=data.get("service_original_name", sg),
+                            service_config=data.get("config", {}),
+                            global_agent_store_id="global_agent_store",
+                        )
+
+                    # backfill clients 实体
+                    client_entity = await cache_layer.get_entity("clients", client_id)
+                    if not isinstance(client_entity, dict):
+                        client_entity = {
+                            "client_id": client_id,
+                            "agent_id": agent_id,
+                            "services": [],
+                            "created_time": now_ts,
+                        }
+                    services_list = client_entity.get("services") or []
+                    if sg not in services_list:
+                        services_list.append(sg)
+                    client_entity.update({
+                        "agent_id": agent_id,
+                        "services": services_list,
+                        "updated_time": now_ts,
+                    })
+                    await cache_layer.put_entity("clients", client_id, client_entity)
+
+                    # backfill service_metadata 状态
+                    existing_meta = await cache_layer.get_state("service_metadata", sg)
+                    if existing_meta is None:
+                        metadata_state = {
+                            "service_global_name": sg,
+                            "agent_id": agent_id,
+                            "created_time": now_ts,
+                            "state_entered_time": now_ts,
+                            "reconnect_attempts": 0,
+                            "last_ping_time": None,
+                        }
+                        await cache_layer.put_state("service_metadata", sg, metadata_state)
+            except Exception as bf_error:
+                logger.warning(f"[CACHE_SEED] Backfill clients/metadata failed: {bf_error}")
+
+        try:
+            if isinstance(cache, RedisConfig):
+                bridge.run(_seed_core_entities(), op_name="cache.seed_core_entities")
+            else:
+                asyncio.run(_seed_core_entities())
+        except Exception as seed_outer_error:
+            logger.warning(f"[CACHE_SEED] Seeding core entities failed: {seed_outer_error}")
+
+        try:
+            if isinstance(cache, RedisConfig):
+                bridge.run(_backfill_clients_and_metadata(), op_name="cache.backfill_clients_metadata")
+            else:
+                asyncio.run(_backfill_clients_and_metadata())
+        except Exception as bf_outer_error:
+            logger.warning(f"[CACHE_SEED] Backfill clients/metadata failed: {bf_outer_error}")
 
         # [已移除] Phase 11: 配置同步 (sync_json_to_cache)
         # 原因: 所有一致性数据统一通过 add_service() 写入三层缓存架构
