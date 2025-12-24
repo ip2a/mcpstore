@@ -114,11 +114,58 @@ class StateManager:
         # endregion
 
         # 存储到状态层
+        # region agent log
+        try:
+            import json
+            from pathlib import Path
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H5",
+                "location": "state_manager.py:update_service_status",
+                "message": "before_put_state_final",
+                "data": {
+                    "service_global_name": service_global_name,
+                    "health_status": health_status,
+                    "status_dict_keys": list(status.to_dict().keys()),
+                },
+                "timestamp": int(time.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # endregion
         await self._cache_layer.put_state(
             "service_status",
             service_global_name,
             status.to_dict()
         )
+        # region agent log
+        try:
+            import json
+            from pathlib import Path
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H5",
+                "location": "state_manager.py:update_service_status",
+                "message": "after_put_state_final",
+                "data": {
+                    "service_global_name": service_global_name,
+                    "health_status": health_status,
+                },
+                "timestamp": int(time.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # endregion
         
         logger.debug(
             f"[StateManager] 更新服务状态: service={service_global_name}, "

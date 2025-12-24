@@ -122,6 +122,19 @@ class ServiceManagementAsyncShell:
                         successful_operations.append(operation)
                         results.append({"operation": operation.key, "status": "success"})
 
+                    elif operation.type == "put_metadata":
+                        cache_layer = getattr(self.registry, "_cache_layer_manager", None)
+                        if cache_layer is None:
+                            raise RuntimeError("缓存层 CacheLayerManager 未初始化。")
+                        await cache_layer.put_state(
+                            "service_metadata",
+                            operation.data["key"],
+                            operation.data.get("value", {})
+                        )
+                        logger.debug(f"[ASYNC_SHELL] put_metadata 成功，key={operation.data['key']}")
+                        successful_operations.append(operation)
+                        results.append({"operation": operation.key, "status": "success"})
+
                     else:
                         raise ValueError(f"未知操作类型: {operation.type}")
 
@@ -258,11 +271,15 @@ class ServiceManagementAsyncShell:
                 if hasattr(self.orchestrator, 'connect_service'):
                     logger.info(f"[CONNECTION_START] 找到 connect_service 方法，连接服务...")
 
-                    # 从缓存层直接获取服务配置
+                    # 计算全局名称，并从缓存层直接获取服务配置
+                    from ..cache.naming_service import NamingService
+                    naming = NamingService()
+                    global_name = naming.generate_service_global_name(service_name, self.core.agent_id or "global_agent_store")
+
                     service_config = {}
                     try:
-                        # 使用缓存层 ServiceEntityManager 获取服务实体
-                        service_entity = await service_manager.get_service(service_name)
+                        # 使用缓存层 ServiceEntityManager 获取服务实体（全局名）
+                        service_entity = await service_manager.get_service(global_name)
 
                         logger.info(f"[CONNECTION_START] 获取的service_entity: {service_entity}")
 
@@ -279,9 +296,9 @@ class ServiceManagementAsyncShell:
                                 service_config = inner_config
                                 logger.info(f"[CONNECTION_START] 传递给orchestrator的服务配置: {service_config}")
                             else:
-                                logger.warning(f"[CONNECTION_START] 服务配置无效: {inner_config}")
+                                raise RuntimeError(f"[CONNECTION_START] 服务配置无效或为空: {inner_config}")
                         else:
-                            logger.warning(f"[CONNECTION_START] service_entity 为空")
+                            raise RuntimeError(f"[CONNECTION_START] service_entity 为空: global_name={global_name}")
 
                     except Exception as e:
                         logger.error(f"[CONNECTION_START] 获取服务配置失败: {e}")
@@ -393,7 +410,7 @@ class ServiceManagementFactory:
     """
 
     @staticmethod
-    def create_service_management(registry, orchestrator) -> tuple:
+    def create_service_management(registry, orchestrator, agent_id: str = "global_agent_store") -> tuple:
         """
         创建完整的服务管理实例
 
@@ -401,7 +418,7 @@ class ServiceManagementFactory:
             tuple: (sync_shell, async_shell, core)
         """
         # 1. 创建纯同步核心
-        core = ServiceManagementCore()
+        core = ServiceManagementCore(agent_id=agent_id)
 
         # 2. 创建异步外壳
         async_shell = ServiceManagementAsyncShell(core, registry, orchestrator)

@@ -430,6 +430,6 @@ class MappingManager:
             "namespace": self._namespace,
             "service_client_mappings": len(self._service_client_mapping),
             "agent_service_mappings": len(self._agent_service_mapping),
-            "client_configs": len(self._client_config),
+            "clients": len(self._client_config),
             "global_name_mappings": len(self._global_name_mapping)
         }

@@ -233,11 +233,13 @@ class ServiceOperationsMixin:
                 raise Exception("config 为字符串时必须是合法的 JSON")
 
         # 使用新架构：同步外壳
-        if not hasattr(self, '_service_management_sync_shell'):
-            from ..architecture import ServiceManagementFactory
-            self._service_management_sync_shell, _, _ = ServiceManagementFactory.create_service_management(
-                self._store.registry, self._store.orchestrator
-            )
+            if not hasattr(self, '_service_management_sync_shell'):
+                from ..architecture import ServiceManagementFactory
+                self._service_management_sync_shell, _, _ = ServiceManagementFactory.create_service_management(
+                    self._store.registry,
+                    self._store.orchestrator,
+                    agent_id=self._agent_id or self._store.client_manager.global_agent_store_id
+                )
 
         # 直接调用同步外壳，完全避免_sync_helper.run_async
         result = self._service_management_sync_shell.add_service(final_config)
@@ -605,7 +607,9 @@ class ServiceOperationsMixin:
                 if not hasattr(self, '_service_management_async_shell'):
                     from ..architecture import ServiceManagementFactory
                     sync_shell, async_shell, core = ServiceManagementFactory.create_service_management(
-                        self._store.registry, self._store.orchestrator
+                        self._store.registry,
+                        self._store.orchestrator,
+                        agent_id=self._agent_id or self._store.client_manager.global_agent_store_id
                     )
                     self._service_management_sync_shell = sync_shell
                     self._service_management_async_shell = async_shell

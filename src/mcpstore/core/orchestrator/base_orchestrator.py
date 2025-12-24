@@ -216,25 +216,6 @@ class MCPOrchestrator(
             # 只有在非独立配置模式下才启用文件监听同步
             if not self.standalone_config_manager:
                 logger.info("Creating unified sync manager...")
-                # #region agent log
-                try:
-                    log_payload = {
-                        "sessionId": "debug-session",
-                        "runId": "pre-fix",
-                        "hypothesisId": "H1",
-                        "location": "base_orchestrator.py:_setup_sync_manager",
-                        "message": "about to import UnifiedMCPSyncManager (may trigger inotify)",
-                        "data": {
-                            "standalone_config_manager": bool(self.standalone_config_manager),
-                            "has_sync_manager": bool(getattr(self, 'sync_manager', None)),
-                        },
-                        "timestamp": datetime.now().timestamp(),
-                    }
-                    with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a") as f:
-                        f.write(json.dumps(log_payload, ensure_ascii=False) + "\n")
-                except Exception:
-                    pass
-                # #endregion
                 from mcpstore.core.sync.unified_sync_manager import UnifiedMCPSyncManager
                 if not hasattr(self, 'sync_manager') or not self.sync_manager:
                     logger.info("Initializing UnifiedMCPSyncManager...")

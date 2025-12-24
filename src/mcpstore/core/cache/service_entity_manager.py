@@ -94,34 +94,6 @@ class ServiceEntityManager:
                 entity.to_dict()
             )
 
-            # region agent log - H1: service_entity_upsert_existing
-            try:
-                import json, time as _t
-                from pathlib import Path
-                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                log_record = {
-                    "sessionId": "debug-session",
-                    "runId": "pre-fix",
-                    "hypothesisId": "H1",
-                    "location": "service_entity_manager.py:create_service",
-                    "message": "service_entity_upsert_existing",
-                    "data": {
-                        "agent_id": agent_id,
-                        "original_name": original_name,
-                        "global_name": global_name,
-                        "config_is_empty": not bool(config),
-                        "config_keys": list(config.keys()) if isinstance(config, dict) else None,
-                    },
-                    "timestamp": int(_t.time() * 1000),
-                }
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                with log_path.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-            except Exception:
-                # 调试日志失败不影响主流程
-                pass
-            # endregion
-            
             logger.info(
                 f"[SERVICE_ENTITY] 更新服务实体: global_name={global_name}, "
                 f"original_name={original_name}, agent_id={agent_id}"
@@ -144,34 +116,6 @@ class ServiceEntityManager:
             entity.to_dict()
         )
 
-        # region agent log - H1: service_entity_created_new
-        try:
-            import json, time as _t
-            from pathlib import Path
-            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-            log_record = {
-                "sessionId": "debug-session",
-                "runId": "pre-fix",
-                "hypothesisId": "H1",
-                "location": "service_entity_manager.py:create_service",
-                "message": "service_entity_created_new",
-                "data": {
-                    "agent_id": agent_id,
-                    "original_name": original_name,
-                    "global_name": global_name,
-                    "config_is_empty": not bool(config),
-                    "config_keys": list(config.keys()) if isinstance(config, dict) else None,
-                },
-                "timestamp": int(_t.time() * 1000),
-            }
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-        except Exception:
-            # 调试日志失败不影响主流程
-            pass
-        # endregion
-        
         logger.info(
             f"[SERVICE_ENTITY] 创建服务实体: global_name={global_name}, "
             f"original_name={original_name}, agent_id={agent_id}"
@@ -205,33 +149,6 @@ class ServiceEntityManager:
             )
             return None
 
-        # region agent log - H2: service_entity_loaded_raw
-        try:
-            import json, time as _t
-            from pathlib import Path
-            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-            log_record = {
-                "sessionId": "debug-session",
-                "runId": "pre-fix",
-                "hypothesisId": "H2",
-                "location": "service_entity_manager.py:get_service",
-                "message": "service_entity_loaded_raw",
-                "data": {
-                    "global_name": global_name,
-                    "has_config_field": "config" in data if isinstance(data, dict) else None,
-                    "config_is_empty": (not bool(data.get("config")) if isinstance(data, dict) and "config" in data else None),
-                    "data_keys": list(data.keys()) if isinstance(data, dict) else None,
-                },
-                "timestamp": int(_t.time() * 1000),
-            }
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-        except Exception:
-            # 调试日志失败不影响主流程
-            pass
-        # endregion
-        
         # 转换为实体对象
         try:
             entity = ServiceEntity.from_dict(data)
@@ -287,32 +204,6 @@ class ServiceEntityManager:
             entity.to_dict()
         )
 
-        # region agent log - H4: service_entity_updated_config
-        try:
-            import json, time as _t
-            from pathlib import Path
-            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-            log_record = {
-                "sessionId": "debug-session",
-                "runId": "pre-fix",
-                "hypothesisId": "H4",
-                "location": "service_entity_manager.py:update_service",
-                "message": "service_entity_updated_config",
-                "data": {
-                    "global_name": global_name,
-                    "config_is_empty": not bool(config),
-                    "config_keys": list(config.keys()) if isinstance(config, dict) else None,
-                },
-                "timestamp": int(_t.time() * 1000),
-            }
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-        except Exception:
-            # 调试日志失败不影响主流程
-            pass
-        # endregion
-        
         logger.info(
             f"[SERVICE_ENTITY] 更新服务配置: global_name={global_name}"
         )
@@ -337,30 +228,6 @@ class ServiceEntityManager:
         logger.info(
             f"[SERVICE_ENTITY] 删除服务实体: global_name={global_name}"
         )
-
-        # region agent log - H11: service_entity_deleted
-        try:
-            import json, time
-            from pathlib import Path
-            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-            log_record = {
-                "sessionId": "debug-session",
-                "runId": "pre-fix-2",
-                "hypothesisId": "H11",
-                "location": "service_entity_manager.py:delete_service",
-                "message": "service_entity_deleted",
-                "data": {
-                    "service_global_name": global_name,
-                },
-                "timestamp": int(time.time() * 1000),
-            }
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-        except Exception:
-            # 调试日志失败不影响主流程
-            pass
-        # endregion
     
     async def list_services_by_agent(
         self,
