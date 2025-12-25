@@ -126,6 +126,12 @@ class EventBus:
         if is_critical and not wait:
             logger.debug(f"[BUS {hex(id(self))}] Critical event {event.__class__.__name__} forcing wait=True")
             wait = True
+
+        # 使 ServiceCached 也同步执行，避免生命周期初始化被取消
+        from .service_events import ServiceCached
+        if isinstance(event, ServiceCached) and not wait:
+            logger.debug(f"[BUS {hex(id(self))}] ServiceCached forcing wait=True to ensure lifecycle init")
+            wait = True
         logger.debug(f"[BUS {hex(id(self))}] Publishing event: {event.__class__.__name__} (id={event.event_id}) wait={wait}")
 
         # 记录历史
@@ -166,14 +172,88 @@ class EventBus:
         """
         安全地处理事件（隔离错误）
         """
+        # #region agent log
+        try:
+            import json
+            from pathlib import Path
+            import time as time_module
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H1,H3",
+                "location": "event_bus.py:_handle_event_safely",
+                "message": "handler_start",
+                "data": {
+                    "handler_name": handler.__name__,
+                    "event_type": event.__class__.__name__,
+                    "event_id": str(event.event_id) if hasattr(event, 'event_id') else None,
+                },
+                "timestamp": int(time_module.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # #endregion
         try:
             if self._handler_timeout and self._handler_timeout > 0:
                 await asyncio.wait_for(handler(event), timeout=self._handler_timeout)
             else:
                 await handler(event)
             logger.debug(f"Handler {handler.__name__} completed for {event.__class__.__name__}")
+            # #region agent log
+            try:
+                import json
+                from pathlib import Path
+                import time as time_module
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H1,H3",
+                    "location": "event_bus.py:_handle_event_safely",
+                    "message": "handler_completed",
+                    "data": {
+                        "handler_name": handler.__name__,
+                        "event_type": event.__class__.__name__,
+                    },
+                    "timestamp": int(time_module.time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # #endregion
         except asyncio.CancelledError as ce:
             logger.warning(f"Handler {handler.__name__} cancelled for {event.__class__.__name__}: {ce}")
+            # #region agent log
+            try:
+                import json
+                from pathlib import Path
+                import time as time_module
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H1,H3",
+                    "location": "event_bus.py:_handle_event_safely",
+                    "message": "handler_cancelled",
+                    "data": {
+                        "handler_name": handler.__name__,
+                        "event_type": event.__class__.__name__,
+                        "error": str(ce),
+                    },
+                    "timestamp": int(time_module.time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # #endregion
             # do not re-raise to avoid noisy loop exceptions
         except GeneratorExit as ge:
             logger.warning(f"Handler {handler.__name__} generator-exit for {event.__class__.__name__}: {ge}")
@@ -225,4 +305,3 @@ class EventBus:
         else:
             self._subscribers.clear()
             logger.debug("Unsubscribed all handlers from all events")
-

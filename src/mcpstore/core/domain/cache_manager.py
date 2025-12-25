@@ -155,6 +155,8 @@ class CacheManager:
             )
             logger.info(f"[CACHE] Publishing ServiceCached event for {event.service_name}")
             await self._event_bus.publish(cached_event)
+
+            # 仅负责缓存与事件发布；连接请求由 orchestrator/connection_manager 统一触发
             
         except Exception as e:
             logger.error(f"[CACHE] Failed to cache service {event.service_name}: {e}", exc_info=True)

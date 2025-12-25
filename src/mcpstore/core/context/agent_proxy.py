@@ -241,7 +241,16 @@ class AgentProxy:
         raise RuntimeError("[AGENT_PROXY] 同步 check_services 已禁用，请使用 check_services_async。")
 
     def call_tool(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
-        raise RuntimeError("[AGENT_PROXY] 同步 call_tool 已禁用，请使用 call_tool_async。")
+        # 为兼容同步示例，桥接到异步实现；若当前线程已有事件循环，会抛出异常提示使用异步
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                raise RuntimeError("[AGENT_PROXY] 当前线程已有事件循环，请使用 call_tool_async。")
+        except RuntimeError:
+            pass  # 无运行中的 loop，可安全使用 asyncio.run
+
+        return asyncio.run(self.call_tool_async(tool_name, args))
 
     # ---- Mutations ----
     def add_service(self, config: Dict[str, Any]) -> bool:
