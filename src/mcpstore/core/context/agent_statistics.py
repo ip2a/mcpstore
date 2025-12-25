@@ -134,8 +134,9 @@ class AgentStatisticsMixin:
                     #  [REFACTOR] 简化逻辑：直接检查服务状态来判断client是否活跃
                     # 不再调用不存在的get_client_status方法
                     
-                    # 统计服务
-                    for service_name, service_config in client_config.get("mcpServers", {}).items():
+                    # 统计服务（新架构：从 client 实体的 services 列表获取服务名称）
+                    services = client_config.get("services", []) if isinstance(client_config, dict) else []
+                    for service_name in services:
                         try:
                             #  [REFACTOR] 使用正确的Registry方法获取服务工具（异步）
                             service_tools = await self._store.registry.get_tools_for_service_async(agent_id, service_name)

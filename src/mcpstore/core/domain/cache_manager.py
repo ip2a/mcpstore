@@ -154,7 +154,55 @@ class CacheManager:
                 ]
             )
             logger.info(f"[CACHE] Publishing ServiceCached event for {event.service_name}")
+            # #region agent log
+            try:
+                import json
+                from pathlib import Path
+                import time as time_module
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H1",
+                    "location": "cache_manager.py:_on_service_add_requested",
+                    "message": "before_publish_service_cached",
+                    "data": {
+                        "service_name": event.service_name,
+                        "agent_id": event.agent_id,
+                        "client_id": event.client_id,
+                    },
+                    "timestamp": int(time_module.time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # #endregion
             await self._event_bus.publish(cached_event)
+            # #region agent log
+            try:
+                import json
+                from pathlib import Path
+                import time as time_module
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H1",
+                    "location": "cache_manager.py:_on_service_add_requested",
+                    "message": "after_publish_service_cached",
+                    "data": {
+                        "service_name": event.service_name,
+                    },
+                    "timestamp": int(time_module.time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # #endregion
 
             # 仅负责缓存与事件发布；连接请求由 orchestrator/connection_manager 统一触发
             

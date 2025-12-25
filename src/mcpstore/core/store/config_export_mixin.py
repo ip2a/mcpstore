@@ -67,26 +67,36 @@ class ConfigExportMixin:
                 logger.debug(f"Agent {agent_id} has {len(client_ids)} clients")
                 
                 for client_id in client_ids:
-                    # Get client configuration
-                    client_config = self.registry.get_client_config_from_cache(client_id)
+                    # Get client entity (新架构：使用 services 列表)
+                    client_entity = self.registry.get_client_config_from_cache(client_id)
                     
-                    if client_config and "mcpServers" in client_config:
-                        # Extract mcpServers from this client
-                        for service_name, service_config in client_config["mcpServers"].items():
-                            # For agent services, use the global name (with suffix)
-                            if agent_id != self.client_manager.global_agent_store_id:
-                                # Check if this is an agent service - get global name
-                                global_name = self.registry.get_global_name_from_agent_service(
-                                    agent_id, service_name
-                                )
-                                if global_name:
-                                    mcp_servers[global_name] = service_config
+                    if client_entity and isinstance(client_entity, dict):
+                        services = client_entity.get("services", [])
+                        # 从服务实体获取每个服务的配置
+                        for service_name in services:
+                            try:
+                                service_info = await self.registry.get_complete_service_info_async(agent_id, service_name)
+                                if not service_info or not service_info.get("config"):
+                                    continue
+                                service_config = service_info["config"]
+                                
+                                # For agent services, use the global name (with suffix)
+                                if agent_id != self.client_manager.global_agent_store_id:
+                                    # Check if this is an agent service - get global name
+                                    global_name = self.registry.get_global_name_from_agent_service(
+                                        agent_id, service_name
+                                    )
+                                    if global_name:
+                                        mcp_servers[global_name] = service_config
+                                    else:
+                                        # Fallback: use service name as-is
+                                        mcp_servers[service_name] = service_config
                                 else:
-                                    # Fallback: use service name as-is
+                                    # Store service, use service name directly
                                     mcp_servers[service_name] = service_config
-                            else:
-                                # Store service, use service name directly
-                                mcp_servers[service_name] = service_config
+                            except Exception as e:
+                                logger.warning(f"Failed to get service config for {service_name}: {e}")
+                                continue
             
             # 2. Convert to standard MCP JSON format
             export_data = {
@@ -161,21 +171,31 @@ class ConfigExportMixin:
                 client_ids = await self.registry.get_agent_clients_async(agent_id)
                 
                 for client_id in client_ids:
-                    # Get client configuration
-                    client_config = self.registry.get_client_config_from_cache(client_id)
+                    # Get client entity (新架构：使用 services 列表)
+                    client_entity = self.registry.get_client_config_from_cache(client_id)
                     
-                    if client_config and "mcpServers" in client_config:
-                        # Merge mcpServers from this client
-                        for service_name, service_config in client_config["mcpServers"].items():
-                            # For agent services, use the global name (with suffix)
-                            if agent_id != self.client_manager.global_agent_store_id:
-                                # Check if this is an agent service mapping
-                                from mcpstore.core.context.agent_service_mapper import AgentServiceMapper
-                                global_name = AgentServiceMapper.get_global_service_name(agent_id, service_name)
-                                mcp_servers[global_name] = service_config
-                            else:
-                                # Store service, use service name directly
-                                mcp_servers[service_name] = service_config
+                    if client_entity and isinstance(client_entity, dict):
+                        services = client_entity.get("services", [])
+                        # 从服务实体获取每个服务的配置
+                        for service_name in services:
+                            try:
+                                service_info = await self.registry.get_complete_service_info_async(agent_id, service_name)
+                                if not service_info or not service_info.get("config"):
+                                    continue
+                                service_config = service_info["config"]
+                                
+                                # For agent services, use the global name (with suffix)
+                                if agent_id != self.client_manager.global_agent_store_id:
+                                    # Check if this is an agent service mapping
+                                    from mcpstore.core.context.agent_service_mapper import AgentServiceMapper
+                                    global_name = AgentServiceMapper.get_global_service_name(agent_id, service_name)
+                                    mcp_servers[global_name] = service_config
+                                else:
+                                    # Store service, use service name directly
+                                    mcp_servers[service_name] = service_config
+                            except Exception as e:
+                                logger.warning(f"Failed to get service config for {service_name}: {e}")
+                                continue
             
             # Build the complete configuration
             config = {

@@ -504,16 +504,34 @@ class UnifiedMCPSyncManager:
                 logger.error(f"Failed to add agent-client mapping for {agent_id}/{client_id}: {e}")
                 return False
 
-            # 更新缓存映射2：Client配置映射（异步写入 cache layer，避免同步壳）
+            # 更新缓存映射2：Client实体（使用 main_registry 格式）
             try:
-                await registry._cache_layer_manager.put_entity(
-                    "clients",
-                    client_id,
-                    {"mcpServers": {service_name: service_config}},
-                )
+                # 获取或创建 client 实体（使用 main_registry 格式）
+                client_entity = await registry._cache_layer_manager.get_entity("clients", client_id)
+                if not isinstance(client_entity, dict):
+                    # 创建新的 client 实体
+                    client_entity = {
+                        "client_id": client_id,
+                        "agent_id": agent_id,
+                        "services": [],
+                        "created_time": int(time.time()),
+                    }
+                
+                # 更新 services 列表
+                services = client_entity.get("services") or []
+                if service_name not in services:
+                    services.append(service_name)
+                
+                client_entity.update({
+                    "agent_id": agent_id,
+                    "services": services,
+                    "updated_time": int(time.time()),
+                })
+                
+                await registry._cache_layer_manager.put_entity("clients", client_id, client_entity)
             except Exception as e:
-                logger.error(f"Failed to add client config for {client_id}: {e}")
-                return False
+                logger.error(f"Failed to create/update client entity for {client_id}: {e}")
+                raise  # 按要求抛出错误，不做静默处理
 
             logger.debug(f"缓存映射更新成功: {service_name} -> {client_id}")
             logger.debug(f"   - agent_clients[{agent_id}] 已通过Registry API更新")
@@ -543,12 +561,14 @@ class UnifiedMCPSyncManager:
             # 获取该agent的所有client_id（通过Registry公共API）- 从 pykv 获取
             client_ids = await registry.get_agent_clients_async(agent_id)
 
-            # 遍历每个client_id，检查是否包含目标服务
+            # 遍历每个client_id，检查是否包含目标服务（使用新格式：services 列表）
             for client_id in client_ids:
-                client_config = await registry.get_client_config_from_cache_async(client_id) or {}
-                if service_name in client_config.get("mcpServers", {}):
-                    logger.debug(f" 找到现有client_id: {service_name} -> {client_id}")
-                    return client_id
+                client_entity = await registry.get_client_config_from_cache_async(client_id)
+                if client_entity and isinstance(client_entity, dict):
+                    services = client_entity.get("services", [])
+                    if service_name in services:
+                        logger.debug(f" 找到现有client_id: {service_name} -> {client_id}")
+                        return client_id
 
             return None
 
