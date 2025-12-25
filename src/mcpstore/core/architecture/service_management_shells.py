@@ -147,6 +147,137 @@ class ServiceManagementAsyncShell:
             # 服务的实际连接交由事件驱动流程（ServiceAddRequested → ServiceCached → ServiceInitialized → ConnectionManager）
             logger.info(f"[ASYNC_SHELL] 服务添加完成: {len(operation_plan.service_names)}个服务, {len([r for r in results if r['status'] == 'success'])}个成功")
 
+            # 4. 发布 ServiceAddRequested 事件，触发事件驱动的连接流程
+            # 这是关键修复：确保连接流程被触发
+            try:
+                # 获取 event_bus（优先从 orchestrator.container 获取，否则从 orchestrator 获取）
+                event_bus = None
+                if self.orchestrator:
+                    event_bus = getattr(getattr(self.orchestrator, 'container', None), '_event_bus', None)
+                    if event_bus is None:
+                        event_bus = getattr(self.orchestrator, 'event_bus', None)
+                
+                if event_bus is None:
+                    logger.warning("[ASYNC_SHELL] EventBus 不可用，无法发布 ServiceAddRequested 事件。连接流程可能不会启动。")
+                else:
+                    # 为每个成功添加的服务发布 ServiceAddRequested 事件
+                    from mcpstore.core.events.service_events import ServiceAddRequested
+                    
+                    for service_name in operation_plan.service_names:
+                        # 从 operations 中提取服务信息
+                        service_info = None
+                        client_id = None
+                        agent_id = None
+                        service_config = None
+                        
+                        # 查找 put_entity 操作获取服务配置
+                        for op in operation_plan.operations:
+                            if op.type == "put_entity" and op.data.get("original_name") == service_name:
+                                agent_id = op.data.get("agent_id", "global_agent_store")
+                                service_config = op.data.get("config", {})
+                                break
+                        
+                        # 查找 put_relation 操作获取 client_id
+                        for op in operation_plan.operations:
+                            if op.type == "put_relation" and op.data.get("service_original_name") == service_name:
+                                client_id = op.data.get("client_id")
+                                if agent_id is None:
+                                    agent_id = op.data.get("agent_id", "global_agent_store")
+                                break
+                        
+                        # 如果找不到 service_config，尝试从 config 参数中获取
+                        if not service_config:
+                            # 从原始 config 中提取
+                            if isinstance(config, dict):
+                                if "mcpServers" in config:
+                                    service_config = config["mcpServers"].get(service_name, {})
+                                elif "name" in config and config.get("name") == service_name:
+                                    service_config = {k: v for k, v in config.items() if k != "name"}
+                                else:
+                                    service_config = config
+                        
+                        # 确保有 service_config 才能生成 client_id
+                        if not service_config:
+                            raise RuntimeError(f"无法获取服务配置，无法生成 client_id: {service_name}")
+                        
+                        # 如果找不到 client_id，使用 ClientIDGenerator 生成一个
+                        if client_id is None:
+                            from mcpstore.core.utils.id_generator import ClientIDGenerator
+                            global_agent_store_id = getattr(getattr(self.orchestrator, 'client_manager', None), 'global_agent_store_id', 'global_agent_store')
+                            client_id = ClientIDGenerator.generate_deterministic_id(
+                                agent_id=agent_id or "global_agent_store",
+                                service_name=service_name,
+                                service_config=service_config,
+                                global_agent_store_id=global_agent_store_id
+                            )
+                        
+                        if service_config:
+                            # 发布 ServiceAddRequested 事件
+                            add_event = ServiceAddRequested(
+                                agent_id=agent_id or "global_agent_store",
+                                service_name=service_name,
+                                service_config=service_config,
+                                client_id=client_id,
+                                source="service_management_shell",
+                                wait_timeout=0.0
+                            )
+                            # #region agent log
+                            try:
+                                import json
+                                from pathlib import Path
+                                import time as time_module
+                                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                                log_record = {
+                                    "sessionId": "debug-session",
+                                    "runId": "post-fix",
+                                    "hypothesisId": "FIX",
+                                    "location": "service_management_shells.py:add_service_async",
+                                    "message": "before_publish_service_add_requested",
+                                    "data": {
+                                        "service_name": service_name,
+                                        "agent_id": agent_id or "global_agent_store",
+                                        "client_id": client_id,
+                                        "has_service_config": bool(service_config),
+                                    },
+                                    "timestamp": int(time_module.time() * 1000),
+                                }
+                                log_path.parent.mkdir(parents=True, exist_ok=True)
+                                with log_path.open("a", encoding="utf-8") as f:
+                                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+                            except Exception:
+                                pass
+                            # #endregion
+                            await event_bus.publish(add_event, wait=True)
+                            logger.info(f"[ASYNC_SHELL] ServiceAddRequested 事件已发布: {service_name} (agent={agent_id or 'global_agent_store'})")
+                            # #region agent log
+                            try:
+                                import json
+                                from pathlib import Path
+                                import time as time_module
+                                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                                log_record = {
+                                    "sessionId": "debug-session",
+                                    "runId": "post-fix",
+                                    "hypothesisId": "FIX",
+                                    "location": "service_management_shells.py:add_service_async",
+                                    "message": "after_publish_service_add_requested",
+                                    "data": {
+                                        "service_name": service_name,
+                                    },
+                                    "timestamp": int(time_module.time() * 1000),
+                                }
+                                log_path.parent.mkdir(parents=True, exist_ok=True)
+                                with log_path.open("a", encoding="utf-8") as f:
+                                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+                            except Exception:
+                                pass
+                            # #endregion
+                        else:
+                            logger.warning(f"[ASYNC_SHELL] 无法为服务 {service_name} 发布 ServiceAddRequested 事件：找不到服务配置")
+            except Exception as event_error:
+                logger.error(f"[ASYNC_SHELL] 发布 ServiceAddRequested 事件失败: {event_error}", exc_info=True)
+                # 不抛出异常，允许服务添加成功返回，但记录错误
+
             return {
                 "success": True,
                 "added_services": operation_plan.service_names,

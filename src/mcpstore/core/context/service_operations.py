@@ -934,18 +934,17 @@ class ServiceOperationsMixin:
                 logger.debug(f" [CONFIG] 从metadata获取配置: {service_name}")
                 return metadata.service_config
 
-            # 方法2: 从 client_config 获取（备用）
-            client_id = await self._store.registry.get_service_client_id_async(agent_id, service_name)
-            if client_id:
-                client_config = self._store.registry.get_client_config_from_cache(client_id)
-                if client_config and 'mcpServers' in client_config:
-                    service_config = client_config['mcpServers'].get(service_name)
-                    if service_config:
-                        logger.debug(f" [CONFIG] 从client_config获取配置: {service_name}")
-                        return service_config
+            # 方法2: 从服务实体获取（新架构：client 实体不再包含 mcpServers）
+            try:
+                service_info = await self._store.registry.get_complete_service_info_async(agent_id, service_name)
+                if service_info and service_info.get("config"):
+                    logger.debug(f" [CONFIG] 从服务实体获取配置: {service_name}")
+                    return service_info["config"]
+            except Exception as e:
+                logger.debug(f" [CONFIG] 无法从服务实体获取配置: {service_name}, {e}")
 
-            logger.warning(f"[CONFIG] 未找到服务配置: {service_name} (agent: {agent_id})")
-            return None
+            # 按要求：不兼容旧架构，直接抛出错误
+            raise RuntimeError(f"未找到服务配置: {service_name} (agent: {agent_id})")
 
         except Exception as e:
             logger.error(f" [CONFIG] 获取服务配置失败 {service_name}: {e}")

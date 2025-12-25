@@ -184,55 +184,23 @@ class HealthMonitor:
                         task.cancel()
                 return
 
-            # 获取服务配置（新架构：通过 client_id 获取）
-            # 步骤1: 获取 client_id
-            # region agent log
-            try:
-                import json, time as _t
-                _has_loop = False
-                try:
-                    asyncio.get_running_loop()
-                    _has_loop = True
-                except RuntimeError:
-                    pass
-                _payload = {
-                    "sessionId": "debug-session",
-                    "runId": "pre-fix",
-                    "hypothesisId": "H1",
-                    "location": "core/domain/health_monitor.py:_execute_health_check:before_get_service_client_id",
-                    "message": "Before calling get_service_client_id",
-                    "data": {
-                        "agent_id": self._global_agent_store_id,
-                        "global_name": global_name,
-                        "has_running_loop": _has_loop,
-                        "current_task": str(asyncio.current_task()),
-                    },
-                    "timestamp": int(_t.time() * 1000),
-                }
-                with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f:
-                    _f.write(json.dumps(_payload, ensure_ascii=False) + "\n")
-            except Exception:
-                pass
-            # endregion
-            client_id = await self._registry.get_service_client_id_async(self._global_agent_store_id, global_name)
-            if not client_id:
-                logger.warning(f"[HEALTH] No client_id found for {service_name} (skip without state change)")
-                return
+            # 获取服务配置（新架构：从服务实体获取）
+            # 从服务实体中获取服务配置，不再从 client_config 中获取
+            service_entity = await self._registry._cache_service_manager.get_service(global_name)
+            if service_entity is None:
+                raise RuntimeError(
+                    f"服务实体不存在，无法执行健康检查: service_name={service_name}, "
+                    f"agent_id={agent_id}, global_name={global_name}"
+                )
             
-            # 步骤2: 获取 client_config
-            client_config = await self._registry.get_client_config_from_cache_async(client_id)
-            if not client_config:
-                logger.warning(f"[HEALTH] No client config found for {client_id} (skip without state change)")
-                return
+            service_config = service_entity.config
+            if not service_config:
+                raise RuntimeError(
+                    f"服务配置为空，无法执行健康检查: service_name={service_name}, "
+                    f"agent_id={agent_id}, global_name={global_name}"
+                )
             
-            # 步骤3: 从 client_config 中提取服务配置
-            service_config = client_config.get("mcpServers", {}).get(global_name)
-            if not service_config:
-                # 尝试使用原始服务名
-                service_config = client_config.get("mcpServers", {}).get(service_name)
-            if not service_config:
-                logger.warning(f"[HEALTH] No service config found in mcpServers: {service_name} (skip without state change)")
-                return
+            logger.debug(f"[HEALTH] Found service config for {service_name}: {list(service_config.keys())}")
 
             # 执行健康检查（使用临时 client + async with）
             try:

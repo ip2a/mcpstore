@@ -290,6 +290,31 @@ class LifecycleManager:
         3. 确保事件发布和健康检查触发的可靠性
         """
         logger.info(f"[LIFECYCLE] Initializing lifecycle for: {event.service_name}")
+        # #region agent log
+        try:
+            import json
+            from pathlib import Path
+            import time as time_module
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H1,H2",
+                "location": "lifecycle_manager.py:_on_service_cached",
+                "message": "service_cached_handler_entered",
+                "data": {
+                    "service_name": event.service_name,
+                    "agent_id": event.agent_id,
+                    "client_id": event.client_id,
+                },
+                "timestamp": int(time_module.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # #endregion
 
         try:
             # 1. 纯异步检查现有元数据（遵循核心原则）
@@ -308,18 +333,8 @@ class LifecycleManager:
                         service_config = service_info["config"]
                         logger.debug(f"[LIFECYCLE] Loaded service_config from service entity for: {event.service_name}")
                 except Exception as entity_error:
-                    logger.warning(f"[LIFECYCLE] Failed to load service config from entity for {event.service_name}: {entity_error}")
-                    service_config = None
-
-                # 兜底：仍然尝试从 client_config 读取（保留兼容性）
-                if service_config is None:
-                    try:
-                        client_config = await self._registry.get_client_config_from_cache_async(event.client_id)
-                        service_config = client_config.get("mcpServers", {}).get(event.service_name, {}) if client_config else {}
-                        logger.debug(f"[LIFECYCLE] Loading service_config from client config for: {event.service_name}")
-                    except Exception as config_error:
-                        logger.warning(f"[LIFECYCLE] Failed to load client config for {event.service_name}: {config_error}")
-                        service_config = {}
+                    # 按要求：不兼容旧架构，直接抛出错误
+                    raise RuntimeError(f"无法从服务实体获取服务配置: {event.service_name}") from entity_error
 
             # 2. 创建元数据（纯函数操作）
             metadata = ServiceStateMetadata(
@@ -346,7 +361,54 @@ class LifecycleManager:
                 service_name=event.service_name,
                 initial_state="initializing"
             )
+            # #region agent log
+            try:
+                import json
+                from pathlib import Path
+                import time as time_module
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H2",
+                    "location": "lifecycle_manager.py:_on_service_cached",
+                    "message": "before_publish_service_initialized",
+                    "data": {
+                        "service_name": event.service_name,
+                        "agent_id": event.agent_id,
+                    },
+                    "timestamp": int(time_module.time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # #endregion
             await self._event_bus.publish(initialized_event, wait=True)
+            # #region agent log
+            try:
+                import json
+                from pathlib import Path
+                import time as time_module
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H2",
+                    "location": "lifecycle_manager.py:_on_service_cached",
+                    "message": "after_publish_service_initialized",
+                    "data": {
+                        "service_name": event.service_name,
+                    },
+                    "timestamp": int(time_module.time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # #endregion
             logger.debug(f"[LIFECYCLE] ServiceInitialized event published for: {event.service_name}")
 
             # 5. 触发初始健康检查（关键修复：确保事件被正确发布）
@@ -1011,7 +1073,7 @@ class LifecycleManager:
                 if hasattr(metadata, 'state_entered_time'):
                     metadata.state_entered_time = datetime.now()
                 try:
-                    self._registry.set_service_metadata(agent_id, service_name, metadata)
+                    await self._registry.set_service_metadata_async(agent_id, service_name, metadata)
                 except Exception as e:
                     logger.error(f"[LIFECYCLE] Failed to update metadata for {service_name}: {e}")
                     raise
