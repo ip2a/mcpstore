@@ -144,12 +144,7 @@ class ServiceManagementAsyncShell:
                     # 按要求抛出错误，不做静默处理
                     raise
 
-            # 4. 异步启动服务（如果配置了）
-            try:
-                await self._start_services_async(operation_plan.service_names)
-            except Exception as e:
-                logger.warning(f"[ASYNC_SHELL] 服务启动过程中出现异常: {e}")
-
+            # 服务的实际连接交由事件驱动流程（ServiceAddRequested → ServiceCached → ServiceInitialized → ConnectionManager）
             logger.info(f"[ASYNC_SHELL] 服务添加完成: {len(operation_plan.service_names)}个服务, {len([r for r in results if r['status'] == 'success'])}个成功")
 
             return {

@@ -36,12 +36,14 @@ class ConnectionManager:
         event_bus: EventBus,
         registry: 'CoreRegistry',
         config_processor: 'ConfigProcessor',
-        local_service_manager: 'LocalServiceManagerAdapter'
+        local_service_manager: 'LocalServiceManagerAdapter',
+        http_timeout_seconds: float = 10.0
     ):
         self._event_bus = event_bus
         self._registry = registry
         self._config_processor = config_processor
         self._local_service_manager = local_service_manager
+        self._http_timeout_seconds = http_timeout_seconds
 
         # Subscribe to events
         self._event_bus.subscribe(ServiceInitialized, self._on_service_initialized, priority=80)
@@ -52,12 +54,16 @@ class ConnectionManager:
         self._event_bus.subscribe(ReconnectionRequested, self._on_reconnection_requested, priority=100)
 
         logger.info(f"ConnectionManager initialized (bus={hex(id(self._event_bus))}) and subscribed to events")
+        logger.debug(f"[CONNECTION] HTTP timeout configured: {self._http_timeout_seconds} seconds")
 
     async def _on_service_initialized(self, event: ServiceInitialized):
         """
         Handle service initialization completion - trigger connection
+        
+        NOTE: This may cause duplicate connection attempts if ServiceConnectionRequested
+        was already published by CacheManager. We should check if connection is already in progress.
         """
-        logger.info(f"[CONNECTION] Triggering connection for: {event.service_name}")
+        logger.info(f"[CONNECTION] Triggering connection for: {event.service_name} (from ServiceInitialized)")
 
         # Get service configuration（使用异步版本）
         service_config = await self._get_service_config_async(event.agent_id, event.service_name)
@@ -72,13 +78,69 @@ class ConnectionManager:
         except Exception as e:
             logger.debug(f"[CONNECTION] Subscriber count check failed: {e}")
 
+        # Use configured timeout instead of hardcoded value
+        timeout = self._http_timeout_seconds
+        logger.debug(f"[CONNECTION] Using configured HTTP timeout: {timeout} seconds for {event.service_name}")
+
+        # #region agent log
+        try:
+            import json
+            from pathlib import Path
+            import time as time_module
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H1,H3",
+                "location": "connection_manager.py:_on_service_initialized",
+                "message": "before_create_connection_request",
+                "data": {
+                    "service_name": event.service_name,
+                    "agent_id": event.agent_id,
+                    "configured_timeout": timeout,
+                    "event_source": "ServiceInitialized",
+                },
+                "timestamp": int(time_module.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # #endregion
+
         # Publish connection request event (decoupled)
         connection_request = ServiceConnectionRequested(
             agent_id=event.agent_id,
             service_name=event.service_name,
             service_config=service_config,
-            timeout=3.0
+            timeout=timeout
         )
+        # #region agent log
+        try:
+            import json
+            from pathlib import Path
+            import time as time_module
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H1,H3",
+                "location": "connection_manager.py:_on_service_initialized",
+                "message": "after_create_connection_request",
+                "data": {
+                    "service_name": event.service_name,
+                    "timeout_value": connection_request.timeout,
+                    "event_id": str(connection_request.id) if hasattr(connection_request, 'id') else None,
+                },
+                "timestamp": int(time_module.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # #endregion
         # Use synchronous dispatch to avoid event-loop race during restart/initialization
         await self._event_bus.publish(connection_request, wait=True)
 
@@ -86,9 +148,37 @@ class ConnectionManager:
         """
         Handle connection request - execute actual connection
         """
-        logger.info(f"[CONNECTION] Connecting to: {event.service_name} (bus={hex(id(self._event_bus))})")
+        logger.info(f"[CONNECTION] Connecting to: {event.service_name} (bus={hex(id(self._event_bus))}, timeout={event.timeout}s)")
 
         start_time = asyncio.get_event_loop().time()
+
+        # #region agent log
+        try:
+            import json
+            from pathlib import Path
+            import time as time_module
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H1,H3",
+                "location": "connection_manager.py:_on_connection_requested",
+                "message": "connection_start",
+                "data": {
+                    "service_name": event.service_name,
+                    "agent_id": event.agent_id,
+                    "timeout": event.timeout,
+                    "start_time": start_time,
+                    "event_id": str(event.id) if hasattr(event, 'id') else None,
+                },
+                "timestamp": int(time_module.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # #endregion
 
         try:
             # Determine service type
@@ -171,7 +261,39 @@ class ConnectionManager:
             await self._event_bus.publish(connected_event)
 
         except asyncio.TimeoutError:
-            logger.warning(f"[CONNECTION] Timeout: {event.service_name}")
+            # #region agent log
+            try:
+                import json
+                from pathlib import Path
+                import time as time_module
+                elapsed = asyncio.get_event_loop().time() - start_time
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H1,H4",
+                    "location": "connection_manager.py:_on_connection_requested",
+                    "message": "timeout_error_caught",
+                    "data": {
+                        "service_name": event.service_name,
+                        "timeout_configured": event.timeout,
+                        "elapsed_time": elapsed,
+                        "timeout_exceeded_by": elapsed - event.timeout,
+                        "event_id": str(event.id) if hasattr(event, 'id') else None,
+                    },
+                    "timestamp": int(time_module.time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # #endregion
+            elapsed = asyncio.get_event_loop().time() - start_time
+            logger.warning(
+                f"[CONNECTION] Timeout: {event.service_name} "
+                f"(configured={event.timeout}s, elapsed={elapsed:.3f}s)"
+            )
             await self._publish_connection_failed(
                 event, "Connection timeout", "timeout", 0
             )
@@ -305,6 +427,32 @@ class ConnectionManager:
         retry_count: int
     ):
         """Publish connection failed event"""
+        # #region agent log
+        try:
+            import json
+            from pathlib import Path
+            import time as time_module
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H1,H2",
+                "location": "connection_manager.py:_publish_connection_failed",
+                "message": "before_publish_connection_failed",
+                "data": {
+                    "service_name": event.service_name,
+                    "agent_id": event.agent_id,
+                    "error_message": error_message,
+                    "error_type": error_type,
+                },
+                "timestamp": int(time_module.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # #endregion
         try:
             friendly_message = ConfigProcessor.get_user_friendly_error(error_message or "")
         except Exception:
@@ -316,7 +464,55 @@ class ConnectionManager:
             error_type=error_type,
             retry_count=retry_count
         )
-        await self._event_bus.publish(failed_event)
+        # #region agent log
+        try:
+            import json
+            from pathlib import Path
+            import time as time_module
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H1,H2",
+                "location": "connection_manager.py:_publish_connection_failed",
+                "message": "publishing_with_wait_true",
+                "data": {
+                    "service_name": event.service_name,
+                    "event_id": str(failed_event.id) if hasattr(failed_event, 'id') else None,
+                },
+                "timestamp": int(time_module.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        # 关键修复：使用 wait=True 确保状态更新完成，避免任务被取消导致状态不更新
+        await self._event_bus.publish(failed_event, wait=True)
+        # #region agent log
+        try:
+            import json
+            from pathlib import Path
+            import time as time_module
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H1,H2",
+                "location": "connection_manager.py:_publish_connection_failed",
+                "message": "after_publish_connection_failed",
+                "data": {
+                    "service_name": event.service_name,
+                },
+                "timestamp": int(time_module.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # #endregion
 
     async def _on_reconnection_requested(self, event: 'ReconnectionRequested'):
         """

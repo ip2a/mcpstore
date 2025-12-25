@@ -92,7 +92,7 @@ class ServiceApplicationService:
             self._validate_params(service_name, service_config)
             
             # 2. 生成 client_id
-            client_id = self._generate_client_id(agent_id, service_name, service_config)
+            client_id = await self._generate_client_id(agent_id, service_name, service_config)
             
             logger.info(
                 f"[ADD_SERVICE] Starting: service={service_name}, "
@@ -311,7 +311,7 @@ class ServiceApplicationService:
         try:
             state = self._registry._service_state_service.get_service_state(agent_id, service_name)
             metadata = await self._registry._service_state_service.get_service_metadata_async(agent_id, service_name)
-            client_id = self._registry.get_service_client_id(agent_id, service_name)
+            client_id = await self._registry.get_service_client_id_async(agent_id, service_name)
 
             status_response: Dict[str, Any] = {
                 "service_name": service_name,
@@ -413,19 +413,24 @@ class ServiceApplicationService:
         if "command" not in service_config and "url" not in service_config:
             raise ValueError("service_config must contain 'command' or 'url'")
     
-    def _generate_client_id(
-        self, 
-        agent_id: str, 
-        service_name: str, 
+    async def _generate_client_id(
+        self,
+        agent_id: str,
+        service_name: str,
         service_config: Dict[str, Any]
     ) -> str:
-        """生成 client_id"""
-        # 检查是否已存在（使用 Registry 提供的公开方法）
-        existing_client_id = self._registry.get_service_client_id(agent_id, service_name)
+        """生成 client_id（优先异步获取已有映射，避免事件循环冲突）"""
+        # 优先使用异步 API，避免在运行事件循环中调用同步桥接
+        existing_client_id = None
+        try:
+            existing_client_id = await self._registry.get_service_client_id_async(agent_id, service_name)
+        except Exception as e:
+            logger.warning(f"Failed to get existing client_id asynchronously: {e}")
+
         if existing_client_id:
             logger.debug(f"Using existing client_id: {existing_client_id}")
             return existing_client_id
-        
+
         # 生成新的
         client_id = ClientIDGenerator.generate_deterministic_id(
             agent_id=agent_id,
@@ -433,7 +438,7 @@ class ServiceApplicationService:
             service_config=service_config,
             global_agent_store_id=self._global_agent_store_id
         )
-        
+
         logger.debug(f"Generated new client_id: {client_id}")
         return client_id
     
@@ -472,4 +477,3 @@ class ServiceApplicationService:
         # 超时，返回当前状态
         state = self._registry._service_state_service.get_service_state(agent_id, service_name)
         return state.value if state else "unknown"
-

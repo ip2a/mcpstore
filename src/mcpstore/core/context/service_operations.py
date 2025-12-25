@@ -585,39 +585,53 @@ class ServiceOperationsMixin:
 
             # 处理字典格式的配置（包括从批量配置转换来的）
             if isinstance(config, dict):
-                # ========== 使用新架构 AsyncShell 执行 ==========
-                # [架构说明] 2024-12 重构
-                # 
-                # 本方法现在使用新架构 ServiceManagementAsyncShell，与同步方法 add_service() 
-                # 共享同一套 Core + Shell 实现，确保：
-                # 
-                # 1. 同步/异步路径统一：
-                #    - add_service() [同步] → SyncShell → AOB 桥接 → AsyncShell → pykv
-                #    - add_service_async() [异步] → AsyncShell → pykv（直接调用，无需桥接）
-                # 
-                # 2. 避免同步/异步混用问题：
-                #    旧实现会触发 AOB 事件循环冲突，已完全替换为纯异步外壳。
-                # 
-                # 3. API 模式作为 SDK 薄封装：
-                #    FastAPI 路由可以直接调用本方法，无需担心事件循环冲突。
-                
-                logger.info(f"[ADD_SERVICE_ASYNC] 使用新架构 AsyncShell 添加服务")
+                # ========== 事件驱动路径 ==========
+                # 将配置解析为 {service_name: service_config}，逐个发布 ServiceAddRequested
+                services_to_add: Dict[str, Dict[str, Any]] = {}
 
-                # 确保异步外壳已初始化（与同步方法共享）
-                if not hasattr(self, '_service_management_async_shell'):
-                    from ..architecture import ServiceManagementFactory
-                    sync_shell, async_shell, core = ServiceManagementFactory.create_service_management(
-                        self._store.registry,
-                        self._store.orchestrator,
-                        agent_id=self._agent_id or self._store.client_manager.global_agent_store_id
+                # 兼容 mcpServers
+                key = self._find_mcp_servers_key(config)
+                if key:
+                    if not isinstance(config[key], dict):
+                        raise Exception("mcpServers 必须是字典类型")
+                    services_to_add = {
+                        name: svc_cfg for name, svc_cfg in config[key].items()
+                        if isinstance(svc_cfg, dict)
+                    }
+                # 单服务格式 {"name": "...", ...}
+                elif "name" in config and isinstance(config.get("name"), str):
+                    svc_name = config["name"]
+                    svc_cfg = {k: v for k, v in config.items() if k != "name"}
+                    services_to_add = {svc_name: svc_cfg}
+                else:
+                    # 兜底：视为 {service_name: {url/command...}}
+                    services_to_add = {
+                        name: svc_cfg for name, svc_cfg in config.items()
+                        if isinstance(svc_cfg, dict) and ("url" in svc_cfg or "command" in svc_cfg)
+                    }
+
+                if not services_to_add:
+                    raise Exception("未能解析出有效的服务配置")
+
+                logger.info(f"[ADD_SERVICE_ASYNC] 事件驱动添加服务: {list(services_to_add.keys())}")
+
+                # 通过应用服务发布事件，统一走 ServiceAddRequested -> ... 链路
+                app_service = self._store.container.service_application_service
+                source_tag = "agent_context" if self._context_type == ContextType.AGENT else "store_context"
+
+                for svc_name, svc_cfg in services_to_add.items():
+                    result = await app_service.add_service(
+                        agent_id=agent_id,
+                        service_name=svc_name,
+                        service_config=svc_cfg,
+                        wait_timeout=0.0,
+                        source=source_tag
                     )
-                    self._service_management_sync_shell = sync_shell
-                    self._service_management_async_shell = async_shell
+                    if result and result.success:
+                        logger.debug(f"[ADD_SERVICE_ASYNC] 已发布 ServiceAddRequested: {svc_name}")
+                    else:
+                        logger.warning(f"[ADD_SERVICE_ASYNC] 发布 ServiceAddRequested 失败: {svc_name}, error={getattr(result, 'error_message', None)}")
 
-                # 直接调用异步外壳（无需 AOB 桥接，已在事件循环中）
-                result = await self._service_management_async_shell.add_service_async(config)
-
-                logger.debug(f"[ADD_SERVICE_ASYNC] 结果: {result.get('success', False)}")
                 return self
 
         except Exception as e:

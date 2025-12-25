@@ -301,14 +301,25 @@ class LifecycleManager:
                 service_config = existing_metadata.service_config
                 logger.debug(f"[LIFECYCLE] Preserving existing service_config for: {event.service_name}")
             else:
-                # 从客户端配置读取（通过正确的异步API）
+                # 优先从服务实体获取配置，避免依赖外部 mcp.json
                 try:
-                    client_config = await self._registry.get_client_config_from_cache_async(event.client_id)
-                    service_config = client_config.get("mcpServers", {}).get(event.service_name, {}) if client_config else {}
-                    logger.debug(f"[LIFECYCLE] Loading service_config from client config for: {event.service_name}")
-                except Exception as config_error:
-                    logger.warning(f"[LIFECYCLE] Failed to load client config for {event.service_name}: {config_error}")
-                    service_config = {}
+                    service_info = await self._registry.get_complete_service_info_async(event.agent_id, event.service_name)
+                    if service_info and service_info.get("config"):
+                        service_config = service_info["config"]
+                        logger.debug(f"[LIFECYCLE] Loaded service_config from service entity for: {event.service_name}")
+                except Exception as entity_error:
+                    logger.warning(f"[LIFECYCLE] Failed to load service config from entity for {event.service_name}: {entity_error}")
+                    service_config = None
+
+                # 兜底：仍然尝试从 client_config 读取（保留兼容性）
+                if service_config is None:
+                    try:
+                        client_config = await self._registry.get_client_config_from_cache_async(event.client_id)
+                        service_config = client_config.get("mcpServers", {}).get(event.service_name, {}) if client_config else {}
+                        logger.debug(f"[LIFECYCLE] Loading service_config from client config for: {event.service_name}")
+                    except Exception as config_error:
+                        logger.warning(f"[LIFECYCLE] Failed to load client config for {event.service_name}: {config_error}")
+                        service_config = {}
 
             # 2. 创建元数据（纯函数操作）
             metadata = ServiceStateMetadata(
@@ -550,6 +561,31 @@ class LifecycleManager:
         # endregion
         logger.warning(f"[LIFECYCLE] Service connection failed: {event.service_name} ({event.error_message})")
 
+        # #region agent log
+        try:
+            import json
+            from pathlib import Path
+            import time as time_module
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H2",
+                "location": "lifecycle_manager.py:_on_service_connection_failed",
+                "message": "handler_entered",
+                "data": {
+                    "service_name": event.service_name,
+                    "agent_id": event.agent_id,
+                },
+                "timestamp": int(time_module.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # #endregion
+
         try:
             # 1. 通过异步API获取现有元数据
             metadata = None
@@ -570,6 +606,30 @@ class LifecycleManager:
                 # 保存更新后的元数据（异步API）
                 await self._set_service_metadata_async(event.agent_id, event.service_name, metadata)
                 logger.info(f"[LIFECYCLE] Updated failure metadata for {event.service_name}: {metadata.consecutive_failures} failures, retry_count={event.retry_count}")
+                # #region agent log
+                try:
+                    import json
+                    from pathlib import Path
+                    import time as time_module
+                    log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                    log_record = {
+                        "sessionId": "debug-session",
+                        "runId": "pre-fix",
+                        "hypothesisId": "H2",
+                        "location": "lifecycle_manager.py:_on_service_connection_failed",
+                        "message": "metadata_updated",
+                        "data": {
+                            "service_name": event.service_name,
+                            "consecutive_failures": metadata.consecutive_failures,
+                        },
+                        "timestamp": int(time_module.time() * 1000),
+                    }
+                    log_path.parent.mkdir(parents=True, exist_ok=True)
+                    with log_path.open("a", encoding="utf-8") as f:
+                        f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+                except Exception:
+                    pass
+                # #endregion
             else:
                 logger.warning(f"[LIFECYCLE] No metadata found for {event.service_name}, skipping failure update")
 
