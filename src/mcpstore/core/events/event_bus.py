@@ -156,11 +156,94 @@ class EventBus:
             return
 
         if wait:
+            # #region agent log
+            wait_start = __import__("time").time()
+            try:
+                import json
+                from pathlib import Path
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "timeout-investigation",
+                    "hypothesisId": "H3",
+                    "location": "event_bus.py:publish",
+                    "message": "wait_start",
+                    "data": {
+                        "event_type": event.__class__.__name__,
+                        "event_id": str(event.event_id) if hasattr(event, 'event_id') else None,
+                        "subscribers_count": len(subscribers),
+                    },
+                    "timestamp": int(wait_start * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # #endregion
+            
             # 同步顺序执行，保证关键事件在当前上下文中完成处理
+            handler_index = 0
             for subscription in subscribers:
                 if subscription.filter_func and not subscription.filter_func(event):
                     continue
+                # #region agent log
+                handler_start = __import__("time").time()
+                # #endregion
                 await self._handle_event_safely(subscription.handler, event)
+                # #region agent log
+                handler_time = __import__("time").time() - handler_start
+                handler_index += 1
+                try:
+                    import json
+                    from pathlib import Path
+                    log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                    log_record = {
+                        "sessionId": "debug-session",
+                        "runId": "timeout-investigation",
+                        "hypothesisId": "H3",
+                        "location": "event_bus.py:publish",
+                        "message": "handler_completed",
+                        "data": {
+                            "event_type": event.__class__.__name__,
+                            "handler_name": subscription.handler.__name__,
+                            "handler_index": handler_index,
+                            "handler_time_ms": handler_time * 1000,
+                        },
+                        "timestamp": int(__import__("time").time() * 1000),
+                    }
+                    log_path.parent.mkdir(parents=True, exist_ok=True)
+                    with log_path.open("a", encoding="utf-8") as f:
+                        f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+                except Exception:
+                    pass
+                # #endregion
+            
+            # #region agent log
+            wait_time = __import__("time").time() - wait_start
+            try:
+                import json
+                from pathlib import Path
+                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                log_record = {
+                    "sessionId": "debug-session",
+                    "runId": "timeout-investigation",
+                    "hypothesisId": "H3",
+                    "location": "event_bus.py:publish",
+                    "message": "wait_completed",
+                    "data": {
+                        "event_type": event.__class__.__name__,
+                        "total_wait_time_ms": wait_time * 1000,
+                        "handlers_count": handler_index,
+                    },
+                    "timestamp": int(__import__("time").time() * 1000),
+                }
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+            # #endregion
         else:
             # 异步后台执行（fire-and-forget）
             for subscription in subscribers:
