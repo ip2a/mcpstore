@@ -89,19 +89,25 @@ class StateManager:
         # region agent log
         try:
             import json
+            import traceback
             from pathlib import Path
             log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            # 获取调用栈（最多10层）
+            stack = traceback.extract_stack()[-10:]
+            stack_str = " -> ".join([f"{s.filename.split('/')[-1]}:{s.lineno}:{s.name}" for s in stack])
             log_record = {
                 "sessionId": "debug-session",
                 "runId": "pre-fix",
-                "hypothesisId": "H1",
+                "hypothesisId": "H1,H2,H3,H4,H5",
                 "location": "state_manager.py:update_service_status",
-                "message": "before_put_state_service_status",
+                "message": "update_service_status_called",
                 "data": {
                     "service_global_name": service_global_name,
                     "health_status": health_status,
                     "tools_count": len(tools),
                     "tool_original_names": [t.tool_original_name for t in tools],
+                    "tool_global_names": [t.tool_global_name for t in tools],
+                    "call_stack": stack_str,
                 },
                 "timestamp": int(time.time() * 1000),
             }

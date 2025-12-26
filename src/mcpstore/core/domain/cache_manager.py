@@ -266,16 +266,12 @@ class CacheManager:
                 existing_session = self._registry.get_session(event.agent_id, event.service_name)
                 if existing_session:
                     self._registry.clear_service_tools_only(event.agent_id, event.service_name)
-                
-                # 更新服务缓存（保留映射和配置）
-                await self._registry.add_service_async(
-                    agent_id=event.agent_id,
-                    name=event.service_name,
-                    session=event.session,
-                    tools=event.tools,
-                    service_config=existing_config,
-                    preserve_mappings=True
-                )
+
+                # 更新会话（不触发新增服务的初始化逻辑）
+                if self._registry._session_manager:
+                    self._registry._session_manager.set_session(
+                        event.agent_id, event.service_name, event.session
+                    )
                 
                 # 创建工具实体和 Service-Tool 关系（写入实体层和关系层）
                 # 这是 list_tools 链路能正确获取工具的关键
@@ -453,6 +449,37 @@ class CacheManager:
                 f"CacheStateManager 未初始化，无法更新服务状态: "
                 f"service_global_name={service_global_name}"
             )
+        
+        # region agent log
+        try:
+            import json
+            import traceback
+            from pathlib import Path
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            stack = traceback.extract_stack()[-10:]
+            stack_str = " -> ".join([f"{s.filename.split('/')[-1]}:{s.lineno}:{s.name}" for s in stack])
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H3",
+                "location": "cache_manager.py:_update_service_status",
+                "message": "cache_manager_update_service_status",
+                "data": {
+                    "service_global_name": service_global_name,
+                    "health_status": "healthy",
+                    "tools_count": len(tools_status),
+                    "tool_original_names": [t.get("tool_original_name") for t in tools_status],
+                    "tool_global_names": [t.get("tool_global_name") for t in tools_status],
+                    "call_stack": stack_str,
+                },
+                "timestamp": int(time.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # endregion
         
         await state_manager.update_service_status(
             service_global_name=service_global_name,

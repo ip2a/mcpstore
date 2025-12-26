@@ -617,11 +617,19 @@ class ServiceRegistry:
             else:
                 raise ValueError(f"无效的工具定义: {tool}")
 
+            # 提取工具原始名称（去除服务前缀）
+            # 注意：MCP 服务返回的工具名称可能已经带有服务前缀
+            # 例如：mcpstore_get_current_weather -> get_current_weather
+            from mcpstore.core.logic.tool_logic import ToolLogicCore
+            original_tool_name = ToolLogicCore.extract_original_tool_name(
+                tool_name, service_global_name
+            )
+
             tool_global_name = await self._cache_tool_manager.create_tool(
                 service_global_name=service_global_name,
                 service_original_name=name,
                 source_agent=agent_id,
-                tool_original_name=tool_name,
+                tool_original_name=original_tool_name,
                 tool_def=tool_def
             )
             await self._relation_manager.add_service_tool(
@@ -629,11 +637,11 @@ class ServiceRegistry:
                 service_original_name=name,
                 source_agent=agent_id,
                 tool_global_name=tool_global_name,
-                tool_original_name=tool_name
+                tool_original_name=original_tool_name
             )
             tools_status.append({
                 "tool_global_name": tool_global_name,
-                "tool_original_name": tool_name,
+                "tool_original_name": original_tool_name,
                 "status": "available"
             })
 
