@@ -16,7 +16,7 @@ print("=" * 60)
 # Step 1: Initialize MCPStore
 # ------------------------------------------------------------
 print("\n[Step 1] Initialize MCPStore")
-store = MCPStore.setup_store(debug=False)
+store = MCPStore.setup_store(debug=True)
 print("  └─ ✓ MCPStore instance created successfully")
 
 # ------------------------------------------------------------
@@ -71,16 +71,16 @@ print("  └─ ✓ Service is ready")
 print("\n[Step 6] List All Services")
 services = store.for_store().list_services()
 print(f"  ├─ Total Services: {len(services)}")
-for idx, service in enumerate(services, 1):
-    svc_name = service.get('name', 'N/A')
-    svc_status = str(service.get('status', 'N/A')).split('.')[-1].replace("'", "")
-    svc_url = service.get('url', 'N/A')
-    svc_tools = service.get('tool_count', 0)
-    print(f"  ├─ [{idx}] {svc_name}")
-    print(f"  │   ├─ Status: {svc_status}")
-    print(f"  │   ├─ URL: {svc_url}")
-    print(f"  │   └─ Tools: {svc_tools}")
-print("  └─ ✓ Service list retrieved successfully")
+# for idx, service in enumerate(services, 1):
+#     svc_name = service.name
+#     svc_status = str(service.get('status', 'N/A')).split('.')[-1].replace("'", "")
+#     svc_url = service.get('url', 'N/A')
+#     svc_tools = service.get('tool_count', 0)
+#     print(f"  ├─ [{idx}] {svc_name}")
+#     print(f"  │   ├─ Status: {svc_status}")
+#     print(f"  │   ├─ URL: {svc_url}")
+#     print(f"  │   └─ Tools: {svc_tools}")
+# print("  └─ ✓ Service list retrieved successfully")
 
 # ------------------------------------------------------------
 # Step 7: List All Tools
