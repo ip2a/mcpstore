@@ -31,6 +31,7 @@ class StoreSetupManager:
         cache: Optional[Union["MemoryConfig", "RedisConfig"]] = None,
         static_config: Optional[Dict[str, Any]] = None,
         cache_mode: str = "auto",
+        only_db: bool = False,
     ):
         """
         Unified MCPStore initialization (no implicit background side effects)
@@ -81,18 +82,26 @@ class StoreSetupManager:
         from mcpstore.config.path_utils import get_user_default_mcp_path
         from mcpstore.core.store.data_space_manager import DataSpaceManager
 
-        # Always use DataSpaceManager for both explicit and default paths
-        resolved_mcp_path = mcpjson_path or str(get_user_default_mcp_path())
-        
-        dsm = DataSpaceManager(resolved_mcp_path)
-        if not dsm.initialize_workspace():
-            raise RuntimeError(f"Failed to initialize workspace for: {resolved_mcp_path}")
-        
-        config = MCPConfig(json_path=resolved_mcp_path)
-        workspace_dir = str(dsm.workspace_dir)
+        # only_db 模式：完全忽略本地 mcp.json，不创建 DataSpace/workspace
+        resolved_mcp_path = None
+        dsm = None
+        config = None
+        workspace_dir = None
 
-        # 3) Inject static configuration (only injection, no background startup)
-        base_cfg = config.load_config()
+        if not only_db:
+            resolved_mcp_path = mcpjson_path or str(get_user_default_mcp_path())
+            dsm = DataSpaceManager(resolved_mcp_path)
+            if not dsm.initialize_workspace():
+                raise RuntimeError(f"Failed to initialize workspace for: {resolved_mcp_path}")
+            config = MCPConfig(json_path=resolved_mcp_path)
+            workspace_dir = str(dsm.workspace_dir)
+            base_cfg = config.load_config()
+        else:
+            # 纯 DB 模式：使用空配置，后续仅依赖 static_config 注入
+            if mcpjson_path is not None:
+                logger.warning("only_db 模式已启用，忽略传入的 mcpjson_path 参数")
+            base_cfg = {}
+
         stat = static_config or {}
         # Map network.http_timeout_seconds -> timing.http_timeout_seconds (orchestrator depends on this field)
         timing = {}
@@ -248,7 +257,34 @@ class StoreSetupManager:
 
         # 5) 编排器
         from mcpstore.core.orchestrator import MCPOrchestrator
-        orchestrator = MCPOrchestrator(base_cfg, registry, mcp_config=config)
+
+        standalone_config_manager = None
+        if only_db:
+            # 提供一个最小的内存配置管理器，避免 MCPConfig 回落到文件模式
+            class OnlyDBConfigManager:
+                def __init__(self):
+                    self._services: Dict[str, Any] = {}
+
+                def get_mcp_config(self):
+                    return {"mcpServers": {}}
+
+                def get_service_config(self, name):
+                    return self._services.get(name)
+
+                def add_service_config(self, name, cfg):
+                    self._services[name] = cfg
+
+                def get_all_service_configs(self):
+                    return dict(self._services)
+
+            standalone_config_manager = OnlyDBConfigManager()
+
+        orchestrator = MCPOrchestrator(
+            base_cfg,
+            registry,
+            standalone_config_manager=standalone_config_manager,
+            mcp_config=config,
+        )
 
 
 

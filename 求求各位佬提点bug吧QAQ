@@ -4,10 +4,14 @@
 redis协作确认
 数据空间接口
 
+设计测试 包括 mcp.json有配置/无配置/无json 有数据空间/无数据空间 有db/无db ：每个情况都要添加服务 修改服务 连接服务等等 设计统一的测试方法 测试pyvk中的键值是否正常 写完善的版本
+
+
 参考claude 的cli添加服务的方式 
 添加sqllite 
 有导出文件》？
-
+unified sync manager 会从 ~/.mcpstore/mcp.json 读取已有服务，批量调用
+    add_service_async（store 视角）把它们写入缓存/注册。???这里检查 数据空间是否生效
 
 docker
 setup
