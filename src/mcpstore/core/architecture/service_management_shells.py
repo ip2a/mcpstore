@@ -222,15 +222,17 @@ class ServiceManagementAsyncShell:
                                 wait_timeout=0.0
                             )
                             # #region agent log
+                            publish_start = None
                             try:
                                 import json
                                 from pathlib import Path
                                 import time as time_module
+                                publish_start = time_module.time()
                                 log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
                                 log_record = {
                                     "sessionId": "debug-session",
-                                    "runId": "post-fix",
-                                    "hypothesisId": "FIX",
+                                    "runId": "timeout-investigation",
+                                    "hypothesisId": "H3",
                                     "location": "service_management_shells.py:add_service_async",
                                     "message": "before_publish_service_add_requested",
                                     "data": {
@@ -238,8 +240,9 @@ class ServiceManagementAsyncShell:
                                         "agent_id": agent_id or "global_agent_store",
                                         "client_id": client_id,
                                         "has_service_config": bool(service_config),
+                                        "event_id": str(add_event.event_id),
                                     },
-                                    "timestamp": int(time_module.time() * 1000),
+                                    "timestamp": int(publish_start * 1000),
                                 }
                                 log_path.parent.mkdir(parents=True, exist_ok=True)
                                 with log_path.open("a", encoding="utf-8") as f:
@@ -248,30 +251,34 @@ class ServiceManagementAsyncShell:
                                 pass
                             # #endregion
                             await event_bus.publish(add_event, wait=True)
-                            logger.info(f"[ASYNC_SHELL] ServiceAddRequested 事件已发布: {service_name} (agent={agent_id or 'global_agent_store'})")
+                            
                             # #region agent log
-                            try:
-                                import json
-                                from pathlib import Path
-                                import time as time_module
-                                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                                log_record = {
-                                    "sessionId": "debug-session",
-                                    "runId": "post-fix",
-                                    "hypothesisId": "FIX",
-                                    "location": "service_management_shells.py:add_service_async",
-                                    "message": "after_publish_service_add_requested",
-                                    "data": {
-                                        "service_name": service_name,
-                                    },
-                                    "timestamp": int(time_module.time() * 1000),
-                                }
-                                log_path.parent.mkdir(parents=True, exist_ok=True)
-                                with log_path.open("a", encoding="utf-8") as f:
-                                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-                            except Exception:
-                                pass
+                            if publish_start:
+                                publish_time = time_module.time() - publish_start
+                                try:
+                                    import json
+                                    from pathlib import Path
+                                    log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+                                    log_record = {
+                                        "sessionId": "debug-session",
+                                        "runId": "timeout-investigation",
+                                        "hypothesisId": "H3",
+                                        "location": "service_management_shells.py:add_service_async",
+                                        "message": "after_publish_service_add_requested",
+                                        "data": {
+                                            "service_name": service_name,
+                                            "publish_time_ms": publish_time * 1000,
+                                        },
+                                        "timestamp": int(time_module.time() * 1000),
+                                    }
+                                    log_path.parent.mkdir(parents=True, exist_ok=True)
+                                    with log_path.open("a", encoding="utf-8") as f:
+                                        f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+                                except Exception:
+                                    pass
                             # #endregion
+                            
+                            logger.info(f"[ASYNC_SHELL] ServiceAddRequested 事件已发布: {service_name} (agent={agent_id or 'global_agent_store'})")
                         else:
                             logger.warning(f"[ASYNC_SHELL] 无法为服务 {service_name} 发布 ServiceAddRequested 事件：找不到服务配置")
             except Exception as event_error:
