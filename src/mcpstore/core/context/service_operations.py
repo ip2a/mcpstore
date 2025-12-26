@@ -687,6 +687,35 @@ class ServiceOperationsMixin:
         
         tool_relations = await relation_manager.get_service_tools(service_global_name)
         
+        # region agent log
+        try:
+            import json
+            import traceback
+            from pathlib import Path
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            stack = traceback.extract_stack()[-10:]
+            stack_str = " -> ".join([f"{s.filename.split('/')[-1]}:{s.lineno}:{s.name}" for s in stack])
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H1",
+                "location": "service_operations.py:_initialize_service_tool_status",
+                "message": "before_get_service_tools",
+                "data": {
+                    "agent_id": agent_id,
+                    "service_name": service_name,
+                    "service_global_name": service_global_name,
+                    "call_stack": stack_str,
+                },
+                "timestamp": int(time.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # endregion
+        
         if not tool_relations:
             logger.warning(
                 f"[TOOL_STATUS_INIT] 服务没有工具: "
@@ -711,6 +740,37 @@ class ServiceOperationsMixin:
                 "tool_original_name": tool_original_name,
                 "status": "available"
             })
+        
+        # region agent log
+        try:
+            import json
+            import traceback
+            from pathlib import Path
+            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
+            stack = traceback.extract_stack()[-10:]
+            stack_str = " -> ".join([f"{s.filename.split('/')[-1]}:{s.lineno}:{s.name}" for s in stack])
+            log_record = {
+                "sessionId": "debug-session",
+                "runId": "pre-fix",
+                "hypothesisId": "H1",
+                "location": "service_operations.py:_initialize_service_tool_status",
+                "message": "before_update_service_status",
+                "data": {
+                    "service_global_name": service_global_name,
+                    "health_status": "initializing",
+                    "tools_count": len(tools_status),
+                    "tool_original_names": [t.get("tool_original_name") for t in tools_status],
+                    "tool_global_names": [t.get("tool_global_name") for t in tools_status],
+                    "call_stack": stack_str,
+                },
+                "timestamp": int(time.time() * 1000),
+            }
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        # endregion
         
         # 4. 使用 StateManager 更新服务状态
         await state_manager.update_service_status(

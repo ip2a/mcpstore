@@ -357,7 +357,6 @@ class UnifiedMCPSyncManager:
             
             try:
                 #  新增：检查同步频率，避免过度同步
-                import time
                 current_time = time.time()
 
                 if self.last_sync_time and (current_time - self.last_sync_time) < self.min_sync_interval:
@@ -822,4 +821,3 @@ class UnifiedMCPSyncManager:
             "sync_lock_locked": self.sync_lock.locked(),
             "file_observer_running": self.file_observer is not None and self.file_observer.is_alive() if self.file_observer else False
         }
-
