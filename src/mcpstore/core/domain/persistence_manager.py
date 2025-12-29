@@ -44,91 +44,12 @@ class PersistenceManager:
         """
         处理服务添加请求 - 异步持久化
         """
-        # #region agent log
-        import time as time_module
-        start_time = time_module.time()
-        try:
-            import json
-            from pathlib import Path
-            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-            log_record = {
-                "sessionId": "debug-session",
-                "runId": "timeout-investigation",
-                "hypothesisId": "H1",
-                "location": "persistence_manager.py:_on_service_add_requested",
-                "message": "persistence_handler_start",
-                "data": {
-                    "service_name": event.service_name,
-                    "event_id": str(event.event_id),
-                    "lock_acquired": False,
-                },
-                "timestamp": int(start_time * 1000),
-            }
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
-        # #endregion
-        
         logger.info(f"[PERSISTENCE] Persisting service: {event.service_name}")
         
         try:
-            # #region agent log
-            lock_acquire_start = time_module.time()
-            # #endregion
             async with self._persistence_lock:
-                # #region agent log
-                lock_acquire_time = time_module.time() - lock_acquire_start
-                try:
-                    import json
-                    from pathlib import Path
-                    log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                    log_record = {
-                        "sessionId": "debug-session",
-                        "runId": "timeout-investigation",
-                        "hypothesisId": "H1",
-                        "location": "persistence_manager.py:_on_service_add_requested",
-                        "message": "persistence_lock_acquired",
-                        "data": {
-                            "service_name": event.service_name,
-                            "lock_acquire_time_ms": lock_acquire_time * 1000,
-                        },
-                        "timestamp": int(time_module.time() * 1000),
-                    }
-                    log_path.parent.mkdir(parents=True, exist_ok=True)
-                    with log_path.open("a", encoding="utf-8") as f:
-                        f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-                except Exception:
-                    pass
-                # #endregion
                 # 持久化到 mcp.json
                 await self._persist_to_mcp_json(event.service_name, event.service_config)
-            
-            # #region agent log
-            total_time = time_module.time() - start_time
-            try:
-                import json
-                from pathlib import Path
-                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                log_record = {
-                    "sessionId": "debug-session",
-                    "runId": "timeout-investigation",
-                    "hypothesisId": "H1",
-                    "location": "persistence_manager.py:_on_service_add_requested",
-                    "message": "persistence_handler_completed",
-                    "data": {
-                        "service_name": event.service_name,
-                        "total_time_ms": total_time * 1000,
-                    },
-                    "timestamp": int(time_module.time() * 1000),
-                }
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                with log_path.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-            except Exception:
-                pass
-            # #endregion
             
             logger.info(f"[PERSISTENCE] Service persisted: {event.service_name}")
             
@@ -146,31 +67,6 @@ class PersistenceManager:
     
     async def _persist_to_mcp_json(self, service_name: str, service_config: Dict[str, Any]):
         """持久化到 mcp.json"""
-        # #region agent log
-        import time as time_module
-        persist_start = time_module.time()
-        try:
-            import json
-            from pathlib import Path
-            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-            log_record = {
-                "sessionId": "debug-session",
-                "runId": "timeout-investigation",
-                "hypothesisId": "H1",
-                "location": "persistence_manager.py:_persist_to_mcp_json",
-                "message": "persist_start",
-                "data": {
-                    "service_name": service_name,
-                },
-                "timestamp": int(persist_start * 1000),
-            }
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
-        # #endregion
-        
         # 🆕 修复：UnifiedConfigManager 的 load_config/save_config 方法在 mcp_config 对象上
         # 读取当前配置
         current_config = self._config_manager.mcp_config.load_config()
@@ -182,37 +78,7 @@ class PersistenceManager:
         current_config["mcpServers"][service_name] = service_config
 
         # 保存配置
-        # #region agent log
-        save_start = time_module.time()
-        # #endregion
         success = self._config_manager.mcp_config.save_config(current_config)
-        # #region agent log
-        save_time = time_module.time() - save_start
-        persist_time = time_module.time() - persist_start
-        try:
-            import json
-            from pathlib import Path
-            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-            log_record = {
-                "sessionId": "debug-session",
-                "runId": "timeout-investigation",
-                "hypothesisId": "H1",
-                "location": "persistence_manager.py:_persist_to_mcp_json",
-                "message": "persist_completed",
-                "data": {
-                    "service_name": service_name,
-                    "save_time_ms": save_time * 1000,
-                    "total_persist_time_ms": persist_time * 1000,
-                    "success": success,
-                },
-                "timestamp": int(time_module.time() * 1000),
-            }
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
-        # #endregion
 
         if not success:
             raise RuntimeError("Failed to save config to mcp.json")

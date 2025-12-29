@@ -203,64 +203,12 @@ class HealthMonitor:
             logger.debug(f"[HEALTH] Found service config for {service_name}: {list(service_config.keys())}")
 
             # 执行健康检查（使用临时 client + async with）
-            # #region agent log
-            health_check_start = time.time()
-            try:
-                import json
-                from pathlib import Path
-                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                log_record = {
-                    "sessionId": "debug-session",
-                    "runId": "timeout-investigation",
-                    "hypothesisId": "H4",
-                    "location": "health_monitor.py:_execute_health_check",
-                    "message": "health_check_start",
-                    "data": {
-                        "service_name": service_name,
-                        "ping_timeout": self._ping_timeout,
-                    },
-                    "timestamp": int(health_check_start * 1000),
-                }
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                with log_path.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-            except Exception:
-                pass
-            # #endregion
-            
             try:
                 # 设置超时并使用临时 client 进行健康检查
                 ping_start = time.time()
                 async with asyncio.timeout(self._ping_timeout):
                     async with temp_client_for_service(global_name, service_config) as client:
-                        # #region agent log
-                        ping_attempt_start = time.time()
-                        # #endregion
                         await client.ping()
-                        # #region agent log
-                        ping_time = time.time() - ping_attempt_start
-                        try:
-                            import json
-                            from pathlib import Path
-                            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                            log_record = {
-                                "sessionId": "debug-session",
-                                "runId": "timeout-investigation",
-                                "hypothesisId": "H4",
-                                "location": "health_monitor.py:_execute_health_check",
-                                "message": "ping_success",
-                                "data": {
-                                    "service_name": service_name,
-                                    "ping_time_ms": ping_time * 1000,
-                                },
-                                "timestamp": int(time.time() * 1000),
-                            }
-                            log_path.parent.mkdir(parents=True, exist_ok=True)
-                            with log_path.open("a", encoding="utf-8") as f:
-                                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-                        except Exception:
-                            pass
-                        # #endregion
                     response_time = time.time() - start_time
 
                     # 成功：仅上报成功与响应时间，不直接建议状态
@@ -273,30 +221,6 @@ class HealthMonitor:
                     )
             except asyncio.TimeoutError:
                 response_time = time.time() - start_time
-                # #region agent log
-                try:
-                    import json
-                    from pathlib import Path
-                    log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                    log_record = {
-                        "sessionId": "debug-session",
-                        "runId": "timeout-investigation",
-                        "hypothesisId": "H4",
-                        "location": "health_monitor.py:_execute_health_check",
-                        "message": "health_check_timeout",
-                        "data": {
-                            "service_name": service_name,
-                            "response_time_ms": response_time * 1000,
-                            "ping_timeout": self._ping_timeout,
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    }
-                    log_path.parent.mkdir(parents=True, exist_ok=True)
-                    with log_path.open("a", encoding="utf-8") as f:
-                        f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-                except Exception:
-                    pass
-                # #endregion
                 logger.warning(f"[HEALTH] Check timeout: {service_name}")
                 # 注意：事件应该使用原始服务名称（Agent 视角），而非全局名称（Store 视角）
                 await self._publish_health_check_failed(

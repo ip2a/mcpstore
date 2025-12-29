@@ -198,32 +198,6 @@ class ServiceManagementMixin:
                     service_global_name = service_name
                 
                 if service_global_name:
-                    # region agent log
-                    try:
-                        import json, time
-                        from pathlib import Path
-                        log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                        log_record = {
-                            "sessionId": "debug-session",
-                            "runId": "pre-fix",
-                            "hypothesisId": "H6",
-                            "location": "service_management.py:remove_service",
-                            "message": "before_delete_service_status_from_orchestrator",
-                            "data": {
-                                "agent_id": agent_key,
-                                "service_name": service_name,
-                                "service_global_name": service_global_name,
-                            },
-                            "timestamp": int(time.time() * 1000),
-                        }
-                        log_path.parent.mkdir(parents=True, exist_ok=True)
-                        with log_path.open("a", encoding="utf-8") as f:
-                            f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-                    except Exception:
-                        # 调试日志失败不影响主流程
-                        pass
-                    # endregion
-
                     # 使用新的状态管理器删除服务状态
                     state_manager = self.registry._cache_state_manager
                     await state_manager.delete_service_status(service_global_name)

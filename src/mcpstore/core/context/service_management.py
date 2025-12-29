@@ -1625,55 +1625,11 @@ class ServiceManagementMixin:
                     if change_mode:
                         if current_status != initial_status:
                             logger.info(f"[WAIT_SERVICE] done mode=change service='{service_name}' from='{initial_status}' to='{current_status}' elapsed={elapsed:.2f}s")
-                            # region agent log: wait_service change-mode success
-                            try:
-                                import json as _json_ws_change
-                                _payload_ws_change = {
-                                    "sessionId": "debug-session",
-                                    "runId": "initial",
-                                    "hypothesisId": "H3",
-                                    "location": "core/context/service_management.py:wait_service_async",
-                                    "message": "wait_service change-mode success",
-                                    "data": {
-                                        "service": service_name,
-                                        "initial_status": initial_status,
-                                        "final_status": current_status,
-                                        "elapsed": elapsed,
-                                    },
-                                    "timestamp": __import__("time").time(),
-                                }
-                                with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f_ws_change:
-                                    _f_ws_change.write(_json_ws_change.dumps(_payload_ws_change, ensure_ascii=False) + "\n")
-                            except Exception:
-                                pass
-                            # endregion agent log
                             return True
                     else:
                         # 检查是否达到目标状态
                         if current_status in target_statuses:
                             logger.info(f"[WAIT_SERVICE] done mode=target service='{service_name}' reached='{current_status}' elapsed={elapsed:.2f}s")
-                            # region agent log: wait_service target-mode success
-                            try:
-                                import json as _json_ws_target
-                                _payload_ws_target = {
-                                    "sessionId": "debug-session",
-                                    "runId": "initial",
-                                    "hypothesisId": "H3",
-                                    "location": "core/context/service_management.py:wait_service_async",
-                                    "message": "wait_service target-mode success",
-                                    "data": {
-                                        "service": service_name,
-                                        "final_status": current_status,
-                                        "target_statuses": target_statuses,
-                                        "elapsed": elapsed,
-                                    },
-                                    "timestamp": __import__("time").time(),
-                                }
-                                with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f_ws_target:
-                                    _f_ws_target.write(_json_ws_target.dumps(_payload_ws_target, ensure_ascii=False) + "\n")
-                            except Exception:
-                                pass
-                            # endregion agent log
                             return True
                 except Exception as e:
                     # 降级到 debug，避免无意义刷屏

@@ -485,26 +485,4 @@ class StoreSetupManager:
         except Exception:
             pass
 
-        # region agent log: debug store setup snapshot
-        try:
-            import json as _json2
-            _log_payload2 = {
-                "sessionId": "debug-session",
-                "runId": "initial",
-                "hypothesisId": "H2",
-                "location": "core/store/setup_manager.py:store_setup_done",
-                "message": "Store setup completed",
-                "data": {
-                    "mcp_json": snapshot.get("mcp_json"),
-                    "debug_level": snapshot.get("debug_level"),
-                    "cache_type": getattr(cache, "cache_type", None).value if getattr(cache, "cache_type", None) is not None else None,
-                },
-                "timestamp": __import__("time").time(),
-            }
-            with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f2:
-                _f2.write(_json2.dumps(_log_payload2, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
-        # endregion agent log
-
         return store
