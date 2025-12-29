@@ -267,8 +267,9 @@ class HealthMonitor:
                     logger.debug(f"[HEALTH] Check passed: {service_name} ({response_time:.2f}s)")
 
                     # 发布健康检查成功事件（手动检查使用同步派发）
+                    # 注意：事件应该使用原始服务名称（Agent 视角），而非全局名称（Store 视角）
                     await self._publish_health_check_success(
-                        agent_id, global_name, response_time, wait=wait
+                        agent_id, service_name, response_time, wait=wait
                     )
             except asyncio.TimeoutError:
                 response_time = time.time() - start_time
@@ -297,8 +298,9 @@ class HealthMonitor:
                     pass
                 # #endregion
                 logger.warning(f"[HEALTH] Check timeout: {service_name}")
+                # 注意：事件应该使用原始服务名称（Agent 视角），而非全局名称（Store 视角）
                 await self._publish_health_check_failed(
-                    agent_id, global_name, response_time, "Health check timeout", wait=wait
+                    agent_id, service_name, response_time, "Health check timeout", wait=wait
                 )
             except Exception as e:
                 response_time = time.time() - start_time
@@ -325,8 +327,9 @@ class HealthMonitor:
                 except Exception as e:
                     logger.error(f"[HEALTH] Failed to update metadata for {global_name}: {e}")
                     raise
+                # 注意：事件应该使用原始服务名称（Agent 视角），而非全局名称（Store 视角）
                 await self._publish_health_check_failed(
-                    agent_id, global_name, response_time, error_message, wait=wait
+                    agent_id, service_name, response_time, error_message, wait=wait
                 )
         except Exception as e:
             logger.error(f"[HEALTH] Execute health check error: {service_name} - {e}", exc_info=True)

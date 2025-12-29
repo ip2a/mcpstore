@@ -293,8 +293,8 @@ class ServiceQueryMixin:
             local_name = name
             global_name = None
             if agent_id:
-                # 优先从映射表获取全局名
-                global_name = self.registry.get_global_name_from_agent_service(agent_id, local_name)
+                # 优先从映射表获取全局名（使用异步版本，避免 AOB 事件循环冲突）
+                global_name = await self.registry.get_global_name_from_agent_service_async(agent_id, local_name)
                 # 如果 match_name 已经是全局名，则直接使用
                 if not global_name and AgentServiceMapper.is_any_agent_service(match_name):
                     global_name = match_name

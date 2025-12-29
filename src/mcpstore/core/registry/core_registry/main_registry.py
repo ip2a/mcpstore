@@ -246,6 +246,99 @@ class ServiceRegistry:
 
         self._logger.info("ServiceRegistry initialized with all managers")
 
+    async def switch_backend(self, kv_store, namespace: Optional[str] = None) -> bool:
+        """
+        运行时切换底层 KV 存储，并重建缓存管理器
+
+        Args:
+            kv_store: 新的 AsyncKeyValue 实例（MemoryStore 或 RedisStore）
+            namespace: 可选命名空间，默认沿用当前设置
+
+        Returns:
+            bool: 切换是否成功
+
+        Raises:
+            ValueError: 当 kv_store 为空时抛出
+        """
+        if kv_store is None:
+            raise ValueError("kv_store 不能为空，必须提供有效的 AsyncKeyValue 实例")
+
+        ns = namespace or self._namespace
+
+        # 记录旧的缓存层以便迁移数据
+        old_cache_layer = getattr(self, "_cache_layer_manager", None)
+
+        # 重新构建 CacheLayer 及相关管理器，确保所有读写都指向新的后端
+        from mcpstore.core.cache.cache_layer_manager import CacheLayerManager
+        from mcpstore.core.cache.service_entity_manager import ServiceEntityManager
+        from mcpstore.core.cache.tool_entity_manager import ToolEntityManager
+        from mcpstore.core.cache.state_manager import StateManager as CacheStateManager
+        from mcpstore.core.cache.relationship_manager import RelationshipManager
+        from mcpstore.core.registry.core_registry.session_manager import SessionManager
+
+        self._kv_store = kv_store
+        self._namespace = ns
+        self._cache_layer = CacheLayerManager(kv_store, ns)
+        self._cache_layer_manager = self._cache_layer
+
+        # 保持同一命名服务实例
+        naming_service = self._naming or self._create_naming_service()
+
+        self._cache_service_manager = ServiceEntityManager(self._cache_layer, naming_service)
+        self._cache_tool_manager = ToolEntityManager(self._cache_layer, naming_service)
+        self._cache_state_manager = CacheStateManager(self._cache_layer)
+        self._state_manager = self._cache_state_manager
+        self._relation_manager = RelationshipManager(self._cache_layer)
+
+        # 会话管理器依赖新的 cache_layer
+        self._session_manager = SessionManager(self._cache_layer, naming_service, ns)
+        self.sessions = self._session_manager.sessions
+
+        # 尝试迁移旧缓存中的实体/关系/状态，避免切换后需要重新添加服务
+        try:
+            if old_cache_layer:
+                migrate_entities = 0
+                migrate_relations = 0
+                migrate_states = 0
+
+                entity_types = ["services", "tools", "agents", "store", "clients"]
+                for et in entity_types:
+                    data = await old_cache_layer.get_all_entities_async(et)
+                    for k, v in (data or {}).items():
+                        await self._cache_layer_manager.put_entity(et, k, v)
+                        migrate_entities += 1
+
+                relation_types = ["agent_services", "service_tools"]
+                for rt in relation_types:
+                    data = await old_cache_layer.get_all_relations_async(rt)
+                    for k, v in (data or {}).items():
+                        await self._cache_layer_manager.put_relation(rt, k, v)
+                        migrate_relations += 1
+
+                state_types = ["service_status", "service_metadata"]
+                for st in state_types:
+                    data = await old_cache_layer.get_all_states_async(st)
+                    for k, v in (data or {}).items():
+                        await self._cache_layer_manager.put_state(st, k, v)
+                        migrate_states += 1
+
+                self._logger.info(
+                    "[SWITCH_BACKEND] Migrated cache data to new backend: "
+                    "entities=%d relations=%d states=%d namespace=%s backend=%s",
+                    migrate_entities,
+                    migrate_relations,
+                    migrate_states,
+                    ns,
+                    type(kv_store).__name__,
+                )
+        except Exception as migrate_err:
+            self._logger.warning(
+                "[SWITCH_BACKEND] Cache migration failed: %s", migrate_err, exc_info=True
+            )
+
+        self._logger.info("Registry backend switched successfully: namespace=%s, backend=%s", ns, type(kv_store).__name__)
+        return True
+
     def _legacy(self, method: str) -> None:
         raise_legacy_error(
             f"ServiceRegistry.{method}",
@@ -470,9 +563,13 @@ class ServiceRegistry:
             raise ValueError("Agent ID 不能为空")
 
         services = await self._relation_manager.get_agent_services(agent_id)
+        client_ids: Set[str] = set()
         seen: Set[str] = set()
         for svc in services:
             service_name = svc.get("service_original_name") or svc.get("service_global_name")
+            cid = svc.get("client_id")
+            if cid:
+                client_ids.add(cid)
             if not service_name or service_name in seen:
                 continue
             seen.add(service_name)
@@ -485,6 +582,16 @@ class ServiceRegistry:
                     agent_id,
                     exc,
                 )
+
+        # 清理客户端实体（避免留下孤立 client 记录）
+        try:
+            # 关系层可能包含更多 client_id，合并一次
+            rel_client_ids = await self.get_agent_clients_async(agent_id)
+            client_ids.update(rel_client_ids)
+            for cid in client_ids:
+                await self._cache_layer_manager.delete_entity("clients", cid)
+        except Exception as exc:
+            self._logger.warning("Failed to cleanup clients for agent '%s': %s", agent_id, exc)
 
         self.service_states.pop(agent_id, None)
         self.service_metadata.pop(agent_id, None)
@@ -949,6 +1056,7 @@ class ServiceRegistry:
                 tool_info = ToolInfoCore.from_entity(
                     entity_dict,
                     service_original_name,
+                    global_name,
                     client_id=client_id
                 )
                 tools_info.append(tool_info.to_dict())
@@ -1319,6 +1427,7 @@ class ServiceRegistry:
         return {
             "name": entity_dict.get("tool_global_name"),
             "display_name": entity_dict.get("tool_original_name"),
+            "tool_original_name": entity_dict.get("tool_original_name"),
             "description": entity_dict.get("description", ""),
             "service_name": entity_dict.get("service_original_name"),
             "service_global_name": service_global_name,

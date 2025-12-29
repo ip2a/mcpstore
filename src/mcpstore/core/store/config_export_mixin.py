@@ -82,8 +82,8 @@ class ConfigExportMixin:
                                 
                                 # For agent services, use the global name (with suffix)
                                 if agent_id != self.client_manager.global_agent_store_id:
-                                    # Check if this is an agent service - get global name
-                                    global_name = self.registry.get_global_name_from_agent_service(
+                                    # Check if this is an agent service - get global name（使用异步版本，避免 AOB 事件循环冲突）
+                                    global_name = await self.registry.get_global_name_from_agent_service_async(
                                         agent_id, service_name
                                     )
                                     if global_name:

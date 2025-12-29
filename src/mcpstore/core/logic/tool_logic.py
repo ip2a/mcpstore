@@ -19,9 +19,12 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ToolInfo:
     """工具信息（纯数据结构）"""
-    name: str
+    name: str  # 工具全局名（L3）
+    tool_original_name: str  # FastMCP 标准格式（L2）
     description: str
-    service_name: str
+    service_name: str  # 服务原始名（L0，保持与 service_original_name 一致）
+    service_original_name: str  # 服务原始名（L0/FastMCP 视角）
+    service_global_name: str  # 服务全局名（L3）
     client_id: Optional[str]
     inputSchema: Dict[str, Any]
     
@@ -29,14 +32,22 @@ class ToolInfo:
     def from_entity(
         cls,
         entity_data: Dict[str, Any],
-        service_name: str,
+        service_original_name: str,
+        service_global_name: str,
         client_id: Optional[str] = None
     ) -> "ToolInfo":
         """从实体数据创建 ToolInfo"""
+        if not entity_data.get("tool_original_name"):
+            raise ValueError("tool_original_name 缺失，无法构建 ToolInfo")
+        if not service_global_name:
+            raise ValueError("service_global_name 缺失，无法构建 ToolInfo")
         return cls(
             name=entity_data.get("tool_global_name", ""),
+            tool_original_name=entity_data.get("tool_original_name", ""),
             description=entity_data.get("description", ""),
-            service_name=service_name,
+            service_name=service_original_name,
+            service_original_name=service_original_name,
+            service_global_name=service_global_name,
             client_id=client_id,
             inputSchema=entity_data.get("input_schema", {})
         )
@@ -47,6 +58,9 @@ class ToolInfo:
             "name": self.name,
             "description": self.description,
             "service_name": self.service_name,
+            "service_original_name": self.service_original_name,
+            "service_global_name": self.service_global_name,
+            "tool_original_name": self.tool_original_name,
             "client_id": self.client_id,
             "inputSchema": self.inputSchema
         }
@@ -97,22 +111,20 @@ class ToolLogicCore:
     """
     
     @staticmethod
-    def extract_original_tool_name(tool_name: str, service_name: str) -> str:
+    def extract_original_tool_name(
+        tool_name: str,
+        service_name: str,
+        alt_service_name: Optional[str] = None
+    ) -> str:
         """
         提取工具的原始名称（去除服务前缀）
-        
-        纯同步计算，无 IO。
-        
-        Args:
-            tool_name: 完整工具名称（可能包含服务前缀）
-            service_name: 服务名称
-        
-        Returns:
-            原始工具名称
+        优先使用提供的服务名/备用服务名做前缀匹配，匹配不上则原样返回。
         """
-        prefix = f"{service_name}_"
-        if tool_name.startswith(prefix):
-            return tool_name[len(prefix):]
+        for prefix in (service_name, alt_service_name):
+            if prefix:
+                full_prefix = f"{prefix}_"
+                if tool_name.startswith(full_prefix):
+                    return tool_name[len(full_prefix):]
         return tool_name
     
     @staticmethod
@@ -148,13 +160,18 @@ class ToolLogicCore:
                 continue
             
             service_global_name = entity.get("service_global_name", "")
-            service_name = service_name_map.get(
+            service_original_name = service_name_map.get(
                 service_global_name,
                 entity.get("service_original_name", "")
             )
             client_id = client_id_map.get(service_global_name)
             
-            tool_info = ToolInfo.from_entity(entity, service_name, client_id)
+            tool_info = ToolInfo.from_entity(
+                entity,
+                service_original_name,
+                service_global_name,
+                client_id
+            )
             tools.append(tool_info)
         
         return tools
@@ -205,11 +222,7 @@ class ToolLogicCore:
         result = []
         
         for tool in tools:
-            # 获取服务全局名称（工具名格式：service_global_name_tool_name）
-            # 从工具名中提取服务全局名称
-            service_global_name = ToolLogicCore._extract_service_global_name(
-                tool.name
-            )
+            service_global_name = tool.service_global_name
             
             # 获取服务状态
             status = service_status_map.get(service_global_name)
@@ -219,9 +232,10 @@ class ToolLogicCore:
                     f"service_global_name={service_global_name}, tool={tool.name}"
                 )
             
-            # 提取工具原始名称
-            original_tool_name = ToolLogicCore.extract_original_tool_name(
-                tool.name, service_global_name
+            original_tool_name = tool.tool_original_name or ToolLogicCore.extract_original_tool_name(
+                tool.name,
+                service_global_name,
+                tool.service_name
             )
             
             # 查找工具状态
@@ -284,12 +298,7 @@ class ToolLogicCore:
         result = []
         
         for tool in tools:
-            # 获取服务全局名称
-            service_global_name = ToolLogicCore._extract_service_global_name(
-                tool.name
-            )
-            
-            # 获取本地服务名
+            service_global_name = tool.service_global_name
             local_service_name = global_to_local_map.get(service_global_name)
             if local_service_name is None:
                 # 没有映射，跳过
@@ -304,8 +313,11 @@ class ToolLogicCore:
             
             local_tool = ToolInfo(
                 name=local_tool_name,
+                tool_original_name=tool.tool_original_name,
                 description=tool.description,
                 service_name=local_service_name,
+                service_original_name=local_service_name,
+                service_global_name=service_global_name,
                 client_id=tool.client_id,
                 inputSchema=tool.inputSchema
             )
@@ -317,7 +329,9 @@ class ToolLogicCore:
     def check_tool_availability(
         service_global_name: str,
         tool_name: str,
-        service_status: Optional[Dict[str, Any]]
+        service_status: Optional[Dict[str, Any]],
+        tool_original_name_override: Optional[str] = None,
+        service_original_name: Optional[str] = None,
     ) -> bool:
         """
         检查单个工具的可用性
@@ -343,8 +357,13 @@ class ToolLogicCore:
             )
         
         # 提取工具原始名称
-        original_tool_name = ToolLogicCore.extract_original_tool_name(
-            tool_name, service_global_name
+        original_tool_name = (
+            tool_original_name_override
+            or ToolLogicCore.extract_original_tool_name(
+                tool_name,
+                service_global_name,
+                service_original_name
+            )
         )
         
         # 查找工具状态

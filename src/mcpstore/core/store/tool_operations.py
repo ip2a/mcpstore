@@ -265,8 +265,11 @@ class ToolOperationsMixin:
             
             tool_info = ToolInfo(
                 name=entity_dict.get("tool_global_name", ""),
+                tool_original_name=entity_dict.get("tool_original_name", ""),
                 description=entity_dict.get("description", ""),
                 service_name=service_original_name,
+                service_original_name=service_original_name,
+                service_global_name=service_global_name,
                 client_id=client_id,
                 inputSchema=entity_dict.get("input_schema", {})
             )

@@ -34,7 +34,10 @@ class ToolOperationsMixin:
     def _is_tool_available(
         self,
         service_global_name: str,
-        tool_name: str
+        tool_name: str,
+        *,
+        tool_original_name: Optional[str] = None,
+        service_original_name: Optional[str] = None,
     ) -> bool:
         """
         检查工具是否可用（同步外壳）
@@ -52,14 +55,22 @@ class ToolOperationsMixin:
             RuntimeError: 如果服务状态不存在或工具状态不存在
         """
         return self._run_async_via_bridge(
-            self._is_tool_available_async(service_global_name, tool_name),
+            self._is_tool_available_async(
+                service_global_name,
+                tool_name,
+                tool_original_name=tool_original_name,
+                service_original_name=service_original_name,
+            ),
             op_name="tool_operations.is_tool_available"
         )
 
     async def _is_tool_available_async(
         self,
         service_global_name: str,
-        tool_name: str
+        tool_name: str,
+        *,
+        tool_original_name: Optional[str] = None,
+        service_original_name: Optional[str] = None,
     ) -> bool:
         """
         检查工具是否可用（异步外壳）
@@ -87,7 +98,9 @@ class ToolOperationsMixin:
         is_available = ToolLogicCore.check_tool_availability(
             service_global_name,
             tool_name,
-            status_dict
+            status_dict,
+            tool_original_name_override=tool_original_name,
+            service_original_name=service_original_name,
         )
         
         logger.debug(
@@ -239,8 +252,11 @@ class ToolOperationsMixin:
             
             tool_info = ToolInfo(
                 name=entity_dict.get("tool_global_name", ""),
+                tool_original_name=entity_dict.get("tool_original_name", ""),
                 description=entity_dict.get("description", ""),
                 service_name=service_original_name,
+                service_original_name=service_original_name,
+                service_global_name=service_global_name,
                 client_id=client_id,
                 inputSchema=entity_dict.get("input_schema", {})
             )
@@ -302,21 +318,9 @@ class ToolOperationsMixin:
         # 使用纯逻辑核心过滤工具
         filtered_tools: List[ToolInfo] = []
         for tool in all_tools:
-            # 从工具名中提取服务全局名称
-            # 工具名格式：{service_global_name}_{tool_original_name}
-            # 但这里 tool.name 是 tool_global_name，需要找到对应的 service_global_name
-            
-            # 遍历 service_tool_map 找到工具所属的服务
-            tool_service_global_name = None
-            for svc_global, tool_names in service_tool_map.items():
-                if tool.name in tool_names:
-                    tool_service_global_name = svc_global
-                    break
-            
-            if tool_service_global_name is None:
-                # 找不到服务，跳过（不应该发生）
-                logger.warning(f"[LIST_TOOLS] 找不到工具所属服务: tool={tool.name}")
-                continue
+            tool_service_global_name = getattr(tool, "service_global_name", None)
+            if not tool_service_global_name:
+                raise RuntimeError(f"[LIST_TOOLS] 工具缺少 service_global_name: tool={tool.name}")
             
             # 获取服务状态
             status_dict = service_status_map.get(tool_service_global_name)
@@ -356,7 +360,9 @@ class ToolOperationsMixin:
                 is_available = ToolLogicCore.check_tool_availability(
                     tool_service_global_name,
                     tool.name,
-                    status_dict
+                    status_dict,
+                    tool_original_name_override=getattr(tool, "tool_original_name", None),
+                    service_original_name=getattr(tool, "service_original_name", None),
                 )
                 if is_available:
                     filtered_tools.append(tool)
@@ -673,29 +679,34 @@ class ToolOperationsMixin:
             for tool in tools:
                 # Agent模式：需要转换服务名称为本地名称
                 if self._context_type == ContextType.AGENT and self._agent_id:
-                    #  透明代理：将全局服务名转换为本地服务名
-                    local_service_name = self._get_local_service_name_from_global(tool.service_name)
+                    #  透明代理：将全局服务名转换为本地服务名（从缓存源读取）
+                    local_service_name = await self._get_local_service_name_from_global_async(tool.service_global_name)
                     if local_service_name:
                         # 构建本地工具名称
-                        local_tool_name = self._convert_tool_name_to_local(tool.name, tool.service_name, local_service_name)
+                        local_tool_name = self._convert_tool_name_to_local(
+                            tool.name,
+                            tool.service_global_name,
+                            local_service_name,
+                            getattr(tool, "tool_original_name", None),
+                        )
                         display_name = local_tool_name
                         service_name = local_service_name
                     else:
                         # 如果无法映射，使用原始名称
                         display_name = tool.name
-                        service_name = tool.service_name
+                        service_name = tool.service_original_name
                 else:
                     display_name = tool.name
-                    service_name = tool.service_name
+                    service_name = tool.service_original_name
 
-                original_name = self._extract_original_tool_name(display_name, service_name)
+                original_name = getattr(tool, "tool_original_name", None) or self._extract_original_tool_name(display_name, service_name)
 
                 available_tools.append({
                     "name": display_name,           # 显示名称（Agent模式下使用本地名称）
                     "original_name": original_name, # 原始名称
                     "service_name": service_name,   # 服务名称（Agent模式下使用本地名称）
                     "global_tool_name": tool.name,  # 保存全局工具名称用于实际调用
-                    "global_service_name": tool.service_name  # 保存全局服务名称
+                    "global_service_name": tool.service_global_name  # 保存全局服务名称
                 })
 
             logger.debug(f"Available tools for resolution: {len(available_tools)}")
@@ -748,7 +759,9 @@ class ToolOperationsMixin:
         # 检查工具是否可用
         is_available = await self._is_tool_available_async(
             service_global_name,
-            fastmcp_tool_name
+            fastmcp_tool_name,
+            tool_original_name=fastmcp_tool_name,
+            service_original_name=resolution.service_name,
         )
         
         if not is_available:
@@ -794,7 +807,8 @@ class ToolOperationsMixin:
                 tool_name=fastmcp_tool_name,  # [FASTMCP] Use FastMCP standard format
                 service_name=global_service_name,  # Use global service name
                 args=args,
-                agent_id=self._store.client_manager.global_agent_store_id,  # Use global Agent ID
+                # Agent 场景使用真实 agent_id，确保关系层查询服务映射正确
+                agent_id=self._agent_id,
                 **kwargs
             )
 
@@ -836,7 +850,10 @@ class ToolOperationsMixin:
 
     async def _map_agent_tool_to_global_service(self, local_service_name: str, tool_name: str) -> str:
         """
-        将 Agent 的本地服务名映射到全局服务名
+        将 Agent 的本地服务名映射到全局服务名（异步版本）
+
+        使用新架构：通过 RelationshipManager 从 pykv 缓存源读取映射关系
+        遵循 pykv 数据唯一源原则和完全异步调用链
 
         Args:
             local_service_name: Agent 中的本地服务名
@@ -848,8 +865,10 @@ class ToolOperationsMixin:
         try:
             # 1. 检查是否为 Agent 服务
             if self._agent_id and local_service_name:
-                # 尝试从映射关系中获取全局名称
-                global_name = self._store.registry.get_global_name_from_agent_service(self._agent_id, local_service_name)
+                # 使用异步接口从缓存源获取全局名称
+                global_name = await self._store.registry.get_global_name_from_agent_service_async(
+                    self._agent_id, local_service_name
+                )
                 if global_name:
                     logger.debug(f"[TOOL_PROXY] map local='{local_service_name}' -> global='{global_name}'")
                     return global_name
@@ -911,13 +930,21 @@ class ToolOperationsMixin:
                                 continue
 
                             # 转换工具名为本地名称
-                            local_tool_name = self._convert_tool_name_to_local(tool_name, global_service_name, local_service_name)
+                            local_tool_name = self._convert_tool_name_to_local(
+                                tool_name,
+                                global_service_name,
+                                local_service_name,
+                                tool_info.get("tool_original_name")
+                            )
 
                             # 创建本地工具视图（client_id 使用全局命名空间）
                             local_tool = ToolInfo(
                                 name=local_tool_name,
+                                tool_original_name=tool_info.get('tool_original_name', ''),
                                 description=tool_info.get('description', ''),
                                 service_name=local_service_name,
+                                service_original_name=local_service_name,
+                                service_global_name=global_service_name,
                                 inputSchema=tool_info.get('inputSchema', {}),
                                 client_id=tool_info.get('client_id', '')
                             )
@@ -937,7 +964,7 @@ class ToolOperationsMixin:
             logger.error(f"[AGENT_TOOLS] view_error error={e}")
             return []
 
-    def _convert_tool_name_to_local(self, global_tool_name: str, global_service_name: str, local_service_name: str) -> str:
+    def _convert_tool_name_to_local(self, global_tool_name: str, global_service_name: str, local_service_name: str, tool_original_name: Optional[str] = None) -> str:
         """
         将全局工具名转换为本地工具名
 
@@ -950,21 +977,24 @@ class ToolOperationsMixin:
             str: 本地工具名
         """
         try:
-            # If tool name starts with global service name, replace with local service name
+            if tool_original_name:
+                return f"{local_service_name}_{tool_original_name}"
+
             if global_tool_name.startswith(f"{global_service_name}_"):
                 tool_suffix = global_tool_name[len(global_service_name) + 1:]
                 return f"{local_service_name}_{tool_suffix}"
-            else:
-                # If format doesn't match, return original tool name
-                return global_tool_name
+            return global_tool_name
 
         except Exception as e:
             logger.error(f"[TOOL_NAME_CONVERT] Tool name conversion failed: {e}")
             return global_tool_name
 
-    def _get_local_service_name_from_global(self, global_service_name: str) -> Optional[str]:
+    async def _get_local_service_name_from_global_async(self, global_service_name: str) -> Optional[str]:
         """
-        从全局服务名获取本地服务名
+        从全局服务名获取本地服务名（异步版本）
+
+        使用新架构：通过 RelationshipManager 从 pykv 缓存源读取映射关系
+        遵循 pykv 数据唯一源原则，不依赖内存字典
 
         Args:
             global_service_name: 全局服务名
@@ -976,10 +1006,15 @@ class ToolOperationsMixin:
             if not self._agent_id:
                 return None
 
-            # Check mapping relationship
-            agent_mappings = self._store.registry.agent_to_global_mappings.get(self._agent_id, {})
-            for local_name, global_name in agent_mappings.items():
-                if global_name == global_service_name:
+            # 使用新架构的异步接口从缓存源读取
+            result = await self._store.registry.get_agent_service_from_global_name_async(
+                global_service_name
+            )
+
+            if result:
+                agent_id, local_name = result
+                # 只返回当前 Agent 的服务映射
+                if agent_id == self._agent_id:
                     return local_name
 
             return None
@@ -1067,9 +1102,9 @@ class ToolOperationsMixin:
         Validates: Requirements 6.6, 6.10 (数据源归属验证)
         """
         from mcpstore.core.exceptions import DataSourceNotFoundError
-        
-        # 获取服务的全局名称
-        service_global_name = self._store.registry.get_global_name_from_agent_service(
+
+        # 获取服务的全局名称（异步版本，避免 AOB 事件循环冲突）
+        service_global_name = await self._store.registry.get_global_name_from_agent_service_async(
             agent_id, service_name
         )
         
@@ -1187,26 +1222,26 @@ class ToolOperationsMixin:
         for service_name in service_names:
             # 验证数据源归属
             await self._verify_data_source_ownership(self._agent_id, service_name)
-            
-            # 获取服务的全局名称
-            service_global_name = self._store.registry.get_global_name_from_agent_service(
+
+            # 获取服务的全局名称（异步版本，避免 AOB 事件循环冲突）
+            service_global_name = await self._store.registry.get_global_name_from_agent_service_async(
                 self._agent_id, service_name
             )
-            
+
             if not service_global_name:
                 raise RuntimeError(
                     f"无法获取服务全局名称: agent_id={self._agent_id}, "
                     f"service_name={service_name}"
                 )
-            
+
             # 获取服务状态
             service_status = await state_manager.get_service_status(service_global_name)
-            
+
             if not service_status:
                 raise RuntimeError(
                     f"服务状态不存在: service_global_name={service_global_name}"
                 )
-            
+
             # 确定要添加的工具列表
             if tools == "_all_tools":
                 # 添加所有工具
@@ -1317,26 +1352,26 @@ class ToolOperationsMixin:
         for service_name in service_names:
             # 验证数据源归属
             await self._verify_data_source_ownership(self._agent_id, service_name)
-            
-            # 获取服务的全局名称
-            service_global_name = self._store.registry.get_global_name_from_agent_service(
+
+            # 获取服务的全局名称（异步版本，避免 AOB 事件循环冲突）
+            service_global_name = await self._store.registry.get_global_name_from_agent_service_async(
                 self._agent_id, service_name
             )
-            
+
             if not service_global_name:
                 raise RuntimeError(
                     f"无法获取服务全局名称: agent_id={self._agent_id}, "
                     f"service_name={service_name}"
                 )
-            
+
             # 获取服务状态
             service_status = await state_manager.get_service_status(service_global_name)
-            
+
             if not service_status:
                 raise RuntimeError(
                     f"服务状态不存在: service_global_name={service_global_name}"
                 )
-            
+
             # 确定要移除的工具列表
             if tools == "_all_tools":
                 # 移除所有工具
@@ -1435,26 +1470,26 @@ class ToolOperationsMixin:
         for service_name in service_names:
             # 验证数据源归属
             await self._verify_data_source_ownership(self._agent_id, service_name)
-            
-            # 获取服务的全局名称
-            service_global_name = self._store.registry.get_global_name_from_agent_service(
+
+            # 获取服务的全局名称（异步版本，避免 AOB 事件循环冲突）
+            service_global_name = await self._store.registry.get_global_name_from_agent_service_async(
                 self._agent_id, service_name
             )
-            
+
             if not service_global_name:
                 raise RuntimeError(
                     f"无法获取服务全局名称: agent_id={self._agent_id}, "
                     f"service_name={service_name}"
                 )
-            
+
             # 获取服务状态
             service_status = await state_manager.get_service_status(service_global_name)
-            
+
             if not service_status:
                 raise RuntimeError(
                     f"服务状态不存在: service_global_name={service_global_name}"
                 )
-            
+
             # 获取所有工具名称
             all_tool_names = [t.tool_original_name for t in service_status.tools]
             
@@ -1536,9 +1571,9 @@ class ToolOperationsMixin:
             service_name = service.name
         else:
             service_name = str(service)
-        
-        # 获取服务的全局名称
-        service_global_name = self._store.registry.get_global_name_from_agent_service(
+
+        # 获取服务的全局名称（异步版本，避免 AOB 事件循环冲突）
+        service_global_name = await self._store.registry.get_global_name_from_agent_service_async(
             self._agent_id, service_name
         )
         
