@@ -145,27 +145,6 @@ class StoreProxy:
     def call_tool(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         # Delegate and normalize to dict as store layer does
         res = self._context.call_tool(tool_name, args)
-        # region agent log: call_tool normalization input
-        try:
-            import json as _json_ct
-            _payload_ct = {
-                "sessionId": "debug-session",
-                "runId": "initial",
-                "hypothesisId": "H4",
-                "location": "core/context/store_proxy.py:call_tool",
-                "message": "call_tool raw result",
-                "data": {
-                    "tool_name": tool_name,
-                    "result_type": type(res).__name__,
-                    "has_content_attr": hasattr(res, "content"),
-                },
-                "timestamp": __import__("time").time(),
-            }
-            with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f_ct:
-                _f_ct.write(_json_ct.dumps(_payload_ct, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
-        # endregion agent log
         # Normalization: align with api_store _normalize_result behavior
         try:
             if hasattr(res, 'content'):

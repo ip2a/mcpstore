@@ -284,37 +284,6 @@ class ToolOperationsMixin:
             if status:
                 service_status_map[service_global_name] = status.to_dict()
 
-                # region agent log
-                try:
-                    import json, time
-                    from pathlib import Path
-                    log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                    tools = getattr(status, "tools", []) or []
-                    log_record = {
-                        "sessionId": "debug-session",
-                        "runId": "pre-fix",
-                        "hypothesisId": "H3",
-                        "location": "tool_operations.py:list_tools_async",
-                        "message": "service_status_loaded_for_list_tools",
-                        "data": {
-                            "agent_id": agent_id,
-                            "service_global_name": service_global_name,
-                            "health_status": getattr(status, "health_status", None),
-                            "tools_count": len(tools),
-                            "tool_original_names": [
-                                getattr(t, "tool_original_name", None) for t in tools
-                            ],
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    }
-                    log_path.parent.mkdir(parents=True, exist_ok=True)
-                    with log_path.open("a", encoding="utf-8") as f:
-                        f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-                except Exception:
-                    # 调试日志失败不影响主流程
-                    pass
-                # endregion
-        
         # 使用纯逻辑核心过滤工具
         filtered_tools: List[ToolInfo] = []
         for tool in all_tools:
@@ -324,36 +293,6 @@ class ToolOperationsMixin:
             
             # 获取服务状态
             status_dict = service_status_map.get(tool_service_global_name)
-
-            # region agent log: before_check_tool_availability (H4)
-            try:
-                import json, time
-                from pathlib import Path
-                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                tools_value = (status_dict or {}).get("tools") if isinstance(status_dict, dict) else None
-                tools_count = len(tools_value) if isinstance(tools_value, list) else 0
-                log_record = {
-                    "sessionId": "debug-session",
-                    "runId": "pre-fix",
-                    "hypothesisId": "H4",
-                    "location": "tool_operations.py:list_tools_async",
-                    "message": "before_check_tool_availability",
-                    "data": {
-                        "agent_id": agent_id,
-                        "service_global_name": tool_service_global_name,
-                        "tool_name": tool.name,
-                        "has_status": status_dict is not None,
-                        "tools_count_in_status": tools_count,
-                    },
-                    "timestamp": int(time.time() * 1000),
-                }
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                with log_path.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-            except Exception:
-                # 调试日志失败不影响主流程
-                pass
-            # endregion
 
             # 使用纯逻辑核心检查可用性
             try:
@@ -367,23 +306,6 @@ class ToolOperationsMixin:
                 if is_available:
                     filtered_tools.append(tool)
             except RuntimeError as e:
-                # region agent log: check_tool_availability_error (H8)
-                try:
-                    import json, time
-                    from pathlib import Path
-                    log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                    tools_value = (status_dict or {}).get("tools") if isinstance(status_dict, dict) else None
-                    tools_count = len(tools_value) if isinstance(tools_value, list) else 0
-                    log_record = {
-                        "sessionId": "debug-session",
-                        "runId": "pre-fix",
-                        "hypothesisId": "H8",
-                        "location": "tool_operations.py:list_tools_async",
-                        "message": "check_tool_availability_error",
-                        "data": {
-                            "agent_id": agent_id,
-                            "service_global_name": tool_service_global_name,
-                            "tool_name": tool.name,
                             "error": str(e),
                             "has_status": status_dict is not None,
                             "tools_count_in_status": tools_count,

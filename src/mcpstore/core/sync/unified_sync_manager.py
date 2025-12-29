@@ -155,30 +155,6 @@ class UnifiedMCPSyncManager:
             
     async def on_file_changed(self):
         """文件变化回调（带防抖）"""
-        # #region agent log
-        try:
-            import json
-            from pathlib import Path
-            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-            log_record = {
-                "sessionId": "debug-session",
-                "runId": "timeout-investigation",
-                "hypothesisId": "H2",
-                "location": "unified_sync_manager.py:on_file_changed",
-                "message": "file_change_detected",
-                "data": {
-                    "mcp_json_path": self.mcp_json_path,
-                    "has_existing_task": self.sync_task is not None and not self.sync_task.done() if self.sync_task else False,
-                },
-                "timestamp": int(time.time() * 1000),
-            }
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
-        # #endregion
-        
         try:
             self.last_change_time = time.time()
             
@@ -194,195 +170,28 @@ class UnifiedMCPSyncManager:
             
     async def _debounced_sync(self):
         """防抖同步"""
-        # #region agent log
-        debounce_start = time.time()
-        try:
-            import json
-            from pathlib import Path
-            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-            log_record = {
-                "sessionId": "debug-session",
-                "runId": "timeout-investigation",
-                "hypothesisId": "H2",
-                "location": "unified_sync_manager.py:_debounced_sync",
-                "message": "debounce_start",
-                "data": {
-                    "debounce_delay": self.debounce_delay,
-                    "last_change_time": self.last_change_time,
-                },
-                "timestamp": int(debounce_start * 1000),
-            }
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
-        # #endregion
-        
         try:
             await asyncio.sleep(self.debounce_delay)
 
             # 检查是否有新的变化
             if self.last_change_time and time.time() - self.last_change_time >= self.debounce_delay:
-                # #region agent log
-                sync_start = time.time()
-                try:
-                    import json
-                    from pathlib import Path
-                    log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                    log_record = {
-                        "sessionId": "debug-session",
-                        "runId": "timeout-investigation",
-                        "hypothesisId": "H2",
-                        "location": "unified_sync_manager.py:_debounced_sync",
-                        "message": "triggering_auto_sync",
-                        "data": {
-                            "time_since_change": time.time() - self.last_change_time,
-                        },
-                        "timestamp": int(sync_start * 1000),
-                    }
-                    log_path.parent.mkdir(parents=True, exist_ok=True)
-                    with log_path.open("a", encoding="utf-8") as f:
-                        f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-                except Exception:
-                    pass
-                # #endregion
-                
                 logger.info("Triggering auto-sync due to mcp.json changes")
                 # 统一使用全局同步方法
                 await self.sync_global_agent_store_from_mcp_json()
                 
-                # #region agent log
-                sync_time = time.time() - sync_start
-                try:
-                    import json
-                    from pathlib import Path
-                    log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                    log_record = {
-                        "sessionId": "debug-session",
-                        "runId": "timeout-investigation",
-                        "hypothesisId": "H2",
-                        "location": "unified_sync_manager.py:_debounced_sync",
-                        "message": "auto_sync_completed",
-                        "data": {
-                            "sync_time_ms": sync_time * 1000,
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    }
-                    log_path.parent.mkdir(parents=True, exist_ok=True)
-                    with log_path.open("a", encoding="utf-8") as f:
-                        f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-                except Exception:
-                    pass
-                # #endregion
-                
         except asyncio.CancelledError:
-            # #region agent log
-            try:
-                import json
-                from pathlib import Path
-                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                log_record = {
-                    "sessionId": "debug-session",
-                    "runId": "timeout-investigation",
-                    "hypothesisId": "H2",
-                    "location": "unified_sync_manager.py:_debounced_sync",
-                    "message": "debounce_cancelled",
-                    "data": {},
-                    "timestamp": int(time.time() * 1000),
-                }
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                with log_path.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-            except Exception:
-                pass
-            # #endregion
             logger.debug("Debounced sync cancelled")
         except Exception as e:
             logger.error(f"Error in debounced sync: {e}")
             
     async def sync_global_agent_store_from_mcp_json(self):
         """从mcp.json同步global_agent_store（核心方法）"""
-        # #region agent log
-        sync_start = time.time()
-        lock_acquire_start = sync_start
-        try:
-            import json
-            from pathlib import Path
-            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-            log_record = {
-                "sessionId": "debug-session",
-                "runId": "timeout-investigation",
-                "hypothesisId": "H2",
-                "location": "unified_sync_manager.py:sync_global_agent_store_from_mcp_json",
-                "message": "sync_start",
-                "data": {
-                    "lock_locked": self.sync_lock.locked(),
-                    "last_sync_time": self.last_sync_time,
-                    "min_sync_interval": self.min_sync_interval,
-                },
-                "timestamp": int(sync_start * 1000),
-            }
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
-        # #endregion
-        
         async with self.sync_lock:
-            # #region agent log
-            lock_acquire_time = time.time() - lock_acquire_start
-            try:
-                import json
-                from pathlib import Path
-                log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                log_record = {
-                    "sessionId": "debug-session",
-                    "runId": "timeout-investigation",
-                    "hypothesisId": "H2",
-                    "location": "unified_sync_manager.py:sync_global_agent_store_from_mcp_json",
-                    "message": "sync_lock_acquired",
-                    "data": {
-                        "lock_acquire_time_ms": lock_acquire_time * 1000,
-                    },
-                    "timestamp": int(time.time() * 1000),
-                }
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                with log_path.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-            except Exception:
-                pass
-            # #endregion
-            
             try:
                 #  新增：检查同步频率，避免过度同步
                 current_time = time.time()
 
                 if self.last_sync_time and (current_time - self.last_sync_time) < self.min_sync_interval:
-                    # #region agent log
-                    try:
-                        import json
-                        from pathlib import Path
-                        log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-                        log_record = {
-                            "sessionId": "debug-session",
-                            "runId": "timeout-investigation",
-                            "hypothesisId": "H2",
-                            "location": "unified_sync_manager.py:sync_global_agent_store_from_mcp_json",
-                            "message": "sync_skipped_frequency_limit",
-                            "data": {
-                                "time_since_last_sync": current_time - self.last_sync_time,
-                                "min_sync_interval": self.min_sync_interval,
-                            },
-                            "timestamp": int(time.time() * 1000),
-                        }
-                        log_path.parent.mkdir(parents=True, exist_ok=True)
-                        with log_path.open("a", encoding="utf-8") as f:
-                            f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-                    except Exception:
-                        pass
-                    # #endregion
                     logger.debug(f"Sync skipped due to frequency limit (last sync {current_time - self.last_sync_time:.1f}s ago)")
                     return {"skipped": True, "reason": "frequency_limit"}
 
@@ -655,29 +464,6 @@ class UnifiedMCPSyncManager:
                 
                 # UnifiedMCPSyncManager主要处理Store级别的服务，所以使用global_agent_store_id
                 global_agent_store_id = getattr(self.orchestrator.client_manager, 'global_agent_store_id', 'global_agent_store')
-
-                # region agent log
-                try:
-                    import json as _debug_json  # type: ignore
-                    with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f:
-                        _f.write(_debug_json.dumps({
-                            "sessionId": "debug-session",
-                            "runId": "run1",
-                            "hypothesisId": "H1",
-                            "location": "unified_sync_manager.py:_add_service_to_cache_mapping",
-                            "message": "before_generate_client_id",
-                            "data": {
-                                "agent_id": agent_id,
-                                "service_name": service_name,
-                                "service_config_type": str(type(service_config)),
-                                "service_config_keys": list(service_config.keys()) if isinstance(service_config, dict) else None,
-                                "service_config_str_preview": str(service_config)[:32] if not isinstance(service_config, dict) else None
-                            },
-                            "timestamp": __import__("time").time()
-                        }) + "\n")
-                except Exception:
-                    pass
-                # endregion
                 
                 client_id = ClientIDGenerator.generate_deterministic_id(
                     agent_id=agent_id,

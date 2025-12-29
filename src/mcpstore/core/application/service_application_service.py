@@ -382,27 +382,6 @@ class ServiceApplicationService:
     
     def _validate_params(self, service_name: str, service_config: Dict[str, Any]):
         """验证参数"""
-        # region agent log
-        try:
-            import json as _debug_json  # type: ignore
-            with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f:
-                _f.write(_debug_json.dumps({
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "H2",
-                    "location": "service_application_service.py:_validate_params",
-                    "message": "validate_params_called",
-                    "data": {
-                        "service_name": service_name,
-                        "service_config_type": str(type(service_config)),
-                        "service_config_keys": list(service_config.keys()) if isinstance(service_config, dict) else None,
-                        "service_config_str_preview": str(service_config)[:32] if not isinstance(service_config, dict) else None
-                    },
-                    "timestamp": __import__("time").time()
-                }) + "\n")
-        except Exception:
-            pass
-        # endregion
         if not service_name:
             raise ValueError("service_name cannot be empty")
         

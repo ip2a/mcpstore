@@ -6,6 +6,7 @@
 
 import time
 import logging
+from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 from .cache_layer_manager import CacheLayerManager
@@ -86,92 +87,12 @@ class StateManager:
             tools=tools
         )
 
-        # region agent log
-        try:
-            import json
-            import traceback
-            from pathlib import Path
-            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-            # 获取调用栈（最多10层）
-            stack = traceback.extract_stack()[-10:]
-            stack_str = " -> ".join([f"{s.filename.split('/')[-1]}:{s.lineno}:{s.name}" for s in stack])
-            log_record = {
-                "sessionId": "debug-session",
-                "runId": "pre-fix",
-                "hypothesisId": "H1,H2,H3,H4,H5",
-                "location": "state_manager.py:update_service_status",
-                "message": "update_service_status_called",
-                "data": {
-                    "service_global_name": service_global_name,
-                    "health_status": health_status,
-                    "tools_count": len(tools),
-                    "tool_original_names": [t.tool_original_name for t in tools],
-                    "tool_global_names": [t.tool_global_name for t in tools],
-                    "call_stack": stack_str,
-                },
-                "timestamp": int(time.time() * 1000),
-            }
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-        except Exception:
-            # 调试日志失败不影响主流程
-            pass
-        # endregion
-
         # 存储到状态层
-        # region agent log
-        try:
-            import json
-            from pathlib import Path
-            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-            log_record = {
-                "sessionId": "debug-session",
-                "runId": "pre-fix",
-                "hypothesisId": "H5",
-                "location": "state_manager.py:update_service_status",
-                "message": "before_put_state_final",
-                "data": {
-                    "service_global_name": service_global_name,
-                    "health_status": health_status,
-                    "status_dict_keys": list(status.to_dict().keys()),
-                },
-                "timestamp": int(time.time() * 1000),
-            }
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
-        # endregion
         await self._cache_layer.put_state(
             "service_status",
             service_global_name,
             status.to_dict()
         )
-        # region agent log
-        try:
-            import json
-            from pathlib import Path
-            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-            log_record = {
-                "sessionId": "debug-session",
-                "runId": "pre-fix",
-                "hypothesisId": "H5",
-                "location": "state_manager.py:update_service_status",
-                "message": "after_put_state_final",
-                "data": {
-                    "service_global_name": service_global_name,
-                    "health_status": health_status,
-                },
-                "timestamp": int(time.time() * 1000),
-            }
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
-        # endregion
         
         logger.debug(
             f"[StateManager] 更新服务状态: service={service_global_name}, "
@@ -279,29 +200,6 @@ class StateManager:
         Args:
             service_global_name: 服务全局名称
         """
-        # region agent log
-        try:
-            import json, time
-            from pathlib import Path
-            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-            log_record = {
-                "sessionId": "debug-session",
-                "runId": "pre-fix",
-                "hypothesisId": "H5",
-                "location": "state_manager.py:delete_service_status",
-                "message": "before_delete_service_status",
-                "data": {
-                    "service_global_name": service_global_name,
-                },
-                "timestamp": int(time.time() * 1000),
-            }
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-        except Exception:
-            # 调试日志失败不影响主流程
-            pass
-        # endregion
 
         await self._cache_layer.delete_state("service_status", service_global_name)
         

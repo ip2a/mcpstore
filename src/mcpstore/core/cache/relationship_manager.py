@@ -322,35 +322,6 @@ class RelationshipManager:
             f"tool_global_name={tool_global_name}"
         )
         
-        # region agent log
-        try:
-            import json
-            import traceback
-            from pathlib import Path
-            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-            stack = traceback.extract_stack()[-10:]
-            stack_str = " -> ".join([f"{s.filename.split('/')[-1]}:{s.lineno}:{s.name}" for s in stack])
-            log_record = {
-                "sessionId": "debug-session",
-                "runId": "pre-fix",
-                "hypothesisId": "H4",
-                "location": "relationship_manager.py:add_service_tool",
-                "message": "add_service_tool_called",
-                "data": {
-                    "service_global_name": service_global_name,
-                    "tool_global_name": tool_global_name,
-                    "tool_original_name": tool_original_name,
-                    "call_stack": stack_str,
-                },
-                "timestamp": int(time.time() * 1000),
-            }
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
-        # endregion
-        
         # 获取现有关系
         relation_data = await self._cache_layer.get_relation(
             "service_tools",
@@ -534,39 +505,6 @@ class RelationshipManager:
         
         # 转换为字典列表
         tools = [tool.to_dict() for tool in relation.tools]
-        
-        # region agent log
-        try:
-            import json
-            import traceback
-            from pathlib import Path
-            log_path = Path("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log")
-            # 获取调用栈（最多10层）
-            stack = traceback.extract_stack()[-10:]
-            stack_str = " -> ".join([f"{s.filename.split('/')[-1]}:{s.lineno}:{s.name}" for s in stack])
-            tool_original_names = [t.get("tool_original_name") for t in tools]
-            tool_global_names = [t.get("tool_global_name") for t in tools]
-            log_record = {
-                "sessionId": "debug-session",
-                "runId": "pre-fix",
-                "hypothesisId": "H2",
-                "location": "relationship_manager.py:get_service_tools",
-                "message": "get_service_tools_returned",
-                "data": {
-                    "service_global_name": service_global_name,
-                    "tools_count": len(tools),
-                    "tool_original_names": tool_original_names,
-                    "tool_global_names": tool_global_names,
-                    "call_stack": stack_str,
-                },
-                "timestamp": int(time.time() * 1000),
-            }
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            with log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
-        # endregion
         
         logger.debug(
             f"[RELATIONSHIP] 获取到 {len(tools)} 个工具关系: "

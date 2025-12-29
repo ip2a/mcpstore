@@ -380,32 +380,6 @@ class ServiceRegistry:
     def _run_async(self, coro, op_name: str):
         from mcpstore.core.bridge import get_async_bridge
 
-        # region agent log
-        try:
-            import asyncio, json, time as _t
-            _in_async = True
-            try:
-                asyncio.get_running_loop()
-            except RuntimeError:
-                _in_async = False
-            _payload = {
-                "sessionId": "debug-session",
-                "runId": "pre-fix",
-                "hypothesisId": "H2",
-                "location": "core/registry/core_registry/main_registry.py:_run_async:entry",
-                "message": "_run_async entry",
-                "data": {
-                    "op_name": op_name,
-                    "in_async_context": _in_async,
-                },
-                "timestamp": int(_t.time() * 1000),
-            }
-            with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f:
-                _f.write(json.dumps(_payload, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
-        # endregion
-
         return get_async_bridge().run(coro, op_name=op_name)
 
     def _map_health_status(self, health_status: Any):
@@ -1143,34 +1117,6 @@ class ServiceRegistry:
         return None
 
     def get_service_client_id(self, agent_id: str, service_name: str) -> Optional[str]:
-        # region agent log
-        try:
-            import asyncio, json, time as _t
-            _has_loop = False
-            try:
-                asyncio.get_running_loop()
-                _has_loop = True
-            except RuntimeError:
-                pass
-            _payload = {
-                "sessionId": "debug-session",
-                "runId": "pre-fix",
-                "hypothesisId": "H4",
-                "location": "core/registry/core_registry/main_registry.py:get_service_client_id:entry",
-                "message": "get_service_client_id entry",
-                "data": {
-                    "agent_id": agent_id,
-                    "service_name": service_name,
-                    "has_running_loop": _has_loop,
-                    "current_task": str(asyncio.current_task()),
-                },
-                "timestamp": int(_t.time() * 1000),
-            }
-            with open("/home/yuuu/app/2025/2025_6/mcpstore/.cursor/debug.log", "a", encoding="utf-8") as _f:
-                _f.write(json.dumps(_payload, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
-        # endregion
         return self._run_async(
             self.get_service_client_id_async(agent_id, service_name),
             op_name="ServiceRegistry.get_service_client_id",
