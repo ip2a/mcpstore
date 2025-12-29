@@ -262,30 +262,6 @@ class MCPConfig:
             config["mcpServers"] = servers
             return self.save_config(config)
         return False
-    
-    def compare_configs(self, new_config: Dict[str, Any]) -> Dict[str, Any]:
-        """Compare new configuration with current configuration
-        
-        Args:
-            new_config: New configuration to compare
-            
-        Returns:
-            Dict containing added, removed, and modified services
-        """
-        current = self.load_config()
-        current_servers = current.get("mcpServers", {})
-        new_servers = new_config.get("mcpServers", {})
-        
-        added = set(new_servers.keys()) - set(current_servers.keys())
-        removed = set(current_servers.keys()) - set(new_servers.keys())
-        modified = {name for name in set(current_servers.keys()) & set(new_servers.keys())
-                   if current_servers[name] != new_servers[name]}
-        
-        return {
-            "added": list(added),
-            "removed": list(removed),
-            "modified": list(modified)
-        }
 
     def reset_mcp_json_file(self) -> bool:
         """
