@@ -1351,8 +1351,8 @@ class ServiceManagementMixin:
         """
         try:
             if self._agent_id:
-                # 尝试从映射关系中获取全局名称
-                global_name = self._store.registry.get_global_name_from_agent_service(self._agent_id, local_name)
+                # 尝试从映射关系中获取全局名称（使用异步版本，避免 AOB 事件循环冲突）
+                global_name = await self._store.registry.get_global_name_from_agent_service_async(self._agent_id, local_name)
                 if global_name:
                     logger.debug(f" [SERVICE_PROXY] 服务名映射: {local_name} → {global_name}")
                     return global_name
@@ -1396,8 +1396,8 @@ class ServiceManagementMixin:
     async def _delete_agent_service_with_sync(self, local_name: str):
         """Agent 服务删除（带双向同步）"""
         try:
-            # 1. 获取全局名称
-            global_name = self._store.registry.get_global_name_from_agent_service(self._agent_id, local_name)
+            # 1. 获取全局名称（使用异步版本，避免 AOB 事件循环冲突）
+            global_name = await self._store.registry.get_global_name_from_agent_service_async(self._agent_id, local_name)
             if not global_name:
                 logger.warning(f" [SERVICE_DELETE] 未找到映射关系: {self._agent_id}:{local_name}")
                 return
@@ -1514,7 +1514,9 @@ class ServiceManagementMixin:
             if not hasattr(self, '_service_management_sync_shell'):
                 from ..architecture import ServiceManagementFactory
                 self._service_management_sync_shell, _, _ = ServiceManagementFactory.create_service_management(
-                    self._store.registry, self._store.orchestrator
+                    self._store.registry,
+                    self._store.orchestrator,
+                    agent_id=self._agent_id or self._store.client_manager.global_agent_store_id
                 )
 
             # 直接调用同步外壳，避免_sync_helper.run_async的复杂性

@@ -50,8 +50,9 @@ class BidirectionalSyncManager:
         
         try:
             self._syncing_services.add(sync_key)
-            
-            global_name = self.store.registry.get_global_name_from_agent_service(agent_id, local_name)
+
+            # 使用异步版本，避免 AOB 事件循环冲突
+            global_name = await self.store.registry.get_global_name_from_agent_service_async(agent_id, local_name)
             if not global_name:
                 logger.warning(f" [BIDIRECTIONAL_SYNC] No global mapping found for {agent_id}:{local_name}")
                 return
@@ -233,13 +234,23 @@ class BidirectionalSyncManager:
     def get_sync_status(self) -> Dict[str, Any]:
         """
         获取同步状态信息（用于调试和监控）
-        
+
+        遵循 pykv 数据唯一源原则：
+        - 不维护内存字典
+        - 主要数据从缓存源读取
+        - 内存仅存储会话信息和配置
+
         Returns:
             Dict: 同步状态信息
+
+        Note:
+            agent_mappings 已移除。如需服务映射信息，请使用：
+            - ServiceRegistry.get_agent_service_from_global_name_async()
+            - ServiceRegistry.get_global_name_from_agent_service_async()
         """
         return {
             "currently_syncing": list(self._syncing_services),
             "sync_count": len(self._syncing_services),
             "store_id": self.store.client_manager.global_agent_store_id,
-            "agent_mappings": dict(self.store.registry.agent_to_global_mappings)
+            # agent_mappings 已移除：不再维护内存字典，所有映射从缓存源读取
         }

@@ -663,8 +663,8 @@ class ServiceOperationsMixin:
         
         # 1. 获取服务的全局名称
         if self._context_type == ContextType.AGENT:
-            # Agent 模式：需要将本地服务名映射到全局服务名
-            service_global_name = self._store.registry.get_global_name_from_agent_service(
+            # Agent 模式：需要将本地服务名映射到全局服务名（使用异步版本，避免 AOB 事件循环冲突）
+            service_global_name = await self._store.registry.get_global_name_from_agent_service_async(
                 agent_id, service_name
             )
             if not service_global_name:
@@ -1111,8 +1111,8 @@ class ServiceOperationsMixin:
                     # 5. 建立双向映射关系（新服务）
                     self._store.registry.add_agent_service_mapping(agent_id, local_name, global_name)
                     logger.debug(f" [AGENT_PROXY] 建立映射关系: {agent_id}:{local_name} ↔ {global_name}")
-                    # 验证映射是否建立成功
-                    verify_mapping = self._store.registry.get_global_name_from_agent_service(agent_id, local_name)
+                    # 验证映射是否建立成功（使用异步版本，避免 AOB 事件循环冲突）
+                    verify_mapping = await self._store.registry.get_global_name_from_agent_service_async(agent_id, local_name)
                     logger.debug(f" [AGENT_PROXY] 验证映射: {agent_id}:{local_name} -> {verify_mapping} (期望: {global_name})")
 
                 # 6. 设置共享 Client ID 映射（新服务和同名服务都需要）

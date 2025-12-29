@@ -352,22 +352,24 @@ class CacheManager:
         
         # 遍历工具列表，创建实体和关系
         for tool_name, tool_def in tools:
-            # 生成工具全局名称
-            tool_global_name = self._registry._naming.generate_tool_global_name(
-                service_global_name, tool_name
-            )
-            
-            logger.debug(
-                f"[CACHE] 创建工具: tool_name={tool_name}, "
-                f"tool_global_name={tool_global_name}"
-            )
-
-            # 提取工具原始名称（去除服务前缀）
+            # 提取工具原始名称（去除服务前缀），保证用于全局名的基准是 FastMCP 标准格式
             from mcpstore.core.logic.tool_logic import ToolLogicCore
             original_tool_name = ToolLogicCore.extract_original_tool_name(
-                tool_name, service_global_name
+                tool_name,
+                service_global_name,
+                service_name
             )
-            
+
+            # 生成工具全局名称（基于去前缀后的原始名，避免重复前缀）
+            tool_global_name = self._registry._naming.generate_tool_global_name(
+                service_global_name, original_tool_name
+            )
+
+            logger.debug(
+                f"[CACHE] 创建工具: tool_name={tool_name}, "
+                f"tool_global_name={tool_global_name}, original={original_tool_name}"
+            )
+
             # 1. 创建工具实体（写入实体层）
             await tool_entity_manager.create_tool(
                 service_global_name=service_global_name,
@@ -422,17 +424,19 @@ class CacheManager:
         # 构建工具状态列表（所有工具默认 available）
         tools_status = []
         for tool_name, tool_def in tools:
-            # 生成工具全局名称
-            tool_global_name = self._registry._naming.generate_tool_global_name(
-                service_global_name, tool_name
-            )
-            
             # 提取工具原始名称（去除服务前缀）
             # 注意：MCP 服务返回的工具名称可能已经带有服务前缀
             # 例如：mcpstore_get_current_weather -> get_current_weather
             from mcpstore.core.logic.tool_logic import ToolLogicCore
             original_tool_name = ToolLogicCore.extract_original_tool_name(
-                tool_name, service_global_name
+                tool_name,
+                service_global_name,
+                service_name
+            )
+
+            # 生成工具全局名称（基于去前缀后的原始名，避免重复前缀）
+            tool_global_name = self._registry._naming.generate_tool_global_name(
+                service_global_name, original_tool_name
             )
             
             tools_status.append({

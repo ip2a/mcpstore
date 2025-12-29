@@ -4,9 +4,17 @@ from pydantic import BaseModel, Field
 
 
 class ToolInfo(BaseModel):
+    # 工具全局名称（L3，用于内部索引/调用）
     name: str
-    description: str
+    # FastMCP 标准格式名称（L2，用于调用 FastMCP）
+    tool_original_name: str
+    # 服务原始名称（L0/FastMCP 视角）
+    service_original_name: str
+    # 服务全局名称（L3，用于内部索引）
+    service_global_name: str
+    # 为兼容既有接口，service_name 保持与原始名称一致
     service_name: str
+    description: str
     client_id: Optional[str] = None
     inputSchema: Optional[Dict[str, Any]] = None
 
