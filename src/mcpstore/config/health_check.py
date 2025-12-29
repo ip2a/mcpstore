@@ -200,24 +200,6 @@ class RedisHealthCheck:
             self.task = None
             self._bridge_handle = None
             self._stop_event = asyncio.Event()
-    
-    def stop_sync(self):
-        """
-        Stop the health check from a synchronous context.
-        
-        This is a convenience method for stopping the health check
-        when you're not in an async context.
-        """
-        if self.task is None and self._bridge_handle is None:
-            return
-
-        try:
-            self._bridge.run(
-                self.stop(),
-                op_name="redis.health_check.stop"
-            )
-        except Exception as e:
-            logger.warning(f"Failed to stop health check synchronously: {e}")
 
 
 def start_health_check(
