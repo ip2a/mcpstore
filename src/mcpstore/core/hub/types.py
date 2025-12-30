@@ -35,7 +35,6 @@ class HubMCPConfig:
         port: 端口号（仅 http/sse），None 为自动分配
         host: 监听地址（仅 http/sse），默认 "0.0.0.0"
         path: 端点路径（仅 http），默认 "/mcp"
-        timeout: 超时时间（秒），默认 30.0
         fastmcp_kwargs: 传递给 FastMCP 的其他参数
     """
     
@@ -43,7 +42,6 @@ class HubMCPConfig:
     port: Optional[int] = None
     host: str = "0.0.0.0"
     path: str = "/mcp"
-    timeout: float = 30.0
     fastmcp_kwargs: Dict[str, Any] = field(default_factory=dict)
     
     def __post_init__(self):

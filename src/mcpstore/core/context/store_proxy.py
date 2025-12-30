@@ -37,24 +37,8 @@ class StoreProxy:
 
     # ---- Lists & queries ----
     def list_services(self, *args, **kwargs) -> List[Dict[str, Any]]:
-        # Delegates to context.list_services() which returns model objects; coerce to dicts (prefer Pydantic v2 model_dump)
-        items = self._context.list_services(*args, **kwargs)
-        result: List[Dict[str, Any]] = []
-        for s in items:
-            if hasattr(s, "model_dump"):
-                try:
-                    result.append(s.model_dump())
-                    continue
-                except Exception:
-                    pass
-            if hasattr(s, "dict"):
-                try:
-                    result.append(s.dict())
-                    continue
-                except Exception:
-                    pass
-            result.append(s if isinstance(s, dict) else {"value": str(s)})
-        return result
+        # 直接返回 ServiceInfo 模型列表，调用方如需 JSON 可自行 model_dump()
+        return self._context.list_services(*args, **kwargs)
 
     def list_tools(self, *args, **kwargs):
         """
@@ -142,33 +126,13 @@ class StoreProxy:
     def check_services(self) -> Dict[str, Any]:
         return self._context.check_services()
 
-    def call_tool(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
-        # Delegate and normalize to dict as store layer does
-        res = self._context.call_tool(tool_name, args)
-        # Normalization: align with api_store _normalize_result behavior
-        try:
-            if hasattr(res, 'content'):
-                items = []
-                for c in getattr(res, 'content', []) or []:
-                    try:
-                        if isinstance(c, dict):
-                            items.append(c)
-                        elif hasattr(c, 'type') and hasattr(c, 'text'):
-                            items.append({"type": getattr(c, 'type', 'text'), "text": getattr(c, 'text', '')})
-                        elif hasattr(c, 'type') and hasattr(c, 'uri'):
-                            items.append({"type": getattr(c, 'type', 'uri'), "uri": getattr(c, 'uri', '')})
-                        else:
-                            items.append(str(c))
-                    except Exception:
-                        items.append(str(c))
-                return {"content": items, "is_error": bool(getattr(res, 'is_error', False))}
-            if isinstance(res, dict):
-                return res
-            if isinstance(res, list):
-                return {"result": res}
-            return {"result": str(res)}
-        except Exception:
-            return {"result": str(res)}
+    def call_tool(self, tool_name: str, args: Dict[str, Any]):
+        """
+        调用工具（同步版本），直接返回 FastMCP CallToolResult。
+
+        需要结构化/文本化视图的调用方，应该自行从结果的 content / structured_content / data 中提取。
+        """
+        return self._context.call_tool(tool_name, args)
 
     # ---- Mutations ----
     def add_service(self, config: Dict[str, Any]) -> bool:
@@ -404,15 +368,19 @@ class StoreProxy:
         return await self._context.reset_mcp_json_file_async(scope)
 
     # ---- Hub MCP helpers ----
-    def hub_http(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/mcp", **fastmcp_kwargs):
+    def hub_http(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/mcp", *, block: bool = False, show_banner: bool = False, **fastmcp_kwargs):
         """
-        将当前 Store 暴露为 HTTP MCP 端点（阻塞运行）。
+        将当前 Store 暴露为 HTTP MCP 端点。
 
         Args:
             port: 监听端口
             host: 监听地址
             path: HTTP 路径
+            background: 是否在后台线程运行（默认阻塞当前调用）
+            show_banner: 是否显示 FastMCP 启动横幅
             **fastmcp_kwargs: 透传给 FastMCP 的参数（如 auth）
+        Returns:
+            HubMCPServer: Hub 服务器实例，可用于 stop()/restart()
         """
         from mcpstore.core.hub.server import HubMCPServer
 
@@ -424,14 +392,11 @@ class StoreProxy:
             path=path,
             **fastmcp_kwargs,
         )
-        runner = getattr(hub._fastmcp, "run_http", None)
-        if runner is None:
-            raise RuntimeError("FastMCP 未提供 run_http 接口，无法启动 HTTP 服务")
-        runner(host=host, port=port, path=path)
+        hub.start(block=block, show_banner=show_banner)
         return hub
 
-    def hub_sse(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/sse", **fastmcp_kwargs):
-        """将当前 Store 暴露为 SSE MCP 端点（阻塞运行）。"""
+    def hub_sse(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/sse", *, block: bool = False, show_banner: bool = False, **fastmcp_kwargs):
+        """将当前 Store 暴露为 SSE MCP 端点。"""
         from mcpstore.core.hub.server import HubMCPServer
 
         hub = HubMCPServer(
@@ -442,14 +407,11 @@ class StoreProxy:
             path=path,
             **fastmcp_kwargs,
         )
-        runner = getattr(hub._fastmcp, "run_sse", None)
-        if runner is None:
-            raise RuntimeError("FastMCP 未提供 run_sse 接口，无法启动 SSE 服务")
-        runner(host=host, port=port, path=path)
+        hub.start(block=block, show_banner=show_banner)
         return hub
 
-    def hub_stdio(self, **fastmcp_kwargs):
-        """将当前 Store 暴露为 stdio MCP 端点（阻塞运行）。"""
+    def hub_stdio(self, *, block: bool = False, show_banner: bool = False, **fastmcp_kwargs):
+        """将当前 Store 暴露为 stdio MCP 端点。"""
         from mcpstore.core.hub.server import HubMCPServer
 
         hub = HubMCPServer(
@@ -457,10 +419,7 @@ class StoreProxy:
             transport="stdio",
             **fastmcp_kwargs,
         )
-        runner = getattr(hub._fastmcp, "run_stdio", None)
-        if runner is None:
-            raise RuntimeError("FastMCP 未提供 run_stdio 接口，无法启动 stdio 服务")
-        runner()
+        hub.start(block=block, show_banner=show_banner)
         return hub
 
     # ---- Tool lookup ----

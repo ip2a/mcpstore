@@ -11,6 +11,7 @@ from pydantic import BaseModel, create_model, Field, ConfigDict
 import warnings
 
 from ..core.bridge import get_async_bridge
+from .common import call_tool_response_helper
 
 # Use TYPE_CHECKING and string hints to avoid circular imports
 if TYPE_CHECKING:
@@ -30,25 +31,6 @@ class LangChainAdapter:
         self._bridge = get_async_bridge()
         # Adapter-only rendering preference for tool outputs
         self._response_format = response_format if response_format in ("text", "content_and_artifact") else "text"
-
-    def _build_artifacts(self, contents: list) -> list:
-        """Convert non-text ContentBlocks into artifact dicts.
-        Only used when response_format == "content_and_artifact".
-        """
-        artifacts = []
-        try:
-            for block in contents or []:
-                if hasattr(block, 'text'):
-                    continue
-                # Generic mapping with best-effort fields
-                item = {"type": getattr(block, "type", block.__class__.__name__.lower())}
-                for attr in ("uri", "mime", "mime_type", "name", "filename", "size", "bytes", "width", "height"):
-                    if hasattr(block, attr):
-                        item[attr] = getattr(block, attr)
-                artifacts.append(item)
-        except Exception:
-            pass
-        return artifacts
 
     def _enhance_description(self, tool_info: 'ToolInfo') -> str:
         """
@@ -286,34 +268,20 @@ class LangChainAdapter:
                     )
                 )
 
-                # Bridge FastMCP -> LangChain: extract TextContent into string
-                # If tool signals error, raise ToolException with textual message
-                is_error = bool(getattr(result, 'is_error', False) or getattr(result, 'isError', False))
-                contents = getattr(result, 'content', []) or []
-                text_blocks = []
-                try:
-                    for block in contents:
-                        if hasattr(block, 'text'):
-                            text_blocks.append(block.text)
-                except Exception:
-                    pass
+                view = call_tool_response_helper(result)
 
-                if not text_blocks:
-                    output = ""
-                elif len(text_blocks) == 1:
-                    output = text_blocks[0]
-                else:
-                    output = "\n".join(text_blocks)
+                if view.is_error:
+                    raise ToolException(view.error_message or view.text or "Tool execution failed")
 
-                if is_error:
-                    raise ToolException(output)
-
-                # Optional artifacts output for LangChain-only adapter
                 if getattr(self, "_response_format", "text") == "content_and_artifact":
-                    artifacts = self._build_artifacts(contents)
-                    return {"text": output, "artifacts": artifacts}
+                    response = {"text": view.text, "artifacts": view.artifacts}
+                    if view.structured is not None:
+                        response["structured"] = view.structured
+                    if view.data is not None:
+                        response["data"] = view.data
+                    return response
 
-                return output
+                return view.structured if view.structured is not None else (view.data if view.data is not None else view.text)
             except Exception as e:
                 # Provide more detailed error information for debugging
                 error_msg = f"Tool '{tool_name}' execution failed: {str(e)}"
@@ -382,32 +350,20 @@ class LangChainAdapter:
                     )
                 )
 
-                # Bridge FastMCP -> LangChain (async): extract TextContent into string
-                is_error = bool(getattr(result, 'is_error', False) or getattr(result, 'isError', False))
-                contents = getattr(result, 'content', []) or []
-                text_blocks = []
-                try:
-                    for block in contents:
-                        if hasattr(block, 'text'):
-                            text_blocks.append(block.text)
-                except Exception:
-                    pass
+                view = call_tool_response_helper(result)
 
-                if not text_blocks:
-                    output = ""
-                elif len(text_blocks) == 1:
-                    output = text_blocks[0]
-                else:
-                    output = "\n".join(text_blocks)
-
-                if is_error:
-                    raise ToolException(output)
+                if view.is_error:
+                    raise ToolException(view.error_message or view.text or "Tool execution failed")
 
                 if getattr(self, "_response_format", "text") == "content_and_artifact":
-                    artifacts = self._build_artifacts(contents)
-                    return {"text": output, "artifacts": artifacts}
+                    response = {"text": view.text, "artifacts": view.artifacts}
+                    if view.structured is not None:
+                        response["structured"] = view.structured
+                    if view.data is not None:
+                        response["data"] = view.data
+                    return response
 
-                return output
+                return view.structured if view.structured is not None else (view.data if view.data is not None else view.text)
             except Exception as e:
                 error_msg = f"Tool '{tool_name}' execution failed: {str(e)}"
                 if args or kwargs:

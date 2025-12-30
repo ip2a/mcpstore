@@ -5,9 +5,12 @@ MCPStore Tool Proxy Module
 
 import logging
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
 
 from .types import ContextType
+
+if TYPE_CHECKING:
+    from ..models.tool import ToolInfo
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +164,7 @@ class ToolProxy:
         self._context_type = context.context_type
         self._agent_id = context.agent_id
         self._tool_info = None  # 延迟加载
+        self._tool_info_obj: Optional['ToolInfo'] = None  # 精准的 ToolInfo 对象缓存
 
         logger.debug(f"[TOOL_PROXY] Created proxy for tool '{tool_name}' "
                     f"in {self._context_type.value} context, scope={scope}, service={service_name}")
@@ -228,6 +232,36 @@ class ToolProxy:
         """
         info = self.tool_info()
         return info.get('meta', {})
+
+    # === FastMCP 视图 ===
+
+    def mcp_type2tool(self):
+        """
+        将当前工具转换为 FastMCP 官方的 Tool 对象
+        """
+        from mcp import types as mcp_types
+
+        tool = self._get_tool_info_object()
+        if not tool:
+            # TODO: 工具命中机制待评估，避免模糊匹配导致返回错误的 FastMCP Tool。
+            raise ValueError(f"Tool '{self._tool_name}' not found; cannot build mcp.types.Tool")
+
+        meta = {
+            "service_name": tool.service_name,
+            "service_global_name": tool.service_global_name,
+            "client_id": tool.client_id,
+        }
+
+        return mcp_types.Tool(
+            name=tool.tool_original_name or tool.name,
+            title=getattr(tool, "title", None) or tool.name,
+            description=tool.description,
+            inputSchema=tool.inputSchema or {},
+            outputSchema=getattr(tool, "outputSchema", None),
+            icons=getattr(tool, "icons", None),
+            annotations=getattr(tool, "annotations", None),
+            _meta=meta,
+        )
 
     # === 配置覆盖（如 LangChain return_direct） ===
 
@@ -509,6 +543,35 @@ class ToolProxy:
                 
         except Exception as e:
             logger.error(f"[TOOL_PROXY] Failed to load tool info: {e}")
+
+    def _get_tool_info_object(self) -> Optional['ToolInfo']:
+        """
+        获取完整的 ToolInfo 对象，用于构造 FastMCP Tool
+        """
+        if self._tool_info_obj is not None:
+            return self._tool_info_obj
+
+        try:
+            tools: List['ToolInfo'] = self._context._run_async_via_bridge(
+                self._context.list_tools_async(),
+                op_name="tool_proxy.get_tool_info_object.list_tools"
+            )
+            for tool in tools:
+                if self._service_name and tool.service_name != self._service_name:
+                    continue
+
+                if (
+                    tool.name == self._tool_name
+                    or (tool.tool_original_name and tool.tool_original_name == self._tool_name)
+                    or tool.name.endswith(f"_{self._tool_name}")
+                    or tool.name.endswith(f"__{self._tool_name}")
+                ):
+                    self._tool_info_obj = tool
+                    break
+        except Exception as exc:
+            logger.error(f"[TOOL_PROXY] Failed to resolve ToolInfo object: {exc}")
+
+        return self._tool_info_obj or None
 
     def _calculate_success_rate(self, records: List[Dict[str, Any]]) -> float:
         """计算成功率"""
