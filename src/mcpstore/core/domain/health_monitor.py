@@ -18,8 +18,8 @@ from mcpstore.core.events.service_events import (
     ServiceConnected, HealthCheckRequested, HealthCheckCompleted,
     ServiceTimeout, ServiceStateChanged
 )
-from mcpstore.core.models.service import ServiceConnectionState
 from mcpstore.core.lifecycle.config import ServiceLifecycleConfig
+from mcpstore.core.models.service import ServiceConnectionState
 from mcpstore.core.utils.mcp_client_helpers import temp_client_for_service
 
 logger = logging.getLogger(__name__)

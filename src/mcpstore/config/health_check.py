@@ -8,9 +8,11 @@ connection health without blocking main operations.
 import asyncio
 import logging
 from typing import Optional, Any
+
 from redis.asyncio import Redis
-from .cache_config import RedisConfig
+
 from mcpstore.core.bridge import get_async_bridge
+from .cache_config import RedisConfig
 
 logger = logging.getLogger(__name__)
 

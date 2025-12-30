@@ -8,11 +8,6 @@
 """
 
 from .cache_layer_manager import CacheLayerManager
-from .naming_service import NamingService
-from .service_entity_manager import ServiceEntityManager
-from .tool_entity_manager import ToolEntityManager
-from .relationship_manager import RelationshipManager
-from .state_manager import StateManager
 from .models import (
     ServiceEntity,
     ToolEntity,
@@ -25,6 +20,11 @@ from .models import (
     ToolStatusItem,
     ServiceStatus,
 )
+from .naming_service import NamingService
+from .relationship_manager import RelationshipManager
+from .service_entity_manager import ServiceEntityManager
+from .state_manager import StateManager
+from .tool_entity_manager import ToolEntityManager
 
 __all__ = [
     # 管理器

@@ -8,8 +8,8 @@ Validates: Requirements 6.4 (Exception and error handling)
 """
 
 import logging
-from typing import Any, Callable, TypeVar, ParamSpec
 from functools import wraps
+from typing import Any, Callable, TypeVar, ParamSpec
 
 from ..exceptions import (
     CacheOperationError,

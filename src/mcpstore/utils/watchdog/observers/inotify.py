@@ -91,7 +91,8 @@ from mcpstore.utils.watchdog.events import (
     generate_sub_created_events,
     generate_sub_moved_events,
 )
-from mcpstore.utils.watchdog.observers.api import DEFAULT_EMITTER_TIMEOUT, DEFAULT_OBSERVER_TIMEOUT, BaseObserver, EventEmitter
+from mcpstore.utils.watchdog.observers.api import DEFAULT_EMITTER_TIMEOUT, DEFAULT_OBSERVER_TIMEOUT, BaseObserver, \
+    EventEmitter
 from mcpstore.utils.watchdog.observers.inotify_c import (
     WATCHDOG_ALL_EVENTS,
     CallbackId,

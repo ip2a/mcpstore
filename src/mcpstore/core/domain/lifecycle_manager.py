@@ -9,7 +9,6 @@ Responsibilities:
 """
 
 import logging
-import json
 from datetime import datetime
 
 from mcpstore.core.events.event_bus import EventBus

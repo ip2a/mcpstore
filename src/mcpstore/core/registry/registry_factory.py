@@ -7,11 +7,11 @@ ServiceRegistry 使用新的三层缓存架构，内部自己创建所有管理�
 """
 
 import logging
-from typing import Dict, Any, Optional
 from abc import ABC, abstractmethod
+from typing import Dict, Any, Optional
 
-from .kv_store_factory import _build_kv_store
 from .core_registry import ServiceRegistry
+from .kv_store_factory import _build_kv_store
 
 logger = logging.getLogger(__name__)
 

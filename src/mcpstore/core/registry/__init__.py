@@ -34,10 +34,11 @@ __all__ = [
 # Main exports - maintain backward compatibility
 # Import from the new modular core_registry
 from .core_registry import ServiceRegistry
-# Protocols and type helpers are defined in types module
-from .types import SessionProtocol, SessionType, RegistryTypes
 # SchemaManager removed in single-source mode; no longer exported
 from .tool_resolver import ToolNameResolver, ToolResolution
+# Protocols and type helpers are defined in types module
+from .types import SessionProtocol, SessionType, RegistryTypes
+
 # 导出常用类型
 try:
     from ..models.service import ServiceConnectionState, ServiceStateMetadata

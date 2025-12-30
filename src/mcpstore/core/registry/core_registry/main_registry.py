@@ -5,12 +5,12 @@ ServiceRegistry - 主服务注册表门面类
 """
 
 import logging
-from typing import Dict, List, Optional, Any, Set, Tuple
 from datetime import datetime
+from typing import Dict, List, Optional, Any, Set, Tuple
 
+from mcpstore.core.models.service import ServiceConnectionState, ServiceStateMetadata
 # 导入所有管理器
 from .errors import ERROR_PREFIX, raise_legacy_error, LegacyManagerProxy
-from mcpstore.core.models.service import ServiceConnectionState, ServiceStateMetadata
 
 
 class CacheBackedAgentClientService:

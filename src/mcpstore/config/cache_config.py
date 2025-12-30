@@ -8,9 +8,8 @@ Non-sensitive configuration is loaded from MCPStoreConfig, sensitive configurati
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Literal, Union
-from redis.asyncio import Redis
 
-from .cache_environment import get_sensitive_redis_config, get_cache_type_from_env
+from redis.asyncio import Redis
 
 
 class CacheType(Enum):

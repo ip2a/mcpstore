@@ -18,9 +18,9 @@ import os
 import time
 from typing import Dict, Any
 
+from mcpstore.utils.watchdog.events import FileSystemEventHandler
 # 强制使用内置 watchdog（不再可选）
 from mcpstore.utils.watchdog.observers import Observer
-from mcpstore.utils.watchdog.events import FileSystemEventHandler
 
 logger = logging.getLogger(__name__)
 

@@ -5,22 +5,19 @@
 实现配置来源追踪逻辑，区分配置值的来源（默认/TOML/KV/环境变量）
 """
 
-import asyncio
 import logging
-import os
 import sys
-import toml
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import List
+
+import toml
 
 # 添加项目路径
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from mcpstore.config.config_defaults import *
 from mcpstore.config.toml_config import MCPStoreConfig, get_config
-from mcpstore.config.cache_environment import get_sensitive_redis_config, get_cache_type_from_env
 from mcpstore.core.configuration.config_snapshot import (
     ConfigSnapshot, ConfigGroupSnapshot, ConfigItemSnapshot, ConfigSource,
     ConfigSnapshotError

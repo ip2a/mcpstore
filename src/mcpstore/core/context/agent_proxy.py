@@ -5,7 +5,7 @@ Delegates to existing context/mixins/registry for all operations.
 """
 
 import logging
-from typing import Any, Dict, List, TYPE_CHECKING
+from typing import Any, Dict, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .base_context import MCPStoreContext

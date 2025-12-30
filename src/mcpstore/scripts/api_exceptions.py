@@ -18,22 +18,12 @@ from pydantic import ValidationError
 from mcpstore.core.exceptions import (
     MCPStoreException,
     ErrorCode,
-    ErrorSeverity,
-    ServiceNotFoundException,
-    ServiceConnectionError,
-    ServiceUnavailableError,
-    ToolNotFoundException,
-    ToolExecutionError,
-    ConfigurationException,
     ValidationException,
-    AgentNotFoundException,
 )
-
 # Import new response models
 from mcpstore.core.models import (
     APIResponse,
-    ResponseBuilder,
-    ErrorDetail
+    ResponseBuilder
 )
 
 # Setup logger

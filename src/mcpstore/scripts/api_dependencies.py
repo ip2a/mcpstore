@@ -3,8 +3,8 @@ MCPStore API Dependencies - 改进版
 使用 contextvars 实现线程安全的 Store 管理
 """
 
-from typing import Optional
 from contextvars import ContextVar
+from typing import Optional
 
 from mcpstore import MCPStore
 

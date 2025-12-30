@@ -11,12 +11,12 @@ import asyncio
 import logging
 from typing import Dict, Any, Tuple, List
 
+from mcpstore.core.configuration.config_processor import ConfigProcessor
 from mcpstore.core.events.event_bus import EventBus
 from mcpstore.core.events.service_events import (
     ServiceInitialized, ServiceConnectionRequested,
     ServiceConnected, ServiceConnectionFailed
 )
-from mcpstore.core.configuration.config_processor import ConfigProcessor
 
 logger = logging.getLogger(__name__)
 

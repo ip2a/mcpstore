@@ -6,13 +6,12 @@ This module provides the core setup_store() method that initializes MCPStore
 with modern cache configuration (RedisConfig/MemoryConfig).
 """
 
+import asyncio
 import logging
 import time
-import os
-from typing import Optional, Dict, Any, Union
 from copy import deepcopy
+from typing import Optional, Dict, Any, Union
 
-import asyncio
 from mcpstore.config.toml_config import init_config
 
 logger = logging.getLogger(__name__)
@@ -127,7 +126,6 @@ class StoreSetupManager:
             set_local_service_manager_work_dir(workspace_dir)
 
         # 4) Registry and cache backend
-        from mcpstore.core.registry import ServiceRegistry
         from mcpstore.core.registry.registry_factory import create_registry_from_kv_store
         from mcpstore.config import (
             MemoryConfig, RedisConfig, detect_strategy,
