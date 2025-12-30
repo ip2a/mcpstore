@@ -306,20 +306,6 @@ class ToolOperationsMixin:
                 if is_available:
                     filtered_tools.append(tool)
             except RuntimeError as e:
-                            "error": str(e),
-                            "has_status": status_dict is not None,
-                            "tools_count_in_status": tools_count,
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    }
-                    log_path.parent.mkdir(parents=True, exist_ok=True)
-                    with log_path.open("a", encoding="utf-8") as f:
-                        f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
-                except Exception:
-                    # 调试日志失败不影响主流程
-                    pass
-                # endregion
-
                 # 状态/工具不存在，抛出错误
                 raise
         
