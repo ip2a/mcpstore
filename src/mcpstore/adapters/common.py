@@ -5,7 +5,7 @@ import inspect
 import json
 import keyword
 import re
-from typing import TYPE_CHECKING, Callable, Any, Type
+from typing import TYPE_CHECKING, Callable, Any, Type, List, Dict, Optional
 
 from pydantic import BaseModel, create_model, Field, ConfigDict
 import warnings
@@ -13,6 +13,72 @@ import warnings
 if TYPE_CHECKING:
     from ..core.context.base_context import MCPStoreContext
     from ..core.models.tool import ToolInfo
+
+
+class ToolCallView(BaseModel):
+    """标准化 FastMCP CallToolResult 的辅助视图。"""
+
+    text: str = ""
+    artifacts: List[Dict[str, Any]] = Field(default_factory=list)
+    structured: Any = None
+    data: Any = None
+    is_error: bool = False
+    error_message: Optional[str] = None
+    raw: Any = None
+
+
+def _extract_text_blocks(contents: list) -> List[str]:
+    blocks: List[str] = []
+    for block in contents or []:
+        text = getattr(block, "text", None)
+        if isinstance(text, str):
+            blocks.append(text)
+    return blocks
+
+
+def _extract_artifacts(contents: list) -> List[Dict[str, Any]]:
+    artifacts: List[Dict[str, Any]] = []
+    for block in contents or []:
+        if hasattr(block, "text"):
+            continue
+        artifact = {"type": getattr(block, "type", block.__class__.__name__.lower())}
+        for attr in ("uri", "mime", "mime_type", "name", "filename", "size", "bytes", "width", "height"):
+            if hasattr(block, attr):
+                value = getattr(block, attr)
+                if value is not None:
+                    artifact[attr] = value
+        artifacts.append(artifact)
+    return artifacts
+
+
+def call_tool_response_helper(result: Any) -> ToolCallView:
+    """
+    将 FastMCP CallToolResult 统一转换为 ToolCallView，供适配器复用。
+    """
+    contents = getattr(result, "content", []) or []
+    text_blocks = _extract_text_blocks(contents)
+    artifacts = _extract_artifacts(contents)
+    text_output = "\n".join(text_blocks).strip()
+
+    structured = getattr(result, "structured_content", None)
+    data = getattr(result, "data", None)
+    if not text_output and data is not None:
+        text_output = str(data)
+
+    is_error = bool(getattr(result, "is_error", False) or getattr(result, "isError", False))
+    error_message = getattr(result, "error", None)
+    if is_error and not error_message:
+        error_message = text_output or "Tool execution failed"
+
+    return ToolCallView(
+        text=text_output,
+        artifacts=artifacts,
+        structured=structured,
+        data=data,
+        is_error=is_error,
+        error_message=error_message,
+        raw=result,
+    )
 
 
 def enhance_description(tool_info: 'ToolInfo') -> str:
@@ -254,4 +320,3 @@ def attach_signature_from_schema(fn: Callable[..., Any], args_schema: Type[BaseM
     schema_props = args_schema.model_json_schema().get('properties', {})
     params = [inspect.Parameter(k, inspect.Parameter.KEYWORD_ONLY) for k in schema_props.keys()]
     fn.__signature__ = inspect.Signature(parameters=params)  # type: ignore
-

@@ -345,6 +345,61 @@ class ServiceProxy:
         from .tool_proxy import ToolProxy
         return ToolProxy(self._context, tool_name, scope='service', service_name=self._service_name)
 
+    def call_tool(self, tool_name: str, args: Dict[str, Any] | None = None, return_extracted: bool = False, **kwargs) -> Any:
+        """同步调用当前服务内的工具。"""
+        return self._context._run_async_via_bridge(
+            self.call_tool_async(tool_name, args or {}, return_extracted=return_extracted, **kwargs),
+            op_name="service_proxy.call_tool",
+        )
+
+    async def call_tool_async(self, tool_name: str, args: Dict[str, Any] | None = None, return_extracted: bool = False, **kwargs) -> Any:
+        """异步调用当前服务内的工具。"""
+        return await self._context.call_tool_async(tool_name, args or {}, return_extracted=return_extracted, **kwargs)
+
+    # === Hub 暴露能力 ===
+
+    def hub_http(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/mcp", *, block: bool = False, show_banner: bool = False, **fastmcp_kwargs):
+        """将当前服务对象暴露为 HTTP MCP 端点。"""
+        from mcpstore.core.hub.server import HubMCPServer
+
+        hub = HubMCPServer(
+            exposed_object=self,
+            transport="http",
+            port=port,
+            host=host,
+            path=path,
+            **fastmcp_kwargs,
+        )
+        hub.start(block=block, show_banner=show_banner)
+        return hub
+
+    def hub_sse(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/sse", *, block: bool = False, show_banner: bool = False, **fastmcp_kwargs):
+        """将当前服务对象暴露为 SSE MCP 端点。"""
+        from mcpstore.core.hub.server import HubMCPServer
+
+        hub = HubMCPServer(
+            exposed_object=self,
+            transport="sse",
+            port=port,
+            host=host,
+            path=path,
+            **fastmcp_kwargs,
+        )
+        hub.start(block=block, show_banner=show_banner)
+        return hub
+
+    def hub_stdio(self, *, block: bool = False, show_banner: bool = False, **fastmcp_kwargs):
+        """将当前服务对象暴露为 stdio MCP 端点。"""
+        from mcpstore.core.hub.server import HubMCPServer
+
+        hub = HubMCPServer(
+            exposed_object=self,
+            transport="stdio",
+            **fastmcp_kwargs,
+        )
+        hub.start(block=block, show_banner=show_banner)
+        return hub
+
     # === 便捷属性方法 ===
 
     @property

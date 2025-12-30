@@ -3,9 +3,12 @@ Hub MCP Server Module
 Hub MCP 服务器模块 - 将 MCPStore 对象暴露为 MCP 服务
 """
 
-import logging
-from typing import Union, Optional, Literal, Any, Callable, TYPE_CHECKING
 import asyncio
+import keyword
+import logging
+import threading
+from contextlib import suppress
+from typing import Union, Optional, Literal, Any, Callable, TYPE_CHECKING
 
 from .types import HubMCPConfig, HubMCPStatus
 from .exceptions import (
@@ -48,7 +51,6 @@ class HubMCPServer:
         port: Optional[int] = None,
         host: str = "0.0.0.0",
         path: str = "/mcp",
-        timeout: float = 30.0,
         **fastmcp_kwargs
     ):
         """
@@ -60,7 +62,6 @@ class HubMCPServer:
             port: 端口号（仅 http/sse），None 为自动分配
             host: 监听地址（仅 http/sse），默认 "0.0.0.0"
             path: 端点路径（仅 http），默认 "/mcp"
-            timeout: 超时时间（秒），默认 30.0
             **fastmcp_kwargs: 传递给 FastMCP 的其他参数（如 auth）
             
         Example:
@@ -85,7 +86,6 @@ class HubMCPServer:
             port=port,
             host=host,
             path=path,
-            timeout=timeout,
             fastmcp_kwargs=fastmcp_kwargs
         )
         
@@ -93,6 +93,8 @@ class HubMCPServer:
         self._status = HubMCPStatus.INITIALIZING
         self._fastmcp: Optional[Any] = None  # FastMCP 实例
         self._server_task: Optional[asyncio.Task] = None  # 服务器任务
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._background_thread: Optional[threading.Thread] = None
         
         logger.info(
             f"[HubMCPServer] 初始化中 - "
@@ -103,10 +105,10 @@ class HubMCPServer:
         
         # 创建 FastMCP 服务器
         self._create_fastmcp_server()
-        
+
         # 注册工具
         self._register_tools()
-        
+
         # 初始化完成，设置为停止状态
         self._status = HubMCPStatus.STOPPED
         
@@ -203,13 +205,33 @@ class HubMCPServer:
                 try:
                     # 创建代理工具
                     proxy_tool = self._create_proxy_tool(tool_info)
-                    
-                    # 使用 FastMCP 的 @tool 装饰器注册
-                    self._fastmcp.tool(proxy_tool)
-                    
+
+                    annotations = None
+                    schema = getattr(tool_info, "inputSchema", None)
+                    if schema and isinstance(schema, dict):
+                        annotations = {"arguments": schema}
+
+                    meta = {
+                        "service_name": getattr(tool_info, "service_name", None),
+                        "service_global_name": getattr(tool_info, "service_global_name", None),
+                        "client_id": getattr(tool_info, "client_id", None),
+                    }
+
+                    description = tool_info.description or f"工具: {tool_info.name}"
+                    decorator_kwargs = {
+                        "name": tool_info.name,
+                        "description": description,
+                        "meta": {k: v for k, v in meta.items() if v is not None},
+                    }
+                    if annotations:
+                        decorator_kwargs["annotations"] = annotations
+
+                    decorator = self._fastmcp.tool(**decorator_kwargs)
+                    decorator(proxy_tool)
+
                     registered_count += 1
                     logger.debug(f"[HubMCPServer] 工具注册成功: {tool_info.name}")
-                    
+
                 except Exception as e:
                     failed_count += 1
                     logger.warning(
@@ -241,47 +263,57 @@ class HubMCPServer:
         Returns:
             Callable: 代理函数，可以被 FastMCP 注册
         """
-        # 提取工具元数据
-        tool_name = tool_info.name
-        tool_description = tool_info.description or f"工具: {tool_name}"
-        
-        # 创建异步代理函数
-        async def proxy_tool(**kwargs) -> Any:
-            """代理工具函数 - 将调用转发到原始对象"""
-            try:
-                logger.debug(
-                    f"[HubMCPServer] 调用工具 '{tool_name}' - "
-                    f"参数: {kwargs}"
-                )
-                
-                # 调用原始对象的 call_tool_async 方法
-                result = await self._exposed_object.call_tool_async(
-                    tool_name=tool_name,
-                    arguments=kwargs
-                )
-                
-                logger.debug(
-                    f"[HubMCPServer] 工具 '{tool_name}' 返回结果: {result}"
-                )
-                
-                return result
-                
-            except Exception as e:
-                logger.error(
-                    f"[HubMCPServer] 工具 '{tool_name}' 执行失败: {e}"
-                )
-                raise ToolExecutionError(
-                    f"工具 '{tool_name}' 执行失败: {str(e)}"
-                ) from e
-        
-        # 设置函数元数据
-        proxy_tool.__name__ = tool_name
-        proxy_tool.__doc__ = tool_description
-        
-        # TODO: 动态设置参数注解（用于 FastMCP 的 schema 生成）
-        # 这将在后续任务中实现（阶段 6）
-        
+        schema = getattr(tool_info, "inputSchema", {}) or {}
+        properties = schema.get("properties") or {}
+        required = set(schema.get("required") or [])
+
+        params_code: list[str] = []
+        arg_lines: list[str] = []
+
+        for original_name, prop_schema in properties.items():
+            safe_name = self._sanitize_param_name(original_name)
+
+            if original_name in required:
+                params_code.append(f"{safe_name}")
+            else:
+                default_value = prop_schema.get("default", None)
+                params_code.append(f"{safe_name}={repr(default_value)}")
+
+            arg_lines.append(f"    arguments['{original_name}'] = {safe_name}")
+
+        params_signature = ", ".join(params_code)
+        body_lines = ["    arguments = {}"]
+        body_lines.extend(arg_lines)
+        body_lines.append("    return await __call_tool(tool_name=__tool_name, args=arguments)")
+
+        function_code = "async def handler({signature}):\n{body}\n".format(
+            signature=params_signature,
+            body="\n".join(body_lines) if body_lines else "    return await __call_tool(tool_name=__tool_name, args={})",
+        )
+
+        namespace = {
+            "__call_tool": self._exposed_object.call_tool_async,
+            "__tool_name": tool_info.name,
+        }
+
+        try:
+            exec(function_code, namespace)
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"[HubMCPServer] Failed to generate proxy function for '{tool_info.name}': {exc}")
+            raise
+
+        proxy_tool = namespace["handler"]
+        proxy_tool.__name__ = tool_info.name
+        proxy_tool.__doc__ = (tool_info.description or f"工具: {tool_info.name}")
+
         return proxy_tool
+
+    def _sanitize_param_name(self, name: str) -> str:
+        if not isinstance(name, str):
+            raise ValueError(f"非法参数名: {name}")
+        if not name.isidentifier() or keyword.iskeyword(name):
+            raise ValueError(f"工具参数名 '{name}' 不是有效的 Python 标识符")
+        return name
     
     @property
     def status(self) -> HubMCPStatus:
@@ -333,3 +365,145 @@ class HubMCPServer:
             f"endpoint={self.endpoint_url}"
             f")"
         )
+
+    # ---- Lifecycle helpers -------------------------------------------------
+
+    def _get_transport_kwargs(self) -> dict[str, Any]:
+        """根据传输协议构造 FastMCP 运行参数。"""
+        transport = self._config.transport
+        if transport in {"http", "sse", "streamable-http"}:
+            kwargs: dict[str, Any] = {}
+            if self._config.host:
+                kwargs["host"] = self._config.host
+            if self._config.port is not None:
+                kwargs["port"] = self._config.port
+            if transport in {"http", "sse"} and self._config.path:
+                kwargs["path"] = self._config.path
+            return kwargs
+        return {}
+
+    async def _run_server(self, show_banner: bool) -> None:
+        """启动 FastMCP 服务器的核心协程。"""
+        if self.is_running:
+            raise ServerAlreadyRunningError("Hub MCP 服务器已经在运行")
+
+        self._status = HubMCPStatus.RUNNING
+        try:
+            await self._fastmcp.run_async(
+                transport=self._config.transport,
+                show_banner=show_banner,
+                **self._get_transport_kwargs(),
+            )
+        except asyncio.CancelledError:
+            logger.info("[HubMCPServer] 收到停止信号，正在关闭")
+            self._status = HubMCPStatus.STOPPED
+            raise
+        except OSError as exc:
+            self._status = HubMCPStatus.ERROR
+            raise PortBindingError(
+                f"无法绑定端口 {self._config.port}: {exc}"
+            ) from exc
+        except Exception as exc:  # noqa: BLE001
+            self._status = HubMCPStatus.ERROR
+            logger.error(f"[HubMCPServer] 运行失败: {exc}")
+            raise
+        else:
+            self._status = HubMCPStatus.STOPPED
+
+    async def start_async(self, show_banner: bool = False) -> asyncio.Task:
+        """在当前事件循环中以后台任务形式启动服务器。"""
+        loop = asyncio.get_running_loop()
+        if self._server_task and not self._server_task.done():
+            raise ServerAlreadyRunningError("Hub MCP 服务器已经在运行")
+
+        self._server_task = loop.create_task(
+            self._run_server(show_banner=show_banner),
+            name=f"HubMCPServer({self._generate_server_name()})",
+        )
+        return self._server_task
+
+    def start(self, *, block: bool = False, show_banner: bool = False) -> "HubMCPServer":
+        """
+        启动服务器。
+
+        block=False 时在后台事件循环运行；block=True 会阻塞当前线程直到服务器退出。
+        """
+        self._start_in_background(show_banner=show_banner)
+        if block:
+            self.wait()
+        return self
+
+    def _start_in_background(self, show_banner: bool) -> None:
+        if self._background_thread and self._background_thread.is_alive():
+            raise ServerAlreadyRunningError("Hub MCP 服务器已经在后台运行")
+
+        loop = asyncio.new_event_loop()
+        self._loop = loop
+
+        def _target() -> None:
+            asyncio.set_event_loop(loop)
+            self._server_task = loop.create_task(self._run_server(show_banner=show_banner))
+            try:
+                loop.run_until_complete(self._server_task)
+            except asyncio.CancelledError:
+                logger.debug("[HubMCPServer] 后台任务被取消")
+            finally:
+                self._server_task = None
+                self._loop = None
+                self._background_thread = None
+                loop.close()
+
+        thread = threading.Thread(
+            target=_target,
+            name=f"HubMCPServer-{self._generate_server_name()}",
+            daemon=True,
+        )
+        self._background_thread = thread
+        thread.start()
+
+    async def stop_async(self) -> None:
+        """在当前事件循环中停止服务器。"""
+        if not self._server_task:
+            raise ServerNotRunningError("Hub MCP 服务器未运行")
+
+        self._status = HubMCPStatus.STOPPING
+        self._server_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await self._server_task
+        self._server_task = None
+        self._status = HubMCPStatus.STOPPED
+
+    def stop(self, timeout: float | None = None) -> None:
+        """停止后台运行的服务器。"""
+        if self._loop and self._server_task:
+            self._status = HubMCPStatus.STOPPING
+            future = asyncio.run_coroutine_threadsafe(self._cancel_task(), self._loop)
+            future.result(timeout)
+            if self._background_thread:
+                self._background_thread.join(timeout)
+            self._status = HubMCPStatus.STOPPED
+            return
+
+        if self._server_task and not self._server_task.done():
+            raise RuntimeError("Hub MCP 正在当前事件循环中运行，请使用 stop_async()")
+
+        raise ServerNotRunningError("Hub MCP 服务器未运行")
+
+    async def _cancel_task(self) -> None:
+        if self._server_task:
+            self._server_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._server_task
+            self._server_task = None
+
+    def restart(self, *, block: bool = False, show_banner: bool = False) -> "HubMCPServer":
+        """重新启动服务器。"""
+        if self.is_running:
+            self.stop()
+        return self.start(block=block, show_banner=show_banner)
+
+    def wait(self, timeout: float | None = None) -> None:
+        """阻塞当前线程直到后台服务器退出。"""
+        if not self._background_thread:
+            raise ServerNotRunningError("Hub MCP 服务器未在后台运行")
+        self._background_thread.join(timeout)

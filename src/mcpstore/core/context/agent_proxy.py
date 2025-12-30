@@ -83,26 +83,12 @@ class AgentProxy:
         return CacheProxy(self._context, scope="agent", scope_value=self._agent_id)
 
     # ---- Services & tools ----
-    def list_services(self) -> List[Dict[str, Any]]:
-        # Delegate to agent-scoped context for consistent style; coerce to dicts preferring model_dump
+    def list_services(self):
+        """
+        列出 Agent 视角的服务，直接返回 ServiceInfo 列表
+        """
         ctx = self._agent_ctx or self._context
-        items = ctx.list_services()
-        result: List[Dict[str, Any]] = []
-        for s in items:
-            if hasattr(s, "model_dump"):
-                try:
-                    result.append(s.model_dump())
-                    continue
-                except Exception:
-                    pass
-            if hasattr(s, "dict"):
-                try:
-                    result.append(s.dict())
-                    continue
-                except Exception:
-                    pass
-            result.append(s if isinstance(s, dict) else {"value": str(s)})
-        return result
+        return ctx.list_services()
 
     def find_service(self, name: str) -> "ServiceProxy":
         """
@@ -202,7 +188,7 @@ class AgentProxy:
         service_name: str = None,
         *,
         filter: str = "available"
-    ) -> List[Dict[str, Any]]:
+    ):
         """
         列出工具
         
@@ -211,30 +197,10 @@ class AgentProxy:
             filter: 筛选范围 ("available" 或 "all")
         
         Returns:
-            工具列表
+            工具列表（ToolInfo 对象列表）
         """
-        # Delegate to agent-scoped context list_tools for consistent mapping and snapshot behavior
         ctx = self._agent_ctx or self._context
-        items = ctx.list_tools(service_name=service_name, filter=filter)
-        result: List[Dict[str, Any]] = []
-        for t in items:
-            if isinstance(t, dict):
-                result.append(t)
-                continue
-            if hasattr(t, "model_dump"):
-                try:
-                    result.append(t.model_dump())
-                    continue
-                except Exception:
-                    pass
-            if hasattr(t, "dict"):
-                try:
-                    result.append(t.dict())
-                    continue
-                except Exception:
-                    pass
-            result.append({"name": getattr(t, "name", str(t))})
-        return result
+        return ctx.list_tools(service_name=service_name, filter=filter)
 
     # ---- Health & runtime ----
     def check_services(self) -> Dict[str, Any]:
@@ -441,15 +407,17 @@ class AgentProxy:
         return ctx.for_openai()
 
     # ---- Hub MCP helpers ----
-    def hub_http(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/mcp", **fastmcp_kwargs):
+    def hub_http(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/mcp", *, block: bool = False, show_banner: bool = False, **fastmcp_kwargs):
         """
-        将当前 Agent 暴露为 HTTP MCP 端点（阻塞运行）。
+        将当前 Agent 暴露为 HTTP MCP 端点。
 
         Args:
             port: 监听端口
             host: 监听地址
             path: HTTP 路径
-            **fastmcp_kwargs: 透传给 FastMCP 的参数（如 auth）
+            background: 是否在后台线程运行
+            show_banner: 是否显示 FastMCP 启动横幅
+            **fastmcp_kwargs: 透传给 FastMCP 的参数
         """
         from mcpstore.core.hub.server import HubMCPServer
 
@@ -461,14 +429,11 @@ class AgentProxy:
             path=path,
             **fastmcp_kwargs,
         )
-        runner = getattr(hub._fastmcp, "run_http", None)
-        if runner is None:
-            raise RuntimeError("FastMCP 未提供 run_http 接口，无法启动 HTTP 服务")
-        runner(host=host, port=port, path=path)
+        hub.start(block=block, show_banner=show_banner)
         return hub
 
-    def hub_sse(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/sse", **fastmcp_kwargs):
-        """将当前 Agent 暴露为 SSE MCP 端点（阻塞运行）。"""
+    def hub_sse(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/sse", *, block: bool = False, show_banner: bool = False, **fastmcp_kwargs):
+        """将当前 Agent 暴露为 SSE MCP 端点。"""
         from mcpstore.core.hub.server import HubMCPServer
 
         hub = HubMCPServer(
@@ -479,14 +444,11 @@ class AgentProxy:
             path=path,
             **fastmcp_kwargs,
         )
-        runner = getattr(hub._fastmcp, "run_sse", None)
-        if runner is None:
-            raise RuntimeError("FastMCP 未提供 run_sse 接口，无法启动 SSE 服务")
-        runner(host=host, port=port, path=path)
+        hub.start(block=block, show_banner=show_banner)
         return hub
 
-    def hub_stdio(self, **fastmcp_kwargs):
-        """将当前 Agent 暴露为 stdio MCP 端点（阻塞运行）。"""
+    def hub_stdio(self, *, block: bool = False, show_banner: bool = False, **fastmcp_kwargs):
+        """将当前 Agent 暴露为 stdio MCP 端点。"""
         from mcpstore.core.hub.server import HubMCPServer
 
         hub = HubMCPServer(
@@ -494,10 +456,7 @@ class AgentProxy:
             transport="stdio",
             **fastmcp_kwargs,
         )
-        runner = getattr(hub._fastmcp, "run_stdio", None)
-        if runner is None:
-            raise RuntimeError("FastMCP 未提供 run_stdio 接口，无法启动 stdio 服务")
-        runner()
+        hub.start(block=block, show_banner=show_banner)
         return hub
 
     # ---- Sessions (delegations) ----
