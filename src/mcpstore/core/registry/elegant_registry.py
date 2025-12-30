@@ -3,10 +3,9 @@
 展示真正的工厂类设计模式
 """
 
-from typing import Dict, Any, List, Optional, Protocol, TypeVar, Type
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
+from typing import Dict, Any, List, Optional, Protocol, Type
 
 logger = logging.getLogger(__name__)
 

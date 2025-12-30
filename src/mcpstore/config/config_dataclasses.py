@@ -5,7 +5,6 @@ MCPStore Configuration Dataclasses
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
 
 from .config_defaults import ContentUpdateConfigDefaults, HealthCheckConfigDefaults, ServiceLifecycleConfigDefaults
 

@@ -8,7 +8,7 @@
 
 import logging
 import time
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, TYPE_CHECKING
 
 from .models import (
     AgentServiceRelation,

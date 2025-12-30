@@ -4,9 +4,9 @@ Core Registry Base Classes - 基础类和接口定义
 定义所有管理器的基础接口和抽象类，确保模块间的解耦和一致性。
 """
 
-from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, List, Tuple
 import logging
+from abc import ABC, abstractmethod
+from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger(__name__)
 

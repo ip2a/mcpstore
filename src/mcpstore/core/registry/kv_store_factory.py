@@ -17,8 +17,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
-from .wrapper_config import WrapperConfig
 from .redis_config import RedisConfig
+from .wrapper_config import WrapperConfig
 
 if TYPE_CHECKING:
     from key_value.aio.protocols import AsyncKeyValue

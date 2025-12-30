@@ -5,12 +5,12 @@
 """
 
 import asyncio
-import threading
 import logging
+import threading
 import time
-from typing import Any, Coroutine, Optional, Dict, List
-from concurrent.futures import ThreadPoolExecutor, Future
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from typing import Any, Coroutine, Optional, Dict, List
 
 logger = logging.getLogger(__name__)
 

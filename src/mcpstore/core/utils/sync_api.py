@@ -13,11 +13,10 @@ This module introduces two helpers:
 - sync_api(...): decorator for future adoption; not applied anywhere yet.
 """
 
-import functools
-from typing import Any, Callable, Optional
-
 import asyncio
+import functools
 import logging
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 

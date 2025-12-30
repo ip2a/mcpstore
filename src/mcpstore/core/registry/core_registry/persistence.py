@@ -9,7 +9,7 @@ Persistence Manager - 持久化管理模块
 """
 
 import logging
-from typing import Dict, Any, Optional, List, Set
+from typing import Dict, Any, Optional
 
 from .base import PersistenceManagerInterface
 from .errors import raise_legacy_error

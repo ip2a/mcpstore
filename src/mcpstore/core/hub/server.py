@@ -10,13 +10,12 @@ import threading
 from contextlib import suppress
 from typing import Union, Optional, Literal, Any, Callable, TYPE_CHECKING
 
-from .types import HubMCPConfig, HubMCPStatus
 from .exceptions import (
     ServerAlreadyRunningError,
     ServerNotRunningError,
-    ToolExecutionError,
     PortBindingError,
 )
+from .types import HubMCPConfig, HubMCPStatus
 
 if TYPE_CHECKING:
     from ..context.base_context import MCPStoreContext

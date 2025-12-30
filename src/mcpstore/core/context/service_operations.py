@@ -3,11 +3,10 @@ MCPStore Service Operations Module - Event-Driven Architecture
 Implementation of service-related operations using event-driven pattern
 """
 
-import asyncio
 import logging
 from typing import Dict, List, Optional, Any, Union, Tuple
 
-from mcpstore.core.models.service import ServiceInfo, ServiceConfigUnion, ServiceConnectionState
+from mcpstore.core.models.service import ServiceInfo, ServiceConfigUnion
 from .types import ContextType
 
 logger = logging.getLogger(__name__)

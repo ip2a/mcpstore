@@ -15,7 +15,7 @@ import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, AsyncIterator, Optional, Set
 
 from mcpstore.core.bridge import get_async_bridge

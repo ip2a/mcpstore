@@ -8,14 +8,12 @@ Cache Manager - 缓存管理模块
 4. 异常处理和重试逻辑
 """
 
-import logging
 import asyncio
-import time
+import logging
 from typing import Dict, Any, Optional, Callable, List
 
 from .base import CacheManagerInterface
 from .errors import raise_legacy_error
-from ...bridge import get_async_bridge
 from ...bridge import get_async_bridge
 
 logger = logging.getLogger(__name__)

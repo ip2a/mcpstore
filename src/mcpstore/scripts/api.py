@@ -19,9 +19,9 @@ v0.6.0 Changes:
 from fastapi import APIRouter
 
 from .api_agent import agent_router
+from .api_cache import router as cache_router
 # Import all sub-route modules
 from .api_store import store_router
-from .api_cache import router as cache_router
 
 # Import dependency injection functions (maintain compatibility)
 

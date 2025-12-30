@@ -7,7 +7,7 @@ ServiceRegistry 重构后的接口兼容性问题，而不是手动一个一个�
 
 import inspect
 import logging
-from typing import Any, Dict, List, Optional, Set, Type, get_type_hints
+from typing import Any, Dict, Optional, Set, Type
 
 logger = logging.getLogger(__name__)
 

@@ -4,11 +4,11 @@ Provides consistent locking interface for both async and sync contexts
 """
 
 import asyncio
-import threading
 import logging
+import threading
 from abc import ABC, abstractmethod
-from typing import Dict, AsyncContextManager, ContextManager
 from contextlib import asynccontextmanager, contextmanager
+from typing import Dict, AsyncContextManager, ContextManager
 
 logger = logging.getLogger(__name__)
 

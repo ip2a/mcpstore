@@ -9,7 +9,6 @@ import time
 from datetime import datetime
 from typing import Dict, Optional, Any
 
-from mcpstore.core.models.service import ServiceConnectionState
 from mcpstore.core.utils.mcp_client_helpers import temp_client_for_service
 from .message_handler import MCPStoreMessageHandler, FASTMCP_AVAILABLE
 

@@ -9,8 +9,8 @@ Service Management Core - 纯同步业务逻辑核心
 """
 
 import logging
-from typing import Dict, Any, List, Optional, NamedTuple
 from dataclasses import dataclass
+from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
 

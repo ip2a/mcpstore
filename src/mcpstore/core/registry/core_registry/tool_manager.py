@@ -9,7 +9,7 @@ Tool Manager - 工具管理模块
 """
 
 import logging
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List
 
 from .base import ToolManagerInterface
 from .utils import JSONSchemaUtils

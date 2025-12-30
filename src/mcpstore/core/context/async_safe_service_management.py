@@ -5,7 +5,8 @@
 """
 
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
+
 from .service_management import ServiceManagement
 from ..utils.deadlock_safe_async_helper import get_deadlock_safe_helper
 

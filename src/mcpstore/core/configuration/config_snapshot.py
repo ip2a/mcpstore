@@ -9,12 +9,9 @@
 - 多种输出格式（JSON/YAML/表格）
 """
 
-import asyncio
 import json
-import logging
-import os
 import sys
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -43,7 +40,6 @@ def _get_config_defaults():
     except ImportError:
         # 如果导入失败，返回空的默认值
         return {}
-from mcpstore.config.toml_config import MCPStoreConfig, get_config
 
 
 class ConfigSource(Enum):

@@ -7,8 +7,8 @@ import logging
 from typing import Dict, List, Optional
 
 from mcpstore.core.context import MCPStoreContext
-from mcpstore.core.context.store_proxy import StoreProxy
 from mcpstore.core.context.agent_proxy import AgentProxy
+from mcpstore.core.context.store_proxy import StoreProxy
 
 logger = logging.getLogger(__name__)
 

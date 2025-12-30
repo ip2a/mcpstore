@@ -7,9 +7,9 @@ handling synchronization, collection naming, and value wrapping/unwrapping.
 Extracted from core_registry.py to reduce God Object complexity.
 """
 
-import logging
 import asyncio
-from typing import Any, Dict, Optional, TYPE_CHECKING
+import logging
+from typing import Any, Dict, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from key_value.aio.protocols import AsyncKeyValue

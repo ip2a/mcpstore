@@ -8,13 +8,12 @@ Task T1: Configuration directory and default TOML file initialization
 Task T2: TOML loading, default value merging, and validation pipeline
 """
 
-import os
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, Union, Tuple, List
+
 import toml
 
-from .path_utils import get_user_data_dir, get_user_config_path
 from .config_defaults import (
     get_all_defaults,
     ServerConfigDefaults,
@@ -26,6 +25,7 @@ from .config_defaults import (
     StandaloneConfigDefaults,
     LoggingConfigDefaults,
 )
+from .path_utils import get_user_data_dir, get_user_config_path
 
 logger = logging.getLogger(__name__)
 
@@ -796,7 +796,7 @@ def initialize_config_system_with_kv(config_path: Optional[Path] = None) -> Tupl
 
 import asyncio
 from typing import Protocol, runtime_checkable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 # Import existing configuration classes for type conversion
 try:

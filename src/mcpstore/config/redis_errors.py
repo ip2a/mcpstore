@@ -6,7 +6,8 @@ including detailed error messages, password masking, and troubleshooting guidanc
 """
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Dict, Any
+
 from redis.exceptions import (
     ConnectionError as RedisConnectionError,
     AuthenticationError,

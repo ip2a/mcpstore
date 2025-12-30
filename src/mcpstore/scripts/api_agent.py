@@ -6,14 +6,12 @@ Contains all Agent-level API endpoints
 import logging
 from typing import Dict, Any, Union, List, Optional
 
-from fastapi import APIRouter, HTTPException, Depends, Request, Query
+from fastapi import APIRouter, Request, Query
 
-from mcpstore import MCPStore
 from mcpstore.core.models import ResponseBuilder, ErrorCode, timed_response
 from mcpstore.core.models.common import APIResponse  # Keep for response_model
-from .api_decorators import handle_exceptions, get_store, validate_agent_id
+from .api_decorators import get_store, validate_agent_id
 from .api_models import (
-    ToolExecutionRecordResponse, ToolRecordsResponse, ToolRecordsSummaryResponse,
     SimpleToolExecutionRequest, create_enhanced_pagination_info
 )
 

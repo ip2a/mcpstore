@@ -18,8 +18,8 @@ from mcpstore.core.events.service_events import (
     ServiceStateChanged, ReconnectionRequested, ReconnectionScheduled,
     ServiceConnectionFailed
 )
-from mcpstore.core.models.service import ServiceConnectionState
 from mcpstore.core.lifecycle.config import ServiceLifecycleConfig
+from mcpstore.core.models.service import ServiceConnectionState
 
 logger = logging.getLogger(__name__)
 

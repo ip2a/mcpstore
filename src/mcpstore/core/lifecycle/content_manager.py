@@ -11,9 +11,8 @@ from typing import Dict, Set, Optional, List, Any, Tuple
 
 from fastmcp import Client
 
-from mcpstore.core.configuration.config_processor import ConfigProcessor
-from mcpstore.core.models.service import ServiceConnectionState
 from mcpstore.config.config_dataclasses import ContentUpdateConfig
+from mcpstore.core.configuration.config_processor import ConfigProcessor
 
 logger = logging.getLogger(__name__)
 

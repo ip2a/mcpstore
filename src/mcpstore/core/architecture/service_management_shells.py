@@ -6,9 +6,9 @@ Service Management Shells - 双路外壳实现
 
 import asyncio
 import logging
-from typing import Dict, Any, Optional
-from .service_management_core import ServiceManagementCore, ServiceOperationPlan, WaitOperationPlan, ServiceOperation
+from typing import Dict, Any
 
+from .service_management_core import ServiceManagementCore
 from ..bridge import get_async_bridge
 
 logger = logging.getLogger(__name__)

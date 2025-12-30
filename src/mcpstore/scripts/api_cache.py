@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Query
 
-from mcpstore.core.models import ResponseBuilder, timed_response, ErrorCode
+from mcpstore.core.models import ResponseBuilder, timed_response
 from .api_decorators import get_store, validate_agent_id
 
 router = APIRouter()

@@ -4,7 +4,7 @@ Implementation of advanced feature-related operations
 """
 
 import logging
-from typing import Dict, List, Optional, Any, TYPE_CHECKING
+from typing import Dict, Optional, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .base_context import MCPStoreContext

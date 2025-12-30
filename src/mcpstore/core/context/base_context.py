@@ -7,13 +7,13 @@ import asyncio
 import logging
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
 
-from .agent_service_mapper import AgentServiceMapper
-from .tool_transformation import get_transformation_manager
-from ..performance import get_performance_optimizer
-from ..integration.openapi_integration import get_openapi_manager
 from mcpstore.extensions.monitoring import MonitoringManager
 from mcpstore.extensions.monitoring.analytics import get_monitoring_manager
+from .agent_service_mapper import AgentServiceMapper
+from .tool_transformation import get_transformation_manager
 from ..bridge import get_async_bridge
+from ..integration.openapi_integration import get_openapi_manager
+from ..performance import get_performance_optimizer
 
 # Create logger instance
 logger = logging.getLogger(__name__)
@@ -73,7 +73,6 @@ class MCPStoreContext(
         self._monitoring_manager = get_monitoring_manager()
 
         # Monitoring manager - unified behavior for both branches
-        from pathlib import Path
         data_dir = None
         if hasattr(self._store, '_data_space_manager') and self._store._data_space_manager:
             data_dir = self._store._data_space_manager.workspace_dir / "monitoring"

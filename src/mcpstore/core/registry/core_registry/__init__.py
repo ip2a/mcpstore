@@ -16,9 +16,6 @@ Core Registry Module - 拆分重构后的服务注册管理模块
 - utils: 工具函数和辅助方法
 """
 
-# 重新导出保持兼容性
-from .main_registry import ServiceRegistry
-
 # 导出各个管理器类，供高级用户使用
 from .base import (
     BaseManager,
@@ -31,15 +28,15 @@ from .base import (
     ManagerFactory,
     ManagerCoordinator
 )
-
+from .cache_manager import CacheManager
+# 重新导出保持兼容性
+from .main_registry import ServiceRegistry
+from .mapping_manager import MappingManager
+from .persistence import PersistenceManager
+from .service_manager import ServiceManager
 from .session_manager import SessionManager
 from .state_manager import StateManager
 from .tool_manager import ToolManager
-from .cache_manager import CacheManager
-from .persistence import PersistenceManager
-from .service_manager import ServiceManager
-from .mapping_manager import MappingManager
-
 # 导出工具类
 from .utils import (
     JSONSchemaUtils,
