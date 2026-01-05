@@ -48,7 +48,7 @@ class CacheManager(CacheManagerInterface):
             "backoff_factor": 2.0
         }
 
-        self._logger.info(f"初始化CacheManager，命名空间: {namespace}")
+        self._logger.info(f"Initializing CacheManager, namespace: {namespace}")
 
     def _legacy(self, method: str) -> None:
         raise_legacy_error(
@@ -58,7 +58,7 @@ class CacheManager(CacheManagerInterface):
 
     def initialize(self) -> None:
         """初始化缓存管理器"""
-        self._logger.info("CacheManager 初始化完成")
+        self._logger.info("CacheManager initialization completed")
 
     def cleanup(self) -> None:
         """清理缓存管理器资源"""
@@ -69,7 +69,7 @@ class CacheManager(CacheManagerInterface):
                     if hasattr(self._cache_backend, 'close'):
                         self._cache_backend.close()
                 except Exception as e:
-                    self._logger.warning(f"关闭缓存后端时出错: {e}")
+                    self._logger.warning(f"Error closing cache backend: {e}")
 
             # 清理同步助手
             self._sync_helper = None
@@ -77,9 +77,9 @@ class CacheManager(CacheManagerInterface):
             # 清理同步状态
             self._sync_status.clear()
 
-            self._logger.info("CacheManager 清理完成")
+            self._logger.info("CacheManager cleanup completed")
         except Exception as e:
-            self._logger.error(f"CacheManager 清理时出错: {e}")
+            self._logger.error(f"CacheManager cleanup error: {e}")
             raise
 
     def configure_cache_backend(self, cache_config: Dict[str, Any]) -> None:
@@ -292,7 +292,7 @@ class SimpleMemoryBackend:
             self._stats["sets"] += 1
             return True
         except Exception as e:
-            self._logger.error(f"设置缓存失败: {e}")
+            self._logger.error(f"Failed to set cache: {e}")
             return False
 
     def delete(self, key: str) -> bool:
@@ -304,7 +304,7 @@ class SimpleMemoryBackend:
                 return True
             return False
         except Exception as e:
-            self._logger.error(f"删除缓存失败: {e}")
+            self._logger.error(f"Failed to delete cache: {e}")
             return False
 
     def clear(self) -> bool:
@@ -319,7 +319,7 @@ class SimpleMemoryBackend:
             }
             return True
         except Exception as e:
-            self._logger.error(f"清空缓存失败: {e}")
+            self._logger.error(f"Failed to clear cache: {e}")
             return False
 
     def exists(self, key: str) -> bool:

@@ -12,6 +12,8 @@ Implementation of tool-related operations
 import logging
 from typing import Dict, List, Optional, Any, Union, Literal
 
+from mcp import types as mcp_types
+
 from mcpstore.core.logic.tool_logic import ToolLogicCore
 from mcpstore.core.models.tool import ToolInfo
 from .types import ContextType
@@ -104,7 +106,7 @@ class ToolOperationsMixin:
         )
         
         logger.debug(
-            f"工具可用性检查: service={service_global_name}, "
+            f"Tool availability check: service={service_global_name}, "
             f"tool={tool_name}, available={is_available}"
         )
         
@@ -289,7 +291,7 @@ class ToolOperationsMixin:
         for tool in all_tools:
             tool_service_global_name = getattr(tool, "service_global_name", None)
             if not tool_service_global_name:
-                raise RuntimeError(f"[LIST_TOOLS] 工具缺少 service_global_name: tool={tool.name}")
+                raise RuntimeError(f"[LIST_TOOLS] Tool missing service_global_name: tool={tool.name}")
             
             # 获取服务状态
             status_dict = service_status_map.get(tool_service_global_name)
@@ -551,7 +553,7 @@ class ToolOperationsMixin:
         """
         args = args or {}
 
-        # 🎯 隐式会话路由：在 with_session 作用域内且未显式指定 session_id 时优先走当前激活会话
+        # Implicit session routing: when in with_session scope and no explicit session_id, prioritize current active session
         if getattr(self, '_active_session', None) is not None and 'session_id' not in kwargs:
             try:
                 logger.debug(f"[IMPLICIT_SESSION] Routing tool '{tool_name}' to active session '{self._active_session.session_id}'")
@@ -561,14 +563,14 @@ class ToolOperationsMixin:
             kwargs.pop('session_id', None)
             return await self._active_session.use_tool_async(tool_name, args, return_extracted=return_extracted, **kwargs)
 
-        # 🎯 自动会话路由：仅当启用了自动会话且未显式指定 session_id 时才路由
+        # Auto session routing: only route when auto session is enabled and no explicit session_id is provided
         if getattr(self, '_auto_session_enabled', False) and 'session_id' not in kwargs:
             logger.debug(f"[AUTO_SESSION] Routing tool '{tool_name}' to auto session (no explicit session_id)")
             return await self._use_tool_with_session_async(tool_name, args, return_extracted=return_extracted, **kwargs)
         elif getattr(self, '_auto_session_enabled', False) and 'session_id' in kwargs:
             logger.debug("[AUTO_SESSION] Enabled but explicit session_id provided; skip auto routing")
 
-        # 🎯 隐式会话路由：如果 with_session 激活了会话且未显式提供 session_id，则路由到该会话
+        # Implicit session routing: if with_session activated a session and no explicit session_id provided, route to that session
         active_session = getattr(self, '_active_session', None)
         if active_session is not None and getattr(active_session, 'is_active', False) and 'session_id' not in kwargs:
             logger.debug(f"[ACTIVE_SESSION] Routing tool '{tool_name}' to active session '{active_session.session_id}'")
@@ -638,20 +640,16 @@ class ToolOperationsMixin:
         )
 
         try:
-            # 🎯 一站式解析：用户输入 → FastMCP标准格式
+            # One-stop resolution: user input -> FastMCP standard format
             fastmcp_tool_name, resolution = resolver.resolve_and_format_for_fastmcp(tool_name, available_tools)
 
             logger.info(f"[SMART_RESOLVE] input='{tool_name}' fastmcp='{fastmcp_tool_name}' service='{resolution.service_name}' method='{resolution.resolution_method}'")
 
         except ValueError as e:
             # LLM-readable error: tool name resolution failed, return structured error for model understanding
-            return {
-                "content": [{
-                    "type": "text",
-                    "text": f"[LLM Hint] Tool name resolution failed: {str(e)}. Please check the tool name or add service prefix, e.g. service_tool."
-                }],
-                "is_error": True
-            }
+            return self._build_call_tool_error_result(
+                f"[LLM Hint] Tool name resolution failed: {str(e)}. Please check the tool name or add service prefix, e.g. service_tool."
+            )
 
         # 工具可用性拦截：Store 和 Agent 模式都检查工具是否可用
         # 获取服务的全局名称
@@ -680,7 +678,7 @@ class ToolOperationsMixin:
             agent_id = self._agent_id if self._context_type == ContextType.AGENT else "global_agent_store"
             
             logger.warning(
-                f"[TOOL_INTERCEPT] 工具不可用: agent_id={agent_id}, "
+                f"[TOOL_INTERCEPT] Tool not available: agent_id={agent_id}, "
                 f"service_global_name={service_global_name}, tool={original_tool_name}"
             )
             
@@ -691,7 +689,7 @@ class ToolOperationsMixin:
             )
         
         logger.debug(
-            f"[TOOL_INTERCEPT] 工具可用性检查通过: "
+            f"[TOOL_INTERCEPT] Tool availability check passed: "
             f"service_global_name={service_global_name}, tool={fastmcp_tool_name}"
         )
         
@@ -724,14 +722,13 @@ class ToolOperationsMixin:
 
         # Convert execution errors to LLM-readable format to avoid code interruption
         if hasattr(response, 'success') and not response.success:
+            stored_result = getattr(response, 'result', None)
+            if stored_result is not None:
+                return stored_result
             msg = getattr(response, 'error', 'Tool execution failed')
-            return {
-                "content": [{
-                    "type": "text",
-                    "text": f"[LLM Hint] Tool invocation failed: {msg}"
-                }],
-                "is_error": True
-            }
+            return self._build_call_tool_error_result(
+                f"[LLM Hint] Tool invocation failed: {msg}"
+            )
 
         if return_extracted:
             try:
@@ -987,7 +984,7 @@ class ToolOperationsMixin:
         if isinstance(service, str):
             return service
         
-        raise ValueError(f"不支持的服务参数类型: {type(service)}")
+        raise ValueError(f"Unsupported service parameter type: {type(service)}")
     
     async def _verify_data_source_ownership(
         self,
@@ -1090,7 +1087,7 @@ class ToolOperationsMixin:
         """
         # 仅在 Agent 模式下生效
         if self._context_type != ContextType.AGENT:
-            raise ValueError("add_tools() 仅在 Agent 模式下可用")
+            raise ValueError("add_tools() is only available in Agent mode")
         
         return self._run_async_via_bridge(
             self.add_tools_async(service, tools),
@@ -1116,7 +1113,7 @@ class ToolOperationsMixin:
         """
         # 仅在 Agent 模式下生效
         if self._context_type != ContextType.AGENT:
-            raise ValueError("add_tools() 仅在 Agent 模式下可用")
+            raise ValueError("add_tools() is only available in Agent mode")
         
         # 解析服务参数
         service_names = self._resolve_service(service)
@@ -1138,7 +1135,7 @@ class ToolOperationsMixin:
 
             if not service_global_name:
                 raise RuntimeError(
-                    f"无法获取服务全局名称: agent_id={self._agent_id}, "
+                    f"Cannot get service global name: agent_id={self._agent_id}, "
                     f"service_name={service_name}"
                 )
 
@@ -1147,7 +1144,7 @@ class ToolOperationsMixin:
 
             if not service_status:
                 raise RuntimeError(
-                    f"服务状态不存在: service_global_name={service_global_name}"
+                    f"Service status does not exist: service_global_name={service_global_name}"
                 )
 
             # 确定要添加的工具列表
@@ -1165,7 +1162,7 @@ class ToolOperationsMixin:
             )
             
             logger.info(
-                f"添加工具成功: agent_id={self._agent_id}, "
+                f"Tools added successfully: agent_id={self._agent_id}, "
                 f"service={service_name}, tools={tool_names}"
             )
         
@@ -1220,7 +1217,7 @@ class ToolOperationsMixin:
         """
         # 仅在 Agent 模式下生效
         if self._context_type != ContextType.AGENT:
-            raise ValueError("remove_tools() 仅在 Agent 模式下可用")
+            raise ValueError("remove_tools() is only available in Agent mode")
         
         return self._run_async_via_bridge(
             self.remove_tools_async(service, tools),
@@ -1246,7 +1243,7 @@ class ToolOperationsMixin:
         """
         # 仅在 Agent 模式下生效
         if self._context_type != ContextType.AGENT:
-            raise ValueError("remove_tools() 仅在 Agent 模式下可用")
+            raise ValueError("remove_tools() is only available in Agent mode")
         
         # 解析服务参数
         service_names = self._resolve_service(service)
@@ -1268,7 +1265,7 @@ class ToolOperationsMixin:
 
             if not service_global_name:
                 raise RuntimeError(
-                    f"无法获取服务全局名称: agent_id={self._agent_id}, "
+                    f"Cannot get service global name: agent_id={self._agent_id}, "
                     f"service_name={service_name}"
                 )
 
@@ -1277,7 +1274,7 @@ class ToolOperationsMixin:
 
             if not service_status:
                 raise RuntimeError(
-                    f"服务状态不存在: service_global_name={service_global_name}"
+                    f"Service status does not exist: service_global_name={service_global_name}"
                 )
 
             # 确定要移除的工具列表
@@ -1295,7 +1292,7 @@ class ToolOperationsMixin:
             )
             
             logger.info(
-                f"移除工具成功: agent_id={self._agent_id}, "
+                f"Tools removed successfully: agent_id={self._agent_id}, "
                 f"service={service_name}, tools={tool_names}"
             )
         
@@ -1340,7 +1337,7 @@ class ToolOperationsMixin:
         """
         # 仅在 Agent 模式下生效
         if self._context_type != ContextType.AGENT:
-            raise ValueError("reset_tools() 仅在 Agent 模式下可用")
+            raise ValueError("reset_tools() is only available in Agent mode")
         
         return self._run_async_via_bridge(
             self.reset_tools_async(service),
@@ -1364,7 +1361,7 @@ class ToolOperationsMixin:
         """
         # 仅在 Agent 模式下生效
         if self._context_type != ContextType.AGENT:
-            raise ValueError("reset_tools() 仅在 Agent 模式下可用")
+            raise ValueError("reset_tools() is only available in Agent mode")
         
         # 解析服务参数
         service_names = self._resolve_service(service)
@@ -1386,7 +1383,7 @@ class ToolOperationsMixin:
 
             if not service_global_name:
                 raise RuntimeError(
-                    f"无法获取服务全局名称: agent_id={self._agent_id}, "
+                    f"Cannot get service global name: agent_id={self._agent_id}, "
                     f"service_name={service_name}"
                 )
 
@@ -1395,7 +1392,7 @@ class ToolOperationsMixin:
 
             if not service_status:
                 raise RuntimeError(
-                    f"服务状态不存在: service_global_name={service_global_name}"
+                    f"Service status does not exist: service_global_name={service_global_name}"
                 )
 
             # 获取所有工具名称
@@ -1410,7 +1407,7 @@ class ToolOperationsMixin:
                 )
             
             logger.info(
-                f"重置工具集成功: agent_id={self._agent_id}, "
+                f"Tool set reset successfully: agent_id={self._agent_id}, "
                 f"service={service_name}, tools_count={len(all_tool_names)}"
             )
         
@@ -1448,7 +1445,7 @@ class ToolOperationsMixin:
         """
         # 仅在 Agent 模式下可用
         if self._context_type != ContextType.AGENT:
-            raise ValueError("get_tool_set_info() 仅在 Agent 模式下可用")
+            raise ValueError("get_tool_set_info() is only available in Agent mode")
         
         return self._run_async_via_bridge(
             self.get_tool_set_info_async(service),
@@ -1472,7 +1469,7 @@ class ToolOperationsMixin:
         """
         # 仅在 Agent 模式下可用
         if self._context_type != ContextType.AGENT:
-            raise ValueError("get_tool_set_info() 仅在 Agent 模式下可用")
+            raise ValueError("get_tool_set_info() is only available in Agent mode")
         
         # 解析服务名称
         if hasattr(service, "name"):
@@ -1565,7 +1562,7 @@ class ToolOperationsMixin:
         """
         # 仅在 Agent 模式下可用
         if self._context_type != ContextType.AGENT:
-            raise ValueError("get_tool_set_summary() 仅在 Agent 模式下可用")
+            raise ValueError("get_tool_set_summary() is only available in Agent mode")
         
         return self._run_async_via_bridge(
             self.get_tool_set_summary_async(),
@@ -1581,7 +1578,7 @@ class ToolOperationsMixin:
         """
         # 仅在 Agent 模式下可用
         if self._context_type != ContextType.AGENT:
-            raise ValueError("get_tool_set_summary() 仅在 Agent 模式下可用")
+            raise ValueError("get_tool_set_summary() is only available in Agent mode")
         
         try:
             # 获取所有服务
@@ -1605,7 +1602,7 @@ class ToolOperationsMixin:
                     total_original += info.get("total_tools", 0)
                 except Exception as e:
                     logger.error(
-                        f"获取服务工具集信息失败: service={service_name}, error={e}"
+                        f"Failed to get service tool set info: service={service_name}, error={e}"
                     )
                     raise
             
@@ -1625,7 +1622,22 @@ class ToolOperationsMixin:
             
         except Exception as e:
             logger.error(
-                f"获取工具集摘要失败: agent_id={self._agent_id}, error={e}",
+                f"Failed to get tool set summary: agent_id={self._agent_id}, error={e}",
                 exc_info=True
             )
             raise
+    def _build_call_tool_error_result(self, message: str):
+        """
+        构造与 FastMCP CallToolResult 接口兼容的错误对象。
+        """
+        text_block = mcp_types.TextContent(type="text", text=message)
+        failure = mcp_types.CallToolResult(
+            content=[text_block],
+            structuredContent=None,
+            isError=True,
+        )
+        setattr(failure, "structured_content", None)
+        setattr(failure, "data", None)
+        setattr(failure, "error", message)
+        setattr(failure, "is_error", True)
+        return failure

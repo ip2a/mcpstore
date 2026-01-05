@@ -341,11 +341,11 @@ class ServiceUtils:
             (agent_id, service_name) 元组
         """
         if '::' not in service_id:
-            raise ValueError(f"无效的服务ID格式: {service_id}")
+            raise ValueError(f"Invalid service ID format: {service_id}")
 
         parts = service_id.split('::', 1)
         if len(parts) != 2:
-            raise ValueError(f"无效的服务ID格式: {service_id}")
+            raise ValueError(f"Invalid service ID format: {service_id}")
 
         return parts[0], parts[1]
 
@@ -444,7 +444,7 @@ class DataUtils:
         try:
             return json.dumps(obj, default=str, ensure_ascii=False)
         except Exception as e:
-            logger.warning(f"JSON序列化失败: {e}")
+            logger.warning(f"JSON serialization failed: {e}")
             return None
 
     @staticmethod
@@ -461,7 +461,7 @@ class DataUtils:
         try:
             return json.loads(json_str)
         except Exception as e:
-            logger.warning(f"JSON反序列化失败: {e}")
+            logger.warning(f"JSON deserialization failed: {e}")
             return None
 
     @staticmethod

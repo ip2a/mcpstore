@@ -19,7 +19,7 @@ class APIServerMixin:
         log_level: str = "info",
         auto_open_browser: bool = False,
         show_startup_info: bool = True,
-        url_prefix: str = ""  # 🆕 新增：URL 前缀参数
+        url_prefix: str = ""  # New: URL prefix parameter
     ) -> None:
         """
         启动 API 服务器（改进版）
@@ -110,11 +110,11 @@ class APIServerMixin:
                         webbrowser.open(doc_url)
                     except Exception as e:
                         if show_startup_info:
-                            print(f"⚠️ Failed to open browser: {e}")
+                            print(f"[WARNING] Failed to open browser: {e}")
 
                 threading.Thread(target=open_browser, daemon=True).start()
 
-            # 🆕 创建 app 实例并传入当前 store 和 URL 前缀
+            # Create app instance and pass current store and URL prefix
             # Note: 延迟导入避免 core 层在模块加载时就依赖 scripts 层
             from mcpstore.scripts.api_app import create_app
             app = create_app(store=self, url_prefix=url_prefix)
@@ -130,7 +130,7 @@ class APIServerMixin:
 
         except KeyboardInterrupt:
             if show_startup_info:
-                print("\n🛑 Server stopped by user")
+                print("\n[STOPPED] Server stopped by user")
         except ImportError as e:
             raise RuntimeError(
                 "Failed to import required dependencies for API server. "

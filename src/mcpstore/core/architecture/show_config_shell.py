@@ -79,7 +79,7 @@ class ShowConfigAsyncShell:
             }
         """
         try:
-            logger.info("[SHOW_CONFIG_SHELL] Store 级别：开始获取配置")
+            logger.info("[SHOW_CONFIG_SHELL] [STORE] Store level: starting to get configuration")
             
             # Step 1: 从 pykv 读取所有服务实体
             services_data = await self._read_all_services_data_async()
@@ -88,14 +88,14 @@ class ShowConfigAsyncShell:
             result = self._logic_core.build_store_config(services_data)
             
             logger.info(
-                f"[SHOW_CONFIG_SHELL] Store 级别配置获取完成: "
+                f"[SHOW_CONFIG_SHELL] Store level configuration retrieval completed: "
                 f"services={len(result.get('mcpServers', {}))}"
             )
             
             return result
             
         except Exception as e:
-            logger.error(f"[SHOW_CONFIG_SHELL] Store 级别获取配置失败: {e}")
+            logger.error(f"[SHOW_CONFIG_SHELL] [ERROR] Store level configuration retrieval failed: {e}")
             return self._logic_core.build_error_response(
                 f"Failed to show store config: {str(e)}"
             )
@@ -121,16 +121,13 @@ class ShowConfigAsyncShell:
             }
         """
         try:
-            logger.info(f"[SHOW_CONFIG_SHELL] Agent 级别：开始获取 Agent {agent_id} 的配置")
+            logger.info(f"[SHOW_CONFIG_SHELL] [AGENT] Agent level: starting to get Agent {agent_id} configuration")
             
             # Step 1: 从 pykv 检查 Agent 是否存在
             agent_exists = await self._check_agent_exists_async(agent_id)
             if not agent_exists:
-                logger.warning(f"[SHOW_CONFIG_SHELL] Agent {agent_id} 不存在")
-                return self._logic_core.build_error_response(
-                    f"Agent '{agent_id}' not found",
-                    agent_id=agent_id
-                )
+                logger.warning(f"[SHOW_CONFIG_SHELL] [WARN] Agent {agent_id} does not exist, returning empty configuration")
+                return {"mcpServers": {}}
             
             # Step 2: 从 pykv 读取该 Agent 的服务数据
             services_data = await self._read_agent_services_data_async(agent_id)
@@ -139,14 +136,14 @@ class ShowConfigAsyncShell:
             result = self._logic_core.build_agent_config(agent_id, services_data)
             
             logger.info(
-                f"[SHOW_CONFIG_SHELL] Agent {agent_id} 配置获取完成: "
+                f"[SHOW_CONFIG_SHELL] Agent {agent_id} configuration retrieval completed: "
                 f"services={len(result.get('mcpServers', {}))}"
             )
             
             return result
             
         except Exception as e:
-            logger.error(f"[SHOW_CONFIG_SHELL] Agent {agent_id} 获取配置失败: {e}")
+            logger.error(f"[SHOW_CONFIG_SHELL] [ERROR] Agent {agent_id} configuration retrieval failed: {e}")
             return self._logic_core.build_error_response(
                 f"Failed to show agent config: {str(e)}",
                 agent_id=agent_id
@@ -169,7 +166,7 @@ class ShowConfigAsyncShell:
             # 从 pykv 实体层读取所有服务实体
             all_services = await self._cache_layer.get_all_entities_async("services")
             
-            logger.debug(f"[SHOW_CONFIG_SHELL] 从 pykv 读取到 {len(all_services)} 个服务实体")
+            logger.debug(f"[SHOW_CONFIG_SHELL] [READ] Read {len(all_services)} service entities from pykv")
             
             # 提取每个服务的配置
             for global_name, service_entity in all_services.items():
@@ -185,12 +182,12 @@ class ShowConfigAsyncShell:
                 if config:
                     services_data[service_global_name] = {"config": config}
             
-            logger.debug(f"[SHOW_CONFIG_SHELL] 提取到 {len(services_data)} 个服务配置")
+            logger.debug(f"[SHOW_CONFIG_SHELL] [EXTRACT] Extracted {len(services_data)} service configurations")
             
             return services_data
             
         except Exception as e:
-            logger.error(f"[SHOW_CONFIG_SHELL] 读取所有服务数据失败: {e}")
+            logger.error(f"[SHOW_CONFIG_SHELL] [ERROR] Failed to read all service data: {e}")
             raise
     
     async def _read_agent_services_data_async(
@@ -228,26 +225,27 @@ class ShowConfigAsyncShell:
                         entity_agent_id = "global_agent_store"
                 
                 if entity_agent_id == agent_id:
-                    # 使用 service_global_name 作为 key（与 mcp.json 一致）
-                    service_global_name = service_entity.get("service_global_name")
-                    if not service_global_name:
-                        service_global_name = global_name
-                    
+                    # Agent 视角使用本地名称（service_original_name）作为 key
+                    service_local_name = service_entity.get("service_original_name") or service_entity.get("service_name")
+                    if not service_local_name:
+                        # 回退：从全局名称中剥离 _byagent 后缀
+                        service_local_name = global_name.split("_byagent_")[0] if "_byagent_" in global_name else global_name
+
                     # 提取服务配置
                     config = self._logic_core.extract_service_config(service_entity)
                     
                     if config:
-                        services_data[service_global_name] = {"config": config}
+                        services_data[service_local_name] = {"config": config}
             
             logger.debug(
-                f"[SHOW_CONFIG_SHELL] Agent {agent_id} 的服务数据: "
-                f"{len(services_data)} 个服务"
+                f"[SHOW_CONFIG_SHELL] Agent {agent_id} service data: "
+                f"{len(services_data)} services"
             )
             
             return services_data
             
         except Exception as e:
-            logger.error(f"[SHOW_CONFIG_SHELL] 读取 Agent {agent_id} 服务数据失败: {e}")
+            logger.error(f"[SHOW_CONFIG_SHELL] [ERROR] Failed to read Agent {agent_id} service data: {e}")
             raise
     
     async def _check_agent_exists_async(self, agent_id: str) -> bool:
@@ -285,5 +283,5 @@ class ShowConfigAsyncShell:
             return False
             
         except Exception as e:
-            logger.error(f"[SHOW_CONFIG_SHELL] 检查 Agent {agent_id} 是否存在失败: {e}")
+            logger.error(f"[SHOW_CONFIG_SHELL] [ERROR] Failed to check if Agent {agent_id} exists: {e}")
             raise

@@ -154,7 +154,7 @@ class ServiceOperationsMixin:
                 op_name="service_operations.list_services"
             )
         except Exception as e:
-            logger.error(f"[NEW_ARCH] list_services 失败: {e}")
+            logger.error(f"[NEW_ARCH] [ERROR] list_services failed: {e}")
             return []
 
     async def list_services_async(self) -> List[ServiceInfo]:
@@ -200,27 +200,27 @@ class ServiceOperationsMixin:
 
         # 处理json_file参数（可选）
         if json_file is not None:
-            logger.info(f"从JSON文件读取配置: {json_file}")
+            logger.info(f"[CONFIG] [READ] Reading configuration from JSON file: {json_file}")
             try:
                 import json
                 import os
 
                 if not os.path.exists(json_file):
-                    raise Exception(f"JSON文件不存在: {json_file}")
+                    raise Exception(f"JSON file does not exist: {json_file}")
 
                 with open(json_file, 'r', encoding='utf-8') as f:
                     file_config = json.load(f)
 
-                logger.info(f"成功读取JSON文件，配置: {file_config}")
+                logger.info(f"[CONFIG] [READ] Successfully read JSON file, configuration: {file_config}")
 
                 # 如果同时指定了config和json_file，优先使用json_file
                 if final_config is not None:
-                    logger.warning("同时指定了config和json_file参数，将使用json_file")
+                    logger.warning("[CONFIG] [WARN] Both config and json_file parameters specified, will use json_file")
 
                 final_config = file_config
 
             except Exception as e:
-                raise Exception(f"读取JSON文件失败: {e}")
+                raise Exception(f"Failed to read JSON file: {e}")
 
         # 支持 config 传入 JSON 字符串（单服务或 mcpServers/root 映射）
         if isinstance(final_config, str):
@@ -229,7 +229,7 @@ class ServiceOperationsMixin:
                 cfg = _json.loads(final_config)
                 final_config = cfg
             except Exception:
-                raise Exception("config 为字符串时必须是合法的 JSON")
+                raise Exception("config must be valid JSON when provided as a string")
 
         # 使用新架构：同步外壳（需在方法作用域初始化，避免非字符串配置时缺失）
         if not hasattr(self, '_service_management_sync_shell'):
@@ -243,7 +243,7 @@ class ServiceOperationsMixin:
         # 直接调用同步外壳，完全避免_sync_helper.run_async
         result = self._service_management_sync_shell.add_service(final_config)
 
-        logger.debug(f"[NEW_ARCH] add_service 结果: {result.get('success', False)}")
+        logger.debug(f"[NEW_ARCH] [RESULT] add_service result: {result.get('success', False)}")
         return self
 
     def add_service_with_details(self, config: Union[Dict[str, Any], List[Dict[str, Any]], str] = None) -> Dict[str, Any]:
@@ -262,7 +262,7 @@ class ServiceOperationsMixin:
                 op_name="service_operations.add_service_with_details"
             )
         except Exception as e:
-            logger.error(f"[NEW_ARCH] add_service_with_details 失败: {e}")
+            logger.error(f"[NEW_ARCH] [ERROR] add_service_with_details failed: {e}")
             return {
                 "success": False,
                 "added_services": [],
@@ -396,7 +396,7 @@ class ServiceOperationsMixin:
 
                 # 验证必需字段
                 if "name" not in processed:
-                    raise ValueError("服务配置缺少name字段")
+                    raise ValueError("Service configuration missing name field")
 
                 # 验证互斥字段
                 if "url" in processed and "command" in processed:
@@ -494,27 +494,27 @@ class ServiceOperationsMixin:
 
             # 处理json_file参数（可选）
             if json_file is not None:
-                logger.info(f"从JSON文件读取配置: {json_file}")
+                logger.info(f"[CONFIG] [READ] Reading configuration from JSON file: {json_file}")
                 try:
                     import json
                     import os
 
                     if not os.path.exists(json_file):
-                        raise Exception(f"JSON文件不存在: {json_file}")
+                        raise Exception(f"JSON file does not exist: {json_file}")
 
                     with open(json_file, 'r', encoding='utf-8') as f:
                         file_config = json.load(f)
 
-                    logger.info(f"成功读取JSON文件，配置: {file_config}")
+                    logger.info(f"[CONFIG] [READ] Successfully read JSON file, configuration: {file_config}")
 
                     # 如果同时指定了config和json_file，优先使用json_file
                     if config is not None:
-                        logger.warning("同时指定了config和json_file参数，将使用json_file")
+                        logger.warning("[CONFIG] [WARN] Both config and json_file parameters specified, will use json_file")
 
                     config = file_config
 
                 except Exception as e:
-                    raise Exception(f"读取JSON文件失败: {e}")
+                    raise Exception(f"Failed to read JSON file: {e}")
 
             # 支持 config 传入 JSON 字符串（单服务或 mcpServers/root 映射）
             if isinstance(config, str):
@@ -523,7 +523,7 @@ class ServiceOperationsMixin:
                     cfg = _json.loads(config)
                     config = cfg
                 except Exception:
-                    raise Exception("config 为字符串时必须是合法的 JSON")
+                    raise Exception("config must be valid JSON when provided as a string")
 
             # 宽容 root 映射（无 mcpServers）：{"svc": {"url"|"command"...}, ...}
             # 兼容大小写不敏感的 mcpServers
@@ -533,10 +533,10 @@ class ServiceOperationsMixin:
 
             # 必须提供配置
             if config is None and json_file is None:
-                raise Exception("必须提供服务配置（字典/JSON字符串或 json_file）")
+                raise Exception("Service configuration must be provided (dict/JSON string or json_file)")
 
         except Exception as e:
-            logger.error(f"参数处理失败: {e}")
+            logger.error(f"[ADD_SERVICE] [ERROR] Parameter processing failed: {e}")
             raise
 
         try:
@@ -551,27 +551,27 @@ class ServiceOperationsMixin:
             # 处理不同的输入格式
             if config is None:
                 # 不再支持空参数的全量同步；初始化阶段已同步一次
-                raise Exception("必须提供服务配置（不再支持空参数全量同步）")
+                raise Exception("Service configuration must be provided (no longer supports empty parameter full sync)")
 
             # 处理列表格式
             elif isinstance(config, list):
                 if not config:
-                    raise Exception("列表为空")
+                    raise Exception("List is empty")
 
                 # 判断是服务名称列表还是服务配置列表
                 if all(isinstance(item, str) for item in config):
-                    raise Exception("不支持以服务名称列表的方式添加，请传入完整配置（字典列表）或 mcpServers 字典")
+                    raise Exception("Service name list is not supported, please provide full configuration (dict list) or mcpServers dict")
 
                 elif all(isinstance(item, dict) for item in config):
                     # 批量服务配置列表
-                    logger.info(f"批量服务配置注册，数量: {len(config)}")
+                    logger.info(f"[ADD_SERVICE] [BATCH] Batch service configuration registration, count: {len(config)}")
 
                     # 转换为MCPConfig格式
                     mcp_config = {"mcpServers": {}}
                     for service_config in config:
                         service_name = service_config.get("name")
                         if not service_name:
-                            raise Exception("批量配置中的服务缺少name字段")
+                            raise Exception("Service in batch configuration missing name field")
                         mcp_config["mcpServers"][service_name] = {
                             k: v for k, v in service_config.items() if k != "name"
                         }
@@ -580,7 +580,7 @@ class ServiceOperationsMixin:
                     config = mcp_config
 
                 else:
-                    raise Exception("列表中的元素类型不一致，必须全部是字符串（服务名称）或全部是字典（服务配置）")
+                    raise Exception("Inconsistent element types in list, must be all strings (service names) or all dicts (service configurations)")
 
             # 处理字典格式的配置（包括从批量配置转换来的）
             if isinstance(config, dict):
@@ -592,7 +592,7 @@ class ServiceOperationsMixin:
                 key = self._find_mcp_servers_key(config)
                 if key:
                     if not isinstance(config[key], dict):
-                        raise Exception("mcpServers 必须是字典类型")
+                        raise Exception("mcpServers must be a dictionary type")
                     services_to_add = {
                         name: svc_cfg for name, svc_cfg in config[key].items()
                         if isinstance(svc_cfg, dict)
@@ -610,31 +610,57 @@ class ServiceOperationsMixin:
                     }
 
                 if not services_to_add:
-                    raise Exception("未能解析出有效的服务配置")
+                    raise Exception("Unable to parse valid service configuration")
 
-                logger.info(f"[ADD_SERVICE_ASYNC] 事件驱动添加服务: {list(services_to_add.keys())}")
+                logger.info(f"[ADD_SERVICE_ASYNC] [EVENT] Event-driven service addition: {list(services_to_add.keys())}")
 
                 # 通过应用服务发布事件，统一走 ServiceAddRequested -> ... 链路
                 app_service = self._store.container.service_application_service
                 source_tag = "agent_context" if self._context_type == ContextType.AGENT else "store_context"
+                global_agent_id = self._store.client_manager.global_agent_store_id
+                is_agent_ctx = self._context_type == ContextType.AGENT
 
                 for svc_name, svc_cfg in services_to_add.items():
+                    extra_kwargs = {}
+                    if is_agent_ctx:
+                        from .agent_service_mapper import AgentServiceMapper
+                        from mcpstore.core.utils.id_generator import ClientIDGenerator
+                        mapper = AgentServiceMapper(agent_id)
+                        global_name = mapper.to_global_name(svc_name)
+                        client_id = ClientIDGenerator.generate_deterministic_id(
+                            agent_id=agent_id,
+                            service_name=svc_name,
+                            service_config=svc_cfg,
+                            global_agent_store_id=global_agent_id
+                        )
+                        extra_kwargs = {
+                            "global_name": global_name,
+                            "client_id": client_id,
+                            "origin_agent_id": agent_id,
+                            "origin_local_name": svc_name,
+                        }
+                    else:
+                        extra_kwargs = {
+                            "global_name": svc_name,
+                        }
+
                     result = await app_service.add_service(
                         agent_id=agent_id,
                         service_name=svc_name,
                         service_config=svc_cfg,
                         wait_timeout=0.0,
-                        source=source_tag
+                        source=source_tag,
+                        **extra_kwargs,
                     )
                     if result and result.success:
-                        logger.debug(f"[ADD_SERVICE_ASYNC] 已发布 ServiceAddRequested: {svc_name}")
+                        logger.debug(f"[ADD_SERVICE_ASYNC] [EVENT] ServiceAddRequested published: {svc_name}")
                     else:
-                        logger.warning(f"[ADD_SERVICE_ASYNC] 发布 ServiceAddRequested 失败: {svc_name}, error={getattr(result, 'error_message', None)}")
+                        logger.warning(f"[ADD_SERVICE_ASYNC] [ERROR] Failed to publish ServiceAddRequested: {svc_name}, error={getattr(result, 'error_message', None)}")
 
                 return self
 
         except Exception as e:
-            logger.error(f"服务添加失败: {e}")
+            logger.error(f"[ADD_SERVICE] [ERROR] Service addition failed: {e}")
             raise
 
     async def _initialize_service_tool_status(
@@ -656,7 +682,7 @@ class ServiceOperationsMixin:
             RuntimeError: 如果初始化失败
         """
         logger.debug(
-            f"[TOOL_STATUS_INIT] 开始初始化工具状态: "
+            f"[TOOL_STATUS_INIT] Starting tool status initialization: "
             f"agent_id={agent_id}, service_name={service_name}"
         )
         
@@ -676,7 +702,7 @@ class ServiceOperationsMixin:
             service_global_name = service_name
         
         logger.debug(
-            f"[TOOL_STATUS_INIT] 服务全局名称: "
+            f"[TOOL_STATUS_INIT] Service global name: "
             f"service_name={service_name}, service_global_name={service_global_name}"
         )
         
@@ -688,7 +714,7 @@ class ServiceOperationsMixin:
         
         if not tool_relations:
             logger.warning(
-                f"[TOOL_STATUS_INIT] 服务没有工具: "
+                f"[TOOL_STATUS_INIT] Service has no tools: "
                 f"service_global_name={service_global_name}"
             )
             # 即使没有工具，也要创建服务状态
@@ -719,7 +745,7 @@ class ServiceOperationsMixin:
         )
         
         logger.info(
-            f"[TOOL_STATUS_INIT] 工具状态初始化成功: "
+            f"[TOOL_STATUS_INIT] Tool status initialization successful: "
             f"service_global_name={service_global_name}, "
             f"tools_count={len(tools_status)}"
         )
@@ -730,12 +756,12 @@ class ServiceOperationsMixin:
             # 🔗 新增：连接开始日志
             logger.debug(f"Connecting to service: {service_name}")
             logger.debug(f"Agent ID: {agent_id}")
-            logger.info(f"🔗 [CONNECT_SERVICE] 调用orchestrator.connect_service")
+            logger.info(f"[CONNECT_SERVICE] [CALL] Calling orchestrator.connect_service")
 
             #  修复：使用connect_service方法（现已修复ConfigProcessor问题）
             try:
-                logger.info(f"🔗 [CONNECT_SERVICE] 准备调用connect_service，参数: name={service_name}, agent_id={agent_id}")
-                logger.info(f"🔗 [CONNECT_SERVICE] service_config: {service_config}")
+                logger.info(f"[CONNECT_SERVICE] [CALL] Preparing to call connect_service, parameters: name={service_name}, agent_id={agent_id}")
+                logger.info(f"[CONNECT_SERVICE] service_config: {service_config}")
 
                 # 使用修复后的connect_service方法（现在会使用ConfigProcessor）
                 success, message = await self._store.orchestrator.connect_service(
@@ -745,16 +771,16 @@ class ServiceOperationsMixin:
                 logger.debug("Service connection completed")
 
             except Exception as connect_error:
-                logger.error(f"🔗 [CONNECT_SERVICE] connect_service调用异常: {connect_error}")
+                logger.error(f"[CONNECT_SERVICE] [ERROR] connect_service call exception: {connect_error}")
                 import traceback
-                logger.error(f"🔗 [CONNECT_SERVICE] 异常堆栈: {traceback.format_exc()}")
+                logger.error(f"[CONNECT_SERVICE] [ERROR] Exception stack: {traceback.format_exc()}")
                 success, message = False, f"Connection call failed: {connect_error}"
 
             # 🔗 新增：连接结果日志
-            logger.info(f"🔗 [CONNECT_SERVICE] 连接结果: success={success}, message={message}")
+            logger.info(f"[CONNECT_SERVICE] [RESULT] Connection result: success={success}, message={message}")
 
             if success:
-                logger.info(f"🔗 Service '{service_name}' connected successfully")
+                logger.info(f"Service '{service_name}' connected successfully")
                 # 连接成功，缓存会自动更新（通过现有的连接逻辑）
             else:
                 logger.warning(f" Service '{service_name}' connection failed: {message}")
@@ -772,16 +798,16 @@ class ServiceOperationsMixin:
                             retry_count=0,
                         )
                         await bus.publish(failed_event, wait=True)
-                        logger.debug(f"🔗 [CONNECT_SERVICE] Published ServiceConnectionFailed for '{service_name}'")
+                        logger.debug(f"[CONNECT_SERVICE] Published ServiceConnectionFailed for '{service_name}'")
                     else:
-                        logger.warning("🔗 [CONNECT_SERVICE] EventBus not available; cannot publish ServiceConnectionFailed")
+                        logger.warning("[CONNECT_SERVICE] EventBus not available; cannot publish ServiceConnectionFailed")
                 except Exception as event_err:
-                    logger.warning(f"🔗 [CONNECT_SERVICE] Failed to publish ServiceConnectionFailed: {event_err}")
+                    logger.warning(f"[CONNECT_SERVICE] Failed to publish ServiceConnectionFailed: {event_err}")
 
         except Exception as e:
-            logger.error(f"🔗 [CONNECT_SERVICE] 整个连接过程发生异常: {e}")
+            logger.error(f"[CONNECT_SERVICE] [ERROR] Exception occurred during entire connection process: {e}")
             import traceback
-            logger.error(f"🔗 [CONNECT_SERVICE] 异常堆栈: {traceback.format_exc()}")
+            logger.error(f"[CONNECT_SERVICE] [ERROR] Exception stack: {traceback.format_exc()}")
 
             # 通过事件驱动方式通知生命周期管理器异常结果
             try:
@@ -797,17 +823,17 @@ class ServiceOperationsMixin:
                         retry_count=0,
                     )
                     await bus.publish(failed_event, wait=True)
-                    logger.error(f"🔗 [CONNECT_SERVICE] Published ServiceConnectionFailed after exception for '{service_name}'")
+                    logger.error(f"[CONNECT_SERVICE] Published ServiceConnectionFailed after exception for '{service_name}'")
                 else:
-                    logger.warning("🔗 [CONNECT_SERVICE] EventBus not available; cannot publish ServiceConnectionFailed after exception")
+                    logger.warning("[CONNECT_SERVICE] EventBus not available; cannot publish ServiceConnectionFailed after exception")
             except Exception as event_err:
-                logger.warning(f"🔗 [CONNECT_SERVICE] Failed to publish ServiceConnectionFailed after exception: {event_err}")
+                logger.warning(f"[CONNECT_SERVICE] Failed to publish ServiceConnectionFailed after exception: {event_err}")
 
     # ===  Service Initialization Methods ===
 
     def init_service(self, client_id_or_service_name: str = None, *,
                      client_id: str = None, service_name: str = None) -> 'MCPStoreContext':
-        raise RuntimeError("[SERVICE_OPERATIONS] 同步 init_service 已禁用，请使用 init_service_async。")
+        raise RuntimeError("[SERVICE_OPERATIONS] Synchronous init_service is disabled, please use init_service_async.")
 
     async def init_service_async(self, client_id_or_service_name: str = None, *,
                                 client_id: str = None, service_name: str = None) -> 'MCPStoreContext':
@@ -829,7 +855,7 @@ class ServiceOperationsMixin:
                 identifier, agent_id
             )
 
-            logger.info(f" [INIT_SERVICE] 解析结果: client_id={resolved_client_id}, service_name={resolved_service_name}")
+            logger.info(f"[INIT_SERVICE] [RESOLVE] Resolution result: client_id={resolved_client_id}, service_name={resolved_service_name}")
 
             # 4. 从缓存获取服务配置
             service_config = await self._get_service_config_from_cache_async(agent_id, resolved_service_name)
@@ -878,24 +904,24 @@ class ServiceOperationsMixin:
         non_empty_params = [p for p in params if p is not None and p.strip()]
 
         if len(non_empty_params) == 0:
-            raise ValueError("必须提供以下参数之一: client_id_or_service_name, client_id, service_name")
+            raise ValueError("Must provide one of the following parameters: client_id_or_service_name, client_id, service_name")
 
         if len(non_empty_params) > 1:
-            raise ValueError("只能提供一个参数，不能同时使用多个参数")
+            raise ValueError("Can only provide one parameter, cannot use multiple parameters simultaneously")
 
         # 返回非空的参数
         if client_id_or_service_name:
-            logger.debug(f" [INIT_PARAMS] 使用通用参数: {client_id_or_service_name}")
+            logger.debug(f"[INIT_PARAMS] [USE] Using generic parameter: {client_id_or_service_name}")
             return client_id_or_service_name.strip()
         elif client_id:
-            logger.debug(f" [INIT_PARAMS] 使用明确client_id: {client_id}")
+            logger.debug(f"[INIT_PARAMS] [USE] Using explicit client_id: {client_id}")
             return client_id.strip()
         elif service_name:
-            logger.debug(f" [INIT_PARAMS] 使用明确service_name: {service_name}")
+            logger.debug(f"[INIT_PARAMS] [USE] Using explicit service_name: {service_name}")
             return service_name.strip()
 
         # 理论上不会到达这里
-        raise ValueError("参数验证异常")
+        raise ValueError("Parameter validation error")
 
     def _resolve_client_id_or_service_name(self, client_id_or_service_name: str, agent_id: str) -> Tuple[str, str]:
         """
@@ -930,23 +956,23 @@ class ServiceOperationsMixin:
             # 方法1: 从 service_metadata 获取（优先）- 从 pykv 异步读取
             metadata = await self._store.registry._service_state_service.get_service_metadata_async(agent_id, service_name)
             if metadata and metadata.service_config:
-                logger.debug(f" [CONFIG] 从metadata获取配置: {service_name}")
+                logger.debug(f"[CONFIG] [GET] Getting configuration from metadata: {service_name}")
                 return metadata.service_config
 
             # 方法2: 从服务实体获取（新架构：client 实体不再包含 mcpServers）
             try:
                 service_info = await self._store.registry.get_complete_service_info_async(agent_id, service_name)
                 if service_info and service_info.get("config"):
-                    logger.debug(f" [CONFIG] 从服务实体获取配置: {service_name}")
+                    logger.debug(f"[CONFIG] [GET] Getting configuration from service entity: {service_name}")
                     return service_info["config"]
             except Exception as e:
-                logger.debug(f" [CONFIG] 无法从服务实体获取配置: {service_name}, {e}")
+                logger.debug(f"[CONFIG] [ERROR] Unable to get configuration from service entity: {service_name}, {e}")
 
             # 按要求：不兼容旧架构，直接抛出错误
-            raise RuntimeError(f"未找到服务配置: {service_name} (agent: {agent_id})")
+            raise RuntimeError(f"Service configuration not found: {service_name} (agent: {agent_id})")
 
         except Exception as e:
-            logger.error(f" [CONFIG] 获取服务配置失败 {service_name}: {e}")
+            logger.error(f"[CONFIG] [ERROR] Failed to get service configuration {service_name}: {e}")
             return None
 
     # ===  新增：Agent 透明代理方法 ===
@@ -957,156 +983,80 @@ class ServiceOperationsMixin:
 
         实现逻辑：
         1. 为每个服务生成全局名称（带后缀）
-        2. 添加到 global_agent_store 缓存（全局名称）
-        3. 添加到 Agent 缓存（本地名称）
-        4. 建立双向映射关系
-        5. 生成共享 Client ID
-        6. 同步到持久化文件
+        2. 使用事件驱动在 global_agent_store 注册（全局名称）
+        3. 建立 Agent ↔ 全局映射与 service-client 映射
+        4. 生成共享 Client ID
+        5. 同步全局名到 mcp.json
         """
         try:
             logger.debug(f"Starting agent transparent proxy service addition for agent: {agent_id}")
 
             from .agent_service_mapper import AgentServiceMapper
-            from mcpstore.core.models.service import ServiceConnectionState
-
             mapper = AgentServiceMapper(agent_id)
+            global_agent_id = self._store.client_manager.global_agent_store_id
+
+            global_services_for_file: Dict[str, Dict[str, Any]] = {}
 
             for local_name, service_config in services_to_add.items():
-                logger.info(f" [AGENT_PROXY] 处理服务: {local_name}")
+                logger.info(f"[AGENT_PROXY] [PROCESS] Processing service: {local_name}")
 
                 # 1. 生成全局名称
                 global_name = mapper.to_global_name(local_name)
-                logger.debug(f" [AGENT_PROXY] 服务名映射: {local_name} → {global_name}")
+                logger.debug(f"[AGENT_PROXY] [MAP] Service name mapping: {local_name} -> {global_name}")
 
-                # 2. 检查是否已存在同名服务
-                existing_client_id = self._store.registry.get_service_client_id(agent_id, local_name)
-                existing_global_client_id = self._store.registry.get_service_client_id(
-                    self._store.client_manager.global_agent_store_id, global_name
+                # 2. 生成共享 Client ID
+                from mcpstore.core.utils.id_generator import ClientIDGenerator
+                client_id = ClientIDGenerator.generate_deterministic_id(
+                    agent_id=agent_id,
+                    service_name=local_name,
+                    service_config=service_config,
+                    global_agent_store_id=global_agent_id
                 )
 
-                if existing_client_id and existing_global_client_id:
-                    # 同名服务已存在，更新配置而不是重新创建
-                    logger.info(f" [AGENT_PROXY] 发现同名服务，更新配置: {local_name}")
-                    client_id = existing_client_id
+                # 3. 事件驱动注册到 global_agent_store（全局名）
+                result = await self._store.container.service_application_service.add_service(
+                    agent_id=global_agent_id,
+                    service_name=global_name,
+                    service_config=service_config,
+                    wait_timeout=0.0,
+                    source="agent_context"
+                )
+                if not result or not result.success:
+                    raise RuntimeError(f"Failed to add service (global) via event bus: {global_name}")
 
-                    # 使用 preserve_mappings=True 来保留现有映射关系
-                    self._store.registry.add_service(
-                        agent_id=self._store.client_manager.global_agent_store_id,
-                        name=global_name,
-                        session=None,
-                        tools=[],
-                        service_config=service_config,
-                        state=ServiceConnectionState.INITIALIZING,
-                        preserve_mappings=True
-                    )
+                # 4. 建立 Agent ↔ 全局映射（直接使用关系管理器异步接口）
+                await self._store.registry._relation_manager.add_agent_service(
+                    agent_id=agent_id,
+                    service_original_name=local_name,
+                    service_global_name=global_name,
+                    client_id=client_id
+                )
 
-                    self._store.registry.add_service(
-                        agent_id=agent_id,
-                        name=local_name,
-                        session=None,
-                        tools=[],
-                        service_config=service_config,
-                        state=ServiceConnectionState.INITIALIZING,
-                        preserve_mappings=True
-                    )
+                # 5. 设置 service-client 映射
+                await self._store.registry.set_service_client_mapping_async(agent_id, local_name, client_id)
+                await self._store.registry.set_service_client_mapping_async(global_agent_id, global_name, client_id)
 
-                    logger.debug(f"Service config updated: {local_name} (Client ID: {client_id})")
+                # 6. 收集写入 mcp.json 的全局配置
+                global_services_for_file[global_name] = service_config
+
+            # 7. 同步到 mcp.json（全局名）
+            if global_services_for_file:
+                success = self._store._unified_config.batch_add_services(global_services_for_file)
+                if success:
+                    logger.info(f"[AGENT_SYNC] [SUCCESS] mcp.json update successful: added {len(global_services_for_file)} services")
                 else:
-                    # 新服务，正常创建
-                    logger.info(f" [AGENT_PROXY] 创建新服务: {local_name}")
+                    logger.error(f"[AGENT_SYNC] [ERROR] mcp.json update failed")
 
-                    #  修复：统一使用 ClientIDGenerator 生成共享 Client ID
-                    from mcpstore.core.utils.id_generator import ClientIDGenerator
-                    client_id = ClientIDGenerator.generate_deterministic_id(
-                        agent_id=agent_id,
-                        service_name=local_name,
-                        service_config=service_config,
-                        global_agent_store_id=self._store.client_manager.global_agent_store_id
-                    )
-                    logger.debug(f" [AGENT_PROXY] 生成确定性共享 Client ID: {client_id}")
-
-                    # 3. 添加到 global_agent_store 缓存（全局名称）
-                    self._store.registry.add_service(
-                        agent_id=self._store.client_manager.global_agent_store_id,
-                        name=global_name,
-                        session=None,
-                        tools=[],
-                        service_config=service_config,
-                        state=ServiceConnectionState.INITIALIZING
-                    )
-                    logger.debug(f" [AGENT_PROXY] 添加到 global_agent_store: {global_name}")
-
-                    # 4. 添加到 Agent 缓存（本地名称）
-                    self._store.registry.add_service(
-                        agent_id=agent_id,
-                        name=local_name,
-                        session=None,
-                        tools=[],
-                        service_config=service_config,
-                        state=ServiceConnectionState.INITIALIZING
-                    )
-                    logger.debug(f" [AGENT_PROXY] 添加到 Agent 缓存: {agent_id}:{local_name}")
-
-                    # 5. 建立双向映射关系（新服务）
-                    self._store.registry.add_agent_service_mapping(agent_id, local_name, global_name)
-                    logger.debug(f" [AGENT_PROXY] 建立映射关系: {agent_id}:{local_name} ↔ {global_name}")
-                    # 验证映射是否建立成功（使用异步版本，避免 AOB 事件循环冲突）
-                    verify_mapping = await self._store.registry.get_global_name_from_agent_service_async(agent_id, local_name)
-                    logger.debug(f" [AGENT_PROXY] 验证映射: {agent_id}:{local_name} -> {verify_mapping} (期望: {global_name})")
-
-                # 6. 设置共享 Client ID 映射（新服务和同名服务都需要）
-                self._store.registry._agent_client_service.add_service_client_mapping(
-                    self._store.client_manager.global_agent_store_id, global_name, client_id
-                )
-                self._store.registry._agent_client_service.add_service_client_mapping(agent_id, local_name, client_id)
-                logger.debug(f" [AGENT_PROXY] 设置共享 Client ID 映射: {client_id}")
-
-                # 7. 使用事件驱动架构添加服务（新服务和同名服务都需要）
-                # 委托给应用服务，通过事件总线协调各个管理器
-                try:
-                    result = await self._store.container.service_application_service.add_service(
-                        agent_id=self._store.client_manager.global_agent_store_id,
-                        service_name=global_name,
-                        service_config=service_config,
-                        wait_timeout=0.0  # 不等待，立即返回
-                    )
-                    if result.success:
-                        logger.debug(f" [AGENT_PROXY] 事件驱动架构初始化成功(仅全局): {global_name}")
-                    else:
-                        logger.warning(f" [AGENT_PROXY] 事件驱动架构初始化失败: {result.error_message}")
-                except Exception as e:
-                    logger.error(f" [AGENT_PROXY] 事件驱动架构初始化异常: {e}")
-
-                # 8. 初始化工具集（Agent 模式必需）
-                try:
-                    # 注意：工具状态初始化在 registry.add_service 中完成
-                    # 因为此时工具尚未注册到关系层，需要等待服务连接成功后才能获取工具列表
-                    logger.debug(
-                        f"[TOOL_INIT] 工具状态将在服务连接成功后初始化: "
-                        f"agent_id={agent_id}, service_name={local_name}"
-                    )
-                except Exception as init_error:
-                    logger.error(
-                        f"Agent 服务添加失败: "
-                        f"agent_id={agent_id}, service_name={local_name}, error={init_error}"
-                    )
-                    raise
-
-                logger.info(f" [AGENT_PROXY] Agent 服务添加完成: {local_name} → {global_name}")
-
-            # 9. 同步到持久化文件
-            await self._sync_agent_services_to_files(agent_id, services_to_add)
-
-            logger.info(f" [AGENT_PROXY] Agent 透明代理添加完成，共处理 {len(services_to_add)} 个服务")
+            logger.info(f"[AGENT_PROXY] [COMPLETE] Agent transparent proxy addition completed, processed {len(services_to_add)} services")
 
         except Exception as e:
-            logger.error(f" [AGENT_PROXY] Agent 透明代理添加失败: {e}")
+            logger.error(f"[AGENT_PROXY] [ERROR] Agent transparent proxy addition failed: {e}")
             raise
 
     async def _sync_agent_services_to_files(self, agent_id: str, services_to_add: Dict[str, Any]):
         """同步 Agent 服务到持久化文件（优化：使用 UnifiedConfigManager）"""
         try:
-            logger.info(f" [AGENT_SYNC] 开始同步 Agent 服务到文件: {agent_id}")
+            logger.info(f"[AGENT_SYNC] [START] Starting to sync Agent services to file: {agent_id}")
 
             # 构建带后缀的服务配置字典
             from .agent_service_mapper import AgentServiceMapper
@@ -1116,21 +1066,21 @@ class ServiceOperationsMixin:
             for local_name, service_config in services_to_add.items():
                 global_name = mapper.to_global_name(local_name)
                 global_services[global_name] = service_config
-                logger.debug(f" [AGENT_SYNC] 准备添加到 mcp.json: {global_name}")
+                logger.debug(f"[AGENT_SYNC] [PREPARE] Preparing to add to mcp.json: {global_name}")
 
             # 使用 UnifiedConfigManager 批量添加服务（一次性保存 + 自动刷新缓存）
             success = self._store._unified_config.batch_add_services(global_services)
             
             if success:
-                logger.info(f" [AGENT_SYNC] mcp.json 更新成功：已添加 {len(global_services)} 个服务，缓存已同步")
+                logger.info(f"[AGENT_SYNC] [SUCCESS] mcp.json update successful: added {len(global_services)} services, cache synchronized")
             else:
-                logger.error(f"❌ [AGENT_SYNC] mcp.json 更新失败")
+                logger.error(f"[AGENT_SYNC] [ERROR] mcp.json update failed")
 
             # 单源模式：不再写分片文件，仅维护 mcp.json
-            logger.info(f"ℹ️ [AGENT_SYNC] 单源模式下已禁用分片文件写入（agent_clients/client_services）")
+            logger.info(f"[AGENT_SYNC] [INFO] Single-source mode: shard file writing disabled (agent_clients/client_services)")
 
         except Exception as e:
-            logger.error(f" [AGENT_SYNC] 同步 Agent 服务到文件失败: {e}")
+            logger.error(f"[AGENT_SYNC] [ERROR] Failed to sync Agent services to file: {e}")
             raise
 
     async def _get_agent_service_view(self) -> List[ServiceInfo]:
@@ -1151,7 +1101,7 @@ class ServiceOperationsMixin:
             # 1) 通过映射获取该 Agent 的全局服务名集合（使用异步接口，避免事件循环冲突）
             global_service_names = await self._store.registry.get_agent_services_async(agent_id)
             if not global_service_names:
-                logger.info(f" [AGENT_VIEW] Agent {agent_id} 服务视图: 0 个服务（无映射）")
+                logger.info(f"[AGENT_VIEW] [INFO] Agent {agent_id} service view: 0 services (no mapping)")
                 return agent_services
 
             # 2) 遍历每个全局服务，从全局命名空间读取完整信息，并以本地名展示
@@ -1166,7 +1116,7 @@ class ServiceOperationsMixin:
 
                 complete_info = await self._store.registry.get_complete_service_info_async(global_agent_id, global_name)
                 if not complete_info:
-                    logger.debug(f"[AGENT_VIEW] 全局缓存中未找到服务: {global_name}")
+                    logger.debug(f"[AGENT_VIEW] [MISS] Service not found in global cache: {global_name}")
                     continue
 
                 # 状态转换
@@ -1205,11 +1155,11 @@ class ServiceOperationsMixin:
                 agent_services.append(service_info)
                 logger.debug(f" [AGENT_VIEW] derive '{local_name}' <- '{global_name}' tools={tool_count}")
 
-            logger.info(f" [AGENT_VIEW] Agent {agent_id} 服务视图: {len(agent_services)} 个服务（派生）")
+            logger.info(f"[AGENT_VIEW] [INFO] Agent {agent_id} service view: {len(agent_services)} services (derived)")
             return agent_services
 
         except Exception as e:
-            logger.error(f" [AGENT_VIEW] 获取 Agent 服务视图失败: {e}")
+            logger.error(f"[AGENT_VIEW] [ERROR] Failed to get Agent service view: {e}")
             return []
 
     def _apply_auth_to_config(self, config,

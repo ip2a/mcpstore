@@ -32,7 +32,7 @@ class ServiceEntity:
     def from_dict(cls, data: Dict[str, Any]) -> 'ServiceEntity':
         """从字典创建"""
         if not isinstance(data, dict):
-            raise ValueError(f"数据必须是字典类型，实际类型: {type(data).__name__}")
+            raise ValueError(f"Data must be a dictionary type, actual type: {type(data).__name__}")
         
         required_fields = [
             "service_global_name",
@@ -44,7 +44,7 @@ class ServiceEntity:
         
         for field_name in required_fields:
             if field_name not in data:
-                raise ValueError(f"缺少必需字段: {field_name}")
+                raise ValueError(f"Missing required field: {field_name}")
         
         return cls(
             service_global_name=data["service_global_name"],
@@ -80,7 +80,7 @@ class ToolEntity:
     def from_dict(cls, data: Dict[str, Any]) -> 'ToolEntity':
         """从字典创建"""
         if not isinstance(data, dict):
-            raise ValueError(f"数据必须是字典类型，实际类型: {type(data).__name__}")
+            raise ValueError(f"Data must be a dictionary type, actual type: {type(data).__name__}")
         
         required_fields = [
             "tool_global_name",
@@ -96,7 +96,7 @@ class ToolEntity:
         
         for field_name in required_fields:
             if field_name not in data:
-                raise ValueError(f"缺少必需字段: {field_name}")
+                raise ValueError(f"Missing required field: {field_name}")
         
         return cls(
             tool_global_name=data["tool_global_name"],
@@ -131,13 +131,13 @@ class AgentEntity:
     def from_dict(cls, data: Dict[str, Any]) -> 'AgentEntity':
         """从字典创建"""
         if not isinstance(data, dict):
-            raise ValueError(f"数据必须是字典类型，实际类型: {type(data).__name__}")
+            raise ValueError(f"Data must be a dictionary type, actual type: {type(data).__name__}")
         
         required_fields = ["agent_id", "created_time", "last_active"]
         
         for field_name in required_fields:
             if field_name not in data:
-                raise ValueError(f"缺少必需字段: {field_name}")
+                raise ValueError(f"Missing required field: {field_name}")
         
         return cls(
             agent_id=data["agent_id"],
@@ -168,7 +168,7 @@ class StoreConfig:
     def from_dict(cls, data: Dict[str, Any]) -> 'StoreConfig':
         """从字典创建"""
         if not isinstance(data, dict):
-            raise ValueError(f"数据必须是字典类型，实际类型: {type(data).__name__}")
+            raise ValueError(f"Data must be a dictionary type, actual type: {type(data).__name__}")
         
         required_fields = [
             "mcp_version",
@@ -179,7 +179,7 @@ class StoreConfig:
         
         for field_name in required_fields:
             if field_name not in data:
-                raise ValueError(f"缺少必需字段: {field_name}")
+                raise ValueError(f"Missing required field: {field_name}")
         
         return cls(
             mcp_version=data["mcp_version"],
@@ -214,7 +214,7 @@ class ServiceRelationItem:
     def from_dict(cls, data: Dict[str, Any]) -> 'ServiceRelationItem':
         """从字典创建"""
         if not isinstance(data, dict):
-            raise ValueError(f"数据必须是字典类型，实际类型: {type(data).__name__}")
+            raise ValueError(f"Data must be a dictionary type, actual type: {type(data).__name__}")
         
         required_fields = [
             "service_original_name",
@@ -225,7 +225,7 @@ class ServiceRelationItem:
         
         for field_name in required_fields:
             if field_name not in data:
-                raise ValueError(f"缺少必需字段: {field_name}")
+                raise ValueError(f"Missing required field: {field_name}")
         
         return cls(
             service_original_name=data["service_original_name"],
@@ -255,11 +255,11 @@ class AgentServiceRelation:
     def from_dict(cls, data: Dict[str, Any]) -> 'AgentServiceRelation':
         """从字典创建"""
         if not isinstance(data, dict):
-            raise ValueError(f"数据必须是字典类型，实际类型: {type(data).__name__}")
+            raise ValueError(f"Data must be a dictionary type, actual type: {type(data).__name__}")
         
         services_data = data.get("services", [])
         if not isinstance(services_data, list):
-            raise ValueError(f"services 必须是列表类型，实际类型: {type(services_data).__name__}")
+            raise ValueError(f"services must be a list type, actual type: {type(services_data).__name__}")
         
         services = [
             ServiceRelationItem.from_dict(item)
@@ -287,13 +287,13 @@ class ToolRelationItem:
     def from_dict(cls, data: Dict[str, Any]) -> 'ToolRelationItem':
         """从字典创建"""
         if not isinstance(data, dict):
-            raise ValueError(f"数据必须是字典类型，实际类型: {type(data).__name__}")
+            raise ValueError(f"Data must be a dictionary type, actual type: {type(data).__name__}")
         
         required_fields = ["tool_global_name", "tool_original_name"]
         
         for field_name in required_fields:
             if field_name not in data:
-                raise ValueError(f"缺少必需字段: {field_name}")
+                raise ValueError(f"Missing required field: {field_name}")
         
         return cls(
             tool_global_name=data["tool_global_name"],
@@ -326,7 +326,7 @@ class ServiceToolRelation:
     def from_dict(cls, data: Dict[str, Any]) -> 'ServiceToolRelation':
         """从字典创建"""
         if not isinstance(data, dict):
-            raise ValueError(f"数据必须是字典类型，实际类型: {type(data).__name__}")
+            raise ValueError(f"Data must be a dictionary type, actual type: {type(data).__name__}")
         
         required_fields = [
             "service_global_name",
@@ -336,11 +336,11 @@ class ServiceToolRelation:
         
         for field_name in required_fields:
             if field_name not in data:
-                raise ValueError(f"缺少必需字段: {field_name}")
+                raise ValueError(f"Missing required field: {field_name}")
         
         tools_data = data.get("tools", [])
         if not isinstance(tools_data, list):
-            raise ValueError(f"tools 必须是列表类型，实际类型: {type(tools_data).__name__}")
+            raise ValueError(f"tools must be a list type, actual type: {type(tools_data).__name__}")
         
         tools = [
             ToolRelationItem.from_dict(item)
@@ -377,13 +377,13 @@ class ToolStatusItem:
     def from_dict(cls, data: Dict[str, Any]) -> 'ToolStatusItem':
         """从字典创建"""
         if not isinstance(data, dict):
-            raise ValueError(f"数据必须是字典类型，实际类型: {type(data).__name__}")
+            raise ValueError(f"Data must be a dictionary type, actual type: {type(data).__name__}")
         
         required_fields = ["tool_global_name", "tool_original_name", "status"]
         
         for field_name in required_fields:
             if field_name not in data:
-                raise ValueError(f"缺少必需字段: {field_name}")
+                raise ValueError(f"Missing required field: {field_name}")
         
         # 验证状态值
         valid_statuses = ["available", "unavailable"]
@@ -431,7 +431,7 @@ class ServiceStatus:
     def from_dict(cls, data: Dict[str, Any]) -> 'ServiceStatus':
         """从字典创建"""
         if not isinstance(data, dict):
-            raise ValueError(f"数据必须是字典类型，实际类型: {type(data).__name__}")
+            raise ValueError(f"Data must be a dictionary type, actual type: {type(data).__name__}")
         
         required_fields = [
             "service_global_name",
@@ -443,7 +443,7 @@ class ServiceStatus:
         
         for field_name in required_fields:
             if field_name not in data:
-                raise ValueError(f"缺少必需字段: {field_name}")
+                raise ValueError(f"Missing required field: {field_name}")
         
         # 验证健康状态值
         valid_health_statuses = ["healthy", "unhealthy", "unknown", "initializing", "warning", "disconnected", "reconnecting"]
@@ -455,7 +455,7 @@ class ServiceStatus:
         
         tools_data = data.get("tools", [])
         if not isinstance(tools_data, list):
-            raise ValueError(f"tools 必须是列表类型，实际类型: {type(tools_data).__name__}")
+            raise ValueError(f"tools must be a list type, actual type: {type(tools_data).__name__}")
         
         tools = [
             ToolStatusItem.from_dict(item)

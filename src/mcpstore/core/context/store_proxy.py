@@ -63,16 +63,19 @@ class StoreProxy:
         )
 
     async def list_agents_async(self) -> List[Dict[str, Any]]:
-        # Aggregate from registry cache with agent→global mapping
         registry = self._context._store.registry
         global_agent_id = self._context._store.client_manager.global_agent_store_id
-        agent_ids = await registry.get_all_agent_ids_async()
+        agent_ids = set(await registry.get_all_agent_ids_async() or [])
+        agent_ids.add(global_agent_id)
+
+        # 读取 Agent 元数据（可选）
+        agents_entities = await registry._cache_layer_manager.get_all_entities_async("agents") or {}
 
         result: List[Dict[str, Any]] = []
-        for agent_id in agent_ids:
+        for agent_id in sorted(agent_ids):
             # 从 pykv 获取 Agent 客户端
             client_ids = await registry.get_agent_clients_async(agent_id)
-            # Use mapping to get this agent's global services
+            # Agent 服务列表（全局名）
             global_service_names = await registry.get_agent_services_async(agent_id) or []
             tool_count = 0
             healthy = 0
@@ -89,16 +92,18 @@ class StoreProxy:
                     healthy += 1
                 else:
                     unhealthy += 1
+
+            agent_meta = agents_entities.get(agent_id) if isinstance(agents_entities, dict) else {}
             result.append({
                 "agent_id": agent_id,
                 "client_ids": client_ids,
                 "service_count": len(global_service_names),
                 "tool_count": tool_count,
                 "healthy_services": healthy,
-            "unhealthy_services": unhealthy,
-            "is_active": bool(global_service_names and healthy > 0),
-            "last_activity": None,
-        })
+                "unhealthy_services": unhealthy,
+                "is_active": bool(global_service_names and healthy > 0),
+                "last_activity": agent_meta.get("last_active") if isinstance(agent_meta, dict) else None,
+            })
         return result
 
     def find_cache(self) -> "CacheProxy":

@@ -40,7 +40,7 @@ class ToolEntityManager:
         """
         self._cache_layer = cache_layer
         self._naming = naming
-        logger.debug("[TOOL_ENTITY] 初始化 ToolEntityManager")
+        logger.debug("[TOOL_ENTITY] Initializing ToolEntityManager")
     
     @staticmethod
     def _generate_tool_hash(tool_def: Dict[str, Any]) -> str:
@@ -85,16 +85,16 @@ class ToolEntityManager:
             RuntimeError: 如果创建失败
         """
         if not service_global_name:
-            raise ValueError("服务全局名称不能为空")
+            raise ValueError("Service global name cannot be empty")
         if not service_original_name:
-            raise ValueError("服务原始名称不能为空")
+            raise ValueError("Service original name cannot be empty")
         if not source_agent:
-            raise ValueError("来源 Agent ID 不能为空")
+            raise ValueError("Source Agent ID cannot be empty")
         if not tool_original_name:
-            raise ValueError("工具原始名称不能为空")
+            raise ValueError("Tool original name cannot be empty")
         if not isinstance(tool_def, dict):
             raise ValueError(
-                f"工具定义必须是字典类型，实际类型: {type(tool_def).__name__}"
+                f"Tool definition must be a dictionary type, actual type: {type(tool_def).__name__}"
             )
         
         # 处理嵌套的工具定义格式
@@ -148,7 +148,7 @@ class ToolEntityManager:
             )
             
             logger.info(
-                f"[TOOL_ENTITY] 更新工具实体: tool_global_name={tool_global_name}, "
+                f"[TOOL_ENTITY] Updated tool entity: tool_global_name={tool_global_name}, "
                 f"tool_original_name={tool_original_name}, "
                 f"service_global_name={service_global_name}"
             )
@@ -176,7 +176,7 @@ class ToolEntityManager:
         )
         
         logger.info(
-            f"[TOOL_ENTITY] 创建工具实体: tool_global_name={tool_global_name}, "
+            f"[TOOL_ENTITY] Created tool entity: tool_global_name={tool_global_name}, "
             f"tool_original_name={tool_original_name}, "
             f"service_global_name={service_global_name}"
         )
@@ -198,14 +198,14 @@ class ToolEntityManager:
             RuntimeError: 如果获取失败
         """
         if not tool_global_name:
-            raise ValueError("工具全局名称不能为空")
+            raise ValueError("Tool global name cannot be empty")
         
         # 从实体层获取
         data = await self._cache_layer.get_entity("tools", tool_global_name)
         
         if data is None:
             logger.debug(
-                f"[TOOL_ENTITY] 工具不存在: tool_global_name={tool_global_name}"
+                f"[TOOL_ENTITY] Tool does not exist: tool_global_name={tool_global_name}"
             )
             return None
         
@@ -213,16 +213,16 @@ class ToolEntityManager:
         try:
             entity = ToolEntity.from_dict(data)
             logger.debug(
-                f"[TOOL_ENTITY] 获取工具实体: tool_global_name={tool_global_name}"
+                f"[TOOL_ENTITY] Retrieved tool entity: tool_global_name={tool_global_name}"
             )
             return entity
         except Exception as e:
             logger.error(
-                f"[TOOL_ENTITY] 解析工具实体失败: "
+                f"[TOOL_ENTITY] Failed to parse tool entity: "
                 f"tool_global_name={tool_global_name}, error={e}"
             )
             raise RuntimeError(
-                f"解析工具实体失败: tool_global_name={tool_global_name}, error={e}"
+                f"Failed to parse tool entity: tool_global_name={tool_global_name}, error={e}"
             ) from e
     
     async def delete_tool(self, tool_global_name: str) -> None:
@@ -237,13 +237,13 @@ class ToolEntityManager:
             RuntimeError: 如果删除失败
         """
         if not tool_global_name:
-            raise ValueError("工具全局名称不能为空")
+            raise ValueError("Tool global name cannot be empty")
         
         # 从实体层删除
         await self._cache_layer.delete_entity("tools", tool_global_name)
         
         logger.info(
-            f"[TOOL_ENTITY] 删除工具实体: tool_global_name={tool_global_name}"
+            f"[TOOL_ENTITY] Deleted tool entity: tool_global_name={tool_global_name}"
         )
     
     async def list_tools_by_service(
@@ -269,14 +269,14 @@ class ToolEntityManager:
             ValueError: 如果参数无效
         """
         if not service_global_name:
-            raise ValueError("服务全局名称不能为空")
+            raise ValueError("Service global name cannot be empty")
         
         # 注意：这是一个简化实现
         # 实际应该从关系层获取工具列表，然后批量获取实体
         # 这里暂时返回空列表，等待 RelationshipManager 实现后再完善
         
         logger.debug(
-            f"[TOOL_ENTITY] 列出服务工具（简化版本）: "
+            f"[TOOL_ENTITY] List service tools (simplified version): "
             f"service_global_name={service_global_name}"
         )
         
@@ -301,8 +301,8 @@ class ToolEntityManager:
         """
         if not isinstance(tool_global_names, list):
             raise ValueError(
-                f"tool_global_names 必须是列表类型，"
-                f"实际类型: {type(tool_global_names).__name__}"
+                f"tool_global_names must be a list type, "
+                f"actual type: {type(tool_global_names).__name__}"
             )
         
         if not tool_global_names:
@@ -325,14 +325,14 @@ class ToolEntityManager:
                     entities.append(entity)
                 except Exception as e:
                     logger.error(
-                        f"[TOOL_ENTITY] 解析工具实体失败: "
+                        f"[TOOL_ENTITY] Failed to parse tool entity: "
                         f"tool_global_name={tool_global_names[i]}, error={e}"
                     )
                     # 解析失败时返回 None
                     entities.append(None)
         
         logger.debug(
-            f"[TOOL_ENTITY] 批量获取工具: count={len(tool_global_names)}, "
+            f"[TOOL_ENTITY] Batch retrieved tools: count={len(tool_global_names)}, "
             f"found={sum(1 for e in entities if e is not None)}"
         )
         

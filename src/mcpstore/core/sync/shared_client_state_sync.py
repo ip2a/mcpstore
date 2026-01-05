@@ -282,7 +282,7 @@ class SharedClientStateSyncManager:
             if is_consistent:
                 logger.info(f" [STATE_VALIDATION] State consistency validated for client_id {client_id}: ALL CONSISTENT")
             else:
-                logger.warning(f"⚠️ [STATE_VALIDATION] State inconsistency detected for client_id {client_id}: {len(inconsistent_services)} services inconsistent")
+                logger.warning(f"[STATE_VALIDATION] [WARN] State inconsistency detected for client_id {client_id}: {len(inconsistent_services)} services inconsistent")
             
             return result
             
@@ -312,7 +312,7 @@ class SharedClientStateSyncManager:
                 shared_services = self._find_all_services_with_client_id(client_id)
                 
                 if not shared_services:
-                    logger.warning(f"⚠️ [BATCH_SYNC] No services found for client_id {client_id}")
+                    logger.warning(f"[BATCH_SYNC] [WARN] No services found for client_id {client_id}")
                     return
                 
                 # 批量更新所有服务状态
@@ -349,9 +349,9 @@ class SharedClientStateSyncManager:
                     self.registry.service_states[agent_id][service_name] = new_state
                     logger.debug(f" [DIRECT_SET] {agent_id}:{service_name} state: {old_state} -> {new_state.value}")
                 else:
-                    logger.warning(f"⚠️ [DIRECT_SET] Service {service_name} not found in agent {agent_id}")
+                    logger.warning(f"[DIRECT_SET] [WARN] Service {service_name} not found in agent {agent_id}")
             else:
-                logger.warning(f"⚠️ [DIRECT_SET] Agent {agent_id} not found in service_states")
+                logger.warning(f"[DIRECT_SET] [WARN] Agent {agent_id} not found in service_states")
                 
         except Exception as e:
             logger.error(f" [DIRECT_SET] Failed to set state directly for {agent_id}:{service_name}: {e}")

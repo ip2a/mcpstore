@@ -42,6 +42,9 @@ class ServiceAddRequested(DomainEvent):
     service_name: str = ""
     service_config: Dict[str, Any] = field(default_factory=dict)
     client_id: str = ""
+    global_name: str = ""             # 可选：全局服务名（Agent 服务携带）
+    origin_agent_id: Optional[str] = None   # 可选：原始 Agent（若 agent_id 被改写）
+    origin_local_name: Optional[str] = None # 可选：原始本地名（若 service_name 被改写）
     source: str = "user"  # user, system
     wait_timeout: float = 0.0
 
@@ -176,4 +179,3 @@ class ReconnectionScheduled(DomainEvent):
     service_name: str = ""
     next_retry_time: float = 0.0  # timestamp
     retry_delay: float = 0.0  # seconds
-

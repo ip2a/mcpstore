@@ -42,11 +42,11 @@ class ToolManager(ToolManagerInterface):
         # Schema 处理工具
         self._schema_utils = JSONSchemaUtils()
 
-        self._logger.info(f"初始化ToolManager，命名空间: {namespace}")
+        self._logger.info(f"[TOOL_MANAGER] [INIT] Initializing ToolManager, namespace: {namespace}")
 
     def initialize(self) -> None:
         """初始化工具管理器"""
-        self._logger.info("ToolManager 初始化完成")
+        self._logger.info("[TOOL_MANAGER] [INIT] ToolManager initialization completed")
 
     def cleanup(self) -> None:
         """清理工具管理器资源"""
@@ -59,9 +59,9 @@ class ToolManager(ToolManagerInterface):
             self._tool_entity_manager = None
             self._cache_manager = None
 
-            self._logger.info("ToolManager 清理完成")
+            self._logger.info("[TOOL_MANAGER] [CLEAN] ToolManager cleanup completed")
         except Exception as e:
-            self._logger.error(f"ToolManager 清理时出错: {e}")
+            self._logger.error(f"[TOOL_MANAGER] [ERROR] ToolManager cleanup error: {e}")
             raise
 
     def set_managers(self, relation_manager=None, tool_entity_manager=None, cache_manager=None):
@@ -76,7 +76,7 @@ class ToolManager(ToolManagerInterface):
         self._relation_manager = relation_manager
         self._tool_entity_manager = tool_entity_manager
         self._cache_manager = cache_manager
-        self._logger.info("已设置依赖的管理器")
+        self._logger.info("[TOOL_MANAGER] [SET] Dependent managers have been set")
 
     def get_all_tools(self, agent_id: str) -> List[Dict[str, Any]]:
         """
@@ -142,11 +142,11 @@ class ToolManager(ToolManagerInterface):
                 tool_entry["tool_global_name"] = tool_global_name  # 添加全局名称字段
                 tools_list.append(tool_entry)
 
-            self._logger.debug(f"获取所有工具: agent={agent_id}, count={len(tools_list)}")
+            self._logger.debug(f"[TOOL_MANAGER] [GET] Got all tools: agent={agent_id}, count={len(tools_list)}")
             return tools_list
 
         except Exception as e:
-            self._logger.error(f"获取所有工具失败 {agent_id}: {e}")
+            self._logger.error(f"[TOOL_MANAGER] [ERROR] Failed to get all tools {agent_id}: {e}")
             return []
 
     async def get_all_tools_dict_async(self, agent_id: str) -> Dict[str, Dict[str, Any]]:
@@ -175,7 +175,7 @@ class ToolManager(ToolManagerInterface):
                 services = []
 
             if not services:
-                self._logger.debug(f"Agent {agent_id} 没有服务")
+                self._logger.debug(f"[TOOL_MANAGER] [INFO] Agent {agent_id} has no services")
                 return tools_dict
 
             # 2. 收集所有工具全局名称
@@ -197,7 +197,7 @@ class ToolManager(ToolManagerInterface):
                             all_tool_global_names.append(tool_global_name)
 
             if not all_tool_global_names:
-                self._logger.debug(f"Agent {agent_id} 没有工具")
+                self._logger.debug(f"[TOOL_MANAGER] [INFO] Agent {agent_id} has no tools")
                 return tools_dict
 
             # 3. 批量获取工具实体
@@ -230,11 +230,11 @@ class ToolManager(ToolManagerInterface):
                     "source_agent": entity.source_agent
                 }
 
-            self._logger.debug(f"获取到 {len(tools_dict)} 个工具: agent_id={agent_id}")
+            self._logger.debug(f"[TOOL_MANAGER] [GET] Retrieved {len(tools_dict)} tools: agent_id={agent_id}")
             return tools_dict
 
         except Exception as e:
-            self._logger.error(f"异步获取工具字典失败 {agent_id}: {e}")
+            self._logger.error(f"[TOOL_MANAGER] [ERROR] Failed to get tools dict asynchronously {agent_id}: {e}")
             return {}
 
     def list_tools(self, agent_id: str) -> List['ToolInfo']:
@@ -258,11 +258,11 @@ class ToolManager(ToolManagerInterface):
                 if tool_info:
                     tool_infos.append(tool_info)
 
-            self._logger.debug(f"列出工具: agent={agent_id}, count={len(tool_infos)}")
+            self._logger.debug(f"[TOOL_MANAGER] [LIST] Listed tools: agent={agent_id}, count={len(tool_infos)}")
             return tool_infos
 
         except Exception as e:
-            self._logger.error(f"列出工具失败 {agent_id}: {e}")
+            self._logger.error(f"[TOOL_MANAGER] [ERROR] Failed to list tools {agent_id}: {e}")
             return []
 
     def get_all_tool_info(self, agent_id: str) -> List[Dict[str, Any]]:
@@ -286,11 +286,11 @@ class ToolManager(ToolManagerInterface):
                 if detailed_tool:
                     detailed_tools.append(detailed_tool)
 
-            self._logger.debug(f"获取所有工具详细信息: agent={agent_id}, count={len(detailed_tools)}")
+            self._logger.debug(f"[TOOL_MANAGER] [GET] Got all tool details: agent={agent_id}, count={len(detailed_tools)}")
             return detailed_tools
 
         except Exception as e:
-            self._logger.error(f"获取所有工具详细信息失败 {agent_id}: {e}")
+            self._logger.error(f"[TOOL_MANAGER] [ERROR] Failed to get all tool details {agent_id}: {e}")
             return []
 
     def get_tools_for_service(self, agent_id: str, service_name: str) -> List[str]:
@@ -349,7 +349,7 @@ class ToolManager(ToolManagerInterface):
                         loop.close()
 
         except Exception as e:
-            self._logger.error(f"获取服务工具失败 {agent_id}:{service_name}: {e}")
+            self._logger.error(f"[TOOL_MANAGER] [ERROR] Failed to get service tools {agent_id}:{service_name}: {e}")
             return []
 
     async def get_tools_for_service_async(self, agent_id: str, service_name: str) -> List[str]:
@@ -380,11 +380,11 @@ class ToolManager(ToolManagerInterface):
                 if tool_global_name:
                     tool_names.append(tool_global_name)
 
-            self._logger.debug(f"获取服务工具: agent={agent_id}, service={service_name}, count={len(tool_names)}")
+            self._logger.debug(f"[TOOL_MANAGER] [GET] Got service tools: agent={agent_id}, service={service_name}, count={len(tool_names)}")
             return tool_names
 
         except Exception as e:
-            self._logger.error(f"异步获取服务工具失败 {agent_id}:{service_name}: {e}")
+            self._logger.error(f"[TOOL_MANAGER] [ERROR] Failed to get service tools asynchronously {agent_id}:{service_name}: {e}")
             return []
 
     def get_tool_info(self, agent_id: str, tool_name: str) -> Dict[str, Any]:
@@ -422,11 +422,11 @@ class ToolManager(ToolManagerInterface):
 
                     return detailed_info
 
-            self._logger.debug(f"工具未找到: agent={agent_id}, tool={tool_name}")
+            self._logger.debug(f"[TOOL_MANAGER] [MISS] Tool not found: agent={agent_id}, tool={tool_name}")
             return {}
 
         except Exception as e:
-            self._logger.error(f"获取工具信息失败 {agent_id}:{tool_name}: {e}")
+            self._logger.error(f"Failed to get tool info {agent_id}:{tool_name}: {e}")
             return {}
 
     def get_session_for_tool(self, agent_id: str, tool_name: str) -> Optional[Any]:
@@ -487,7 +487,7 @@ class ToolManager(ToolManagerInterface):
             return detailed_info
 
         except Exception as e:
-            self._logger.error(f"获取详细工具信息失败 {agent_id}:{tool_name}: {e}")
+            self._logger.error(f"Failed to get detailed tool info {agent_id}:{tool_name}: {e}")
             return tool_def.copy()
 
     def _create_tool_info(self, tool_name: str, tool_def: Dict[str, Any]) -> Optional['ToolInfo']:
@@ -512,7 +512,7 @@ class ToolManager(ToolManagerInterface):
             }
 
         except Exception as e:
-            self._logger.error(f"创建ToolInfo失败 {tool_name}: {e}")
+            self._logger.error(f"Failed to create ToolInfo {tool_name}: {e}")
             return None
 
     def _format_tool_description(self, tool_def: Dict[str, Any]) -> str:
@@ -577,11 +577,11 @@ class ToolManager(ToolManagerInterface):
                     matched_tools.append(tool)
                     continue
 
-            self._logger.debug(f"搜索工具: agent={agent_id}, query={query}, found={len(matched_tools)}")
+            self._logger.debug(f"Searching tools: agent={agent_id}, query={query}, found={len(matched_tools)}")
             return matched_tools
 
         except Exception as e:
-            self._logger.error(f"搜索工具失败 {agent_id}:{query}: {e}")
+            self._logger.error(f"Failed to search tools {agent_id}:{query}: {e}")
             return []
 
     def get_tool_stats(self, agent_id: str) -> Dict[str, Any]:
@@ -641,7 +641,7 @@ class ToolManager(ToolManagerInterface):
             return stats
 
         except Exception as e:
-            self._logger.error(f"获取工具统计失败 {agent_id}: {e}")
+            self._logger.error(f"Failed to get tool statistics {agent_id}: {e}")
             return {
                 "total_tools": 0,
                 "error": str(e)
@@ -667,14 +667,14 @@ class ToolManager(ToolManagerInterface):
                 for key in keys_to_remove:
                     del self._tool_cache[key]
 
-                self._logger.debug(f"清理agent工具缓存: {agent_id}")
+                self._logger.debug(f"Clearing agent tool cache: {agent_id}")
             else:
                 # 清理所有缓存
                 self._tool_cache.clear()
-                self._logger.debug("清理所有工具缓存")
+                self._logger.debug("Clearing all tool cache")
 
         except Exception as e:
-            self._logger.error(f"清理工具缓存失败: {e}")
+            self._logger.error(f"Failed to clear tool cache: {e}")
 
     def get_stats(self) -> Dict[str, Any]:
         """

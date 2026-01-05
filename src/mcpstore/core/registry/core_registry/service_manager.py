@@ -47,11 +47,11 @@ class ServiceManager(ServiceManagerInterface):
         # 服务缓存
         self._service_cache = {}
 
-        self._logger.info(f"初始化ServiceManager，命名空间: {namespace}")
+        self._logger.info(f"[SERVICE_MANAGER] [INIT] Initializing ServiceManager, namespace: {namespace}")
 
     def initialize(self) -> None:
         """初始化服务管理器"""
-        self._logger.info("ServiceManager 初始化完成")
+        self._logger.info("[SERVICE_MANAGER] [INIT] ServiceManager initialization completed")
 
     def cleanup(self) -> None:
         """清理服务管理器资源"""
@@ -68,9 +68,9 @@ class ServiceManager(ServiceManagerInterface):
             self._session_manager = None
             self._cache_manager = None
 
-            self._logger.info("ServiceManager 清理完成")
+            self._logger.info("[SERVICE_MANAGER] [CLEAN] ServiceManager cleanup completed")
         except Exception as e:
-            self._logger.error(f"ServiceManager 清理时出错: {e}")
+            self._logger.error(f"[SERVICE_MANAGER] [ERROR] ServiceManager cleanup error: {e}")
             raise
 
     def set_managers(self, service_entity_manager=None, relation_manager=None,
@@ -97,7 +97,7 @@ class ServiceManager(ServiceManagerInterface):
         self._cache_manager = cache_manager
         self._mapping_manager = mapping_manager
         self._tool_entity_manager = tool_entity_manager
-        self._logger.info("已设置依赖的管理器")
+        self._logger.info("[SERVICE_MANAGER] [SET] Dependent managers have been set")
 
     def add_service(self, agent_id: str, name: str, session: Any = None,
                    tools: List[Tuple[str, Dict[str, Any]]] = None,
@@ -143,7 +143,7 @@ class ServiceManager(ServiceManagerInterface):
                     f"check_service_exists:{service_global_name}"
                 )
                 if existing_service:
-                    logger.debug(f"服务已存在: {service_global_name}，将更新工具")
+                    logger.debug(f"[SERVICE_MANAGER] [EXISTS] Service already exists: {service_global_name}, will update tools")
                     service_exists = True
 
             # 创建服务实体（仅当服务不存在时）
@@ -183,11 +183,11 @@ class ServiceManager(ServiceManagerInterface):
                     self._session_manager.add_tool_session_mapping(agent_id, tool_name, session)
 
             # 添加工具
-            self._logger.info(f"[ADD_SERVICE] 检查工具添加条件: _tool_manager={self._tool_manager is not None}, tools={tools is not None}, tools_count={len(tools) if tools else 0}")
+            self._logger.info(f"[ADD_SERVICE] [CHECK] Checking tool addition conditions: _tool_manager={self._tool_manager is not None}, tools={tools is not None}, tools_count={len(tools) if tools else 0}")
             if self._tool_manager and tools:
                 self._add_tools_to_service(agent_id, name, tools)
             else:
-                self._logger.warning(f"[ADD_SERVICE] 跳过工具添加: _tool_manager={self._tool_manager}, tools={tools}")
+                self._logger.warning(f"[ADD_SERVICE] [SKIP] Skipping tool addition: _tool_manager={self._tool_manager}, tools={tools}")
 
             # 更新缓存
             cache_key = f"{agent_id}:{name}"
@@ -199,11 +199,11 @@ class ServiceManager(ServiceManagerInterface):
                 "added_time": datetime.now()
             }
 
-            self._logger.info(f"添加服务成功: {service_global_name}")
+            self._logger.info(f"[SERVICE_MANAGER] [SUCCESS] Service added successfully: {service_global_name}")
             return True
 
         except Exception as e:
-            self._logger.error(f"添加服务失败 {agent_id}:{name}: {e}")
+            self._logger.error(f"[SERVICE_MANAGER] [ERROR] Failed to add service {agent_id}:{name}: {e}")
             return False
 
     async def add_service_async(self, agent_id: str, name: str, session: Any = None,
@@ -251,7 +251,7 @@ class ServiceManager(ServiceManagerInterface):
             if self._service_entity_manager:
                 existing_service = await self._service_entity_manager.get_service(service_global_name)
                 if existing_service:
-                    logger.debug(f"服务已存在: {service_global_name}，将更新工具")
+                    logger.debug(f"[SERVICE_MANAGER] [EXISTS] Service already exists: {service_global_name}, will update tools")
                     service_exists = True
 
             # 创建服务实体（仅当服务不存在时）
@@ -285,11 +285,11 @@ class ServiceManager(ServiceManagerInterface):
                     self._session_manager.add_tool_session_mapping(agent_id, tool_name, session)
 
             # 添加工具（异步）
-            self._logger.info(f"[ADD_SERVICE_ASYNC] 检查工具添加条件: _tool_manager={self._tool_manager is not None}, tools={tools is not None}, tools_count={len(tools) if tools else 0}")
+            self._logger.info(f"[ADD_SERVICE_ASYNC] [CHECK] Checking tool addition conditions: _tool_manager={self._tool_manager is not None}, tools={tools is not None}, tools_count={len(tools) if tools else 0}")
             if self._tool_manager and tools:
                 await self._add_tools_to_service_async(agent_id, name, tools)
             else:
-                self._logger.warning(f"[ADD_SERVICE_ASYNC] 跳过工具添加: _tool_manager={self._tool_manager}, tools={tools}")
+                self._logger.warning(f"[ADD_SERVICE_ASYNC] Skipping tool addition: _tool_manager={self._tool_manager}, tools={tools}")
 
             # 更新缓存（同步操作，使用内存缓存）
             cache_key = f"{agent_id}:{name}"
@@ -301,11 +301,11 @@ class ServiceManager(ServiceManagerInterface):
                 "added_time": datetime.now()
             }
 
-            self._logger.info(f"异步添加服务成功: {service_global_name}")
+            self._logger.info(f"[SERVICE_MANAGER] [SUCCESS] Async service addition successful: {service_global_name}")
             return True
 
         except Exception as e:
-            self._logger.error(f"异步添加服务失败 {agent_id}:{name}: {e}")
+            self._logger.error(f"[SERVICE_MANAGER] [ERROR] Async service addition failed {agent_id}:{name}: {e}")
             return False
 
     def remove_service(self, agent_id: str, name: str) -> Optional[Any]:
@@ -357,11 +357,11 @@ class ServiceManager(ServiceManagerInterface):
             connection_id = f"{agent_id}:{name}"
             self.long_lived_connections.discard(connection_id)
 
-            self._logger.info(f"移除服务成功: {service_global_name}")
+            self._logger.info(f"[SERVICE_MANAGER] [SUCCESS] Service removal successful: {service_global_name}")
             return removed_session
 
         except Exception as e:
-            self._logger.error(f"移除服务失败 {agent_id}:{name}: {e}")
+            self._logger.error(f"[SERVICE_MANAGER] [ERROR] Service removal failed {agent_id}:{name}: {e}")
             return None
 
     async def remove_service_async(self, agent_id: str, name: str) -> Optional[Any]:
@@ -437,11 +437,11 @@ class ServiceManager(ServiceManagerInterface):
                 "status": "success"
             }
 
-            self._logger.info(f"替换服务工具成功: {service_global_name}, 工具数: {len(processed_tools)}")
+            self._logger.info(f"[SERVICE_MANAGER] [SUCCESS] Service tools replacement successful: {service_global_name}, tools_count: {len(processed_tools)}")
             return result
 
         except Exception as e:
-            self._logger.error(f"替换服务工具失败 {agent_id}:{service_name}: {e}")
+            self._logger.error(f"[SERVICE_MANAGER] [ERROR] Service tools replacement failed {agent_id}:{service_name}: {e}")
             return {
                 "service": service_name,
                 "tools_processed": 0,
@@ -492,7 +492,7 @@ class ServiceManager(ServiceManagerInterface):
             )
 
         except Exception as e:
-            self._logger.error(f"添加失败服务失败 {agent_id}:{name}: {e}")
+            self._logger.error(f"Failed to add service {agent_id}:{name}: {e}")
             return False
 
     def get_services_for_agent(self, agent_id: str) -> List[str]:
@@ -525,7 +525,7 @@ class ServiceManager(ServiceManagerInterface):
             return service_names
 
         except Exception as e:
-            self._logger.error(f"获取agent服务列表失败 {agent_id}: {e}")
+            self._logger.error(f"Failed to get agent service list {agent_id}: {e}")
             return []
 
     async def get_services_for_agent_async(self, agent_id: str) -> List[str]:
@@ -559,7 +559,7 @@ class ServiceManager(ServiceManagerInterface):
             return service_names
 
         except Exception as e:
-            self._logger.error(f"异步获取agent服务列表失败 {agent_id}: {e}")
+            self._logger.error(f"Failed to get agent service list asynchronously {agent_id}: {e}")
             raise
 
     def get_service_details(self, agent_id: str, name: str) -> Dict[str, Any]:
@@ -623,7 +623,7 @@ class ServiceManager(ServiceManagerInterface):
             return details
 
         except Exception as e:
-            self._logger.error(f"获取服务详细信息失败 {agent_id}:{name}: {e}")
+            self._logger.error(f"Failed to get service details {agent_id}:{name}: {e}")
             return {}
 
     def get_service_info(self, agent_id: str, service_name: str) -> Optional['ServiceInfo']:
@@ -654,7 +654,7 @@ class ServiceManager(ServiceManagerInterface):
             }
 
         except Exception as e:
-            self._logger.error(f"获取服务信息失败 {agent_id}:{service_name}: {e}")
+            self._logger.error(f"Failed to get service info {agent_id}:{service_name}: {e}")
             return None
 
     def get_service_config(self, agent_id: str, name: str) -> Optional[Dict[str, Any]]:
@@ -688,7 +688,7 @@ class ServiceManager(ServiceManagerInterface):
             return None
 
         except Exception as e:
-            self._logger.error(f"获取服务配置失败 {agent_id}:{name}: {e}")
+            self._logger.error(f"Failed to get service config {agent_id}:{name}: {e}")
             return None
 
     def mark_as_long_lived(self, agent_id: str, service_name: str):
@@ -701,7 +701,7 @@ class ServiceManager(ServiceManagerInterface):
         """
         connection_id = f"{agent_id}:{service_name}"
         self.long_lived_connections.add(connection_id)
-        self._logger.debug(f"标记长生命周期连接: {connection_id}")
+        self._logger.debug(f"Marking long-lived connection: {connection_id}")
 
     def is_long_lived_service(self, agent_id: str, service_name: str) -> bool:
         """
@@ -754,10 +754,10 @@ class ServiceManager(ServiceManagerInterface):
             cache_key = f"{agent_id}:{service_name}"
             self._service_cache.pop(cache_key, None)
 
-            self._logger.debug(f"移除服务生命周期数据: {connection_id}")
+            self._logger.debug(f"Removing service lifecycle data: {connection_id}")
 
         except Exception as e:
-            self._logger.error(f"移除服务生命周期数据失败 {agent_id}:{service_name}: {e}")
+            self._logger.error(f"Failed to remove service lifecycle data {agent_id}:{service_name}: {e}")
 
     def clear(self, agent_id: str):
         """
@@ -794,10 +794,10 @@ class ServiceManager(ServiceManagerInterface):
             for key in keys_to_remove:
                 del self._service_cache[key]
 
-            self._logger.info(f"清除agent所有服务: {agent_id}, 服务数: {len(services)}")
+            self._logger.info(f"Cleared all agent services: {agent_id}, service count: {len(services)}")
 
         except Exception as e:
-            self._logger.error(f"清除agent服务失败 {agent_id}: {e}")
+            self._logger.error(f"Failed to clear agent services {agent_id}: {e}")
 
     async def clear_async(self, agent_id: str) -> None:
         """
@@ -820,7 +820,7 @@ class ServiceManager(ServiceManagerInterface):
             tools: 工具列表
         """
         try:
-            self._logger.info(f"[ADD_TOOLS] 开始添加工具到服务: agent={agent_id}, service={service_name}, tools_count={len(tools)}")
+            self._logger.info(f"[ADD_TOOLS] Starting to add tools to service: agent={agent_id}, service={service_name}, tools_count={len(tools)}")
             service_global_name = self._naming.generate_service_global_name(service_name, agent_id)
 
             for tool_name, tool_def in tools:
@@ -856,7 +856,7 @@ class ServiceManager(ServiceManagerInterface):
                     )
 
         except Exception as e:
-            self._logger.error(f"添加工具到服务失败 {agent_id}:{service_name}: {e}")
+            self._logger.error(f"Failed to add tools to service {agent_id}:{service_name}: {e}")
             raise
 
     async def _add_tools_to_service_async(self, agent_id: str, service_name: str,
@@ -874,7 +874,7 @@ class ServiceManager(ServiceManagerInterface):
             tools: 工具列表
         """
         try:
-            self._logger.info(f"[ADD_TOOLS_ASYNC] 开始异步添加工具到服务: agent={agent_id}, service={service_name}, tools_count={len(tools)}")
+            self._logger.info(f"[ADD_TOOLS_ASYNC] Starting to add tools to service asynchronously: agent={agent_id}, service={service_name}, tools_count={len(tools)}")
             service_global_name = self._naming.generate_service_global_name(service_name, agent_id)
 
             for tool_name, tool_def in tools:
@@ -902,7 +902,7 @@ class ServiceManager(ServiceManagerInterface):
                     )
 
         except Exception as e:
-            self._logger.error(f"异步添加工具到服务失败 {agent_id}:{service_name}: {e}")
+            self._logger.error(f"Failed to add tools to service asynchronously {agent_id}:{service_name}: {e}")
             raise
 
     def _sync_operation(self, async_coro, operation_name: str = "同步操作"):
@@ -951,7 +951,7 @@ class ServiceManager(ServiceManagerInterface):
                         loop.close()
 
         except Exception as e:
-            self._logger.error(f"同步操作失败 {operation_name}: {e}")
+            self._logger.error(f"Sync operation failed {operation_name}: {e}")
             raise
 
     def get_service_stats(self, agent_id: Optional[str] = None) -> Dict[str, Any]:
@@ -991,7 +991,7 @@ class ServiceManager(ServiceManagerInterface):
                 }
 
         except Exception as e:
-            self._logger.error(f"获取服务统计失败: {e}")
+            self._logger.error(f"Failed to get service statistics: {e}")
             return {
                 "error": str(e),
                 "namespace": self._namespace
@@ -1043,7 +1043,7 @@ class ServiceManager(ServiceManagerInterface):
             return summary
 
         except Exception as e:
-            self._logger.error(f"获取服务摘要失败 {agent_id}:{service_name}: {e}")
+            self._logger.error(f"Failed to get service summary {agent_id}:{service_name}: {e}")
             return {}
 
     def get_complete_service_info_async(self, agent_id: str, service_name: str) -> Dict[str, Any]:
@@ -1126,7 +1126,7 @@ class ServiceManager(ServiceManagerInterface):
             return complete_info
 
         except Exception as e:
-            self._logger.error(f"获取完整服务信息失败 {agent_id}:{service_name}: {e}")
+            self._logger.error(f"Failed to get complete service info {agent_id}:{service_name}: {e}")
             return {}
 
     def get_all_services_complete_info(self, agent_id: str) -> List[Dict[str, Any]]:
@@ -1151,7 +1151,7 @@ class ServiceManager(ServiceManagerInterface):
             return all_info
 
         except Exception as e:
-            self._logger.error(f"获取所有服务完整信息失败 {agent_id}: {e}")
+            self._logger.error(f"Failed to get all services complete info {agent_id}: {e}")
             return []
 
     def get_services_by_state(self, agent_id: str, states: List['ServiceConnectionState']) -> List[str]:
@@ -1178,7 +1178,7 @@ class ServiceManager(ServiceManagerInterface):
                 return matching_services
 
         except Exception as e:
-            self._logger.error(f"根据状态获取服务失败 {agent_id}: {e}")
+            self._logger.error(f"Failed to get services by status {agent_id}: {e}")
             return []
 
     def get_healthy_services(self, agent_id: str) -> List[str]:
@@ -1196,7 +1196,7 @@ class ServiceManager(ServiceManagerInterface):
             return self.get_services_by_state(agent_id, [ServiceConnectionState.HEALTHY])
 
         except Exception as e:
-            self._logger.error(f"获取健康服务失败 {agent_id}: {e}")
+            self._logger.error(f"Failed to get healthy services {agent_id}: {e}")
             return []
 
     def get_failed_services(self, agent_id: str) -> List[str]:
@@ -1217,7 +1217,7 @@ class ServiceManager(ServiceManagerInterface):
             ])
 
         except Exception as e:
-            self._logger.error(f"获取失败服务失败 {agent_id}: {e}")
+            self._logger.error(f"Failed to get failed services {agent_id}: {e}")
             return []
 
     def get_services_with_tools(self, agent_id: str) -> List[str]:
@@ -1248,7 +1248,7 @@ class ServiceManager(ServiceManagerInterface):
             return services_with_tools
 
         except Exception as e:
-            self._logger.error(f"获取有工具的服务失败 {agent_id}: {e}")
+            self._logger.error(f"Failed to get services with tools {agent_id}: {e}")
             return []
 
     def should_cache_aggressively(self, agent_id: str, service_name: str) -> bool:
@@ -1276,7 +1276,7 @@ class ServiceManager(ServiceManagerInterface):
             return False
 
         except Exception as e:
-            self._logger.error(f"判断缓存策略失败 {agent_id}:{service_name}: {e}")
+            self._logger.error(f"Failed to determine cache strategy {agent_id}:{service_name}: {e}")
             return False
 
     def remove_service_lifecycle_data(self, agent_id: str, service_name: str):
@@ -1298,10 +1298,10 @@ class ServiceManager(ServiceManagerInterface):
             if cache_key in self._service_cache:
                 del self._service_cache[cache_key]
 
-            self._logger.debug(f"移除服务生命周期数据: {cache_key}")
+            self._logger.debug(f"Removing service lifecycle data: {cache_key}")
 
         except Exception as e:
-            self._logger.error(f"移除服务生命周期数据失败 {agent_id}:{service_name}: {e}")
+            self._logger.error(f"Failed to remove service lifecycle data {agent_id}:{service_name}: {e}")
 
     def set_service_lifecycle_data(self, agent_id: str, service_name: str, data: Dict[str, Any]):
         """
@@ -1326,10 +1326,10 @@ class ServiceManager(ServiceManagerInterface):
             self._service_cache[cache_key]["lifecycle_data"].update(data)
             self._service_cache[cache_key]["lifecycle_data"]["last_updated"] = datetime.now().isoformat()
 
-            self._logger.debug(f"设置服务生命周期数据: {cache_key}")
+            self._logger.debug(f"Setting service lifecycle data: {cache_key}")
 
         except Exception as e:
-            self._logger.error(f"设置服务生命周期数据失败 {agent_id}:{service_name}: {e}")
+            self._logger.error(f"Failed to set service lifecycle data {agent_id}:{service_name}: {e}")
 
     def clear_agent_lifecycle_data(self, agent_id: str):
         """
@@ -1354,10 +1354,10 @@ class ServiceManager(ServiceManagerInterface):
             for connection_id in to_remove:
                 self.long_lived_connections.remove(connection_id)
 
-            self._logger.info(f"清除agent生命周期数据: {agent_id}")
+            self._logger.info(f"Cleared agent lifecycle data: {agent_id}")
 
         except Exception as e:
-            self._logger.error(f"清除agent生命周期数据失败 {agent_id}: {e}")
+            self._logger.error(f"Failed to clear agent lifecycle data {agent_id}: {e}")
 
     def get_stats(self) -> Dict[str, Any]:
         """
@@ -1427,7 +1427,7 @@ class ServiceManager(ServiceManagerInterface):
             RuntimeError: 如果 mapping_manager 未初始化
         """
         if not self._mapping_manager:
-            raise RuntimeError("MappingManager 未初始化")
+            raise RuntimeError("MappingManager not initialized")
         return await self._mapping_manager.get_agent_clients_async(agent_id)
 
     def get_client_config_from_cache(self, client_id: str) -> Optional[Dict[str, Any]]:

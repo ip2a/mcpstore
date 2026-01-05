@@ -39,11 +39,11 @@ class MappingManager:
         self._global_name_mapping = {}  # global_name -> (agent_id, local_name)
 
         self._logger = logging.getLogger(self.__class__.__name__)
-        self._logger.info(f"初始化MappingManager，命名空间: {namespace}")
+        self._logger.info(f"[MAPPING_MANAGER] [INIT] Initializing MappingManager, namespace: {namespace}")
 
     def initialize(self) -> None:
         """初始化映射管理器"""
-        self._logger.info("MappingManager 初始化完成")
+        self._logger.info("[MAPPING_MANAGER] [INIT] MappingManager initialization completed")
 
     def cleanup(self) -> None:
         """清理映射管理器资源"""
@@ -54,9 +54,9 @@ class MappingManager:
             self._client_config.clear()
             self._global_name_mapping.clear()
 
-            self._logger.info("MappingManager 清理完成")
+            self._logger.info("[MAPPING_MANAGER] [CLEAN] MappingManager cleanup completed")
         except Exception as e:
-            self._logger.error(f"MappingManager 清理时出错: {e}")
+            self._logger.error(f"[MAPPING_MANAGER] [ERROR] MappingManager cleanup error: {e}")
             raise
 
     async def get_service_client_id_async(self, agent_id: str, service_name: str) -> Optional[str]:
@@ -90,7 +90,7 @@ class MappingManager:
             return self._service_client_mapping.get(cache_key)
 
         except Exception as e:
-            self._logger.error(f"获取服务客户端ID失败 {agent_id}:{service_name}: {e}")
+            self._logger.error(f"[MAPPING_MANAGER] [ERROR] Failed to get service client ID {agent_id}:{service_name}: {e}")
             return None
 
     async def get_agent_clients_async(self, agent_id: str) -> List[str]:
@@ -110,7 +110,7 @@ class MappingManager:
             RuntimeError: 如果获取失败
         """
         if not agent_id:
-            raise ValueError("Agent ID 不能为空")
+            raise ValueError("Agent ID cannot be empty")
         
         # 从 pykv 关系层获取 Agent 的服务列表
         relation_data = await self._cache_layer.get_relation(
@@ -119,7 +119,7 @@ class MappingManager:
         )
         
         if relation_data is None:
-            self._logger.debug(f"[MAPPING] pykv 中无 Agent 关系: agent_id={agent_id}")
+            self._logger.debug(f"[MAPPING] [INFO] No Agent relationship in pykv: agent_id={agent_id}")
             return []
         
         # 提取 client_ids
@@ -134,7 +134,7 @@ class MappingManager:
         unique_clients = list(set(clients))
         
         self._logger.debug(
-            f"[MAPPING] 从 pykv 获取 Agent 客户端: agent_id={agent_id}, "
+            f"[MAPPING] Getting Agent clients from pykv: agent_id={agent_id}, "
             f"count={len(unique_clients)}"
         )
         
@@ -154,7 +154,7 @@ class MappingManager:
             return self._client_config.get(client_id)
 
         except Exception as e:
-            self._logger.error(f"获取客户端配置失败 {client_id}: {e}")
+            self._logger.error(f"[MAPPING_MANAGER] [ERROR] Failed to get client configuration {client_id}: {e}")
             return None
 
     def add_client_config(self, client_id: str, config: Dict[str, Any]) -> None:
@@ -167,10 +167,10 @@ class MappingManager:
         """
         try:
             self._client_config[client_id] = config
-            self._logger.debug(f"添加客户端配置: {client_id}")
+            self._logger.debug(f"[MAPPING_MANAGER] [ADD] Added client configuration: {client_id}")
 
         except Exception as e:
-            self._logger.error(f"添加客户端配置失败 {client_id}: {e}")
+            self._logger.error(f"[MAPPING_MANAGER] [ERROR] Failed to add client configuration {client_id}: {e}")
 
     def set_service_client_mapping(self, agent_id: str, service_name: str, client_id: str) -> None:
         """
@@ -184,10 +184,10 @@ class MappingManager:
         try:
             cache_key = f"{agent_id}:{service_name}"
             self._service_client_mapping[cache_key] = client_id
-            self._logger.debug(f"设置服务客户端映射: {cache_key} -> {client_id}")
+            self._logger.debug(f"[MAPPING_MANAGER] [SET] Set service client mapping: {cache_key} -> {client_id}")
 
         except Exception as e:
-            self._logger.error(f"设置服务客户端映射失败 {agent_id}:{service_name}: {e}")
+            self._logger.error(f"[MAPPING_MANAGER] [ERROR] Failed to set service client mapping {agent_id}:{service_name}: {e}")
 
     def remove_service_client_mapping(self, agent_id: str, service_name: str) -> None:
         """
@@ -201,10 +201,10 @@ class MappingManager:
             cache_key = f"{agent_id}:{service_name}"
             if cache_key in self._service_client_mapping:
                 del self._service_client_mapping[cache_key]
-                self._logger.debug(f"移除服务客户端映射: {cache_key}")
+                self._logger.debug(f"[MAPPING_MANAGER] [REMOVE] Removed service client mapping: {cache_key}")
 
         except Exception as e:
-            self._logger.error(f"移除服务客户端映射失败 {agent_id}:{service_name}: {e}")
+            self._logger.error(f"[MAPPING_MANAGER] [ERROR] Failed to remove service client mapping {agent_id}:{service_name}: {e}")
 
     def set_service_client_mapping_async(self, agent_id: str, service_name: str, client_id: str) -> None:
         """
@@ -242,10 +242,10 @@ class MappingManager:
             cache_key = f"{agent_id}:{local_name}"
             self._agent_service_mapping[cache_key] = global_name
             self._global_name_mapping[global_name] = (agent_id, local_name)
-            self._logger.debug(f"添加Agent服务映射: {cache_key} -> {global_name}")
+            self._logger.debug(f"[MAPPING_MANAGER] [ADD] Added Agent service mapping: {cache_key} -> {global_name}")
 
         except Exception as e:
-            self._logger.error(f"添加Agent服务映射失败 {agent_id}:{local_name}: {e}")
+            self._logger.error(f"[MAPPING_MANAGER] [ERROR] Failed to add Agent service mapping {agent_id}:{local_name}: {e}")
 
     def get_global_name_from_agent_service(self, agent_id: str, local_name: str) -> Optional[str]:
         """
@@ -263,7 +263,7 @@ class MappingManager:
             return self._agent_service_mapping.get(cache_key)
 
         except Exception as e:
-            self._logger.error(f"获取全局名称失败 {agent_id}:{local_name}: {e}")
+            self._logger.error(f"[MAPPING_MANAGER] [ERROR] Failed to get global name {agent_id}:{local_name}: {e}")
             return None
 
     def get_global_name_from_agent_service_async(self, agent_id: str, local_name: str) -> Optional[str]:
@@ -294,7 +294,7 @@ class MappingManager:
             return self._global_name_mapping.get(global_name)
 
         except Exception as e:
-            self._logger.error(f"获取Agent服务失败 {global_name}: {e}")
+            self._logger.error(f"[MAPPING_MANAGER] [ERROR] Failed to get Agent service {global_name}: {e}")
             return None
 
     def get_agent_services(self, agent_id: str) -> List[str]:
@@ -319,7 +319,7 @@ class MappingManager:
             return services
 
         except Exception as e:
-            self._logger.error(f"获取Agent服务失败 {agent_id}: {e}")
+            self._logger.error(f"Failed to get Agent service {agent_id}: {e}")
             return []
 
     def is_agent_service(self, global_name: str) -> bool:
@@ -336,7 +336,7 @@ class MappingManager:
             return global_name in self._global_name_mapping
 
         except Exception as e:
-            self._logger.error(f"检查Agent服务失败 {global_name}: {e}")
+            self._logger.error(f"[MAPPING_MANAGER] [ERROR] Failed to check Agent service {global_name}: {e}")
             return False
 
     def remove_agent_service_mapping(self, agent_id: str, local_name: str):
@@ -361,10 +361,10 @@ class MappingManager:
             if global_name and global_name in self._global_name_mapping:
                 del self._global_name_mapping[global_name]
 
-            self._logger.debug(f"移除Agent服务映射: {cache_key}")
+            self._logger.debug(f"Removing Agent service mapping: {cache_key}")
 
         except Exception as e:
-            self._logger.error(f"移除Agent服务映射失败 {agent_id}:{local_name}: {e}")
+            self._logger.error(f"Failed to remove Agent service mapping {agent_id}:{local_name}: {e}")
 
     def clear_agent_mappings(self, agent_id: str):
         """
@@ -399,10 +399,10 @@ class MappingManager:
                 if global_name in self._global_name_mapping:
                     del self._global_name_mapping[global_name]
 
-            self._logger.info(f"清除Agent所有映射: {agent_id}")
+            self._logger.info(f"Cleared all Agent mappings: {agent_id}")
 
         except Exception as e:
-            self._logger.error(f"清除Agent映射失败 {agent_id}: {e}")
+            self._logger.error(f"Failed to clear Agent mappings {agent_id}: {e}")
 
     def clear_all_mappings(self):
         """
@@ -414,10 +414,10 @@ class MappingManager:
             self._client_config.clear()
             self._global_name_mapping.clear()
 
-            self._logger.info("清除所有映射")
+            self._logger.info("Cleared all mappings")
 
         except Exception as e:
-            self._logger.error(f"清除所有映射失败: {e}")
+            self._logger.error(f"Failed to clear all mappings: {e}")
 
     def get_mapping_stats(self) -> Dict[str, Any]:
         """

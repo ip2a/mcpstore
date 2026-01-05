@@ -9,7 +9,8 @@ from typing import List, Optional
 from fastapi import APIRouter, Query
 
 from mcpstore.core.models import ResponseBuilder, timed_response
-from .api_decorators import get_store, validate_agent_id
+from .api_decorators import validate_agent_id
+from .api_dependencies import get_store
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

@@ -60,8 +60,7 @@ class ConnectionManager:
         """
         Handle service initialization completion - trigger connection
         
-        NOTE: This may cause duplicate connection attempts if ServiceConnectionRequested
-        was already published by CacheManager. We should check if connection is already in progress.
+        ServiceInitialized 表示缓存和生命周期元数据已经写入，此时才发布连接事件。
         """
         logger.info(f"[CONNECTION] Triggering connection for: {event.service_name} (from ServiceInitialized)")
 
@@ -176,19 +175,12 @@ class ConnectionManager:
         """Connect to local service"""
         from fastmcp import Client
 
-        # 1. Start local process
-        success, message = await self._local_service_manager.start_local_service(
-            service_name, service_config
-        )
-        if not success:
-            raise RuntimeError(f"Failed to start local service: {message}")
-
-        # 2. Process configuration
+        # 1. Process configuration
         processed_config = self._config_processor.process_user_config_for_fastmcp({
             "mcpServers": {service_name: service_config}
         })
 
-        # 3. Create client and connect
+        # 2. Create client and connect（FastMCP Client 会在 async with 中自动启动本地进程）
         client = Client(processed_config)
 
         async with asyncio.timeout(timeout):
@@ -325,17 +317,16 @@ class ConnectionManager:
         
         if service_entity is None:
             raise RuntimeError(
-                f"服务实体不存在: service_name={service_name}, "
+                f"Service entity does not exist: service_name={service_name}, "
                 f"agent_id={agent_id}, global_name={service_global_name}"
             )
         
         service_config = service_entity.config
         if not service_config:
             raise RuntimeError(
-                f"服务配置为空: service_name={service_name}, "
+                f"Service configuration is empty: service_name={service_name}, "
                 f"agent_id={agent_id}, global_name={service_global_name}"
             )
         
         logger.debug(f"[CONNECTION] Found config for {service_name}: {list(service_config.keys())}")
         return service_config
-

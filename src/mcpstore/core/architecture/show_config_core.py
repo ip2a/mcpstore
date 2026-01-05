@@ -104,18 +104,16 @@ class ShowConfigLogicCore:
             与 mcp.json 格式一致的配置:
             {
                 "mcpServers": {
-                    "weather_byagent_agent1": {"url": "..."}
+                    "local_service_name": {"url": "..."}
                 }
             }
         """
         mcp_servers = {}
         
-        for service_global_name, service_info in services_data.items():
-            # 提取服务配置（url/command/args 等）
+        for service_local_name, service_info in services_data.items():
             config = service_info.get("config", {})
             if config:
-                # 使用全局名称作为 key（与 mcp.json 一致）
-                mcp_servers[service_global_name] = config
+                mcp_servers[service_local_name] = config
         
         return {"mcpServers": mcp_servers}
     

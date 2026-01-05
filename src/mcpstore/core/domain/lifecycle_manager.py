@@ -94,7 +94,7 @@ class LifecycleManager:
                 metadata_dict = metadata
             else:
                 raise TypeError(
-                    f"metadata 必须是字典或 Pydantic BaseModel，实际类型: {type(metadata).__name__}"
+                    f"metadata must be a dict or Pydantic BaseModel, got: {type(metadata).__name__}"
                 )
 
             # 通过 CacheLayerManager 异步保存元数据
@@ -106,7 +106,7 @@ class LifecycleManager:
         except Exception as e:
             logger.error(f"[LIFECYCLE] Failed to set service metadata for {agent_id}:{service_name}: {e}")
             raise RuntimeError(
-                f"设置服务元数据失败: agent_id={agent_id}, service_name={service_name}, error={e}"
+                f"Failed to set service metadata: agent_id={agent_id}, service_name={service_name}, error={e}"
             ) from e
 
     async def _set_service_state_async(self, agent_id: str, service_name: str, state) -> None:
@@ -138,8 +138,8 @@ class LifecycleManager:
             cache_state_manager = getattr(self._registry, '_cache_state_manager', None)
             if cache_state_manager is None:
                 raise RuntimeError(
-                    "缓存层 StateManager 未初始化。"
-                    "请确保 ServiceRegistry 正确初始化了 _cache_state_manager 属性。"
+                    "Cache layer StateManager not initialized. "
+                    "Please ensure ServiceRegistry correctly initializes the _cache_state_manager attribute."
                 )
             
             # 获取现有的服务状态
@@ -163,15 +163,15 @@ class LifecycleManager:
                     tools_status
                 )
                 logger.debug(
-                    f"[LIFECYCLE] 更新健康状态: {global_name} -> {health_status}, "
-                    f"保留工具数量: {len(tools_status)}"
+                    f"[LIFECYCLE] Updated health status: {global_name} -> {health_status}, "
+                    f"preserved tools count: {len(tools_status)}"
                 )
             else:
                 # 状态不存在时，不创建新状态
                 # 状态应该由 CacheManager 在处理 ServiceConnected 事件时创建
                 logger.warning(
-                    f"[LIFECYCLE] 服务状态不存在，跳过更新: {global_name}. "
-                    f"状态将由 CacheManager 创建。"
+                    f"[LIFECYCLE] Service state does not exist, skipping update: {global_name}. "
+                    f"State will be created by CacheManager."
                 )
 
         except Exception as e:
@@ -207,7 +207,7 @@ class LifecycleManager:
                         logger.debug(f"[LIFECYCLE] Loaded service_config from service entity for: {event.service_name}")
                 except Exception as entity_error:
                     # 按要求：不兼容旧架构，直接抛出错误
-                    raise RuntimeError(f"无法从服务实体获取服务配置: {event.service_name}") from entity_error
+                    raise RuntimeError(f"Unable to get service configuration from service entity: {event.service_name}") from entity_error
 
             # 2. 创建元数据（纯函数操作）
             metadata = ServiceStateMetadata(
@@ -296,7 +296,7 @@ class LifecycleManager:
             else:
                 # 没有锁时直接执行（向后兼容，但会记录警告）
                 logger.warning(
-                    f"[LIFECYCLE] AgentLocks 未配置，可能存在竞态条件: {event.service_name}"
+                    f"[LIFECYCLE] AgentLocks not configured, potential race condition: {event.service_name}"
                 )
                 await self._handle_service_connected_internal(event)
 
@@ -318,7 +318,7 @@ class LifecycleManager:
 
     async def _handle_service_connected_internal(self, event: ServiceConnected):
         """
-        处理服务连接成功的内部逻辑（在锁保护下执行）
+        Handle service connection success internal logic (executed under lock protection)
         """
         # 1. 通过异步API转换状态到 HEALTHY
         # 方案 C：只更新健康状态，不触碰工具状态
@@ -344,9 +344,9 @@ class LifecycleManager:
             logger.debug(f"[LIFECYCLE] Metadata updated for connected service: {event.service_name}")
         else:
             raise RuntimeError(
-                f"服务元数据不存在，数据不一致: "
+                f"Service metadata does not exist, data inconsistency: "
                 f"service_name={event.service_name}, agent_id={event.agent_id}. "
-                f"元数据应该在 ServiceCached 事件处理时创建。"
+                f"Metadata should be created when handling ServiceCached event."
             )
 
         # 3. 发布状态转换事件
@@ -514,7 +514,7 @@ class LifecycleManager:
                 metadata.error_message = f"Timeout: {event.timeout_type} ({event.elapsed_time:.1f}s)"
                 await self._set_service_metadata_async(event.agent_id, event.service_name, metadata)
 
-            # 转换到 UNREACHABLE 状态
+            # Transition to UNREACHABLE state
             await self._transition_state(
                 agent_id=event.agent_id,
                 service_name=event.service_name,
@@ -528,14 +528,14 @@ class LifecycleManager:
 
     async def _on_reconnection_requested(self, event: 'ReconnectionRequested'):
         """
-        处理重连请求 - 记录日志（实际重连由 ConnectionManager 处理）
+        Handle reconnection request - log event (actual reconnection handled by ConnectionManager)
         """
         logger.info(
             f"[LIFECYCLE] Reconnection requested: {event.service_name} "
             f"(retry={event.retry_count}, reason={event.reason})"
         )
 
-        # Update metadata中的重连尝试次数
+        # Update reconnection attempt count in metadata
         try:
             metadata = await self._registry.get_service_metadata_async(event.agent_id, event.service_name)
             if metadata:
@@ -546,39 +546,39 @@ class LifecycleManager:
     
     def initialize_service(self, agent_id: str, service_name: str, service_config: dict) -> bool:
         """
-        初始化服务 - 触发完整的事件流程
+        Initialize service - trigger complete event flow
         
-        这是添加服务的主入口，确保所有必要的事件被触发。
+        This is the main entry point for adding services, ensuring all necessary events are triggered.
         
         Args:
             agent_id: Agent ID
-            service_name: 服务名称
-            service_config: 服务配置
+            service_name: Service name
+            service_config: Service configuration
             
         Returns:
-            bool: 是否成功初始化
+            bool: Whether initialization succeeded
         """
         try:
             logger.info(f"[LIFECYCLE] initialize_service called: agent={agent_id}, service={service_name}")
             logger.debug(f"[LIFECYCLE] Service config: {service_config}")
             
-            # 生成 client_id
+            # Generate client_id
             from mcpstore.core.utils.id_generator import ClientIDGenerator
             client_id = ClientIDGenerator.generate_deterministic_id(
                 agent_id=agent_id,
                 service_name=service_name,
                 service_config=service_config,
-                global_agent_store_id=agent_id  # 使用 agent_id 作为 global ID
+                global_agent_store_id=agent_id  # Use agent_id as global ID
             )
             logger.debug(f"[LIFECYCLE] Generated client_id: {client_id}")
             
-            # 检查是否已存在映射
+            # Check if mapping already exists
             existing_client_id = self._registry._agent_client_service.get_service_client_id(agent_id, service_name)
             if existing_client_id:
                 logger.debug(f"[LIFECYCLE] Found existing client_id mapping: {existing_client_id}")
                 client_id = existing_client_id
             
-            # 发布 ServiceAddRequested 事件，触发完整流程
+            # Publish ServiceAddRequested event to trigger complete flow
             from mcpstore.core.events.service_events import ServiceAddRequested
             import asyncio
             
@@ -593,20 +593,20 @@ class LifecycleManager:
             
             logger.info(f"[LIFECYCLE] Publishing ServiceAddRequested event for {service_name}")
             
-            # 同步发布事件（在当前事件循环中）
+            # Publish event synchronously (in current event loop)
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-                    # 如果事件循环正在运行，创建任务
+                    # If event loop is running, create task
                     task = asyncio.create_task(self._event_bus.publish(event, wait=True))
-                    # 不等待任务完成，让它在后台运行
+                    # Don't wait for task completion, let it run in background
                     logger.debug(f"[LIFECYCLE] Event published as background task")
                 else:
-                    # 如果事件循环未运行，同步运行
+                    # If event loop is not running, run synchronously
                     loop.run_until_complete(self._event_bus.publish(event, wait=True))
                     logger.debug(f"[LIFECYCLE] Event published synchronously")
             except RuntimeError as e:
-                # 处理没有事件循环的情况
+                # Handle case where no event loop is available
                 logger.warning(f"[LIFECYCLE] No event loop available, creating new one: {e}")
                 new_loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(new_loop)
@@ -624,14 +624,14 @@ class LifecycleManager:
             return False
     
     async def graceful_disconnect(self, agent_id: str, service_name: str, reason: str = "user_requested"):
-        """优雅断开服务连接（不修改配置/注册表实体，仅生命周期断链）。
+        """Gracefully disconnect service (does not modify config/registry entities, only lifecycle disconnection).
 
-        - 将状态置为 DISCONNECTING → DISCONNECTED
-        - 记录断开原因到 metadata
-        - 由上层（可选）清理工具展示缓存
+        - Set state to DISCONNECTING → DISCONNECTED
+        - Record disconnect reason in metadata
+        - Upper layer (optional) cleans up tool display cache
         """
         try:
-            # 更新断开原因
+            # Update disconnect reason
             metadata = await self._registry.get_service_metadata_async(agent_id, service_name)
             if metadata:
                 try:
@@ -640,7 +640,7 @@ class LifecycleManager:
                 except Exception:
                     pass
 
-            # 先进入 DISCONNECTING
+            # First enter DISCONNECTING
             await self._transition_state(
                 agent_id=agent_id,
                 service_name=service_name,
@@ -649,7 +649,7 @@ class LifecycleManager:
                 source="LifecycleManager"
             )
 
-            # 立即收敛为 DISCONNECTED（不等待外部回调）
+            # Immediately converge to DISCONNECTED (don't wait for external callback)
             await self._transition_state(
                 agent_id=agent_id,
                 service_name=service_name,
@@ -669,9 +669,9 @@ class LifecycleManager:
         source: str
     ):
         """
-        执行状态转换（唯一入口）
+        Execute state transition (single entry point)
         """
-        # 获取当前状态（异步接口）
+        # Get current state (async interface)
         try:
             old_state = await self._registry.get_service_state_async(agent_id, service_name)
         except Exception as e:
@@ -688,10 +688,10 @@ class LifecycleManager:
             f"(reason={reason}, source={source})"
         )
         
-        # 更新状态（异步接口）
+        # Update state (async interface)
         await self._registry.set_service_state_async(agent_id, service_name, new_state)
         
-        # Update metadata（从 pykv 异步获取）
+        # Update metadata (async get from pykv)
         try:
             metadata = await self._registry.get_service_metadata_async(agent_id, service_name)
 
@@ -707,7 +707,7 @@ class LifecycleManager:
             logger.error(f"[LIFECYCLE] Error updating metadata for {service_name}: {e}")
             raise
         
-        # 发布状态变化事件
+        # Publish state change event
         state_changed_event = ServiceStateChanged(
             agent_id=agent_id,
             service_name=service_name,

@@ -8,9 +8,14 @@ from typing import Dict, Any, Union, List, Optional
 
 from fastapi import APIRouter, Request, Query
 
-from mcpstore.core.models import ResponseBuilder, ErrorCode, timed_response
-from mcpstore.core.models.common import APIResponse  # Keep for response_model
-from .api_decorators import get_store, validate_agent_id
+from mcpstore.core.models import (
+    APIResponse,
+    ErrorCode,
+    ResponseBuilder,
+    timed_response,
+)
+from .api_decorators import validate_agent_id
+from .api_dependencies import get_store
 from .api_models import (
     SimpleToolExecutionRequest, create_enhanced_pagination_info
 )
@@ -615,48 +620,6 @@ async def get_agent_tool_records(agent_id: str, limit: int = 50):
     return ResponseBuilder.success(
         message=f"Retrieved {len(records_data.get('executions', []))} tool execution records for agent '{agent_id}'",
         data=records_data
-    )
-
-# === Backward Compatibility Routes ===
-@agent_router.post("/for_agent/{agent_id}/wait_service", response_model=APIResponse)
-@timed_response
-async def agent_wait_service(agent_id: str, request: Request):
-    """Wait for service to reach specified state at agent level"""
-    body = await request.json()
-
-    # Extract parameters
-    client_id_or_service_name = body.get("client_id_or_service_name")
-    if not client_id_or_service_name:
-        return ResponseBuilder.error(
-            code=ErrorCode.VALIDATION_ERROR,
-            message="Missing required parameter: client_id_or_service_name",
-            field="client_id_or_service_name"
-        )
-
-    status = body.get("status", "healthy")
-    timeout = body.get("timeout", 10.0)
-    raise_on_timeout = body.get("raise_on_timeout", False)
-
-    # Call SDK
-    store = get_store()
-    context = store.for_agent(agent_id)
-    
-    result = await context.bridge_execute(
-        context.wait_service_async(
-            client_id_or_service_name=client_id_or_service_name,
-            status=status,
-            timeout=timeout,
-            raise_on_timeout=raise_on_timeout
-        )
-    )
-    
-    return ResponseBuilder.success(
-        message=f"Service wait {'completed' if result else 'timeout'} for agent '{agent_id}'",
-        data={
-            "agent_id": agent_id,
-            "service": client_id_or_service_name,
-            "result": result
-        }
     )
 
 @agent_router.post("/for_agent/{agent_id}/restart_service", response_model=APIResponse)

@@ -49,9 +49,9 @@ class NamingService:
             "context7"
         """
         if not original_name:
-            raise ValueError("服务原始名称不能为空")
+            raise ValueError("Service original name cannot be empty")
         if not agent_id:
-            raise ValueError("Agent ID 不能为空")
+            raise ValueError("Agent ID cannot be empty")
         
         if agent_id == NamingService.GLOBAL_AGENT_STORE:
             global_name = original_name
@@ -59,7 +59,7 @@ class NamingService:
             global_name = f"{original_name}{NamingService.AGENT_SEPARATOR}{agent_id}"
         
         logger.debug(
-            f"[NAMING] 生成服务全局名称: original_name={original_name}, "
+            f"[NAMING] Generated service global name: original_name={original_name}, "
             f"agent_id={agent_id}, global_name={global_name}"
         )
         
@@ -104,9 +104,9 @@ class NamingService:
             "mcpstore_get_current_weather"  # 已包含服务前缀，不重复添加
         """
         if not service_global_name:
-            raise ValueError("服务全局名称不能为空")
+            raise ValueError("Service global name cannot be empty")
         if not tool_original_name:
-            raise ValueError("工具原始名称不能为空")
+            raise ValueError("Tool original name cannot be empty")
         
         # 检查工具名是否已经以服务全局名称开头
         # 避免重复添加前缀
@@ -116,7 +116,7 @@ class NamingService:
             tool_global_name = f"{service_global_name}_{tool_original_name}"
         
         logger.debug(
-            f"[NAMING] 生成工具全局名称: service_global_name={service_global_name}, "
+            f"[NAMING] Generated tool global name: service_global_name={service_global_name}, "
             f"tool_original_name={tool_original_name}, "
             f"tool_global_name={tool_global_name}"
         )
@@ -146,7 +146,7 @@ class NamingService:
             ("context7", "global_agent_store")
         """
         if not global_name:
-            raise ValueError("服务全局名称不能为空")
+            raise ValueError("Service global name cannot be empty")
         
         if NamingService.AGENT_SEPARATOR not in global_name:
             # 没有分隔符，认为是 global_agent_store 的服务
@@ -157,13 +157,13 @@ class NamingService:
             parts = global_name.rsplit(NamingService.AGENT_SEPARATOR, 1)
             if len(parts) != 2:
                 raise ValueError(
-                    f"无效的服务全局名称格式: {global_name}. "
-                    f"期望格式: 'name{NamingService.AGENT_SEPARATOR}agent_id' 或 'name'"
+                    f"Invalid service global name format: {global_name}. "
+                    f"Expected format: 'name{NamingService.AGENT_SEPARATOR}agent_id' or 'name'"
                 )
             original_name, agent_id = parts
         
         logger.debug(
-            f"[NAMING] 解析服务全局名称: global_name={global_name}, "
+            f"[NAMING] Parsed service global name: global_name={global_name}, "
             f"original_name={original_name}, agent_id={agent_id}"
         )
         

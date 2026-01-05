@@ -1,20 +1,3 @@
-"""
-MCPStore API main route registration file
-Integrates routes from all sub-modules, providing a unified API entry point
-
-Refactoring notes:
-- The original 2391-line api.py file has been split by functional modules into:
-  * api_models.py - All response models
-  * api_decorators.py - Decorators and utility functions
-  * api_store.py - Store-level routes
-  * api_agent.py - Agent-level routes
-- This file is responsible for unified registration of all sub-routes, maintaining API interface compatibility
-
-v0.6.0 Changes:
-- Removed api_monitoring.py (23 interfaces) - Overly complex, users can implement with basic interfaces
-- Removed api_langchain.py (7 interfaces) - Framework-specific integration, not core functionality
-- Removed api_data_space.py (6 interfaces) - Workspace management moved to separate service
-"""
 
 from fastapi import APIRouter
 

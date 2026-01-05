@@ -40,7 +40,7 @@ class RelationshipManager:
             cache_layer: 缓存层管理器实例
         """
         self._cache_layer = cache_layer
-        logger.debug("[RELATIONSHIP] 初始化 RelationshipManager")
+        logger.debug("[RELATIONSHIP] Initializing RelationshipManager")
     
     # ==================== Agent-Service 关系管理 ====================
     
@@ -66,13 +66,13 @@ class RelationshipManager:
             RuntimeError: 如果添加失败
         """
         if not agent_id:
-            raise ValueError("Agent ID 不能为空")
+            raise ValueError("Agent ID cannot be empty")
         if not service_original_name:
-            raise ValueError("服务原始名称不能为空")
+            raise ValueError("Service original name cannot be empty")
         if not service_global_name:
-            raise ValueError("服务全局名称不能为空")
+            raise ValueError("Service global name cannot be empty")
         if not client_id:
-            raise ValueError("客户端 ID 不能为空")
+            raise ValueError("Client ID cannot be empty")
         
         # 验证服务实体存在
         service_entity = await self._cache_layer.get_entity(
@@ -81,11 +81,11 @@ class RelationshipManager:
         )
         if service_entity is None:
             raise KeyError(
-                f"服务实体不存在: service_global_name={service_global_name}"
+                f"Service entity does not exist: service_global_name={service_global_name}"
             )
         
         logger.debug(
-            f"[RELATIONSHIP] 添加 Agent-Service 关系: agent_id={agent_id}, "
+            f"[RELATIONSHIP] Adding Agent-Service relation: agent_id={agent_id}, "
             f"service_original_name={service_original_name}, "
             f"service_global_name={service_global_name}, client_id={client_id}"
         )
@@ -122,7 +122,7 @@ class RelationshipManager:
                 )
                 
                 logger.info(
-                    f"[RELATIONSHIP] 更新 Agent-Service 关系: agent_id={agent_id}, "
+                    f"[RELATIONSHIP] Updated Agent-Service relation: agent_id={agent_id}, "
                     f"service_global_name={service_global_name}"
                 )
                 return
@@ -146,7 +146,7 @@ class RelationshipManager:
         )
         
         logger.info(
-            f"[RELATIONSHIP] 成功添加 Agent-Service 关系: agent_id={agent_id}, "
+            f"[RELATIONSHIP] Successfully added Agent-Service relation: agent_id={agent_id}, "
             f"service_global_name={service_global_name}"
         )
     
@@ -168,12 +168,12 @@ class RelationshipManager:
             RuntimeError: 如果移除失败
         """
         if not agent_id:
-            raise ValueError("Agent ID 不能为空")
+            raise ValueError("Agent ID cannot be empty")
         if not service_global_name:
-            raise ValueError("服务全局名称不能为空")
+            raise ValueError("Service global name cannot be empty")
         
         logger.debug(
-            f"[RELATIONSHIP] 移除 Agent-Service 关系: agent_id={agent_id}, "
+            f"[RELATIONSHIP] Removing Agent-Service relation: agent_id={agent_id}, "
             f"service_global_name={service_global_name}"
         )
         
@@ -185,7 +185,7 @@ class RelationshipManager:
         
         if relation_data is None:
             raise KeyError(
-                f"Agent 关系不存在: agent_id={agent_id}"
+                f"Agent relation does not exist: agent_id={agent_id}"
             )
         
         # 解析关系
@@ -200,7 +200,7 @@ class RelationshipManager:
         
         if len(relation.services) == original_count:
             raise KeyError(
-                f"服务不存在于 Agent 关系中: agent_id={agent_id}, "
+                f"Service does not exist in Agent relation: agent_id={agent_id}, "
                 f"service_global_name={service_global_name}"
             )
         
@@ -209,7 +209,7 @@ class RelationshipManager:
             # 如果没有服务了，删除整个关系
             await self._cache_layer.delete_relation("agent_services", agent_id)
             logger.info(
-                f"[RELATIONSHIP] 删除空的 Agent 关系: agent_id={agent_id}"
+                f"[RELATIONSHIP] Deleted empty Agent relation: agent_id={agent_id}"
             )
         else:
             # 保存更新后的关系
@@ -219,7 +219,7 @@ class RelationshipManager:
                 relation.to_dict()
             )
             logger.info(
-                f"[RELATIONSHIP] 成功移除 Agent-Service 关系: "
+                f"[RELATIONSHIP] Successfully removed Agent-Service relation: "
                 f"agent_id={agent_id}, service_global_name={service_global_name}"
             )
     
@@ -241,10 +241,10 @@ class RelationshipManager:
             RuntimeError: 如果获取失败
         """
         if not agent_id:
-            raise ValueError("Agent ID 不能为空")
+            raise ValueError("Agent ID cannot be empty")
         
         logger.debug(
-            f"[RELATIONSHIP] 获取 Agent 服务关系: agent_id={agent_id}"
+            f"[RELATIONSHIP] Getting Agent service relations: agent_id={agent_id}"
         )
         
         # 获取关系
@@ -255,7 +255,7 @@ class RelationshipManager:
         
         if relation_data is None:
             logger.debug(
-                f"[RELATIONSHIP] Agent 关系不存在: agent_id={agent_id}"
+                f"[RELATIONSHIP] Agent relation does not exist: agent_id={agent_id}"
             )
             return []
         
@@ -266,7 +266,7 @@ class RelationshipManager:
         services = [service.to_dict() for service in relation.services]
         
         logger.debug(
-            f"[RELATIONSHIP] 获取到 {len(services)} 个服务关系: "
+            f"[RELATIONSHIP] Retrieved {len(services)} service relations: "
             f"agent_id={agent_id}"
         )
         
@@ -298,15 +298,15 @@ class RelationshipManager:
             RuntimeError: 如果添加失败
         """
         if not service_global_name:
-            raise ValueError("服务全局名称不能为空")
+            raise ValueError("Service global name cannot be empty")
         if not service_original_name:
-            raise ValueError("服务原始名称不能为空")
+            raise ValueError("Service original name cannot be empty")
         if not source_agent:
-            raise ValueError("来源 Agent 不能为空")
+            raise ValueError("Source Agent cannot be empty")
         if not tool_global_name:
-            raise ValueError("工具全局名称不能为空")
+            raise ValueError("Tool global name cannot be empty")
         if not tool_original_name:
-            raise ValueError("工具原始名称不能为空")
+            raise ValueError("Tool original name cannot be empty")
         
         # 注意：不在这里验证工具实体存在性
         # 原因：
@@ -317,7 +317,7 @@ class RelationshipManager:
         # 4. 调用方负责确保工具实体已创建
         
         logger.debug(
-            f"[RELATIONSHIP] 添加 Service-Tool 关系: "
+            f"[RELATIONSHIP] Adding Service-Tool relation: "
             f"service_global_name={service_global_name}, "
             f"tool_global_name={tool_global_name}"
         )
@@ -356,7 +356,7 @@ class RelationshipManager:
                 )
                 
                 logger.info(
-                    f"[RELATIONSHIP] 更新 Service-Tool 关系: "
+                    f"[RELATIONSHIP] Updated Service-Tool relation: "
                     f"service_global_name={service_global_name}, "
                     f"tool_global_name={tool_global_name}"
                 )
@@ -377,7 +377,7 @@ class RelationshipManager:
         )
         
         logger.info(
-            f"[RELATIONSHIP] 成功添加 Service-Tool 关系: "
+            f"[RELATIONSHIP] Successfully added Service-Tool relation: "
             f"service_global_name={service_global_name}, "
             f"tool_global_name={tool_global_name}"
         )
@@ -400,12 +400,12 @@ class RelationshipManager:
             RuntimeError: 如果移除失败
         """
         if not service_global_name:
-            raise ValueError("服务全局名称不能为空")
+            raise ValueError("Service global name cannot be empty")
         if not tool_global_name:
-            raise ValueError("工具全局名称不能为空")
+            raise ValueError("Tool global name cannot be empty")
         
         logger.debug(
-            f"[RELATIONSHIP] 移除 Service-Tool 关系: "
+            f"[RELATIONSHIP] Removing Service-Tool relation: "
             f"service_global_name={service_global_name}, "
             f"tool_global_name={tool_global_name}"
         )
@@ -418,7 +418,7 @@ class RelationshipManager:
         
         if relation_data is None:
             raise KeyError(
-                f"服务关系不存在: service_global_name={service_global_name}"
+                f"Service relation does not exist: service_global_name={service_global_name}"
             )
         
         # 解析关系
@@ -433,7 +433,7 @@ class RelationshipManager:
         
         if len(relation.tools) == original_count:
             raise KeyError(
-                f"工具不存在于服务关系中: "
+                f"Tool does not exist in service relation: "
                 f"service_global_name={service_global_name}, "
                 f"tool_global_name={tool_global_name}"
             )
@@ -446,7 +446,7 @@ class RelationshipManager:
                 service_global_name
             )
             logger.info(
-                f"[RELATIONSHIP] 删除空的服务关系: "
+                f"[RELATIONSHIP] Deleted empty service relation: "
                 f"service_global_name={service_global_name}"
             )
         else:
@@ -457,7 +457,7 @@ class RelationshipManager:
                 relation.to_dict()
             )
             logger.info(
-                f"[RELATIONSHIP] 成功移除 Service-Tool 关系: "
+                f"[RELATIONSHIP] Successfully removed Service-Tool relation: "
                 f"service_global_name={service_global_name}, "
                 f"tool_global_name={tool_global_name}"
             )
@@ -480,10 +480,10 @@ class RelationshipManager:
             RuntimeError: 如果获取失败
         """
         if not service_global_name:
-            raise ValueError("服务全局名称不能为空")
+            raise ValueError("Service global name cannot be empty")
         
         logger.debug(
-            f"[RELATIONSHIP] 获取服务工具关系: "
+            f"[RELATIONSHIP] Getting service tool relations: "
             f"service_global_name={service_global_name}"
         )
         
@@ -495,7 +495,7 @@ class RelationshipManager:
         
         if relation_data is None:
             logger.debug(
-                f"[RELATIONSHIP] 服务关系不存在: "
+                f"[RELATIONSHIP] Service relation does not exist: "
                 f"service_global_name={service_global_name}"
             )
             return []
@@ -507,7 +507,7 @@ class RelationshipManager:
         tools = [tool.to_dict() for tool in relation.tools]
         
         logger.debug(
-            f"[RELATIONSHIP] 获取到 {len(tools)} 个工具关系: "
+            f"[RELATIONSHIP] Retrieved {len(tools)} tool relations: "
             f"service_global_name={service_global_name}"
         )
         
@@ -536,12 +536,12 @@ class RelationshipManager:
             RuntimeError: 如果删除失败
         """
         if not agent_id:
-            raise ValueError("Agent ID 不能为空")
+            raise ValueError("Agent ID cannot be empty")
         if not service_global_name:
-            raise ValueError("服务全局名称不能为空")
+            raise ValueError("Service global name cannot be empty")
         
         logger.info(
-            f"[RELATIONSHIP] 级联删除服务关系: agent_id={agent_id}, "
+            f"[RELATIONSHIP] Cascading delete service relations: agent_id={agent_id}, "
             f"service_global_name={service_global_name}"
         )
         
@@ -550,7 +550,7 @@ class RelationshipManager:
             await self.remove_agent_service(agent_id, service_global_name)
         except KeyError as e:
             logger.warning(
-                f"[RELATIONSHIP] Agent-Service 关系不存在，跳过: {e}"
+                f"[RELATIONSHIP] Agent-Service relation does not exist, skipping: {e}"
             )
         
         # 2. 删除 Service-Tool 关系
@@ -560,14 +560,14 @@ class RelationshipManager:
                 service_global_name
             )
             logger.info(
-                f"[RELATIONSHIP] 删除 Service-Tool 关系: "
+                f"[RELATIONSHIP] Deleted Service-Tool relation: "
                 f"service_global_name={service_global_name}"
             )
         except Exception as e:
             logger.warning(
-                f"[RELATIONSHIP] 删除 Service-Tool 关系失败: {e}"
+                f"[RELATIONSHIP] Failed to delete Service-Tool relation: {e}"
             )
         
         logger.info(
-            f"[RELATIONSHIP] 级联删除完成: service_global_name={service_global_name}"
+            f"[RELATIONSHIP] Cascading delete completed: service_global_name={service_global_name}"
         )

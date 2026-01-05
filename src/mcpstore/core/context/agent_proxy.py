@@ -53,7 +53,7 @@ class AgentProxy:
         }
 
     def get_stats(self) -> Dict[str, Any]:
-        raise RuntimeError("[AGENT_PROXY] 同步 get_stats 已禁用，请使用 get_stats_async。")
+        raise RuntimeError("[AGENT_PROXY] Synchronous get_stats is disabled, please use get_stats_async.")
 
     async def get_stats_async(self) -> Dict[str, Any]:
         """异步获取 Agent 统计，供异步场景和 FastAPI 使用。"""
@@ -204,7 +204,7 @@ class AgentProxy:
 
     # ---- Health & runtime ----
     def check_services(self) -> Dict[str, Any]:
-        raise RuntimeError("[AGENT_PROXY] 同步 check_services 已禁用，请使用 check_services_async。")
+        raise RuntimeError("[AGENT_PROXY] Synchronous check_services is disabled, please use check_services_async.")
 
     def call_tool(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         # 为兼容同步示例，桥接到异步实现；若当前线程已有事件循环，会抛出异常提示使用异步
@@ -212,7 +212,7 @@ class AgentProxy:
         try:
             loop = asyncio.get_running_loop()
             if loop.is_running():
-                raise RuntimeError("[AGENT_PROXY] 当前线程已有事件循环，请使用 call_tool_async。")
+                raise RuntimeError("[AGENT_PROXY] Current thread already has an event loop, please use call_tool_async.")
         except RuntimeError:
             pass  # 无运行中的 loop，可安全使用 asyncio.run
 
@@ -238,7 +238,7 @@ class AgentProxy:
         try:
             loop = asyncio.get_running_loop()
             if loop.is_running():
-                raise RuntimeError("[AGENT_PROXY] 当前线程已有事件循环，请使用 add_service_async。")
+                raise RuntimeError("[AGENT_PROXY] Current thread already has an event loop, please use add_service_async.")
         except RuntimeError:
             # 没有运行中的事件循环，安全使用 asyncio.run
             return asyncio.run(self.add_service_async(*args, **kwargs))
@@ -247,10 +247,10 @@ class AgentProxy:
         return False
 
     def update_service(self, name: str, patch: Dict[str, Any]) -> bool:
-        raise RuntimeError("[AGENT_PROXY] 同步 update_service 已禁用，请使用 update_service_async。")
+        raise RuntimeError("[AGENT_PROXY] Synchronous update_service is disabled, please use update_service_async.")
 
     def delete_service(self, name: str) -> bool:
-        raise RuntimeError("[AGENT_PROXY] 同步 delete_service 已禁用，请使用 delete_service_async。")
+        raise RuntimeError("[AGENT_PROXY] Synchronous delete_service is disabled, please use delete_service_async.")
 
     # Async counterparts (explicit wrappers)
     async def add_service_async(self, *args, **kwargs):
@@ -320,14 +320,14 @@ class AgentProxy:
         return await ctx.patch_service_async(name, updates)
 
     def restart_service(self, name: str) -> bool:
-        raise RuntimeError("[AGENT_PROXY] 同步 restart_service 已禁用，请使用 restart_service_async。")
+        raise RuntimeError("[AGENT_PROXY] Synchronous restart_service is disabled, please use restart_service_async.")
 
     async def restart_service_async(self, name: str) -> bool:
         ctx = self._agent_ctx or self._context
         return await ctx.restart_service_async(name)
 
     def use_tool(self, tool_name: str, args: Any = None, **kwargs) -> Any:
-        raise RuntimeError("[AGENT_PROXY] 同步 use_tool 已禁用，请使用 call_tool_async。")
+        raise RuntimeError("[AGENT_PROXY] Synchronous use_tool is disabled, please use call_tool_async.")
 
     async def check_services_async(self) -> Dict[str, Any]:
         ctx = self._agent_ctx or self._context

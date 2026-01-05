@@ -245,20 +245,20 @@ class ServiceContentManager:
             service_entity = await service_entity_manager.get_service(global_name)
 
             if service_entity is None:
-                logger.debug(f"pykv 中未找到服务实体: {global_name}")
+                logger.debug(f"Service entity not found in pykv: {global_name}")
                 return None
 
             # 返回服务配置（ServiceEntity 是 dataclass，直接访问 config 属性）
             config = service_entity.config
             if not config:
-                logger.debug(f"服务实体配置为空: {global_name}")
+                logger.debug(f"Service entity config is empty: {global_name}")
                 return None
 
-            logger.debug(f"从 pykv 获取服务配置成功: {global_name}")
+            logger.debug(f"Successfully retrieved service config from pykv: {global_name}")
             return config
 
         except Exception as e:
-            logger.error(f"从 pykv 获取服务配置失败: agent_id={agent_id}, service_name={service_name}, error={e}")
+            logger.error(f"Failed to get service config from pykv: agent_id={agent_id}, service_name={service_name}, error={e}")
             raise
 
     async def _update_service_content_with_cleanup(self, agent_id: str, service_name: str):
@@ -281,7 +281,7 @@ class ServiceContentManager:
             # 从 pykv 获取服务配置（遵循 pykv 唯一真相数据源原则）
             service_config = await self._get_service_config_from_pykv_async(agent_id, service_name)
             if not service_config:
-                logger.warning(f"pykv 中未找到服务配置: agent_id={agent_id}, service_name={service_name}")
+                logger.warning(f"Service config not found in pykv: agent_id={agent_id}, service_name={service_name}")
                 return False
 
             # 创建临时客户端

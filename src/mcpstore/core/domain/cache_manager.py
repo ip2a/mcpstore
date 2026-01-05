@@ -73,59 +73,70 @@ class CacheManager:
         Handle service add request - immediately add to cache
         """
         logger.info(f"[CACHE] Processing ServiceAddRequested: {event.service_name}")
-        logger.debug(f"[CACHE] Event details: agent_id={event.agent_id}, client_id={event.client_id}")
+        logger.debug(f"[CACHE] Event details: agent_id={event.agent_id}, client_id={event.client_id}, global_name={getattr(event, 'global_name', '')}")
         logger.debug(f"[CACHE] Service config keys: {list(event.service_config.keys()) if event.service_config else 'None'}")
-        
-        transaction = CacheTransaction(agent_id=event.agent_id)
+        origin_agent = event.origin_agent_id or event.agent_id
+        origin_local_name = event.origin_local_name or event.service_name
+        global_name = event.global_name or event.service_name
+        global_agent_id = self._registry._naming.GLOBAL_AGENT_STORE
+
+        transaction = CacheTransaction(agent_id=origin_agent)
         
         try:
             # 使用 per-agent 锁保证并发安全
             async with self._agent_locks.write(
-                event.agent_id, 
+                origin_agent, 
                 operation="cache_on_service_add_requested"
             ):
-                # 1. 添加服务到缓存（INITIALIZING 状态）
-                # 使用异步版本避免事件循环冲突
+                # 1. 添加服务到缓存（全局视角，INITIALIZING 状态）
                 await self._registry.add_service_async(
-                    agent_id=event.agent_id,
-                    name=event.service_name,
+                    agent_id=global_agent_id,
+                    name=global_name,
                     session=None,  # 暂无连接
                     tools=[],      # 暂无工具
                     service_config=event.service_config,
                     state=ServiceConnectionState.INITIALIZING
                 )
                 transaction.record(
-                    "add_service",
+                    "add_service_global",
                     self._registry.remove_service_async,
-                    event.agent_id, event.service_name
+                    global_agent_id, global_name
                 )
-                
-                # 2. 添加 Agent-Client 映射（在新架构中是 no-op，但保留用于兼容性）
-                # 使用 _agent_client_service 适配器
-                self._registry._agent_client_service.add_agent_client_mapping(event.agent_id, event.client_id)
+
+                # 2. 建立 Agent-Service 关系
+                await self._registry._relation_manager.add_agent_service(
+                    agent_id=origin_agent,
+                    service_original_name=origin_local_name,
+                    service_global_name=global_name,
+                    client_id=event.client_id
+                )
                 transaction.record(
-                    "add_agent_client_mapping",
-                    self._registry._agent_client_service.remove_agent_client_mapping,
-                    event.agent_id, event.client_id
+                    "add_agent_service",
+                    self._registry._relation_manager.remove_agent_service,
+                    origin_agent, global_name
                 )
-                
-                # 注意：在新架构中，client_config 不再需要单独存储
-                # 服务配置已经存储在服务实体中（service_entity.config）
-                # MappingManager 已被禁用，使用 RelationshipManager 管理关系
-                
-                # 3. 添加 Service-Client 映射（使用异步版本）
-                logger.debug(f"[CACHE] Adding service-client mapping: {event.agent_id}:{event.service_name} -> {event.client_id}")
+
+                # 3. 添加 Service-Client 映射（Agent 与 Global）
+                logger.debug(f"[CACHE] Adding service-client mapping: {origin_agent}:{origin_local_name} -> {event.client_id}")
                 await self._registry.set_service_client_mapping_async(
-                    event.agent_id, event.service_name, event.client_id
+                    origin_agent, origin_local_name, event.client_id
+                )
+                await self._registry.set_service_client_mapping_async(
+                    global_agent_id, global_name, event.client_id
                 )
                 transaction.record(
-                    "set_service_client_mapping",
+                    "set_service_client_mapping_agent",
                     self._registry.delete_service_client_mapping_async,
-                    event.agent_id, event.service_name
+                    origin_agent, origin_local_name
+                )
+                transaction.record(
+                    "set_service_client_mapping_global",
+                    self._registry.delete_service_client_mapping_async,
+                    global_agent_id, global_name
                 )
 
                 # 立即验证映射是否成功建立（使用异步版本）
-                verify_client_id = await self._registry.get_service_client_id_async(event.agent_id, event.service_name)
+                verify_client_id = await self._registry.get_service_client_id_async(origin_agent, origin_local_name)
                 if verify_client_id != event.client_id:
                     error_msg = (
                         f"Service-client mapping verification failed! "
@@ -133,7 +144,7 @@ class CacheManager:
                     )
                     logger.error(f"[CACHE] {error_msg}")
                     raise RuntimeError(error_msg)
-                logger.debug(f"[CACHE] Service-client mapping verified: {event.agent_id}:{event.service_name} -> {verify_client_id}")
+                logger.debug(f"[CACHE] Service-client mapping verified: {origin_agent}:{origin_local_name} -> {verify_client_id}")
 
             logger.info(f"[CACHE] Service cached: {event.service_name}")
             logger.debug(f"[CACHE] Verification - client_id mapping: {verify_client_id}")
@@ -202,14 +213,14 @@ class CacheManager:
                 )
                 if service_entity is None:
                     raise RuntimeError(
-                        f"服务实体不存在，无法更新缓存: "
+                        f"Service entity does not exist, cannot update cache: "
                         f"service_name={event.service_name}, agent_id={event.agent_id}, "
                         f"global_name={service_global_name}"
                     )
                 existing_config = service_entity.config
                 if not existing_config:
                     raise RuntimeError(
-                        f"服务配置为空，数据不一致: "
+                        f"Service configuration is empty, data inconsistency: "
                         f"service_name={event.service_name}, agent_id={event.agent_id}, "
                         f"global_name={service_global_name}"
                     )
@@ -281,7 +292,7 @@ class CacheManager:
         )
         
         logger.info(
-            f"[CACHE] 创建工具实体和关系: agent_id={agent_id}, "
+            f"[CACHE] Creating tool entities and relations: agent_id={agent_id}, "
             f"service_name={service_name}, service_global_name={service_global_name}, "
             f"tools_count={len(tools)}"
         )
@@ -292,13 +303,13 @@ class CacheManager:
         
         if tool_entity_manager is None:
             raise RuntimeError(
-                f"ToolEntityManager 未初始化，无法创建工具实体: "
+                f"ToolEntityManager not initialized, cannot create tool entities: "
                 f"service_global_name={service_global_name}"
             )
         
         if relation_manager is None:
             raise RuntimeError(
-                f"RelationshipManager 未初始化，无法创建 Service-Tool 关系: "
+                f"RelationshipManager not initialized, cannot create Service-Tool relation: "
                 f"service_global_name={service_global_name}"
             )
         
@@ -318,7 +329,7 @@ class CacheManager:
             )
 
             logger.debug(
-                f"[CACHE] 创建工具: tool_name={tool_name}, "
+                f"[CACHE] Creating tool: tool_name={tool_name}, "
                 f"tool_global_name={tool_global_name}, original={original_tool_name}"
             )
 
@@ -341,7 +352,7 @@ class CacheManager:
             )
         
         logger.info(
-            f"[CACHE] 工具实体和关系创建成功: service_global_name={service_global_name}, "
+            f"[CACHE] Tool entities and relations created successfully: service_global_name={service_global_name}, "
             f"tools_count={len(tools)}"
         )
 
@@ -368,7 +379,7 @@ class CacheManager:
         )
         
         logger.debug(
-            f"[CACHE] 更新服务状态: agent_id={agent_id}, "
+            f"[CACHE] Updating service status: agent_id={agent_id}, "
             f"service_name={service_name}, service_global_name={service_global_name}, "
             f"tools_count={len(tools)}"
         )
@@ -402,7 +413,7 @@ class CacheManager:
         
         if state_manager is None:
             raise RuntimeError(
-                f"CacheStateManager 未初始化，无法更新服务状态: "
+                f"CacheStateManager not initialized, cannot update service status: "
                 f"service_global_name={service_global_name}"
             )
         
@@ -413,6 +424,6 @@ class CacheManager:
         )
         
         logger.info(
-            f"[CACHE] 服务状态更新成功: service_global_name={service_global_name}, "
+            f"[CACHE] Service status updated successfully: service_global_name={service_global_name}, "
             f"tools_count={len(tools_status)}"
         )

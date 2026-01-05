@@ -51,12 +51,7 @@ def set_request_store(store: MCPStore) -> None:
     _store_context.set(store)
 
 
-# 向后兼容的别名（保持老代码可用）
-get_global_store = get_store
-set_global_store = set_request_store
-
-
-def has_global_store() -> bool:
+def has_store_context() -> bool:
     """
     检查当前上下文是否已设置 store 实例
 

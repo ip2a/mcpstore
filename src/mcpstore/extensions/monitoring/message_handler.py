@@ -42,7 +42,7 @@ class MCPStoreMessageHandler:
         if not FASTMCP_AVAILABLE:
             return
 
-        logger.info("🔔 Received tools/list_changed notification from FastMCP server")
+        logger.info("Received tools/list_changed notification from FastMCP server")
 
         # Record notification history
         self._record_notification("tools_changed", notification)
@@ -58,7 +58,7 @@ class MCPStoreMessageHandler:
         if not FASTMCP_AVAILABLE:
             return
 
-        logger.info("🔔 Received resources/list_changed notification from FastMCP server")
+        logger.info("Received resources/list_changed notification from FastMCP server")
 
         # 记录通知历史
         self._record_notification("resources_changed", notification)
@@ -76,7 +76,7 @@ class MCPStoreMessageHandler:
         if not FASTMCP_AVAILABLE:
             return
 
-        logger.info("🔔 Received prompts/list_changed notification from FastMCP server")
+        logger.info("Received prompts/list_changed notification from FastMCP server")
 
         # 记录通知历史
         self._record_notification("prompts_changed", notification)

@@ -139,7 +139,9 @@ def get_namespace(config: RedisConfig) -> str:
 
 def detect_strategy(
     cache_config: Optional[BaseCacheConfig],
-    json_path: Optional[str]
+    json_path: Optional[str],
+    *,
+    only_db: bool = False,
 ) -> DataSourceStrategy:
     """
     根据配置自动检测数据源策略
@@ -168,17 +170,21 @@ def detect_strategy(
         >>> detect_strategy(RedisConfig(url="redis://localhost:6379/0"), None)
         DataSourceStrategy.ONLY_DB
     """
+    if only_db:
+        return DataSourceStrategy.ONLY_DB
+
     has_json = json_path is not None
     is_memory = isinstance(cache_config, MemoryConfig)
-    
-    if has_json:
-        if is_memory:
-            return DataSourceStrategy.LOCAL_MEMORY  # 标准本地配置
-        else:
-            return DataSourceStrategy.LOCAL_DB  # 本地配置 + 远程存储
+
+    if not has_json:
+        # 在新语义下，只要未显式启用 only_db，就认为仍需同步本地配置
+        # 此时缺少 json_path 说明调用方未提供，自行降级为默认路径
+        has_json = True
+
+    if is_memory:
+        return DataSourceStrategy.LOCAL_MEMORY
     else:
-        # 无 JSON 文件
-        return DataSourceStrategy.ONLY_DB  # 仅远程存储
+        return DataSourceStrategy.LOCAL_DB
 
 
 async def create_kv_store_async(cache_config: Union[MemoryConfig, RedisConfig], test_connection: bool = True):
@@ -371,4 +377,3 @@ def create_kv_store(cache_config: Union[MemoryConfig, RedisConfig], test_connect
             raise handle_redis_connection_error(e, cache_config)
     
     raise ValueError(f"Unsupported cache config type: {type(cache_config)}")
-

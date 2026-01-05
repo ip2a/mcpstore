@@ -33,9 +33,9 @@ class AgentStatisticsMixin:
         """
         try:
             #  [REFACTOR] Get all Agent IDs from Registry cache
-            logger.info(" [AGENT_STATS] 开始获取Agent统计信息...")
+            logger.info(" [AGENT_STATS] Starting to get Agent statistics...")
             all_agent_ids = await self._store.registry.get_all_agent_ids_async()
-            logger.info(f" [AGENT_STATS] 从Registry缓存获取到的Agent IDs: {all_agent_ids}")
+            logger.info(f" [AGENT_STATS] Agent IDs retrieved from Registry cache: {all_agent_ids}")
 
             # Statistical information
             total_agents = len(all_agent_ids)
@@ -48,9 +48,9 @@ class AgentStatisticsMixin:
             for agent_id in all_agent_ids:
                 try:
                     # Get Agent statistics information
-                    logger.info(f" [AGENT_STATS] 开始获取Agent {agent_id} 的详细统计信息...")
+                    logger.info(f" [AGENT_STATS] Starting to get detailed statistics for Agent {agent_id}...")
                     agent_stats = await self._get_agent_statistics(agent_id)
-                    logger.info(f" [AGENT_STATS] Agent {agent_id} 统计完成: {agent_stats.service_count}个服务, {agent_stats.tool_count}个工具")
+                    logger.info(f" [AGENT_STATS] Agent {agent_id} statistics completed: {agent_stats.service_count} services, {agent_stats.tool_count} tools")
                     
                     if agent_stats.is_active:
                         active_agents += 1
@@ -114,9 +114,9 @@ class AgentStatisticsMixin:
         """
         try:
             # 获取Agent的所有client - 从 pykv 获取
-            logger.info(f" [AGENT_STATS] 获取Agent {agent_id} 的所有client...")
+            logger.info(f" [AGENT_STATS] Getting all clients for Agent {agent_id}...")
             client_ids = await self._store.registry.get_agent_clients_async(agent_id)
-            logger.info(f" [AGENT_STATS] Agent {agent_id} 的client列表: {client_ids}")
+            logger.info(f" [AGENT_STATS] Agent {agent_id} client list: {client_ids}")
 
             # 统计服务和工具
             services = []

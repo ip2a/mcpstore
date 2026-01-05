@@ -5,6 +5,7 @@ ServiceRegistry - 主服务注册表门面类
 """
 
 import logging
+import time
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Set, Tuple
 
@@ -236,7 +237,7 @@ class ServiceRegistry:
 
         # 创建关系管理器（使用 CacheLayerManager）
         self._relation_manager = RelationshipManager(cache_layer_manager)
-        self._logger.debug("缓存层管理器初始化成功")
+        self._logger.debug("Cache layer manager initialization successful")
         
         # 映射管理器已禁用
 
@@ -261,7 +262,7 @@ class ServiceRegistry:
             ValueError: 当 kv_store 为空时抛出
         """
         if kv_store is None:
-            raise ValueError("kv_store 不能为空，必须提供有效的 AsyncKeyValue 实例")
+            raise ValueError("kv_store cannot be empty, must provide a valid AsyncKeyValue instance")
 
         ns = namespace or self._namespace
 
@@ -338,6 +339,27 @@ class ServiceRegistry:
 
         self._logger.info("Registry backend switched successfully: namespace=%s, backend=%s", ns, type(kv_store).__name__)
         return True
+
+    async def _ensure_agent_entity(self, agent_id: str) -> None:
+        """
+        确保 Agent 实体存在；若已存在则刷新最后活跃时间。
+        """
+        if not agent_id:
+            return
+        try:
+            now_ts = int(time.time())
+            agent = await self._cache_layer_manager.get_agent(agent_id)
+            if agent is None:
+                await self._cache_layer_manager.create_agent(
+                    agent_id=agent_id,
+                    created_time=now_ts,
+                    is_global=(agent_id == self._naming.GLOBAL_AGENT_STORE)
+                )
+                self._logger.info(f"[AGENT] Created agent entity: {agent_id}")
+            else:
+                await self._cache_layer_manager.update_agent_last_active(agent_id, now_ts)
+        except Exception as e:
+            self._logger.warning(f"[AGENT] ensure_agent_entity failed for {agent_id}: {e}")
 
     def _legacy(self, method: str) -> None:
         raise_legacy_error(
@@ -438,9 +460,9 @@ class ServiceRegistry:
 
     async def _resolve_global_name_async(self, agent_id: str, service_name: str) -> Optional[str]:
         if not agent_id:
-            raise ValueError("Agent ID 不能为空")
+            raise ValueError("Agent ID cannot be empty")
         if not service_name:
-            raise ValueError("服务名称不能为空")
+            raise ValueError("Service name cannot be empty")
 
         if agent_id == self._naming.GLOBAL_AGENT_STORE:
             return service_name
@@ -534,7 +556,7 @@ class ServiceRegistry:
             agent_id: Agent ID
         """
         if not agent_id:
-            raise ValueError("Agent ID 不能为空")
+            raise ValueError("Agent ID cannot be empty")
 
         services = await self._relation_manager.get_agent_services(agent_id)
         client_ids: Set[str] = set()
@@ -628,12 +650,15 @@ class ServiceRegistry:
             是否成功添加
         """
         if not agent_id:
-            raise ValueError("Agent ID 不能为空")
+            raise ValueError("Agent ID cannot be empty")
         if not name:
-            raise ValueError("服务名称不能为空")
+            raise ValueError("Service name cannot be empty")
 
         tools = tools or []
         service_config = service_config or {}
+
+        # 确保 Agent 实体存在（无论全局还是普通 Agent）
+        await self._ensure_agent_entity(agent_id)
 
         service_global_name = await self._cache_service_manager.create_service(
             agent_id=agent_id,
@@ -696,7 +721,7 @@ class ServiceRegistry:
                 tool_name = tool.get("name")
                 tool_def = tool
             else:
-                raise ValueError(f"无效的工具定义: {tool}")
+                raise ValueError(f"Invalid tool definition: {tool}")
 
             # 提取工具原始名称（去除服务前缀）
             # 注意：MCP 服务返回的工具名称可能已经带有服务前缀
@@ -769,9 +794,9 @@ class ServiceRegistry:
             被移除的会话对象
         """
         if not agent_id:
-            raise ValueError("Agent ID 不能为空")
+            raise ValueError("Agent ID cannot be empty")
         if not name:
-            raise ValueError("服务名称不能为空")
+            raise ValueError("Service name cannot be empty")
 
         global_name = await self._resolve_global_name_async(agent_id, name)
         if not global_name:
@@ -907,9 +932,9 @@ class ServiceRegistry:
 
     async def update_service_config_async(self, service_name: str, updates: Dict[str, Any]) -> bool:
         if not service_name:
-            raise ValueError("服务名称不能为空")
+            raise ValueError("Service name cannot be empty")
         if not isinstance(updates, dict):
-            raise ValueError("updates 必须是字典类型")
+            raise ValueError("updates must be a dictionary type")
 
         entity = await self._cache_layer_manager.get_entity("services", service_name)
         if entity is None:
@@ -1167,9 +1192,9 @@ class ServiceRegistry:
 
     def add_client_config(self, client_id: str, client_config: Dict[str, Any]) -> str:
         if not client_id:
-            raise ValueError("client_id 不能为空")
+            raise ValueError("client_id cannot be empty")
         if not isinstance(client_config, dict):
-            raise ValueError("client_config 必须是字典类型")
+            raise ValueError("client_config must be a dictionary type")
         self._run_async(
             self._cache_layer_manager.put_entity("clients", client_id, client_config),
             op_name="ServiceRegistry.add_client_config",
@@ -1184,7 +1209,7 @@ class ServiceRegistry:
 
     async def set_service_client_mapping_async(self, agent_id: str, service_name: str, client_id: str) -> bool:
         if not client_id:
-            raise ValueError("client_id 不能为空")
+            raise ValueError("client_id cannot be empty")
         global_name = await self._resolve_global_name_async(agent_id, service_name)
         if not global_name:
             global_name = self._naming.generate_service_global_name(service_name, agent_id)
@@ -1275,7 +1300,7 @@ class ServiceRegistry:
 
     async def get_agent_service_from_global_name_async(self, global_name: str) -> Optional[Tuple[str, str]]:
         if not global_name:
-            raise ValueError("服务全局名称不能为空")
+            raise ValueError("Service global name cannot be empty")
         original_name, agent_id = self._naming.parse_service_global_name(global_name)
         services = await self._relation_manager.get_agent_services(agent_id)
         for svc in services:
@@ -1457,7 +1482,7 @@ class ServiceRegistry:
                 f"[CLEAR_TOOLS] cleared_tools service={service_name} count={len(tools_to_remove)} keep_mappings=True")
 
         except Exception as e:
-            self._logger.error(f"[CLEAR_TOOLS] 清理工具失败 {agent_id}:{service_name}: {e}")
+            self._logger.error(f"[CLEAR_TOOLS] Failed to clear tools {agent_id}:{service_name}: {e}")
             raise
 
     def has_tools(self, service_name: str) -> bool:
@@ -1654,7 +1679,7 @@ class ServiceRegistry:
             metadata_obj = ServiceStateMetadata.model_validate(metadata)
             metadata_dict = metadata_obj.model_dump(mode="json")
         else:
-            raise ValueError("metadata 必须是字典或 ServiceStateMetadata")
+            raise ValueError("metadata must be a dictionary or ServiceStateMetadata")
 
         await self._cache_layer_manager.put_state("service_metadata", global_name, metadata_dict)
         self._cache_metadata_snapshot(agent_id, service_name, metadata_obj)
@@ -1760,7 +1785,7 @@ class ServiceRegistry:
             unified_config: UnifiedConfigManager 实例
         """
         if unified_config is None:
-            raise ValueError("unified_config 不能为空")
+            raise ValueError("unified_config cannot be empty")
         self._unified_config = unified_config
 
     # ========================================
@@ -1923,12 +1948,28 @@ class ServiceRegistry:
         """
         异步获取所有 Agent ID 列表。
         """
+        agent_ids: Set[str] = set()
+
+        # 1) 直接从 Agent 实体表获取（即使 Agent 暂无服务也能返回）
+        agents = await self._cache_layer_manager.get_all_entities_async("agents")
+        if isinstance(agents, dict):
+            agent_ids.update(agents.keys())
+
+        # 2) 兼容旧数据：从服务实体中的 source_agent 提取
         services = await self._cache_layer_manager.get_all_entities_async("services")
-        agent_ids = {
-            data.get("source_agent")
-            for data in services.values()
-            if isinstance(data, dict) and data.get("source_agent")
-        }
+        if isinstance(services, dict):
+            service_agents = {
+                data.get("source_agent")
+                for data in services.values()
+                if isinstance(data, dict) and data.get("source_agent")
+            }
+            agent_ids.update(service_agents)
+
+        # 3) 确保全局 Agent 始终存在
+        agent_ids.add(self._naming.GLOBAL_AGENT_STORE)
+
+        # 过滤 None
+        agent_ids = {a for a in agent_ids if a}
         return list(agent_ids)
 
     def get_all_agent_ids(self) -> List[str]:

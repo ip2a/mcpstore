@@ -9,6 +9,7 @@ from typing import Optional, List, Dict, Any
 
 from mcpstore.core.models.common import ExecutionResponse
 from mcpstore.core.models.tool import ToolExecutionRequest, ToolInfo
+from mcpstore.core.models.tool_result import CallToolFailureResult
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +57,10 @@ class ToolOperationsMixin:
                                ServiceConnectionState.DISCONNECTING, ServiceConnectionState.DISCONNECTED]:
                 error_msg = f"Service '{request.service_name}' is currently {service_state.value} and unavailable for tool execution"
                 logger.warning(error_msg)
+                failure_result = CallToolFailureResult(error_msg).unwrap()
                 return ExecutionResponse(
                     success=False,
-                    result=None,
+                    result=failure_result,
                     error=error_msg,
                     execution_time=time.time() - start_time,
                     service_name=request.service_name,
@@ -128,8 +130,10 @@ class ToolOperationsMixin:
                 logger.warning(f"Failed to record failed tool execution: {monitor_error}")
 
             logger.error(f"Tool execution failed: {e}")
+            failure_result = CallToolFailureResult(str(e)).unwrap()
             return ExecutionResponse(
                 success=False,
+                result=failure_result,
                 error=str(e)
             )
 
