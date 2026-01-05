@@ -70,7 +70,11 @@ class ServiceApplicationService:
         service_name: str,
         service_config: Dict[str, Any],
         wait_timeout: float = 0.0,
-        source: str = "user"
+        source: str = "user",
+        global_name: Optional[str] = None,
+        client_id: Optional[str] = None,
+        origin_agent_id: Optional[str] = None,
+        origin_local_name: Optional[str] = None,
     ) -> AddServiceResult:
         """
         添加服务（用户API）
@@ -92,11 +96,11 @@ class ServiceApplicationService:
             self._validate_params(service_name, service_config)
             
             # 2. 生成 client_id
-            client_id = await self._generate_client_id(agent_id, service_name, service_config)
+            cid = client_id or await self._generate_client_id(agent_id, service_name, service_config)
             
             logger.info(
                 f"[ADD_SERVICE] Starting: service={service_name}, "
-                f"agent={agent_id}, client_id={client_id}"
+                f"agent={agent_id}, client_id={cid}"
             )
             
             # 3. 发布服务添加请求事件
@@ -104,7 +108,10 @@ class ServiceApplicationService:
                 agent_id=agent_id,
                 service_name=service_name,
                 service_config=service_config,
-                client_id=client_id,
+                client_id=cid,
+                global_name=global_name or "",
+                origin_agent_id=origin_agent_id,
+                origin_local_name=origin_local_name,
                 source=source,
                 wait_timeout=wait_timeout
             )
@@ -309,7 +316,7 @@ class ServiceApplicationService:
     async def get_service_status_async(self, agent_id: str, service_name: str) -> Dict[str, Any]:
         """读取单个服务的状态信息（只读，从 pykv 异步获取）"""
         try:
-            state = self._registry._service_state_service.get_service_state(agent_id, service_name)
+            state = await self._registry._service_state_service.get_service_state_async(agent_id, service_name)
             metadata = await self._registry._service_state_service.get_service_metadata_async(agent_id, service_name)
             client_id = await self._registry.get_service_client_id_async(agent_id, service_name)
 

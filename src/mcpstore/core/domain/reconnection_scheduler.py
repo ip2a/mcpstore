@@ -10,6 +10,7 @@
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import Dict, Optional, List
 
@@ -50,6 +51,8 @@ class ReconnectionScheduler:
         self._base_delay = lifecycle_config.base_reconnect_delay
         self._max_delay = lifecycle_config.max_reconnect_delay
         self._max_retries = lifecycle_config.max_reconnect_attempts
+        self._empty_scan_log_interval = 30.0
+        self._last_empty_scan_log = 0.0
         
         # 调度器状态
         self._is_running = False
@@ -119,13 +122,23 @@ class ReconnectionScheduler:
         try:
             # 1. 调用纯同步核心生成扫描计划
             scan_plan = self._generate_scan_plan()
-            logger.debug(f"[RECONNECT] 扫描计划生成完成: {len(scan_plan['services_to_check'])}个服务需要检查")
+            self._log_scan_summary(len(scan_plan["services_to_check"]))
 
             # 2. 纯异步执行扫描操作
             await self._execute_scan_plan(scan_plan)
 
         except Exception as e:
-            logger.error(f"[RECONNECT] 扫描服务失败: {e}", exc_info=True)
+            logger.error(f"[RECONNECT] [ERROR] Failed to scan services: {e}", exc_info=True)
+
+    def _log_scan_summary(self, count: int) -> None:
+        """控制扫描结果日志的频率，避免空计划时频繁刷屏"""
+        if count > 0:
+            logger.debug(f"[RECONNECT] [SCAN] Scan plan generated: {count} services need to be checked")
+            return
+        now = time.time()
+        if now - self._last_empty_scan_log >= self._empty_scan_log_interval:
+            logger.debug("[RECONNECT] [SCAN] Scan plan generated: 0 services need to be checked")
+            self._last_empty_scan_log = now
 
     def _generate_scan_plan(self) -> Dict[str, any]:
         """
@@ -207,7 +220,7 @@ class ReconnectionScheduler:
                     await self._set_service_metadata_in_cache(agent_id, service_name, metadata)
 
             except Exception as e:
-                logger.error(f"[RECONNECT] 处理服务 {service_name} 失败: {e}", exc_info=True)
+                logger.error(f"[RECONNECT] [ERROR] Failed to process service {service_name}: {e}", exc_info=True)
 
     # ==================== 缓存层访问辅助方法 ====================
 
@@ -245,7 +258,7 @@ class ReconnectionScheduler:
             return services
 
         except Exception as e:
-            logger.error(f"[RECONNECT] 从缓存层获取服务列表失败: {e}")
+            logger.error(f"[RECONNECT] [ERROR] Failed to get service list from cache layer: {e}")
             return []
 
     async def _get_service_state_from_cache(self, agent_id: str, service_name: str) -> ServiceConnectionState:
@@ -271,7 +284,7 @@ class ReconnectionScheduler:
                 return ServiceConnectionState.DISCONNECTED
 
         except Exception as e:
-            logger.debug(f"[RECONNECT] 获取服务状态失败 {agent_id}:{service_name}: {e}")
+            logger.debug(f"[RECONNECT] [ERROR] Failed to get service state {agent_id}:{service_name}: {e}")
             return ServiceConnectionState.DISCONNECTED
 
     async def _get_service_metadata_from_cache(self, agent_id: str, service_name: str):
@@ -288,7 +301,7 @@ class ReconnectionScheduler:
         try:
             return await self._registry.get_service_metadata_async(agent_id, service_name)
         except Exception as e:
-            logger.debug(f"[RECONNECT] 获取服务元数据失败 {agent_id}:{service_name}: {e}")
+            logger.debug(f"[RECONNECT] [ERROR] Failed to get service metadata {agent_id}:{service_name}: {e}")
             return None
 
     async def _set_service_metadata_in_cache(self, agent_id: str, service_name: str, metadata):
@@ -304,7 +317,7 @@ class ReconnectionScheduler:
             # 使用原始架构签名的方法
             await self._registry.set_service_metadata_async_v2(agent_id, service_name, metadata)
         except Exception as e:
-            logger.error(f"[RECONNECT] 设置服务元数据失败 {agent_id}:{service_name}: {e}")
+            logger.error(f"[RECONNECT] [ERROR] Failed to set service metadata {agent_id}:{service_name}: {e}")
 
     async def _should_retry_connection(self, metadata, current_time) -> bool:
         """
@@ -362,7 +375,7 @@ class ReconnectionScheduler:
             await self._event_bus.publish(state_event)
 
         except Exception as e:
-            logger.error(f"[RECONNECT] 转换状态失败 {agent_id}:{service_name}: {e}")
+            logger.error(f"[RECONNECT] [ERROR] Failed to transition state {agent_id}:{service_name}: {e}")
 
     async def _publish_reconnection_requested(self, agent_id: str, service_name: str, retry_count: int):
         """
@@ -384,7 +397,7 @@ class ReconnectionScheduler:
             await self._event_bus.publish(reconnection_event)
 
         except Exception as e:
-            logger.error(f"[RECONNECT] 发布重连事件失败 {agent_id}:{service_name}: {e}")
+            logger.error(f"[RECONNECT] [ERROR] Failed to publish reconnection event {agent_id}:{service_name}: {e}")
     
     async def _on_state_changed(self, event: ServiceStateChanged):
         """

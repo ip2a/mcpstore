@@ -4,7 +4,7 @@ Implementation of advanced feature-related operations
 """
 
 import logging
-from typing import Dict, Optional, Any, TYPE_CHECKING
+from typing import Optional, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .base_context import MCPStoreContext
@@ -14,56 +14,6 @@ logger = logging.getLogger(__name__)
 class AdvancedFeaturesMixin:
     """Advanced features mixin class"""
     
-    def create_simple_tool(self, original_tool: str, friendly_name: Optional[str] = None) -> 'MCPStoreContext':
-        """
-        Create simplified version of tool
-
-        Args:
-            original_tool: Original tool name
-            friendly_name: Friendly name (optional)
-
-        Returns:
-            MCPStoreContext: Supports method chaining
-        """
-        try:
-            friendly_name = friendly_name or f"simple_{original_tool}"
-            result = self._transformation_manager.create_simple_tool(
-                original_tool=original_tool,
-                friendly_name=friendly_name
-            )
-            logger.info(f"[{self._context_type.value}] Created simple tool: {friendly_name} -> {original_tool}")
-            return self
-        except Exception as e:
-            logger.error(f"[{self._context_type.value}] Failed to create simple tool {original_tool}: {e}")
-            return self
-
-    def create_safe_tool(self, original_tool: str, validation_rules: Dict[str, Any]) -> 'MCPStoreContext':
-        """
-        Create secure version of tool (with validation)
-
-        Args:
-            original_tool: Original tool name
-            validation_rules: Validation rules
-
-        Returns:
-            MCPStoreContext: Supports method chaining
-        """
-        try:
-            # 创建验证函数
-            validation_func = self._create_validation_function(validation_rules)
-            
-            result = self._transformation_manager.create_safe_tool(
-                original_tool=original_tool,
-                validation_func=validation_func,
-                rules=validation_rules
-            )
-            logger.info(f"[{self._context_type.value}] Created safe tool for: {original_tool}")
-            return self
-        except Exception as e:
-            logger.error(f"[{self._context_type.value}] Failed to create safe tool {original_tool}: {e}")
-            return self
-
-
     def import_api(self, api_url: str, api_name: str = None) -> 'MCPStoreContext':
         """
         导入 OpenAPI 服务（同步）
@@ -104,49 +54,6 @@ class AdvancedFeaturesMixin:
             logger.error(f"[{self._context_type.value}] Failed to import API {api_url}: {e}")
             return self
 
-
-    # Deprecated: auth subsystem removed
-    # Keeping the name for compatibility but make it explicit unsupported to avoid hidden AttributeError
-    def setup_auth(self, auth_type: str = "bearer", enabled: bool = True) -> 'MCPStoreContext':
-        raise NotImplementedError("setup_auth is no longer supported; the auth subsystem was removed")
-
-    def get_usage_stats(self) -> Dict[str, Any]:
-        """
-        获取使用统计
-        
-        Returns:
-            Dict: 使用统计信息
-        """
-        try:
-            return self._monitoring_manager.get_usage_stats()
-        except Exception as e:
-            logger.error(f"[{self._context_type.value}] Failed to get usage stats: {e}")
-            return {"error": str(e)}
-
-    def record_tool_execution(self, tool_name: str, duration: float, success: bool, error: Exception = None) -> 'MCPStoreContext':
-        """
-        记录工具执行情况
-        
-        Args:
-            tool_name: 工具名称
-            duration: 执行时长
-            success: 是否成功
-            error: 错误信息（如果有）
-            
-        Returns:
-            MCPStoreContext: 支持链式调用
-        """
-        try:
-            self._monitoring_manager.record_tool_execution(
-                tool_name=tool_name,
-                duration=duration,
-                success=success,
-                error=error
-            )
-            return self
-        except Exception as e:
-            logger.error(f"[{self._context_type.value}] Failed to record tool execution: {e}")
-            return self
 
     def reset_mcp_json_file(self) -> bool:
         """重置MCP JSON配置文件（同步版本）- 缓存优先模式"""
@@ -237,7 +144,7 @@ class AdvancedFeaturesMixin:
             mcp_success = self._store._unified_config.update_mcp_config(new_config)
             
             if mcp_success:
-                logger.info(f" [MCP_RESET] MCP JSON file reset completed for scope: {scope}，缓存已同步")
+                logger.info(f"[MCP_RESET] [COMPLETE] MCP JSON file reset completed for scope: {scope}, cache synchronized")
 
                 # 4. 触发重新同步（可选）
                 if hasattr(self._store.orchestrator, 'sync_manager') and self._store.orchestrator.sync_manager:

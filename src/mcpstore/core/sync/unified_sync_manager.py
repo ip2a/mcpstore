@@ -355,7 +355,7 @@ class UnifiedMCPSyncManager:
                             current_services[service_name] = config
 
             except Exception as e:
-                logger.error(f"获取当前服务失败: {e}")
+                logger.error(f"Failed to get current service: {e}")
                 current_services = {}
 
             return current_services
@@ -457,7 +457,7 @@ class UnifiedMCPSyncManager:
             if existing_client_id:
                 # 使用现有的client_id，只更新配置
                 client_id = existing_client_id
-                logger.debug(f" 使用现有client_id: {service_name} -> {client_id}")
+                logger.debug(f" Using existing client_id: {service_name} -> {client_id}")
             else:
                 #  使用统一的ClientIDGenerator生成确定性client_id
                 from mcpstore.core.utils.id_generator import ClientIDGenerator
@@ -471,7 +471,7 @@ class UnifiedMCPSyncManager:
                     service_config=service_config,
                     global_agent_store_id=global_agent_store_id
                 )
-                logger.debug(f" 生成新client_id: {service_name} -> {client_id}")
+                logger.debug(f" Generating new client_id: {service_name} -> {client_id}")
 
             # 更新缓存映射1：Agent-Client映射（通过Registry公共API）
             try:
@@ -509,9 +509,9 @@ class UnifiedMCPSyncManager:
                 logger.error(f"Failed to create/update client entity for {client_id}: {e}")
                 raise  # 按要求抛出错误，不做静默处理
 
-            logger.debug(f"缓存映射更新成功: {service_name} -> {client_id}")
-            logger.debug(f"   - agent_clients[{agent_id}] 已通过Registry API更新")
-            logger.debug(f"   - clients[{client_id}] 已通过Registry API更新")
+            logger.debug(f"Cache mapping updated successfully: {service_name} -> {client_id}")
+            logger.debug(f"   - agent_clients[{agent_id}] updated via Registry API")
+            logger.debug(f"   - clients[{client_id}] updated via Registry API")
             return True
 
         except Exception as e:
@@ -543,7 +543,7 @@ class UnifiedMCPSyncManager:
                 if client_entity and isinstance(client_entity, dict):
                     services = client_entity.get("services", [])
                     if service_name in services:
-                        logger.debug(f" 找到现有client_id: {service_name} -> {client_id}")
+                        logger.debug(f" Found existing client_id: {service_name} -> {client_id}")
                         return client_id
 
             return None

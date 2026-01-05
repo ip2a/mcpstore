@@ -39,11 +39,11 @@ class SessionManager(SessionManagerInterface):
         # 工具到会话的映射 - agent_id: {tool_name: session}
         self.tool_to_session_map: Dict[str, Dict[str, Any]] = {}
 
-        self._logger.info(f"初始化SessionManager，命名空间: {namespace}")
+        self._logger.info(f"[SESSION_MANAGER] [INIT] Initializing SessionManager, namespace: {namespace}")
 
     def initialize(self) -> None:
         """初始化会话管理器"""
-        self._logger.info("SessionManager 初始化完成")
+        self._logger.info("[SESSION_MANAGER] [INIT] SessionManager initialization completed")
 
     def cleanup(self) -> None:
         """清理会话管理器资源"""
@@ -55,9 +55,9 @@ class SessionManager(SessionManagerInterface):
             self.sessions.clear()
             self.tool_to_session_map.clear()
 
-            self._logger.info(f"SessionManager 清理完成：清理了 {session_count} 个服务会话，{tool_mapping_count} 个工具映射")
+            self._logger.info(f"[SESSION_MANAGER] [CLEAN] SessionManager cleanup completed: cleared {session_count} service sessions, {tool_mapping_count} tool mappings")
         except Exception as e:
-            self._logger.error(f"SessionManager 清理时出错: {e}")
+            self._logger.error(f"[SESSION_MANAGER] [ERROR] SessionManager cleanup error: {e}")
             raise
 
     def get_session(self, agent_id: str, name: str) -> Optional[Any]:
@@ -77,7 +77,7 @@ class SessionManager(SessionManagerInterface):
             这是同步方法且保持同步。
         """
         session = self.sessions.get(agent_id, {}).get(name)
-        self._logger.debug(f"获取会话: agent={agent_id}, service={name}, found={session is not None}")
+        self._logger.debug(f"[SESSION_MANAGER] [GET] Got session: agent={agent_id}, service={name}, found={session is not None}")
         return session
 
     def set_session(self, agent_id: str, service_name: str, session: Any) -> None:
@@ -108,7 +108,7 @@ class SessionManager(SessionManagerInterface):
             self.sessions[agent_id] = {}
         self.sessions[agent_id][service_name] = session
 
-        self._logger.debug(f"设置会话: agent={agent_id}, service={service_name}")
+        self._logger.debug(f"[SESSION_MANAGER] [SET] Set session: agent={agent_id}, service={service_name}")
 
     def get_session_for_tool(self, agent_id: str, tool_name: str) -> Optional[Any]:
         """
@@ -122,7 +122,7 @@ class SessionManager(SessionManagerInterface):
             工具对应的会话对象或None
         """
         session = self.tool_to_session_map.get(agent_id, {}).get(tool_name)
-        self._logger.debug(f"获取工具会话: agent={agent_id}, tool={tool_name}, found={session is not None}")
+        self._logger.debug(f"[SESSION_MANAGER] [GET] Got tool session: agent={agent_id}, tool={tool_name}, found={session is not None}")
         return session
 
     def clear_session(self, agent_id: str, service_name: str):
@@ -149,7 +149,7 @@ class SessionManager(SessionManagerInterface):
             for tool_name in tools_to_remove:
                 del self.tool_to_session_map[agent_id][tool_name]
 
-        self._logger.debug(f"清除会话: agent={agent_id}, service={service_name}, removed={removed_session is not None}")
+        self._logger.debug(f"[SESSION_MANAGER] [CLEAR] Cleared session: agent={agent_id}, service={service_name}, removed={removed_session is not None}")
 
     def clear_all_sessions(self, agent_id: str):
         """
@@ -167,7 +167,7 @@ class SessionManager(SessionManagerInterface):
         # 清除工具映射
         self.tool_to_session_map.pop(agent_id, None)
 
-        self._logger.info(f"清除所有会话: agent={agent_id}, services={session_count}, tools={tool_mapping_count}")
+        self._logger.info(f"[SESSION_MANAGER] [CLEAR] Cleared all sessions: agent={agent_id}, services={session_count}, tools={tool_mapping_count}")
 
     def add_tool_session_mapping(self, agent_id: str, tool_name: str, session: Any) -> None:
         """
@@ -182,7 +182,7 @@ class SessionManager(SessionManagerInterface):
             self.tool_to_session_map[agent_id] = {}
         self.tool_to_session_map[agent_id][tool_name] = session
 
-        self._logger.debug(f"添加工具会话映射: agent={agent_id}, tool={tool_name}")
+        self._logger.debug(f"[SESSION_MANAGER] [ADD] Added tool session mapping: agent={agent_id}, tool={tool_name}")
 
     def remove_tool_session_mapping(self, agent_id: str, tool_name: str) -> Optional[Any]:
         """
@@ -200,7 +200,7 @@ class SessionManager(SessionManagerInterface):
         if agent_id in self.tool_to_session_map and tool_name in self.tool_to_session_map[agent_id]:
             removed_session = self.tool_to_session_map[agent_id].pop(tool_name)
 
-        self._logger.debug(f"移除工具会话映射: agent={agent_id}, tool={tool_name}, removed={removed_session is not None}")
+        self._logger.debug(f"[SESSION_MANAGER] [REMOVE] Removed tool session mapping: agent={agent_id}, tool={tool_name}, removed={removed_session is not None}")
         return removed_session
 
     def get_all_service_names(self, agent_id: str) -> List[str]:

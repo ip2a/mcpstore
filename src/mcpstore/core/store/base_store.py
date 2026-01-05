@@ -96,9 +96,9 @@ class BaseMCPStore:
         try:
             from mcpstore.core.lifecycle.content_manager import ServiceContentManager
             self.orchestrator.content_manager = ServiceContentManager(self.orchestrator)
-            logger.info("ServiceContentManager 初始化成功")
+            logger.info("ServiceContentManager initialization successful")
         except Exception as e:
-            logger.warning(f"ServiceContentManager 初始化失败: {e}")
+            logger.warning(f"ServiceContentManager initialization failed: {e}")
 
         # Break circular dependency: pass container and context_factory to orchestrator
         # instead of letting orchestrator hold store reference (must be after container initialization)

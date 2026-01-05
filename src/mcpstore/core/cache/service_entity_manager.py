@@ -38,7 +38,7 @@ class ServiceEntityManager:
         """
         self._cache_layer = cache_layer
         self._naming = naming
-        logger.debug("[SERVICE_ENTITY] 初始化 ServiceEntityManager")
+        logger.debug("[SERVICE_ENTITY] Initializing ServiceEntityManager")
     
     async def create_service(
         self,
@@ -62,12 +62,12 @@ class ServiceEntityManager:
             RuntimeError: 如果创建失败
         """
         if not agent_id:
-            raise ValueError("Agent ID 不能为空")
+            raise ValueError("Agent ID cannot be empty")
         if not original_name:
-            raise ValueError("服务原始名称不能为空")
+            raise ValueError("Service original name cannot be empty")
         if not isinstance(config, dict):
             raise ValueError(
-                f"服务配置必须是字典类型，实际类型: {type(config).__name__}"
+                f"Service config must be a dictionary type, actual type: {type(config).__name__}"
             )
         
         # 生成全局名称
@@ -95,7 +95,7 @@ class ServiceEntityManager:
             )
 
             logger.info(
-                f"[SERVICE_ENTITY] 更新服务实体: global_name={global_name}, "
+                f"[SERVICE_ENTITY] Updated service entity: global_name={global_name}, "
                 f"original_name={original_name}, agent_id={agent_id}"
             )
             return global_name
@@ -117,7 +117,7 @@ class ServiceEntityManager:
         )
 
         logger.info(
-            f"[SERVICE_ENTITY] 创建服务实体: global_name={global_name}, "
+            f"[SERVICE_ENTITY] Created service entity: global_name={global_name}, "
             f"original_name={original_name}, agent_id={agent_id}"
         )
         
@@ -138,14 +138,14 @@ class ServiceEntityManager:
             RuntimeError: 如果获取失败
         """
         if not global_name:
-            raise ValueError("服务全局名称不能为空")
+            raise ValueError("Service global name cannot be empty")
         
         # 从实体层获取
         data = await self._cache_layer.get_entity("services", global_name)
         
         if data is None:
             logger.debug(
-                f"[SERVICE_ENTITY] 服务不存在: global_name={global_name}"
+                f"[SERVICE_ENTITY] Service does not exist: global_name={global_name}"
             )
             return None
 
@@ -153,16 +153,16 @@ class ServiceEntityManager:
         try:
             entity = ServiceEntity.from_dict(data)
             logger.debug(
-                f"[SERVICE_ENTITY] 获取服务实体: global_name={global_name}"
+                f"[SERVICE_ENTITY] Retrieved service entity: global_name={global_name}"
             )
             return entity
         except Exception as e:
             logger.error(
-                f"[SERVICE_ENTITY] 解析服务实体失败: global_name={global_name}, "
+                f"[SERVICE_ENTITY] Failed to parse service entity: global_name={global_name}, "
                 f"error={e}"
             )
             raise RuntimeError(
-                f"解析服务实体失败: global_name={global_name}, error={e}"
+                f"Failed to parse service entity: global_name={global_name}, error={e}"
             ) from e
     
     async def update_service(
@@ -183,16 +183,16 @@ class ServiceEntityManager:
             RuntimeError: 如果更新失败
         """
         if not global_name:
-            raise ValueError("服务全局名称不能为空")
+            raise ValueError("Service global name cannot be empty")
         if not isinstance(config, dict):
             raise ValueError(
-                f"服务配置必须是字典类型，实际类型: {type(config).__name__}"
+                f"Service config must be a dictionary type, actual type: {type(config).__name__}"
             )
         
         # 获取现有服务
         entity = await self.get_service(global_name)
         if entity is None:
-            raise KeyError(f"服务不存在: global_name={global_name}")
+            raise KeyError(f"Service does not exist: global_name={global_name}")
         
         # 更新配置
         entity.config = config
@@ -205,7 +205,7 @@ class ServiceEntityManager:
         )
 
         logger.info(
-            f"[SERVICE_ENTITY] 更新服务配置: global_name={global_name}"
+            f"[SERVICE_ENTITY] Updated service config: global_name={global_name}"
         )
     
     async def delete_service(self, global_name: str) -> None:
@@ -220,13 +220,13 @@ class ServiceEntityManager:
             RuntimeError: 如果删除失败
         """
         if not global_name:
-            raise ValueError("服务全局名称不能为空")
+            raise ValueError("Service global name cannot be empty")
 
         # 从实体层删除
         await self._cache_layer.delete_entity("services", global_name)
 
         logger.info(
-            f"[SERVICE_ENTITY] 删除服务实体: global_name={global_name}"
+            f"[SERVICE_ENTITY] Deleted service entity: global_name={global_name}"
         )
     
     async def list_services_by_agent(
@@ -252,14 +252,14 @@ class ServiceEntityManager:
             ValueError: 如果参数无效
         """
         if not agent_id:
-            raise ValueError("Agent ID 不能为空")
+            raise ValueError("Agent ID cannot be empty")
         
         # 注意：这是一个简化实现
         # 实际应该从关系层获取服务列表，然后批量获取实体
         # 这里暂时返回空列表，等待 RelationshipManager 实现后再完善
         
         logger.debug(
-            f"[SERVICE_ENTITY] 列出 Agent 服务（简化版本）: agent_id={agent_id}"
+            f"[SERVICE_ENTITY] List agent services (simplified version): agent_id={agent_id}"
         )
         
         return []
@@ -283,7 +283,7 @@ class ServiceEntityManager:
         """
         if not isinstance(global_names, list):
             raise ValueError(
-                f"global_names 必须是列表类型，实际类型: {type(global_names).__name__}"
+                f"global_names must be a list type, actual type: {type(global_names).__name__}"
             )
         
         if not global_names:
@@ -306,14 +306,14 @@ class ServiceEntityManager:
                     entities.append(entity)
                 except Exception as e:
                     logger.error(
-                        f"[SERVICE_ENTITY] 解析服务实体失败: "
+                        f"[SERVICE_ENTITY] Failed to parse service entity: "
                         f"global_name={global_names[i]}, error={e}"
                     )
                     # 解析失败时返回 None
                     entities.append(None)
         
         logger.debug(
-            f"[SERVICE_ENTITY] 批量获取服务: count={len(global_names)}, "
+            f"[SERVICE_ENTITY] Batch retrieved services: count={len(global_names)}, "
             f"found={sum(1 for e in entities if e is not None)}"
         )
         

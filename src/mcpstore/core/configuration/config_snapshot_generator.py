@@ -47,7 +47,7 @@ class ConfigSnapshotGenerator:
         """
         self.config = config or get_config()
         if not self.config:
-            raise ConfigSnapshotError("MCPStoreConfig 未初始化，请先调用 init_config()")
+            raise ConfigSnapshotError("MCPStoreConfig is not initialized, please call init_config() first")
 
         # 缓存默认值以避免重复计算
         self._default_values_cache: Optional[Dict[str, Any]] = None
@@ -217,7 +217,7 @@ class ConfigSnapshotGenerator:
                 # 扁平化 TOML 数据
                 toml_values = self._flatten_dict(toml_data)
         except Exception as e:
-            logger.warning(f"加载 TOML 配置文件失败: {e}")
+            logger.warning(f"[CONFIG_SNAPSHOT] [WARN] Failed to load TOML configuration file: {e}")
 
         return toml_values
 
@@ -252,7 +252,7 @@ class ConfigSnapshotGenerator:
                     original_value=kv_value
                 )
         except Exception as e:
-            logger.warning(f"读取 KV 配置失败 {kv_key}: {e}")
+            logger.warning(f"[CONFIG_SNAPSHOT] [WARN] Failed to read KV configuration {kv_key}: {e}")
 
         # 2. 检查 TOML 文件
         toml_values = await self._get_toml_values()
@@ -278,7 +278,7 @@ class ConfigSnapshotGenerator:
             config_service = get_config_service()
             return config_service.get_all_metadata()
         except Exception as e:
-            logger.warning(f"获取动态配置元数据失败: {e}")
+            logger.warning(f"[CONFIG_SNAPSHOT] [WARN] Failed to get dynamic configuration metadata: {e}")
             return {}
 
     async def generate_snapshot(self,
@@ -299,7 +299,7 @@ class ConfigSnapshotGenerator:
         import re
 
         start_time = datetime.now()
-        logger.info(f"开始生成配置快照 (categories={categories}, pattern={key_pattern})")
+        logger.info(f"[CONFIG_SNAPSHOT] [START] Starting to generate configuration snapshot (categories={categories}, pattern={key_pattern})")
 
         # 获取所有默认值
         default_values = self._get_default_values()
@@ -370,6 +370,6 @@ class ConfigSnapshotGenerator:
         )
 
         elapsed = (datetime.now() - start_time).total_seconds()
-        logger.info(f"配置快照生成完成，耗时 {elapsed:.2f}s，包含 {snapshot.total_items} 项配置")
+        logger.info(f"[CONFIG_SNAPSHOT] [COMPLETE] Configuration snapshot generation completed, elapsed {elapsed:.2f}s, contains {snapshot.total_items} configuration items")
 
         return snapshot

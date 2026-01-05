@@ -189,14 +189,14 @@ class HealthMonitor:
             service_entity = await self._registry._cache_service_manager.get_service(global_name)
             if service_entity is None:
                 raise RuntimeError(
-                    f"服务实体不存在，无法执行健康检查: service_name={service_name}, "
+                    f"Service entity does not exist, cannot execute health check: service_name={service_name}, "
                     f"agent_id={agent_id}, global_name={global_name}"
                 )
             
             service_config = service_entity.config
             if not service_config:
                 raise RuntimeError(
-                    f"服务配置为空，无法执行健康检查: service_name={service_name}, "
+                    f"Service configuration is empty, cannot execute health check: service_name={service_name}, "
                     f"agent_id={agent_id}, global_name={global_name}"
                 )
             
@@ -342,7 +342,7 @@ class HealthMonitor:
                             )
 
         except Exception as e:
-            logger.error(f"[HEALTH] 检查超时失败: {e}", exc_info=True)
+            logger.error(f"[HEALTH] Health check timeout failed: {e}", exc_info=True)
 
     async def _publish_timeout_event(
         self,

@@ -31,7 +31,7 @@ class StateManager:
             cache_layer: 缓存层管理器
         """
         self._cache_layer = cache_layer
-        logger.debug("[StateManager] 状态管理器初始化完成")
+        logger.debug("[StateManager] State manager initialization completed")
     
     async def update_service_status(
         self,
@@ -60,8 +60,8 @@ class StateManager:
         valid_health_statuses = ["healthy", "unhealthy", "unknown", "initializing", "warning", "disconnected", "reconnecting"]
         if health_status not in valid_health_statuses:
             raise ValueError(
-                f"无效的健康状态: {health_status}. "
-                f"有效值: {valid_health_statuses}"
+                f"Invalid health status: {health_status}. "
+                f"Valid values: {valid_health_statuses}"
             )
         
         # 验证工具状态
@@ -69,7 +69,7 @@ class StateManager:
         for tool_status in tools_status:
             if not isinstance(tool_status, dict):
                 raise ValueError(
-                    f"工具状态必须是字典类型，实际类型: {type(tool_status).__name__}"
+                    f"Tool status must be a dictionary type, actual type: {type(tool_status).__name__}"
                 )
             
             # 创建 ToolStatusItem 进行验证
@@ -95,7 +95,7 @@ class StateManager:
         )
         
         logger.debug(
-            f"[StateManager] 更新服务状态: service={service_global_name}, "
+            f"[StateManager] Updated service status: service={service_global_name}, "
             f"health={health_status}, tools_count={len(tools)}"
         )
     
@@ -119,16 +119,17 @@ class StateManager:
         
         if status_data is None:
             logger.debug(
-                f"[StateManager] 服务状态不存在: service={service_global_name}"
+                f"[StateManager] Service status not found: service={service_global_name}"
             )
             return None
         
         status = ServiceStatus.from_dict(status_data)
         
-        logger.debug(
-            f"[StateManager] 获取服务状态: service={service_global_name}, "
-            f"health={status.health_status}"
-        )
+        if status.health_status != "healthy":
+            logger.debug(
+                f"[StateManager] Retrieved service status: service={service_global_name}, "
+                f"health={status.health_status}"
+            )
         
         return status
     
@@ -154,8 +155,8 @@ class StateManager:
         valid_statuses = ["available", "unavailable"]
         if status not in valid_statuses:
             raise ValueError(
-                f"无效的工具状态: {status}. "
-                f"有效值: {valid_statuses}"
+                f"Invalid tool status: {status}. "
+                f"Valid values: {valid_statuses}"
             )
         
         # 获取当前服务状态
@@ -163,7 +164,7 @@ class StateManager:
         
         if service_status is None:
             raise RuntimeError(
-                f"服务状态不存在，无法更新工具状态: "
+                f"Service status does not exist, cannot update tool status: "
                 f"service={service_global_name}, tool={tool_global_name}"
             )
         
@@ -177,7 +178,7 @@ class StateManager:
         
         if not tool_found:
             raise RuntimeError(
-                f"工具不存在于服务状态中: "
+                f"Tool does not exist in service status: "
                 f"service={service_global_name}, tool={tool_global_name}"
             )
         
@@ -189,7 +190,7 @@ class StateManager:
         )
         
         logger.debug(
-            f"[StateManager] 更新工具状态: service={service_global_name}, "
+            f"[StateManager] Updated tool status: service={service_global_name}, "
             f"tool={tool_global_name}, status={status}"
         )
     
@@ -204,7 +205,7 @@ class StateManager:
         await self._cache_layer.delete_state("service_status", service_global_name)
         
         logger.debug(
-            f"[StateManager] 删除服务状态: service={service_global_name}"
+            f"[StateManager] Deleted service status: service={service_global_name}"
         )
     
     async def set_tool_available(
@@ -271,7 +272,7 @@ class StateManager:
         
         if service_status is None:
             raise RuntimeError(
-                f"服务状态不存在，无法更新工具状态: "
+                f"Service status does not exist, cannot update tool status: "
                 f"service={service_global_name}, tool={tool_original_name}"
             )
         
@@ -285,7 +286,7 @@ class StateManager:
         
         if not tool_found:
             raise RuntimeError(
-                f"工具不存在于服务状态中: "
+                f"Tool does not exist in service status: "
                 f"service={service_global_name}, tool_original_name={tool_original_name}"
             )
         
@@ -297,7 +298,7 @@ class StateManager:
         )
         
         logger.debug(
-            f"[StateManager] 更新工具状态: service={service_global_name}, "
+            f"[StateManager] Updated tool status: service={service_global_name}, "
             f"tool_original_name={tool_original_name}, status={status}"
         )
     
@@ -323,8 +324,8 @@ class StateManager:
         valid_statuses = ["available", "unavailable"]
         if status not in valid_statuses:
             raise ValueError(
-                f"无效的工具状态: {status}. "
-                f"有效值: {valid_statuses}"
+                f"Invalid tool status: {status}. "
+                f"Valid values: {valid_statuses}"
             )
         
         # 获取当前服务状态
@@ -332,7 +333,7 @@ class StateManager:
         
         if service_status is None:
             raise RuntimeError(
-                f"服务状态不存在，无法更新工具状态: "
+                f"Service status does not exist, cannot update tool status: "
                 f"service={service_global_name}"
             )
         
@@ -351,7 +352,7 @@ class StateManager:
         
         if not_found_tools:
             raise RuntimeError(
-                f"以下工具不存在于服务状态中: "
+                f"The following tools do not exist in service status: "
                 f"service={service_global_name}, tools={not_found_tools}"
             )
         
@@ -363,7 +364,7 @@ class StateManager:
         )
         
         logger.debug(
-            f"[StateManager] 批量更新工具状态: service={service_global_name}, "
+            f"[StateManager] Batch updated tool status: service={service_global_name}, "
             f"tools_count={len(tool_original_names)}, status={status}"
         )
 
@@ -396,13 +397,13 @@ class StateManager:
             # Functional Core: 只准备数据，不进行IO操作
             # IO操作应该在 Imperative Shell 层处理
             # 这里我们返回需要保存的数据，由调用者决定如何保存
-            logger.debug(f"[StateManager] 准备状态数据: {service_global_name} -> {state_dict}")
+            logger.debug(f"[StateManager] Preparing state data: {service_global_name} -> {state_dict}")
             # 注意：这个方法应该由 Imperative Shell 的异步包装器调用
-            raise NotImplementedError("请在异步上下文中使用 update_service_status 方法")
-            logger.debug(f"[StateManager] 同步设置状态: {service_global_name} -> {state}")
+            raise NotImplementedError("Please use update_service_status method in async context")
+            logger.debug(f"[StateManager] Synchronously setting state: {service_global_name} -> {state}")
 
         except Exception as e:
-            logger.error(f"[StateManager] 同步设置状态失败 {service_global_name}: {e}")
+            logger.error(f"[StateManager] Failed to set state synchronously {service_global_name}: {e}")
             raise
 
     def set_metadata_sync(self, service_global_name: str, metadata) -> None:
@@ -427,8 +428,8 @@ class StateManager:
 
             # 使用缓存层的同步接口保存元数据
             self._cache_layer.put_state_sync("service_metadata", service_global_name, metadata_dict)
-            logger.debug(f"[StateManager] 同步设置元数据: {service_global_name}")
+            logger.debug(f"[StateManager] Synchronously setting metadata: {service_global_name}")
 
         except Exception as e:
-            logger.error(f"[StateManager] 同步设置元数据失败 {service_global_name}: {e}")
+            logger.error(f"[StateManager] Failed to set metadata synchronously {service_global_name}: {e}")
             raise

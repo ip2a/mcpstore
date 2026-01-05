@@ -55,16 +55,16 @@ class ServiceManagementCore:
     纯同步的服务管理核心逻辑
 
     严格遵循Functional Core原则：
-    - ✅ 纯同步执行
-    - ✅ 不包含任何IO操作
-    - ✅ 不调用任何异步方法
-    - ✅ 不使用await/asyncio.run()
-    - ✅ 只返回操作计划，不执行实际操作
+    - Pure synchronous execution
+    - No IO operations
+    - No async method calls
+    - No await/asyncio.run()
+    - Only return operation plans, do not execute actual operations
     """
 
     def __init__(self, agent_id: str = "global_agent_store"):
         """初始化核心逻辑"""
-        logger.debug("[SERVICE_CORE] 初始化 ServiceManagementCore")
+        logger.debug("[SERVICE_CORE] [INIT] Initializing ServiceManagementCore")
         self.agent_id = agent_id
 
     def add_service(self, config: Dict[str, Any]) -> ServiceOperationPlan:
@@ -80,20 +80,20 @@ class ServiceManagementCore:
         Returns:
             ServiceOperationPlan: 包含所有需要执行的操作计划
         """
-        logger.debug(f"[SERVICE_CORE] 开始解析服务配置: {type(config).__name__}")
+        logger.debug(f"[SERVICE_CORE] [PARSE] Starting to parse service configuration: {type(config).__name__}")
 
         # 1. 解析配置，标准化为服务字典
         service_configs = self._parse_service_config(config)
 
         if not service_configs:
-            raise ValueError("无效的服务配置，无法解析出任何服务")
+            raise ValueError("Invalid service configuration, unable to parse any services")
 
         # 2. 生成操作计划
         operations = []
         service_names = []
 
         for service_name, service_config in service_configs.items():
-            logger.debug(f"[SERVICE_CORE] 处理服务: {service_name}")
+            logger.debug(f"[SERVICE_CORE] [PROCESS] Processing service: {service_name}")
 
             # 使用当前上下文的 agent_id（store=global_agent_store，agent上下文则为具体ID）
             agent_id = self.agent_id or "global_agent_store"
@@ -198,7 +198,7 @@ class ServiceManagementCore:
 
             service_names.append(service_name)
 
-        logger.debug(f"[SERVICE_CORE] 生成操作计划: {len(operations)}个操作, {len(service_names)}个服务")
+        logger.debug(f"[SERVICE_CORE] [PLAN] Generated operation plan: {len(operations)} operations, {len(service_names)} services")
 
         return ServiceOperationPlan(
             operations=operations,
@@ -216,7 +216,7 @@ class ServiceManagementCore:
         Returns:
             WaitOperationPlan: 等待操作计划
         """
-        logger.debug(f"[SERVICE_CORE] 生成等待计划: {service_name}, timeout={timeout}")
+        logger.debug(f"[SERVICE_CORE] [PLAN] Generated wait plan: {service_name}, timeout={timeout}")
 
         agent_id = self.agent_id or "global_agent_store"
         # 使用NamingService生成全局名称，确保与缓存层一致
@@ -244,20 +244,20 @@ class ServiceManagementCore:
         3. {"service_name": {"url": "...", ...}, ...}
         """
         if not isinstance(config, dict):
-            raise ValueError(f"配置必须是字典类型，实际类型: {type(config).__name__}")
+            raise ValueError(f"Configuration must be a dictionary type, actual type: {type(config).__name__}")
 
         # 格式1: mcpServers格式
         if "mcpServers" in config:
             mcp_servers = config["mcpServers"]
             if not isinstance(mcp_servers, dict):
-                raise ValueError("mcpServers必须是字典类型")
+                raise ValueError("mcpServers must be a dictionary type")
             return mcp_servers
 
         # 格式2: 单个服务配置（有name字段）
         if "name" in config:
             service_name = config["name"]
             if not isinstance(service_name, str):
-                raise ValueError("服务名称必须是字符串")
+                raise ValueError("Service name must be a string")
             return {service_name: config}
 
         # 格式3: 直接是服务字典
@@ -270,7 +270,7 @@ class ServiceManagementCore:
         if service_configs:
             return service_configs
 
-        raise ValueError("无法识别的服务配置格式")
+        raise ValueError("Unrecognized service configuration format")
 
     def _generate_global_name(self, service_name: str, agent_id: str) -> str:
         """纯同步：生成全局服务名称"""

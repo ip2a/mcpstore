@@ -199,7 +199,7 @@ class AgentQueryBuilder:
         import asyncio
         try:
             loop = asyncio.get_running_loop()
-            raise RuntimeError("with_services 不能在异步上下文中调用，请使用 with_services_async")
+            raise RuntimeError("with_services cannot be called in async context, please use with_services_async")
         except RuntimeError:
             return asyncio.run(self.with_services_async(min_count))
 
@@ -224,7 +224,7 @@ class AgentQueryBuilder:
         import asyncio
         try:
             loop = asyncio.get_running_loop()
-            raise RuntimeError("get_all 不能在异步上下文中调用，请使用 get_all_async")
+            raise RuntimeError("get_all cannot be called in async context, please use get_all_async")
         except RuntimeError:
             return asyncio.run(self.get_all_async())
 
@@ -260,7 +260,7 @@ class ClientQueryBuilder:
         import asyncio
         try:
             loop = asyncio.get_running_loop()
-            raise RuntimeError("with_services 不能在异步上下文中调用，请使用 with_services_async")
+            raise RuntimeError("with_services cannot be called in async context, please use with_services_async")
         except RuntimeError:
             return asyncio.run(self.with_services_async(min_count))
 
@@ -286,38 +286,6 @@ class ClientQueryBuilder:
         import asyncio
         try:
             loop = asyncio.get_running_loop()
-            raise RuntimeError("get_all 不能在异步上下文中调用，请使用 get_all_async")
+            raise RuntimeError("get_all cannot be called in async context, please use get_all_async")
         except RuntimeError:
             return asyncio.run(self.get_all_async())
-
-
-# 使用示例函数
-def example_usage(registry):
-    """使用示例"""
-    query = SmartCacheQuery(registry)
-    
-    # 查询健康的、有工具的服务，按工具数量排序
-    healthy_services = query.services("agent_001") \
-        .healthy() \
-        .with_tools(min_count=2) \
-        .sort_by_tool_count(desc=True) \
-        .limit(10) \
-        .execute()
-    
-    # 查询失败的服务
-    failed_services = query.services("agent_001") \
-        .failed() \
-        .sort_by_name() \
-        .execute()
-    
-    # 查询特定类型的服务
-    api_services = query.services("agent_001") \
-        .name_like("api") \
-        .transport_type("http") \
-        .execute()
-    
-    return {
-        'healthy_services': healthy_services,
-        'failed_services': failed_services,
-        'api_services': api_services
-    }

@@ -126,28 +126,28 @@ class SessionManager:
             api_session = session_manager.create_named_session("team_1", "api_calls")
         """
         try:
-            # 🎯 Initialize agent's session dictionary if not exists
+            # Initialize agent's session dictionary if not exists
             if agent_id not in self.named_sessions:
                 self.named_sessions[agent_id] = {}
             
-            # 🎯 Check if session name already exists for this agent
+            # Check if session name already exists for this agent
             if session_name in self.named_sessions[agent_id]:
                 logger.warning(f"Session '{session_name}' already exists for agent '{agent_id}', returning existing session")
                 return self.named_sessions[agent_id][session_name]
             
-            # 🎯 Create new AgentSession
+            # Create new AgentSession
             session = AgentSession(agent_id)
             
-            # 🎯 Store in named sessions
+            # Store in named sessions
             self.named_sessions[agent_id][session_name] = session
             
-            # 🎯 Register user session mapping if provided
+            # Register user session mapping if provided
             if user_session_id:
                 if user_session_id in self.user_session_mapping:
                     logger.warning(f"User session ID '{user_session_id}' already exists, overwriting")
                 self.user_session_mapping[user_session_id] = (agent_id, session_name)
                 
-                # 🎯 Also register in global registry
+                # Also register in global registry
                 self.global_session_registry[user_session_id] = (agent_id, session_name)
             
             logger.info(f"Created named session '{session_name}' for agent '{agent_id}'" + 
@@ -170,16 +170,16 @@ class SessionManager:
             AgentSession if found and not expired, None otherwise
         """
         try:
-            # 🎯 Check if agent has any named sessions
+            # Check if agent has any named sessions
             if agent_id not in self.named_sessions:
                 return None
             
-            # 🎯 Check if specific session exists
+            # Check if specific session exists
             session = self.named_sessions[agent_id].get(session_name)
             if not session:
                 return None
             
-            # 🎯 Check expiration
+            # Check expiration
             if datetime.now() - session.last_active > self.session_timeout:
                 logger.info(f"Named session '{session_name}' expired for agent '{agent_id}'")
                 del self.named_sessions[agent_id][session_name]
@@ -188,7 +188,7 @@ class SessionManager:
                     del self.named_sessions[agent_id]
                 return None
             
-            # 🎯 Update activity and return
+            # Update activity and return
             session.update_activity()
             return session
             
@@ -214,16 +214,16 @@ class SessionManager:
             session = session_manager.get_session_by_user_id("shared_browser_session")
         """
         try:
-            # 🎯 Look up in user session mapping
+            # Look up in user session mapping
             if user_session_id not in self.user_session_mapping:
                 return None
             
             agent_id, session_name = self.user_session_mapping[user_session_id]
             
-            # 🎯 Get the actual session
+            # Get the actual session
             session = self.get_named_session(agent_id, session_name)
             
-            # 🎯 Clean up mapping if session expired
+            # Clean up mapping if session expired
             if not session:
                 del self.user_session_mapping[user_session_id]
                 if user_session_id in self.global_session_registry:
@@ -249,7 +249,7 @@ class SessionManager:
             if agent_id not in self.named_sessions:
                 return {}
             
-            # 🎯 Filter out expired sessions
+            # Filter out expired sessions
             valid_sessions = {}
             expired_sessions = []
             
@@ -260,12 +260,12 @@ class SessionManager:
                 else:
                     expired_sessions.append(session_name)
             
-            # 🎯 Clean up expired sessions
+            # Clean up expired sessions
             for session_name in expired_sessions:
                 del self.named_sessions[agent_id][session_name]
                 logger.info(f"Cleaned up expired named session '{session_name}' for agent '{agent_id}'")
             
-            # 🎯 Clean up empty agent entry
+            # Clean up empty agent entry
             if not self.named_sessions[agent_id]:
                 del self.named_sessions[agent_id]
             
@@ -282,7 +282,7 @@ class SessionManager:
         Returns:
             Dictionary of user_session_id -> (agent_id, session_name)
         """
-        # 🎯 Clean up expired mappings first
+        # Clean up expired mappings first
         expired_user_sessions = []
         
         for user_session_id, (agent_id, session_name) in self.user_session_mapping.items():
@@ -290,7 +290,7 @@ class SessionManager:
             if not session:
                 expired_user_sessions.append(user_session_id)
         
-        # 🎯 Remove expired mappings
+        # Remove expired mappings
         for user_session_id in expired_user_sessions:
             del self.user_session_mapping[user_session_id]
             if user_session_id in self.global_session_registry:
@@ -311,18 +311,18 @@ class SessionManager:
             bool: True if registration successful, False otherwise
         """
         try:
-            # 🎯 Verify the session exists
+            # Verify the session exists
             session = self.get_named_session(agent_id, session_name)
             if not session:
                 logger.error(f"Cannot register user session '{user_session_id}': session '{session_name}' not found for agent '{agent_id}'")
                 return False
             
-            # 🎯 Check for conflicts
+            # Check for conflicts
             if user_session_id in self.user_session_mapping:
                 existing_agent_id, existing_session_name = self.user_session_mapping[user_session_id]
                 logger.warning(f"User session ID '{user_session_id}' already maps to ({existing_agent_id}, {existing_session_name}), overwriting")
             
-            # 🎯 Register mapping
+            # Register mapping
             self.user_session_mapping[user_session_id] = (agent_id, session_name)
             self.global_session_registry[user_session_id] = (agent_id, session_name)
             
@@ -350,7 +350,7 @@ class SessionManager:
                 logger.warning(f"User session ID '{user_session_id}' not found for unregistration")
                 return False
             
-            # 🎯 Remove mappings
+            # Remove mappings
             del self.user_session_mapping[user_session_id]
             if user_session_id in self.global_session_registry:
                 del self.global_session_registry[user_session_id]
@@ -367,10 +367,10 @@ class SessionManager:
         Enhanced cleanup that handles both original and named sessions
         """
         try:
-            # 🎯 Clean up original sessions (backward compatibility)
+            # Clean up original sessions (backward compatibility)
             self.cleanup_expired_sessions()
             
-            # 🎯 Clean up named sessions
+            # Clean up named sessions
             now = datetime.now()
             agents_to_clean = []
             
@@ -394,7 +394,7 @@ class SessionManager:
             for agent_id in agents_to_clean:
                 del self.named_sessions[agent_id]
             
-            # 🎯 Clean up orphaned user session mappings
+            # Clean up orphaned user session mappings
             orphaned_user_sessions = []
             for user_session_id, (agent_id, session_name) in self.user_session_mapping.items():
                 if agent_id not in self.named_sessions or session_name not in self.named_sessions.get(agent_id, {}):

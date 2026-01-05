@@ -666,7 +666,7 @@ class ConfigService:
                 self._snapshot_generator = ConfigSnapshotGenerator(config)
             except Exception as e:
                 logger.error(f"Failed to initialize snapshot generator: {e}")
-                raise RuntimeError(f"无法初始化配置快照生成器: {e}")
+                raise RuntimeError(f"Failed to initialize configuration snapshot generator: {e}")
         return self._snapshot_generator
 
     def _get_export_service(self) -> ConfigExportService:

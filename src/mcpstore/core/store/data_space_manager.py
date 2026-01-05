@@ -76,7 +76,7 @@ class DataSpaceManagerMixin:
                     await self.for_store().add_service_async(mcp_config)
                     return True
                 except Exception as e:
-                    logger.error(f"通过缓存添加服务失败: {e}")
+                    logger.error(f"Failed to add service via cache: {e}")
                     return False
         # agent级别
         else:
@@ -92,15 +92,15 @@ class DataSpaceManagerMixin:
                         else:
                             mcp_config["mcpServers"][name] = svc_cfg
                     if missing:
-                        logger.error(f"Agent({agent_id}) 以下服务未在缓存中找到配置: {missing}")
+                        logger.error(f"Agent({agent_id}) the following services were not found in cache: {missing}")
                         return False
                     await self.for_agent(agent_id).add_service_async(mcp_config)
                     return True
                 except Exception as e:
-                    logger.error(f"Agent通过缓存添加服务失败: {e}")
+                    logger.error(f"Agent failed to add service via cache: {e}")
                     return False
             else:
-                logger.warning(f"Agent {agent_id} 级别不支持全量注册")
+                logger.warning(f"Agent {agent_id} level does not support full registration")
                 return False
 
     async def add_service(self, service_names: List[str], agent_id: Optional[str] = None) -> bool:

@@ -81,7 +81,7 @@ class ToolExecutionMixin:
             if not agent_services:
                 raise Exception(f"No services found in pykv for agent {effective_agent_id}")
             
-            logger.debug(f"[TOOL_EXECUTION] pykv 关系层服务数量: {len(agent_services)}")
+            logger.debug(f"[TOOL_EXECUTION] pykv relationship layer service count: {len(agent_services)}")
             
             # 从关系层提取 client_ids
             client_ids = list(set(
@@ -91,7 +91,7 @@ class ToolExecutionMixin:
             if not client_ids:
                 raise Exception(f"No client_ids found in pykv relations for agent {effective_agent_id}")
             
-            logger.debug(f"[TOOL_EXECUTION] pykv 关系层 client_ids: {client_ids}")
+            logger.debug(f"[TOOL_EXECUTION] pykv relationship layer client_ids: {client_ids}")
 
             # 检查服务是否存在于关系层
             service_exists = any(
@@ -114,7 +114,7 @@ class ToolExecutionMixin:
             if not service_config:
                 raise Exception(f"Service configuration is empty in pykv: {service_name}")
             
-            logger.debug(f"[TOOL_EXECUTION] 从 pykv 实体层获取服务配置: {service_name}")
+            logger.debug(f"[TOOL_EXECUTION] Getting service config from pykv entity layer: {service_name}")
 
             # 标准化配置并创建 FastMCP 客户端
             normalized_config = self._normalize_service_config(service_config)
@@ -202,7 +202,7 @@ class ToolExecutionMixin:
             工具执行结果
         """
         try:
-            # 🎯 使用 session_id 获取/创建命名会话（优先），否则回退到默认会话
+            # Use session_id to get/create named session (priority), otherwise fallback to default session
             effective_agent_id = agent_id or self.client_manager.global_agent_store_id
             session = None
             try:
@@ -223,7 +223,7 @@ class ToolExecutionMixin:
                 # 最后兜底创建一个默认会话
                 session = self.session_manager.create_session(effective_agent_id)
 
-            # 🎯 获取或创建持久的 FastMCP Client（参考 langchain_mcp_adapters 设计）
+            # Get or create persistent FastMCP Client (refer to langchain_mcp_adapters design)
             client = session.services.get(service_name)
             if client is None:
                 logger.info(f"[SESSION_EXECUTION] Service '{service_name}' not bound or client is None, creating persistent client")
@@ -240,7 +240,7 @@ class ToolExecutionMixin:
 
                 logger.debug(f"[SESSION_EXECUTION] Reusing cached persistent client for service '{service_name}'")
             
-            # 🎯 使用持久连接直接执行工具（避免每次 async with 关闭连接导致状态丢失）
+            # Use persistent connection to execute tool directly (avoid state loss from closing connection on each async with)
             logger.info(f"[SESSION_EXECUTION] Executing tool '{tool_name}' with persistent client (no async with)")
 
             import time as _t
@@ -319,10 +319,10 @@ class ToolExecutionMixin:
             t_exec1 = _t.perf_counter()
             logger.debug(f"[TIMING] executor.execute_tool(): {(t_exec1 - t_exec0):.3f}s")
 
-            # 5️⃣ 更新会话活跃时间
+            # Update session activity time
             session.update_activity()
             
-            # 6️⃣ 返回 FastMCP 客户端的 CallToolResult（与官方保持一致）
+            # Return FastMCP client's CallToolResult (consistent with official implementation)
             logger.info(f"[SESSION_EXECUTION] Tool '{tool_name}' executed successfully in session mode")
             return result
             
@@ -369,10 +369,10 @@ class ToolExecutionMixin:
             # 标准化配置
             normalized_config = self._normalize_service_config(service_config)
             
-            # 🎯 创建 FastMCP Client（利用其可重入特性）
+            # Create FastMCP Client (utilize its reentrant feature)
             client = Client({"mcpServers": {service_name: normalized_config}})
             
-            # 🎯 启动持久连接（FastMCP Client的正确用法）
+            # Start persistent connection (correct usage of FastMCP Client)
             # 注意：我们调用_connect()而不是使用async with，这样连接会保持活跃
             await client._connect()
             

@@ -50,7 +50,7 @@ class SetupMixin:
             # 检查service_to_client映射（统一通过Registry API）
             existing_client_id = self.registry._agent_client_service.get_service_client_id(agent_id, service_name)
             if existing_client_id:
-                logger.debug(f" [INIT_MCP] 找到现有Agent client_id: {service_name} -> {existing_client_id}")
+                logger.debug(f"[INIT_MCP] [FOUND] Found existing Agent client_id: {service_name} -> {existing_client_id}")
                 return existing_client_id
 
             # 检查agent_clients中是否有匹配的client_id（统一通过Registry API）
@@ -74,13 +74,13 @@ class SetupMixin:
                         if parsed.get("type") == "agent" \
                            and parsed.get("agent_id") == agent_id \
                            and parsed.get("service_name") == service_name:
-                            logger.debug(f" [INIT_MCP] 通过解析确定性ID找到Agent client_id: {client_id}")
+                            logger.debug(f"[INIT_MCP] [FOUND] Found Agent client_id by parsing deterministic ID: {client_id}")
                             return client_id
                 except Exception:
                     pass
                 # 兼容旧格式：保留模式匹配
                 if f"_{agent_id}_{service_name}_" in client_id:
-                    logger.debug(f" [INIT_MCP] 通过旧格式匹配找到Agent client_id: {client_id}")
+                    logger.debug(f"[INIT_MCP] [FOUND] Found Agent client_id by old format matching: {client_id}")
                     return client_id
 
             return None
@@ -104,7 +104,7 @@ class SetupMixin:
             # 优先：通过 Registry 提供的映射API 获取
             existing_client_id = self.registry._agent_client_service.get_service_client_id(agent_id, service_name)
             if existing_client_id:
-                logger.debug(f" [INIT_MCP] 找到现有Store client_id: {service_name} -> {existing_client_id}")
+                logger.debug(f"[INIT_MCP] [FOUND] Found existing Store client_id: {service_name} -> {existing_client_id}")
                 return existing_client_id
 
             # 其次：检查 agent 的所有 client_ids（通过 Registry API）
@@ -126,13 +126,13 @@ class SetupMixin:
                     if ClientIDGenerator.is_deterministic_format(client_id):
                         parsed = ClientIDGenerator.parse_client_id(client_id)
                         if parsed.get("type") == "store" and parsed.get("service_name") == service_name:
-                            logger.debug(f" [INIT_MCP] 通过解析确定性ID找到Store client_id: {client_id}")
+                            logger.debug(f"[INIT_MCP] [FOUND] Found Store client_id by parsing deterministic ID: {client_id}")
                             return client_id
                 except Exception:
                     pass
                 # 兼容旧格式：保留模式匹配
                 if f"client_store_{service_name}_" in client_id:
-                    logger.debug(f" [INIT_MCP] 通过旧格式匹配找到Store client_id: {client_id}")
+                    logger.debug(f"[INIT_MCP] [FOUND] Found Store client_id by old format matching: {client_id}")
                     return client_id
 
             return None
@@ -146,17 +146,17 @@ class SetupMixin:
         从 mcp.json 初始化服务，解析 Agent 服务并建立映射关系
         """
         try:
-            logger.info(" [INIT_MCP] 开始从 mcp.json 解析服务...")
+            logger.info("[INIT_MCP] [START] Starting to parse services from mcp.json...")
 
             # 读取 mcp.json 配置（优化：使用缓存）
             mcp_config = self._unified_config.get_mcp_config()
             mcp_servers = mcp_config.get("mcpServers", {})
 
             if not mcp_servers:
-                logger.info(" [INIT_MCP] mcp.json 中没有服务配置")
+                logger.info("[INIT_MCP] [INFO] No service configuration in mcp.json")
                 return
 
-            logger.info(f" [INIT_MCP] 发现 {len(mcp_servers)} 个服务配置")
+            logger.info(f"[INIT_MCP] [FOUND] Found {len(mcp_servers)} service configurations")
 
             # 解析服务并建立映射关系
             agents_discovered = set()
@@ -179,7 +179,7 @@ class SetupMixin:
                     if agent_id:
                         global_name = service_name     # 带后缀的全局名
 
-                        logger.debug(f" [INIT_MCP] 发现 Agent 服务: {global_name} -> Agent {agent_id} (local: {local_name})")
+                        logger.debug(f"[INIT_MCP] [FOUND] Found Agent service: {global_name} -> Agent {agent_id} (local: {local_name})")
                         # 添加到发现的 Agent 集合
                         agents_discovered.add(agent_id)
 
@@ -192,7 +192,7 @@ class SetupMixin:
                         if existing_client_id:
                             # 使用现有的client_id
                             client_id = existing_client_id
-                            logger.debug(f" [INIT_MCP] 使用现有Agent client_id: {global_name} -> {client_id}")
+                            logger.debug(f"[INIT_MCP] [USE] Using existing Agent client_id: {global_name} -> {client_id}")
                         else:
                             #  使用统一的ClientIDGenerator生成确定性client_id
                             from mcpstore.core.utils.id_generator import ClientIDGenerator
@@ -203,7 +203,7 @@ class SetupMixin:
                                 service_config=service_config,
                                 global_agent_store_id=global_agent_store_id
                             )
-                            logger.debug(f" [INIT_MCP] 生成新Agent client_id: {global_name} -> {client_id}")
+                            logger.debug(f"[INIT_MCP] [GENERATE] Generated new Agent client_id: {global_name} -> {client_id}")
 
                         client_config = {"mcpServers": {local_name: service_config}}
 
@@ -216,11 +216,11 @@ class SetupMixin:
                         # 建立 服务 -> Client 映射（统一API）
                         self.registry._agent_client_service.add_service_client_mapping(agent_id, local_name, client_id)
 
-                        logger.debug(f" [INIT_MCP] Agent 服务映射完成: {agent_id}:{local_name} -> {client_id}")
+                        logger.debug(f"[INIT_MCP] [COMPLETE] Agent service mapping completed: {agent_id}:{local_name} -> {client_id}")
                     
                     else:
                         # Store 服务：添加到 global_agent_store
-                        logger.debug(f" [INIT_MCP] 发现 Store 服务: {service_name}")
+                        logger.debug(f"[INIT_MCP] [FOUND] Found Store service: {service_name}")
                         
                         #  修复：检查是否已存在该服务的client_id，避免重复生成
                         existing_client_id = self._find_existing_client_id_for_store_service(global_agent_store_id, service_name)
@@ -228,7 +228,7 @@ class SetupMixin:
                         if existing_client_id:
                             # 使用现有的client_id
                             client_id = existing_client_id
-                            logger.debug(f" [INIT_MCP] 使用现有Store client_id: {service_name} -> {client_id}")
+                            logger.debug(f"[INIT_MCP] [USE] Using existing Store client_id: {service_name} -> {client_id}")
                         else:
                             # 生成新的client_id（统一使用确定性算法）
                             from mcpstore.core.utils.id_generator import ClientIDGenerator
@@ -238,7 +238,7 @@ class SetupMixin:
                                 service_config=service_config,
                                 global_agent_store_id=global_agent_store_id
                             )
-                            logger.debug(f" [INIT_MCP] 生成新Store client_id: {service_name} -> {client_id}")
+                            logger.debug(f"[INIT_MCP] [GENERATE] Generated new Store client_id: {service_name} -> {client_id}")
 
                         client_config = {"mcpServers": {service_name: service_config}}
 
@@ -251,19 +251,19 @@ class SetupMixin:
                         # 建立服务 -> Client 映射（统一API）
                         self.registry._agent_client_service.add_service_client_mapping(global_agent_store_id, service_name, client_id)
 
-                        logger.debug(f" [INIT_MCP] Store 服务映射完成: {service_name} -> {client_id}")
+                        logger.debug(f"[INIT_MCP] [COMPLETE] Store service mapping completed: {service_name} -> {client_id}")
 
                 except Exception as e:
-                    logger.error(f" [INIT_MCP] 处理服务 {service_name} 失败: {e}")
+                    logger.error(f"[INIT_MCP] [ERROR] Failed to process service {service_name}: {e}")
                     continue
 
             # 同步发现的 Agent 到持久化文件
             if agents_discovered:
-                logger.info(f" [INIT_MCP] 发现 {len(agents_discovered)} 个 Agent，开始同步到文件...")
+                logger.info(f"[INIT_MCP] [SYNC] Found {len(agents_discovered)} Agents, starting to sync to files...")
                 await self._sync_discovered_agents_to_files(agents_discovered)
 
-            logger.info(f" [INIT_MCP] mcp.json 解析完成，处理了 {len(mcp_servers)} 个服务")
+            logger.info(f"[INIT_MCP] [COMPLETE] mcp.json parsing completed, processed {len(mcp_servers)} services")
 
         except Exception as e:
-            logger.error(f" [INIT_MCP] 从 mcp.json 初始化服务失败: {e}")
+            logger.error(f"[INIT_MCP] [ERROR] Failed to initialize services from mcp.json: {e}")
             raise

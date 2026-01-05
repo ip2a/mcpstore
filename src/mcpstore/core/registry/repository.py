@@ -107,7 +107,7 @@ class CacheRepository:
         import asyncio
         try:
             loop = asyncio.get_running_loop()
-            raise RuntimeError("get_agent_clients 不能在异步上下文中调用，请使用 get_agent_clients_async")
+            raise RuntimeError("get_agent_clients cannot be called in async context, please use get_agent_clients_async")
         except RuntimeError:
             return asyncio.run(self.get_agent_clients_async(agent_id))
 

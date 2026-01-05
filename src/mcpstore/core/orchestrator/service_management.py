@@ -65,7 +65,7 @@ class ServiceManagementMixin:
         agent_id = self.client_manager.global_agent_store_id
 
         for name in config.get("mcpServers", {}).keys():
-            state = self.registry._service_state_service.get_service_state(agent_id, name)
+            state = await self.registry._service_state_service.get_service_state_async(agent_id, name)
 
             # 新服务（state=None）也应纳入处理范围
             if state is None or state in processable_states:
@@ -130,7 +130,7 @@ class ServiceManagementMixin:
                 logger.debug(f"Using provided agent_id: {agent_key}")
 
             # 🆕 Event-driven architecture: directly check service status from registry
-            current_state = self.registry._service_state_service.get_service_state(agent_key, service_name)
+            current_state = await self.registry._service_state_service.get_service_state_async(agent_key, service_name)
             if current_state is None:
                 logger.warning(f"Service {service_name} not found in lifecycle manager for agent {agent_key}")
                 # Check if it exists in the registry（使用异步 API）
@@ -202,16 +202,16 @@ class ServiceManagementMixin:
                     state_manager = self.registry._cache_state_manager
                     await state_manager.delete_service_status(service_global_name)
                     logger.info(
-                        f"服务状态清理成功: service_global_name={service_global_name}"
+                        f"Service status cleanup successful: service_global_name={service_global_name}"
                     )
                 else:
                     logger.debug(
-                        f"无法获取服务全局名称，跳过状态清理: "
+                        f"Cannot get service global name, skipping status cleanup: "
                         f"agent_id={agent_key}, service_name={service_name}"
                     )
             except Exception as e:
                 logger.warning(
-                    f"服务状态清理失败（不影响服务移除）: "
+                    f"Service status cleanup failed (does not affect service removal): "
                     f"agent_id={agent_key}, service_name={service_name}, error={e}"
                 )
 
@@ -419,8 +419,11 @@ class ServiceManagementMixin:
             agent_key = client_id or self.client_manager.global_agent_store_id
 
             # 从 pykv 异步获取服务状态
-            state = self.registry._service_state_service.get_service_state(agent_key, service_name)
-            metadata = await self.registry._service_state_service.get_service_metadata_async(agent_key, service_name)
+            state = await self.registry._service_state_service.get_service_state_async(agent_key, service_name)
+            metadata = await self.registry._service_state_service.get_service_metadata_async(
+                agent_key,
+                service_name,
+            )
 
             # Build status response
             status_response = {

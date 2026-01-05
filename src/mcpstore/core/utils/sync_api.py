@@ -35,11 +35,11 @@ def run_sync(coro, *, timeout: Optional[float] = None, force_background: Optiona
         Any: Result of the coroutine
     """
     if force_background:
-        logger.warning("force_background=True 参数违反核心架构原则，将被忽略")
+        logger.warning("force_background=True parameter violates core architecture principles, will be ignored")
 
     # 简单使用asyncio.run()，符合核心原则
     if timeout is not None:
-        logger.warning("timeout参数暂时不被支持，将被忽略")
+        logger.warning("timeout parameter is not currently supported, will be ignored")
 
     return asyncio.run(coro)
 

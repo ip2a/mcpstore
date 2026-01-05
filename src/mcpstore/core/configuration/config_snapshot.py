@@ -235,9 +235,9 @@ class ConfigSnapshotFormatter:
                 line = f"  {item.key:<35} = {value_display:<25} [{item.source.value}]"
 
                 if item.is_sensitive:
-                    line += " 🔒"
+                    line += " [SENSITIVE]"
                 if item.is_dynamic:
-                    line += " ⚡"
+                    line += " [DYNAMIC]"
 
                 lines.append(line)
 

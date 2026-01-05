@@ -313,12 +313,12 @@ class ManagerCoordinator:
         # 初始化所有管理器
         for name, manager in self._managers.items():
             manager.initialize()
-            logger.info(f"初始化管理器: {name}")
+            logger.info(f"Initializing manager: {name}")
 
     def get_manager(self, manager_type: str):
         """获取指定类型的管理器"""
         if manager_type not in self._managers:
-            raise ValueError(f"未知的管理器类型: {manager_type}")
+            raise ValueError(f"Unknown manager type: {manager_type}")
         return self._managers[manager_type]
 
     def cleanup_all_managers(self):
@@ -326,7 +326,7 @@ class ManagerCoordinator:
         for name, manager in self._managers.items():
             try:
                 manager.cleanup()
-                logger.info(f"清理管理器: {name}")
+                logger.info(f"Cleaning up manager: {name}")
             except Exception as e:
-                logger.error(f"清理管理器 {name} 时出错: {e}")
+                logger.error(f"Error cleaning up manager {name}: {e}")
         self._managers.clear()

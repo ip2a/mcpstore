@@ -45,7 +45,7 @@ class PersistenceManager(PersistenceManagerInterface):
             'package_name', 'timeout', 'retry_count'
         }
 
-        self._logger.info(f"初始化PersistenceManager，命名空间: {namespace}")
+        self._logger.info(f"Initializing PersistenceManager, namespace: {namespace}")
 
     def _legacy(self, method: str) -> None:
         raise_legacy_error(
@@ -55,7 +55,7 @@ class PersistenceManager(PersistenceManagerInterface):
 
     def initialize(self) -> None:
         """初始化持久化管理器"""
-        self._logger.info("PersistenceManager 初始化完成")
+        self._logger.info("PersistenceManager initialization completed")
 
     def cleanup(self) -> None:
         """清理持久化管理器资源"""
@@ -65,9 +65,9 @@ class PersistenceManager(PersistenceManagerInterface):
             self._service_manager = None
             self._relation_manager = None
 
-            self._logger.info("PersistenceManager 清理完成")
+            self._logger.info("PersistenceManager cleanup completed")
         except Exception as e:
-            self._logger.error(f"PersistenceManager 清理时出错: {e}")
+            self._logger.error(f"PersistenceManager cleanup error: {e}")
             raise
 
     def set_unified_config(self, unified_config: Any) -> None:

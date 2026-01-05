@@ -78,7 +78,7 @@ class ServiceManagementMixin:
         elif self._context_type.name == 'AGENT':
             return await self._store.get_health_status(self._agent_id, agent_mode=True)
         else:
-            logger.error(f"[check_services] 未知上下文类型: {self._context_type}")
+            logger.error(f"[check_services] Unknown context type: {self._context_type}")
             return {}
 
     def get_service_info(self, name: str) -> Any:
@@ -117,7 +117,7 @@ class ServiceManagementMixin:
             }
 
         except Exception as e:
-            logger.error(f"[NEW_ARCH] get_service_info 失败: {e}")
+            logger.error(f"[NEW_ARCH] get_service_info failed: {e}")
             return {
                 "name": name,
                 "error": str(e),
@@ -141,7 +141,7 @@ class ServiceManagementMixin:
             logger.debug(f"AGENT mode - searching service in agent({self._agent_id}): {name}")
             return await self._store.get_service_info(name, self._agent_id)
         else:
-            logger.error(f"[get_service_info] 未知上下文类型: {self._context_type}")
+            logger.error(f"[get_service_info] Unknown context type: {self._context_type}")
             return {}
 
     def update_service(self,
@@ -180,7 +180,7 @@ class ServiceManagementMixin:
                     op_name="service_management.update_service"
                 )
             except Exception as e:
-                logger.error(f"[NEW_ARCH] update_service 失败: {e}")
+                logger.error(f"[NEW_ARCH] update_service failed: {e}")
             return self
         else:
             # 没有配置参数：
@@ -193,7 +193,7 @@ class ServiceManagementMixin:
                         op_name="service_management.update_service_auth"
                     )
                 except Exception as e:
-                    logger.error(f"[NEW_ARCH] update_service (auth) 失败: {e}")
+                    logger.error(f"[NEW_ARCH] update_service (auth) failed: {e}")
                 return self
             else:
                 # 什么都没有：返回助手用于链式调用
@@ -284,7 +284,7 @@ class ServiceManagementMixin:
                         metadata.service_config = _deep_merge(metadata.service_config or {}, config)
                         self._store.registry.set_service_metadata(global_agent, global_name, metadata)
                 except Exception as e:
-                    logger.error(f"更新服务元数据失败: {e}")
+                    logger.error(f"Failed to update service metadata: {e}")
                     raise
 
                 return success
@@ -309,7 +309,7 @@ class ServiceManagementMixin:
                 op_name="service_management.patch_service"
             )
         except Exception as e:
-            logger.error(f"[NEW_ARCH] patch_service 失败: {e}")
+            logger.error(f"[NEW_ARCH] patch_service failed: {e}")
             return False
 
     async def patch_service_async(self, name: str, updates: Dict[str, Any]) -> bool:
@@ -383,7 +383,7 @@ class ServiceManagementMixin:
                         metadata.service_config.update(updates)
                         self._store.registry.set_service_metadata(global_agent, global_name, metadata)
                 except Exception as e:
-                    logger.error(f"更新服务元数据失败: {e}")
+                    logger.error(f"Failed to update service metadata: {e}")
                     raise
 
                 return success
@@ -407,7 +407,7 @@ class ServiceManagementMixin:
                 op_name="service_management.delete_service"
             )
         except Exception as e:
-            logger.error(f"[NEW_ARCH] delete_service 失败: {e}")
+            logger.error(f"[NEW_ARCH] delete_service failed: {e}")
             return False
 
     async def delete_service_async(self, name: str) -> bool:
@@ -505,7 +505,7 @@ class ServiceManagementMixin:
                 op_name="service_management.switch_cache"
             )
         except Exception as e:
-            logger.error(f"[NEW_ARCH] switch_cache 失败: {e}")
+            logger.error(f"[NEW_ARCH] switch_cache failed: {e}")
             return False
 
     async def switch_cache_async(self, cache_config: Any) -> bool:
@@ -555,28 +555,28 @@ class ServiceManagementMixin:
            - remove_service_async 清理：实体层、关系层、状态层、工具实体
         3. 重置 mcp.json 为空配置
         """
-        logger.info("[RESET_CONFIG] Store 级别：开始重置所有配置")
+        logger.info("[RESET_CONFIG] [STORE] Store level: starting to reset all configurations")
         
         # 1. 获取所有 Agent ID
         agent_ids = await self._store.registry.get_all_agent_ids_async()
-        logger.debug(f"[RESET_CONFIG] 发现 {len(agent_ids)} 个 Agent 需要清理")
+        logger.debug(f"[RESET_CONFIG] [CLEAN] Found {len(agent_ids)} Agents need to be cleaned")
         
         # 2. 清空每个 Agent 的缓存数据
         for agent_id in agent_ids:
-            logger.debug(f"[RESET_CONFIG] 清理 Agent: {agent_id}")
+            logger.debug(f"[RESET_CONFIG] [CLEAN] Cleaning Agent: {agent_id}")
             await self._store.registry.clear_async(agent_id)
         
         # 3. 重置 mcp.json 文件
         default_config = {"mcpServers": {}}
         mcp_success = self._store._unified_config.update_mcp_config(default_config)
         
-        logger.info("[RESET_CONFIG] Store 级别：配置重置完成")
+        logger.info("[RESET_CONFIG] [STORE] Store level: configuration reset completed")
         return mcp_success
 
     async def _reset_agent_config(self) -> bool:
         """Agent级别重置配置的内部实现"""
         try:
-            logger.info(f" Agent级别：重置Agent {self._agent_id} 的所有配置")
+            logger.info(f"[RESET_CONFIG] [AGENT] Agent level: resetting all configurations for Agent {self._agent_id}")
 
             # 1. 清空Agent在缓存中的数据（使用异步版本）
             await self._store.registry.clear_async(self._agent_id)
@@ -584,11 +584,11 @@ class ServiceManagementMixin:
             # 2. 单源模式：不再同步到分片文件
             logger.info("Single-source mode: skip shard mapping files sync")
 
-            logger.info(f" Agent级别：Agent {self._agent_id} 配置重置完成")
+            logger.info(f"[RESET_CONFIG] [AGENT] Agent level: Agent {self._agent_id} configuration reset completed")
             return True
 
         except Exception as e:
-            logger.error(f"Agent级别重置配置失败: {e}")
+            logger.error(f"[RESET_CONFIG] [ERROR] Agent level configuration reset failed: {e}")
             return False
 
     def show_config(self) -> Dict[str, Any]:
@@ -607,7 +607,7 @@ class ServiceManagementMixin:
                 op_name="service_management.show_config"
             )
         except Exception as e:
-            logger.error(f"[NEW_ARCH] show_config 失败: {e}")
+            logger.error(f"[NEW_ARCH] show_config failed: {e}")
             return {}
 
     async def show_config_async(self) -> Dict[str, Any]:
@@ -693,7 +693,7 @@ class ServiceManagementMixin:
                 op_name="service_management.delete_config"
             )
         except Exception as e:
-            logger.error(f"[NEW_ARCH] delete_config 失败: {e}")
+            logger.error(f"[NEW_ARCH] delete_config failed: {e}")
             return {
                 "success": False,
                 "error": str(e),
@@ -747,7 +747,7 @@ class ServiceManagementMixin:
                 op_name="service_management.update_config"
             )
         except Exception as e:
-            logger.error(f"[NEW_ARCH] update_config 失败: {e}")
+            logger.error(f"[NEW_ARCH] update_config failed: {e}")
             return {
                 "success": False,
                 "error": str(e),
@@ -840,11 +840,11 @@ class ServiceManagementMixin:
 
             return True
         except Exception as e:
-            logger.debug(f" [VALIDATE_MAPPING] 验证失败: {e}")
+            logger.debug(f" [VALIDATE_MAPPING] Validation failed: {e}")
             return False
 
     def _validate_resolved_mapping(self, client_id: str, service_name: str, agent_id: str) -> bool:
-        raise RuntimeError("[SERVICE_MANAGEMENT] 同步 validate_mapping 已禁用，请使用 _validate_resolved_mapping_async。")
+        raise RuntimeError("[SERVICE_MANAGEMENT] Synchronous validate_mapping is disabled, please use _validate_resolved_mapping_async.")
 
     async def _resolve_client_id_async(self, client_id_or_service_name: str, agent_id: str) -> Tuple[str, str]:
         """
@@ -938,14 +938,14 @@ class ServiceManagementMixin:
     async def _delete_store_config(self, client_id_or_service_name: str) -> Dict[str, Any]:
         """Store级别删除配置的内部实现"""
         try:
-            logger.info(f"🗑️ Store级别：删除配置 {client_id_or_service_name}")
+            logger.info(f"[DELETE_CONFIG] [STORE] Store level: deleting configuration {client_id_or_service_name}")
 
             global_agent_store_id = self._store.client_manager.global_agent_store_id
 
             # 解析client_id和服务名
             client_id, service_name = await self._resolve_client_id_async(client_id_or_service_name, global_agent_store_id)
 
-            logger.info(f"🗑️ 解析结果: client_id={client_id}, service_name={service_name}")
+            logger.info(f"[DELETE_CONFIG] [RESOLVE] Resolution result: client_id={client_id}, service_name={service_name}")
 
             # 验证服务存在
             if not self._store.registry.get_session(global_agent_store_id, service_name):
@@ -955,7 +955,7 @@ class ServiceManagementMixin:
             # 1. 从mcp.json中删除服务配置（使用 UnifiedConfigManager 自动刷新缓存）
             success = self._store._unified_config.remove_service_config(service_name)
             if success:
-                logger.info(f"🗑️ 已从mcp.json删除服务: {service_name}，缓存已同步")
+                logger.info(f"[DELETE_CONFIG] [SUCCESS] Service removed from mcp.json: {service_name}, cache synchronized")
 
             # 2. 从缓存中删除服务（包括工具和会话）- 使用异步版本
             await self._store.registry.remove_service_async(global_agent_store_id, service_name)
@@ -972,7 +972,7 @@ class ServiceManagementMixin:
             # 6. 单源模式：不再同步到分片文件
             logger.info("Single-source mode: skip shard mapping files sync")
 
-            logger.info(f" Store级别：配置删除完成 {service_name}")
+            logger.info(f"[DELETE_CONFIG] [STORE] Store level: configuration deletion completed {service_name}")
 
             return {
                 "success": True,
@@ -982,7 +982,7 @@ class ServiceManagementMixin:
             }
 
         except Exception as e:
-            logger.error(f"Store级别删除配置失败: {e}")
+            logger.error(f"[DELETE_CONFIG] [ERROR] Store level configuration deletion failed: {e}")
             return {
                 "success": False,
                 "error": f"Failed to delete store config: {str(e)}",
@@ -993,12 +993,12 @@ class ServiceManagementMixin:
     async def _delete_agent_config(self, client_id_or_service_name: str) -> Dict[str, Any]:
         """Agent级别删除配置的内部实现"""
         try:
-            logger.info(f"🗑️ Agent级别：删除Agent {self._agent_id} 的配置 {client_id_or_service_name}")
+            logger.info(f"[DELETE_CONFIG] [AGENT] Agent level: deleting Agent {self._agent_id} configuration {client_id_or_service_name}")
 
             # 解析client_id和服务名
             client_id, service_name = await self._resolve_client_id_async(client_id_or_service_name, self._agent_id)
 
-            logger.info(f"🗑️ 解析结果: client_id={client_id}, service_name={service_name}")
+            logger.info(f"[DELETE_CONFIG] [RESOLVE] Resolution result: client_id={client_id}, service_name={service_name}")
 
             # 验证服务存在
             if not self._store.registry.get_session(self._agent_id, service_name):
@@ -1020,7 +1020,7 @@ class ServiceManagementMixin:
             # 5. 单源模式：不再同步到分片文件
             logger.info("Single-source mode: skip shard mapping files sync")
 
-            logger.info(f" Agent级别：配置删除完成 {service_name}")
+            logger.info(f"[DELETE_CONFIG] [AGENT] Agent level: configuration deletion completed {service_name}")
 
             return {
                 "success": True,
@@ -1030,7 +1030,7 @@ class ServiceManagementMixin:
             }
 
         except Exception as e:
-            logger.error(f"Agent级别删除配置失败: {e}")
+            logger.error(f"[DELETE_CONFIG] [ERROR] Agent level configuration deletion failed: {e}")
             return {
                 "success": False,
                 "error": f"Failed to delete agent config: {str(e)}",
@@ -1097,14 +1097,14 @@ class ServiceManagementMixin:
     async def _update_store_config(self, client_id_or_service_name: str, new_config: Dict[str, Any]) -> Dict[str, Any]:
         """Store级别更新配置的内部实现"""
         try:
-            logger.info(f" Store级别：更新配置 {client_id_or_service_name}")
+            logger.info(f"[UPDATE_CONFIG] [STORE] Store level: updating configuration {client_id_or_service_name}")
 
             global_agent_store_id = self._store.client_manager.global_agent_store_id
 
             # 解析client_id和服务名
             client_id, service_name = await self._resolve_client_id_async(client_id_or_service_name, global_agent_store_id)
 
-            logger.info(f" 解析结果: client_id={client_id}, service_name={service_name}")
+            logger.info(f"[UPDATE_CONFIG] [RESOLVE] Resolution result: client_id={client_id}, service_name={service_name}")
 
             # 获取当前配置
             old_complete_info = await self._store.registry.get_complete_service_info_async(global_agent_store_id, service_name)
@@ -1116,7 +1116,7 @@ class ServiceManagementMixin:
             # 验证和标准化新配置
             normalized_config = self._validate_and_normalize_config(new_config, service_name, old_config)
 
-            logger.info(f" 配置验证通过，开始更新: {service_name}")
+            logger.info(f"[UPDATE_CONFIG] [VALIDATE] Configuration validation passed, starting update: {service_name}")
 
             # 1. 清空服务的工具和会话数据
             self._store.registry.clear_service_tools_only(global_agent_store_id, service_name)
@@ -1159,7 +1159,7 @@ class ServiceManagementMixin:
                 global_agent_store_id, service_name, normalized_config
             )
 
-            logger.info(f" Store级别：配置更新完成 {service_name}")
+            logger.info(f"[UPDATE_CONFIG] [STORE] Store level: configuration update completed {service_name}")
 
             return {
                 "success": True,
@@ -1171,7 +1171,7 @@ class ServiceManagementMixin:
             }
 
         except Exception as e:
-            logger.error(f"Store级别更新配置失败: {e}")
+            logger.error(f"[UPDATE_CONFIG] [ERROR] Store level configuration update failed: {e}")
             return {
                 "success": False,
                 "error": f"Failed to update store config: {str(e)}",
@@ -1184,12 +1184,12 @@ class ServiceManagementMixin:
     async def _update_agent_config(self, client_id_or_service_name: str, new_config: Dict[str, Any]) -> Dict[str, Any]:
         """Agent级别更新配置的内部实现"""
         try:
-            logger.info(f" Agent级别：更新Agent {self._agent_id} 的配置 {client_id_or_service_name}")
+            logger.info(f"[UPDATE_CONFIG] [AGENT] Agent level: updating Agent {self._agent_id} configuration {client_id_or_service_name}")
 
             # 解析client_id和服务名
             client_id, service_name = await self._resolve_client_id_async(client_id_or_service_name, self._agent_id)
 
-            logger.info(f" 解析结果: client_id={client_id}, service_name={service_name}")
+            logger.info(f"[UPDATE_CONFIG] [RESOLVE] Resolution result: client_id={client_id}, service_name={service_name}")
 
             # 获取当前配置
             old_complete_info = await self._store.registry.get_complete_service_info_async(self._agent_id, service_name)
@@ -1201,7 +1201,7 @@ class ServiceManagementMixin:
             # 验证和标准化新配置
             normalized_config = self._validate_and_normalize_config(new_config, service_name, old_config)
 
-            logger.info(f" 配置验证通过，开始更新: {service_name}")
+            logger.info(f"[UPDATE_CONFIG] [VALIDATE] Configuration validation passed, starting update: {service_name}")
 
             # 1. 清空服务的工具和会话数据
             self._store.registry.clear_service_tools_only(self._agent_id, service_name)
@@ -1239,7 +1239,7 @@ class ServiceManagementMixin:
                 self._agent_id, service_name, normalized_config
             )
 
-            logger.info(f" Agent级别：配置更新完成 {service_name}")
+            logger.info(f"[UPDATE_CONFIG] [AGENT] Agent level: configuration update completed {service_name}")
 
             return {
                 "success": True,
@@ -1251,7 +1251,7 @@ class ServiceManagementMixin:
             }
 
         except Exception as e:
-            logger.error(f"Agent级别更新配置失败: {e}")
+            logger.error(f"[UPDATE_CONFIG] [ERROR] Agent level configuration update failed: {e}")
             return {
                 "success": False,
                 "error": f"Failed to update agent config: {str(e)}",
@@ -1269,7 +1269,7 @@ class ServiceManagementMixin:
                 op_name="service_management.get_service_status"
             )
         except Exception as e:
-            logger.error(f"[NEW_ARCH] get_service_status 失败: {e}")
+            logger.error(f"[NEW_ARCH] get_service_status failed: {e}")
             return {"status": "error", "error": str(e)}
 
     async def get_service_status_async(self, name: str) -> dict:
@@ -1289,7 +1289,7 @@ class ServiceManagementMixin:
             return {"status": "error", "error": str(e)}
 
     def restart_service(self, name: str) -> bool:
-        raise RuntimeError("[SERVICE_MANAGEMENT] 同步 restart_service 已禁用，请使用 restart_service_async。")
+        raise RuntimeError("[SERVICE_MANAGEMENT] Synchronous restart_service is disabled, please use restart_service_async.")
 
     async def restart_service_async(self, name: str) -> bool:
         """重启指定服务（透明代理）"""
@@ -1307,7 +1307,7 @@ class ServiceManagementMixin:
 
     # === Lifecycle-only disconnection (no config/registry deletion) ===
     def disconnect_service(self, name: str, reason: str = "user_requested") -> bool:
-        raise RuntimeError("[SERVICE_MANAGEMENT] 同步 disconnect_service 已禁用，请使用 disconnect_service_async。")
+        raise RuntimeError("[SERVICE_MANAGEMENT] Synchronous disconnect_service is disabled, please use disconnect_service_async.")
 
     async def disconnect_service_async(self, name: str, reason: str = "user_requested") -> bool:
         """
@@ -1354,15 +1354,15 @@ class ServiceManagementMixin:
                 # 尝试从映射关系中获取全局名称（使用异步版本，避免 AOB 事件循环冲突）
                 global_name = await self._store.registry.get_global_name_from_agent_service_async(self._agent_id, local_name)
                 if global_name:
-                    logger.debug(f" [SERVICE_PROXY] 服务名映射: {local_name} → {global_name}")
+                    logger.debug(f" [SERVICE_PROXY] Service name mapping: {local_name} -> {global_name}")
                     return global_name
 
             # 如果映射失败，可能是 Store 原生服务，直接返回
-            logger.debug(f" [SERVICE_PROXY] 无映射，使用原名: {local_name}")
+            logger.debug(f" [SERVICE_PROXY] No mapping, using original name: {local_name}")
             return local_name
 
         except Exception as e:
-            logger.error(f" [SERVICE_PROXY] 服务名映射失败: {e}")
+            logger.error(f" [SERVICE_PROXY] Service name mapping failed: {e}")
             return local_name
 
     async def _delete_store_service_with_sync(self, service_name: str):
@@ -1378,9 +1378,9 @@ class ServiceManagementMixin:
             success = self._store._unified_config.remove_service_config(service_name)
             
             if success:
-                logger.info(f" [SERVICE_DELETE] Store 服务删除成功: {service_name}，缓存已同步")
+                    logger.info(f"[SERVICE_DELETE] [STORE] Store service deletion successful: {service_name}, cache synchronized")
             else:
-                logger.error(f" [SERVICE_DELETE] Store 服务删除失败: {service_name}")
+                logger.error(f" [SERVICE_DELETE] Store service deletion failed: {service_name}")
 
             # 3. 触发双向同步（如果是 Agent 服务）
             if hasattr(self._store, 'bidirectional_sync_manager'):
@@ -1390,7 +1390,7 @@ class ServiceManagementMixin:
                 )
 
         except Exception as e:
-            logger.error(f" [SERVICE_DELETE] Store 服务删除失败 {service_name}: {e}")
+            logger.error(f" [SERVICE_DELETE] Store service deletion failed {service_name}: {e}")
             raise
 
     async def _delete_agent_service_with_sync(self, local_name: str):
@@ -1399,7 +1399,7 @@ class ServiceManagementMixin:
             # 1. 获取全局名称（使用异步版本，避免 AOB 事件循环冲突）
             global_name = await self._store.registry.get_global_name_from_agent_service_async(self._agent_id, local_name)
             if not global_name:
-                logger.warning(f" [SERVICE_DELETE] 未找到映射关系: {self._agent_id}:{local_name}")
+                logger.warning(f" [SERVICE_DELETE] Mapping not found: {self._agent_id}:{local_name}")
                 return
 
             # 2. 从 Agent 缓存中删除（使用异步版本）
@@ -1418,21 +1418,21 @@ class ServiceManagementMixin:
             success = self._store._unified_config.remove_service_config(global_name)
             
             if success:
-                logger.info(f" [SERVICE_DELETE] Agent 服务删除成功: {local_name} → {global_name}，缓存已同步")
+                logger.info(f"[SERVICE_DELETE] [AGENT] Agent service deletion successful: {local_name} -> {global_name}, cache synchronized")
             else:
-                logger.error(f" [SERVICE_DELETE] Agent 服务删除失败: {local_name} → {global_name}")
+                logger.error(f" [SERVICE_DELETE] Agent service deletion failed: {local_name} -> {global_name}")
 
             # 6. 清理服务状态数据
             try:
                 state_manager = self._store.registry._cache_state_manager
                 await state_manager.delete_service_status(global_name)
                 logger.info(
-                    f"[SERVICE_DELETE] 服务状态清理成功: "
+                    f"[SERVICE_DELETE] Service status cleanup successful: "
                     f"agent_id={self._agent_id}, service={local_name}, global_name={global_name}"
                 )
             except Exception as cleanup_error:
                 logger.error(
-                    f"[SERVICE_DELETE] 服务状态清理失败: "
+                    f"[SERVICE_DELETE] Service status cleanup failed: "
                     f"agent_id={self._agent_id}, service={local_name}, error={cleanup_error}"
                 )
                 raise
@@ -1441,7 +1441,7 @@ class ServiceManagementMixin:
             logger.info("Single-source mode: skip shard mapping files sync")
 
         except Exception as e:
-            logger.error(f" [SERVICE_DELETE] Agent 服务删除失败 {self._agent_id}:{local_name}: {e}")
+            logger.error(f" [SERVICE_DELETE] Agent service deletion failed {self._agent_id}:{local_name}: {e}")
             raise
 
     def show_mcpconfig(self) -> Dict[str, Any]:
@@ -1523,12 +1523,12 @@ class ServiceManagementMixin:
             result = self._service_management_sync_shell.wait_service(service_name, timeout)
 
             if not result and raise_on_timeout:
-                raise TimeoutError(f"服务 {service_name} 在 {timeout} 秒内未达到状态 {status}")
+                raise TimeoutError(f"Service {service_name} did not reach status {status} within {timeout} seconds")
 
             return result
 
         except Exception as e:
-            logger.error(f"[NEW_ARCH] wait_service 失败: {e}")
+            logger.error(f"[NEW_ARCH] wait_service failed: {e}")
             if raise_on_timeout:
                 raise
             return False
@@ -1613,12 +1613,12 @@ class ServiceManagementMixin:
                         logger.debug(f"[WAIT_SERVICE] status service='{service_name}' value='{current_status}'")
                         # 对比 orchestrator 与 registry 的状态及最近健康检查（节流打印）
                         try:
-                            reg_state = self._store.registry.get_service_state(status_agent_key, service_name)
+                            reg_state = await self._store.registry.get_service_state_async(status_agent_key, service_name)
                             meta = await self._store.registry._service_state_service.get_service_metadata_async(status_agent_key, service_name)
                             last_check_ts = meta.last_health_check.isoformat() if getattr(meta, 'last_health_check', None) else None
                             logger.debug(f"[WAIT_SERVICE] compare orchestrator='{current_status}' registry='{getattr(reg_state,'value',reg_state)}' last_check={last_check_ts}")
                         except Exception as e:
-                            logger.debug(f"[WAIT_SERVICE] 获取元数据失败: {e}")
+                            logger.debug(f"[WAIT_SERVICE] Failed to get metadata: {e}")
 
                         prev_status, last_log = current_status, now
 
@@ -1722,7 +1722,7 @@ class ServiceManagementMixin:
             str: 服务名称
         """
         if not isinstance(client_id_or_service_name, str):
-            raise ValueError(f"标识符必须是字符串，实际类型: {type(client_id_or_service_name)}")
+            raise ValueError(f"Identifier must be a string, actual type: {type(client_id_or_service_name)}")
 
         # 如果包含client_id格式，提取服务名称
         if "::" in client_id_or_service_name:

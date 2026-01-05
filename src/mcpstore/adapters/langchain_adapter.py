@@ -1,9 +1,11 @@
 # src/mcpstore/adapters/langchain_adapter.py
 
+import json
 import keyword
 import logging
 import re
 import warnings
+from dataclasses import asdict, is_dataclass
 from typing import Type, List, TYPE_CHECKING
 
 from langchain_core.tools import Tool, StructuredTool, ToolException
@@ -30,6 +32,47 @@ class LangChainAdapter:
         self._bridge = get_async_bridge()
         # Adapter-only rendering preference for tool outputs
         self._response_format = response_format if response_format in ("text", "content_and_artifact") else "text"
+
+    @staticmethod
+    def _serialize_unknown(obj):
+        if obj is None:
+            return None
+        if hasattr(obj, "model_dump"):
+            try:
+                return obj.model_dump()
+            except Exception:
+                pass
+        if hasattr(obj, "dict"):
+            try:
+                return obj.dict()
+            except Exception:
+                pass
+        if is_dataclass(obj):
+            try:
+                return asdict(obj)
+            except Exception:
+                pass
+        if hasattr(obj, "__dict__"):
+            try:
+                return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
+            except Exception:
+                pass
+        return str(obj)
+
+    def _normalize_structured_value(self, value):
+        """
+        确保 structured/data 字段始终是 LangChain 能消费的基础类型。
+        """
+        if value is None:
+            return None
+        if isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, (dict, list)):
+            return value
+        try:
+            return json.loads(json.dumps(value, default=self._serialize_unknown, ensure_ascii=False))
+        except Exception:
+            return str(value)
 
     def _enhance_description(self, tool_info: 'ToolInfo') -> str:
         """
@@ -274,13 +317,15 @@ class LangChainAdapter:
 
                 if getattr(self, "_response_format", "text") == "content_and_artifact":
                     response = {"text": view.text, "artifacts": view.artifacts}
-                    if view.structured is not None:
-                        response["structured"] = view.structured
-                    if view.data is not None:
-                        response["data"] = view.data
+                    structured = self._normalize_structured_value(view.structured)
+                    data = self._normalize_structured_value(view.data)
+                    if structured is not None:
+                        response["structured"] = structured
+                    if data is not None:
+                        response["data"] = data
                     return response
 
-                return view.structured if view.structured is not None else (view.data if view.data is not None else view.text)
+                return view.text
             except Exception as e:
                 # Provide more detailed error information for debugging
                 error_msg = f"Tool '{tool_name}' execution failed: {str(e)}"
@@ -356,13 +401,15 @@ class LangChainAdapter:
 
                 if getattr(self, "_response_format", "text") == "content_and_artifact":
                     response = {"text": view.text, "artifacts": view.artifacts}
-                    if view.structured is not None:
-                        response["structured"] = view.structured
-                    if view.data is not None:
-                        response["data"] = view.data
+                    structured = self._normalize_structured_value(view.structured)
+                    data = self._normalize_structured_value(view.data)
+                    if structured is not None:
+                        response["structured"] = structured
+                    if data is not None:
+                        response["data"] = data
                     return response
 
-                return view.structured if view.structured is not None else (view.data if view.data is not None else view.text)
+                return view.text
             except Exception as e:
                 error_msg = f"Tool '{tool_name}' execution failed: {str(e)}"
                 if args or kwargs:
@@ -551,32 +598,22 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                     )
                 )
 
-                # Bridge FastMCP -> LangChain (session sync)
-                is_error = bool(getattr(result, 'is_error', False) or getattr(result, 'isError', False))
-                contents = getattr(result, 'content', []) or []
-                text_blocks = []
-                try:
-                    for block in contents:
-                        if hasattr(block, 'text'):
-                            text_blocks.append(block.text)
-                except Exception:
-                    pass
+                view = call_tool_response_helper(result)
 
-                if not text_blocks:
-                    output = ""
-                elif len(text_blocks) == 1:
-                    output = text_blocks[0]
-                else:
-                    output = "\n".join(text_blocks)
-
-                if is_error:
-                    raise ToolException(output)
+                if view.is_error:
+                    raise ToolException(view.error_message or view.text or "Tool execution failed")
 
                 if getattr(self, "_response_format", "text") == "content_and_artifact":
-                    artifacts = self._build_artifacts(contents)
-                    return {"text": output, "artifacts": artifacts}
+                    response = {"text": view.text, "artifacts": view.artifacts}
+                    structured = self._normalize_structured_value(view.structured)
+                    data = self._normalize_structured_value(view.data)
+                    if structured is not None:
+                        response["structured"] = structured
+                    if data is not None:
+                        response["data"] = data
+                    return response
 
-                return output
+                return view.text
 
             except Exception as e:
                 error_msg = f"Tool execution failed: {str(e)}"
@@ -641,32 +678,22 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                     )
                 )
 
-                # Bridge FastMCP -> LangChain (session async)
-                is_error = bool(getattr(result, 'is_error', False) or getattr(result, 'isError', False))
-                contents = getattr(result, 'content', []) or []
-                text_blocks = []
-                try:
-                    for block in contents:
-                        if hasattr(block, 'text'):
-                            text_blocks.append(block.text)
-                except Exception:
-                    pass
+                view = call_tool_response_helper(result)
 
-                if not text_blocks:
-                    output = ""
-                elif len(text_blocks) == 1:
-                    output = text_blocks[0]
-                else:
-                    output = "\n".join(text_blocks)
-
-                if is_error:
-                    raise ToolException(output)
+                if view.is_error:
+                    raise ToolException(view.error_message or view.text or "Tool execution failed")
 
                 if getattr(self, "_response_format", "text") == "content_and_artifact":
-                    artifacts = self._build_artifacts(contents)
-                    return {"text": output, "artifacts": artifacts}
+                    response = {"text": view.text, "artifacts": view.artifacts}
+                    structured = self._normalize_structured_value(view.structured)
+                    data = self._normalize_structured_value(view.data)
+                    if structured is not None:
+                        response["structured"] = structured
+                    if data is not None:
+                        response["data"] = data
+                    return response
 
-                return output
+                return view.text
 
             except Exception as e:
                 error_msg = f"Async tool execution failed: {str(e)}"

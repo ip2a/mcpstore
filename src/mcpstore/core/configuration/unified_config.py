@@ -341,7 +341,7 @@ class UnifiedConfigManager:
             result = self.update_mcp_config(current_config)
             
             if result:
-                logger.debug(f" 服务 '{service_name}' 配置已添加，缓存已同步")
+                logger.debug(f" Service '{service_name}' config added, cache synchronized")
             
             return result
             
@@ -369,12 +369,12 @@ class UnifiedConfigManager:
                 result = self.update_mcp_config(current_config)
                 
                 if result:
-                    logger.debug(f" 服务 '{service_name}' 配置已删除，缓存已同步")
+                    logger.debug(f" Service '{service_name}' config removed, cache synchronized")
                 
                 return result
             else:
                 # 服务不存在，视为成功（幂等性）
-                logger.debug(f"服务 '{service_name}' 不存在，无需删除")
+                logger.debug(f"Service '{service_name}' does not exist, no need to delete")
                 return True
             
         except Exception as e:
@@ -392,7 +392,7 @@ class UnifiedConfigManager:
         """
         try:
             if not services:
-                logger.debug("批量添加服务：服务列表为空，无需操作")
+                logger.debug("Batch add services: service list is empty, no operation needed")
                 return True
             
             current_config = self.get_mcp_config()
@@ -409,7 +409,7 @@ class UnifiedConfigManager:
             result = self.update_mcp_config(current_config)
             
             if result:
-                logger.debug(f" 批量添加 {len(services)} 个服务成功，缓存已同步")
+                logger.debug(f" Batch added {len(services)} services successfully, cache synchronized")
             
             return result
             
@@ -428,7 +428,7 @@ class UnifiedConfigManager:
         """
         try:
             if not service_names:
-                logger.debug("批量删除服务：服务列表为空，无需操作")
+                logger.debug("Batch remove services: service list is empty, no operation needed")
                 return True
             
             current_config = self.get_mcp_config()
@@ -445,7 +445,7 @@ class UnifiedConfigManager:
             result = self.update_mcp_config(current_config)
             
             if result:
-                logger.debug(f" 批量删除 {removed_count}/{len(service_names)} 个服务成功，缓存已同步")
+                logger.debug(f" Batch removed {removed_count}/{len(service_names)} services successfully, cache synchronized")
             
             return result
             
@@ -467,7 +467,7 @@ class UnifiedConfigManager:
                 result = self.mcp_config.save_config(config)
                 if result:
                     self._refresh_cache(ConfigType.MCP_SERVICES)
-                    logger.debug(" MCP配置已更新（异步），缓存已同步")
+                    logger.debug(" MCP config updated (async), cache synchronized")
                 return result
             except Exception as e:
                 logger.error(f"Failed to update MCP config (async): {e}")

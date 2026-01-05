@@ -96,10 +96,10 @@ class HubMCPServer:
         self._background_thread: Optional[threading.Thread] = None
         
         logger.info(
-            f"[HubMCPServer] 初始化中 - "
-            f"对象类型={type(exposed_object).__name__}, "
-            f"传输协议={transport}, "
-            f"端口={port or '自动分配'}"
+            f"[HubMCPServer] Initializing - "
+            f"object_type={type(exposed_object).__name__}, "
+            f"transport={transport}, "
+            f"port={port or 'auto-assign'}"
         )
         
         # 创建 FastMCP 服务器
@@ -112,9 +112,9 @@ class HubMCPServer:
         self._status = HubMCPStatus.STOPPED
         
         logger.info(
-            f"[HubMCPServer] 初始化完成 - "
-            f"服务器名称={self._generate_server_name()}, "
-            f"状态={self._status.value}"
+            f"[HubMCPServer] Initialization completed - "
+            f"server_name={self._generate_server_name()}, "
+            f"status={self._status.value}"
         )
     
     def _generate_server_name(self) -> str:
@@ -134,23 +134,23 @@ class HubMCPServer:
             if hasattr(self._exposed_object, '_agent_id') and self._exposed_object._agent_id:
                 agent_id = self._exposed_object._agent_id
                 server_name = f"MCPStore-Agent-{agent_id}"
-                logger.debug(f"[HubMCPServer] 生成 Agent 服务器名称: {server_name}")
+                logger.debug(f"[HubMCPServer] [NAME] Generated Agent server name: {server_name}")
                 return server_name
             
             # 检查是否是 ServiceProxy 对象（有 service_name 属性）
             if hasattr(self._exposed_object, 'service_name'):
                 service_name = self._exposed_object.service_name
                 server_name = f"MCPStore-Service-{service_name}"
-                logger.debug(f"[HubMCPServer] 生成 ServiceProxy 服务器名称: {server_name}")
+                logger.debug(f"[HubMCPServer] [NAME] Generated ServiceProxy server name: {server_name}")
                 return server_name
             
             # 默认为 Store 对象
             server_name = "MCPStore-Store"
-            logger.debug(f"[HubMCPServer] 生成 Store 服务器名称: {server_name}")
+            logger.debug(f"[HubMCPServer] [NAME] Generated Store server name: {server_name}")
             return server_name
             
         except Exception as e:
-            logger.warning(f"[HubMCPServer] 生成服务器名称失败: {e}，使用默认名称")
+            logger.warning(f"[HubMCPServer] [WARN] Failed to generate server name: {e}, using default name")
             return "MCPStore-Hub"
     
     def _create_fastmcp_server(self) -> None:
@@ -172,15 +172,15 @@ class HubMCPServer:
                 **self._config.fastmcp_kwargs
             )
             
-            logger.info(f"[HubMCPServer] FastMCP 服务器创建成功: {server_name}")
+            logger.info(f"[HubMCPServer] [SUCCESS] FastMCP server created successfully: {server_name}")
             
         except ImportError as e:
-            logger.error(f"[HubMCPServer] 无法导入 FastMCP: {e}")
+            logger.error(f"[HubMCPServer] [ERROR] Unable to import FastMCP: {e}")
             raise ImportError(
-                "FastMCP 未安装。请运行: uv add fastmcp"
+                "FastMCP is not installed. Please run: uv add fastmcp"
             ) from e
         except Exception as e:
-            logger.error(f"[HubMCPServer] 创建 FastMCP 服务器失败: {e}")
+            logger.error(f"[HubMCPServer] [ERROR] Failed to create FastMCP server: {e}")
             raise
     
     def _register_tools(self) -> None:
@@ -194,7 +194,7 @@ class HubMCPServer:
             # 获取工具列表
             tools = self._exposed_object.list_tools()
             
-            logger.info(f"[HubMCPServer] 开始注册工具，共 {len(tools)} 个")
+            logger.info(f"[HubMCPServer] [REGISTER] Starting to register tools, total {len(tools)}")
             
             # 为每个工具创建代理函数并注册
             registered_count = 0
@@ -229,24 +229,24 @@ class HubMCPServer:
                     decorator(proxy_tool)
 
                     registered_count += 1
-                    logger.debug(f"[HubMCPServer] 工具注册成功: {tool_info.name}")
+                    logger.debug(f"[HubMCPServer] [SUCCESS] Tool registered successfully: {tool_info.name}")
 
                 except Exception as e:
                     failed_count += 1
                     logger.warning(
-                        f"[HubMCPServer] 工具注册失败: {tool_info.name}, "
-                        f"错误: {e}"
+                        f"[HubMCPServer] [WARN] Tool registration failed: {tool_info.name}, "
+                        f"error: {e}"
                     )
                     # 单个工具注册失败不影响其他工具
                     continue
             
             logger.info(
-                f"[HubMCPServer] 工具注册完成 - "
-                f"成功: {registered_count}, 失败: {failed_count}"
+                f"[HubMCPServer] [COMPLETE] Tool registration completed - "
+                f"successful: {registered_count}, failed: {failed_count}"
             )
             
         except Exception as e:
-            logger.error(f"[HubMCPServer] 注册工具失败: {e}")
+            logger.error(f"[HubMCPServer] [ERROR] Tool registration failed: {e}")
             raise
     
     def _create_proxy_tool(self, tool_info: 'ToolInfo') -> Callable:
@@ -309,9 +309,9 @@ class HubMCPServer:
 
     def _sanitize_param_name(self, name: str) -> str:
         if not isinstance(name, str):
-            raise ValueError(f"非法参数名: {name}")
+            raise ValueError(f"Illegal parameter name: {name}")
         if not name.isidentifier() or keyword.iskeyword(name):
-            raise ValueError(f"工具参数名 '{name}' 不是有效的 Python 标识符")
+            raise ValueError(f"Tool parameter name '{name}' is not a valid Python identifier")
         return name
     
     @property
@@ -384,7 +384,7 @@ class HubMCPServer:
     async def _run_server(self, show_banner: bool) -> None:
         """启动 FastMCP 服务器的核心协程。"""
         if self.is_running:
-            raise ServerAlreadyRunningError("Hub MCP 服务器已经在运行")
+            raise ServerAlreadyRunningError("Hub MCP server is already running")
 
         self._status = HubMCPStatus.RUNNING
         try:
@@ -394,7 +394,7 @@ class HubMCPServer:
                 **self._get_transport_kwargs(),
             )
         except asyncio.CancelledError:
-            logger.info("[HubMCPServer] 收到停止信号，正在关闭")
+            logger.info("[HubMCPServer] [STOP] Received stop signal, shutting down")
             self._status = HubMCPStatus.STOPPED
             raise
         except OSError as exc:
@@ -404,7 +404,7 @@ class HubMCPServer:
             ) from exc
         except Exception as exc:  # noqa: BLE001
             self._status = HubMCPStatus.ERROR
-            logger.error(f"[HubMCPServer] 运行失败: {exc}")
+            logger.error(f"[HubMCPServer] [ERROR] Server run failed: {exc}")
             raise
         else:
             self._status = HubMCPStatus.STOPPED
@@ -413,7 +413,7 @@ class HubMCPServer:
         """在当前事件循环中以后台任务形式启动服务器。"""
         loop = asyncio.get_running_loop()
         if self._server_task and not self._server_task.done():
-            raise ServerAlreadyRunningError("Hub MCP 服务器已经在运行")
+            raise ServerAlreadyRunningError("Hub MCP server is already running")
 
         self._server_task = loop.create_task(
             self._run_server(show_banner=show_banner),
@@ -434,7 +434,7 @@ class HubMCPServer:
 
     def _start_in_background(self, show_banner: bool) -> None:
         if self._background_thread and self._background_thread.is_alive():
-            raise ServerAlreadyRunningError("Hub MCP 服务器已经在后台运行")
+            raise ServerAlreadyRunningError("Hub MCP server is already running in background")
 
         loop = asyncio.new_event_loop()
         self._loop = loop
@@ -445,7 +445,7 @@ class HubMCPServer:
             try:
                 loop.run_until_complete(self._server_task)
             except asyncio.CancelledError:
-                logger.debug("[HubMCPServer] 后台任务被取消")
+                logger.debug("[HubMCPServer] [CANCEL] Background task cancelled")
             finally:
                 self._server_task = None
                 self._loop = None
@@ -463,7 +463,7 @@ class HubMCPServer:
     async def stop_async(self) -> None:
         """在当前事件循环中停止服务器。"""
         if not self._server_task:
-            raise ServerNotRunningError("Hub MCP 服务器未运行")
+            raise ServerNotRunningError("Hub MCP server is not running")
 
         self._status = HubMCPStatus.STOPPING
         self._server_task.cancel()
@@ -484,9 +484,9 @@ class HubMCPServer:
             return
 
         if self._server_task and not self._server_task.done():
-            raise RuntimeError("Hub MCP 正在当前事件循环中运行，请使用 stop_async()")
+            raise RuntimeError("Hub MCP is running in the current event loop, please use stop_async()")
 
-        raise ServerNotRunningError("Hub MCP 服务器未运行")
+        raise ServerNotRunningError("Hub MCP server is not running")
 
     async def _cancel_task(self) -> None:
         if self._server_task:
@@ -504,5 +504,5 @@ class HubMCPServer:
     def wait(self, timeout: float | None = None) -> None:
         """阻塞当前线程直到后台服务器退出。"""
         if not self._background_thread:
-            raise ServerNotRunningError("Hub MCP 服务器未在后台运行")
+            raise ServerNotRunningError("Hub MCP server is not running in background")
         self._background_thread.join(timeout)

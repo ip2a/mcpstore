@@ -36,7 +36,7 @@ class ServiceManagementAsyncShell:
         self.core = core
         self.registry = registry
         self.orchestrator = orchestrator
-        logger.debug("[ASYNC_SHELL] 初始化 ServiceManagementAsyncShell")
+        logger.debug("[ASYNC_SHELL] [INIT] Initializing ServiceManagementAsyncShell")
 
     async def add_service_async(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -49,12 +49,12 @@ class ServiceManagementAsyncShell:
 
         修复：使用正确的缓存层管理器方法
         """
-        logger.debug("[ASYNC_SHELL] 开始添加服务")
+        logger.debug("[ASYNC_SHELL] [START] Starting to add service")
 
         try:
             # 1. 调用纯同步核心（这是唯一可能调用同步逻辑的地方）
             operation_plan = self.core.add_service(config)
-            logger.debug(f"[ASYNC_SHELL] 获得操作计划: {len(operation_plan.operations)}个操作")
+            logger.debug(f"[ASYNC_SHELL] [PLAN] Got operation plan: {len(operation_plan.operations)} operations")
 
             # 2. 获取正确的缓存层管理器
             # 优先使用 cache/ 目录下的管理器（直接操作 pykv）
@@ -66,8 +66,8 @@ class ServiceManagementAsyncShell:
             # 如果缓存层管理器不存在，抛出错误（不做降级处理）
             if service_manager is None:
                 raise RuntimeError(
-                    "缓存层 ServiceEntityManager 未初始化。"
-                    "请确保 ServiceRegistry 正确初始化了 _cache_service_manager 属性。"
+                    "Cache layer ServiceEntityManager not initialized. "
+                    "Please ensure ServiceRegistry correctly initializes the _cache_service_manager attribute."
                 )
 
             # 3. 纯异步执行所有操作
@@ -75,7 +75,7 @@ class ServiceManagementAsyncShell:
             successful_operations = []
 
             for i, operation in enumerate(operation_plan.operations):
-                logger.debug(f"[ASYNC_SHELL] 执行操作 {i+1}/{len(operation_plan.operations)}: {operation.type}")
+                logger.debug(f"[ASYNC_SHELL] [EXEC] Executing operation {i+1}/{len(operation_plan.operations)}: {operation.type}")
 
                 try:
                     if operation.type == "put_entity":
@@ -85,7 +85,7 @@ class ServiceManagementAsyncShell:
                             original_name=operation.data.get("original_name", operation.data["key"]),
                             config=operation.data.get("config", operation.data.get("value", {}))
                         )
-                        logger.debug(f"[ASYNC_SHELL] create_service 成功，key={operation.data['key']}")
+                        logger.debug(f"[ASYNC_SHELL] [SUCCESS] create_service successful, key={operation.data['key']}")
                         successful_operations.append(operation)
                         results.append({"operation": operation.key, "status": "success"})
 
@@ -93,8 +93,8 @@ class ServiceManagementAsyncShell:
                         # 使用 cache/RelationshipManager 创建关系
                         if relation_manager is None:
                             raise RuntimeError(
-                                "缓存层 RelationshipManager 未初始化。"
-                                "请确保 ServiceRegistry 正确初始化了 _relation_manager 属性。"
+                                "Cache layer RelationshipManager not initialized. "
+                                "Please ensure ServiceRegistry correctly initializes the _relation_manager attribute."
                             )
                         await relation_manager.add_agent_service(
                             agent_id=operation.data.get("agent_id", "global_agent_store"),
@@ -102,7 +102,7 @@ class ServiceManagementAsyncShell:
                             service_global_name=operation.data.get("service_global_name", operation.data["key"]),
                             client_id=operation.data.get("client_id", f"client_{operation.data['key']}")
                         )
-                        logger.debug(f"[ASYNC_SHELL] add_agent_service 成功，key={operation.data['key']}")
+                        logger.debug(f"[ASYNC_SHELL] [SUCCESS] add_agent_service successful, key={operation.data['key']}")
                         successful_operations.append(operation)
                         results.append({"operation": operation.key, "status": "success"})
 
@@ -110,42 +110,42 @@ class ServiceManagementAsyncShell:
                         # 使用 cache/StateManager 更新状态
                         if state_manager is None:
                             raise RuntimeError(
-                                "缓存层 StateManager 未初始化。"
-                                "请确保 ServiceRegistry 正确初始化了 _cache_state_manager 属性。"
+                                "Cache layer StateManager not initialized. "
+                                "Please ensure ServiceRegistry correctly initializes the _cache_state_manager attribute."
                             )
                         await state_manager.update_service_status(
                             service_global_name=operation.data["key"],
                             health_status=operation.data.get("health_status", "initializing"),
                             tools_status=operation.data.get("tools_status", [])
                         )
-                        logger.debug(f"[ASYNC_SHELL] update_state 成功，key={operation.data['key']}")
+                        logger.debug(f"[ASYNC_SHELL] [SUCCESS] update_state successful, key={operation.data['key']}")
                         successful_operations.append(operation)
                         results.append({"operation": operation.key, "status": "success"})
 
                     elif operation.type == "put_metadata":
                         cache_layer = getattr(self.registry, "_cache_layer_manager", None)
                         if cache_layer is None:
-                            raise RuntimeError("缓存层 CacheLayerManager 未初始化。")
+                            raise RuntimeError("Cache layer CacheLayerManager is not initialized.")
                         await cache_layer.put_state(
                             "service_metadata",
                             operation.data["key"],
                             operation.data.get("value", {})
                         )
-                        logger.debug(f"[ASYNC_SHELL] put_metadata 成功，key={operation.data['key']}")
+                        logger.debug(f"[ASYNC_SHELL] [SUCCESS] put_metadata successful, key={operation.data['key']}")
                         successful_operations.append(operation)
                         results.append({"operation": operation.key, "status": "success"})
 
                     else:
-                        raise ValueError(f"未知操作类型: {operation.type}")
+                        raise ValueError(f"Unknown operation type: {operation.type}")
 
                 except Exception as e:
-                    logger.error(f"[ASYNC_SHELL] 操作失败 {operation.key}: {e}")
+                    logger.error(f"[ASYNC_SHELL] [ERROR] Operation failed {operation.key}: {e}")
                     results.append({"operation": operation.key, "status": "failed", "error": str(e)})
                     # 按要求抛出错误，不做静默处理
                     raise
 
             # 服务的实际连接交由事件驱动流程（ServiceAddRequested → ServiceCached → ServiceInitialized → ConnectionManager）
-            logger.info(f"[ASYNC_SHELL] 服务添加完成: {len(operation_plan.service_names)}个服务, {len([r for r in results if r['status'] == 'success'])}个成功")
+            logger.info(f"[ASYNC_SHELL] [COMPLETE] Service addition completed: {len(operation_plan.service_names)} services, {len([r for r in results if r['status'] == 'success'])} successful")
 
             # 4. 发布 ServiceAddRequested 事件，触发事件驱动的连接流程
             # 这是关键修复：确保连接流程被触发
@@ -158,7 +158,7 @@ class ServiceManagementAsyncShell:
                         event_bus = getattr(self.orchestrator, 'event_bus', None)
                 
                 if event_bus is None:
-                    logger.warning("[ASYNC_SHELL] EventBus 不可用，无法发布 ServiceAddRequested 事件。连接流程可能不会启动。")
+                    logger.warning("[ASYNC_SHELL] [WARN] EventBus unavailable, cannot publish ServiceAddRequested event. Connection flow may not start.")
                 else:
                     # 为每个成功添加的服务发布 ServiceAddRequested 事件
                     from mcpstore.core.events.service_events import ServiceAddRequested
@@ -198,7 +198,7 @@ class ServiceManagementAsyncShell:
                         
                         # 确保有 service_config 才能生成 client_id
                         if not service_config:
-                            raise RuntimeError(f"无法获取服务配置，无法生成 client_id: {service_name}")
+                            raise RuntimeError(f"Unable to get service configuration, cannot generate client_id: {service_name}")
                         
                         # 如果找不到 client_id，使用 ClientIDGenerator 生成一个
                         if client_id is None:
@@ -223,11 +223,11 @@ class ServiceManagementAsyncShell:
                             )
                             await event_bus.publish(add_event, wait=True)
                             
-                            logger.info(f"[ASYNC_SHELL] ServiceAddRequested 事件已发布: {service_name} (agent={agent_id or 'global_agent_store'})")
+                            logger.info(f"[ASYNC_SHELL] [EVENT] ServiceAddRequested event published: {service_name} (agent={agent_id or 'global_agent_store'})")
                         else:
-                            logger.warning(f"[ASYNC_SHELL] 无法为服务 {service_name} 发布 ServiceAddRequested 事件：找不到服务配置")
+                            logger.warning(f"[ASYNC_SHELL] [WARN] Cannot publish ServiceAddRequested event for service {service_name}: service configuration not found")
             except Exception as event_error:
-                logger.error(f"[ASYNC_SHELL] 发布 ServiceAddRequested 事件失败: {event_error}", exc_info=True)
+                logger.error(f"[ASYNC_SHELL] [ERROR] Failed to publish ServiceAddRequested event: {event_error}", exc_info=True)
                 # 不抛出异常，允许服务添加成功返回，但记录错误
 
             return {
@@ -239,7 +239,7 @@ class ServiceManagementAsyncShell:
             }
 
         except Exception as e:
-            logger.error(f"[ASYNC_SHELL] add_service_async 失败: {e}")
+            logger.error(f"[ASYNC_SHELL] [ERROR] add_service_async failed: {e}")
             return {
                 "success": False,
                 "error": str(e),
@@ -258,20 +258,20 @@ class ServiceManagementAsyncShell:
         2. 纯异步执行状态检查循环
         3. 直接从pykv读取状态，使用缓存层管理器
         """
-        logger.debug(f"[ASYNC_SHELL] 开始等待服务: {service_name}, timeout={timeout}")
+        logger.debug(f"[ASYNC_SHELL] [WAIT] Starting to wait for service: {service_name}, timeout={timeout}")
 
         try:
             # 1. 调用纯同步核心
             wait_plan = self.core.wait_service_plan(service_name, timeout)
-            logger.debug(f"[ASYNC_SHELL] 等待计划: {wait_plan}")
+            logger.debug(f"[ASYNC_SHELL] [PLAN] Wait plan: {wait_plan}")
 
             # 2. 获取缓存层状态管理器
             # cache/state_manager.py 的方法签名是 get_service_status(service_global_name)
             state_manager = getattr(self.registry, '_cache_state_manager', None)
             if state_manager is None:
                 raise RuntimeError(
-                    "缓存层 StateManager 未初始化。"
-                    "请确保 ServiceRegistry 正确初始化了 _cache_state_manager 属性。"
+                    "Cache layer StateManager not initialized. "
+                    "Please ensure ServiceRegistry correctly initializes the _cache_state_manager attribute."
                 )
 
             # 3. 纯异步等待检查
@@ -299,23 +299,23 @@ class ServiceManagementAsyncShell:
                             health_status = str(state_data)
 
                         if health_status == wait_plan.target_status:
-                            logger.debug(f"[ASYNC_SHELL] 服务 {service_name} 已就绪")
+                            logger.debug(f"[ASYNC_SHELL] [READY] Service {service_name} is ready")
                             return True
 
                 except Exception as e:
-                    logger.debug(f"[ASYNC_SHELL] 状态检查失败: {e}")
+                    logger.debug(f"[ASYNC_SHELL] [ERROR] Status check failed: {e}")
 
                 # 检查超时
                 elapsed = asyncio.get_event_loop().time() - start_time
                 if elapsed > wait_plan.timeout:
-                    logger.warning(f"[ASYNC_SHELL] 等待服务 {service_name} 超时 ({elapsed:.1f}s)")
+                    logger.warning(f"[ASYNC_SHELL] [TIMEOUT] Waiting for service {service_name} timed out ({elapsed:.1f}s)")
                     return False
 
                 # 异步等待
                 await asyncio.sleep(wait_plan.check_interval)
 
         except Exception as e:
-            logger.error(f"[ASYNC_SHELL] wait_service_async 失败: {e}")
+            logger.error(f"[ASYNC_SHELL] [ERROR] wait_service_async failed: {e}")
             return False
 
     async def _start_services_async(self, service_names: list) -> None:
@@ -324,30 +324,30 @@ class ServiceManagementAsyncShell:
 
         使用缓存层管理器直接从 pykv 获取服务配置
         """
-        logger.info(f"[CONNECTION_START] 开始启动服务流程，服务列表: {service_names}")
-        logger.info(f"[CONNECTION_START] orchestrator类型: {type(self.orchestrator)}")
+        logger.info(f"[CONNECTION_START] [START] Starting service connection flow, service list: {service_names}")
+        logger.info(f"[CONNECTION_START] [INFO] Orchestrator type: {type(self.orchestrator)}")
 
         if not self.orchestrator:
-            logger.warning("[CONNECTION_START] 没有orchestrator，跳过服务启动")
+            logger.warning("[CONNECTION_START] [WARN] No orchestrator, skipping service startup")
             return
 
-        logger.info(f"[CONNECTION_START] orchestrator存在，检查启动方法...")
+        logger.info(f"[CONNECTION_START] [INFO] Orchestrator exists, checking startup methods...")
 
         # 获取缓存层服务管理器
         service_manager = getattr(self.registry, '_cache_service_manager', None)
         if service_manager is None:
             raise RuntimeError(
-                "缓存层 ServiceEntityManager 未初始化。"
-                "请确保 ServiceRegistry 正确初始化了 _cache_service_manager 属性。"
+                "Cache layer ServiceEntityManager is not initialized. "
+                "Please ensure ServiceRegistry correctly initializes the _cache_service_manager attribute."
             )
 
         for service_name in service_names:
             try:
-                logger.info(f"[CONNECTION_START] 尝试启动服务: {service_name}")
+                logger.info(f"[CONNECTION_START] [TRY] Attempting to start service: {service_name}")
 
                 # 检查orchestrator是否有连接方法
                 if hasattr(self.orchestrator, 'connect_service'):
-                    logger.info(f"[CONNECTION_START] 找到 connect_service 方法，连接服务...")
+                    logger.info(f"[CONNECTION_START] [FOUND] Found connect_service method, connecting service...")
 
                     # 计算全局名称，并从缓存层直接获取服务配置
                     from ..cache.naming_service import NamingService
@@ -359,7 +359,7 @@ class ServiceManagementAsyncShell:
                         # 使用缓存层 ServiceEntityManager 获取服务实体（全局名）
                         service_entity = await service_manager.get_service(global_name)
 
-                        logger.info(f"[CONNECTION_START] 获取的service_entity: {service_entity}")
+                        logger.info(f"[CONNECTION_START] [GET] Retrieved service_entity: {service_entity}")
 
                         if service_entity:
                             # ServiceEntity 对象有 config 属性
@@ -372,41 +372,41 @@ class ServiceManagementAsyncShell:
 
                             if inner_config and ('url' in inner_config or 'command' in inner_config):
                                 service_config = inner_config
-                                logger.info(f"[CONNECTION_START] 传递给orchestrator的服务配置: {service_config}")
+                                logger.info(f"[CONNECTION_START] [CONFIG] Service configuration passed to orchestrator: {service_config}")
                             else:
-                                raise RuntimeError(f"[CONNECTION_START] 服务配置无效或为空: {inner_config}")
+                                raise RuntimeError(f"[CONNECTION_START] Service configuration is invalid or empty: {inner_config}")
                         else:
-                            raise RuntimeError(f"[CONNECTION_START] service_entity 为空: global_name={global_name}")
+                            raise RuntimeError(f"[CONNECTION_START] service_entity is empty: global_name={global_name}")
 
                     except Exception as e:
-                        logger.error(f"[CONNECTION_START] 获取服务配置失败: {e}")
+                        logger.error(f"[CONNECTION_START] [ERROR] Failed to get service configuration: {e}")
 
                     # 检查是否有异步版本
                     connect_method = getattr(self.orchestrator, 'connect_service')
                     import inspect
                     if inspect.iscoroutinefunction(connect_method):
-                        logger.info(f"[CONNECTION_START] connect_service 是异步方法，直接调用...")
+                        logger.info(f"[CONNECTION_START] [ASYNC] connect_service is async method, calling directly...")
                         success, message = await self.orchestrator.connect_service(service_name, service_config)
-                        logger.info(f"[CONNECTION_START] 连接结果: success={success}, message={message}")
+                        logger.info(f"[CONNECTION_START] [RESULT] Connection result: success={success}, message={message}")
                     else:
-                        logger.info(f"[CONNECTION_START] connect_service 是同步方法，在线程中调用...")
+                        logger.info(f"[CONNECTION_START] [SYNC] connect_service is sync method, calling in thread...")
                         loop = asyncio.get_running_loop()
                         success, message = await loop.run_in_executor(None, lambda: self.orchestrator.connect_service(service_name, service_config))
-                        logger.info(f"[CONNECTION_START] 连接结果: success={success}, message={message}")
+                        logger.info(f"[CONNECTION_START] [RESULT] Connection result: success={success}, message={message}")
 
-                    logger.info(f"[CONNECTION_START] 服务 {service_name} 连接命令已发送")
+                    logger.info(f"[CONNECTION_START] [SENT] Service {service_name} connection command sent")
                 elif hasattr(self.orchestrator, 'start_service'):
-                    logger.warning(f"[CONNECTION_START] 只有同步方法 start_service，可能导致死锁，跳过启动 {service_name}")
+                    logger.warning(f"[CONNECTION_START] [WARN] Only sync method start_service available, may cause deadlock, skipping startup {service_name}")
                 elif hasattr(self.orchestrator, 'start_service_async'):
-                    logger.info(f"[CONNECTION_START] 找到 start_service_async 方法，启动服务...")
+                    logger.info(f"[CONNECTION_START] [FOUND] Found start_service_async method, starting service...")
                     await self.orchestrator.start_service_async(service_name)
-                    logger.info(f"[CONNECTION_START] 服务 {service_name} 启动命令已发送")
+                    logger.info(f"[CONNECTION_START] [SENT] Service {service_name} startup command sent")
                 else:
-                    logger.warning(f"[CONNECTION_START] orchestrator 没有任何启动/连接方法，跳过 {service_name}")
-                    logger.info(f"[CONNECTION_START] orchestrator可用方法: {[m for m in dir(self.orchestrator) if not m.startswith('_') and any(kw in m for kw in ['start', 'connect', 'service'])]}")
+                    logger.warning(f"[CONNECTION_START] [WARN] Orchestrator has no startup/connection methods, skipping {service_name}")
+                    logger.info(f"[CONNECTION_START] [INFO] Orchestrator available methods: {[m for m in dir(self.orchestrator) if not m.startswith('_') and any(kw in m for kw in ['start', 'connect', 'service'])]}")
 
             except Exception as e:
-                logger.error(f"[CONNECTION_START] 启动服务 {service_name} 失败: {e}", exc_info=True)
+                logger.error(f"[CONNECTION_START] [ERROR] Failed to start service {service_name}: {e}", exc_info=True)
 
 
 class ServiceManagementSyncShell:
@@ -428,7 +428,7 @@ class ServiceManagementSyncShell:
         """
         self.async_shell = async_shell
         self._bridge = get_async_bridge()
-        logger.debug("[SYNC_SHELL] 初始化 ServiceManagementSyncShell")
+        logger.debug("[SYNC_SHELL] [INIT] Initializing ServiceManagementSyncShell")
 
     def add_service(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -436,7 +436,7 @@ class ServiceManagementSyncShell:
 
         通过 AOB 在后台事件循环中执行异步壳，避免每次创建新循环。
         """
-        logger.debug("[SYNC_SHELL] 开始同步添加服务")
+        logger.debug("[SYNC_SHELL] [START] Starting synchronous service addition")
 
         try:
             result = self._bridge.run(
@@ -444,11 +444,11 @@ class ServiceManagementSyncShell:
                 op_name="service_management.add_service",
             )
 
-            logger.debug(f"[SYNC_SHELL] 同步添加服务完成: {result.get('success', False)}")
+            logger.debug(f"[SYNC_SHELL] [COMPLETE] Synchronous service addition completed: {result.get('success', False)}")
             return result
 
         except Exception as e:
-            logger.error(f"[SYNC_SHELL] 同步添加服务失败: {e}")
+            logger.error(f"[SYNC_SHELL] [ERROR] Synchronous service addition failed: {e}")
             return {
                 "success": False,
                 "error": str(e),
@@ -464,7 +464,7 @@ class ServiceManagementSyncShell:
 
         通过 AOB 在后台事件循环中执行异步壳。
         """
-        logger.debug(f"[SYNC_SHELL] 开始同步等待服务: {service_name}")
+        logger.debug(f"[SYNC_SHELL] [START] Starting synchronous service wait: {service_name}")
 
         try:
             result = self._bridge.run(
@@ -472,11 +472,11 @@ class ServiceManagementSyncShell:
                 op_name="service_management.wait_service",
             )
 
-            logger.debug(f"[SYNC_SHELL] 同步等待服务完成: {result}")
+            logger.debug(f"[SYNC_SHELL] [COMPLETE] Synchronous service wait completed: {result}")
             return result
 
         except Exception as e:
-            logger.error(f"[SYNC_SHELL] 同步等待服务失败: {e}")
+            logger.error(f"[SYNC_SHELL] [ERROR] Synchronous service wait failed: {e}")
             return False
 
 
@@ -504,6 +504,6 @@ class ServiceManagementFactory:
         # 3. 创建同步外壳
         sync_shell = ServiceManagementSyncShell(async_shell)
 
-        logger.info("[FACTORY] 创建服务管理实例完成")
+        logger.info("[FACTORY] [COMPLETE] Service management instance creation completed")
 
         return sync_shell, async_shell, core

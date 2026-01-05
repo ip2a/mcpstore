@@ -64,7 +64,7 @@ class ClientIDGenerator:
             logger.error(f" [ID_GEN] Failed to generate client_id for {agent_id}:{service_name}: {e}")
             # Fallback to simple format
             fallback_id = f"client_{agent_id}_{service_name}_fallback"
-            logger.warning(f"⚠️ [ID_GEN] Using fallback client_id: {fallback_id}")
+            logger.warning(f"[ID_GEN] [WARN] Using fallback client_id: {fallback_id}")
             return fallback_id
 
     @staticmethod

@@ -81,7 +81,7 @@ class AgentLocks:
         # 等待锁的操作集合
         self._waiting: Dict[str, Set[str]] = {}
         
-        logger.debug("[AgentLocks] 初始化完成，诊断功能: %s", enable_diagnostics)
+        logger.debug("[AgentLocks] Initialization completed, diagnostics enabled: %s", enable_diagnostics)
 
     async def _ensure_lock(self, agent_id: str) -> asyncio.Lock:
         """
@@ -120,7 +120,7 @@ class AgentLocks:
                 if self._enable_diagnostics:
                     self._stats[agent_id] = LockStats(agent_id=agent_id)
                     self._waiting[agent_id] = set()
-                logger.debug("[AgentLocks] 为 agent_id=%s 创建新锁", agent_id)
+                logger.debug("[AgentLocks] Creating new lock for agent_id=%s", agent_id)
             return self._locks[agent_id]
 
     @asynccontextmanager
@@ -202,12 +202,12 @@ class AgentLocks:
             # 如果等待时间过长，记录警告
             if wait_time_ms > 100:  # 超过 100ms
                 logger.warning(
-                    "[AgentLocks] 锁等待时间过长: agent_id=%s, operation=%s, wait_time=%.2fms",
+                    "[AgentLocks] Lock wait time too long: agent_id=%s, operation=%s, wait_time=%.2fms",
                     agent_id, operation, wait_time_ms
                 )
             else:
                 logger.debug(
-                    "[AgentLocks] 获取锁成功: agent_id=%s, operation=%s, wait_time=%.2fms",
+                    "[AgentLocks] Lock acquired successfully: agent_id=%s, operation=%s, wait_time=%.2fms",
                     agent_id, operation, wait_time_ms
                 )
             
@@ -240,7 +240,7 @@ class AgentLocks:
                     hold_time_ms = (time.monotonic() - ctx.acquired_at) * 1000
                     if hold_time_ms > 500:  # 持有超过 500ms
                         logger.warning(
-                            "[AgentLocks] 锁持有时间过长: agent_id=%s, operation=%s, hold_time=%.2fms",
+                            "[AgentLocks] Lock hold time too long: agent_id=%s, operation=%s, hold_time=%.2fms",
                             agent_id, operation, hold_time_ms
                         )
                 
@@ -249,7 +249,7 @@ class AgentLocks:
                     stats.current_holder = None
                     stats.waiting_count = len(self._waiting.get(agent_id, set()))
             
-            logger.debug("[AgentLocks] 释放锁: agent_id=%s, operation=%s", agent_id, operation)
+            logger.debug("[AgentLocks] Releasing lock: agent_id=%s, operation=%s", agent_id, operation)
 
     def get_stats(self, agent_id: Optional[str] = None) -> Dict[str, LockStats]:
         """
@@ -318,7 +318,7 @@ class AgentLocks:
         lock = self._locks.pop(agent_id, None)
         if lock and lock.locked():
             logger.warning(
-                "[AgentLocks] 清理时锁仍被持有: agent_id=%s",
+                "[AgentLocks] Lock still held during cleanup: agent_id=%s",
                 agent_id
             )
         
@@ -326,7 +326,7 @@ class AgentLocks:
         self._active_contexts.pop(agent_id, None)
         self._waiting.pop(agent_id, None)
         
-        logger.debug("[AgentLocks] 清理锁资源: agent_id=%s", agent_id)
+        logger.debug("[AgentLocks] Cleaning up lock resources: agent_id=%s", agent_id)
 
     def __repr__(self) -> str:
         active_count = sum(1 for lock in self._locks.values() if lock.locked())

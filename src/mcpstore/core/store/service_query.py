@@ -70,7 +70,7 @@ class ServiceQueryMixin:
             # 不再使用 _cache_layer，因为它在 Redis 模式下是 RedisStore，没有 get_all_entities_async 方法
             try:
                 services = await self.registry._cache_layer_manager.get_all_entities_async("services")
-                logger.debug(f"[QUERY] 获取到的服务数据: {services}")
+                logger.debug(f"[QUERY] Retrieved service data: {services}")
             except Exception as e:
                 logger.error(f"Failed to get services from cache: {e}")
                 raise
@@ -84,24 +84,24 @@ class ServiceQueryMixin:
                 # 处理 ManagedEntry 对象
                 if hasattr(service_data, 'value'):
                     actual_data = service_data.value
-                    logger.debug(f"[QUERY] 提取 ManagedEntry.value: {actual_data}")
+                    logger.debug(f"[QUERY] Extracting ManagedEntry.value: {actual_data}")
                 else:
                     actual_data = service_data
-                    logger.debug(f"[QUERY] 直接使用数据: {actual_data}")
+                    logger.debug(f"[QUERY] Using data directly: {actual_data}")
 
                 # 获取服务名称
                 service_name = actual_data.get('service_original_name', service_global_name)
-                logger.debug(f"[QUERY] 服务名称: {service_name}")
+                logger.debug(f"[QUERY] Service name: {service_name}")
 
                 # 从缓存获取完整信息 - 在异步上下文中调用异步版本
-                logger.info(f"[QUERY] 获取服务完整信息: service_global_name={service_global_name}, service_name={service_name}")
+                logger.info(f"[QUERY] Getting complete service info: service_global_name={service_global_name}, service_name={service_name}")
                 complete_info = await self.registry.get_complete_service_info_async(agent_id, service_global_name)
 
-                logger.info(f"[QUERY] 获得完整信息: complete_info={complete_info}")
+                logger.info(f"[QUERY] Got complete info: complete_info={complete_info}")
 
                 # 安全检查，确保 complete_info 不为 None
                 if complete_info is None:
-                    logger.error(f"[QUERY] 服务 {service_global_name} 的完整信息为 NULL，使用默认值")
+                    logger.error(f"[QUERY] Service {service_global_name} complete info is NULL, using default values")
                     complete_info = {
                         "name": service_name,
                         "state": "disconnected",
@@ -126,13 +126,13 @@ class ServiceQueryMixin:
                             state = status_data.get('health_status', 'disconnected')
                         else:
                             state = str(status_data)
-                        logger.debug(f"[QUERY] 从 pykv 获取状态: {service_global_name} -> {state}")
+                        logger.debug(f"[QUERY] Getting state from pykv: {service_global_name} -> {state}")
                     else:
                         state = complete_info.get("state") or "disconnected"
-                        logger.debug(f"[QUERY] pykv 中无状态，使用默认值: {state}")
+                        logger.debug(f"[QUERY] No state in pykv, using default value: {state}")
                 else:
                     state = complete_info.get("state") or "disconnected"
-                    logger.warning(f"[QUERY] 缓存层状态管理器不可用，使用 complete_info 中的状态: {state}")
+                    logger.warning(f"[QUERY] Cache layer state manager unavailable, using state from complete_info: {state}")
 
                 # 确保状态是ServiceConnectionState枚举
                 if isinstance(state, str):
@@ -170,7 +170,7 @@ class ServiceQueryMixin:
                 # 通过映射获取该 Agent 的全局服务名集合
                 global_service_names = self.registry.get_agent_services(agent_id)
                 if not global_service_names:
-                    logger.debug(f"[STORE.LIST_SERVICES] Agent {agent_id} 没有已映射的全局服务，返回空列表")
+                    logger.debug(f"[STORE.LIST_SERVICES] Agent {agent_id} has no mapped global services, returning empty list")
                     return services_info
 
                 for global_name in global_service_names:
@@ -185,7 +185,7 @@ class ServiceQueryMixin:
                     # 从全局命名空间读取该服务的完整信息
                     complete_info = self.registry.get_complete_service_info(global_agent_id, global_name)
                     if not complete_info:
-                        logger.debug(f"[STORE.LIST_SERVICES] 全局缓存中未找到服务: {global_name}")
+                        logger.debug(f"[STORE.LIST_SERVICES] Service not found in global cache: {global_name}")
                         continue
 
                     # 状态枚举转换
@@ -219,7 +219,7 @@ class ServiceQueryMixin:
                     )
                     services_info.append(service_info)
             except Exception as e:
-                logger.error(f"[STORE.LIST_SERVICES] Agent 视图派生失败: {e}")
+                logger.error(f"[STORE.LIST_SERVICES] Agent view derivation failed: {e}")
                 return services_info
 
         return services_info

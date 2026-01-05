@@ -48,7 +48,7 @@ class StateManager(StateManagerInterface):
         # 必须通过 set_cache_layer_manager() 方法设置
         self._cache_layer_manager = None
 
-        self._logger.info(f"初始化StateManager，命名空间: {namespace}")
+        self._logger.info(f"Initializing StateManager, namespace: {namespace}")
 
     def _legacy(self, method: str) -> None:
         raise_legacy_error(
@@ -67,11 +67,11 @@ class StateManager(StateManagerInterface):
             cache_layer_manager: CacheLayerManager 实例
         """
         self._cache_layer_manager = cache_layer_manager
-        self._logger.debug("已设置 CacheLayerManager")
+        self._logger.debug("CacheLayerManager has been set")
 
     def initialize(self) -> None:
         """初始化状态管理器"""
-        self._logger.info("StateManager 初始化完成")
+        self._logger.info("StateManager initialization completed")
 
     def cleanup(self) -> None:
         """清理状态管理器资源"""
@@ -86,9 +86,9 @@ class StateManager(StateManagerInterface):
 
             self._sync_helper = None
 
-            self._logger.info("StateManager 清理完成")
+            self._logger.info("StateManager cleanup completed")
         except Exception as e:
-            self._logger.error(f"StateManager 清理时出错: {e}")
+            self._logger.error(f"StateManager cleanup error: {e}")
             raise
 
     def set_service_state(self, agent_id: str, service_name: str, state: Optional['ServiceConnectionState']):

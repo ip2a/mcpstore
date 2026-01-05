@@ -38,9 +38,9 @@ class ToolInfo:
     ) -> "ToolInfo":
         """从实体数据创建 ToolInfo"""
         if not entity_data.get("tool_original_name"):
-            raise ValueError("tool_original_name 缺失，无法构建 ToolInfo")
+            raise ValueError("tool_original_name is missing, cannot build ToolInfo")
         if not service_global_name:
-            raise ValueError("service_global_name 缺失，无法构建 ToolInfo")
+            raise ValueError("service_global_name is missing, cannot build ToolInfo")
         return cls(
             name=entity_data.get("tool_global_name", ""),
             tool_original_name=entity_data.get("tool_original_name", ""),
@@ -228,7 +228,7 @@ class ToolLogicCore:
             status = service_status_map.get(service_global_name)
             if status is None:
                 raise RuntimeError(
-                    f"服务状态不存在，无法检查工具可用性: "
+                    f"Service state does not exist, cannot check tool availability: "
                     f"service_global_name={service_global_name}, tool={tool.name}"
                 )
             
@@ -247,7 +247,7 @@ class ToolLogicCore:
             
             if tool_status is None:
                 raise RuntimeError(
-                    f"工具不存在于服务状态中: "
+                    f"Tool does not exist in service state: "
                     f"service_global_name={service_global_name}, "
                     f"tool={tool.name}, original_name={original_tool_name}"
                 )
@@ -352,7 +352,7 @@ class ToolLogicCore:
         """
         if service_status is None:
             raise RuntimeError(
-                f"服务状态不存在，无法检查工具可用性: "
+                f"Service state does not exist, cannot check tool availability: "
                 f"service_global_name={service_global_name}, tool={tool_name}"
             )
         
@@ -377,7 +377,7 @@ class ToolLogicCore:
         
         if tool_status is None:
             raise RuntimeError(
-                f"工具不存在于服务状态中: "
+                f"Tool does not exist in service state: "
                 f"service_global_name={service_global_name}, "
                 f"tool={tool_name}, original_name={original_tool_name}"
             )

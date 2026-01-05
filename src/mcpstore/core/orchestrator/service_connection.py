@@ -59,8 +59,8 @@ class ServiceConnectionMixin:
                 service_config = self.registry.get_service_config_from_cache(agent_key, name)
                 if not service_config:
                     raise RuntimeError(
-                        f"服务配置不存在: service_name={name}, agent_id={agent_key}. "
-                        f"请先通过 add_service 添加服务配置。"
+                        f"Service configuration does not exist: service_name={name}, agent_id={agent_key}. "
+                        f"Please add service configuration via add_service first."
                     )
             
             # 合并 URL 参数
@@ -78,13 +78,13 @@ class ServiceConnectionMixin:
                 metadata_exists = metadata is not None
                 if not metadata_exists:
                     logger.warning(
-                        f"[CONNECT_SERVICE] 服务 {name} 实体存在但 metadata 不存在，"
-                        f"数据不一致，将走完整的添加流程"
+                        f"[CONNECT_SERVICE] Service {name} entity exists but metadata does not exist, "
+                        f"data inconsistency detected, will proceed with full add flow"
                     )
 
             if not service_exists or not metadata_exists:
                 # 服务不存在，走完整的添加流程
-                logger.info(f"[CONNECT_SERVICE] 服务 {name} 不存在，发布 ServiceAddRequested 事件")
+                logger.info(f"[CONNECT_SERVICE] Service {name} does not exist, publishing ServiceAddRequested event")
                 
                 from mcpstore.core.events.service_events import ServiceAddRequested
                 from mcpstore.core.utils.id_generator import ClientIDGenerator
@@ -106,11 +106,11 @@ class ServiceConnectionMixin:
                 
                 # 同步等待事件处理完成
                 await self.container._event_bus.publish(add_event, wait=True)
-                logger.info(f"[CONNECT_SERVICE] ServiceAddRequested 事件已发布: {name}")
-                return True, f"服务 {name} 添加请求已发布，正在处理中"
+                logger.info(f"[CONNECT_SERVICE] ServiceAddRequested event published: {name}")
+                return True, f"Service {name} add request published, processing"
             else:
                 # 服务已存在，只触发重新连接
-                logger.info(f"[CONNECT_SERVICE] 服务 {name} 已存在，发布 ServiceConnectionRequested 事件")
+                logger.info(f"[CONNECT_SERVICE] Service {name} already exists, publishing ServiceConnectionRequested event")
                 
                 from mcpstore.core.events.service_events import ServiceConnectionRequested
                 
@@ -123,11 +123,11 @@ class ServiceConnectionMixin:
                 
                 # 同步等待事件处理完成
                 await self.container._event_bus.publish(connection_event, wait=True)
-                logger.info(f"[CONNECT_SERVICE] ServiceConnectionRequested 事件已发布: {name}")
-                return True, f"服务 {name} 连接请求已发布，正在处理中"
+                logger.info(f"[CONNECT_SERVICE] ServiceConnectionRequested event published: {name}")
+                return True, f"Service {name} connection request published, processing"
 
         except Exception as e:
-            logger.error(f"[CONNECT_SERVICE] 连接服务 {name} 失败: {e}")
+            logger.error(f"[CONNECT_SERVICE] Failed to connect service {name}: {e}")
             raise
 
     # ========================================
@@ -137,10 +137,10 @@ class ServiceConnectionMixin:
     # ========================================
 
     async def disconnect_service(self, url_or_name: str) -> bool:
-        """???????????global_agent_store"""
+        """Remove service from global_agent_store"""
         logger.info(f"Removing service: {url_or_name}")
 
-        # ?????????
+        # Find service name to remove
         name_to_remove = None
         for name, server in self.global_agent_store_config.get("mcpServers", {}).items():
             if name == url_or_name or server.get("url") == url_or_name:
@@ -148,32 +148,32 @@ class ServiceConnectionMixin:
                 break
 
         if name_to_remove:
-            # ?global_agent_store_config???
+            # Remove from global_agent_store_config
             if name_to_remove in self.global_agent_store_config["mcpServers"]:
                 del self.global_agent_store_config["mcpServers"][name_to_remove]
 
-            # ????????
+            # Remove from configuration file
             ok = self.mcp_config.remove_service(name_to_remove)
             if not ok:
                 logger.warning(f"Failed to remove service {name_to_remove} from configuration file")
 
-            # ?registry???（使用异步版本）
+            # Remove from registry (using async version)
             agent_id = self.client_manager.global_agent_store_id
             await self.registry.remove_service_async(agent_id, name_to_remove)
 
-            # ????global_agent_store
+            # Rebuild global_agent_store
             if self.global_agent_store_config.get("mcpServers"):
                 self.global_agent_store = Client(self.global_agent_store_config)
 
-                # ????agent_clients
+                # Rebuild agent_clients
                 for agent_id in list(self.agent_clients.keys()):
                     self.agent_clients[agent_id] = Client(self.global_agent_store_config)
                     logger.info(f"Updated client for agent {agent_id} after removing service")
 
             else:
-                # ??????????global_agent_store
+                # Clear global_agent_store if no services remain
                 self.global_agent_store = None
-                # ????agent_clients
+                # Clear agent_clients
                 self.agent_clients.clear()
 
             return True
@@ -182,46 +182,46 @@ class ServiceConnectionMixin:
             return False
 
     async def refresh_services(self):
-        """???????????????mcp.json?"""
-        #  ????????????????
+        """Refresh services from mcp.json"""
+        # Sync from mcp.json file
         if hasattr(self, 'sync_manager') and self.sync_manager:
             await self.sync_manager.sync_global_agent_store_from_mcp_json()
         else:
             logger.warning("Sync manager not available, cannot refresh services")
 
     async def refresh_service_content(self, service_name: str, agent_id: str = None) -> bool:
-        """刷新服务内容（工具、资源等）"""
+        """Refresh service content (tools, resources, etc.)"""
         if self.content_manager is None:
             raise RuntimeError(
-                f"content_manager 未初始化，无法刷新服务内容: service_name={service_name}"
+                f"content_manager is not initialized, cannot refresh service content: service_name={service_name}"
             )
         agent_key = agent_id or self.client_manager.global_agent_store_id
         return await self.content_manager.force_update_service_content(agent_key, service_name)
 
     async def is_service_healthy(self, name: str, client_id: Optional[str] = None) -> bool:
         """
-        ??????????????????
+        Check if service is healthy
 
         Args:
-            name: ???
-            client_id: ??????ID?????????
+            name: Service name
+            client_id: Client ID, if None uses global_agent_store_id
 
         Returns:
-            bool: True ?????? HEALTHY/WARNING ??
+            bool: True if service is HEALTHY/WARNING state
         """
         agent_key = client_id or self.client_manager.global_agent_store_id
-        state = self.registry._service_state_service.get_service_state(agent_key, name)
+        state = await self.registry._service_state_service.get_service_state_async(agent_key, name)
         return state in (ServiceConnectionState.HEALTHY, ServiceConnectionState.WARNING)
 
     def _normalize_service_config(self, service_config: Dict[str, Any]) -> Dict[str, Any]:
-        """?????????????????"""
+        """Normalize service configuration"""
         if not service_config:
             return service_config
 
-        # ??????
+        # Copy configuration
         normalized = service_config.copy()
 
-        # ????transport?????????
+        # Auto-infer transport type from URL
         if "url" in normalized and "transport" not in normalized:
             url = normalized["url"]
             if "/sse" in url.lower():

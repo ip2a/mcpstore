@@ -62,6 +62,8 @@ from .tool import (
     ToolsResponse,
     ToolExecutionRequest
 )
+# Tool result helpers
+from .tool_result import CallToolFailureResult
 # Tool set management models
 from .tool_set import (
     ToolSetState
@@ -117,6 +119,7 @@ __all__ = [
     'ToolInfo',
     'ToolsResponse',
     'ToolExecutionRequest',
+    'CallToolFailureResult',
     
     # Tool set management models
     'ToolSetState',
