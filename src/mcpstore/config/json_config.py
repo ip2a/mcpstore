@@ -41,6 +41,25 @@ class MCPServerModel(BaseModel):
         """Basic configuration validation: must have at least url or command"""
         if not (values.get("url") or values.get("command")):
             raise ValueError("MCP server must have either 'url' or 'command' field")
+
+        # 规范化 transport 字段：兼容常见非标准写法（http/sse）
+        transport = values.get("transport")
+        if isinstance(transport, str):
+            raw = transport.strip().lower()
+            mapping = {
+                "http": "http-first",
+                "sse": "sse-first",
+                "http_only": "http-only",
+                "sse_only": "sse-only",
+            }
+            normalized = mapping.get(raw, raw)
+            allowed = {"sse-only", "http-only", "sse-first", "http-first"}
+            if normalized not in allowed:
+                # 无效值：静默移除，让下游按默认逻辑处理（不额外提示用户）
+                values.pop("transport", None)
+            else:
+                # 对常见非标准写法做静默规范化，避免打扰用户
+                values["transport"] = normalized
         return values
 
 class MCPConfigModel(BaseModel):
@@ -290,5 +309,3 @@ class MCPConfig:
         except Exception as e:
             logger.error(f"Failed to reset MCP JSON configuration file: {e}")
             return False
-
-

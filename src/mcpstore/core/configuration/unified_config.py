@@ -328,7 +328,8 @@ class UnifiedConfigManager:
             bool: 添加是否成功
         """
         try:
-            current_config = self.get_mcp_config()
+            # 强制从磁盘拉取最新配置，避免缓存滞后导致覆盖
+            current_config = self.get_config(ConfigType.MCP_SERVICES, force_reload=True)
             
             # 确保 mcpServers 存在
             if "mcpServers" not in current_config:
@@ -359,7 +360,8 @@ class UnifiedConfigManager:
             bool: 删除是否成功
         """
         try:
-            current_config = self.get_mcp_config()
+            # 删除前强制刷新，避免使用过期缓存
+            current_config = self.get_config(ConfigType.MCP_SERVICES, force_reload=True)
             
             # 如果服务存在，则删除
             if service_name in current_config.get("mcpServers", {}):

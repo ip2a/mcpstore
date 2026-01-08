@@ -223,7 +223,7 @@ class BidirectionalSyncManager:
             await self.store.registry.remove_service_async(agent_id, local_name)
             
             # 移除映射关系
-            self.store.registry.remove_agent_service_mapping(agent_id, local_name)
+            await self.store.registry.remove_agent_service_mapping_async(agent_id, local_name)
             
             logger.debug(f"[BIDIRECTIONAL_SYNC] [SUCCESS] Agent service deletion successful: {agent_id}:{local_name}")
             

@@ -264,14 +264,14 @@ class ServiceApplicationService:
                 )
                 return False
 
-            service_config = self._registry.get_service_config_from_cache(agent_id, service_name)
+            service_config = await self._registry.get_service_config_from_cache_async(agent_id, service_name)
             if not service_config:
                 logger.error(
                     f"[RESET_SERVICE_APP] No service config found for '{service_name}' (agent={agent_id})"
                 )
                 return False
 
-            success = self._lifecycle_manager.initialize_service(
+            success = await self._lifecycle_manager.initialize_service(
                 agent_id=agent_id,
                 service_name=service_name,
                 service_config=service_config,

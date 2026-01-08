@@ -11,12 +11,19 @@
         </p>
       </div>
       <div class="header-actions">
+        <el-input
+          v-model="searchQuery"
+          placeholder="搜索 Agent ID 或描述"
+          clearable
+          class="search-input"
+          :prefix-icon="Search"
+        />
         <el-button 
           :icon="Plus" 
           type="primary"
           color="#000"
           class="create-btn"
-          @click="$router.push('/for_store/add_service')"
+          @click="openServiceDialog()"
         >
           Create Service
         </el-button>
@@ -54,7 +61,7 @@
         class="agent-grid"
       >
         <div 
-          v-for="agent in agentsStore.agents" 
+          v-for="agent in filteredAgents" 
           :key="agent.id" 
           class="agent-card"
           @click="viewAgentDetails(agent)"
@@ -124,19 +131,38 @@
         </div>
       </div>
     </div>
+
+    <el-dialog
+      v-model="serviceDialogVisible"
+      width="1000px"
+      class="agent-service-dialog"
+      destroy-on-close
+      :close-on-click-modal="false"
+      title="Add Service"
+    >
+      <ServiceForm
+        :default-agent-id="dialogAgentId"
+        compact
+        @success="handleServiceAdded"
+      />
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
-import { Plus, Refresh, User } from '@element-plus/icons-vue'
+import { Plus, Refresh, User, Search } from '@element-plus/icons-vue'
 import { useAgentsStore } from '@/stores/agents'
+import ServiceForm from '@/components/agents/ServiceForm.vue'
 
 const router = useRouter()
 const agentsStore = useAgentsStore()
+const searchQuery = ref('')
+const serviceDialogVisible = ref(false)
+const dialogAgentId = ref('')
 
 const getStatusClass = (status) => {
   switch (status) {
@@ -157,15 +183,16 @@ const refreshAgents = async () => {
 }
 
 const viewAgentDetails = (agent) => {
-  router.push({ path: '/for_store/list_agents', query: { agentId: agent.id } })
+  router.push({ name: 'for_store_agent_detail', params: { id: agent.id } })
 }
 
 const addServiceToAgent = (agent) => {
-  router.push(`/for_agent/${agent.id}/add_service`)
+  dialogAgentId.value = agent.id
+  serviceDialogVisible.value = true
 }
 
 const manageAgent = (agent) => {
-  router.push({ path: '/for_store/list_agents', query: { agentId: agent.id } })
+  router.push({ name: 'for_store_agent_detail', params: { id: agent.id } })
 }
 
 const resetAgent = async (agent) => {
@@ -182,6 +209,20 @@ const resetAgent = async (agent) => {
 }
 
 const formatTime = (t) => t ? dayjs(t).format('MMM D, HH:mm') : 'Never'
+
+const filteredAgents = computed(() => {
+  return agentsStore.searchAgents(searchQuery.value)
+})
+
+const openServiceDialog = (agentId = '') => {
+  dialogAgentId.value = agentId
+  serviceDialogVisible.value = true
+}
+
+const handleServiceAdded = async () => {
+  serviceDialogVisible.value = false
+  await refreshAgents()
+}
 
 onMounted(() => {
   refreshAgents()
@@ -221,6 +262,11 @@ onMounted(() => {
 .header-actions {
   display: flex;
   gap: 12px;
+  align-items: center;
+}
+
+.search-input {
+  width: 240px;
 }
 
 .create-btn {

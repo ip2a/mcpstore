@@ -159,8 +159,8 @@ class SetupMixin:
             logger.info(f"[INIT_MCP] [FOUND] Found {len(mcp_servers)} service configurations")
 
             # 解析服务并建立映射关系
-            agents_discovered = set()
             global_agent_store_id = self.client_manager.global_agent_store_id
+            app_service = self.container.service_application_service
 
             for service_name, service_config in mcp_servers.items():
                 try:
@@ -169,98 +169,39 @@ class SetupMixin:
 
                     if AgentServiceMapper.is_any_agent_service(service_name):
                         agent_id, local_name = AgentServiceMapper.parse_agent_service_name(service_name)
-                        if agent_id == global_agent_store_id:
-                            # 防御：不应把全局ID当作Agent服务
-                            agent_id = None
+                        global_name = service_name
                     else:
-                        agent_id = None
-                        local_name = None
+                        agent_id = global_agent_store_id
+                        local_name = service_name
+                        global_name = service_name
 
-                    if agent_id:
-                        global_name = service_name     # 带后缀的全局名
+                    logger.info(f"[INIT_MCP] [REPLAY] service={service_name} agent={agent_id} local={local_name}")
 
-                        logger.debug(f"[INIT_MCP] [FOUND] Found Agent service: {global_name} -> Agent {agent_id} (local: {local_name})")
-                        # 添加到发现的 Agent 集合
-                        agents_discovered.add(agent_id)
+                    # 已存在则跳过
+                    if await self.registry.has_service_async(agent_id, local_name):
+                        logger.info(f"[INIT_MCP] [SKIP] Service already exists in cache: {agent_id}:{local_name}")
+                        continue
 
-                        # 建立服务映射关系（Agent 本地名 -> 全局服务名）
-                        self.registry.add_agent_service_mapping(agent_id, local_name, global_name)
+                    # 通过应用服务发布事件驱动的添加流程（语义一致，自动创建实体/关系/状态）
+                    add_result = await app_service.add_service(
+                        agent_id=agent_id,
+                        service_name=local_name,
+                        service_config=service_config,
+                        wait_timeout=0.0,
+                        source="bootstrap_mcpjson",
+                        global_name=global_name,
+                        origin_agent_id=agent_id,
+                        origin_local_name=local_name,
+                    )
 
-                        #  修复：检查是否已存在该服务的client_id，避免重复生成（按本地名查找）
-                        existing_client_id = self._find_existing_client_id_for_agent_service(agent_id, local_name)
-
-                        if existing_client_id:
-                            # 使用现有的client_id
-                            client_id = existing_client_id
-                            logger.debug(f"[INIT_MCP] [USE] Using existing Agent client_id: {global_name} -> {client_id}")
-                        else:
-                            #  使用统一的ClientIDGenerator生成确定性client_id
-                            from mcpstore.core.utils.id_generator import ClientIDGenerator
-                            
-                            client_id = ClientIDGenerator.generate_deterministic_id(
-                                agent_id=agent_id,
-                                service_name=local_name,
-                                service_config=service_config,
-                                global_agent_store_id=global_agent_store_id
-                            )
-                            logger.debug(f"[INIT_MCP] [GENERATE] Generated new Agent client_id: {global_name} -> {client_id}")
-
-                        client_config = {"mcpServers": {local_name: service_config}}
-
-                        # 保存 Client 配置到缓存（统一API）
-                        self.registry.add_client_config(client_id, client_config)
-
-                        # 建立 Agent -> Client 映射
-                        self.registry._agent_client_service.add_agent_client_mapping(agent_id, client_id)
-
-                        # 建立 服务 -> Client 映射（统一API）
-                        self.registry._agent_client_service.add_service_client_mapping(agent_id, local_name, client_id)
-
-                        logger.debug(f"[INIT_MCP] [COMPLETE] Agent service mapping completed: {agent_id}:{local_name} -> {client_id}")
-                    
+                    if add_result.success:
+                        logger.info(f"[INIT_MCP] [OK] Replayed service from mcp.json: {service_name} -> agent={agent_id}")
                     else:
-                        # Store 服务：添加到 global_agent_store
-                        logger.debug(f"[INIT_MCP] [FOUND] Found Store service: {service_name}")
-                        
-                        #  修复：检查是否已存在该服务的client_id，避免重复生成
-                        existing_client_id = self._find_existing_client_id_for_store_service(global_agent_store_id, service_name)
-
-                        if existing_client_id:
-                            # 使用现有的client_id
-                            client_id = existing_client_id
-                            logger.debug(f"[INIT_MCP] [USE] Using existing Store client_id: {service_name} -> {client_id}")
-                        else:
-                            # 生成新的client_id（统一使用确定性算法）
-                            from mcpstore.core.utils.id_generator import ClientIDGenerator
-                            client_id = ClientIDGenerator.generate_deterministic_id(
-                                agent_id=global_agent_store_id,
-                                service_name=service_name,
-                                service_config=service_config,
-                                global_agent_store_id=global_agent_store_id
-                            )
-                            logger.debug(f"[INIT_MCP] [GENERATE] Generated new Store client_id: {service_name} -> {client_id}")
-
-                        client_config = {"mcpServers": {service_name: service_config}}
-
-                        # 保存 Client 配置到缓存（统一API）
-                        self.registry.add_client_config(client_id, client_config)
-
-                        # 建立 global_agent_store -> Client 映射
-                        self.registry._agent_client_service.add_agent_client_mapping(global_agent_store_id, client_id)
-
-                        # 建立服务 -> Client 映射（统一API）
-                        self.registry._agent_client_service.add_service_client_mapping(global_agent_store_id, service_name, client_id)
-
-                        logger.debug(f"[INIT_MCP] [COMPLETE] Store service mapping completed: {service_name} -> {client_id}")
+                        logger.error(f"[INIT_MCP] [FAIL] Failed to replay service {service_name}: {add_result.error_message}")
 
                 except Exception as e:
                     logger.error(f"[INIT_MCP] [ERROR] Failed to process service {service_name}: {e}")
                     continue
-
-            # 同步发现的 Agent 到持久化文件
-            if agents_discovered:
-                logger.info(f"[INIT_MCP] [SYNC] Found {len(agents_discovered)} Agents, starting to sync to files...")
-                await self._sync_discovered_agents_to_files(agents_discovered)
 
             logger.info(f"[INIT_MCP] [COMPLETE] mcp.json parsing completed, processed {len(mcp_servers)} services")
 

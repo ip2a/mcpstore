@@ -29,9 +29,16 @@ class HealthCheckConfigDefaults:
     base_reconnect_delay: float = 1.0
     max_reconnect_delay: float = 60.0
     long_retry_interval: float = 300.0
-    normal_heartbeat_interval: float = 30.0
+    # 健康状态的轻量心跳（默认 10s）
+    normal_heartbeat_interval: float = 10.0
     warning_heartbeat_interval: float = 10.0
     health_check_ping_timeout: float = 10.0
+    # 在 WARNING/RECONNECTING 状态下使用更宽松的 ping 超时，避免短暂抖动触发误判
+    warning_ping_timeout: float = 30.0
+    # 按传输类型的默认 ping 超时
+    ping_timeout_http: float = 20.0
+    ping_timeout_sse: float = 20.0
+    ping_timeout_stdio: float = 40.0
     initialization_timeout: float = 300.0
     disconnection_timeout: float = 10.0
 

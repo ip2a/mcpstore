@@ -121,6 +121,12 @@ const routes = [
     component: AgentList,
     meta: { title: 'Agent列表', icon: 'User', keepAlive: true }
   },
+  {
+    path: '/for_store/agent_detail/:id',
+    name: 'for_store_agent_detail',
+    component: AgentDetail,
+    meta: { title: 'Agent详情', icon: 'UserFilled', hidden: true }
+  },
   // for_agent - add_service (保留功能入口)
   {
     path: '/for_agent/:agent_id/add_service',

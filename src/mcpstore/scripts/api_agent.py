@@ -400,10 +400,21 @@ async def agent_call_tool(agent_id: str, request: SimpleToolExecutionRequest):
     result = await context.bridge_execute(
         context.call_tool_async(request.tool_name, request.args)
     )
+    # 将 FastMCP CallToolResult 标准化为可序列化的视图
+    try:
+        from mcpstore.adapters.common import call_tool_response_helper
+        result_view = call_tool_response_helper(result).model_dump()
+    except Exception as e:
+        # 出现异常时返回原始结果的字符串化内容，避免序列化失败
+        result_view = {
+            "text": str(result),
+            "is_error": True,
+            "error_message": f"call_tool result serialize failed: {e}"
+        }
     
     return ResponseBuilder.success(
         message=f"Tool '{request.tool_name}' executed successfully for agent '{agent_id}'",
-        data=result
+        data=result_view
     )
 
 @agent_router.put("/for_agent/{agent_id}/update_service/{service_name}", response_model=APIResponse)

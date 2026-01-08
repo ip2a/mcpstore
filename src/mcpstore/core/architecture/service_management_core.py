@@ -205,7 +205,7 @@ class ServiceManagementCore:
             service_names=service_names
         )
 
-    def wait_service_plan(self, service_name: str, timeout: float = 10.0) -> WaitOperationPlan:
+    def wait_service_plan(self, service_name: str, timeout: float = 40.0) -> WaitOperationPlan:
         """
         纯同步：生成等待服务的操作计划
 

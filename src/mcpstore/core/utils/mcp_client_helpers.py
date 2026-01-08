@@ -14,7 +14,7 @@ from mcpstore.core.configuration.config_processor import ConfigProcessor
 
 
 @asynccontextmanager
-async def temp_client_for_service(service_name: str, service_config: Dict) -> AsyncIterator[Client]:
+async def temp_client_for_service(service_name: str, service_config: Dict, timeout: float | None = None) -> AsyncIterator[Client]:
     """Create a temporary FastMCP Client for a single service and yield it inside an async-with.
 
     - Processes user service_config via ConfigProcessor to build a valid FastMCP client config
@@ -29,7 +29,7 @@ async def temp_client_for_service(service_name: str, service_config: Dict) -> As
     if service_name not in fastmcp_config.get("mcpServers", {}):
         raise ValueError(f"Invalid service configuration for {service_name}")
 
-    client = Client(fastmcp_config)
+    client = Client(fastmcp_config, timeout=timeout)
     try:
         async with client:
             yield client
@@ -38,4 +38,3 @@ async def temp_client_for_service(service_name: str, service_config: Dict) -> As
             await client.close()
         except Exception:
             pass
-

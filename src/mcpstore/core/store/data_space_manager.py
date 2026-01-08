@@ -65,7 +65,7 @@ class DataSpaceManagerMixin:
                     cache_agent_id = self.client_manager.global_agent_store_id
                     missing = []
                     for name in service_names:
-                        svc_cfg = self.registry.get_service_config_from_cache(cache_agent_id, name)
+                        svc_cfg = await self.registry.get_service_config_from_cache_async(cache_agent_id, name)
                         if not svc_cfg:
                             missing.append(name)
                         else:
@@ -86,7 +86,7 @@ class DataSpaceManagerMixin:
                     cache_agent_id = agent_id
                     missing = []
                     for name in service_names:
-                        svc_cfg = self.registry.get_service_config_from_cache(cache_agent_id, name)
+                        svc_cfg = await self.registry.get_service_config_from_cache_async(cache_agent_id, name)
                         if not svc_cfg:
                             missing.append(name)
                         else:

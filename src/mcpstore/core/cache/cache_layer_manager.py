@@ -10,6 +10,7 @@
 import asyncio
 import logging
 import time
+import copy
 from typing import Any, Dict, Optional, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -27,7 +28,7 @@ class CacheLayerManager:
     """
     
     _EMPTY_LOG_INTERVAL_SECONDS = 60.0
-    _SCAN_LOG_INTERVAL_SECONDS = 5.0
+    _SCAN_LOG_INTERVAL_SECONDS = 60.0
 
     def __init__(self, kv_store: 'AsyncKeyValue', namespace: str = "default"):
         """
@@ -47,6 +48,7 @@ class CacheLayerManager:
             self._bridge = None
         self._last_empty_log: Dict[str, float] = {}
         self._last_scan_log: Dict[str, float] = {}
+        self._last_state_snapshot: Dict[str, Any] = {}
         logger.debug(f"[CACHE] [INIT] Initializing CacheLayerManager, namespace: {namespace}")
 
     async def _await_in_bridge(self, coro, op_name: str):
@@ -131,6 +133,18 @@ class CacheLayerManager:
         last_logged = self._last_scan_log.get(key, 0.0)
         if now - last_logged >= self._SCAN_LOG_INTERVAL_SECONDS:
             self._last_scan_log[key] = now
+            return True
+        return False
+
+    def _has_state_changed(self, key: str, value: Any) -> bool:
+        """检查状态是否发生变化（用于减少重复日志）"""
+        sentinel = object()
+        previous = self._last_state_snapshot.get(key, sentinel)
+        if previous is sentinel:
+            self._last_state_snapshot[key] = copy.deepcopy(value)
+            return True
+        if previous != value:
+            self._last_state_snapshot[key] = copy.deepcopy(value)
             return True
         return False
     
@@ -633,7 +647,8 @@ class CacheLayerManager:
             RuntimeError: 如果 pykv 操作失败
         """
         collection = self._get_state_collection(state_type)
-        log_key = f"state_read:{state_type}:{key}"
+        state_key = f"{state_type}:{key}"
+        log_key = f"state_read:{state_key}"
         log_state = self._should_log_scan(log_key)
         if log_state:
             logger.debug(
@@ -646,7 +661,7 @@ class CacheLayerManager:
                 self._kv_store.get(key, collection=collection),
                 f"cache.get_state.{state_type}"
             )
-            if log_state:
+            if log_state or self._has_state_changed(state_key, result):
                 logger.debug(f"[CACHE] [STATE] Reading state value: collection={collection}, key={key}, result={result}")
             return result
         except Exception as e:

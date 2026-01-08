@@ -862,15 +862,11 @@ class ServiceOperationsMixin:
             if not service_config:
                 raise ValueError(f"Service configuration not found for {resolved_service_name}")
 
-            # 5. 调用生命周期管理器初始化服务（通过 bridge 执行，保持单一事件循环）
-            success = await self._store.for_store()._run_async_via_bridge(  # type: ignore[attr-defined]
-                self._store.container.service_application_service.initialize_service(
-                    agent_id=agent_id,
-                    service_name=resolved_service_name,
-                    service_config=service_config,
-                    wait_timeout=0.0,
-                ),
-                op_name="service_operations.init_service_initialize"
+            # 5. 调用生命周期管理器初始化服务（异步直接调用）
+            success = await self._store.orchestrator.lifecycle_manager.initialize_service(
+                agent_id=agent_id,
+                service_name=resolved_service_name,
+                service_config=service_config,
             )
 
             if not success:
