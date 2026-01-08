@@ -56,7 +56,7 @@ class ServiceConnectionMixin:
             
             # 获取服务配置
             if service_config is None:
-                service_config = self.registry.get_service_config_from_cache(agent_key, name)
+                service_config = await self.registry.get_service_config_from_cache_async(agent_key, name)
                 if not service_config:
                     raise RuntimeError(
                         f"Service configuration does not exist: service_name={name}, agent_id={agent_key}. "

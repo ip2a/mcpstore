@@ -13,11 +13,11 @@
       <div class="header-actions">
         <el-button 
           :icon="Refresh" 
-          :loading="loading" 
+          :loading="loading.stats" 
           circle
           plain
           class="refresh-btn"
-          @click="refreshCache"
+          @click="initialize"
         />
       </div>
     </header>
@@ -25,24 +25,21 @@
     <!-- KPI Grid -->
     <div class="kpi-grid">
       <StatCard
-        title="Total Keys"
-        :value="totalKeys"
-        unit="items"
+        title="Total Entities"
+        :value="totalEntities"
         :icon="Coin"
         class="kpi-card"
       />
       <StatCard
-        title="Service Keys"
-        :value="serviceKeys"
-        unit="svcs"
+        title="Total Relations"
+        :value="totalRelations"
         :icon="Connection"
         class="kpi-card"
       />
-      <StatCard
-        title="Tool Keys"
-        :value="toolKeys"
-        unit="fns"
-        :icon="Tools"
+       <StatCard
+        title="Total States"
+        :value="totalStates"
+        :icon="Bell"
         class="kpi-card"
       />
     </div>
@@ -52,6 +49,39 @@
       <!-- Left Panel: Keys List -->
       <div class="panel-column left-col">
         <section class="panel-section full-height">
+          <!-- Layer Tabs -->
+          <div class="tabs-header layer-tabs">
+            <div 
+              v-for="layer in ['entities', 'relations', 'states']"
+              :key="layer"
+              class="tab-item" 
+              :class="{ active: activeLayer === layer }"
+              @click="activeLayer = layer"
+            >
+              {{ layer.charAt(0).toUpperCase() + layer.slice(1) }}
+            </div>
+          </div>
+          
+          <!-- Type Filters -->
+          <div class="tabs-header type-filters">
+            <div
+              class="tab-item small"
+              :class="{ active: activeType === 'all' }"
+              @click="activeType = 'all'"
+            >
+              All
+            </div>
+            <div 
+              v-for="type in layerTypes" 
+              :key="type"
+              class="tab-item small" 
+              :class="{ active: activeType === type }"
+              @click="activeType = type"
+            >
+              {{ type }} ({{ stats[activeLayer]?.[type] || 0 }})
+            </div>
+          </div>
+          
           <div class="panel-header">
             <h3 class="panel-title">
               Keys
@@ -64,28 +94,16 @@
                 <input
                   v-model="searchQuery"
                   class="atom-input small"
-                  placeholder="Search keys..."
+                  placeholder="Filter by key..."
+                  @input="handleSearch"
                 >
               </div>
-            </div>
-          </div>
-          
-          <!-- Category Tabs -->
-          <div class="tabs-header">
-            <div 
-              v-for="cat in ['all', 'service', 'tool', 'config', 'status']" 
-              :key="cat"
-              class="tab-item" 
-              :class="{ active: activeCategory === cat }"
-              @click="activeCategory = cat"
-            >
-              {{ cat.charAt(0).toUpperCase() + cat.slice(1) }}
             </div>
           </div>
 
           <div class="panel-body keys-list">
             <div 
-              v-for="key in filteredKeys" 
+              v-for="key in keysList" 
               :key="key.key" 
               class="key-item" 
               :class="{ active: selectedKey?.key === key.key }"
@@ -101,20 +119,26 @@
                 >{{ key.key }}</span>
                 <div class="key-meta">
                   <span :class="['tag', key.category]">{{ key.category }}</span>
-                  <span class="type">{{ key.type }}</span>
+                  <span class="type">{{ key.originalType }}</span>
                 </div>
               </div>
             </div>
              
             <div
-              v-if="filteredKeys.length === 0"
+              v-if="keysList.length === 0 && !loading.list"
               class="empty-state small"
             >
               No keys found.
             </div>
+             <div
+              v-if="loading.list"
+              class="empty-state small"
+            >
+              Loading...
+            </div>
           </div>
           <div class="panel-footer">
-            <span>{{ filteredKeys.length }} keys</span>
+            <span>Showing {{ keysList.length }} keys</span>
           </div>
         </section>
       </div>
@@ -130,7 +154,7 @@
               <div class="key-title">
                 <h3>{{ selectedKey.key }}</h3>
                 <div class="meta-badges">
-                  <span class="badge">{{ selectedKey.type.toUpperCase() }}</span>
+                  <span class="badge">{{ (selectedKey.type || 'unknown').toUpperCase() }}</span>
                   <span class="badge size">{{ formatSize(selectedKey.size) }}</span>
                   <span
                     class="badge ttl"
@@ -157,7 +181,6 @@
             </div>
               
             <div class="inspector-body">
-              <!-- String/JSON -->
               <div
                 v-if="['string', 'json', 'object'].includes(selectedKey.type)"
                 class="code-view"
@@ -167,68 +190,6 @@
                   class="code-editor"
                   :value="displayValue"
                 />
-              </div>
-                 
-              <!-- Hash -->
-              <div
-                v-else-if="selectedKey.type === 'hash'"
-                class="table-view"
-              >
-                <table class="atom-table">
-                  <thead>
-                    <tr><th>FIELD</th><th>VALUE</th></tr>
-                  </thead>
-                  <tbody>
-                    <tr
-                      v-for="(row, idx) in hashTableData"
-                      :key="idx"
-                    >
-                      <td class="mono">
-                        {{ row.field }}
-                      </td>
-                      <td class="mono val">
-                        {{ row.value }}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-                 
-              <!-- List -->
-              <div
-                v-else-if="selectedKey.type === 'list'"
-                class="table-view"
-              >
-                <table class="atom-table">
-                  <thead><tr><th>INDEX</th><th>VALUE</th></tr></thead>
-                  <tbody>
-                    <tr
-                      v-for="(row, idx) in listTableData"
-                      :key="idx"
-                    >
-                      <td class="mono idx">
-                        {{ idx }}
-                      </td>
-                      <td class="mono val">
-                        {{ row.value }}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-                 
-              <!-- Set -->
-              <div
-                v-else-if="selectedKey.type === 'set'"
-                class="set-view"
-              >
-                <span
-                  v-for="(item, idx) in selectedKey.value"
-                  :key="idx"
-                  class="set-item"
-                >
-                  {{ item }}
-                </span>
               </div>
             </div>
               
@@ -256,147 +217,156 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import StatCard from '@/components/common/StatCard.vue'
 import { cacheApi } from '@/api/cache'
+import { debounce } from 'lodash-es'
 import {
-  Refresh, Coin, Connection, Tools, Search, Key
+  Refresh, Coin, Connection, Bell, Search, Key
 } from '@element-plus/icons-vue'
 
 // State
-const loading = ref(false)
+const loading = ref({ list: false, stats: false })
 const searchQuery = ref('')
-const activeCategory = ref('all')
+const activeLayer = ref('entities')
+const activeType = ref('all')
+const keysList = ref([])
 const selectedKey = ref(null)
-const rawData = ref({
-  entities: [],
-  relations: [],
-  states: [],
-  counts: {}
+const stats = ref({}) // To store counts from inspect API
+
+// Computed: KPI Totals
+const totalEntities = computed(() => Object.values(stats.value.entities || {}).reduce((a, b) => a + b, 0))
+const totalRelations = computed(() => Object.values(stats.value.relations || {}).reduce((a, b) => a + b, 0))
+const totalStates = computed(() => Object.values(stats.value.states || {}).reduce((a, b) => a + b, 0))
+
+// Computed: Dynamic Types for selected layer
+const layerTypes = computed(() => {
+  if (stats.value && stats.value[activeLayer.value]) {
+    return Object.keys(stats.value[activeLayer.value])
+  }
+  return []
 })
 
-// Computed - Transform API data to UI format
-const cacheKeys = computed(() => {
-  const keys = []
-  
-  // Helper to process items
-  const processItems = (items, categoryMap, defaultCategory) => {
-    if (!items) return
-    items.forEach(item => {
-      // Create a copy for value display, removing internal keys
-      const { _key, _type, _collection, ...rest } = item
-      
-      let category = defaultCategory
-      if (categoryMap && _type) {
-        // Simple mapping based on type string
-        if (_type.includes('service')) category = 'service'
-        else if (_type.includes('tool')) category = 'tool'
-        else if (_type.includes('config') || _type === 'store') category = 'config'
-        else if (_type.includes('status')) category = 'status'
-      }
-
-      keys.push({
-        key: _key || `unknown:${Math.random()}`,
-        category: category,
-        originalType: _type, // keep original type for display
-        type: typeof rest === 'object' ? 'json' : 'string', // infer display type
-        value: rest,
-        // Metadata (simulated or if available in future API)
-        size: JSON.stringify(rest).length, 
-        ttl: -1, 
-        created_at: null,
-        updated_at: null
-      })
-    })
-  }
-
-  processItems(rawData.value.entities, null, 'config') // Default fallback, specific logic inside
-  processItems(rawData.value.relations, null, 'service') // Relations often relate to structure
-  processItems(rawData.value.states, null, 'status')
-
-  return keys
-})
-
-const filteredKeys = computed(() => {
-  let keys = cacheKeys.value
-  
-  // Filter by Category
-  if (activeCategory.value !== 'all') {
-    keys = keys.filter(k => k.category === activeCategory.value)
-  }
-  
-  // Filter by Search
-  if (searchQuery.value) {
-    const q = searchQuery.value.toLowerCase()
-    keys = keys.filter(k => k.key.toLowerCase().includes(q))
-  }
-  return keys
-})
-
-// KPI Computeds
-const totalKeys = computed(() => cacheKeys.value.length)
-const serviceKeys = computed(() => 
-  (rawData.value.counts?.entities?.services || 0) + 
-  (rawData.value.counts?.states?.service_status || 0)
-)
-const toolKeys = computed(() => rawData.value.counts?.entities?.tools || 0)
-
-// Value Display Computeds
+// Computed: Value Display
 const displayValue = computed(() => {
   if (!selectedKey.value) return ''
-  return typeof selectedKey.value.value === 'string' 
-    ? selectedKey.value.value 
-    : JSON.stringify(selectedKey.value.value, null, 2)
+  const { value } = selectedKey.value
+  return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
 })
 
-const hashTableData = computed(() => {
-  // Fallback for object display if we force 'hash' view or just general object viewing
-  if (!selectedKey.value?.value || typeof selectedKey.value.value !== 'object') return []
-  return Object.entries(selectedKey.value.value).map(([field, value]) => ({
-    field,
-    value: typeof value === 'object' ? JSON.stringify(value) : String(value)
-  }))
-})
+// --- Methods ---
 
-const listTableData = computed(() => {
-  if (!Array.isArray(selectedKey.value?.value)) return []
-  return selectedKey.value.value.map(value => ({ 
-    value: typeof value === 'object' ? JSON.stringify(value) : String(value)
-  }))
-})
-
-// Methods
-const refreshCache = async () => {
-  loading.value = true
+// Initialization
+const initialize = async () => {
+  loading.value.stats = true
   try {
     const res = await cacheApi.inspect()
-    if (res.success) {
-      rawData.value = {
-        entities: res.data.entities || [],
-        relations: res.data.relations || [],
-        states: res.data.states || [],
-        counts: res.data.counts || {}
+    const payload = res?.data
+    console.log('Cache Inspector Initialized:', payload) // Debug log
+    // TODO: 后续统一在 cacheApi 中解包响应，避免在视图层手动访问 Axios 响应
+    if (payload?.success && payload.data?.counts) {
+      stats.value = payload.data.counts
+      ElMessage.success('Stats refreshed')
+      // Trigger initial data fetch
+      if (!layerTypes.value.includes(activeType.value)) {
+        activeType.value = 'all'
+      } else {
+        fetchData() // Re-fetch if type still valid
       }
-      
-      // Auto-select first key if none selected or selection lost
-      if (!selectedKey.value && cacheKeys.value.length > 0) {
-        selectedKey.value = cacheKeys.value[0]
-      }
-      ElMessage.success('Cache refreshed')
+    } else {
+      console.warn('Inspect API returned invalid data:', payload)
+      stats.value = {}
     }
   } catch (e) {
-    ElMessage.error(e.message || 'Failed to load cache')
-    console.error(e)
+    ElMessage.error(e.message || 'Failed to load stats')
+    console.error('Inspect API Error:', e)
+    stats.value = {}
   } finally {
-    loading.value = false
+    loading.value.stats = false
   }
 }
 
-const selectKey = (key) => selectedKey.value = key
+// Data Fetching
+const fetchData = async () => {
+  loading.value.list = true
+  selectedKey.value = null
+  keysList.value = []
+  
+  try {
+    let res
+    const params = {}
+    if (searchQuery.value) params.key = searchQuery.value
+    if (activeType.value !== 'all') params.type = activeType.value
 
+    const apiMap = {
+      entities: cacheApi.getEntities,
+      relations: cacheApi.getRelations,
+      states: cacheApi.getStates
+    }
+
+    const apiMethod = apiMap[activeLayer.value]
+    if (apiMethod) {
+      res = await apiMethod(params)
+    }
+
+    const payload = res?.data
+    // TODO: 后续统一在 cacheApi 中解包响应，减少以下重复逻辑
+    if (payload?.success) {
+      const items = payload.data?.items || []
+      keysList.value = items.map(item => {
+        const { _key, _type, ...value } = item
+        return {
+          key: _key || `unknown:${Math.random()}`,
+          originalType: _type,
+          category: _type?.split('_')[0] || 'unknown',
+          type: typeof value === 'object' ? 'json' : 'string',
+          value,
+          size: JSON.stringify(value).length,
+          ttl: item.ttl || -1,
+          created_at: item.created_at,
+          updated_at: item.updated_at
+        }
+      })
+    }
+  } catch (e) {
+    ElMessage.error(e.message || 'Failed to load data')
+    console.error(e)
+  } finally {
+    loading.value.list = false
+  }
+}
+
+// Event Handlers
+const handleSearch = debounce(() => {
+  fetchData()
+}, 300)
+
+const selectKey = (key) => {
+  selectedKey.value = key
+}
+
+// Watchers
+watch(activeLayer, (newLayer, oldLayer) => {
+  if (newLayer !== oldLayer) {
+    activeType.value = 'all' // Reset to 'all' when layer changes
+    fetchData() // Explicitly fetch data for the new layer
+  }
+})
+
+watch(activeType, () => {
+  searchQuery.value = '' // Reset search on type change
+  fetchData()
+})
+
+// Lifecycle
+onMounted(() => {
+  initialize()
+})
+
+// --- Utility Functions ---
 const formatTTL = (seconds) => {
-  if (!seconds || seconds < 0) return '∞'
+  if (seconds === null || seconds === undefined || seconds < 0) return '∞'
   if (seconds < 60) return `${seconds}s`
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
   return `${Math.floor(seconds / 3600)}h`
@@ -415,6 +385,7 @@ const formatTime = (ts) => {
 }
 
 const copyValue = async () => {
+  if (!selectedKey.value) return
   try {
     await navigator.clipboard.writeText(displayValue.value)
     ElMessage.success('Copied')
@@ -433,10 +404,6 @@ const exportValue = () => {
   a.click()
   URL.revokeObjectURL(url)
 }
-
-onMounted(() => {
-  refreshCache()
-})
 </script>
 
 <style lang="scss" scoped>
@@ -492,7 +459,7 @@ onMounted(() => {
   display: grid;
   grid-template-columns: 320px 1fr;
   gap: 24px;
-  height: calc(100vh - 250px);
+  height: calc(100vh - 320px); // Adjusted height
   min-height: 500px;
   
   @media (max-width: 900px) {
@@ -510,7 +477,7 @@ onMounted(() => {
 .panel-section {
   display: flex;
   flex-direction: column;
-  gap: 0; // Tighter layout
+  gap: 0;
   &.full-height { height: 100%; }
 }
 
@@ -519,6 +486,8 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
+  border-top: 1px solid var(--border-color);
+  padding-top: 12px;
   
   .panel-title {
     font-size: 13px;
@@ -575,13 +544,34 @@ onMounted(() => {
   margin-bottom: 8px;
   flex-wrap: wrap;
   
+  &.layer-tabs {
+    margin-bottom: 16px;
+    .tab-item {
+      font-size: 14px;
+      padding: 6px 12px;
+      font-weight: 600;
+    }
+  }
+
+  &.type-filters {
+    margin-bottom: 12px;
+    .tab-item {
+      font-size: 11px;
+      padding: 4px 8px;
+      font-weight: 500;
+      &.small { // ensure consistent naming if needed
+        font-size: 11px;
+        padding: 4px 8px;
+        font-weight: 500;
+      }
+    }
+  }
+  
   .tab-item {
-    font-size: 11px;
-    padding: 4px 8px;
-    border-radius: 4px;
+    border-radius: 6px;
     color: var(--text-secondary);
     cursor: pointer;
-    font-weight: 500;
+    transition: all 0.2s;
     
     &:hover { background: var(--bg-hover); color: var(--text-primary); }
     &.active { background: var(--text-primary); color: var(--bg-surface); }
@@ -634,9 +624,10 @@ onMounted(() => {
         text-transform: uppercase; 
         font-weight: 700;
         
-        &.service { color: var(--color-accent); }
+        &.service, &.entities { color: var(--color-accent); }
         &.tool { color: var(--color-success); }
-        &.config { color: var(--color-warning); }
+        &.config, &.states { color: var(--color-warning); }
+        &.relations { color: #9333ea; } // A new color for relations
       }
       
       .type { font-size: 10px; color: var(--text-placeholder); }
@@ -705,51 +696,6 @@ onMounted(() => {
     color: var(--text-primary);
     box-sizing: border-box;
     &:focus { outline: none; }
-  }
-  
-  .table-view {
-    flex: 1;
-    overflow: auto;
-    
-    .atom-table {
-      width: 100%;
-      border-collapse: collapse;
-      
-      th { 
-        text-align: left; 
-        font-size: 11px; 
-        color: var(--text-secondary); 
-        padding: 8px 16px; 
-        border-bottom: 1px solid var(--border-color); 
-        background: var(--bg-hover);
-      }
-      
-      td {
-        padding: 8px 16px;
-        border-bottom: 1px solid var(--border-color);
-        font-size: 13px;
-        color: var(--text-primary);
-        &.mono { font-family: var(--font-mono); }
-        &.idx { color: var(--text-placeholder); width: 60px; }
-      }
-    }
-  }
-  
-  .set-view {
-    padding: 16px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    overflow: auto;
-    
-    .set-item {
-      padding: 6px 10px;
-      background: var(--bg-hover);
-      border-radius: 4px;
-      font-size: 13px;
-      font-family: var(--font-mono);
-      color: var(--text-primary);
-    }
   }
 }
 

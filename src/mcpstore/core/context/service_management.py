@@ -282,7 +282,7 @@ class ServiceManagementMixin:
                     if metadata:
                         # 将变更合并到缓存元数据中
                         metadata.service_config = _deep_merge(metadata.service_config or {}, config)
-                        self._store.registry.set_service_metadata(global_agent, global_name, metadata)
+                        await self._store.registry.set_service_metadata_async(global_agent, global_name, metadata)
                 except Exception as e:
                     logger.error(f"Failed to update service metadata: {e}")
                     raise
@@ -1155,7 +1155,7 @@ class ServiceManagementMixin:
             logger.info("Single-source mode: skip shard mapping files sync")
 
             # 6. 触发生命周期管理器重新初始化服务
-            self._store.orchestrator.lifecycle_manager.initialize_service(
+            await self._store.orchestrator.lifecycle_manager.initialize_service(
                 global_agent_store_id, service_name, normalized_config
             )
 
@@ -1235,7 +1235,7 @@ class ServiceManagementMixin:
             logger.info("Single-source mode: skip shard mapping files sync")
 
             # 5. 触发生命周期管理器重新初始化服务
-            self._store.orchestrator.lifecycle_manager.initialize_service(
+            await self._store.orchestrator.lifecycle_manager.initialize_service(
                 self._agent_id, service_name, normalized_config
             )
 
@@ -1394,13 +1394,14 @@ class ServiceManagementMixin:
             raise
 
     async def _delete_agent_service_with_sync(self, local_name: str):
-        """Agent 服务删除（带双向同步）"""
+        """Agent 服务删除（带双向同步），返回是否成功"""
         try:
+            success = True
             # 1. 获取全局名称（使用异步版本，避免 AOB 事件循环冲突）
             global_name = await self._store.registry.get_global_name_from_agent_service_async(self._agent_id, local_name)
             if not global_name:
                 logger.warning(f" [SERVICE_DELETE] Mapping not found: {self._agent_id}:{local_name}")
-                return
+                return False
 
             # 2. 从 Agent 缓存中删除（使用异步版本）
             await self._store.registry.remove_service_async(self._agent_id, local_name)
@@ -1411,11 +1412,11 @@ class ServiceManagementMixin:
                 global_name
             )
 
-            # 4. 移除映射关系
-            self._store.registry.remove_agent_service_mapping(self._agent_id, local_name)
+            # 4. 移除映射关系（仅映射表，不触发关系/状态删除）
+            await self._store.registry.remove_agent_service_mapping_async(self._agent_id, local_name)
 
             # 5. 从 mcp.json 中删除（使用 UnifiedConfigManager 自动刷新缓存）
-            success = self._store._unified_config.remove_service_config(global_name)
+            success = success and self._store._unified_config.remove_service_config(global_name)
             
             if success:
                 logger.info(f"[SERVICE_DELETE] [AGENT] Agent service deletion successful: {local_name} -> {global_name}, cache synchronized")
@@ -1426,6 +1427,7 @@ class ServiceManagementMixin:
             try:
                 state_manager = self._store.registry._cache_state_manager
                 await state_manager.delete_service_status(global_name)
+                await state_manager.delete_service_metadata(global_name)
                 logger.info(
                     f"[SERVICE_DELETE] Service status cleanup successful: "
                     f"agent_id={self._agent_id}, service={local_name}, global_name={global_name}"
@@ -1439,6 +1441,7 @@ class ServiceManagementMixin:
 
             # 7. 单源模式：不再同步到分片文件
             logger.info("Single-source mode: skip shard mapping files sync")
+            return success
 
         except Exception as e:
             logger.error(f" [SERVICE_DELETE] Agent service deletion failed {self._agent_id}:{local_name}: {e}")

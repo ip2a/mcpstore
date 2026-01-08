@@ -141,6 +141,14 @@ class ServiceQueryMixin:
                     except ValueError:
                         state = ServiceConnectionState.DISCONNECTED
 
+                # 读取时按需触发异步健康检查（非阻塞）
+                try:
+                    health_monitor = getattr(self, "container", None).health_monitor if getattr(self, "container", None) else None
+                    if health_monitor:
+                        await health_monitor.maybe_schedule_health_check(agent_id, service_global_name, current_state=state)
+                except Exception as e:
+                    logger.debug(f"[QUERY] schedule health check failed: {e}")
+
                 service_info = ServiceInfo(
                     url=complete_info.get("config", {}).get("url", ""),
                     name=service_name,
@@ -195,6 +203,14 @@ class ServiceQueryMixin:
                             state = ServiceConnectionState(state)
                         except ValueError:
                             state = ServiceConnectionState.DISCONNECTED
+
+                    # 读取时按需触发异步健康检查（非阻塞）
+                    try:
+                        health_monitor = getattr(self, "container", None).health_monitor if getattr(self, "container", None) else None
+                        if health_monitor:
+                            await health_monitor.maybe_schedule_health_check(agent_id, global_name, current_state=state)
+                    except Exception as e:
+                        logger.debug(f"[STORE.LIST_SERVICES] schedule health check failed: {e}")
 
                     # 构建以本地名展示的 ServiceInfo（数据来源于全局）
                     cfg = complete_info.get("config", {})

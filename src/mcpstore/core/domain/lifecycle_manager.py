@@ -67,6 +67,8 @@ class LifecycleManager:
         self._event_bus.subscribe(ReconnectionRequested, self._on_reconnection_requested, priority=30)
 
         logger.info("LifecycleManager initialized and subscribed to events")
+        # 健康成功但无工具时的重连尝试上限，避免无工具服务产生无限循环
+        self._max_tool_resync_attempts = 2
 
     async def _set_service_metadata_async(self, agent_id: str, service_name: str, metadata) -> None:
         """
@@ -338,6 +340,23 @@ class LifecycleManager:
             metadata.error_message = None
             metadata.last_health_check = datetime.now()
             metadata.last_response_time = event.connection_time
+            # 记录工具同步信息，连接成功后工具被写入时重置重试计数
+            tools_count = None
+            try:
+                global_name = self._registry._naming.generate_service_global_name(
+                    event.service_name,
+                    event.agent_id
+                )
+                tools = await self._registry._relation_manager.get_service_tools(global_name)
+                tools_count = len(tools)
+            except Exception as tool_err:
+                logger.debug(f"[LIFECYCLE] Skip tool sync metadata update for {event.service_name}: {tool_err}")
+
+            # 无论工具获取是否成功，连接成功后重置工具重试计数并清空空工具标记
+            metadata.tool_sync_attempts = 0
+            metadata.tools_confirmed_empty = False
+            if tools_count and tools_count > 0:
+                metadata.last_tool_sync = datetime.now()
 
             # 保存更新后的元数据（异步API）
             await self._set_service_metadata_async(event.agent_id, event.service_name, metadata)
@@ -398,8 +417,33 @@ class LifecycleManager:
             else:
                 logger.warning(f"[LIFECYCLE] No metadata found for {event.service_name}, skipping failure update")
 
-            # 3. 明确记录：不立即转换状态，让 HealthMonitor 处理
+            # 3. 明确记录：不立即转换状态，让 HealthMonitor 处理；仅在初始连接失败或达到阈值时进入 RECONNECTING
             logger.info(f"[LIFECYCLE] Connection failure handled, deferring state transition to health monitor")
+
+            try:
+                current_state = await self._registry.get_service_state_async(event.agent_id, event.service_name)
+            except Exception:
+                current_state = None
+
+            # 仅在初次连接或明确达到重连阈值时切换，避免单次抖动直接进入重连
+            should_enter_reconnecting = False
+            if current_state in (ServiceConnectionState.INITIALIZING, None):
+                should_enter_reconnecting = True
+            elif metadata and metadata.consecutive_failures >= self._config.reconnecting_failure_threshold:
+                should_enter_reconnecting = current_state not in (
+                    ServiceConnectionState.RECONNECTING,
+                    ServiceConnectionState.UNREACHABLE,
+                    ServiceConnectionState.DISCONNECTED,
+                )
+
+            if should_enter_reconnecting:
+                await self._transition_state(
+                    agent_id=event.agent_id,
+                    service_name=event.service_name,
+                    new_state=ServiceConnectionState.RECONNECTING,
+                    reason="connection_failed",
+                    source="LifecycleManager"
+                )
 
             # 4. 发布连接失败事件（可能触发其他组件的处理）
             try:
@@ -458,6 +502,8 @@ class LifecycleManager:
 
             # Success: return from INITIALIZING/WARNING to HEALTHY; HEALTHY stays
             if event.success:
+                # 健康成功但工具为空时触发受控的重连以拉取工具，避免“健康但无工具”
+                await self._maybe_trigger_tool_resync(event.agent_id, event.service_name)
                 if current_state in (ServiceConnectionState.INITIALIZING, ServiceConnectionState.WARNING):
                     await self._transition_state(
                         agent_id=event.agent_id,
@@ -543,45 +589,103 @@ class LifecycleManager:
                 await self._set_service_metadata_async(event.agent_id, event.service_name, metadata)
         except Exception as e:
             logger.error(f"[LIFECYCLE] Failed to update reconnection metadata: {e}")
-    
-    def initialize_service(self, agent_id: str, service_name: str, service_config: dict) -> bool:
+
+    async def _maybe_trigger_tool_resync(self, agent_id: str, service_name: str) -> None:
         """
-        Initialize service - trigger complete event flow
-        
-        This is the main entry point for adding services, ensuring all necessary events are triggered.
-        
-        Args:
-            agent_id: Agent ID
-            service_name: Service name
-            service_config: Service configuration
-            
-        Returns:
-            bool: Whether initialization succeeded
+        健康检查成功后如果工具列表为空，受控触发一次重连以补齐工具。
+        - 使用工具关系是否存在来判断
+        - 增加尝试上限，避免无工具服务产生无限循环
+        """
+        try:
+            global_name = self._registry._naming.generate_service_global_name(service_name, agent_id)
+            # 正在初始化/重连时不再触发额外重连，避免并发重复连接
+            current_state = await self._registry.get_service_state_async(agent_id, service_name)
+            if current_state in (
+                ServiceConnectionState.INITIALIZING,
+                ServiceConnectionState.RECONNECTING,
+            ):
+                logger.debug(f"[LIFECYCLE] Skip tool resync while state={getattr(current_state, 'value', current_state)} for {service_name}")
+                return
+
+            tools = await self._registry._relation_manager.get_service_tools(global_name)
+            tools_count = len(tools)
+
+            metadata = await self._registry.get_service_metadata_async(agent_id, service_name)
+            if metadata is None:
+                logger.warning(f"[LIFECYCLE] Missing metadata for {service_name}, skip tool resync to avoid loop")
+                return
+
+            # 有工具：重置计数并退出
+            if tools_count > 0:
+                metadata.tool_sync_attempts = 0
+                metadata.tools_confirmed_empty = False
+                metadata.last_tool_sync = datetime.now()
+                await self._set_service_metadata_async(agent_id, service_name, metadata)
+                return
+
+            # 工具为空：判断是否需要重连
+            attempts = metadata.tool_sync_attempts
+            if metadata.tools_confirmed_empty:
+                logger.debug(f"[LIFECYCLE] Tools already confirmed empty for {service_name}, skip resync")
+                return
+
+            if attempts >= self._max_tool_resync_attempts:
+                metadata.tools_confirmed_empty = True
+                await self._set_service_metadata_async(agent_id, service_name, metadata)
+                logger.info(
+                    f"[LIFECYCLE] Skip tool resync for {service_name}, attempts={attempts} reach limit"
+                )
+                return
+
+            # 触发重连拉取工具
+            metadata.tool_sync_attempts = attempts + 1
+            await self._set_service_metadata_async(agent_id, service_name, metadata)
+
+            from mcpstore.core.events.service_events import ReconnectionRequested
+            recon_event = ReconnectionRequested(
+                agent_id=agent_id,
+                service_name=service_name,
+                retry_count=0,
+                reason="health_success_missing_tools"
+            )
+            await self._event_bus.publish(recon_event, wait=False)
+            logger.info(
+                f"[LIFECYCLE] Trigger tool resync via reconnection: {service_name}, attempts={attempts + 1}"
+            )
+        except Exception as e:
+            logger.error(f"[LIFECYCLE] Tool resync decision failed for {service_name}: {e}", exc_info=True)
+    
+    async def initialize_service(self, agent_id: str, service_name: str, service_config: dict) -> bool:
+        """
+        初始化服务（异步版）
+
+        - 在事件循环内直接 await，不再通过同步包装器绕行
+        - 生成/复用 client_id 后发布 ServiceAddRequested 事件
         """
         try:
             logger.info(f"[LIFECYCLE] initialize_service called: agent={agent_id}, service={service_name}")
             logger.debug(f"[LIFECYCLE] Service config: {service_config}")
-            
-            # Generate client_id
+
             from mcpstore.core.utils.id_generator import ClientIDGenerator
             client_id = ClientIDGenerator.generate_deterministic_id(
                 agent_id=agent_id,
                 service_name=service_name,
                 service_config=service_config,
-                global_agent_store_id=agent_id  # Use agent_id as global ID
+                global_agent_store_id=agent_id
             )
             logger.debug(f"[LIFECYCLE] Generated client_id: {client_id}")
-            
-            # Check if mapping already exists
-            existing_client_id = self._registry._agent_client_service.get_service_client_id(agent_id, service_name)
-            if existing_client_id:
-                logger.debug(f"[LIFECYCLE] Found existing client_id mapping: {existing_client_id}")
-                client_id = existing_client_id
-            
-            # Publish ServiceAddRequested event to trigger complete flow
+
+            # 复用已存在映射（避免重复写入）
+            try:
+                existing_client_id = await self._registry._agent_client_service.get_service_client_id_async(agent_id, service_name)
+                if existing_client_id:
+                    logger.debug(f"[LIFECYCLE] Found existing client_id mapping: {existing_client_id}")
+                    client_id = existing_client_id
+            except Exception as map_err:
+                logger.warning(f"[LIFECYCLE] Failed to fetch existing client_id mapping: {map_err}")
+
             from mcpstore.core.events.service_events import ServiceAddRequested
-            import asyncio
-            
+
             event = ServiceAddRequested(
                 agent_id=agent_id,
                 service_name=service_name,
@@ -590,37 +694,29 @@ class LifecycleManager:
                 source="lifecycle_manager",
                 wait_timeout=0
             )
-            
+
             logger.info(f"[LIFECYCLE] Publishing ServiceAddRequested event for {service_name}")
-            
-            # Publish event synchronously (in current event loop)
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # If event loop is running, create task
-                    task = asyncio.create_task(self._event_bus.publish(event, wait=True))
-                    # Don't wait for task completion, let it run in background
-                    logger.debug(f"[LIFECYCLE] Event published as background task")
-                else:
-                    # If event loop is not running, run synchronously
-                    loop.run_until_complete(self._event_bus.publish(event, wait=True))
-                    logger.debug(f"[LIFECYCLE] Event published synchronously")
-            except RuntimeError as e:
-                # Handle case where no event loop is available
-                logger.warning(f"[LIFECYCLE] No event loop available, creating new one: {e}")
-                new_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(new_loop)
-                try:
-                    new_loop.run_until_complete(self._event_bus.publish(event, wait=True))
-                    logger.debug(f"[LIFECYCLE] Event published in new event loop")
-                finally:
-                    new_loop.close()
-            
+            await self._event_bus.publish(event, wait=True)
             logger.info(f"[LIFECYCLE] Service {service_name} initialization triggered successfully")
             return True
-            
+
         except Exception as e:
             logger.error(f"[LIFECYCLE] Failed to initialize service {service_name}: {e}", exc_info=True)
+            return False
+
+    def initialize_service_sync(self, agent_id: str, service_name: str, service_config: dict) -> bool:
+        """
+        同步包装器：在无事件循环的场景使用，内部通过 bridge 执行异步逻辑。
+        """
+        try:
+            from mcpstore.core.bridge import get_async_bridge
+            bridge = get_async_bridge()
+            return bridge.run(
+                self.initialize_service(agent_id, service_name, service_config),
+                op_name="LifecycleManager.initialize_service"
+            )
+        except Exception as e:
+            logger.error(f"[LIFECYCLE] Failed to initialize service (sync wrapper) {service_name}: {e}", exc_info=True)
             return False
     
     async def graceful_disconnect(self, agent_id: str, service_name: str, reason: str = "user_requested"):

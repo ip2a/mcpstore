@@ -33,7 +33,7 @@ class ServiceCacheManager:
         """
         try:
             # 1. Initialize to lifecycle manager
-            self.lifecycle_manager.initialize_service(agent_id, service_name, service_config)
+            await self.lifecycle_manager.initialize_service(agent_id, service_name, service_config)
             
             # 2. Immediately add to cache (initializing state)
             self.registry.add_service(

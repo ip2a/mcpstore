@@ -135,7 +135,7 @@ class ResourcesPromptsMixin:
             if service_name:
                 # 获取特定服务的资源
                 # 从Registry获取当前活跃会话
-                service_config = self.registry.get_service_config_from_cache(client_id, service_name)
+                service_config = await self.registry.get_service_config_from_cache_async(client_id, service_name)
                 if not service_config:
                     return {
                         "success": False,
@@ -161,7 +161,7 @@ class ResourcesPromptsMixin:
 
                 for sname in services:
                     try:
-                        s_config = self.registry.get_service_config_from_cache(client_id, sname)
+                        s_config = await self.registry.get_service_config_from_cache_async(client_id, sname)
                         if not s_config:
                             all_resources[sname] = []
                             continue
@@ -228,7 +228,7 @@ class ResourcesPromptsMixin:
 
             if service_name:
                 # 获取特定服务的资源模板（使用临时client）
-                service_config = self.registry.get_service_config_from_cache(client_id, service_name)
+                service_config = await self.registry.get_service_config_from_cache_async(client_id, service_name)
                 if not service_config:
                     return {
                         "success": False,
@@ -254,7 +254,7 @@ class ResourcesPromptsMixin:
 
                 for sname in services:
                     try:
-                        s_config = self.registry.get_service_config_from_cache(client_id, sname)
+                        s_config = await self.registry.get_service_config_from_cache_async(client_id, sname)
                         if not s_config:
                             all_templates[sname] = []
                             continue
@@ -335,7 +335,7 @@ class ResourcesPromptsMixin:
 
             if service_name:
                 # 从特定服务读取资源（使用临时client）
-                service_config = self.registry.get_service_config_from_cache(client_id, service_name)
+                service_config = await self.registry.get_service_config_from_cache_async(client_id, service_name)
                 if not service_config:
                     return {
                         "success": False,
@@ -366,7 +366,7 @@ class ResourcesPromptsMixin:
 
                 for sname in services:
                     try:
-                        s_config = self.registry.get_service_config_from_cache(client_id, sname)
+                        s_config = await self.registry.get_service_config_from_cache_async(client_id, sname)
                         if not s_config:
                             continue
                         async with temp_client_for_service(sname, s_config) as client:
@@ -441,7 +441,7 @@ class ResourcesPromptsMixin:
 
             if service_name:
                 # 获取特定服务的提示词
-                service_config = self.registry.get_service_config_from_cache(client_id, service_name)
+                service_config = await self.registry.get_service_config_from_cache_async(client_id, service_name)
                 if not service_config:
                     return {
                         "success": False,
@@ -467,7 +467,7 @@ class ResourcesPromptsMixin:
 
                 for sname in services:
                     try:
-                        s_config = self.registry.get_service_config_from_cache(client_id, sname)
+                        s_config = await self.registry.get_service_config_from_cache_async(client_id, sname)
                         if not s_config:
                             all_prompts[sname] = []
                             continue
@@ -545,7 +545,7 @@ class ResourcesPromptsMixin:
 
             if service_name:
                 # 从特定服务获取提示词（使用临时client）
-                service_config = self.registry.get_service_config_from_cache(client_id, service_name)
+                service_config = await self.registry.get_service_config_from_cache_async(client_id, service_name)
                 if not service_config:
                     return {
                         "success": False,
@@ -577,7 +577,7 @@ class ResourcesPromptsMixin:
 
                 for sname in services:
                     try:
-                        s_config = self.registry.get_service_config_from_cache(client_id, sname)
+                        s_config = await self.registry.get_service_config_from_cache_async(client_id, sname)
                         if not s_config:
                             continue
                         async with temp_client_for_service(sname, s_config) as client:

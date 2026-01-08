@@ -88,6 +88,10 @@ class CacheManager:
                 origin_agent, 
                 operation="cache_on_service_add_requested"
             ):
+                # 确保 Agent 实体存在（来源 Agent + 全局 Agent）
+                await self._registry._ensure_agent_entity(origin_agent)
+                await self._registry._ensure_agent_entity(global_agent_id)
+
                 # 1. 添加服务到缓存（全局视角，INITIALIZING 状态）
                 await self._registry.add_service_async(
                     agent_id=global_agent_id,

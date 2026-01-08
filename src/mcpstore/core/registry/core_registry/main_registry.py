@@ -207,6 +207,10 @@ class ServiceRegistry:
             "core_registry.CacheManager",
             "CacheManager is disabled; use CacheLayerManager.",
         )
+        # 缓存同步状态记录（初始化时间/同步来源等），供初始化/同步流程写入
+        self.cache_sync_status: Dict[str, Any] = {}
+        # 缓存是否已完成初始化的标记（单一数据源模式使用）
+        self.cache_initialized: bool = False
         self._persistence_manager = LegacyManagerProxy(
             "core_registry.PersistenceManager",
             "PersistenceManager is disabled; use core/cache shells.",
@@ -956,6 +960,44 @@ class ServiceRegistry:
             return None
         return entity.get("config")
 
+    def get_service_config_from_cache(self, agent_id: str, service_name: str) -> Optional[Dict[str, Any]]:
+        """
+        从缓存获取指定 Agent 下的服务配置（同步入口）
+
+        语义：以命名服务解析全局名，再从实体层读取配置，避免绕过注册中心。
+        """
+        return self._run_async(
+            self.get_service_config_from_cache_async(agent_id, service_name),
+            op_name="ServiceRegistry.get_service_config_from_cache",
+        )
+
+    async def get_service_config_from_cache_async(self, agent_id: str, service_name: str) -> Optional[Dict[str, Any]]:
+        """
+        从缓存获取指定 Agent 下的服务配置（异步入口）
+
+        - 使用命名服务生成全局名，确保视角一致
+        - 通过 CacheLayerManager 读取实体层配置，保持单一数据源
+        """
+        if not agent_id:
+            raise ValueError("agent_id 不能为空")
+        if not service_name:
+            raise ValueError("service_name 不能为空")
+
+        info = await self.get_complete_service_info_async(agent_id, service_name)
+        if not info:
+            return None
+
+        config = info.get("config")
+        if config is None:
+            return None
+        if not isinstance(config, dict):
+            raise RuntimeError(
+                f"服务配置格式无效，期望 dict，实际类型 {type(config).__name__} "
+                f"(agent_id={agent_id}, service_name={service_name})"
+            )
+
+        return config
+
     def get_service_summary(self, service_name: str) -> Optional[Dict[str, Any]]:
         info = self.get_complete_service_info(self._naming.GLOBAL_AGENT_STORE, service_name)
         if not info:
@@ -1286,10 +1328,36 @@ class ServiceRegistry:
         )
 
     async def get_global_name_from_agent_service_async(self, agent_id: str, service_name: str) -> Optional[str]:
+        """
+        依据 Agent 本地名解析全局服务名。
+        优先使用关系表，缺失时回退到命名规则并校验实体存在，确保删除等场景不会因关系缺失而无法解析。
+        """
+        # 1) 关系表优先
         services = await self._relation_manager.get_agent_services(agent_id)
         for svc in services:
-            if svc.get("service_original_name") == service_name:
+            if svc.get("service_original_name") == service_name or svc.get("service_global_name") == service_name:
                 return svc.get("service_global_name")
+
+        # 2) 已是全局名则直接返回
+        if self._naming.AGENT_SEPARATOR in service_name:
+            return service_name
+
+        # 3) 回退：按命名规则推导，并确认实体存在（避免误生成）
+        try:
+            candidate = self._naming.generate_service_global_name(service_name, agent_id)
+            exists = await self._cache_service_manager.get_service(candidate)
+            if exists:
+                logger.debug(
+                    "[NAMING] Fallback global name resolved without relation: agent=%s, local=%s -> %s",
+                    agent_id, service_name, candidate
+                )
+                return candidate
+        except Exception as resolve_error:
+            logger.debug(
+                "[NAMING] Failed to resolve fallback global name: agent=%s, local=%s, error=%s",
+                agent_id, service_name, resolve_error
+            )
+
         return None
 
     def get_agent_service_from_global_name(self, global_name: str) -> Optional[Tuple[str, str]]:
@@ -1325,10 +1393,45 @@ class ServiceRegistry:
         return self._naming.AGENT_SEPARATOR in service_name
 
     def remove_agent_service_mapping(self, agent_id: str, service_name: str) -> bool:
-        return self._run_async(
-            self.delete_service_client_mapping_async(agent_id, service_name),
-            op_name="ServiceRegistry.remove_agent_service_mapping",
-        )
+        """
+        删除 Agent-Service 映射（同步接口）；若在事件循环中则异步调度。
+        """
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # 无事件循环，直接运行异步方法
+            return asyncio.run(self.remove_agent_service_mapping_async(agent_id, service_name))
+        else:
+            # 已有事件循环，调度异步任务立即返回
+            loop.create_task(self.remove_agent_service_mapping_async(agent_id, service_name))
+            return True
+
+    async def remove_agent_service_mapping_async(self, agent_id: str, service_name: str) -> bool:
+        """
+        删除 Agent-Service 映射（异步版本，不做事件循环桥接）
+        - 仅清理映射表，不触发关系/状态删除
+        """
+        try:
+            global_name = await self._resolve_global_name_async(agent_id, service_name)
+        except Exception:
+            global_name = None
+
+        # 清理关系层映射（如果需要）
+        if global_name:
+            try:
+                await self._relation_manager.remove_agent_service(agent_id, global_name)
+            except Exception:
+                pass
+
+        # 清理映射管理器缓存
+        try:
+            if self._service_manager and hasattr(self._service_manager, "remove_agent_service_mapping"):
+                self._service_manager.remove_agent_service_mapping(agent_id, service_name)
+        except Exception:
+            pass
+
+        return True
 
     def clear_agent_mappings(self, agent_id: str) -> bool:
         async def _clear():

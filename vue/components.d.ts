@@ -63,6 +63,7 @@ declare module 'vue' {
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     ServiceDetailsTable: typeof import('./src/components/ServiceDetailsTable.vue')['default']
+    ServiceForm: typeof import('./src/components/agents/ServiceForm.vue')['default']
     ServiceLifecycleStatus: typeof import('./src/components/ServiceLifecycleStatus.vue')['default']
     ServiceStatusSummary: typeof import('./src/components/ServiceStatusSummary.vue')['default']
     StatCard: typeof import('./src/components/common/StatCard.vue')['default']

@@ -81,6 +81,9 @@ class ErrorCode(str, Enum):
     SERVICE_CONFIGURATION_INVALID = "SERVICE_CONFIGURATION_INVALID"
     """服务配置无效。配置参数不正确或缺失"""
     
+    SERVICE_OPERATION_FAILED = "SERVICE_OPERATION_FAILED"
+    """服务操作失败。通用服务操作执行失败"""
+    
     # ==================== 工具相关 (3xxx) ====================
     
     TOOL_NOT_FOUND = "TOOL_NOT_FOUND"
@@ -195,6 +198,7 @@ _ERROR_CODE_TO_HTTP_STATUS: Dict[ErrorCode, int] = {
     ErrorCode.SERVICE_CONNECTION_FAILED: 503,
     ErrorCode.SERVICE_INITIALIZATION_FAILED: 500,
     ErrorCode.SERVICE_CONFIGURATION_INVALID: 400,
+    ErrorCode.SERVICE_OPERATION_FAILED: 500,
     
     # 工具相关
     ErrorCode.TOOL_NOT_FOUND: 404,
@@ -238,6 +242,7 @@ _ERROR_CODE_DESCRIPTIONS: Dict[ErrorCode, str] = {
     ErrorCode.SERVICE_CONNECTION_FAILED: "Failed to connect to the service",
     ErrorCode.SERVICE_INITIALIZATION_FAILED: "Service initialization failed",
     ErrorCode.SERVICE_CONFIGURATION_INVALID: "Service configuration is invalid",
+    ErrorCode.SERVICE_OPERATION_FAILED: "Service operation failed",
     
     # 工具相关
     ErrorCode.TOOL_NOT_FOUND: "The requested tool does not exist",
@@ -281,6 +286,7 @@ _ERROR_CODE_CATEGORIES: Dict[ErrorCode, str] = {
     ErrorCode.SERVICE_CONNECTION_FAILED: "Service",
     ErrorCode.SERVICE_INITIALIZATION_FAILED: "Service",
     ErrorCode.SERVICE_CONFIGURATION_INVALID: "Service",
+    ErrorCode.SERVICE_OPERATION_FAILED: "Service",
     
     # 工具相关
     ErrorCode.TOOL_NOT_FOUND: "Tool",

@@ -51,21 +51,17 @@ class ToolOperationsMixin:
             # 在 async 方法中必须使用 async 版本，避免 AOB 检测到已有事件循环抛出 RuntimeError
             service_state = await self.registry._service_state_service.get_service_state_async(state_check_agent_id, request.service_name)
 
-            # If service is in unavailable state, return error
+            # 如果状态不健康，先记录但仍尝试执行，失败时再返回真实错误
             from mcpstore.core.models.service import ServiceConnectionState
-            if service_state in [ServiceConnectionState.RECONNECTING, ServiceConnectionState.UNREACHABLE,
-                               ServiceConnectionState.DISCONNECTING, ServiceConnectionState.DISCONNECTED]:
-                error_msg = f"Service '{request.service_name}' is currently {service_state.value} and unavailable for tool execution"
-                logger.warning(error_msg)
-                failure_result = CallToolFailureResult(error_msg).unwrap()
-                return ExecutionResponse(
-                    success=False,
-                    result=failure_result,
-                    error=error_msg,
-                    execution_time=time.time() - start_time,
-                    service_name=request.service_name,
-                    tool_name=request.tool_name,
-                    agent_id=request.agent_id
+            state_warn = service_state in [
+                ServiceConnectionState.RECONNECTING,
+                ServiceConnectionState.UNREACHABLE,
+                ServiceConnectionState.DISCONNECTING,
+                ServiceConnectionState.DISCONNECTED
+            ]
+            if state_warn:
+                logger.warning(
+                    f"Service '{request.service_name}' is in state {service_state.value}, will still attempt execution"
                 )
 
             # Execute tool (using FastMCP standard)

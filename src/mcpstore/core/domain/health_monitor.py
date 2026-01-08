@@ -53,6 +53,14 @@ class HealthMonitor:
         self._warning_interval = lifecycle_config.warning_heartbeat_interval
         self._timeout_threshold = lifecycle_config.initialization_timeout
         self._ping_timeout = lifecycle_config.health_check_ping_timeout
+        self._warning_ping_timeout = getattr(lifecycle_config, "warning_ping_timeout", self._ping_timeout * 3)
+        self._transport_ping_timeout = {
+            "http": getattr(lifecycle_config, "ping_timeout_http", self._ping_timeout),
+            "sse": getattr(lifecycle_config, "ping_timeout_sse", self._ping_timeout),
+            "stdio": getattr(lifecycle_config, "ping_timeout_stdio", self._ping_timeout * 4),
+        }
+        # 新的按需检查节流控制
+        self._last_check_time: Dict[Tuple[str, str], float] = {}
 
         # 健康检查任务跟踪
         self._health_check_tasks: Dict[Tuple[str, str], asyncio.Task] = {}  # (agent_id, service_name) -> task
@@ -96,24 +104,11 @@ class HealthMonitor:
 
     async def _on_service_connected(self, event: ServiceConnected):
         """
-        处理服务连接成功 - 启动定期健康检查
+        处理服务连接成功 - 仅调度一次即时健康检查（不启动循环）
         """
         logger.info(f"[HEALTH] Starting health check for: {event.service_name}")
 
-        # 启动定期健康检查任务
-        task_key = (event.agent_id, event.service_name)
-
-        # 如果已有任务，先取消
-        if task_key in self._health_check_tasks:
-            old_task = self._health_check_tasks[task_key]
-            if not old_task.done():
-                old_task.cancel()
-
-        # 创建新的健康检查任务
-        task = asyncio.create_task(
-            self._periodic_health_check(event.agent_id, event.service_name)
-        )
-        self._health_check_tasks[task_key] = task
+        await self.maybe_schedule_health_check(event.agent_id, event.service_name, force=True)
 
     async def _on_health_check_requested(self, event: HealthCheckRequested):
         """
@@ -141,29 +136,6 @@ class HealthMonitor:
                     task.cancel()
                 del self._health_check_tasks[task_key]
                 logger.info(f"[HEALTH] Stopped health check for terminated service: {event.service_name}")
-
-    async def _periodic_health_check(self, agent_id: str, service_name: str):
-        """
-        定期健康检查循环
-        """
-        logger.debug(f"[HEALTH] Periodic health check started: {service_name}")
-
-        try:
-            while self._is_running:
-                # 根据当前状态选择检查间隔
-                global_name = await self._to_global_name_async(agent_id, service_name)
-                # 使用新的异步API获取服务状态
-                current_state = await self._registry.get_service_state_async(self._global_agent_store_id, service_name)
-                interval = self._warning_interval if current_state == ServiceConnectionState.WARNING else self._check_interval
-                await asyncio.sleep(interval)
-
-                # 执行健康检查
-                await self._execute_health_check(agent_id, service_name)
-
-        except asyncio.CancelledError:
-            logger.debug(f"[HEALTH] Periodic health check cancelled: {service_name}")
-        except Exception as e:
-            logger.error(f"[HEALTH] Periodic health check error: {service_name} - {e}", exc_info=True)
 
     async def _execute_health_check(self, agent_id: str, service_name: str, wait: bool = False):
         """
@@ -202,12 +174,26 @@ class HealthMonitor:
             
             logger.debug(f"[HEALTH] Found service config for {service_name}: {list(service_config.keys())}")
 
+            # 根据当前状态动态调整健康检查超时（warning/reconnecting 更宽松）
+            try:
+                current_state = await self._registry.get_service_state_async(self._global_agent_store_id, global_name)
+            except Exception:
+                current_state = None
+
+            # 推断传输类型超时
+            effective_timeout = self._infer_transport_timeout(service_config)
+            if current_state in (ServiceConnectionState.WARNING, ServiceConnectionState.RECONNECTING):
+                # 进入警告/重连后延长超时，避免重复误判
+                effective_timeout = max(self._warning_ping_timeout, effective_timeout)
+            else:
+                effective_timeout = max(self._ping_timeout, effective_timeout)
+
             # 执行健康检查（使用临时 client + async with）
             try:
                 # 设置超时并使用临时 client 进行健康检查
                 ping_start = time.time()
-                async with asyncio.timeout(self._ping_timeout):
-                    async with temp_client_for_service(global_name, service_config) as client:
+                async with asyncio.timeout(effective_timeout):
+                    async with temp_client_for_service(global_name, service_config, timeout=effective_timeout) as client:
                         await client.ping()
                     response_time = time.time() - start_time
 
@@ -302,6 +288,78 @@ class HealthMonitor:
         except Exception:
             return service_name
 
+    def _infer_transport_timeout(self, service_config: dict) -> float:
+        """根据服务配置推断传输类型并返回对应超时。"""
+        transport = str(service_config.get("transport", "")).lower()
+        if not transport and service_config.get("url"):
+            # 默认 HTTP/Streamable
+            transport = "http"
+        if not transport and (service_config.get("command") or service_config.get("args")):
+            transport = "stdio"
+
+        if "sse" in transport:
+            return self._transport_ping_timeout.get("sse", self._ping_timeout)
+        if "stdio" in transport:
+            return self._transport_ping_timeout.get("stdio", self._ping_timeout)
+        return self._transport_ping_timeout.get("http", self._ping_timeout)
+
+    async def maybe_schedule_health_check(
+        self,
+        agent_id: str,
+        service_name: str,
+        current_state: ServiceConnectionState | str | None = None,
+        force: bool = False,
+    ) -> bool:
+        """
+        按需调度健康检查：
+        - 读取状态或配置时调用，返回缓存状态后异步检查
+        - 按状态节流，避免高频调度
+        - force=True 时忽略节流，直接调度
+        """
+        if not self._is_running:
+            return False
+
+        key = (agent_id, service_name)
+        # 同一服务已有进行中的检查则不重复调度
+        existing = self._health_check_tasks.get(key)
+        if existing and not existing.done() and not force:
+            return False
+
+        try:
+            global_name = await self._to_global_name_async(agent_id, service_name)
+        except Exception:
+            global_name = service_name
+
+        # 获取状态用于节流
+        state = current_state
+        if isinstance(state, str):
+            try:
+                state = ServiceConnectionState(state)
+            except ValueError:
+                state = None
+        if state is None:
+            try:
+                state = await self._registry.get_service_state_async(self._global_agent_store_id, global_name)
+            except Exception:
+                state = None
+
+        now = time.time()
+        last = self._last_check_time.get(key, 0)
+        interval = self._warning_interval if state in (ServiceConnectionState.WARNING, ServiceConnectionState.RECONNECTING) else self._check_interval
+
+        if not force and (now - last) < interval:
+            return False
+
+        self._last_check_time[key] = now
+        task = asyncio.create_task(self._execute_health_check(agent_id, service_name))
+        self._health_check_tasks[key] = task
+
+        def _cleanup(_):
+            self._health_check_tasks.pop(key, None)
+
+        task.add_done_callback(_cleanup)
+        return True
+
     async def check_timeouts(self):
         """
         检查超时的服务（可由外部定期调用）
@@ -384,4 +442,3 @@ class HealthMonitor:
                         return None
                 return state_entered_time
         return None
-

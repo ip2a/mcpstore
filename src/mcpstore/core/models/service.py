@@ -45,6 +45,10 @@ class ServiceStateMetadata(BaseModel):
     #  修复：添加缺失的字段
     last_health_check: Optional[datetime] = None
     last_response_time: Optional[float] = None
+    # 工具同步相关：用于避免“健康但无工具”时的无限重试
+    tool_sync_attempts: int = 0
+    tools_confirmed_empty: bool = False
+    last_tool_sync: Optional[datetime] = None
 
 
 class ServiceInfo(BaseModel):

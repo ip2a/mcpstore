@@ -121,6 +121,9 @@ long_retry_interval = {health["long_retry_interval"]}
 normal_heartbeat_interval = {health["normal_heartbeat_interval"]}
 warning_heartbeat_interval = {health["warning_heartbeat_interval"]}
 health_check_ping_timeout = {health["health_check_ping_timeout"]}
+ping_timeout_http = {health["ping_timeout_http"]}
+ping_timeout_sse = {health["ping_timeout_sse"]}
+ping_timeout_stdio = {health["ping_timeout_stdio"]}
 initialization_timeout = {health["initialization_timeout"]}
 disconnection_timeout = {health["disconnection_timeout"]}
 

@@ -121,29 +121,57 @@ export const useAgentsStore = defineStore('agents', () => {
     return 'inactive'
   }
   
+  // 数据归一化
+  const normalizeServicesPayload = (payload) => {
+    if (Array.isArray(payload?.services)) return payload.services
+    if (Array.isArray(payload)) return payload
+    return []
+  }
+
+  const normalizeToolsPayload = (payload) => {
+    if (Array.isArray(payload?.tools)) return payload.tools
+    if (Array.isArray(payload)) return payload
+    return []
+  }
+
+  const buildAgentStats = (servicesData = [], toolsData = []) => {
+    const servicesList = normalizeServicesPayload(servicesData)
+    const toolsList = normalizeToolsPayload(toolsData)
+
+    const healthyServices = servicesList.filter(
+      svc => svc.is_active === true || svc.status === 'active' || svc.status === 'healthy'
+    ).length
+    const byTransport = servicesList.reduce((acc, svc) => {
+      const transport = svc.transport || (svc.command ? 'stdio' : 'http') || 'unknown'
+      acc[transport] = (acc[transport] || 0) + 1
+      return acc
+    }, {})
+    const totalToolExecutions = toolsList.reduce(
+      (sum, tool) => sum + (tool.total_executions || tool.execution_count || 0),
+      0
+    )
+
+    return {
+      services: servicesList.length,
+      tools: toolsList.length,
+      healthy_services: healthyServices,
+      unhealthy_services: Math.max(servicesList.length - healthyServices, 0),
+      total_tool_executions: totalToolExecutions,
+      orchestrator_status: 'unknown',
+      by_transport: byTransport
+    }
+  }
+  
   // === Agent服务管理 ===
   
   const getAgentServices = async (agentId) => {
+    // Force HMR update
     try {
       console.log('🔍 [DEBUG] 获取Agent服务列表:', agentId)
-      const response = await api.agent.getAgentServices(agentId)
-      console.log('🔍 [DEBUG] Agent服务API响应:', response)
-
-      // 🔧 修复：正确处理API响应格式
-      let services = []
-      if (response.data && response.data.success && Array.isArray(response.data.data)) {
-        services = response.data.data
-        console.log('✅ [DEBUG] 使用 response.data.data (数组)')
-      } else if (Array.isArray(response.data)) {
-        services = response.data
-        console.log('✅ [DEBUG] 使用 response.data (直接数组)')
-      } else {
-        console.warn('⚠️ [DEBUG] 无法识别的服务API响应格式')
-        services = []
-      }
-
-      console.log('🔍 [DEBUG] 提取的服务数据:', services)
-      return services
+      const services = await api.agent.listServices(agentId)
+      const normalized = normalizeServicesPayload(services)
+      console.log('🔍 [DEBUG] Agent服务API响应:', normalized)
+      return normalized
     } catch (error) {
       console.error('获取Agent服务列表失败:', error)
       throw error
@@ -153,67 +181,23 @@ export const useAgentsStore = defineStore('agents', () => {
   const getAgentTools = async (agentId) => {
     try {
       console.log('🔍 [DEBUG] 获取Agent工具列表:', agentId)
-      const response = await api.agent.getAgentTools(agentId)
-      console.log('🔍 [DEBUG] Agent工具API响应:', response)
-
-      // 🔧 修复：正确处理API响应格式
-      let tools = []
-      if (response.data && response.data.success && Array.isArray(response.data.data)) {
-        tools = response.data.data
-        console.log('✅ [DEBUG] 使用 response.data.data (数组)')
-      } else if (Array.isArray(response.data)) {
-        tools = response.data
-        console.log('✅ [DEBUG] 使用 response.data (直接数组)')
-      } else {
-        console.warn('⚠️ [DEBUG] 无法识别的工具API响应格式')
-        tools = []
-      }
-
-      console.log('🔍 [DEBUG] 提取的工具数据:', tools)
-      return tools
+      const tools = await api.agent.listTools(agentId)
+      const normalized = normalizeToolsPayload(tools)
+      console.log('🔍 [DEBUG] Agent工具API响应:', normalized)
+      return normalized
     } catch (error) {
       console.error('获取Agent工具列表失败:', error)
       throw error
     }
   }
 
-  const getAgentStats = async (agentId) => {
+  const getAgentStats = async (agentId, options = {}) => {
     try {
       console.log('🔍 [DEBUG] 获取Agent统计信息:', agentId)
-      const response = await api.agent.getAgentStats(agentId)
-      console.log('🔍 [DEBUG] Agent统计API响应:', response)
-
-      // 🔧 修复：正确处理API响应格式并映射字段
-      let stats = {}
-      if (response.data && response.data.success && response.data.data) {
-        const data = response.data.data
-
-        // 映射API响应字段到组件期望的字段
-        stats = {
-          services: data.services?.total || 0,
-          tools: data.tools?.total || 0,
-          healthy_services: data.services?.healthy || 0,
-          unhealthy_services: data.services?.unhealthy || 0,
-          total_tool_executions: data.tools?.total_executions || 0,
-          orchestrator_status: data.system?.orchestrator_status || 'unknown',
-          by_transport: data.services?.by_transport || {}
-        }
-        console.log('✅ [DEBUG] 映射后的统计数据:', stats)
-      } else if (response.data && typeof response.data === 'object') {
-        stats = response.data
-        console.log('✅ [DEBUG] 使用原始统计数据:', stats)
-      } else {
-        console.warn('⚠️ [DEBUG] 无法识别的统计API响应格式')
-        stats = {
-          services: 0,
-          tools: 0,
-          healthy_services: 0,
-          unhealthy_services: 0,
-          total_tool_executions: 0,
-          orchestrator_status: 'unknown'
-        }
-      }
-
+      const servicesData = options.services ?? await getAgentServices(agentId)
+      const toolsData = options.tools ?? await getAgentTools(agentId)
+      const stats = buildAgentStats(servicesData, toolsData)
+      console.log('🔍 [DEBUG] Agent统计API响应:', stats)
       return stats
     } catch (error) {
       console.error('获取Agent统计信息失败:', error)
@@ -381,6 +365,7 @@ export const useAgentsStore = defineStore('agents', () => {
     checkServices,
     resetAgentConfig,
     updateStats,
+    buildAgentStats,
     setCurrentAgent,
     getAgentById,
     searchAgents,

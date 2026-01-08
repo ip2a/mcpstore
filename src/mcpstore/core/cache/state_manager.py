@@ -207,6 +207,18 @@ class StateManager:
         logger.debug(
             f"[StateManager] Deleted service status: service={service_global_name}"
         )
+
+    async def delete_service_metadata(self, service_global_name: str) -> None:
+        """
+        删除服务元数据状态。
+
+        Args:
+            service_global_name: 服务全局名称
+        """
+        await self._cache_layer.delete_state("service_metadata", service_global_name)
+        logger.debug(
+            f"[StateManager] Deleted service metadata: service={service_global_name}"
+        )
     
     async def set_tool_available(
         self,

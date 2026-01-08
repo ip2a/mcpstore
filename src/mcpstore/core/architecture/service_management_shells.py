@@ -249,7 +249,7 @@ class ServiceManagementAsyncShell:
                 "successful_operations": 0
             }
 
-    async def wait_service_async(self, service_name: str, timeout: float = 10.0) -> bool:
+    async def wait_service_async(self, service_name: str, timeout: float | None = None) -> bool:
         """
         异步外壳：等待服务就绪
 
@@ -261,8 +261,37 @@ class ServiceManagementAsyncShell:
         logger.debug(f"[ASYNC_SHELL] [WAIT] Starting to wait for service: {service_name}, timeout={timeout}")
 
         try:
-            # 1. 调用纯同步核心
-            wait_plan = self.core.wait_service_plan(service_name, timeout)
+            # 1. 如未显式传入，按传输类型选择默认超时
+            effective_timeout = timeout
+
+            # 先生成计划以获取全局名，再读取配置推断传输
+            draft_plan = self.core.wait_service_plan(service_name, timeout or 0)
+            agent_id = getattr(self.core, "agent_id", "global_agent_store") or "global_agent_store"
+            if effective_timeout is None:
+                try:
+                    info = await self.registry.get_complete_service_info_async(agent_id, draft_plan.global_name)
+                    cfg = info.get("config", {}) if isinstance(info, dict) else {}
+                    transport = str(cfg.get("transport", "")).lower()
+                    if not transport and cfg.get("url"):
+                        transport = "http"
+                    if not transport and (cfg.get("command") or cfg.get("args")):
+                        transport = "stdio"
+                    # 从生命周期配置获取对应超时
+                    lm = getattr(self.orchestrator, "lifecycle_manager", None)
+                    lc = getattr(lm, "_config", None)
+                    def _get(name, default):
+                        return getattr(lc, name, default) if lc else default
+                    if "sse" in transport:
+                        effective_timeout = _get("ping_timeout_sse", 20.0)
+                    elif "stdio" in transport:
+                        effective_timeout = _get("ping_timeout_stdio", 40.0)
+                    else:
+                        effective_timeout = _get("ping_timeout_http", 20.0)
+                except Exception:
+                    effective_timeout = timeout or 20.0
+
+            # 2. 调用纯同步核心（使用计算后的超时）
+            wait_plan = self.core.wait_service_plan(service_name, effective_timeout)
             logger.debug(f"[ASYNC_SHELL] [PLAN] Wait plan: {wait_plan}")
 
             # 2. 获取缓存层状态管理器
@@ -458,7 +487,7 @@ class ServiceManagementSyncShell:
                 "successful_operations": 0,
             }
 
-    def wait_service(self, service_name: str, timeout: float = 10.0) -> bool:
+    def wait_service(self, service_name: str, timeout: float | None = None) -> bool:
         """
         同步外壳：等待服务就绪
 
