@@ -70,7 +70,11 @@ class ServiceApplicationService:
         service_name: str,
         service_config: Dict[str, Any],
         wait_timeout: float = 0.0,
-        source: str = "user"
+        source: str = "user",
+        global_name: Optional[str] = None,
+        client_id: Optional[str] = None,
+        origin_agent_id: Optional[str] = None,
+        origin_local_name: Optional[str] = None,
     ) -> AddServiceResult:
         """
         添加服务（用户API）
@@ -92,11 +96,11 @@ class ServiceApplicationService:
             self._validate_params(service_name, service_config)
             
             # 2. 生成 client_id
-            client_id = self._generate_client_id(agent_id, service_name, service_config)
+            cid = client_id or await self._generate_client_id(agent_id, service_name, service_config)
             
             logger.info(
                 f"[ADD_SERVICE] Starting: service={service_name}, "
-                f"agent={agent_id}, client_id={client_id}"
+                f"agent={agent_id}, client_id={cid}"
             )
             
             # 3. 发布服务添加请求事件
@@ -104,7 +108,10 @@ class ServiceApplicationService:
                 agent_id=agent_id,
                 service_name=service_name,
                 service_config=service_config,
-                client_id=client_id,
+                client_id=cid,
+                global_name=global_name or "",
+                origin_agent_id=origin_agent_id,
+                origin_local_name=origin_local_name,
                 source=source,
                 wait_timeout=wait_timeout
             )
@@ -162,15 +169,15 @@ class ServiceApplicationService:
         agent_key = agent_id or self._global_agent_store_id
 
         try:
-            # 1. 校验服务是否存在
-            if not self._registry.has_service(agent_key, service_name):
+            # 1. 校验服务是否存在（使用异步 API）
+            if not await self._registry.has_service_async(agent_key, service_name):
                 logger.warning(
                     f"[RESTART_SERVICE_APP] Service '{service_name}' not found for agent {agent_key}"
                 )
                 return False
 
-            # 2. 读取并校验元数据
-            metadata = self._registry._service_state_service.get_service_metadata(agent_key, service_name)
+            # 2. 读取并校验元数据 - 从 pykv 异步获取
+            metadata = await self._registry._service_state_service.get_service_metadata_async(agent_key, service_name)
             if not metadata:
                 logger.error(
                     f"[RESTART_SERVICE_APP] No metadata found for service '{service_name}' (agent={agent_key})"
@@ -250,20 +257,21 @@ class ServiceApplicationService:
         start_time = asyncio.get_event_loop().time()
 
         try:
-            if not self._registry.has_service(agent_id, service_name):
+            # 使用异步 API 检查服务是否存在
+            if not await self._registry.has_service_async(agent_id, service_name):
                 logger.warning(
                     f"[RESET_SERVICE_APP] Service '{service_name}' not found for agent {agent_id}"
                 )
                 return False
 
-            service_config = self._registry.get_service_config_from_cache(agent_id, service_name)
+            service_config = await self._registry.get_service_config_from_cache_async(agent_id, service_name)
             if not service_config:
                 logger.error(
                     f"[RESET_SERVICE_APP] No service config found for '{service_name}' (agent={agent_id})"
                 )
                 return False
 
-            success = self._lifecycle_manager.initialize_service(
+            success = await self._lifecycle_manager.initialize_service(
                 agent_id=agent_id,
                 service_name=service_name,
                 service_config=service_config,
@@ -305,12 +313,12 @@ class ServiceApplicationService:
             )
             return False
     
-    async def get_service_status(self, agent_id: str, service_name: str) -> Dict[str, Any]:
-        """读取单个服务的状态信息（只读，纯缓存查询）"""
+    async def get_service_status_async(self, agent_id: str, service_name: str) -> Dict[str, Any]:
+        """读取单个服务的状态信息（只读，从 pykv 异步获取）"""
         try:
-            state = self._registry._service_state_service.get_service_state(agent_id, service_name)
-            metadata = self._registry._service_state_service.get_service_metadata(agent_id, service_name)
-            client_id = self._registry._agent_client_service.get_service_client_id(agent_id, service_name)
+            state = await self._registry._service_state_service.get_service_state_async(agent_id, service_name)
+            metadata = await self._registry._service_state_service.get_service_metadata_async(agent_id, service_name)
+            client_id = await self._registry.get_service_client_id_async(agent_id, service_name)
 
             status_response: Dict[str, Any] = {
                 "service_name": service_name,
@@ -391,19 +399,24 @@ class ServiceApplicationService:
         if "command" not in service_config and "url" not in service_config:
             raise ValueError("service_config must contain 'command' or 'url'")
     
-    def _generate_client_id(
-        self, 
-        agent_id: str, 
-        service_name: str, 
+    async def _generate_client_id(
+        self,
+        agent_id: str,
+        service_name: str,
         service_config: Dict[str, Any]
     ) -> str:
-        """生成 client_id"""
-        # 检查是否已存在
-        existing_client_id = self._registry._agent_client_service.get_service_client_id(agent_id, service_name)
+        """生成 client_id（优先异步获取已有映射，避免事件循环冲突）"""
+        # 优先使用异步 API，避免在运行事件循环中调用同步桥接
+        existing_client_id = None
+        try:
+            existing_client_id = await self._registry.get_service_client_id_async(agent_id, service_name)
+        except Exception as e:
+            logger.warning(f"Failed to get existing client_id asynchronously: {e}")
+
         if existing_client_id:
             logger.debug(f"Using existing client_id: {existing_client_id}")
             return existing_client_id
-        
+
         # 生成新的
         client_id = ClientIDGenerator.generate_deterministic_id(
             agent_id=agent_id,
@@ -411,7 +424,7 @@ class ServiceApplicationService:
             service_config=service_config,
             global_agent_store_id=self._global_agent_store_id
         )
-        
+
         logger.debug(f"Generated new client_id: {client_id}")
         return client_id
     
@@ -450,4 +463,3 @@ class ServiceApplicationService:
         # 超时，返回当前状态
         state = self._registry._service_state_service.get_service_state(agent_id, service_name)
         return state.value if state else "unknown"
-

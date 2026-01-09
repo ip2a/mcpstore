@@ -3,31 +3,59 @@
     :class="['chart-card', cardStyleClass, { 'chart-card-loading': loading }]"
   >
     <!-- 卡片头部 -->
-    <div v-if="title || $slots.header" class="chart-card-header">
+    <div
+      v-if="title || $slots.header"
+      class="chart-card-header"
+    >
       <slot name="header">
         <div class="chart-card-title-wrapper">
-          <h3 class="chart-card-title">{{ title }}</h3>
-          <p v-if="subtitle" class="chart-card-subtitle">{{ subtitle }}</p>
+          <h3 class="chart-card-title">
+            {{ title }}
+          </h3>
+          <p
+            v-if="subtitle"
+            class="chart-card-subtitle"
+          >
+            {{ subtitle }}
+          </p>
         </div>
       </slot>
 
       <!-- 操作按钮区域 -->
-      <div v-if="$slots.actions" class="chart-card-actions">
-        <slot name="actions"></slot>
+      <div
+        v-if="$slots.actions"
+        class="chart-card-actions"
+      >
+        <slot name="actions" />
       </div>
     </div>
 
     <!-- 图表内容区域 -->
-    <div class="chart-card-body" :style="bodyStyle">
+    <div
+      class="chart-card-body"
+      :style="bodyStyle"
+    >
       <!-- 加载状态 -->
-      <div v-if="loading" class="chart-card-loader">
-        <div class="shimmer" style="height: 100%; border-radius: 8px;"></div>
+      <div
+        v-if="loading"
+        class="chart-card-loader"
+      >
+        <div
+          class="shimmer"
+          style="height: 100%; border-radius: 8px;"
+        />
       </div>
 
       <!-- 空状态 -->
-      <div v-else-if="empty" class="chart-card-empty">
+      <div
+        v-else-if="empty"
+        class="chart-card-empty"
+      >
         <slot name="empty">
-          <el-empty :description="emptyText" :image-size="80" />
+          <el-empty
+            :description="emptyText"
+            :image-size="80"
+          />
         </slot>
       </div>
 
@@ -37,12 +65,15 @@
         ref="chartRef"
         class="chart-container"
         :style="{ height: height }"
-      ></div>
+      />
     </div>
 
     <!-- 卡片底部 -->
-    <div v-if="$slots.footer" class="chart-card-footer">
-      <slot name="footer"></slot>
+    <div
+      v-if="$slots.footer"
+      class="chart-card-footer"
+    >
+      <slot name="footer" />
     </div>
   </div>
 </template>

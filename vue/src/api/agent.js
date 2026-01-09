@@ -29,9 +29,18 @@ export const agentApi = {
     )
   },
   
-  listServices: (agentId) => apiRequest.get(
+ listServices: (agentId) => apiRequest.get(
     formatApiPath(API_ENDPOINTS.AGENT.LIST_SERVICES, { agent_id: agentId })
   ).then(res => extractResponseData(res.data, [])),
+
+  // 兼容旧调用：返回带 success 的包装结构，避免调用端找不到方法
+  getAgentServices: async (agentId) => {
+    const res = await apiRequest.get(
+      formatApiPath(API_ENDPOINTS.AGENT.LIST_SERVICES, { agent_id: agentId })
+    )
+    const services = extractResponseData(res.data, [])
+    return { data: { success: true, data: services } }
+  },
   
   initService: (agentId, identifier) => apiRequest.post(
     formatApiPath(API_ENDPOINTS.AGENT.INIT_SERVICE, { agent_id: agentId }),
@@ -69,6 +78,15 @@ export const agentApi = {
   listTools: (agentId) => apiRequest.get(
     formatApiPath(API_ENDPOINTS.AGENT.LIST_TOOLS, { agent_id: agentId })
   ).then(res => extractResponseData(res.data, [])),
+
+  // 兼容旧调用：返回带 success 的包装结构，避免调用端找不到方法
+  getAgentTools: async (agentId) => {
+    const res = await apiRequest.get(
+      formatApiPath(API_ENDPOINTS.AGENT.LIST_TOOLS, { agent_id: agentId })
+    )
+    const tools = extractResponseData(res.data, [])
+    return { data: { success: true, data: tools } }
+  },
   
   callTool: (agentId, toolName, args, serviceName) => apiRequest.post(
     formatApiPath(API_ENDPOINTS.AGENT.CALL_TOOL, { agent_id: agentId }),

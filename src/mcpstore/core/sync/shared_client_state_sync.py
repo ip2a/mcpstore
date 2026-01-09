@@ -92,21 +92,29 @@ class SharedClientStateSyncManager:
     
     def _find_all_services_with_client_id(self, client_id: str) -> List[Tuple[str, str]]:
         """
-        查找使用指定 client_id 的所有服务
-        
+        查找使用指定 client_id 的所有服务 (从 pyvk 读取)
+
         Args:
             client_id: 要查找的 Client ID
-            
+
         Returns:
             List of (agent_id, service_name) tuples
         """
         services = []
-        
-        for agent_id, service_mappings in self.registry.service_to_client.items():
-            for service_name, mapped_client_id in service_mappings.items():
-                if mapped_client_id == client_id:
-                    services.append((agent_id, service_name))
-        
+
+        # Get all agent_ids from in-memory cache (still needed for iteration)
+        agent_ids = self.registry.get_all_agent_ids()
+
+        # For each agent, get service-client mappings from pyvk
+        for agent_id in agent_ids:
+            try:
+                service_mappings = self.registry._agent_client_service.get_service_client_mapping(agent_id)
+                for service_name, mapped_client_id in service_mappings.items():
+                    if mapped_client_id == client_id:
+                        services.append((agent_id, service_name))
+            except Exception as e:
+                logger.warning(f"[STATE_SYNC] Failed to get service mappings for {agent_id}: {e}")
+
         logger.debug(f" [STATE_SYNC] Found {len(services)} services with client_id {client_id}: {services}")
         return services
     
@@ -274,7 +282,7 @@ class SharedClientStateSyncManager:
             if is_consistent:
                 logger.info(f" [STATE_VALIDATION] State consistency validated for client_id {client_id}: ALL CONSISTENT")
             else:
-                logger.warning(f"⚠️ [STATE_VALIDATION] State inconsistency detected for client_id {client_id}: {len(inconsistent_services)} services inconsistent")
+                logger.warning(f"[STATE_VALIDATION] [WARN] State inconsistency detected for client_id {client_id}: {len(inconsistent_services)} services inconsistent")
             
             return result
             
@@ -304,7 +312,7 @@ class SharedClientStateSyncManager:
                 shared_services = self._find_all_services_with_client_id(client_id)
                 
                 if not shared_services:
-                    logger.warning(f"⚠️ [BATCH_SYNC] No services found for client_id {client_id}")
+                    logger.warning(f"[BATCH_SYNC] [WARN] No services found for client_id {client_id}")
                     return
                 
                 # 批量更新所有服务状态
@@ -341,9 +349,9 @@ class SharedClientStateSyncManager:
                     self.registry.service_states[agent_id][service_name] = new_state
                     logger.debug(f" [DIRECT_SET] {agent_id}:{service_name} state: {old_state} -> {new_state.value}")
                 else:
-                    logger.warning(f"⚠️ [DIRECT_SET] Service {service_name} not found in agent {agent_id}")
+                    logger.warning(f"[DIRECT_SET] [WARN] Service {service_name} not found in agent {agent_id}")
             else:
-                logger.warning(f"⚠️ [DIRECT_SET] Agent {agent_id} not found in service_states")
+                logger.warning(f"[DIRECT_SET] [WARN] Agent {agent_id} not found in service_states")
                 
         except Exception as e:
             logger.error(f" [DIRECT_SET] Failed to set state directly for {agent_id}:{service_name}: {e}")

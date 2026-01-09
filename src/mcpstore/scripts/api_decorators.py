@@ -12,7 +12,8 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from mcpstore import MCPStore
-from mcpstore.core.models.common import APIResponse
+from mcpstore.core.models import APIResponse
+from .api_dependencies import get_store as dependency_get_store
 # 导入统一的异常处理系统
 from .api_exceptions import (
     MCPStoreException, ValidationException, ErrorCode,
@@ -89,10 +90,8 @@ def monitor_api_performance(func):
 
         try:
             # 增加活跃连接数
-            from .api_app import get_store
-            store = get_store()
-            if store:
-                store.for_store().increment_active_connections()
+            store = dependency_get_store()
+            store.for_store().increment_active_connections()
 
             result = await func(*args, **kwargs)
 
@@ -133,11 +132,3 @@ def validate_service_names(service_names: Optional[List[str]]):
         raise HTTPException(status_code=400, detail="Invalid service_names format")
     if service_names and not all(isinstance(name, str) for name in service_names):
         raise HTTPException(status_code=400, detail="All service names must be strings")
-
-# === 依赖注入函数 ===
-
-def get_store() -> MCPStore:
-    """获取MCPStore实例的依赖注入函数"""
-    # 使用依赖注入模块获取store实例
-    from .api_dependencies import get_global_store
-    return get_global_store()

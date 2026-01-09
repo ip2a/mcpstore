@@ -11,9 +11,9 @@ from fastmcp import Client
 
 from mcpstore.config.json_config import MCPConfig
 from mcpstore.core.agents.session_manager import SessionManager
-from mcpstore.core.store.client_manager import ClientManager
 from mcpstore.core.integration.local_service_adapter import get_local_service_manager
 from mcpstore.core.registry import ServiceRegistry
+from mcpstore.core.store.client_manager import ClientManager
 # Import mixin classes
 from .network_utils import NetworkUtilsMixin
 from .resources_prompts import ResourcesPromptsMixin
@@ -71,10 +71,6 @@ class MCPOrchestrator(
 
         #  新增：Context工厂函数（用于服务注册，替代 store.for_store()）
         self._context_factory = None
-
-        #  新增：异步同步助手（用于Resources和Prompts的同步方法）
-        from mcpstore.core.utils.async_sync_helper import AsyncSyncHelper
-        self._sync_helper = AsyncSyncHelper()
 
         # 旧的心跳和重连配置已被ServiceLifecycleManager替代
         timing_config = config.get("timing", {})

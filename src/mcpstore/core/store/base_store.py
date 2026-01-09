@@ -41,6 +41,10 @@ class BaseMCPStore:
         # Unified configuration manager (pass instance reference)
         self._unified_config = UnifiedConfigManager(mcp_config=config)
 
+
+        # Set unified config to registry for JSON persistence
+        self.registry.set_unified_config(self._unified_config)
+
         self._context_cache: Dict[str, MCPStoreContext] = {}
         self._store_context = self._create_store_context()
 
@@ -62,11 +66,10 @@ class BaseMCPStore:
         from mcpstore.core.registry.agent_locks import AgentLocks
         self.agent_locks = AgentLocks()
 
-        # [NEW] Smart query interface
-        from mcpstore.core.registry.smart_query import SmartCacheQuery
-        self.query = SmartCacheQuery(self.registry)
+        # [已删除] SmartCacheQuery 接口
+        # 原因: 功能冗余，可通过 registry 直接实现
 
-        # [NEW] Event-driven architecture: Initialize ServiceContainer
+        # 事件驱动架构: 初始化 ServiceContainer
         from mcpstore.core.infrastructure.container import ServiceContainer
         from mcpstore.core.configuration.config_processor import ConfigProcessor
 
@@ -80,11 +83,22 @@ class BaseMCPStore:
             enable_event_history=False  # Disable event history in production
         )
 
+        # ToolSetManager 已废弃，工具可用性统一使用 StateManager
+        # 工具状态存储在状态层: default:state:service_status
+
         # [UNIFIED] Point orchestrator.lifecycle_manager to container's lifecycle_manager
         try:
             self.orchestrator.lifecycle_manager = self.container.lifecycle_manager
         except Exception as e:
             logger.debug(f"Link lifecycle_manager failed: {e}")
+
+        # [UNIFIED] Initialize content_manager after lifecycle_manager is set
+        try:
+            from mcpstore.core.lifecycle.content_manager import ServiceContentManager
+            self.orchestrator.content_manager = ServiceContentManager(self.orchestrator)
+            logger.info("ServiceContentManager initialization successful")
+        except Exception as e:
+            logger.warning(f"ServiceContentManager initialization failed: {e}")
 
         # Break circular dependency: pass container and context_factory to orchestrator
         # instead of letting orchestrator hold store reference (must be after container initialization)

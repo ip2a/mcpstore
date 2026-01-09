@@ -71,94 +71,99 @@ class ToolExecutionMixin:
         logger.debug(f"[TRADITIONAL_EXECUTION] Using traditional mode for tool '{tool_name}' in service '{service_name}'")
 
         try:
-            if agent_id:
-                # Agent 模式：在指定 Agent 的客户端中查找服务（单源：只依赖缓存）
-                client_ids = self.registry.get_agent_clients_from_cache(agent_id)
-                if not client_ids:
-                    raise Exception(f"No clients found in registry cache for agent {agent_id}")
-            else:
-                # Store 模式：在 global_agent_store 的客户端中查找服务
-                #  修复：优先从Registry缓存获取，回退到ClientManager持久化文件
-                global_agent_id = self.client_manager.global_agent_store_id
-                logger.debug(f" [TOOL_EXECUTION] 查找global_agent_id: {global_agent_id}")
+            # 确定 effective_agent_id
+            effective_agent_id = agent_id if agent_id else self.client_manager.global_agent_store_id
+            
+            # [pykv 唯一真相源] 从关系层获取 Agent 的服务列表
+            relation_manager = self.registry._relation_manager
+            agent_services = await relation_manager.get_agent_services(effective_agent_id)
+            
+            if not agent_services:
+                raise Exception(f"No services found in pykv for agent {effective_agent_id}")
+            
+            logger.debug(f"[TOOL_EXECUTION] pykv relationship layer service count: {len(agent_services)}")
+            
+            # 从关系层提取 client_ids
+            client_ids = list(set(
+                svc.get("client_id") for svc in agent_services if svc.get("client_id")
+            ))
+            
+            if not client_ids:
+                raise Exception(f"No client_ids found in pykv relations for agent {effective_agent_id}")
+            
+            logger.debug(f"[TOOL_EXECUTION] pykv relationship layer client_ids: {client_ids}")
 
-                client_ids = self.registry.get_agent_clients_from_cache(global_agent_id)
-                logger.debug(f" [TOOL_EXECUTION] Registry缓存中的client_ids: {client_ids}")
+            # 检查服务是否存在于关系层
+            service_exists = any(
+                svc.get("service_global_name") == service_name or 
+                svc.get("service_original_name") == service_name
+                for svc in agent_services
+            )
+            
+            if not service_exists:
+                raise Exception(f"Service {service_name} not found in pykv relations for agent {effective_agent_id}")
+            
+            # [pykv 唯一真相源] 从实体层获取服务配置
+            service_manager = self.registry._cache_service_manager
+            service_entity = await service_manager.get_service(service_name)
+            
+            if not service_entity:
+                raise Exception(f"Service entity not found in pykv: {service_name}")
+            
+            service_config = service_entity.config
+            if not service_config:
+                raise Exception(f"Service configuration is empty in pykv: {service_name}")
+            
+            logger.debug(f"[TOOL_EXECUTION] Getting service config from pykv entity layer: {service_name}")
 
-                if not client_ids:
-                    # 单源模式：不再回退到分片文件
-                    logger.warning("Single-source mode: no clients in registry cache for global_agent_store")
-                    raise Exception("No clients found in registry cache for global_agent_store")
+            # 标准化配置并创建 FastMCP 客户端
+            normalized_config = self._normalize_service_config(service_config)
+            client = Client({"mcpServers": {service_name: normalized_config}})
 
-            # 遍历客户端查找服务
-            for client_id in client_ids:
-                #  修复：has_service需要正确的agent_id
-                effective_agent_id = agent_id if agent_id else self.client_manager.global_agent_store_id
-                if self.registry.has_service(effective_agent_id, service_name):
-                    try:
-                        # 获取服务配置并创建客户端
-                        service_config = self.mcp_config.get_service_config(service_name)
-                        if not service_config:
-                            logger.warning(f"Service configuration not found for {service_name}")
-                            continue
+            async with client:
+                # 验证工具存在
+                tools = await client.list_tools()
 
-                        # 标准化配置并创建 FastMCP 客户端
-                        normalized_config = self._normalize_service_config(service_config)
-                        client = Client({"mcpServers": {service_name: normalized_config}})
+                # 调试日志：验证工具存在
+                logger.debug(f"[FASTMCP_DEBUG] lookup tool='{tool_name}'")
+                logger.debug(f"[FASTMCP_DEBUG] service='{service_name}' tools:")
+                for i, tool in enumerate(tools):
+                    logger.debug(f"   {i+1}. {tool.name}")
 
-                        async with client:
-                            # 验证工具存在
-                            tools = await client.list_tools()
+                # 预设为用户提供的原始名称（应为 FastMCP 原生方法名）
+                effective_tool_name = tool_name
 
-                            # 调试日志：验证工具存在
-                            logger.debug(f"[FASTMCP_DEBUG] lookup tool='{tool_name}'")
-                            logger.debug(f"[FASTMCP_DEBUG] service='{service_name}' tools:")
-                            for i, tool in enumerate(tools):
-                                logger.debug(f"   {i+1}. {tool.name}")
+                if not any(t.name == tool_name for t in tools):
+                    available = [t.name for t in tools]
+                    logger.warning(f"[FASTMCP_DEBUG] not_found tool='{tool_name}' in service='{service_name}'")
+                    logger.warning(f"[FASTMCP_DEBUG] available={available}")
 
-                            # 预设为用户提供的原始名称（应为 FastMCP 原生方法名）
-                            effective_tool_name = tool_name
+                    # 一次性自修复：若传入名称被意外加了前缀，尝试以可用列表为准做最长后缀匹配
+                    fallback = None
+                    for cand in available:
+                        if effective_tool_name.endswith(cand):
+                            fallback = cand
+                            break
 
-                            if not any(t.name == tool_name for t in tools):
-                                available = [t.name for t in tools]
-                                logger.warning(f"[FASTMCP_DEBUG] not_found tool='{tool_name}' in service='{service_name}'")
-                                logger.warning(f"[FASTMCP_DEBUG] available={available}")
+                    if fallback and any(t.name == fallback for t in tools):
+                        logger.warning(f"[FASTMCP_DEBUG] self_repair tool_name: '{tool_name}' -> '{fallback}'")
+                        effective_tool_name = fallback
+                    else:
+                        raise Exception(f"Tool {tool_name} not found in service {service_name}. Available: {available}")
 
-                                # 一次性自修复：若传入名称被意外加了前缀，尝试以可用列表为准做最长后缀匹配
-                                fallback = None
-                                for cand in available:
-                                    if effective_tool_name.endswith(cand):
-                                        fallback = cand
-                                        break
+                # 使用 FastMCP 标准执行器执行工具
+                result = await executor.execute_tool(
+                    client=client,
+                    tool_name=effective_tool_name,
+                    arguments=arguments,
+                    timeout=timeout,
+                    progress_handler=progress_handler,
+                    raise_on_error=raise_on_error
+                )
 
-                                if fallback and any(t.name == fallback for t in tools):
-                                    logger.warning(f"[FASTMCP_DEBUG] self_repair tool_name: '{tool_name}' -> '{fallback}'")
-                                    effective_tool_name = fallback
-                                else:
-                                    # 放弃该 client，继续尝试其它 client
-                                    continue
-
-                            # 使用 FastMCP 标准执行器执行工具
-                            result = await executor.execute_tool(
-                                client=client,
-                                tool_name=effective_tool_name,
-                                arguments=arguments,
-                                timeout=timeout,
-                                progress_handler=progress_handler,
-                                raise_on_error=raise_on_error
-                            )
-
-                            # 返回 FastMCP 客户端的 CallToolResult（与官方保持一致）
-                            logger.info(f"[FASTMCP] call ok tool='{effective_tool_name}' service='{service_name}'")
-                            return result
-
-                    except Exception as e:
-                        logger.error(f"Failed to execute tool in client {client_id}: {e}")
-                        if raise_on_error:
-                            raise
-                        continue
-
-            raise Exception(f"Tool {tool_name} not found in service {service_name}")
+                # 返回 FastMCP 客户端的 CallToolResult（与官方保持一致）
+                logger.info(f"[FASTMCP] call ok tool='{effective_tool_name}' service='{service_name}'")
+                return result
 
         except Exception as e:
             logger.error(f"[FASTMCP] call failed tool='{tool_name}' service='{service_name}' error={e}")
@@ -197,7 +202,7 @@ class ToolExecutionMixin:
             工具执行结果
         """
         try:
-            # 🎯 使用 session_id 获取/创建命名会话（优先），否则回退到默认会话
+            # Use session_id to get/create named session (priority), otherwise fallback to default session
             effective_agent_id = agent_id or self.client_manager.global_agent_store_id
             session = None
             try:
@@ -218,7 +223,7 @@ class ToolExecutionMixin:
                 # 最后兜底创建一个默认会话
                 session = self.session_manager.create_session(effective_agent_id)
 
-            # 🎯 获取或创建持久的 FastMCP Client（参考 langchain_mcp_adapters 设计）
+            # Get or create persistent FastMCP Client (refer to langchain_mcp_adapters design)
             client = session.services.get(service_name)
             if client is None:
                 logger.info(f"[SESSION_EXECUTION] Service '{service_name}' not bound or client is None, creating persistent client")
@@ -235,7 +240,7 @@ class ToolExecutionMixin:
 
                 logger.debug(f"[SESSION_EXECUTION] Reusing cached persistent client for service '{service_name}'")
             
-            # 🎯 使用持久连接直接执行工具（避免每次 async with 关闭连接导致状态丢失）
+            # Use persistent connection to execute tool directly (avoid state loss from closing connection on each async with)
             logger.info(f"[SESSION_EXECUTION] Executing tool '{tool_name}' with persistent client (no async with)")
 
             import time as _t
@@ -314,10 +319,10 @@ class ToolExecutionMixin:
             t_exec1 = _t.perf_counter()
             logger.debug(f"[TIMING] executor.execute_tool(): {(t_exec1 - t_exec0):.3f}s")
 
-            # 5️⃣ 更新会话活跃时间
+            # Update session activity time
             session.update_activity()
             
-            # 6️⃣ 返回 FastMCP 客户端的 CallToolResult（与官方保持一致）
+            # Return FastMCP client's CallToolResult (consistent with official implementation)
             logger.info(f"[SESSION_EXECUTION] Tool '{tool_name}' executed successfully in session mode")
             return result
             
@@ -331,35 +336,43 @@ class ToolExecutionMixin:
         """
         创建持久的 FastMCP Client 并缓存到会话中
         
-        🎯 基于langchain_mcp_adapters和FastMCP源码的正确实现：
+        基于 langchain_mcp_adapters 和 FastMCP 源码的正确实现：
         
         核心发现：
-        1. FastMCP Client支持可重入上下文管理器（multiple async with）
+        1. FastMCP Client 支持可重入上下文管理器（multiple async with）
         2. 使用引用计数维护连接生命周期
-        3. 后台任务管理实际session连接
+        3. 后台任务管理实际 session 连接
         
-        正确的方法：利用FastMCP Client的内置机制，不需要自定义wrapper
+        正确的方法：利用 FastMCP Client 的内置机制，不需要自定义 wrapper
+        
+        [pykv 唯一真相源] 从实体层获取服务配置
         
         Args:
             session: AgentSession 对象
             service_name: 服务名称
             
         Returns:
-            Client: 已连接的FastMCP Client，支持多次复用
+            Client: 已连接的 FastMCP Client，支持多次复用
         """
         try:
-            # 获取服务配置
-            service_config = self.mcp_config.get_service_config(service_name)
+            # [pykv 唯一真相源] 从实体层获取服务配置
+            service_manager = self.registry._cache_service_manager
+            service_entity = await service_manager.get_service(service_name)
+            
+            if not service_entity:
+                raise Exception(f"Service entity not found in pykv: {service_name}")
+            
+            service_config = service_entity.config
             if not service_config:
-                raise Exception(f"Service configuration not found for {service_name}")
+                raise Exception(f"Service configuration is empty in pykv: {service_name}")
             
             # 标准化配置
             normalized_config = self._normalize_service_config(service_config)
             
-            # 🎯 创建 FastMCP Client（利用其可重入特性）
+            # Create FastMCP Client (utilize its reentrant feature)
             client = Client({"mcpServers": {service_name: normalized_config}})
             
-            # 🎯 启动持久连接（FastMCP Client的正确用法）
+            # Start persistent connection (correct usage of FastMCP Client)
             # 注意：我们调用_connect()而不是使用async with，这样连接会保持活跃
             await client._connect()
             

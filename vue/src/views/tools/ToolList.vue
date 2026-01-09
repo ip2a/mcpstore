@@ -1,204 +1,237 @@
 <template>
-  <div class="tool-list">
-    <!-- 页面头部 -->
-    <div class="page-header">
-      <div class="header-left">
-        <h2 class="page-title">工具列表</h2>
-        <p class="page-description">
-          {{ serviceFilter ? `查看服务 "${serviceFilter}" 的工具` : '查看和管理所有可用的MCP工具' }}
+  <div class="tool-list-container">
+    <!-- Header -->
+    <header class="page-header">
+      <div class="header-content">
+        <h1 class="page-title">
+          Tools Library
+        </h1>
+        <p class="page-subtitle">
+          {{ serviceFilter ? `Tools provided by "${serviceFilter}"` : 'Browse and execute available MCP tools' }}
         </p>
       </div>
-      <div class="header-right">
+      <div class="header-actions">
         <el-button
           v-if="serviceFilter"
+          link
+          class="action-link"
           @click="clearServiceFilter"
-          type="info"
-          plain
         >
-          查看所有工具
+          Clear Filter
         </el-button>
         <el-button
           :icon="Refresh"
-          @click="refreshTools"
           :loading="loading"
-        >
-          刷新
-        </el-button>
+          circle
+          plain
+          class="refresh-btn"
+          @click="refreshTools"
+        />
       </div>
+    </header>
+
+    <!-- KPI Grid -->
+    <div class="kpi-grid">
+      <StatCard
+        title="Total Tools"
+        :value="systemStore.stats.totalTools"
+        unit="fns"
+        :icon="Tools"
+        class="kpi-card"
+      />
+      <StatCard
+        title="Active Services"
+        :value="systemStore.stats.totalServices"
+        unit="svcs"
+        :icon="Connection"
+        class="kpi-card"
+      />
+      <StatCard
+        title="Categories"
+        :value="Object.keys(toolsByService).length"
+        unit="types"
+        :icon="Menu"
+        class="kpi-card"
+      />
     </div>
 
-    <!-- 统计卡片 -->
-    <el-row :gutter="20" class="stats-cards">
-      <el-col :xs="24" :sm="8">
-        <div class="stat-card">
-          <div class="stat-icon tools">
-            <el-icon size="24"><Tools /></el-icon>
+    <!-- Main Content -->
+    <section class="panel-section">
+      <!-- Controls -->
+      <div class="panel-header">
+        <h3 class="panel-title">
+          Available Functions
+        </h3>
+        <div class="panel-controls">
+          <div class="search-wrapper">
+            <el-icon class="search-icon">
+              <Search />
+            </el-icon>
+            <input 
+              v-model="searchQuery" 
+              class="atom-input search-input" 
+              placeholder="Search tools..."
+            >
           </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ systemStore.stats.totalTools }}</div>
-            <div class="stat-label">总工具数</div>
-          </div>
-        </div>
-      </el-col>
-      <el-col :xs="24" :sm="8">
-        <div class="stat-card">
-          <div class="stat-icon services">
-            <el-icon size="24"><Connection /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ systemStore.stats.totalServices }}</div>
-            <div class="stat-label">服务数量</div>
-          </div>
-        </div>
-      </el-col>
-      <el-col :xs="24" :sm="8">
-        <div class="stat-card">
-          <div class="stat-icon categories">
-            <el-icon size="24"><Menu /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ Object.keys(toolsByService).length }}</div>
-            <div class="stat-label">服务分类</div>
-          </div>
-        </div>
-      </el-col>
-    </el-row>
-
-    <!-- 搜索和筛选 -->
-    <el-card class="filter-card">
-      <el-row :gutter="16">
-        <el-col :xs="24" :sm="12" :md="8">
-          <el-input
-            v-model="searchQuery"
-            placeholder="Search by name or description"
-            :prefix-icon="Search"
-            clearable
-            @input="handleSearch"
-          />
-        </el-col>
-        <el-col :xs="24" :sm="12" :md="6">
-          <el-select
+          <select
             v-model="serviceFilter"
-            placeholder="Filter by service"
-            clearable
-            @change="handleFilter"
+            class="atom-input filter-select"
           >
-            <el-option label="All Services" value="" />
-            <el-option
-              v-for="serviceName in serviceNames"
-              :key="serviceName"
-              :label="serviceName"
-              :value="serviceName"
-            />
-          </el-select>
-        </el-col>
-        <el-col :xs="24" :sm="12" :md="4">
-          <el-button
-            type="primary"
-            :icon="Refresh"
-            @click="refreshTools"
-            :loading="loading"
-            style="width: 100%"
-          >
-            Refresh
-          </el-button>
-        </el-col>
-      </el-row>
-    </el-card>
-
-    <!-- 工具列表 -->
-    <el-card class="tools-card">
-      <el-table
-        v-loading="loading"
-        :data="filteredTools"
-        stripe
-        style="width: 100%"
-      >
-        <el-table-column type="index" label="#" width="60" />
-
-        <el-table-column prop="name" label="Name" min-width="200" />
-
-        <el-table-column prop="service" label="Service" width="180" />
-
-        <el-table-column prop="description" label="Description" min-width="300" show-overflow-tooltip>
-          <template #default="{ row }">
-            <span>{{ row.description || '-' }}</span>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="Inputs" min-width="260">
-          <template #default="{ row }">
-            <div class="inputs-wrap">
-              <template v-if="getInputsList(row).length">
-                <span
-                  v-for="(it, idx) in getInputsList(row)"
-                  :key="idx"
-                  class="input-chip"
-                >
-                  <span class="key" :title="it.key">
-                    {{ it.key }}<span v-if="it.required" class="req">*</span>
-                  </span>
-                  <span class="type">{{ it.type }}</span>
-                  <span v-if="it.extras" class="extras">{{ it.extras }}</span>
-                </span>
-              </template>
-              <span v-else class="input-chip empty">None</span>
-            </div>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="Actions" width="180" fixed="right" align="center">
-          <template #default="{ row }">
-            <div class="action-links">
-              <span class="action-link" @click="viewToolDetails(row)">Detail</span>
-              <span class="action-link" @click="executeTool(row)">Execute</span>
-            </div>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <!-- 空状态 -->
-      <div v-if="filteredTools.length === 0 && !loading" class="empty-container">
-        <el-icon class="empty-icon"><Tools /></el-icon>
-        <div class="empty-text">No tools available</div>
-        <div class="empty-description">
-          {{ searchQuery || serviceFilter ? 'No matching tools found' : 'No tools available yet' }}
+            <option value="">
+              All Services
+            </option>
+            <option
+              v-for="name in serviceNames"
+              :key="name"
+              :value="name"
+            >
+              {{ name }}
+            </option>
+          </select>
         </div>
       </div>
-    </el-card>
 
-    <!-- 工具详情对话框 -->
+      <!-- Table -->
+      <div class="panel-body table-container">
+        <el-table 
+          v-loading="loading"
+          :data="filteredTools" 
+          class="atom-table" 
+          :show-header="true" 
+          size="small"
+        >
+          <el-table-column
+            prop="name"
+            label="TOOL NAME"
+            min-width="200"
+          >
+            <template #default="{ row }">
+              <span class="primary-text font-medium">{{ row.name }}</span>
+            </template>
+          </el-table-column>
+          
+          <el-table-column
+            prop="service"
+            label="SERVICE"
+            width="160"
+          >
+            <template #default="{ row }">
+              <span class="secondary-text">{{ row.service }}</span>
+            </template>
+          </el-table-column>
+
+          <el-table-column
+            prop="description"
+            label="DESCRIPTION"
+            min-width="300"
+          >
+            <template #default="{ row }">
+              <span
+                class="secondary-text truncate-multiline"
+                :title="row.description"
+              >
+                {{ row.description || '-' }}
+              </span>
+            </template>
+          </el-table-column>
+
+          <el-table-column
+            label="INPUTS"
+            min-width="200"
+          >
+            <template #default="{ row }">
+              <div class="inputs-preview">
+                <span
+                  v-if="!getInputsList(row).length"
+                  class="no-inputs"
+                >No inputs</span>
+                <span 
+                  v-for="(input, idx) in getInputsList(row).slice(0, 3)" 
+                  :key="idx" 
+                  class="input-tag"
+                >
+                  {{ input.key }}
+                </span>
+                <span
+                  v-if="getInputsList(row).length > 3"
+                  class="input-tag more"
+                >
+                  +{{ getInputsList(row).length - 3 }}
+                </span>
+              </div>
+            </template>
+          </el-table-column>
+
+          <el-table-column
+            label=""
+            width="140"
+            align="right"
+          >
+            <template #default="{ row }">
+              <div class="row-actions">
+                <button
+                  class="text-btn"
+                  @click="viewToolDetails(row)"
+                >
+                  Details
+                </button>
+                <button
+                  class="text-btn primary"
+                  @click="executeTool(row)"
+                >
+                  Run
+                </button>
+              </div>
+            </template>
+          </el-table-column>
+          
+          <template #empty>
+            <div class="empty-state">
+              <span class="empty-text">No tools found</span>
+            </div>
+          </template>
+        </el-table>
+      </div>
+    </section>
+
+    <!-- Details Dialog -->
     <el-dialog
       v-model="detailDialogVisible"
-      :title="`Tool Detail - ${selectedTool?.name}`"
+      :title="selectedTool?.name"
       width="600px"
+      class="atom-dialog"
+      align-center
     >
-      <div v-if="selectedTool" class="tool-details">
-        <el-descriptions :column="1" border>
-          <el-descriptions-item label="Tool Name">
-            {{ selectedTool.name }}
-          </el-descriptions-item>
-          <el-descriptions-item label="Service">
-            {{ selectedTool.service }}
-          </el-descriptions-item>
-          <el-descriptions-item label="Description">
-            {{ selectedTool.description || 'No description' }}
-          </el-descriptions-item>
-          <el-descriptions-item label="Parameters">
-            {{ getInputsList(selectedTool).length }}
-          </el-descriptions-item>
-        </el-descriptions>
-
-        <!-- 参数详情 -->
-        <div v-if="selectedTool.input_schema" class="params-section">
-          <h4>Input Schema</h4>
-          <pre>{{ JSON.stringify(selectedTool.input_schema, null, 2) }}</pre>
+      <div
+        v-if="selectedTool"
+        class="dialog-content"
+      >
+        <div class="detail-group">
+          <label>Service</label>
+          <p>{{ selectedTool.service }}</p>
+        </div>
+        <div class="detail-group">
+          <label>Description</label>
+          <p>{{ selectedTool.description || 'No description provided.' }}</p>
+        </div>
+        <div class="detail-group">
+          <label>Schema</label>
+          <pre class="code-block">{{ JSON.stringify(selectedTool.input_schema, null, 2) }}</pre>
         </div>
       </div>
-
       <template #footer>
-        <el-button @click="detailDialogVisible = false">Close</el-button>
-        <el-button type="primary" @click="executeTool(selectedTool)">Execute</el-button>
+        <div class="dialog-footer">
+          <el-button @click="detailDialogVisible = false">
+            Close
+          </el-button>
+          <el-button
+            type="primary"
+            color="#000"
+            @click="executeTool(selectedTool)"
+          >
+            Execute Tool
+          </el-button>
+        </div>
       </template>
     </el-dialog>
   </div>
@@ -208,27 +241,31 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useSystemStore } from '@/stores/system'
-import { summarizeInputs, schemaToList } from '@/utils/schema'
-import {
-  Refresh, Tools, Connection, Menu, Search
-} from '@element-plus/icons-vue'
+import { schemaToList } from '@/utils/schema'
+import { Refresh, Tools, Connection, Menu, Search } from '@element-plus/icons-vue'
+import StatCard from '@/components/common/StatCard.vue'
+import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 const route = useRoute()
 const systemStore = useSystemStore()
 
-// 响应式数据
 const loading = ref(false)
 const searchQuery = ref('')
 const serviceFilter = ref('')
 const detailDialogVisible = ref(false)
 const selectedTool = ref(null)
 
-// 计算属性
+const toolsByService = computed(() => systemStore.toolsByService)
+
+const serviceNames = computed(() => {
+  const names = new Set(systemStore.tools.map(tool => tool.service))
+  return Array.from(names).sort()
+})
+
 const filteredTools = computed(() => {
   let tools = systemStore.tools
 
-  // 搜索过滤
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
     tools = tools.filter(tool =>
@@ -237,7 +274,6 @@ const filteredTools = computed(() => {
     )
   }
 
-  // 服务过滤（直接匹配 service 字段）
   if (serviceFilter.value) {
     tools = tools.filter(tool => tool.service === serviceFilter.value)
   }
@@ -245,41 +281,20 @@ const filteredTools = computed(() => {
   return tools
 })
 
-const serviceNames = computed(() => {
-  const names = new Set(systemStore.tools.map(tool => tool.service))
-  return Array.from(names).sort()
-})
-
-const toolsByService = computed(() => systemStore.toolsByService)
-
-// 方法
 const refreshTools = async () => {
   loading.value = true
   try {
     await systemStore.fetchTools()
-    ElMessage.success('Tools refreshed successfully')
+    ElMessage.success('Refreshed')
   } catch (error) {
-    ElMessage.error('Failed to refresh tools')
+    ElMessage.error('Failed to refresh')
   } finally {
     loading.value = false
   }
 }
 
-const handleSearch = () => {
-  // 搜索逻辑已在计算属性中处理
-}
-
-const handleFilter = () => {
-  // 过滤逻辑已在计算属性中处理
-}
-
-// 基于 JSON Schema 的输入参数工具函数
-const getInputsSummary = (tool) => {
-  try {
-    return summarizeInputs(tool?.input_schema || {}) || 'None'
-  } catch {
-    return 'None'
-  }
+const clearServiceFilter = () => {
+  serviceFilter.value = ''
 }
 
 const getInputsList = (tool) => {
@@ -291,6 +306,7 @@ const getInputsList = (tool) => {
 }
 
 const executeTool = (tool) => {
+  detailDialogVisible.value = false // close dialog if open
   router.push({
     path: '/for_store/call_tool',
     query: { 
@@ -305,201 +321,291 @@ const viewToolDetails = (tool) => {
   detailDialogVisible.value = true
 }
 
-// 生命周期
 onMounted(async () => {
-  // 检查URL参数中是否有服务筛选
   const serviceParam = route.query.service
   if (serviceParam) {
     serviceFilter.value = serviceParam
   }
-
-  await refreshTools()
+  if (systemStore.tools.length === 0) {
+      await refreshTools()
+  }
 })
 </script>
 
 <style lang="scss" scoped>
-.tool-list {
-  width: 92%;
+.tool-list-container {
+  max-width: 1200px;
   margin: 0 auto;
-  max-width: none;
   padding: 20px;
+  width: 100%;
+}
 
-  .page-header {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 20px;
+// Header
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+}
 
-    .header-left {
-      .page-title {
-        margin: 0 0 4px 0;
-        font-size: 24px;
-        font-weight: 600;
-      }
+.page-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
 
-      .page-description {
-        margin: 0;
-        color: var(--el-text-color-secondary);
-      }
-    }
+.page-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
 
-    .header-right {
-      display: flex;
-      gap: 12px;
-    }
-  }
+.action-link {
+  font-size: 13px;
+  color: var(--text-secondary);
+  &:hover { color: var(--text-primary); }
+}
 
-  .stats-cards {
-    margin-bottom: 20px;
-
-    .stat-card {
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-      padding: 20px;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      background: var(--el-bg-color);
-      border-radius: 8px;
-
-      .stat-icon {
-        width: 50px;
-        height: 50px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-
-        &.tools {
-          background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        }
-
-        &.services {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-
-        &.categories {
-          background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-        }
-      }
-
-      .stat-content {
-        .stat-value {
-          font-size: 24px;
-          font-weight: 600;
-          color: var(--el-text-color-primary);
-        }
-
-        .stat-label {
-          font-size: 14px;
-          color: var(--el-text-color-secondary);
-        }
-      }
-    }
-  }
-
-  .filter-card {
-    margin-bottom: 20px;
-  }
-
-  .tools-card {
-    .inputs-wrap {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-    }
-
-    .input-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 8px;
-      border-radius: 6px;
-      background: var(--el-fill-color-light);
-      border: 1px solid var(--el-border-color-lighter);
-      color: var(--el-text-color-primary);
-      font-size: 12px;
-
-      .key {
-        font-weight: 600;
-      }
-
-      .req {
-        color: var(--el-color-danger);
-        margin-left: 2px;
-      }
-
-      .type {
-        color: var(--el-text-color-secondary);
-      }
-
-      .extras {
-        color: var(--el-text-color-secondary);
-      }
-
-      &.empty {
-        opacity: 0.7;
-        font-style: italic;
-      }
-    }
-
-    .action-links {
-      display: flex;
-      gap: 12px;
-      justify-content: center;
-    }
-
-    .action-link {
-      color: var(--el-color-primary);
-      cursor: pointer;
-      user-select: none;
-
-      &:hover {
-        text-decoration: underline;
-      }
-    }
-
-    .empty-container {
-      padding: 60px 20px;
-      text-align: center;
-
-      .empty-icon {
-        font-size: 64px;
-        color: var(--el-text-color-placeholder);
-        margin-bottom: 16px;
-      }
-
-      .empty-text {
-        font-size: 18px;
-        color: var(--el-text-color-primary);
-        margin-bottom: 8px;
-      }
-
-      .empty-description {
-        color: var(--el-text-color-secondary);
-        font-size: 14px;
-      }
-    }
-  }
-
-  .tool-details {
-    .params-section {
-      margin-top: 20px;
-
-      h4 {
-        margin-bottom: 12px;
-        color: var(--el-text-color-primary);
-      }
-
-      pre {
-        background: var(--el-fill-color-light);
-        padding: 12px;
-        border-radius: 8px;
-        font-size: 14px;
-        max-height: 200px;
-        overflow-y: auto;
-      }
-    }
+.refresh-btn {
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+  &:hover { 
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+    background: transparent;
   }
 }
-</style>
 
+// KPI Grid
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+
+  @media (max-width: 768px) { grid-template-columns: 1fr; }
+}
+
+.kpi-card {
+  height: 100%;
+}
+
+// Panel & Controls
+.panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.panel-controls {
+  display: flex;
+  gap: 12px;
+}
+
+.search-wrapper {
+  position: relative;
+  
+  .search-icon {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-placeholder);
+    font-size: 14px;
+  }
+  
+  .search-input {
+    padding-left: 28px;
+    width: 240px;
+  }
+}
+
+// Atomic Inputs
+.atom-input {
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: border-color 0.2s;
+  
+  &:focus { outline: none; border-color: var(--text-secondary); }
+  &::placeholder { color: var(--text-placeholder); }
+}
+
+.filter-select {
+  width: 160px;
+  cursor: pointer;
+}
+
+// Table
+.table-container {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+:deep(.atom-table) {
+  --el-table-border-color: var(--border-color);
+  --el-table-header-bg-color: transparent;
+  --el-table-row-hover-bg-color: var(--bg-hover);
+  background: transparent;
+
+  th.el-table__cell {
+    background: transparent !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.05em;
+    padding: 10px 16px;
+    text-transform: uppercase;
+  }
+
+  td.el-table__cell {
+    border-bottom: 1px solid var(--border-color) !important;
+    padding: 12px 16px;
+  }
+  
+  .el-table__inner-wrapper::before { display: none; }
+}
+
+.primary-text {
+  font-size: 13px;
+  color: var(--text-primary);
+  &.font-medium { font-weight: 500; }
+}
+
+.secondary-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.truncate-multiline {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+// Input Tags
+.inputs-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.input-tag {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  background: var(--bg-body);
+  border: 1px solid var(--border-color);
+  padding: 2px 6px;
+  border-radius: 4px;
+  
+  &.more {
+    color: var(--text-placeholder);
+    border-style: dashed;
+  }
+}
+
+.no-inputs {
+  font-size: 11px;
+  color: var(--text-placeholder);
+  font-style: italic;
+}
+
+// Actions
+.row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.text-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  padding: 0;
+  
+  &:hover { color: var(--text-primary); text-decoration: underline; }
+  
+  &.primary {
+    color: var(--text-primary);
+    &:hover { color: var(--color-accent); }
+  }
+}
+
+.empty-state {
+  padding: 40px;
+  text-align: center;
+  color: var(--text-placeholder);
+  font-size: 13px;
+}
+
+// Dialog
+.dialog-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.detail-group {
+  label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+    letter-spacing: 0.05em;
+  }
+  
+  p {
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.5;
+    margin: 0;
+  }
+}
+
+.code-block {
+  background: var(--bg-body);
+  border: 1px solid var(--border-color);
+  padding: 12px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: auto;
+  max-height: 300px;
+  margin: 0;
+}
+</style>

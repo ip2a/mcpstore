@@ -6,37 +6,23 @@ This module provides the core setup_store() method that initializes MCPStore
 with modern cache configuration (RedisConfig/MemoryConfig).
 """
 
+import asyncio
 import logging
-import os
-from hashlib import sha1
-from typing import Optional, Dict, Any, Union
+import time
 from copy import deepcopy
+from typing import Optional, Dict, Any, Union
 
-from mcpstore.core.utils.async_sync_helper import run_async_sync
+from mcpstore.config.cache_config import DataSourceStrategy
 from mcpstore.config.toml_config import init_config
 
 logger = logging.getLogger(__name__)
 
+# Default namespace constant
+DEFAULT_NAMESPACE = "mcpstore"
+
 
 class StoreSetupManager:
     """Setup Manager - Keep only single setup_store interface"""
-
-    @staticmethod
-    def _generate_namespace(mcpjson_path: str) -> str:
-        """
-        Automatically generate namespace based on mcp.json path
-
-        Args:
-            mcpjson_path: mcp.json file path
-
-        Returns:
-            Generated namespace string
-        """
-        # Use SHA1 hash of the absolute path to generate a unique namespace
-        abs_path = os.path.abspath(mcpjson_path)
-        hash_obj = sha1(abs_path.encode('utf-8'))
-        hash_hex = hash_obj.hexdigest()[:12]  # Use first 12 characters
-        return f"mcpstore_{hash_hex}"
 
     @staticmethod
     def setup_store(
@@ -45,39 +31,75 @@ class StoreSetupManager:
         cache: Optional[Union["MemoryConfig", "RedisConfig"]] = None,
         static_config: Optional[Dict[str, Any]] = None,
         cache_mode: str = "auto",
+        only_db: bool = False,
     ):
         """
-        Unified MCPStore initialization (no implicit background side effects)
+        Unified MCPStore initialization (synchronous entry point)
+
+        Args:
+            ... (keep consistent with async version)
+        """
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("Detected running event loop: please use setup_store_async() interface.")
+
+        return asyncio.run(
+            StoreSetupManager._setup_store_internal(
+                mcpjson_path=mcpjson_path,
+                debug=debug,
+                cache=cache,
+                static_config=static_config,
+                cache_mode=cache_mode,
+                only_db=only_db,
+            )
+        )
+
+    @staticmethod
+    async def setup_store_async(
+        mcpjson_path: str | None = None,
+        debug: bool | str = False,
+        cache: Optional[Union["MemoryConfig", "RedisConfig"]] = None,
+        static_config: Optional[Dict[str, Any]] = None,
+        cache_mode: str = "auto",
+        only_db: bool = False,
+    ):
+        """
+        Unified MCPStore initialization (async entry point)
+        """
+        return await StoreSetupManager._setup_store_internal(
+            mcpjson_path=mcpjson_path,
+            debug=debug,
+            cache=cache,
+            static_config=static_config,
+            cache_mode=cache_mode,
+            only_db=only_db,
+        )
+
+    @staticmethod
+    async def _setup_store_internal(
+        mcpjson_path: str | None,
+        debug: bool | str,
+        cache: Optional[Union["MemoryConfig", "RedisConfig"]],
+        static_config: Optional[Dict[str, Any]],
+        cache_mode: str,
+        only_db: bool,
+    ):
+        """
+        Unified MCPStore initialization (shared logic)
 
         Args:
             mcpjson_path: mcp.json file path; None uses default (~/.mcpstore/mcp.json)
             debug: False=OFF (completely silent); True=DEBUG; string=corresponding level
             cache: Cache configuration object (MemoryConfig or RedisConfig), default None (use MemoryConfig)
-                - MemoryConfig(): In-memory cache (default)
-                - RedisConfig(url="redis://localhost:6379/0"): Redis cache
             static_config: Static configuration injection (monitoring/network/features/local_service)
-            cache_mode: Cache working mode ("auto" | "local" | "hybrid" | "shared")
-                - "auto": Auto detection mode (default, maps to DataSourceStrategy)
-                - "local": Local mode (JSON + Memory)
-                - "hybrid": Hybrid mode (JSON + Redis)
-                - "shared": Shared mode (Redis Only)
+            cache_mode: Cache working mode ("auto" | "local" | "shared")
+            only_db: Use only pykv (only_db), do not read mcp.json
 
         Returns:
             MCPStore: Initialized MCPStore instance
-
-        Raises:
-            ValueError: If external_db parameter is provided (no longer supported)
-            RuntimeError: If workspace initialization fails
-
-        Examples:
-            >>> # Default: Memory cache
-            >>> store = MCPStore.setup_store()
-
-            >>> # Redis cache
-            >>> from mcpstore.config import RedisConfig
-            >>> store = MCPStore.setup_store(
-            ...     cache=RedisConfig(url="redis://localhost:6379/0")
-            ... )
         """
 
         # 1) Logging configuration
@@ -86,7 +108,7 @@ class StoreSetupManager:
 
         # 1.5) Initialize TOML-based global configuration (config.toml + MCPStoreConfig)
         try:
-            run_async_sync(init_config())
+            await init_config()
         except Exception as e:
             logger.warning(f"Failed to initialize TOML configuration system, continuing with defaults: {e}")
 
@@ -95,18 +117,26 @@ class StoreSetupManager:
         from mcpstore.config.path_utils import get_user_default_mcp_path
         from mcpstore.core.store.data_space_manager import DataSpaceManager
 
-        # Always use DataSpaceManager for both explicit and default paths
-        resolved_mcp_path = mcpjson_path or str(get_user_default_mcp_path())
-        
-        dsm = DataSpaceManager(resolved_mcp_path)
-        if not dsm.initialize_workspace():
-            raise RuntimeError(f"Failed to initialize workspace for: {resolved_mcp_path}")
-        
-        config = MCPConfig(json_path=resolved_mcp_path)
-        workspace_dir = str(dsm.workspace_dir)
+        # only_db 模式：完全忽略本地 mcp.json，不创建 DataSpace/workspace
+        resolved_mcp_path = None
+        dsm = None
+        config = None
+        workspace_dir = None
 
-        # 3) Inject static configuration (only injection, no background startup)
-        base_cfg = config.load_config()
+        if not only_db:
+            resolved_mcp_path = mcpjson_path or str(get_user_default_mcp_path())
+            dsm = DataSpaceManager(resolved_mcp_path)
+            if not dsm.initialize_workspace():
+                raise RuntimeError(f"Failed to initialize workspace for: {resolved_mcp_path}")
+            config = MCPConfig(json_path=resolved_mcp_path)
+            workspace_dir = str(dsm.workspace_dir)
+            base_cfg = config.load_config()
+        else:
+            # 纯 DB 模式：使用空配置，后续仅依赖 static_config 注入
+            if mcpjson_path is not None:
+                logger.warning("[SETUP] [WARN] only_db mode enabled, ignoring mcpjson_path parameter")
+            base_cfg = {}
+
         stat = static_config or {}
         # Map network.http_timeout_seconds -> timing.http_timeout_seconds (orchestrator depends on this field)
         timing = {}
@@ -132,50 +162,75 @@ class StoreSetupManager:
             set_local_service_manager_work_dir(workspace_dir)
 
         # 4) Registry and cache backend
-        from mcpstore.core.registry import ServiceRegistry
         from mcpstore.core.registry.registry_factory import create_registry_from_kv_store
         from mcpstore.config import (
             MemoryConfig, RedisConfig, detect_strategy,
             create_kv_store, get_namespace, start_health_check
         )
-        from mcpstore.core.registry.config_sync_manager import ConfigSyncManager
+        from mcpstore.core.bridge import get_async_bridge
+        bridge = get_async_bridge()
 
         # Handle cache configuration (default to MemoryConfig if not provided)
         if cache is None:
             cache = MemoryConfig()
             logger.debug("Using default MemoryConfig for cache")
 
-        # Detect data source strategy based on cache type and JSON path
-        strategy = detect_strategy(cache, mcpjson_path)
+        # Detect data source strategy based on cache type and explicit only_db toggle
+        strategy = detect_strategy(cache, resolved_mcp_path, only_db=only_db)
         logger.info(f"Cache initialization: type={cache.cache_type.value}, strategy={strategy.value}")
         
-        # Set default namespace for RedisConfig if not provided
+        # Set namespace: use default value "mcpstore" uniformly, user can override via RedisConfig.namespace
+        namespace = DEFAULT_NAMESPACE
         if isinstance(cache, RedisConfig):
             if cache.namespace is None:
-                if mcpjson_path:
-                    # Auto-generate namespace based on mcp.json path
-                    cache.namespace = StoreSetupManager._generate_namespace(mcpjson_path)
-                    logger.info(f"Generated namespace from JSON path: {cache.namespace}")
-                else:
-                    # Use default namespace
-                    cache.namespace = "mcpstore"
-                    logger.info(f"Using default namespace: {cache.namespace}")
+                cache.namespace = DEFAULT_NAMESPACE
+                logger.info(f"Using default namespace: {cache.namespace}")
             else:
+                namespace = cache.namespace
                 logger.info(f"Using user-provided namespace: {cache.namespace}")
         
-        # Create KV store using create_kv_store
-        kv_store = create_kv_store(cache)
-        logger.info(f"Created KV store: {type(kv_store).__name__}")
+        # Critical fix: For Redis backend, must create KV store in AOB background event loop
+        # This binds Redis connection to AOB event loop, all subsequent operations execute in same event loop
+        if isinstance(cache, RedisConfig):
+            # Create Redis KV store in AOB background event loop
+            async def _create_redis_kv_store():
+                from key_value.aio.stores.redis import RedisStore
+                namespace = get_namespace(cache)
+                
+                if cache.client:
+                    logger.debug(f"Creating RedisStore with user-provided client in AOB loop, namespace={namespace}")
+                    return RedisStore(client=cache.client, default_collection=namespace)
+                elif cache.url:
+                    logger.debug(f"Creating RedisStore with URL in AOB loop, namespace={namespace}")
+                    return RedisStore(url=cache.url, default_collection=namespace)
+                else:
+                    logger.debug(f"Creating RedisStore with parameters in AOB loop: host={cache.host}, port={cache.port or 6379}, db={cache.db or 0}, namespace={namespace}")
+                    return RedisStore(
+                        host=cache.host,
+                        port=cache.port or 6379,
+                        db=cache.db or 0,
+                        password=cache.password,
+                        default_collection=namespace
+                    )
+            
+            kv_store = await StoreSetupManager._run_via_bridge_async(
+                bridge,
+                _create_redis_kv_store(),
+                op_name="create_redis_kv_store",
+            )
+            logger.info(f"Created Redis KV store in AOB event loop: {type(kv_store).__name__}")
+        else:
+            # For MemoryStore, async entry also needs to avoid blocking current event loop
+            kv_store = await StoreSetupManager._create_memory_store(cache, create_kv_store)
+            logger.info(f"Created KV store: {type(kv_store).__name__}")
         
         # Use factory pattern for zero delegation
-        registry = create_registry_from_kv_store(kv_store, test_mode=False)
+        # Pass unified namespace to registry
+        registry = create_registry_from_kv_store(kv_store, test_mode=False, namespace=namespace)
 
-        config_sync_manager = None
-        if strategy.value == "json_custom":
-            namespace = None
-            if isinstance(cache, RedisConfig):
-                namespace = get_namespace(cache)
-            config_sync_manager = ConfigSyncManager(kv_store, namespace=namespace)
+        # [已移除] ConfigSyncManager 配置备份功能
+        # 原因: 所有一致性数据统一通过 add_service() 写入三层缓存架构
+        # 初始化时的配置备份会导致数据不一致，因此移除
         
         # Track Redis client lifecycle (for cleanup)
         _user_provided_redis_client = None
@@ -227,57 +282,220 @@ class StoreSetupManager:
             except Exception as e:
                 logger.error(f"Failed to initialize Redis connection: {e}", exc_info=True)
         
-        # Detect cache mode if set to "auto" (for backward compatibility)
+        # Auto-detect cache mode based on strategy
         if cache_mode == "auto":
-            # Map strategy to cache_mode
-            if strategy.value == "json_memory":
-                cache_mode = "local"
-            elif strategy.value == "json_custom":
-                cache_mode = "hybrid"
-            elif strategy.value == "custom_only":
+            # New semantics: only only_db is considered shared, all others are local
+            if strategy == DataSourceStrategy.ONLY_DB:
                 cache_mode = "shared"
-            logger.debug(f"Mapped strategy {strategy.value} to cache_mode: {cache_mode}")
+            else:
+                cache_mode = "local"
+            logger.debug(f"[SETUP] [MAP] Strategy {strategy.value} mapped to cache mode: {cache_mode}")
 
-        # 5) 编排器
+        # 5) Orchestrator
         from mcpstore.core.orchestrator import MCPOrchestrator
-        orchestrator = MCPOrchestrator(base_cfg, registry, mcp_config=config)
 
-        if config_sync_manager is not None:
-            try:
-                orchestrator.config_sync_manager = config_sync_manager
-            except Exception:
-                pass
+        standalone_config_manager = None
+        if only_db:
+            # Provide minimal in-memory config manager to avoid MCPConfig falling back to file mode
+            class OnlyDBConfigManager:
+                def __init__(self):
+                    self._services: Dict[str, Any] = {}
 
-        # 6) 实例化 Store（固定组合类）
+                def get_mcp_config(self):
+                    return {"mcpServers": {}}
+
+                def get_service_config(self, name):
+                    return self._services.get(name)
+
+                def add_service_config(self, name, cfg):
+                    self._services[name] = cfg
+
+                def get_all_service_configs(self):
+                    return dict(self._services)
+
+            standalone_config_manager = OnlyDBConfigManager()
+
+        orchestrator = MCPOrchestrator(
+            base_cfg,
+            registry,
+            standalone_config_manager=standalone_config_manager,
+            mcp_config=config,
+        )
+
+
+
+        # 6) Instantiate Store (fixed composition class)
         from mcpstore.core.store.composed_store import MCPStore as _MCPStore
         store = _MCPStore(orchestrator, config)
         # Always set data space manager since we always create it now
         store._data_space_manager = dsm
 
-        # 7) 同步初始化 orchestrator（无后台副作用）
-        from mcpstore.core.utils.async_sync_helper import AsyncSyncHelper
-        helper = AsyncSyncHelper()
-        # 保持后台事件循环常驻，避免组件启动后立即被清理导致状态无法收敛
-        helper.run_async(orchestrator.setup(), force_background=True)
+        # 7) Synchronously initialize orchestrator
+        # Critical: For Redis backend, must use AOB to ensure execution in same event loop
+        if isinstance(cache, RedisConfig):
+            await StoreSetupManager._run_via_bridge_async(
+                bridge,
+                orchestrator.setup(),
+                op_name="orchestrator.setup",
+            )
+        else:
+            await orchestrator.setup()
 
-        if config_sync_manager is not None:
+        # 6.5) Pre-write core entities (store / agents)
+        async def _seed_core_entities():
             try:
-                helper.run_async(
-                    config_sync_manager.sync_json_to_cache(config.json_path, overwrite=True),
-                    force_background=False,
-                )
-            except Exception as e:
-                logger.warning(f"Initial JSON to KV config sync failed: {e}")
-        try:
-            setattr(store, "_background_helper", helper)
-        except Exception:
-            pass
+                cache_layer = getattr(registry, "_cache_layer_manager", None)
+                if cache_layer is None:
+                    logger.warning("[CACHE_SEED] cache_layer_manager not available; skip seeding core entities.")
+                    return
 
-        # 8) 可选：预热缓存
+                now = int(time.time())
+                # seed agent: global_agent_store
+                try:
+                    global_agent_id = getattr(store.client_manager, "global_agent_store_id", "global_agent_store")
+                except Exception:
+                    global_agent_id = "global_agent_store"
+
+                agent_exists = await cache_layer.get_entity("agents", global_agent_id)
+                if agent_exists is None:
+                    await cache_layer.put_entity(
+                        "agents",
+                        global_agent_id,
+                        {
+                            "agent_id": global_agent_id,
+                            "created_time": now,
+                            "last_active": now,
+                            "is_global": True,
+                        },
+                    )
+
+                # seed store entity
+                store_key = "mcpstore"
+                store_payload = {
+                    "store_id": store_key,
+                    "namespace": namespace,
+                    "cache_mode": cache_mode,
+                    "mcpjson_path": resolved_mcp_path,
+                    "workspace_dir": workspace_dir,
+                    "created_time": now,
+                }
+                existing_store = await cache_layer.get_entity("store", store_key)
+                if existing_store is None:
+                    await cache_layer.put_entity("store", store_key, store_payload)
+            except Exception as seed_error:
+                logger.warning(f"[CACHE_SEED] Failed to seed core entities: {seed_error}")
+
+        async def _backfill_clients_and_metadata():
+            try:
+                cache_layer = getattr(registry, "_cache_layer_manager", None)
+                if cache_layer is None:
+                    logger.warning("[CACHE_SEED] cache_layer_manager not available; skip backfill.")
+                    return
+                services = await cache_layer.get_all_entities_async("services")
+                relations = await cache_layer.get_all_relations_async("agent_services")
+
+                # Build service_global_name -> client_id mapping
+                client_by_service: dict[str, str] = {}
+                agent_by_service: dict[str, str] = {}
+                for agent_id, rel in relations.items():
+                    for svc in rel.get("services", []) if isinstance(rel, dict) else []:
+                        sg = svc.get("service_global_name")
+                        cid = svc.get("client_id")
+                        if sg:
+                            client_by_service[sg] = cid
+                            agent_by_service[sg] = agent_id
+
+                from mcpstore.core.utils.id_generator import ClientIDGenerator
+                now_ts = int(time.time())
+
+                for sg, data in services.items():
+                    if not isinstance(data, dict):
+                        continue
+                    agent_id = data.get("source_agent") or agent_by_service.get(sg) or "global_agent_store"
+                    client_id = client_by_service.get(sg)
+                    if not client_id:
+                        client_id = ClientIDGenerator.generate_deterministic_id(
+                            agent_id=agent_id,
+                            service_name=data.get("service_original_name", sg),
+                            service_config=data.get("config", {}),
+                            global_agent_store_id="global_agent_store",
+                        )
+
+                    # Backfill clients entity
+                    client_entity = await cache_layer.get_entity("clients", client_id)
+                    if not isinstance(client_entity, dict):
+                        client_entity = {
+                            "client_id": client_id,
+                            "agent_id": agent_id,
+                            "services": [],
+                            "created_time": now_ts,
+                        }
+                    services_list = client_entity.get("services") or []
+                    if sg not in services_list:
+                        services_list.append(sg)
+                    client_entity.update({
+                        "agent_id": agent_id,
+                        "services": services_list,
+                        "updated_time": now_ts,
+                    })
+                    await cache_layer.put_entity("clients", client_id, client_entity)
+
+                    # Backfill service_metadata state
+                    existing_meta = await cache_layer.get_state("service_metadata", sg)
+                    if existing_meta is None:
+                        metadata_state = {
+                            "service_global_name": sg,
+                            "agent_id": agent_id,
+                            "created_time": now_ts,
+                            "state_entered_time": now_ts,
+                            "reconnect_attempts": 0,
+                            "last_ping_time": None,
+                        }
+                        await cache_layer.put_state("service_metadata", sg, metadata_state)
+            except Exception as bf_error:
+                logger.warning(f"[CACHE_SEED] Backfill clients/metadata failed: {bf_error}")
+
+        if not only_db:
+            try:
+                if isinstance(cache, RedisConfig):
+                    await StoreSetupManager._run_via_bridge_async(
+                        bridge,
+                        _seed_core_entities(),
+                        op_name="cache.seed_core_entities",
+                    )
+                else:
+                    await _seed_core_entities()
+            except Exception as seed_outer_error:
+                logger.warning(f"[CACHE_SEED] Seeding core entities failed: {seed_outer_error}")
+
+            try:
+                if isinstance(cache, RedisConfig):
+                    await StoreSetupManager._run_via_bridge_async(
+                        bridge,
+                        _backfill_clients_and_metadata(),
+                        op_name="cache.backfill_clients_metadata",
+                    )
+                else:
+                    await _backfill_clients_and_metadata()
+            except Exception as bf_outer_error:
+                logger.warning(f"[CACHE_SEED] Backfill clients/metadata failed: {bf_outer_error}")
+
+        # [已移除] Phase 11: 配置同步 (sync_json_to_cache)
+        # 原因: 所有一致性数据统一通过 add_service() 写入三层缓存架构
+        # mcp.json 配置在服务连接时通过 add_service() 写入实体层/关系层/状态层
+
+        # 8) Optional: Preload cache
         features = stat.get("features", {}) if isinstance(stat, dict) else {}
-        if features.get("preload_cache"):
+        if features.get("preload_cache") and not only_db:
             try:
-                helper.run_async(store.initialize_cache_from_files(), force_background=False)
+                if isinstance(cache, RedisConfig):
+                    await StoreSetupManager._run_via_bridge_async(
+                        bridge,
+                        store.initialize_cache_from_files(),
+                        op_name="store.initialize_cache_from_files",
+                    )
+                else:
+                    await store.initialize_cache_from_files()
             except Exception as e:
                 if features.get("fail_on_cache_preload_error"):
                     raise
@@ -321,3 +539,42 @@ class StoreSetupManager:
             pass
 
         return store
+
+    @staticmethod
+    async def _run_via_bridge_async(bridge, coro, *, op_name: str):
+        """
+        Execute coroutine that needs to be bound to AOB event loop in async context.
+        """
+        bridge_loop = getattr(bridge, "_loop", None)
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop is None:
+            return bridge.run(coro, op_name=op_name)
+
+        if bridge_loop and running_loop is bridge_loop:
+            return await coro
+
+        if bridge_loop is not None:
+            future = asyncio.run_coroutine_threadsafe(coro, bridge_loop)
+            return await asyncio.wrap_future(future)
+
+        # No bridge loop available, fallback to running sync bridge
+        return await asyncio.to_thread(bridge.run, coro, op_name=op_name)
+
+    @staticmethod
+    async def _create_memory_store(cache, create_fn):
+        """
+        Create MemoryStore in async context, avoid blocking current event loop.
+        """
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop is None:
+            return create_fn(cache)
+
+        return await asyncio.to_thread(create_fn, cache)

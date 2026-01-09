@@ -92,7 +92,7 @@ def run_api(host: str, port: int, reload: bool, log_level: str, url_prefix: str)
             log_level=log_level
         )
     except KeyboardInterrupt:
-        typer.echo("\n🛑 Server stopped by user")
+        typer.echo("\n[STOPPED] Server stopped by user")
     except Exception as e:
         typer.echo(f" Failed to start server: {e}")
         raise typer.Exit(1)
@@ -187,7 +187,7 @@ def main():
     try:
         app()
     except KeyboardInterrupt:
-        typer.echo("\n👋 Goodbye!")
+        typer.echo("\n[INFO] Goodbye!")
         sys.exit(0)
     except Exception as e:
         typer.echo(f" CLI error: {e}")

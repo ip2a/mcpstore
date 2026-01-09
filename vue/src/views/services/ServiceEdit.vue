@@ -20,219 +20,269 @@
     <div class="service-edit__content content-stack">
       <!-- 编辑表单 -->
       <el-card class="form-card">
-      <el-form
-        ref="formRef"
-        :model="form"
-        :rules="rules"
-        label-width="120px"
-        @submit.prevent="handleSubmit"
-      >
-        <!-- 基本信息 -->
-        <div class="form-section">
-          <h3 class="section-title">基本信息</h3>
+        <el-form
+          ref="formRef"
+          :model="form"
+          :rules="rules"
+          label-width="120px"
+          @submit.prevent="handleSubmit"
+        >
+          <!-- 基本信息 -->
+          <div class="form-section">
+            <h3 class="section-title">
+              基本信息
+            </h3>
           
-          <el-form-item label="服务名称" prop="name">
-            <el-input
-              v-model="form.name"
-              placeholder="请输入服务名称"
-              :disabled="isEdit"
-            />
-            <div class="form-tip">
-              {{ isEdit ? '服务名称不可修改' : '服务名称必须唯一' }}
-            </div>
-          </el-form-item>
+            <el-form-item
+              label="服务名称"
+              prop="name"
+            >
+              <el-input
+                v-model="form.name"
+                placeholder="请输入服务名称"
+                :disabled="isEdit"
+              />
+              <div class="form-tip">
+                {{ isEdit ? '服务名称不可修改' : '服务名称必须唯一' }}
+              </div>
+            </el-form-item>
 
-          <el-form-item label="服务类型" prop="serviceType">
-            <el-radio-group v-model="form.serviceType" @change="handleServiceTypeChange">
-              <el-radio value="remote">远程服务</el-radio>
-              <el-radio value="local">本地服务</el-radio>
-            </el-radio-group>
-          </el-form-item>
-        </div>
+            <el-form-item
+              label="服务类型"
+              prop="serviceType"
+            >
+              <el-radio-group
+                v-model="form.serviceType"
+                @change="handleServiceTypeChange"
+              >
+                <el-radio value="remote">
+                  远程服务
+                </el-radio>
+                <el-radio value="local">
+                  本地服务
+                </el-radio>
+              </el-radio-group>
+            </el-form-item>
+          </div>
 
-        <!-- 远程服务配置 -->
-        <div v-if="form.serviceType === 'remote'" class="form-section">
-          <h3 class="section-title">远程服务配置</h3>
+          <!-- 远程服务配置 -->
+          <div
+            v-if="form.serviceType === 'remote'"
+            class="form-section"
+          >
+            <h3 class="section-title">
+              远程服务配置
+            </h3>
           
-          <el-form-item label="服务URL" prop="url">
-            <el-input
-              v-model="form.url"
-              placeholder="https://api.example.com/mcp"
-            />
-          </el-form-item>
+            <el-form-item
+              label="服务URL"
+              prop="url"
+            >
+              <el-input
+                v-model="form.url"
+                placeholder="https://api.example.com/mcp"
+              />
+            </el-form-item>
 
-          <el-form-item label="传输类型" prop="transport">
-            <el-select v-model="form.transport" placeholder="选择传输类型">
-              <el-option label="HTTP" value="http" />
-              <el-option label="Streamable HTTP" value="streamable-http" />
-              <el-option label="SSE" value="sse" />
-            </el-select>
-          </el-form-item>
+            <el-form-item
+              label="传输类型"
+              prop="transport"
+            >
+              <el-select
+                v-model="form.transport"
+                placeholder="选择传输类型"
+              >
+                <el-option
+                  label="HTTP"
+                  value="http"
+                />
+                <el-option
+                  label="Streamable HTTP"
+                  value="streamable-http"
+                />
+                <el-option
+                  label="SSE"
+                  value="sse"
+                />
+              </el-select>
+            </el-form-item>
 
-          <!-- HTTP Headers -->
-          <el-form-item label="请求头">
+            <!-- HTTP Headers -->
+            <el-form-item label="请求头">
+              <div class="key-value-editor">
+                <div
+                  v-for="(header, index) in form.headers"
+                  :key="index"
+                  class="key-value-row"
+                >
+                  <el-input
+                    v-model="header.key"
+                    placeholder="Header名称"
+                    class="key-input"
+                  />
+                  <el-input
+                    v-model="header.value"
+                    placeholder="Header值"
+                    class="value-input"
+                  />
+                  <el-button
+                    type="danger"
+                    :icon="Delete"
+                    @click="removeHeader(index)"
+                  />
+                </div>
+                <el-button
+                  type="primary"
+                  :icon="Plus"
+                  class="add-button"
+                  @click="addHeader"
+                >
+                  添加Header
+                </el-button>
+              </div>
+            </el-form-item>
+          </div>
+
+          <!-- 本地服务配置 -->
+          <div
+            v-if="form.serviceType === 'local'"
+            class="form-section"
+          >
+            <h3 class="section-title">
+              本地服务配置
+            </h3>
+          
+            <el-form-item
+              label="执行命令"
+              prop="command"
+            >
+              <el-input
+                v-model="form.command"
+                placeholder="python, node, ./my-script"
+              />
+            </el-form-item>
+
+            <el-form-item label="命令参数">
+              <div class="array-editor">
+                <div
+                  v-for="(arg, index) in form.args"
+                  :key="index"
+                  class="array-row"
+                >
+                  <el-input
+                    v-model="form.args[index]"
+                    placeholder="参数"
+                    class="array-input"
+                  />
+                  <el-button
+                    type="danger"
+                    :icon="Delete"
+                    @click="removeArg(index)"
+                  />
+                </div>
+                <el-button
+                  type="primary"
+                  :icon="Plus"
+                  class="add-button"
+                  @click="addArg"
+                >
+                  添加参数
+                </el-button>
+              </div>
+            </el-form-item>
+
+            <el-form-item label="工作目录">
+              <el-input
+                v-model="form.working_dir"
+                placeholder="留空使用默认目录"
+              />
+            </el-form-item>
+          </div>
+
+          <!-- 环境变量 -->
+          <div class="form-section">
+            <h3 class="section-title">
+              环境变量
+            </h3>
+          
             <div class="key-value-editor">
               <div
-                v-for="(header, index) in form.headers"
+                v-for="(env, index) in form.env"
                 :key="index"
                 class="key-value-row"
               >
                 <el-input
-                  v-model="header.key"
-                  placeholder="Header名称"
+                  v-model="env.key"
+                  placeholder="变量名"
                   class="key-input"
                 />
                 <el-input
-                  v-model="header.value"
-                  placeholder="Header值"
+                  v-model="env.value"
+                  placeholder="变量值"
                   class="value-input"
+                  :type="env.key.toLowerCase().includes('password') || env.key.toLowerCase().includes('key') ? 'password' : 'text'"
+                  show-password
                 />
                 <el-button
                   type="danger"
                   :icon="Delete"
-                  @click="removeHeader(index)"
+                  @click="removeEnv(index)"
                 />
               </div>
               <el-button
                 type="primary"
                 :icon="Plus"
-                @click="addHeader"
                 class="add-button"
+                @click="addEnv"
               >
-                添加Header
+                添加环境变量
               </el-button>
             </div>
-          </el-form-item>
-        </div>
+          </div>
 
-        <!-- 本地服务配置 -->
-        <div v-if="form.serviceType === 'local'" class="form-section">
-          <h3 class="section-title">本地服务配置</h3>
+          <!-- 高级配置 -->
+          <div class="form-section">
+            <h3 class="section-title">
+              高级配置
+            </h3>
           
-          <el-form-item label="执行命令" prop="command">
-            <el-input
-              v-model="form.command"
-              placeholder="python, node, ./my-script"
-            />
-          </el-form-item>
-
-          <el-form-item label="命令参数">
-            <div class="array-editor">
-              <div
-                v-for="(arg, index) in form.args"
-                :key="index"
-                class="array-row"
-              >
-                <el-input
-                  v-model="form.args[index]"
-                  placeholder="参数"
-                  class="array-input"
-                />
-                <el-button
-                  type="danger"
-                  :icon="Delete"
-                  @click="removeArg(index)"
-                />
-              </div>
-              <el-button
-                type="primary"
-                :icon="Plus"
-                @click="addArg"
-                class="add-button"
-              >
-                添加参数
-              </el-button>
-            </div>
-          </el-form-item>
-
-          <el-form-item label="工作目录">
-            <el-input
-              v-model="form.working_dir"
-              placeholder="留空使用默认目录"
-            />
-          </el-form-item>
-        </div>
-
-        <!-- 环境变量 -->
-        <div class="form-section">
-          <h3 class="section-title">环境变量</h3>
-          
-          <div class="key-value-editor">
-            <div
-              v-for="(env, index) in form.env"
-              :key="index"
-              class="key-value-row"
-            >
-              <el-input
-                v-model="env.key"
-                placeholder="变量名"
-                class="key-input"
+            <el-form-item label="超时时间">
+              <el-input-number
+                v-model="form.timeout"
+                :min="1"
+                :max="300"
+                placeholder="秒"
               />
-              <el-input
-                v-model="env.value"
-                placeholder="变量值"
-                class="value-input"
-                :type="env.key.toLowerCase().includes('password') || env.key.toLowerCase().includes('key') ? 'password' : 'text'"
-                show-password
-              />
-              <el-button
-                type="danger"
-                :icon="Delete"
-                @click="removeEnv(index)"
-              />
-            </div>
+              <span class="form-tip">连接超时时间（秒）</span>
+            </el-form-item>
+
+            <el-form-item label="保持连接">
+              <el-switch v-model="form.keep_alive" />
+              <span class="form-tip">是否保持长连接</span>
+            </el-form-item>
+          </div>
+
+          <!-- 操作按钮 -->
+          <div class="form-actions">
+            <el-button @click="$router.back()">
+              取消
+            </el-button>
             <el-button
               type="primary"
-              :icon="Plus"
-              @click="addEnv"
-              class="add-button"
+              :loading="submitting"
+              @click="handleSubmit"
             >
-              添加环境变量
+              {{ isEdit ? '更新服务' : '添加服务' }}
+            </el-button>
+            <el-button
+              v-if="isEdit"
+              type="warning"
+              :loading="patching"
+              @click="handlePatchUpdate"
+            >
+              增量更新
             </el-button>
           </div>
-        </div>
-
-        <!-- 高级配置 -->
-        <div class="form-section">
-          <h3 class="section-title">高级配置</h3>
-          
-          <el-form-item label="超时时间">
-            <el-input-number
-              v-model="form.timeout"
-              :min="1"
-              :max="300"
-              placeholder="秒"
-            />
-            <span class="form-tip">连接超时时间（秒）</span>
-          </el-form-item>
-
-          <el-form-item label="保持连接">
-            <el-switch v-model="form.keep_alive" />
-            <span class="form-tip">是否保持长连接</span>
-          </el-form-item>
-        </div>
-
-        <!-- 操作按钮 -->
-        <div class="form-actions">
-          <el-button @click="$router.back()">
-            取消
-          </el-button>
-          <el-button
-            type="primary"
-            @click="handleSubmit"
-            :loading="submitting"
-          >
-            {{ isEdit ? '更新服务' : '添加服务' }}
-          </el-button>
-          <el-button
-            v-if="isEdit"
-            type="warning"
-            @click="handlePatchUpdate"
-            :loading="patching"
-          >
-            增量更新
-          </el-button>
-        </div>
         </el-form>
       </el-card>
 

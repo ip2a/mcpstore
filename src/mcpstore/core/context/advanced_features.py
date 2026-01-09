@@ -4,7 +4,7 @@ Implementation of advanced feature-related operations
 """
 
 import logging
-from typing import Dict, List, Optional, Any, TYPE_CHECKING
+from typing import Optional, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .base_context import MCPStoreContext
@@ -14,56 +14,6 @@ logger = logging.getLogger(__name__)
 class AdvancedFeaturesMixin:
     """Advanced features mixin class"""
     
-    def create_simple_tool(self, original_tool: str, friendly_name: Optional[str] = None) -> 'MCPStoreContext':
-        """
-        Create simplified version of tool
-
-        Args:
-            original_tool: Original tool name
-            friendly_name: Friendly name (optional)
-
-        Returns:
-            MCPStoreContext: Supports method chaining
-        """
-        try:
-            friendly_name = friendly_name or f"simple_{original_tool}"
-            result = self._transformation_manager.create_simple_tool(
-                original_tool=original_tool,
-                friendly_name=friendly_name
-            )
-            logger.info(f"[{self._context_type.value}] Created simple tool: {friendly_name} -> {original_tool}")
-            return self
-        except Exception as e:
-            logger.error(f"[{self._context_type.value}] Failed to create simple tool {original_tool}: {e}")
-            return self
-
-    def create_safe_tool(self, original_tool: str, validation_rules: Dict[str, Any]) -> 'MCPStoreContext':
-        """
-        Create secure version of tool (with validation)
-
-        Args:
-            original_tool: Original tool name
-            validation_rules: Validation rules
-
-        Returns:
-            MCPStoreContext: Supports method chaining
-        """
-        try:
-            # 创建验证函数
-            validation_func = self._create_validation_function(validation_rules)
-            
-            result = self._transformation_manager.create_safe_tool(
-                original_tool=original_tool,
-                validation_func=validation_func,
-                rules=validation_rules
-            )
-            logger.info(f"[{self._context_type.value}] Created safe tool for: {original_tool}")
-            return self
-        except Exception as e:
-            logger.error(f"[{self._context_type.value}] Failed to create safe tool {original_tool}: {e}")
-            return self
-
-
     def import_api(self, api_url: str, api_name: str = None) -> 'MCPStoreContext':
         """
         导入 OpenAPI 服务（同步）
@@ -75,7 +25,10 @@ class AdvancedFeaturesMixin:
         Returns:
             MCPStoreContext: 支持链式调用
         """
-        return self._sync_helper.run_async(self.import_api_async(api_url, api_name))
+        return self._run_async_via_bridge(
+            self.import_api_async(api_url, api_name),
+            op_name="advanced_features.import_api"
+        )
 
     async def import_api_async(self, api_url: str, api_name: str = None) -> 'MCPStoreContext':
         """
@@ -102,52 +55,13 @@ class AdvancedFeaturesMixin:
             return self
 
 
-    # Deprecated: auth subsystem removed
-    # Keeping the name for compatibility but make it explicit unsupported to avoid hidden AttributeError
-    def setup_auth(self, auth_type: str = "bearer", enabled: bool = True) -> 'MCPStoreContext':
-        raise NotImplementedError("setup_auth is no longer supported; the auth subsystem was removed")
-
-    def get_usage_stats(self) -> Dict[str, Any]:
-        """
-        获取使用统计
-        
-        Returns:
-            Dict: 使用统计信息
-        """
-        try:
-            return self._monitoring_manager.get_usage_stats()
-        except Exception as e:
-            logger.error(f"[{self._context_type.value}] Failed to get usage stats: {e}")
-            return {"error": str(e)}
-
-    def record_tool_execution(self, tool_name: str, duration: float, success: bool, error: Exception = None) -> 'MCPStoreContext':
-        """
-        记录工具执行情况
-        
-        Args:
-            tool_name: 工具名称
-            duration: 执行时长
-            success: 是否成功
-            error: 错误信息（如果有）
-            
-        Returns:
-            MCPStoreContext: 支持链式调用
-        """
-        try:
-            self._monitoring_manager.record_tool_execution(
-                tool_name=tool_name,
-                duration=duration,
-                success=success,
-                error=error
-            )
-            return self
-        except Exception as e:
-            logger.error(f"[{self._context_type.value}] Failed to record tool execution: {e}")
-            return self
-
     def reset_mcp_json_file(self) -> bool:
         """重置MCP JSON配置文件（同步版本）- 缓存优先模式"""
-        return self._sync_helper.run_async(self.reset_mcp_json_file_async(), timeout=60.0)
+        return self._run_async_via_bridge(
+            self.reset_mcp_json_file_async(),
+            op_name="advanced_features.reset_mcp_json_file",
+            timeout=60.0
+        )
 
     async def reset_mcp_json_file_async(self, scope: str = "all") -> bool:
         """
@@ -175,16 +89,16 @@ class AdvancedFeaturesMixin:
                 # 重置整个mcp.json
                 logger.info(" [MCP_RESET] Clearing all services from mcp.json")
                 
-                # 1. 清空所有缓存（通过Registry公共API）
+                # 1. 清空所有缓存（通过Registry异步API）
                 try:
-                    agent_ids = self._store.registry.get_all_agent_ids()
+                    agent_ids = await self._store.registry.get_all_agent_ids_async()
                 except Exception:
                     agent_ids = []
                 for agent_id in agent_ids:
                     try:
-                        self._store.registry.clear(agent_id)
-                    except Exception:
-                        pass
+                        await self._store.registry.clear_async(agent_id)
+                    except Exception as e:
+                        logger.warning(f"Failed to clear agent {agent_id}: {e}")
                 
                 # 2. 重置mcp.json为空
                 new_config = {"mcpServers": {}}
@@ -193,9 +107,9 @@ class AdvancedFeaturesMixin:
                 # 只清空Store级别的服务，保留Agent服务
                 logger.info(" [MCP_RESET] Clearing Store services, preserving Agent services")
                 
-                # 1. 清空global_agent_store缓存
+                # 1. 清空global_agent_store缓存（使用异步版本）
                 global_agent_store_id = self._store.client_manager.global_agent_store_id
-                self._store.registry.clear(global_agent_store_id)
+                await self._store.registry.clear_async(global_agent_store_id)
                 
                 # 2. 从mcp.json中移除非Agent服务（不带@后缀的服务）
                 preserved_services = {}
@@ -211,8 +125,8 @@ class AdvancedFeaturesMixin:
                 agent_id = scope
                 logger.info(f" [MCP_RESET] Clearing services for Agent: {agent_id}")
                 
-                # 1. 清空该Agent的缓存
-                self._store.registry.clear(agent_id)
+                # 1. 清空该Agent的缓存（使用异步版本）
+                await self._store.registry.clear_async(agent_id)
                 
                 # 2. 从mcp.json中移除该Agent的服务
                 preserved_services = {}
@@ -230,19 +144,9 @@ class AdvancedFeaturesMixin:
             mcp_success = self._store._unified_config.update_mcp_config(new_config)
             
             if mcp_success:
-                logger.info(f" [MCP_RESET] MCP JSON file reset completed for scope: {scope}，缓存已同步")
-                
-                # 4. 触发重新同步（可选）
-                # 4.1 强一致：触发快照更新
-                try:
-                    gid = self._store.client_manager.global_agent_store_id
-                    self._store.registry.tools_changed(gid, aggressive=True)
-                except Exception:
-                    try:
-                        self._store.registry.mark_tools_snapshot_dirty()
-                    except Exception:
-                        pass
+                logger.info(f"[MCP_RESET] [COMPLETE] MCP JSON file reset completed for scope: {scope}, cache synchronized")
 
+                # 4. 触发重新同步（可选）
                 if hasattr(self._store.orchestrator, 'sync_manager') and self._store.orchestrator.sync_manager:
                     logger.info(" [MCP_RESET] Triggering cache resync from mcp.json")
                     await self._store.orchestrator.sync_manager.sync_global_agent_store_from_mcp_json()
@@ -254,5 +158,3 @@ class AdvancedFeaturesMixin:
         except Exception as e:
             logger.error(f" [MCP_RESET] Failed to reset MCP JSON file with scope {scope}: {e}")
             return False
-
-

@@ -1,10 +1,16 @@
 """
 MCPOrchestrator Service Connection Module
-Service connection module - contains service connection and state management
+
+服务连接模块 - 通过事件驱动的标准流程处理服务连接
+
+重要设计原则：
+- 所有服务连接必须通过事件驱动的标准流程
+- 不允许绕过 ServiceAddRequested -> ServiceCached -> ServiceConnected 流程
+- 确保 service_metadata 在连接前被正确创建
 """
 
 import logging
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple
 
 from fastmcp import Client
 
@@ -13,502 +19,128 @@ from mcpstore.core.models.service import ServiceConnectionState
 logger = logging.getLogger(__name__)
 
 class ServiceConnectionMixin:
-    """Service connection mixin class"""
+    """
+    服务连接混入类
+    
+    重要设计原则：
+    - 所有服务连接必须通过事件驱动的标准流程
+    - 不允许绕过 ServiceAddRequested -> ServiceCached -> ServiceConnected 流程
+    - 确保 service_metadata 在连接前被正确创建
+    """
 
     async def connect_service(self, name: str, service_config: Dict[str, Any] = None, url: str = None, agent_id: str = None) -> Tuple[bool, str]:
         """
-        Connect to specified service (supports local and remote services) and update cache
-
-         ??????????????????????????
+        连接服务 - 通过事件驱动的标准流程
+        
+        重要：此方法不再直接连接服务，而是发布事件触发标准流程：
+        - 如果服务不存在：发布 ServiceAddRequested 事件（触发完整流程）
+        - 如果服务已存在：发布 ServiceConnectionRequested 事件（只触发连接）
+        
+        这确保了：
+        1. service_metadata 在连接前被正确创建
+        2. 所有缓存操作通过 CacheManager 统一处理
+        3. 生命周期状态正确管理
 
         Args:
-            name: Service name
-            service_config: Complete service configuration (preferred, supports all service types)
-            url: Service URL (legacy parameter, only for simple HTTP services)
-            agent_id: Agent ID (optional, if not provided will use global_agent_store_id)
+            name: 服务名称
+            service_config: 服务配置（必须提供）
+            url: 服务 URL（可选，会合并到 service_config）
+            agent_id: Agent ID（可选，默认使用 global_agent_store_id）
 
         Returns:
-            Tuple[bool, str]: (success status, message)
+            Tuple[bool, str]: (是否成功发布事件, 消息)
         """
         try:
-            # ??Agent ID
+            # 确定 Agent ID
             agent_key = agent_id or self.client_manager.global_agent_store_id
-
-            #  ??????????????
+            
+            # 获取服务配置
             if service_config is None:
-                service_config = self.registry.get_service_config_from_cache(agent_key, name)
+                service_config = await self.registry.get_service_config_from_cache_async(agent_key, name)
                 if not service_config:
-                    return False, f"Service configuration not found in cache for {name}. This indicates a system issue."
-
-            # ?????URL???????????
+                    raise RuntimeError(
+                        f"Service configuration does not exist: service_name={name}, agent_id={agent_key}. "
+                        f"Please add service configuration via add_service first."
+                    )
+            
+            # 合并 URL 参数
             if url:
-                service_config = service_config.copy()  # ???????
+                service_config = service_config.copy()
                 service_config["url"] = url
-
-            # ?????????????
-            if "command" in service_config:
-                # ??????????????
-                return await self._connect_local_service(name, service_config, agent_key)
-            else:
-                # ?????????
-                return await self._connect_remote_service(name, service_config, agent_key)
-
-        except Exception as e:
-            logger.error(f"Failed to connect service {name}: {e}")
-            return False, str(e)
-
-    async def _connect_local_service(self, name: str, service_config: Dict[str, Any], agent_id: str) -> Tuple[bool, str]:
-        """???????????"""
-        try:
-            # 1. ????????
-            success, message = await self.local_service_manager.start_local_service(name, service_config)
-            if not success:
-                return False, f"Failed to start local service: {message}"
-
-            #???????
-            # ???????? stdio ??
-            local_config = service_config.copy()
-
-            #  ????? ConfigProcessor ??????remote service?????
-            from mcpstore.core.configuration.config_processor import ConfigProcessor
-            processed_config = ConfigProcessor.process_user_config_for_fastmcp({
-                "mcpServers": {name: local_config}
-            })
-
-            if name not in processed_config.get("mcpServers", {}):
-                return False, "Local service configuration processing failed"
-
-            # ?????
-            client = Client(processed_config)
-
-            # ???????????
-            try:
-                async with client:
-                    tools = await client.list_tools()
-
-                    #  ?????Registry????????client?Registry?????????
-                    await self._update_service_cache(agent_id, name, client, tools, service_config)
-
-                    # ?????? client?async with ????????
-                    # self.clients[name] = client
-
-                    #  ????????????????
-                    await self.lifecycle_manager.handle_health_check_result(
-                        agent_id=agent_id,
-                        service_name=name,
-                        success=True,
-                        response_time=0.0,
-                        error_message=None
+            
+            # 检查服务是否已存在（包括服务实体和元数据）
+            # 必须同时检查服务实体和 service_metadata，确保数据一致性
+            service_exists = await self.registry.has_service_async(agent_key, name)
+            metadata_exists = False
+            if service_exists:
+                # 服务实体存在，检查 metadata 是否也存在
+                metadata = await self.registry.get_service_metadata_async(agent_key, name)
+                metadata_exists = metadata is not None
+                if not metadata_exists:
+                    logger.warning(
+                        f"[CONNECT_SERVICE] Service {name} entity exists but metadata does not exist, "
+                        f"data inconsistency detected, will proceed with full add flow"
                     )
 
-                    logger.info(f"Local service {name} connected successfully with {len(tools)} tools for agent {agent_id}")
-                    return True, f"Local service connected successfully with {len(tools)} tools"
-            except Exception as e:
-                error_msg = str(e)
-                logger.error(f"Failed to connect to local service {name}: {error_msg}")
-
-                #  ??????????????
-                try:
-                    # ????????
-                    await self.local_service_manager.stop_local_service(name)
-                    logger.debug(f"Cleaned up local service process for {name}")
-                except Exception as cleanup_error:
-                    logger.error(f"Failed to cleanup local service {name}: {cleanup_error}")
-
-                # ???????
-                if name in self.clients:
-                    try:
-                        client = self.clients[name]
-                        if hasattr(client, 'close'):
-                            await client.close()
-                        del self.clients[name]
-                        logger.debug(f"Cleaned up client cache for {name}")
-                    except Exception as cleanup_error:
-                        logger.error(f"Failed to cleanup client cache for {name}: {cleanup_error}")
-
-                # ?????????????
-                await self.lifecycle_manager.handle_health_check_result(
-                    agent_id=agent_id,
+            if not service_exists or not metadata_exists:
+                # 服务不存在，走完整的添加流程
+                logger.info(f"[CONNECT_SERVICE] Service {name} does not exist, publishing ServiceAddRequested event")
+                
+                from mcpstore.core.events.service_events import ServiceAddRequested
+                from mcpstore.core.utils.id_generator import ClientIDGenerator
+                
+                client_id = ClientIDGenerator.generate_deterministic_id(
+                    agent_id=agent_key,
                     service_name=name,
-                    success=False,
-                    response_time=0.0,
-                    error_message=error_msg
-                )
-
-                return False, f"Failed to connect to local service: {error_msg}"
-
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Error connecting local service {name}: {error_msg}")
-
-            #  ??????????????
-            try:
-                # ????????
-                await self.local_service_manager.stop_local_service(name)
-                logger.debug(f"Cleaned up local service process for {name} after outer exception")
-            except Exception as cleanup_error:
-                logger.error(f"Failed to cleanup local service {name} after outer exception: {cleanup_error}")
-
-            # ???????
-            if name in self.clients:
-                try:
-                    client = self.clients[name]
-                    if hasattr(client, 'close'):
-                        await client.close()
-                    del self.clients[name]
-                    logger.debug(f"Cleaned up client cache for {name} after outer exception")
-                except Exception as cleanup_error:
-                    logger.error(f"Failed to cleanup client cache for {name} after outer exception: {cleanup_error}")
-
-            # ?????????????
-            await self.lifecycle_manager.handle_health_check_result(
-                agent_id=agent_id,
-                service_name=name,
-                success=False,
-                response_time=0.0,
-                error_message=error_msg
-            )
-
-            return False, error_msg
-
-    async def _connect_remote_service(self, name: str, service_config: Dict[str, Any], agent_id: str) -> Tuple[bool, str]:
-        """???????????"""
-        try:
-            #  ?????ConfigProcessor???????transport????
-            from mcpstore.core.configuration.config_processor import ConfigProcessor
-
-            # ??????
-            user_config = {"mcpServers": {name: service_config}}
-
-            # ??ConfigProcessor??????register_json_services?????
-            processed_config = ConfigProcessor.process_user_config_for_fastmcp(user_config)
-
-            # ????????
-            if name not in processed_config.get("mcpServers", {}):
-                return False, f"Service configuration processing failed for {name}"
-
-            # ?????????????????
-            client = Client(processed_config)
-
-            # ????
-            try:
-                logger.info(f" [REMOTE_SERVICE] ???? async with client ???: {name}")
-                async with client:
-                    logger.info(f" [REMOTE_SERVICE] ???? async with client ???: {name}")
-                    logger.info(f" [REMOTE_SERVICE] ???? client.list_tools(): {name}")
-                    tools = await client.list_tools()
-                    logger.info(f" [REMOTE_SERVICE] ???????????: {len(tools)}")
-
-                    #  ?????Registry??
-                    await self._update_service_cache(agent_id, name, client, tools, service_config)
-
-                    # ????? client?async with ?????????
-                    # self.clients[name] = client
-
-                    #  ????????????????
-                    await self.lifecycle_manager.handle_health_check_result(
-                        agent_id=agent_id,
-                        service_name=name,
-                        success=True,
-                        response_time=0.0,
-                        error_message=None
-                    )
-
-                    logger.info(f"Remote service {name} connected successfully with {len(tools)} tools for agent {agent_id}")
-                    return True, f"Remote service connected successfully with {len(tools)} tools"
-            except Exception as e:
-                error_msg = str(e)
-                logger.warning(f"Failed to connect to remote service {name}: {error_msg}")
-
-                #  ??????????????
-                # ???????
-                if name in self.clients:
-                    try:
-                        cached_client = self.clients[name]
-                        if hasattr(cached_client, 'close'):
-                            await cached_client.close()
-                        del self.clients[name]
-                        logger.debug(f"Cleaned up client cache for remote service {name}")
-                    except Exception as cleanup_error:
-                        logger.error(f"Failed to cleanup client cache for remote service {name}: {cleanup_error}")
-
-                # ?????????????
-                try:
-                    if hasattr(client, 'close'):
-                        await client.close()
-                    logger.debug(f"Closed current client for remote service {name}")
-                except Exception as cleanup_error:
-                    logger.warning(f"Failed to close current client for remote service {name}: {cleanup_error}")
-
-                # ????????????????????
-                failure_reason = None
-                try:
-                    status_code = getattr(getattr(e, 'response', None), 'status_code', None)
-                    if status_code in (401, 403):
-                        failure_reason = 'auth_failed'
-                    else:
-                        lower_msg = error_msg.lower()
-                        if any(word in lower_msg for word in ['unauthorized', 'forbidden', 'invalid token', 'invalid api key']):
-                            failure_reason = 'auth_failed'
-                except Exception:
-                    pass
-                try:
-                    metadata = self.registry._service_state_service.get_service_metadata(agent_id, name)
-                    if metadata:
-                        metadata.failure_reason = failure_reason
-                        metadata.error_message = error_msg
-                        self.registry.set_service_metadata(agent_id, name, metadata)
-                except Exception:
-                    pass
-
-                # ?????????????
-                await self.lifecycle_manager.handle_health_check_result(
-                    agent_id=agent_id,
-                    service_name=name,
-                    success=False,
-                    response_time=0.0,
-                    error_message=error_msg
-                )
-
-                return False, error_msg
-
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Error connecting remote service {name}: {error_msg}")
-
-            #  ??????????????
-            # ???????
-            if name in self.clients:
-                try:
-                    cached_client = self.clients[name]
-                    if hasattr(cached_client, 'close'):
-                        await cached_client.close()
-                    del self.clients[name]
-                    logger.debug(f"Cleaned up client cache for remote service {name} after outer exception")
-                except Exception as cleanup_error:
-                    logger.error(f"Failed to cleanup client cache for remote service {name} after outer exception: {cleanup_error}")
-
-            # ??????????????????????????
-            failure_reason = None
-            try:
-                status_code = getattr(getattr(e, 'response', None), 'status_code', None)
-                if status_code in (401, 403):
-                    failure_reason = 'auth_failed'
-                else:
-                    lower_msg = error_msg.lower()
-                    if any(word in lower_msg for word in ['unauthorized', 'forbidden', 'invalid token', 'invalid api key']):
-                        failure_reason = 'auth_failed'
-            except Exception:
-                pass
-            try:
-                metadata = self.registry._service_state_service.get_service_metadata(agent_id, name)
-                if metadata:
-                    metadata.failure_reason = failure_reason
-                    metadata.error_message = error_msg
-                    self.registry.set_service_metadata(agent_id, name, metadata)
-            except Exception:
-                pass
-
-            # ?????????????
-            await self.lifecycle_manager.handle_health_check_result(
-                agent_id=agent_id,
-                service_name=name,
-                success=False,
-                response_time=0.0,
-                error_message=error_msg
-            )
-
-            return False, error_msg
-
-    async def _update_service_cache(self, agent_id: str, service_name: str, client: Client, tools: List[Any], service_config: Dict[str, Any]):
-        """
-        ??????????????????
-
-        Args:
-            agent_id: Agent ID
-            service_name: ????
-            client: FastMCP???
-            tools: ????
-            service_config: ????
-        """
-        try:
-            # ?????????register_json_services????
-            processed_tools = []
-            for tool in tools:
-                try:
-                    original_tool_name = tool.name
-                    display_name = self._generate_display_name(original_tool_name, service_name)
-
-                    # ????
-                    parameters = {}
-                    if hasattr(tool, 'inputSchema') and tool.inputSchema:
-                        if hasattr(tool.inputSchema, 'model_dump'):
-                            parameters = tool.inputSchema.model_dump()
-                        elif isinstance(tool.inputSchema, dict):
-                            parameters = tool.inputSchema
-
-                    # ??????
-                    tool_def = {
-                        "type": "function",
-                        "function": {
-                            "name": original_tool_name,
-                            "display_name": display_name,
-                            "description": tool.description,
-                            "parameters": parameters,
-                            "service_name": service_name
-                        }
-                    }
-
-                    processed_tools.append((display_name, tool_def))
-
-                except Exception as e:
-                    logger.error(f"Failed to process tool {tool.name}: {e}")
-                    continue
-
-            # ?? per-agent ????????????????????
-            locks = getattr(self, 'store', None)
-            agent_locks = getattr(locks, 'agent_locks', None) if locks else None
-            if agent_locks is None:
-                logger.warning("AgentLocks not available; proceeding without per-agent lock for cache update")
-                #  ????????????
-                existing_session = self.registry.get_session(agent_id, service_name)
-                if existing_session:
-                    logger.debug(f" [CACHE_UPDATE] ?? {service_name} ??????????")
-                    self.registry.clear_service_tools_only(agent_id, service_name)
-                else:
-                    logger.debug(f" [CACHE_UPDATE] ?? {service_name} ?????????")
-
-                # Use a stable per-service session handle (not a live client)
-                session_handle = existing_session if existing_session is not None else object()
-                self.registry.add_service(
-                    agent_id=agent_id,
-                    name=service_name,
-                    session=session_handle,
-                    tools=processed_tools,
                     service_config=service_config,
-                    state=ServiceConnectionState.HEALTHY,
-                    preserve_mappings=True
+                    global_agent_store_id=self.client_manager.global_agent_store_id
                 )
-
-                if self._is_long_lived_service(service_config):
-                    self.registry.mark_as_long_lived(agent_id, service_name)
-
-                client_id = self.registry._agent_client_service.get_service_client_id(agent_id, service_name)
-                if client_id:
-                    self.registry._agent_client_service.add_agent_client_mapping(agent_id, client_id)
-                    logger.debug(f" [CLIENT_REGISTER] ????? {client_id} ? Agent {agent_id}")
-                else:
-                    logger.warning(f" [CLIENT_REGISTER] ?????? {service_name} ? Client ID")
+                
+                add_event = ServiceAddRequested(
+                    agent_id=agent_key,
+                    service_name=name,
+                    service_config=service_config,
+                    client_id=client_id,
+                    source="connect_service"
+                )
+                
+                # 同步等待事件处理完成
+                await self.container._event_bus.publish(add_event, wait=True)
+                logger.info(f"[CONNECT_SERVICE] ServiceAddRequested event published: {name}")
+                return True, f"Service {name} add request published, processing"
             else:
-                async with agent_locks.write(agent_id):
-                    #  ??????????????Agent-Client??
-                    existing_session = self.registry.get_session(agent_id, service_name)
-                    if existing_session:
-                        logger.debug(f" [CACHE_UPDATE] ?? {service_name} ??????????")
-                        self.registry.clear_service_tools_only(agent_id, service_name)
-                    else:
-                        logger.debug(f" [CACHE_UPDATE] ?? {service_name} ?????????")
-
-                    # ???Registry??????????????????
-                    session_handle = existing_session if existing_session is not None else object()
-                    self.registry.add_service(
-                        agent_id=agent_id,
-                        name=service_name,
-                        session=session_handle,
-                        tools=processed_tools,
-                        service_config=service_config,
-                        state=ServiceConnectionState.HEALTHY,
-                        preserve_mappings=True
-                    )
-
-                    # ???????
-                    if self._is_long_lived_service(service_config):
-                        self.registry.mark_as_long_lived(agent_id, service_name)
-
-                    # ?????? Agent ?????
-                    client_id = self.registry._agent_client_service.get_service_client_id(agent_id, service_name)
-                    if client_id:
-                        self.registry._agent_client_service.add_agent_client_mapping(agent_id, client_id)
-                        logger.debug(f" [CLIENT_REGISTER] ????? {client_id} ? Agent {agent_id}")
-                    else:
-                        logger.warning(f" [CLIENT_REGISTER] ?????? {service_name} ? Client ID")
-
-            # ?????????????
-            await self.lifecycle_manager.handle_health_check_result(
-                agent_id=agent_id,
-                service_name=service_name,
-                success=True,
-                response_time=0.0,  # ???????????
-                error_message=None
-            )
-
-            # ?????????????????????????
-            try:
-                if hasattr(self, 'content_manager') and self.content_manager:
-                    self.content_manager.add_service_for_monitoring(agent_id, service_name)
-                    logger.debug(f"Added service '{service_name}' (agent '{agent_id}') to content monitoring")
-            except Exception as e:
-                logger.warning(f"Failed to add service '{service_name}' to content monitoring: {e}")
-
-            logger.info(f"Updated cache for service '{service_name}' with {len(processed_tools)} tools for agent '{agent_id}'")
-
-            # A+B+D: ???????????????????????
-            try:
-                gid = self.client_manager.global_agent_store_id
-                if hasattr(self.registry, 'tools_changed'):
-                    self.registry.tools_changed(gid, aggressive=True)
-                logger.debug(f"[SNAPSHOT] connection: tools_changed after cache update service={service_name} agent={agent_id}")
-            except Exception as e:
-                logger.warning(f"[SNAPSHOT] tools_changed failed after cache update: {e}")
+                # 服务已存在，只触发重新连接
+                logger.info(f"[CONNECT_SERVICE] Service {name} already exists, publishing ServiceConnectionRequested event")
+                
+                from mcpstore.core.events.service_events import ServiceConnectionRequested
+                
+                connection_event = ServiceConnectionRequested(
+                    agent_id=agent_key,
+                    service_name=name,
+                    service_config=service_config,
+                    timeout=3.0
+                )
+                
+                # 同步等待事件处理完成
+                await self.container._event_bus.publish(connection_event, wait=True)
+                logger.info(f"[CONNECT_SERVICE] ServiceConnectionRequested event published: {name}")
+                return True, f"Service {name} connection request published, processing"
 
         except Exception as e:
-            logger.error(f"Failed to update service cache for '{service_name}': {e}")
+            logger.error(f"[CONNECT_SERVICE] Failed to connect service {name}: {e}")
+            raise
 
-    def _is_long_lived_service(self, service_config: Dict[str, Any]) -> bool:
-        """
-        ??????????
-
-        Args:
-            service_config: ????
-
-        Returns:
-            ????????
-        """
-        # STDIO?????????keep_alive=True?
-        if "command" in service_config:
-            return service_config.get("keep_alive", True)
-
-        # HTTP?????????
-        if "url" in service_config:
-            return True
-
-        return False
-
-    def _generate_display_name(self, original_tool_name: str, service_name: str) -> str:
-        """
-        ?????????????
-
-        Args:
-            original_tool_name: ??????
-            service_name: ????
-
-        Returns:
-            ?????????
-        """
-        try:
-            from mcpstore.core.registry.tool_resolver import ToolNameResolver
-            resolver = ToolNameResolver()
-            return resolver.create_user_friendly_name(service_name, original_tool_name)
-        except Exception as e:
-            logger.warning(f"Failed to generate display name for {original_tool_name}: {e}")
-            # ???????
-            return f"{service_name}_{original_tool_name}"
+    # ========================================
+    # 以下方法已废弃，服务连接现在通过事件驱动流程处理
+    # _connect_local_service, _connect_remote_service, _update_service_cache
+    # 已删除，由 ConnectionManager 和 CacheManager 统一处理
+    # ========================================
 
     async def disconnect_service(self, url_or_name: str) -> bool:
-        """???????????global_agent_store"""
+        """Remove service from global_agent_store"""
         logger.info(f"Removing service: {url_or_name}")
 
-        # ?????????
+        # Find service name to remove
         name_to_remove = None
         for name, server in self.global_agent_store_config.get("mcpServers", {}).items():
             if name == url_or_name or server.get("url") == url_or_name:
@@ -516,32 +148,32 @@ class ServiceConnectionMixin:
                 break
 
         if name_to_remove:
-            # ?global_agent_store_config???
+            # Remove from global_agent_store_config
             if name_to_remove in self.global_agent_store_config["mcpServers"]:
                 del self.global_agent_store_config["mcpServers"][name_to_remove]
 
-            # ????????
+            # Remove from configuration file
             ok = self.mcp_config.remove_service(name_to_remove)
             if not ok:
                 logger.warning(f"Failed to remove service {name_to_remove} from configuration file")
 
-            # ?registry???
+            # Remove from registry (using async version)
             agent_id = self.client_manager.global_agent_store_id
-            self.registry.remove_service(agent_id, name_to_remove)
+            await self.registry.remove_service_async(agent_id, name_to_remove)
 
-            # ????global_agent_store
+            # Rebuild global_agent_store
             if self.global_agent_store_config.get("mcpServers"):
                 self.global_agent_store = Client(self.global_agent_store_config)
 
-                # ????agent_clients
+                # Rebuild agent_clients
                 for agent_id in list(self.agent_clients.keys()):
                     self.agent_clients[agent_id] = Client(self.global_agent_store_config)
                     logger.info(f"Updated client for agent {agent_id} after removing service")
 
             else:
-                # ??????????global_agent_store
+                # Clear global_agent_store if no services remain
                 self.global_agent_store = None
-                # ????agent_clients
+                # Clear agent_clients
                 self.agent_clients.clear()
 
             return True
@@ -550,42 +182,46 @@ class ServiceConnectionMixin:
             return False
 
     async def refresh_services(self):
-        """???????????????mcp.json?"""
-        #  ????????????????
+        """Refresh services from mcp.json"""
+        # Sync from mcp.json file
         if hasattr(self, 'sync_manager') and self.sync_manager:
             await self.sync_manager.sync_global_agent_store_from_mcp_json()
         else:
             logger.warning("Sync manager not available, cannot refresh services")
 
     async def refresh_service_content(self, service_name: str, agent_id: str = None) -> bool:
-        """??????????????????????"""
+        """Refresh service content (tools, resources, etc.)"""
+        if self.content_manager is None:
+            raise RuntimeError(
+                f"content_manager is not initialized, cannot refresh service content: service_name={service_name}"
+            )
         agent_key = agent_id or self.client_manager.global_agent_store_id
         return await self.content_manager.force_update_service_content(agent_key, service_name)
 
     async def is_service_healthy(self, name: str, client_id: Optional[str] = None) -> bool:
         """
-        ??????????????????
+        Check if service is healthy
 
         Args:
-            name: ???
-            client_id: ??????ID?????????
+            name: Service name
+            client_id: Client ID, if None uses global_agent_store_id
 
         Returns:
-            bool: True ?????? HEALTHY/WARNING ??
+            bool: True if service is HEALTHY/WARNING state
         """
         agent_key = client_id or self.client_manager.global_agent_store_id
-        state = self.registry._service_state_service.get_service_state(agent_key, name)
+        state = await self.registry._service_state_service.get_service_state_async(agent_key, name)
         return state in (ServiceConnectionState.HEALTHY, ServiceConnectionState.WARNING)
 
     def _normalize_service_config(self, service_config: Dict[str, Any]) -> Dict[str, Any]:
-        """?????????????????"""
+        """Normalize service configuration"""
         if not service_config:
             return service_config
 
-        # ??????
+        # Copy configuration
         normalized = service_config.copy()
 
-        # ????transport?????????
+        # Auto-infer transport type from URL
         if "url" in normalized and "transport" not in normalized:
             url = normalized["url"]
             if "/sse" in url.lower():

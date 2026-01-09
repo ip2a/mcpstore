@@ -11,9 +11,9 @@
 
 import json
 import logging
-from pathlib import Path
-from typing import Optional, Dict, Any, List, TYPE_CHECKING
 from datetime import datetime
+from pathlib import Path
+from typing import Optional, Dict, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from key_value.aio.protocols import AsyncKeyValue

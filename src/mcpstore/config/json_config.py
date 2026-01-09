@@ -1,12 +1,11 @@
-import os
 import json
-import shutil
 import logging
+import os
 from typing import Dict, Any, Optional, List
-from datetime import datetime
-from pathlib import Path
-from .path_utils import get_user_default_mcp_path
+
 from pydantic import BaseModel, model_validator, ConfigDict
+
+from .path_utils import get_user_default_mcp_path
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +41,25 @@ class MCPServerModel(BaseModel):
         """Basic configuration validation: must have at least url or command"""
         if not (values.get("url") or values.get("command")):
             raise ValueError("MCP server must have either 'url' or 'command' field")
+
+        # 规范化 transport 字段：兼容常见非标准写法（http/sse）
+        transport = values.get("transport")
+        if isinstance(transport, str):
+            raw = transport.strip().lower()
+            mapping = {
+                "http": "http-first",
+                "sse": "sse-first",
+                "http_only": "http-only",
+                "sse_only": "sse-only",
+            }
+            normalized = mapping.get(raw, raw)
+            allowed = {"sse-only", "http-only", "sse-first", "http-first"}
+            if normalized not in allowed:
+                # 无效值：静默移除，让下游按默认逻辑处理（不额外提示用户）
+                values.pop("transport", None)
+            else:
+                # 对常见非标准写法做静默规范化，避免打扰用户
+                values["transport"] = normalized
         return values
 
 class MCPConfigModel(BaseModel):
@@ -262,30 +280,6 @@ class MCPConfig:
             config["mcpServers"] = servers
             return self.save_config(config)
         return False
-    
-    def compare_configs(self, new_config: Dict[str, Any]) -> Dict[str, Any]:
-        """Compare new configuration with current configuration
-        
-        Args:
-            new_config: New configuration to compare
-            
-        Returns:
-            Dict containing added, removed, and modified services
-        """
-        current = self.load_config()
-        current_servers = current.get("mcpServers", {})
-        new_servers = new_config.get("mcpServers", {})
-        
-        added = set(new_servers.keys()) - set(current_servers.keys())
-        removed = set(current_servers.keys()) - set(new_servers.keys())
-        modified = {name for name in set(current_servers.keys()) & set(new_servers.keys())
-                   if current_servers[name] != new_servers[name]}
-        
-        return {
-            "added": list(added),
-            "removed": list(removed),
-            "modified": list(modified)
-        }
 
     def reset_mcp_json_file(self) -> bool:
         """
@@ -315,5 +309,3 @@ class MCPConfig:
         except Exception as e:
             logger.error(f"Failed to reset MCP JSON configuration file: {e}")
             return False
-
-

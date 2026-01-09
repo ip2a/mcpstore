@@ -1,8 +1,10 @@
 <template>
   <div class="external-embed">
-    <iframe :src="url" referrerpolicy="no-referrer" />
+    <iframe
+      :src="url"
+      referrerpolicy="no-referrer"
+    />
   </div>
-  
 </template>
 
 <script setup>

@@ -7,8 +7,8 @@ import logging
 from typing import Dict, List, Optional
 
 from mcpstore.core.context import MCPStoreContext
-from mcpstore.core.context.store_proxy import StoreProxy
 from mcpstore.core.context.agent_proxy import AgentProxy
+from mcpstore.core.context.store_proxy import StoreProxy
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,10 @@ class ContextFactoryMixin:
     def for_store(self) -> StoreProxy:
         """Get store-level object (proxy)"""
         return self._store_context.for_store()
+
+    def find_cache(self):
+        """Get global cache proxy (store scope)."""
+        return self._store_context.find_cache()
 
     def for_agent(self, agent_id: str) -> AgentProxy:
         """

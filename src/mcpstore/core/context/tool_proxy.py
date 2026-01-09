@@ -5,9 +5,12 @@ MCPStore Tool Proxy Module
 
 import logging
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
 
 from .types import ContextType
+
+if TYPE_CHECKING:
+    from ..models.tool import ToolInfo
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +135,10 @@ class ToolCallResult:
     def __repr__(self) -> str:
         return self.__str__()
 
+    def find_cache(self) -> "CacheProxy":
+        from .cache_proxy import CacheProxy
+        return CacheProxy(self._context, scope="tool", scope_value=self._tool_name)
+
 
 class ToolProxy:
     """
@@ -157,6 +164,7 @@ class ToolProxy:
         self._context_type = context.context_type
         self._agent_id = context.agent_id
         self._tool_info = None  # 延迟加载
+        self._tool_info_obj: Optional['ToolInfo'] = None  # 精准的 ToolInfo 对象缓存
 
         logger.debug(f"[TOOL_PROXY] Created proxy for tool '{tool_name}' "
                     f"in {self._context_type.value} context, scope={scope}, service={service_name}")
@@ -225,6 +233,36 @@ class ToolProxy:
         info = self.tool_info()
         return info.get('meta', {})
 
+    # === FastMCP 视图 ===
+
+    def mcp_type2tool(self):
+        """
+        将当前工具转换为 FastMCP 官方的 Tool 对象
+        """
+        from mcp import types as mcp_types
+
+        tool = self._get_tool_info_object()
+        if not tool:
+            # TODO: 工具命中机制待评估，避免模糊匹配导致返回错误的 FastMCP Tool。
+            raise ValueError(f"Tool '{self._tool_name}' not found; cannot build mcp.types.Tool")
+
+        meta = {
+            "service_name": tool.service_name,
+            "service_global_name": tool.service_global_name,
+            "client_id": tool.client_id,
+        }
+
+        return mcp_types.Tool(
+            name=tool.tool_original_name or tool.name,
+            title=getattr(tool, "title", None) or tool.name,
+            description=tool.description,
+            inputSchema=tool.inputSchema or {},
+            outputSchema=getattr(tool, "outputSchema", None),
+            icons=getattr(tool, "icons", None),
+            annotations=getattr(tool, "annotations", None),
+            _meta=meta,
+        )
+
     # === 配置覆盖（如 LangChain return_direct） ===
 
     def set_redirect(self, enabled: bool = True) -> 'ToolProxy':
@@ -248,7 +286,10 @@ class ToolProxy:
                 resolved_tool_name = self._tool_info.get('name', self._tool_name)
             else:
                 # 2) 进行后缀匹配解析：支持传入简名（如 get_current_weather）
-                tools = self._context._sync_helper.run_async(self._context.list_tools_async())
+                tools = self._context._run_async_via_bridge(
+                    self._context.list_tools_async(),
+                    op_name="tool_proxy.set_redirect.list_tools"
+                )
                 candidate = None
 
                 for t in tools:
@@ -296,9 +337,9 @@ class ToolProxy:
         Returns:
             Any: FastMCP CallToolResult（或当 return_extracted=True 时返回已提取的数据）
         """
-        return self._context._sync_helper.run_async(
+        return self._context._run_async_via_bridge(
             self.call_tool_async(arguments, return_extracted=return_extracted, **kwargs),
-            force_background=True
+            op_name="tool_proxy.call_tool"
         )
 
     async def call_tool_async(self, arguments: Dict[str, Any] = None, return_extracted: bool = False, **kwargs) -> Any:
@@ -349,20 +390,21 @@ class ToolProxy:
                 # 获取工具使用记录
                 records = self._context._monitoring.get_tool_records(limit=100)
                 
-                # 过滤当前工具的记录
-                tool_records = []
-                if 'records' in records:
-                    tool_records = [
-                        record for record in records['records'] 
-                        if record.get('tool_name') == self._tool_name
-                    ]
+                # 过滤当前工具的记录（新结构键为 executions）
+                executions = records.get('executions', [])
+                tool_records = [
+                    record for record in executions
+                    if record.get('tool_name') == self._tool_name
+                ]
+                warning_msg = records.get('warning')
                 
                 return {
                     "tool_name": self._tool_name,
                     "total_calls": len(tool_records),
                     "recent_calls": len([r for r in tool_records[-10:]]),  # 最近10次
                     "success_rate": self._calculate_success_rate(tool_records),
-                    "average_duration": self._calculate_average_duration(tool_records)
+                    "average_duration": self._calculate_average_duration(tool_records),
+                    **({"warning": warning_msg} if warning_msg else {})
                 }
             else:
                 return {
@@ -394,13 +436,14 @@ class ToolProxy:
             if hasattr(self._context, '_monitoring') and self._context._monitoring:
                 records = self._context._monitoring.get_tool_records(limit=limit * 2)  # 获取更多记录用于过滤
                 
-                # 过滤当前工具的记录
-                tool_records = []
-                if 'records' in records:
-                    tool_records = [
-                        record for record in records['records'] 
-                        if record.get('tool_name') == self._tool_name
-                    ]
+                # 过滤当前工具的记录（新结构键为 executions）
+                executions = records.get('executions', [])
+                tool_records = [
+                    record for record in executions
+                    if record.get('tool_name') == self._tool_name
+                ]
+                if records.get('warning'):
+                    tool_records.append({"warning": records.get('warning')})
                 
                 # 返回最近的记录
                 return tool_records[:limit]
@@ -416,7 +459,10 @@ class ToolProxy:
         """延迟加载工具信息"""
         try:
             # 获取所有工具信息
-            tools = self._context._sync_helper.run_async(self._context.list_tools_async())
+            tools = self._context._run_async_via_bridge(
+                self._context.list_tools_async(),
+                op_name="tool_proxy.load_tool_info.list_tools"
+            )
             
             for tool in tools:
                 if tool.name == self._tool_name:
@@ -436,38 +482,23 @@ class ToolProxy:
                         'meta': {},
                         'scope': self._scope
                     }
-                    # 1) 从快照中尝试补充 original_name/display_name/tags/meta（若可用）
+                    # 1) 从 pykv 实体层补充 original_name/display_name（不使用快照）
                     try:
-                        agent_id = self._context._agent_id if self._context_type == ContextType.AGENT else None
-                        snapshot = self._context._sync_helper.run_async(
-                            self._context._store.orchestrator.tools_snapshot(agent_id)
+                        # 直接从 pykv 实体层获取工具实体
+                        tool_entity_manager = self._context._store.registry._cache_tool_manager
+                        tool_entity = self._context._run_async_via_bridge(
+                            tool_entity_manager.get_tool(tool.name),
+                            op_name="tool_proxy.load_tool_info.get_tool_entity"
                         )
-                        matched = None
-                        for item in snapshot or []:
-                            if not isinstance(item, dict):
-                                continue
-                            if item.get('name') == tool.name and item.get('service_name') == tool.service_name:
-                                matched = item
-                                break
-                        if matched:
-                            # 部分实现可能包含 original_name/display_name/tags/meta
-                            if 'original_name' in matched and 'original_name' not in info:
-                                info['original_name'] = matched.get('original_name')
-                            if 'display_name' in matched and 'display_name' not in info:
-                                info['display_name'] = matched.get('display_name')
-                            if isinstance(matched.get('tags'), list):
-                                info['tags'] = list(matched.get('tags') or [])
-                            # 若存在服务端提供的 meta，合并之
-                            if isinstance(matched.get('meta'), dict):
-                                meta_from_snapshot = matched.get('meta') or {}
-                                if isinstance(info.get('meta'), dict):
-                                    merged = dict(info['meta'])
-                                    merged.update(meta_from_snapshot)
-                                    info['meta'] = merged
-                                else:
-                                    info['meta'] = meta_from_snapshot
+                        if tool_entity:
+                            entity_dict = tool_entity.to_dict() if hasattr(tool_entity, 'to_dict') else tool_entity
+                            if 'tool_original_name' in entity_dict:
+                                info['original_name'] = entity_dict.get('tool_original_name')
+                            # display_name 默认使用 original_name
+                            if 'original_name' in info:
+                                info['display_name'] = info.get('original_name')
                     except Exception as e:
-                        logger.debug(f"[TOOL_PROXY] snapshot enrichment failed: {e}")
+                        logger.debug(f"[TOOL_PROXY] pykv enrichment failed: {e}")
 
                     # 2) 从转换管理器补充 tags（如有）
                     try:
@@ -512,6 +543,35 @@ class ToolProxy:
                 
         except Exception as e:
             logger.error(f"[TOOL_PROXY] Failed to load tool info: {e}")
+
+    def _get_tool_info_object(self) -> Optional['ToolInfo']:
+        """
+        获取完整的 ToolInfo 对象，用于构造 FastMCP Tool
+        """
+        if self._tool_info_obj is not None:
+            return self._tool_info_obj
+
+        try:
+            tools: List['ToolInfo'] = self._context._run_async_via_bridge(
+                self._context.list_tools_async(),
+                op_name="tool_proxy.get_tool_info_object.list_tools"
+            )
+            for tool in tools:
+                if self._service_name and tool.service_name != self._service_name:
+                    continue
+
+                if (
+                    tool.name == self._tool_name
+                    or (tool.tool_original_name and tool.tool_original_name == self._tool_name)
+                    or tool.name.endswith(f"_{self._tool_name}")
+                    or tool.name.endswith(f"__{self._tool_name}")
+                ):
+                    self._tool_info_obj = tool
+                    break
+        except Exception as exc:
+            logger.error(f"[TOOL_PROXY] Failed to resolve ToolInfo object: {exc}")
+
+        return self._tool_info_obj or None
 
     def _calculate_success_rate(self, records: List[Dict[str, Any]]) -> float:
         """计算成功率"""

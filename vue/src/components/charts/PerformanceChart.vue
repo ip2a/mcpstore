@@ -1,24 +1,55 @@
 <template>
   <div class="performance-chart">
     <div class="chart-header">
-      <h3 class="chart-title">{{ title }}</h3>
+      <h3 class="chart-title">
+        {{ title }}
+      </h3>
       <div class="chart-controls">
-        <el-select v-model="timeRange" size="small" @change="handleTimeRangeChange">
-          <el-option label="最近1小时" value="1h" />
-          <el-option label="最近6小时" value="6h" />
-          <el-option label="最近24小时" value="24h" />
-          <el-option label="最近7天" value="7d" />
+        <el-select
+          v-model="timeRange"
+          size="small"
+          @change="handleTimeRangeChange"
+        >
+          <el-option
+            label="最近1小时"
+            value="1h"
+          />
+          <el-option
+            label="最近6小时"
+            value="6h"
+          />
+          <el-option
+            label="最近24小时"
+            value="24h"
+          />
+          <el-option
+            label="最近7天"
+            value="7d"
+          />
         </el-select>
-        <el-button size="small" :icon="Refresh" @click="refreshData" :loading="loading">
+        <el-button
+          size="small"
+          :icon="Refresh"
+          :loading="loading"
+          @click="refreshData"
+        >
           刷新
         </el-button>
       </div>
     </div>
     
-    <div class="chart-container" ref="chartRef"></div>
+    <div
+      ref="chartRef"
+      class="chart-container"
+    />
     
-    <div v-if="loading" class="chart-loading">
-      <el-icon class="is-loading"><Loading /></el-icon>
+    <div
+      v-if="loading"
+      class="chart-loading"
+    >
+      <el-icon class="is-loading">
+        <Loading />
+      </el-icon>
       <span>加载中...</span>
     </div>
   </div>

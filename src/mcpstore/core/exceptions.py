@@ -427,4 +427,202 @@ class SessionSerializationError(MCPStoreException):
         )
 
 
+# === 工具集管理相关异常 ===
+
+class ToolSetError(MCPStoreException):
+    """工具集错误基类
+    
+    所有工具集管理相关的异常都继承自此类
+    
+    Validates: Requirements 6.2 (工具调用拦截)
+    """
+    
+    def __init__(self, message: str, **kwargs):
+        super().__init__(
+            message=message,
+            error_code=kwargs.pop("error_code", ErrorCode.INTERNAL_ERROR),
+            **kwargs
+        )
+
+
+class ToolNotAvailableError(ToolSetError):
+    """工具不可用错误
+    
+    当用户尝试调用已被移除的工具时抛出此异常
+    
+    Validates: Requirements 6.2 (工具调用拦截)
+    """
+    
+    def __init__(
+        self,
+        tool_name: str,
+        service_name: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        **kwargs
+    ):
+        message = f"工具 '{tool_name}' 不可用"
+        if service_name:
+            message += f"（服务: {service_name}）"
+        message += "。使用 add_tools() 方法启用该工具。"
+        
+        details = {"tool_name": tool_name}
+        if service_name:
+            details["service_name"] = service_name
+        if agent_id:
+            details["agent_id"] = agent_id
+        details.update(kwargs.get("details", {}))
+        
+        super().__init__(
+            message=message,
+            error_code=ErrorCode.TOOL_NOT_FOUND,
+            field="tool_name",
+            details=details,
+            **{k: v for k, v in kwargs.items() if k != "details"}
+        )
+
+
+class CrossAgentOperationError(ToolSetError):
+    """跨 Agent 操作错误
+    
+    当尝试使用属于其他 Agent 的 ServiceProxy 进行操作时抛出此异常
+    
+    Validates: Requirements 6.9 (跨 Agent 操作防护)
+    """
+    
+    def __init__(
+        self,
+        current_agent_id: str,
+        service_agent_id: str,
+        service_name: str,
+        operation: Optional[str] = None,
+        **kwargs
+    ):
+        message = f"不允许跨 Agent 操作：服务 '{service_name}' 属于 Agent '{service_agent_id}'，"
+        message += f"但当前 Agent 为 '{current_agent_id}'"
+        if operation:
+            message += f"（操作: {operation}）"
+        
+        details = {
+            "current_agent_id": current_agent_id,
+            "service_agent_id": service_agent_id,
+            "service_name": service_name
+        }
+        if operation:
+            details["operation"] = operation
+        details.update(kwargs.get("details", {}))
+        
+        super().__init__(
+            message=message,
+            error_code=ErrorCode.AUTHORIZATION_FAILED,
+            details=details,
+            **{k: v for k, v in kwargs.items() if k != "details"}
+        )
+
+
+class ServiceMappingError(ToolSetError):
+    """服务映射错误
+    
+    当服务名称映射不存在或无效时抛出此异常
+    
+    Validates: Requirements 6.10 (服务映射验证)
+    """
+    
+    def __init__(
+        self,
+        service_name: str,
+        agent_id: Optional[str] = None,
+        mapping_type: Optional[str] = None,
+        **kwargs
+    ):
+        message = f"服务映射错误：服务 '{service_name}' 的映射不存在或无效"
+        if agent_id:
+            message += f"（Agent: {agent_id}）"
+        
+        details = {"service_name": service_name}
+        if agent_id:
+            details["agent_id"] = agent_id
+        if mapping_type:
+            details["mapping_type"] = mapping_type
+        details.update(kwargs.get("details", {}))
+        
+        super().__init__(
+            message=message,
+            error_code=ErrorCode.SERVICE_NOT_FOUND,
+            field="service_name",
+            details=details,
+            **{k: v for k, v in kwargs.items() if k != "details"}
+        )
+
+
+class DataSourceNotFoundError(ToolSetError):
+    """数据源不存在错误
+    
+    当工具集状态数据源不存在时抛出此异常
+    
+    Validates: Requirements 6.10 (数据源归属验证)
+    """
+    
+    def __init__(
+        self,
+        agent_id: str,
+        service_name: str,
+        data_type: Optional[str] = None,
+        **kwargs
+    ):
+        message = f"数据源不存在：Agent '{agent_id}' 的服务 '{service_name}'"
+        if data_type:
+            message += f"（数据类型: {data_type}）"
+        
+        details = {
+            "agent_id": agent_id,
+            "service_name": service_name
+        }
+        if data_type:
+            details["data_type"] = data_type
+        details.update(kwargs.get("details", {}))
+        
+        super().__init__(
+            message=message,
+            error_code=ErrorCode.SERVICE_NOT_FOUND,
+            details=details,
+            **{k: v for k, v in kwargs.items() if k != "details"}
+        )
+
+
+class ServiceBindingError(ToolSetError):
+    """服务绑定错误
+    
+    当服务不属于当前 Agent 时抛出此异常
+    
+    Validates: Requirements 6.7 (服务归属验证)
+    """
+    
+    def __init__(
+        self,
+        service_name: str,
+        agent_id: str,
+        reason: Optional[str] = None,
+        **kwargs
+    ):
+        message = f"服务绑定错误：服务 '{service_name}' 不属于 Agent '{agent_id}'"
+        if reason:
+            message += f"。原因: {reason}"
+        
+        details = {
+            "service_name": service_name,
+            "agent_id": agent_id
+        }
+        if reason:
+            details["reason"] = reason
+        details.update(kwargs.get("details", {}))
+        
+        super().__init__(
+            message=message,
+            error_code=ErrorCode.AUTHORIZATION_FAILED,
+            field="service_name",
+            details=details,
+            **{k: v for k, v in kwargs.items() if k != "details"}
+        )
+
+
 

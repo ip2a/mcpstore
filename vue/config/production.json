@@ -1,0 +1,78 @@
+{
+  "api": {
+    "baseURL": "https://api.mcpstore.wiki",
+    "timeout": 10000,
+    "retries": 2
+  },
+  "websocket": {
+    "url": "wss://api.mcpstore.wiki/ws",
+    "reconnectInterval": 3000,
+    "maxReconnectAttempts": 5
+  },
+  "auth": {
+    "type": "oauth",
+    "loginEndpoint": "/oauth/authorize",
+    "tokenStorage": "secureCookie",
+    "refreshThreshold": 600000
+  },
+  "ui": {
+    "theme": "auto",
+    "language": "zh-CN",
+    "timezone": "Asia/Shanghai",
+    "dateFormat": "YYYY-MM-DD HH:mm:ss",
+    "itemsPerPage": 50,
+    "enableAnimations": false,
+    "showDebugInfo": false
+  },
+  "features": {
+    "realtimeUpdates": true,
+    "darkMode": true,
+    "compactMode": false,
+    "showHiddenServices": false,
+    "enableExperimental": false
+  },
+  "monitoring": {
+    "enabled": true,
+    "trackErrors": true,
+    "trackPerformance": true,
+    "sentryDSN": "https://your-sentry-dsn@sentry.io/project-id",
+    "logLevel": "warn"
+  },
+  "cache": {
+    "services": {
+      "ttl": 300000,
+      "maxEntries": 1000
+    },
+    "tools": {
+      "ttl": 60000,
+      "maxEntries": 2000
+    }
+  },
+  "security": {
+    "contentSecurityPolicy": {
+      "enabled": true,
+      "directives": {
+        "default-src": ["'self'"],
+        "script-src": ["'self'", "'unsafe-inline'", "https://cdn.trusted.com"],
+        "style-src": ["'self'", "'unsafe-inline'"],
+        "img-src": ["'self'", "data:", "https:"],
+        "connect-src": ["'self'", "https://api.mcpstore.wiki", "wss://api.mcpstore.wiki"]
+      }
+    },
+    "XSSProtection": true,
+    "clickjacking": {
+      "enabled": true,
+      "mode": "DENY"
+    }
+  },
+  "performance": {
+    "lazyLoad": true,
+    "codeSplitting": true,
+    "gzip": true,
+    "brotli": true,
+    "cdn": {
+      "enabled": true,
+      "baseURL": "https://cdn.mcpstore.wiki"
+    }
+  }
+}

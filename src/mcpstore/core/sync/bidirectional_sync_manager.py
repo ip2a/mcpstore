@@ -50,8 +50,9 @@ class BidirectionalSyncManager:
         
         try:
             self._syncing_services.add(sync_key)
-            
-            global_name = self.store.registry.get_global_name_from_agent_service(agent_id, local_name)
+
+            # 使用异步版本，避免 AOB 事件循环冲突
+            global_name = await self.store.registry.get_global_name_from_agent_service_async(agent_id, local_name)
             if not global_name:
                 logger.warning(f" [BIDIRECTIONAL_SYNC] No global mapping found for {agent_id}:{local_name}")
                 return
@@ -66,10 +67,10 @@ class BidirectionalSyncManager:
                 # 从 Store 中删除服务
                 await self._delete_store_service(global_name)
             
-            logger.info(f" [BIDIRECTIONAL_SYNC] Agent → Store 同步完成: {sync_key}")
+            logger.info(f"[BIDIRECTIONAL_SYNC] [COMPLETE] Agent -> Store sync completed: {sync_key}")
             
         except Exception as e:
-            logger.error(f" [BIDIRECTIONAL_SYNC] Agent → Store 同步失败 {sync_key}: {e}")
+            logger.error(f"[BIDIRECTIONAL_SYNC] [ERROR] Agent -> Store sync failed {sync_key}: {e}")
         finally:
             self._syncing_services.discard(sync_key)
     
@@ -108,10 +109,10 @@ class BidirectionalSyncManager:
                 # 从 Agent 中删除服务
                 await self._delete_agent_service(agent_id, local_name)
             
-            logger.info(f" [BIDIRECTIONAL_SYNC] Store → Agent 同步完成: {sync_key}")
+            logger.info(f"[BIDIRECTIONAL_SYNC] [COMPLETE] Store -> Agent sync completed: {sync_key}")
             
         except Exception as e:
-            logger.error(f" [BIDIRECTIONAL_SYNC] Store → Agent 同步失败 {sync_key}: {e}")
+            logger.error(f" [BIDIRECTIONAL_SYNC] Store -> Agent sync failed {sync_key}: {e}")
         finally:
             self._syncing_services.discard(sync_key)
     
@@ -134,7 +135,7 @@ class BidirectionalSyncManager:
                 await self.sync_agent_to_store(agent_id, service_name, new_config, "update")
             
         except Exception as e:
-            logger.error(f" [BIDIRECTIONAL_SYNC] 服务更新同步失败 {agent_id}:{service_name}: {e}")
+            logger.error(f"[BIDIRECTIONAL_SYNC] [ERROR] Service update sync failed {agent_id}:{service_name}: {e}")
     
     async def handle_service_deletion_with_sync(self, agent_id: str, service_name: str):
         """
@@ -154,7 +155,7 @@ class BidirectionalSyncManager:
                 await self.sync_agent_to_store(agent_id, service_name, {}, "delete")
             
         except Exception as e:
-            logger.error(f" [BIDIRECTIONAL_SYNC] 服务删除同步失败 {agent_id}:{service_name}: {e}")
+            logger.error(f"[BIDIRECTIONAL_SYNC] [ERROR] Service deletion sync failed {agent_id}:{service_name}: {e}")
     
     # === 内部同步实现方法 ===
     
@@ -173,12 +174,12 @@ class BidirectionalSyncManager:
             success = self.store._unified_config.add_service_config(global_name, new_config)
             
             if success:
-                logger.debug(f" [BIDIRECTIONAL_SYNC] Store 配置更新成功: {global_name}，缓存已同步")
+                logger.debug(f"[BIDIRECTIONAL_SYNC] [SUCCESS] Store configuration update successful: {global_name}, cache synchronized")
             else:
-                logger.error(f" [BIDIRECTIONAL_SYNC] Store 配置更新失败: {global_name}")
+                logger.error(f"[BIDIRECTIONAL_SYNC] [ERROR] Store configuration update failed: {global_name}")
             
         except Exception as e:
-            logger.error(f" [BIDIRECTIONAL_SYNC] 更新 Store 服务配置失败 {global_name}: {e}")
+            logger.error(f"[BIDIRECTIONAL_SYNC] [ERROR] Failed to update Store service configuration {global_name}: {e}")
             raise
     
     async def _update_agent_service_config(self, agent_id: str, local_name: str, new_config: Dict[str, Any]):
@@ -188,17 +189,17 @@ class BidirectionalSyncManager:
             if hasattr(self.store.registry, 'update_service_config'):
                 self.store.registry.update_service_config(agent_id, local_name, new_config)
             
-            logger.debug(f" [BIDIRECTIONAL_SYNC] Agent 配置更新成功: {agent_id}:{local_name}")
+            logger.debug(f"[BIDIRECTIONAL_SYNC] [SUCCESS] Agent configuration update successful: {agent_id}:{local_name}")
             
         except Exception as e:
-            logger.error(f" [BIDIRECTIONAL_SYNC] 更新 Agent 服务配置失败 {agent_id}:{local_name}: {e}")
+            logger.error(f"[BIDIRECTIONAL_SYNC] [ERROR] Failed to update Agent service configuration {agent_id}:{local_name}: {e}")
             raise
     
     async def _delete_store_service(self, global_name: str):
         """从 Store 中删除服务"""
         try:
-            # 1. 从 Registry 中删除
-            self.store.registry.remove_service(
+            # 1. 从 Registry 中删除（使用异步版本）
+            await self.store.registry.remove_service_async(
                 self.store.client_manager.global_agent_store_id, 
                 global_name
             )
@@ -207,39 +208,49 @@ class BidirectionalSyncManager:
             success = self.store._unified_config.remove_service_config(global_name)
             
             if success:
-                logger.debug(f" [BIDIRECTIONAL_SYNC] Store 服务删除成功: {global_name}，缓存已同步")
+                logger.debug(f"[BIDIRECTIONAL_SYNC] [SUCCESS] Store service deletion successful: {global_name}, cache synchronized")
             else:
-                logger.error(f" [BIDIRECTIONAL_SYNC] Store 服务删除失败: {global_name}")
+                logger.error(f"[BIDIRECTIONAL_SYNC] [ERROR] Store service deletion failed: {global_name}")
             
         except Exception as e:
-            logger.error(f" [BIDIRECTIONAL_SYNC] 删除 Store 服务失败 {global_name}: {e}")
+            logger.error(f"[BIDIRECTIONAL_SYNC] [ERROR] Failed to delete Store service {global_name}: {e}")
             raise
     
     async def _delete_agent_service(self, agent_id: str, local_name: str):
         """从 Agent 中删除服务"""
         try:
-            # 从 Registry 中删除
-            self.store.registry.remove_service(agent_id, local_name)
+            # 从 Registry 中删除（使用异步版本）
+            await self.store.registry.remove_service_async(agent_id, local_name)
             
             # 移除映射关系
-            self.store.registry.remove_agent_service_mapping(agent_id, local_name)
+            await self.store.registry.remove_agent_service_mapping_async(agent_id, local_name)
             
-            logger.debug(f" [BIDIRECTIONAL_SYNC] Agent 服务删除成功: {agent_id}:{local_name}")
+            logger.debug(f"[BIDIRECTIONAL_SYNC] [SUCCESS] Agent service deletion successful: {agent_id}:{local_name}")
             
         except Exception as e:
-            logger.error(f" [BIDIRECTIONAL_SYNC] 删除 Agent 服务失败 {agent_id}:{local_name}: {e}")
+            logger.error(f"[BIDIRECTIONAL_SYNC] [ERROR] Failed to delete Agent service {agent_id}:{local_name}: {e}")
             raise
     
     def get_sync_status(self) -> Dict[str, Any]:
         """
         获取同步状态信息（用于调试和监控）
-        
+
+        遵循 pykv 数据唯一源原则：
+        - 不维护内存字典
+        - 主要数据从缓存源读取
+        - 内存仅存储会话信息和配置
+
         Returns:
             Dict: 同步状态信息
+
+        Note:
+            agent_mappings 已移除。如需服务映射信息，请使用：
+            - ServiceRegistry.get_agent_service_from_global_name_async()
+            - ServiceRegistry.get_global_name_from_agent_service_async()
         """
         return {
             "currently_syncing": list(self._syncing_services),
             "sync_count": len(self._syncing_services),
             "store_id": self.store.client_manager.global_agent_store_id,
-            "agent_mappings": dict(self.store.registry.agent_to_global_mappings)
+            # agent_mappings 已移除：不再维护内存字典，所有映射从缓存源读取
         }

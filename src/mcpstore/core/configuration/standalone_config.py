@@ -9,8 +9,8 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, Union
 
-from ...config.config_defaults import StandaloneConfigDefaults
 from ..registry.schema_manager import get_schema_manager
+from ...config.config_defaults import StandaloneConfigDefaults
 
 logger = logging.getLogger(__name__)
 

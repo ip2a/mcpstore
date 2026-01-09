@@ -18,18 +18,31 @@ class ServiceProxy:
     提供具体服务的所有操作方法，进一步缩小作用域
     """
 
-    def __init__(self, context: 'MCPStoreContext', service_name: str):
+    def __init__(
+        self,
+        context: 'MCPStoreContext',
+        service_name: str,
+        agent_id: str = None,
+        global_name: str = None
+    ):
         """
         初始化服务代理
 
         Args:
             context: 父级上下文对象
-            service_name: 服务名称
+            service_name: 服务名称（本地名称）
+            agent_id: Agent ID（可选，用于绑定验证）
+            global_name: 全局服务名称（可选）
         """
         self._context = context
         self._service_name = service_name
         self._context_type = context.context_type
-        self._agent_id = context.agent_id
+        self._agent_id = agent_id or context.agent_id
+        self._global_name = global_name
+        
+        # 验证绑定关系（如果提供了 agent_id）
+        if agent_id and self._context_type.value == "agent":
+            self._verify_binding()
 
         logger.debug(f"[SERVICE_PROXY] Created proxy for service '{service_name}' in {self._context_type.value} context")
 
@@ -42,6 +55,40 @@ class ServiceProxy:
     def context_type(self) -> ContextType:
         """获取上下文类型"""
         return self._context_type
+    
+    @property
+    def agent_id(self) -> str:
+        """获取绑定的 Agent ID"""
+        return self._agent_id
+    
+    @property
+    def is_agent_scoped(self) -> bool:
+        """判断是否绑定到 Agent"""
+        return self._agent_id is not None and self._context_type.value == "agent"
+    
+    def _verify_binding(self) -> None:
+        """验证服务绑定关系
+        
+        Validates: Requirements 6.7, 6.8 (服务归属验证)
+        """
+        # 通过 Registry 验证服务映射是否存在
+        service_global_name = self._context._store.registry.get_global_name_from_agent_service(
+            self._agent_id,
+            self._service_name
+        )
+        
+        if not service_global_name:
+            from mcpstore.core.exceptions import ServiceBindingError
+            raise ServiceBindingError(
+                service_name=self._service_name,
+                agent_id=self._agent_id,
+                reason="服务映射不存在"
+            )
+        
+        logger.debug(
+            f"[SERVICE_PROXY] Verified binding for service '{self._service_name}' "
+            f"to agent '{self._agent_id}' (global_name={service_global_name})"
+        )
 
     # === 服务信息查询方法（两个单词） ===
 
@@ -68,20 +115,20 @@ class ServiceProxy:
         获取详细健康信息（两个单词方法）
 
         Returns:
-            dict: 详细健康检查结果（包含状态、响应时间、时间戳、错误信息、生命周期映射等）
+            dict: 详细健康检查结果（包含状态、响应时间、时间戳、错误信息等）
         """
         try:
             # 计算实际查询使用的服务名（Agent 模式使用全局名）
             effective_name = self._service_name
             if self._context_type == ContextType.AGENT and getattr(self._context, "_service_mapper", None):
                 effective_name = self._context._service_mapper.to_global_name(self._service_name)
-            # 使用 orchestrator 的稳定公共 API
-            result = self._context._sync_helper.run_async(
-                self._context._store.orchestrator.health_details(
-                    effective_name,
-                    None  # 透明代理：统一在全局命名空间执行健康检查
-                )
+            
+            # 使用 orchestrator 的 get_service_status 方法
+            result = self._context._store.orchestrator.get_service_status(
+                effective_name,
+                None  # 透明代理：统一在全局命名空间执行健康检查
             )
+            
             # 保持向后兼容：补齐 effective_name 字段
             if isinstance(result, dict) and "effective_name" not in result:
                 result = {**result, "effective_name": effective_name, "service_name": self._service_name}
@@ -89,6 +136,10 @@ class ServiceProxy:
         except Exception as e:
             logger.error(f"Failed to get health details for {self._service_name}: {e}")
             return {"service_name": self._service_name, "status": "error", "error": str(e)}
+
+    def find_cache(self) -> "CacheProxy":
+        from .cache_proxy import CacheProxy
+        return CacheProxy(self._context, scope="service", scope_value=self._service_name)
 
     # === 服务健康检查方法（两个单词） ===
 
@@ -119,13 +170,14 @@ class ServiceProxy:
         try:
             # 通过orchestrator检查服务健康状态
             if self._context_type == ContextType.STORE:
-                # 使用同步助手运行异步方法
-                return self._context._sync_helper.run_async(
-                    self._context._store.orchestrator.is_service_healthy(self._service_name)
+                return self._context._run_async_via_bridge(
+                    self._context._store.orchestrator.is_service_healthy(self._service_name),
+                    op_name="service_proxy.is_healthy.store"
                 )
             else:
-                return self._context._sync_helper.run_async(
-                    self._context._store.orchestrator.is_service_healthy(self._service_name, self._agent_id)
+                return self._context._run_async_via_bridge(
+                    self._context._store.orchestrator.is_service_healthy(self._service_name, self._agent_id),
+                    op_name="service_proxy.is_healthy.agent"
                 )
         except Exception as e:
             logger.error(f"Failed to check health for {self._service_name}: {e}")
@@ -136,23 +188,16 @@ class ServiceProxy:
     def list_tools(self) -> List[ToolInfo]:
         """
         列出服务工具（两个单词方法）
+        
+        直接从 pykv 读取，不使用快照。
 
         Returns:
             List[ToolInfo]: 工具列表
         """
-        try:
-            # 使用 orchestrator 快照：
-            # - Store: 全局服务名
-            # - Agent: 已投影为本地服务名
-            agent_id = self._context._agent_id if self._context_type == ContextType.AGENT else None
-            snapshot = self._context._sync_helper.run_async(
-                self._context._store.orchestrator.tools_snapshot(agent_id)
-            )
-            filtered = [t for t in snapshot if isinstance(t, dict) and t.get("service_name") == self._service_name]
-            return [ToolInfo(**t) for t in filtered]
-        except Exception as e:
-            logger.error(f"[SERVICE_PROXY.list_tools] failed: {e}")
-            return []
+        return self._context._run_async_via_bridge(
+            self._context.list_tools_async(service_name=self._service_name),
+            op_name="service_proxy.list_tools"
+        )
 
     def tools_stats(self) -> Dict[str, Any]:
         """
@@ -233,17 +278,21 @@ class ServiceProxy:
         # 通过orchestrator移除服务（同步封装）
         try:
             if self._context_type == ContextType.STORE:
-                return self._context._sync_helper.run_async(
-                    self._context._store.orchestrator.remove_service(self._service_name)
+                return self._context._run_async_via_bridge(
+                    self._context._store.orchestrator.remove_service(self._service_name),
+                    op_name="service_proxy.remove_service"
                 )
             else:
                 # Agent 模式需要传递 agent_id
-                return self._context._sync_helper.run_async(
-                    self._context._store.orchestrator.remove_service(self._service_name, self._agent_id)
+                return self._context._run_async_via_bridge(
+                    self._context._store.orchestrator.remove_service(
+                        self._service_name, self._agent_id
+                    ),
+                    op_name="service_proxy.remove_service"
                 )
         except Exception as e:
             logger.error(f"Failed to remove service {self._service_name}: {e}")
-            return False
+            raise
 
     # === 服务内容管理方法（两个单词） ===
 
@@ -256,12 +305,14 @@ class ServiceProxy:
         """
         try:
             if self._context_type == ContextType.STORE:
-                return self._context._sync_helper.run_async(
-                    self._context._store.orchestrator.refresh_service_content(self._service_name)
+                return self._context._run_async_via_bridge(
+                    self._context._store.orchestrator.refresh_service_content(self._service_name),
+                    op_name="service_proxy.refresh_content"
                 )
             else:
-                return self._context._sync_helper.run_async(
-                    self._context._store.orchestrator.refresh_service_content(self._service_name, self._agent_id)
+                return self._context._run_async_via_bridge(
+                    self._context._store.orchestrator.refresh_service_content(self._service_name, self._agent_id),
+                    op_name="service_proxy.refresh_content"
                 )
         except Exception as e:
             logger.error(f"Failed to refresh content for {self._service_name}: {e}")
@@ -293,6 +344,61 @@ class ServiceProxy:
         """
         from .tool_proxy import ToolProxy
         return ToolProxy(self._context, tool_name, scope='service', service_name=self._service_name)
+
+    def call_tool(self, tool_name: str, args: Dict[str, Any] | None = None, return_extracted: bool = False, **kwargs) -> Any:
+        """同步调用当前服务内的工具。"""
+        return self._context._run_async_via_bridge(
+            self.call_tool_async(tool_name, args or {}, return_extracted=return_extracted, **kwargs),
+            op_name="service_proxy.call_tool",
+        )
+
+    async def call_tool_async(self, tool_name: str, args: Dict[str, Any] | None = None, return_extracted: bool = False, **kwargs) -> Any:
+        """异步调用当前服务内的工具。"""
+        return await self._context.call_tool_async(tool_name, args or {}, return_extracted=return_extracted, **kwargs)
+
+    # === Hub 暴露能力 ===
+
+    def hub_http(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/mcp", *, block: bool = False, show_banner: bool = False, **fastmcp_kwargs):
+        """将当前服务对象暴露为 HTTP MCP 端点。"""
+        from mcpstore.core.hub.server import HubMCPServer
+
+        hub = HubMCPServer(
+            exposed_object=self,
+            transport="http",
+            port=port,
+            host=host,
+            path=path,
+            **fastmcp_kwargs,
+        )
+        hub.start(block=block, show_banner=show_banner)
+        return hub
+
+    def hub_sse(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/sse", *, block: bool = False, show_banner: bool = False, **fastmcp_kwargs):
+        """将当前服务对象暴露为 SSE MCP 端点。"""
+        from mcpstore.core.hub.server import HubMCPServer
+
+        hub = HubMCPServer(
+            exposed_object=self,
+            transport="sse",
+            port=port,
+            host=host,
+            path=path,
+            **fastmcp_kwargs,
+        )
+        hub.start(block=block, show_banner=show_banner)
+        return hub
+
+    def hub_stdio(self, *, block: bool = False, show_banner: bool = False, **fastmcp_kwargs):
+        """将当前服务对象暴露为 stdio MCP 端点。"""
+        from mcpstore.core.hub.server import HubMCPServer
+
+        hub = HubMCPServer(
+            exposed_object=self,
+            transport="stdio",
+            **fastmcp_kwargs,
+        )
+        hub.start(block=block, show_banner=show_banner)
+        return hub
 
     # === 便捷属性方法 ===
 

@@ -19,7 +19,10 @@ class AgentStatisticsMixin:
         Returns:
             AgentsSummary: Agent summary information
         """
-        return self._sync_helper.run_async(self.get_agents_summary_async())
+        return self._run_async_via_bridge(
+            self.get_agents_summary_async(),
+            op_name="agent_statistics.get_agents_summary"
+        )
 
     async def get_agents_summary_async(self) -> AgentsSummary:
         """
@@ -30,9 +33,9 @@ class AgentStatisticsMixin:
         """
         try:
             #  [REFACTOR] Get all Agent IDs from Registry cache
-            logger.info(" [AGENT_STATS] 开始获取Agent统计信息...")
-            all_agent_ids = self._store.registry.get_all_agent_ids()
-            logger.info(f" [AGENT_STATS] 从Registry缓存获取到的Agent IDs: {all_agent_ids}")
+            logger.info(" [AGENT_STATS] Starting to get Agent statistics...")
+            all_agent_ids = await self._store.registry.get_all_agent_ids_async()
+            logger.info(f" [AGENT_STATS] Agent IDs retrieved from Registry cache: {all_agent_ids}")
 
             # Statistical information
             total_agents = len(all_agent_ids)
@@ -45,9 +48,9 @@ class AgentStatisticsMixin:
             for agent_id in all_agent_ids:
                 try:
                     # Get Agent statistics information
-                    logger.info(f" [AGENT_STATS] 开始获取Agent {agent_id} 的详细统计信息...")
+                    logger.info(f" [AGENT_STATS] Starting to get detailed statistics for Agent {agent_id}...")
                     agent_stats = await self._get_agent_statistics(agent_id)
-                    logger.info(f" [AGENT_STATS] Agent {agent_id} 统计完成: {agent_stats.service_count}个服务, {agent_stats.tool_count}个工具")
+                    logger.info(f" [AGENT_STATS] Agent {agent_id} statistics completed: {agent_stats.service_count} services, {agent_stats.tool_count} tools")
                     
                     if agent_stats.is_active:
                         active_agents += 1
@@ -110,10 +113,10 @@ class AgentStatisticsMixin:
             AgentStatistics: Agent统计信息
         """
         try:
-            # 获取Agent的所有client
-            logger.info(f" [AGENT_STATS] 获取Agent {agent_id} 的所有client...")
-            client_ids = self._store.registry.get_agent_clients_from_cache(agent_id)
-            logger.info(f" [AGENT_STATS] Agent {agent_id} 的client列表: {client_ids}")
+            # 获取Agent的所有client - 从 pykv 获取
+            logger.info(f" [AGENT_STATS] Getting all clients for Agent {agent_id}...")
+            client_ids = await self._store.registry.get_agent_clients_async(agent_id)
+            logger.info(f" [AGENT_STATS] Agent {agent_id} client list: {client_ids}")
 
             # 统计服务和工具
             services = []
@@ -131,16 +134,17 @@ class AgentStatisticsMixin:
                     #  [REFACTOR] 简化逻辑：直接检查服务状态来判断client是否活跃
                     # 不再调用不存在的get_client_status方法
                     
-                    # 统计服务
-                    for service_name, service_config in client_config.get("mcpServers", {}).items():
+                    # 统计服务（新架构：从 client 实体的 services 列表获取服务名称）
+                    services = client_config.get("services", []) if isinstance(client_config, dict) else []
+                    for service_name in services:
                         try:
-                            #  [REFACTOR] 使用正确的Registry方法获取服务工具
-                            service_tools = self._store.registry.get_tools_for_service(agent_id, service_name)
+                            #  [REFACTOR] 使用正确的Registry方法获取服务工具（异步）
+                            service_tools = await self._store.registry.get_tools_for_service_async(agent_id, service_name)
                             tool_count = len(service_tools) if service_tools else 0
                             total_tools += tool_count
 
-                            #  [REFACTOR] 使用正确的Registry方法获取服务状态
-                            service_state = self._store.registry.get_service_state(agent_id, service_name)
+                            #  [REFACTOR] 使用正确的Registry方法获取服务状态（异步）
+                            service_state = await self._store.registry.get_service_state_async(agent_id, service_name)
 
                             # 检查服务是否活跃（有工具且状态不是DISCONNECTED）
                             from mcpstore.core.models.service import ServiceConnectionState

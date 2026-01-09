@@ -11,8 +11,15 @@
     </a-tag>
 
     <!-- 详细信息（可选展开） -->
-    <div v-if="showDetails" class="status-details">
-      <a-descriptions size="small" :column="2" bordered>
+    <div
+      v-if="showDetails"
+      class="status-details"
+    >
+      <a-descriptions
+        size="small"
+        :column="2"
+        bordered
+      >
         <a-descriptions-item label="服务名称">
           {{ serviceName }}
         </a-descriptions-item>
@@ -39,38 +46,52 @@
         <a-descriptions-item label="最后检查时间">
           {{ formatTimestamp(lastCheckTime) }}
         </a-descriptions-item>
-        <a-descriptions-item v-if="nextRetryTime" label="下次重试时间">
+        <a-descriptions-item
+          v-if="nextRetryTime"
+          label="下次重试时间"
+        >
           {{ formatISOTime(nextRetryTime) }}
         </a-descriptions-item>
-        <a-descriptions-item v-if="errorMessage" label="错误信息" :span="2">
-          <a-alert :message="errorMessage" type="error" show-icon />
+        <a-descriptions-item
+          v-if="errorMessage"
+          label="错误信息"
+          :span="2"
+        >
+          <a-alert
+            :message="errorMessage"
+            type="error"
+            show-icon
+          />
         </a-descriptions-item>
       </a-descriptions>
     </div>
 
     <!-- 操作按钮 -->
-    <div v-if="showActions" class="status-actions">
+    <div
+      v-if="showActions"
+      class="status-actions"
+    >
       <a-button-group size="small">
         <a-button 
-          @click="handleRefreshContent"
           :loading="refreshing"
           icon="reload"
+          @click="handleRefreshContent"
         >
           刷新内容
         </a-button>
         <a-button 
-          @click="handleHealthCheck"
           :loading="checking"
           icon="heart"
+          @click="handleHealthCheck"
         >
           健康检查
         </a-button>
         <a-button 
           v-if="isServiceAvailable(status)"
-          @click="handleDisconnect"
           :loading="disconnecting"
           icon="disconnect"
           type="danger"
+          @click="handleDisconnect"
         >
           断开连接
         </a-button>

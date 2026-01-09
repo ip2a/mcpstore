@@ -123,6 +123,10 @@ class ServiceLifecycleConfig(BaseModel):
     warning_failure_threshold: Optional[int] = Field(default=None, ge=1, le=10, description="进入WARNING状态的失败阈值，范围1-10")
     reconnecting_failure_threshold: Optional[int] = Field(default=None, ge=2, le=10, description="进入RECONNECTING状态的失败阈值，范围2-10")
     max_reconnect_attempts: Optional[int] = Field(default=None, ge=3, le=20, description="最大重连尝试次数，范围3-20")
+    warning_ping_timeout: Optional[float] = Field(default=None, ge=1, description="WARNING/RECONNECTING状态下的健康检查超时（秒），缺省使用默认值")
+    ping_timeout_http: Optional[float] = Field(default=None, ge=1, description="HTTP 传输健康检查超时（秒）")
+    ping_timeout_sse: Optional[float] = Field(default=None, ge=1, description="SSE 传输健康检查超时（秒）")
+    ping_timeout_stdio: Optional[float] = Field(default=None, ge=1, description="STDIO/Studio 传输健康检查超时（秒）")
 
 # === 服务详情相关响应模型 ===
 

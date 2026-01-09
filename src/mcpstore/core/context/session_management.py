@@ -429,10 +429,10 @@ class SessionManagementMixin:
             MCPStoreContext: Self for method chaining
         """
         try:
-            # 🎯 使用现有 SessionManager 清理过期会话
+            # Use existing SessionManager to cleanup expired sessions
             self._store.session_manager.cleanup_expired_sessions()
 
-            # 🎯 清理失效的缓存
+            # Clean up invalid cache
             invalid_keys = []
             for key, session in self._session_cache.items():
                 if not session.is_active:
@@ -456,14 +456,14 @@ class SessionManagementMixin:
             MCPStoreContext: Self for method chaining
         """
         try:
-            # 🎯 重启所有缓存的会话
+            # Restart all cached sessions
             for session in self._session_cache.values():
                 try:
                     session.restart_session()
                 except Exception as e:
                     logger.warning(f"[SESSION_MANAGEMENT] Error restarting session {session.session_id}: {e}")
 
-            # 🎯 重启自动会话
+            # Restart auto session
             if self._auto_session:
                 try:
                     self._auto_session.restart_session()
@@ -537,7 +537,7 @@ class SessionManagementMixin:
             sessions = []
             effective_agent_id = self._get_effective_agent_id()
 
-            # 🎯 使用增强的 SessionManager
+            # Use enhanced SessionManager
             if hasattr(self._store.session_manager, 'list_sessions_for_agent'):
                 agent_sessions_dict = self._store.session_manager.list_sessions_for_agent(effective_agent_id)
 
@@ -553,7 +553,7 @@ class SessionManagementMixin:
                     session = Session(self, "default", agent_session)
                     sessions.append(session)
 
-            # 🎯 包含自动会话（如果有）
+            # Include auto session if available
             if self._auto_session_enabled and self._auto_session:
                 if self._auto_session not in sessions:
                     sessions.append(self._auto_session)
@@ -676,14 +676,14 @@ class SessionManagementMixin:
             result = agent.invoke({"messages": [HumanMessage("打开百度，然后搜索天气")]})
         """
         try:
-            # 🎯 Get or create session
+            # Get or create session
             session = self.find_session(session_id)
             if not session and create_if_not_exists:
                 session = self.create_session(session_id)
             elif not session:
                 raise ValueError(f"Session '{session_id}' not found and create_if_not_exists=False")
 
-            # 🎯 Create session-aware adapter
+            # Create session-aware adapter
             # Note: 这是一个桥接方法，存在 core → adapters 的向上依赖
             # 但为了 API 便利性保留，使用延迟导入减少影响
             from mcpstore.adapters.langchain_adapter import SessionAwareLangChainAdapter

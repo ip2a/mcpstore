@@ -9,7 +9,6 @@ import time
 from datetime import datetime
 from typing import Dict, Optional, Any
 
-from mcpstore.core.models.service import ServiceConnectionState
 from mcpstore.core.utils.mcp_client_helpers import temp_client_for_service
 from .message_handler import MCPStoreMessageHandler, FASTMCP_AVAILABLE
 
@@ -333,9 +332,11 @@ class ToolsUpdateMonitor:
                 agent_locks = getattr(locks_owner, 'agent_locks', None) if locks_owner else None
                 if agent_locks:
                     async with agent_locks.write(client_id):
-                        self.registry.replace_service_tools(client_id, service_name, session, tools_response)
+                        # 使用异步版本避免事件循环冲突
+                        await self.registry.replace_service_tools_async(client_id, service_name, session, tools_response)
                 else:
-                    self.registry.replace_service_tools(client_id, service_name, session, tools_response)
+                    # 使用异步版本避免事件循环冲突
+                    await self.registry.replace_service_tools_async(client_id, service_name, session, tools_response)
 
                 # 尝试刷新内容（非关键路径，失败忽略）
                 try:

@@ -1,379 +1,328 @@
 <template>
-  <div class="agent-detail">
-    <!-- 页面头部 -->
-    <div class="page-header">
+  <div class="page-container">
+    <!-- Header -->
+    <header class="page-header">
       <div class="header-left">
-        <el-button
-          :icon="ArrowLeft"
-          @click="$router.back()"
+        <el-button 
+          :icon="ArrowLeft" 
+          circle 
+          plain 
           class="back-btn"
-        >
-          返回
-        </el-button>
-        <div class="title-section">
-          <h2 class="page-title">Agent详情</h2>
-          <p class="page-description">{{ agentId }}</p>
+          @click="$router.back()"
+        />
+        <div class="header-content">
+          <h1 class="page-title">
+            {{ agentId }}
+          </h1>
+          <p class="page-subtitle">
+            Agent Context Detail
+          </p>
         </div>
       </div>
-      <div class="header-right">
-        <el-button
+      <div class="header-actions">
+        <el-button 
+          :icon="Plus" 
           type="primary"
-          :icon="Plus"
-          @click="addService"
+          color="#000"
+          class="action-btn"
+          @click="openServiceDialog"
         >
-          添加服务
+          Add Service
         </el-button>
-        <el-button
-          :icon="Refresh"
-          @click="refreshData"
+        <el-button 
+          :icon="Refresh" 
           :loading="loading"
-        >
-          刷新
-        </el-button>
+          circle
+          plain
+          class="action-btn"
+          @click="refreshData"
+        />
+      </div>
+    </header>
+
+    <!-- KPI Metrics -->
+    <div class="kpi-grid">
+      <StatCard
+        title="Services"
+        :value="agentStats.services || 0"
+        unit="nodes"
+        :icon="Connection"
+        class="kpi-card"
+      />
+      
+      <StatCard
+        title="Tools"
+        :value="agentStats.tools || 0"
+        unit="fns"
+        :icon="Tools"
+        class="kpi-card"
+      />
+      
+      <StatCard
+        title="Health"
+        :value="agentStats.healthy_services || 0"
+        unit="active"
+        :icon="FirstAidKit"
+        :class="['kpi-card', isHealthy ? 'status-active' : 'status-issue']"
+      />
+      
+      <StatCard
+        title="Executions"
+        :value="agentStats.total_tool_executions || 0"
+        unit="calls"
+        :icon="VideoPlay"
+        class="kpi-card"
+      />
+    </div>
+
+    <!-- Main Content Layout -->
+    <div class="main-layout">
+      <!-- Left Column: Services & Tools -->
+      <div class="content-column left-col">
+        
+        <!-- Services Panel -->
+        <section class="panel-section">
+          <div class="panel-header">
+            <h3 class="panel-title">
+              Active Services
+            </h3>
+            <div class="panel-controls">
+               <span class="count-badge">{{ services.length }}</span>
+            </div>
+          </div>
+          
+          <div class="panel-body table-container">
+            <el-table
+              :data="services"
+              class="atom-table"
+              :show-header="true"
+              size="small"
+              empty-text="No services configured"
+            >
+              <el-table-column
+                label="SERVICE"
+                min-width="200"
+              >
+                <template #default="{ row }">
+                  <div class="service-name-cell">
+                    <div
+                      class="status-indicator"
+                      :class="getServiceStatusClass(row)"
+                    />
+                    <div class="name-wrapper">
+                      <span class="primary-text">{{ row.name }}</span>
+                      <div class="meta-row">
+                        <el-tag size="small" effect="plain" class="type-tag">{{ row.command ? 'LOCAL' : 'REMOTE' }}</el-tag>
+                        <span v-if="!row.is_active" class="config-badge">CONFIG ONLY</span>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </el-table-column>
+              
+              <el-table-column
+                label="CONNECTION"
+                min-width="220"
+              >
+                <template #default="{ row }">
+                  <div class="connection-info">
+                    <span v-if="row.url" class="mono-text url" :title="row.url">{{ row.url }}</span>
+                    <span v-else-if="row.command" class="mono-text command" :title="row.command + ' ' + (row.args || []).join(' ')">
+                      $ {{ row.command }}
+                    </span>
+                    <span class="transport-text">{{ row.transport || (row.command ? 'stdio' : 'http') }}</span>
+                  </div>
+                </template>
+              </el-table-column>
+
+              <el-table-column
+                label="TOOLS"
+                width="80"
+                align="center"
+              >
+                <template #default="{ row }">
+                  <span class="mono-number">{{ row.tool_count || 0 }}</span>
+                </template>
+              </el-table-column>
+              
+              <el-table-column
+                label="ACTIONS"
+                width="160"
+                align="right"
+              >
+                <template #default="{ row }">
+                  <div class="actions-group">
+                    <el-button link size="small" @click="editService(row)">Edit</el-button>
+                    <el-button link size="small" @click="restartService(row)">Restart</el-button>
+                    <el-button link size="small" type="danger" @click="deleteService(row)">Del</el-button>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </section>
+
+        <!-- Tools Panel -->
+        <section class="panel-section">
+          <div class="panel-header">
+            <h3 class="panel-title">
+              Available Tools
+            </h3>
+            <span class="count-badge">{{ tools.length }}</span>
+          </div>
+          <div class="panel-body table-container">
+            <el-table
+              :data="tools"
+              class="atom-table"
+              :show-header="true"
+              size="small"
+              empty-text="No tools available"
+            >
+              <el-table-column
+                label="TOOL NAME"
+                min-width="180"
+              >
+                <template #default="{ row }">
+                  <div class="tool-cell">
+                    <span class="primary-text">{{ row.name }}</span>
+                  </div>
+                </template>
+              </el-table-column>
+              
+              <el-table-column
+                label="SOURCE SERVICE"
+                width="160"
+              >
+                <template #default="{ row }">
+                  <span class="secondary-text">{{ row.service_name }}</span>
+                </template>
+              </el-table-column>
+              
+              <el-table-column
+                label="DESCRIPTION"
+                min-width="200"
+              >
+                <template #default="{ row }">
+                  <span class="secondary-text truncate" :title="row.description">{{ row.description || '-' }}</span>
+                </template>
+              </el-table-column>
+              
+              <el-table-column
+                width="80"
+                align="right"
+              >
+                <template #default="{ row }">
+                   <el-button link size="small" @click="executeTool(row)">Run</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </section>
+      </div>
+
+      <!-- Right Column: Info & Config -->
+      <div class="content-column right-col">
+        <!-- Agent Info -->
+        <section class="panel-section">
+          <div class="panel-header">
+            <h3 class="panel-title">
+              Context Info
+            </h3>
+          </div>
+          <div class="info-list">
+            <div class="info-item">
+              <span>Agent ID</span>
+              <span class="mono-val">{{ agentId }}</span>
+            </div>
+            <div class="info-item">
+              <span>Status</span>
+              <span 
+                class="status-badge"
+                :class="isHealthy ? 'active' : 'warn'"
+              >
+                {{ isHealthy ? 'Healthy' : 'Issues' }}
+              </span>
+            </div>
+             <div class="info-item">
+              <span>Orchestrator</span>
+              <span class="mono-val">{{ agentStats.orchestrator_status || 'Active' }}</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Quick Actions -->
+        <section class="panel-section">
+           <div class="panel-header">
+            <h3 class="panel-title">
+              Actions
+            </h3>
+          </div>
+          <div class="actions-grid">
+             <button class="action-card-btn" @click="refreshData">
+               <el-icon><Refresh /></el-icon>
+               <span>Refresh Context</span>
+             </button>
+             <button class="action-card-btn" @click="$router.push('/for_store/tool_records')">
+               <el-icon><notebook /></el-icon>
+               <span>View Logs</span>
+             </button>
+          </div>
+        </section>
       </div>
     </div>
 
-    <!-- Agent统计信息 -->
-    <el-row :gutter="20" class="stats-row">
-      <el-col :span="6">
-        <el-card class="stat-card">
-          <div class="stat-content">
-            <div class="stat-value">{{ agentStats.services || 0 }}</div>
-            <div class="stat-label">服务数量</div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card class="stat-card">
-          <div class="stat-content">
-            <div class="stat-value">{{ agentStats.tools || 0 }}</div>
-            <div class="stat-label">工具数量</div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card class="stat-card">
-          <div class="stat-content">
-            <div class="stat-value">{{ agentStats.healthy_services || 0 }}</div>
-            <div class="stat-label">健康服务</div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card class="stat-card">
-          <div class="stat-content">
-            <div class="stat-value">{{ agentStats.total_tool_executions || 0 }}</div>
-            <div class="stat-label">工具执行次数</div>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <!-- 服务列表 -->
-    <el-card class="services-card">
-      <template #header>
-        <div class="card-header">
-          <span>服务列表</span>
-          <el-button
-            type="primary"
-            size="small"
-            @click="addService"
-          >
-            添加服务
-          </el-button>
-        </div>
-      </template>
-
-      <div v-if="services.length === 0" class="empty-container">
-        <el-empty description="暂无服务">
-          <el-button type="primary" @click="addService">添加第一个服务</el-button>
-        </el-empty>
-      </div>
-
-      <el-table v-else :data="services" style="width: 100%">
-        <el-table-column prop="name" label="服务名称" width="200">
-          <template #default="{ row }">
-            <div class="service-name">
-              <div class="service-status-indicator">
-                <el-icon v-if="row.command" class="service-icon local">
-                  <FolderOpened />
-                </el-icon>
-                <el-icon v-else class="service-icon remote">
-                  <Link />
-                </el-icon>
-                <el-badge
-                  v-if="row.is_active"
-                  is-dot
-                  class="active-badge"
-                  type="success"
-                />
-                <el-badge
-                  v-else
-                  is-dot
-                  class="config-badge"
-                  type="info"
-                />
-              </div>
-              <div class="service-name-content">
-                <span class="service-name-text">{{ row.name }}</span>
-                <span v-if="!row.is_active" class="config-only-hint">仅配置</span>
-              </div>
-            </div>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="类型" width="80">
-          <template #default="{ row }">
-            <el-tag
-              :type="row.command ? 'success' : 'info'"
-              size="small"
-            >
-              {{ row.command ? '本地' : '远程' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="连接信息" min-width="250">
-          <template #default="{ row }">
-            <div v-if="row.url" class="connection-info">
-              <div class="url">{{ row.url }}</div>
-              <div class="transport">{{ row.transport || 'http' }}</div>
-            </div>
-            <div v-else-if="row.command" class="connection-info">
-              <div class="command">{{ row.command }} {{ (row.args || []).join(' ') }}</div>
-              <div class="working-dir" v-if="row.working_dir">{{ row.working_dir }}</div>
-            </div>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="状态" width="80">
-          <template #default="{ row }">
-            <el-tag :type="getServiceStatusType(row.status)" size="small">
-              {{ getServiceStatusText(row.status) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="工具数" width="80" align="center">
-          <template #default="{ row }">
-            <el-badge
-              :value="row.tool_count || 0"
-              :max="99"
-              class="tool-count-badge"
-            >
-              <el-icon><Tools /></el-icon>
-            </el-badge>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="客户端ID" width="150">
-          <template #default="{ row }">
-            <el-tag size="small" type="info" v-if="row.client_id">
-              {{ parseClientIdShort(row.client_id) }}
-            </el-tag>
-            <span v-else class="text-muted">N/A</span>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="操作" width="300">
-          <template #default="{ row }">
-            <el-button-group>
-              <el-button size="small" @click="viewServiceTools(row)">
-                查看工具
-              </el-button>
-              <el-button size="small" type="primary" @click="editService(row)">
-                编辑
-              </el-button>
-              <el-button size="small" @click="restartService(row)">
-                重启
-              </el-button>
-              <el-button size="small" type="danger" @click="deleteService(row)">
-                删除
-              </el-button>
-            </el-button-group>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
-
-    <!-- 工具列表 -->
-    <el-card class="tools-card">
-      <template #header>
-        <span>可用工具</span>
-      </template>
-
-      <div v-if="tools.length === 0" class="empty-container">
-        <el-empty description="暂无工具" />
-      </div>
-
-      <div v-else class="tools-grid">
-        <div
-          v-for="tool in tools"
-          :key="tool.name"
-          class="tool-card"
-          @click="executeTool(tool)"
-        >
-          <div class="tool-header">
-            <div class="tool-name">{{ tool.name }}</div>
-            <div class="tool-service">{{ tool.service_name }}</div>
-          </div>
-          <div class="tool-description">
-            {{ tool.description || '暂无描述' }}
-          </div>
-        </div>
-      </div>
-    </el-card>
-
-    <!-- 编辑服务弹窗 -->
+    <!-- Edit Dialog (Preserved functionality, updated style) -->
     <el-dialog
       v-model="editDialogVisible"
-      :title="`编辑服务 - ${editingService?.name}`"
-      width="800px"
+      :title="`Edit Service: ${editingService?.name}`"
+      width="600px"
+      class="atom-dialog"
       :close-on-click-modal="false"
     >
-      <div v-if="editingService" class="edit-service-content">
-        <!-- 编辑模式选择 -->
-        <div class="edit-mode-selector">
-          <el-radio-group v-model="editMode" size="large">
-            <el-radio-button label="fields">字段编辑</el-radio-button>
-            <el-radio-button label="json">JSON编辑</el-radio-button>
-          </el-radio-group>
-        </div>
-
-        <!-- 字段编辑模式 -->
-        <div v-if="editMode === 'fields'" class="fields-edit-mode">
-          <!-- Client ID 展示 -->
-          <div v-if="editingServiceClientId" class="client-id-display">
-            <el-form-item label="client_id">
-              <el-input
-                :value="editingServiceClientId"
-                readonly
-                size="large"
-                class="readonly-field"
-              >
-                <template #suffix>
-                  <el-icon class="readonly-icon"><View /></el-icon>
-                </template>
-              </el-input>
-            </el-form-item>
-          </div>
-
-          <el-form
-            ref="editFormRef"
-            :model="editForm"
-            label-position="top"
-            class="edit-form"
-          >
-            <!-- 远程服务字段 -->
-            <template v-if="isRemoteService">
-              <el-form-item label="url" prop="url">
-                <el-input
-                  v-model="editForm.url"
-                  placeholder="Enter service URL, e.g.: https://example.com/mcp"
-                  size="large"
-                />
-              </el-form-item>
-
-              <el-form-item label="transport" prop="transport" v-if="editForm.transport !== undefined">
-                <el-input
-                  v-model="editForm.transport"
-                  placeholder="Enter transport type, e.g.: streamable-http"
-                  size="large"
-                />
-              </el-form-item>
-
-              <el-form-item label="timeout" prop="timeout" v-if="editForm.timeout !== undefined">
-                <el-input-number
-                  v-model="editForm.timeout"
-                  :min="1"
-                  :max="300"
-                  placeholder="Timeout in seconds"
-                  size="large"
-                  style="width: 100%"
-                />
-              </el-form-item>
-            </template>
-
-            <!-- 本地服务字段 -->
-            <template v-else>
-              <el-form-item label="command" prop="command">
-                <el-input
-                  v-model="editForm.command"
-                  placeholder="Enter command, e.g.: npx, python"
-                  size="large"
-                />
-              </el-form-item>
-
-              <el-form-item label="args" prop="args" v-if="editForm.args !== undefined">
-                <el-input
-                  v-model="editFormArgsString"
-                  placeholder="Enter arguments separated by spaces"
-                  size="large"
-                />
-                <div class="field-hint">Arguments will be split by spaces into an array</div>
-              </el-form-item>
-
-              <el-form-item label="working_dir" prop="working_dir" v-if="editForm.working_dir !== undefined">
-                <el-input
-                  v-model="editForm.working_dir"
-                  placeholder="Enter working directory path (optional)"
-                  size="large"
-                />
-              </el-form-item>
-            </template>
-
-            <!-- 通用字段 -->
-            <el-form-item label="env" prop="env" v-if="editForm.env !== undefined">
-              <el-input
-                v-model="editFormEnvString"
-                type="textarea"
-                :rows="3"
-                placeholder="Enter environment variables, format: KEY1=value1&#10;KEY2=value2"
-                size="large"
-              />
-              <div class="field-hint">One environment variable per line, format: KEY=value</div>
-            </el-form-item>
-          </el-form>
-        </div>
-
-        <!-- JSON编辑模式 -->
-        <div v-else class="json-edit-mode">
-          <el-form-item label="配置内容">
-            <el-input
+      <div v-if="editingService" class="edit-content">
+        <!-- JSON Edit Mode only for atom style simplicity -->
+        <div class="json-editor-wrapper">
+             <div class="editor-toolbar">
+                <span class="label">Configuration (JSON)</span>
+                <div class="tools">
+                   <el-button size="small" link @click="formatEditJson">Format</el-button>
+                   <el-button size="small" link @click="validateEditJson">Validate</el-button>
+                </div>
+             </div>
+             <el-input
               v-model="editJsonContent"
               type="textarea"
-              :rows="12"
-              placeholder="请输入JSON配置内容"
-              size="large"
+              :rows="15"
+              class="code-input"
+              spellcheck="false"
             />
-          </el-form-item>
-
-          <div class="json-actions">
-            <el-button @click="formatEditJson" size="large">
-              <el-icon><Setting /></el-icon>
-              格式化
-            </el-button>
-            <el-button @click="validateEditJson" size="large">
-              <el-icon><Check /></el-icon>
-              验证
-            </el-button>
-          </div>
         </div>
       </div>
-
       <template #footer>
         <div class="dialog-footer">
-          <el-button @click="editDialogVisible = false">取消</el-button>
-          <el-button
-            type="primary"
-            @click="saveServiceEdit"
-            :loading="editSaving"
-          >
-            保存
+          <el-button @click="editDialogVisible = false">Cancel</el-button>
+          <el-button type="primary" :loading="editSaving" color="#000" @click="saveServiceEdit">
+            Save Changes
           </el-button>
         </div>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="serviceDialogVisible"
+      width="1000px"
+      class="agent-service-dialog"
+      destroy-on-close
+      :close-on-click-modal="false"
+      title="Add Service"
+    >
+      <ServiceForm
+        :default-agent-id="agentId"
+        compact
+        @success="handleServiceAdded"
+      />
+    </el-dialog>
+
   </div>
 </template>
 
@@ -381,604 +330,486 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Plus, Refresh, View, Setting, Check, FolderOpened, Link, Tools } from '@element-plus/icons-vue'
+import { 
+  ArrowLeft, Plus, Refresh, Connection, Tools, 
+  VideoPlay, Notebook, FirstAidKit 
+} from '@element-plus/icons-vue'
 import { useAgentsStore } from '@/stores/agents'
-import { SERVICE_STATUS_MAP, SERVICE_STATUS_COLORS } from '@/utils/constants'
+import StatCard from '@/components/common/StatCard.vue'
+import ServiceForm from '@/components/agents/ServiceForm.vue'
 
 const route = useRoute()
 const router = useRouter()
 const agentsStore = useAgentsStore()
 
-// 简短展示 client_id 的辅助方法（供模板使用）
-const parseClientIdShort = (clientId) => {
-  try {
-    const parts = clientId.split('_')
-    if (parts.length >= 4) {
-      return parts[parts.length - 1]
-    }
-    return clientId
-  } catch (e) {
-    return clientId
-  }
-}
-
-// 响应式数据
+// Data
 const loading = ref(false)
 const services = ref([])
 const tools = ref([])
 const agentStats = ref({})
+const serviceDialogVisible = ref(false)
 
-// 编辑服务相关数据
+// Edit State
 const editDialogVisible = ref(false)
 const editingService = ref(null)
-const editingServiceClientId = ref('')
-const editMode = ref('fields') // 'fields' | 'json'
-const editForm = ref({})
 const editJsonContent = ref('')
 const editSaving = ref(false)
-const editFormRef = ref()
-const editFormArgsString = ref('')
-const editFormEnvString = ref('')
 
-// 计算属性
+// Computed
 const agentId = computed(() => route.params.id)
-
-// 计算属性：判断是否为远程服务
-const isRemoteService = computed(() => {
-  return editForm.value.url && !editForm.value.command
+const isHealthy = computed(() => {
+  return (agentStats.value.healthy_services || 0) === (agentStats.value.services || 0) && (agentStats.value.services > 0)
 })
 
-// 服务状态处理
-const getServiceStatusType = (status) => {
-  return SERVICE_STATUS_COLORS[status] || 'info'
-}
-
-const getServiceStatusText = (status) => {
-  return SERVICE_STATUS_MAP[status] || '未知'
-}
-
-// 方法
+// Methods
 const refreshData = async () => {
   loading.value = true
   try {
-    await Promise.all([
-      loadServices(),
-      loadTools(),
-      loadStats()
+    const [svcData, toolsData] = await Promise.all([
+      agentsStore.getAgentServices(agentId.value),
+      agentsStore.getAgentTools(agentId.value)
     ])
-    ElMessage.success('数据刷新成功')
+    const statsData = agentsStore.buildAgentStats(svcData, toolsData)
+    services.value = svcData || []
+    tools.value = toolsData || []
+    agentStats.value = statsData || {}
+    ElMessage.success('Context refreshed')
   } catch (error) {
-    ElMessage.error('数据刷新失败: ' + (error.message || error))
+    ElMessage.error('Failed to refresh: ' + error.message)
   } finally {
     loading.value = false
   }
 }
 
-const loadServices = async () => {
-  try {
-    const data = await agentsStore.getAgentServices(agentId.value)
-    services.value = data || []
-  } catch (error) {
-    console.error('加载服务列表失败:', error)
-    services.value = []
-  }
-
+const getServiceStatusClass = (row) => {
+  if (row.is_active) return 'is-active'
+  if (row.status === 'error') return 'is-error'
+  return 'is-inactive'
 }
 
-const loadTools = async () => {
-  try {
-    const data = await agentsStore.getAgentTools(agentId.value)
-    tools.value = data || []
-  } catch (error) {
-    console.error('加载工具列表失败:', error)
-    tools.value = []
-  }
+// Actions
+const openServiceDialog = () => {
+  serviceDialogVisible.value = true
 }
 
-const loadStats = async () => {
-  try {
-    const data = await agentsStore.getAgentStats(agentId.value)
-    agentStats.value = data || {}
-  } catch (error) {
-    console.error('加载统计信息失败:', error)
-    agentStats.value = {}
-  }
+const handleServiceAdded = async () => {
+  serviceDialogVisible.value = false
+  await refreshData()
 }
 
-const addService = () => {
-  router.push(`/for_agent/${agentId.value}/add_service`)
-}
-
-const viewServiceTools = (service) => {
-  ElMessage.info(`查看服务 ${service.name} 的工具`)
-}
-
-const editService = async (service) => {
-  try {
-    editingService.value = service
-    editMode.value = 'fields'
-
-    // 获取服务配置
-    const { api } = await import('@/api')
-    const response = await api.agent.showConfig(agentId.value)
-
-    if (response.data.success) {
-      // 从配置中找到当前服务的配置和client_id
-      let serviceConfig = null
-      let clientId = service.client_id || ''
-
-      console.log('🔍 [DEBUG] Agent配置响应:', response.data.data)
-
-      if (response.data.data.services) {
-        const serviceInfo = response.data.data.services[service.name]
-        serviceConfig = serviceInfo?.config
-        clientId = serviceInfo?.client_id || clientId
-        console.log('🔍 [DEBUG] 找到服务配置:', serviceConfig, 'Client ID:', clientId)
-      }
-
-      // 设置client_id
-      editingServiceClientId.value = clientId
-
-      if (serviceConfig) {
-        // 初始化编辑表单
-        editForm.value = { ...serviceConfig }
-
-        // 初始化args字符串字段
-        if (serviceConfig.args && Array.isArray(serviceConfig.args)) {
-          editFormArgsString.value = serviceConfig.args.join(' ')
-        } else {
-          editFormArgsString.value = ''
-        }
-
-        // 初始化env字符串字段
-        if (serviceConfig.env && typeof serviceConfig.env === 'object') {
-          editFormEnvString.value = Object.entries(serviceConfig.env)
-            .map(([key, value]) => `${key}=${value}`)
-            .join('\n')
-        } else {
-          editFormEnvString.value = ''
-        }
-
-        editJsonContent.value = JSON.stringify({ [service.name]: serviceConfig }, null, 2)
-
-        console.log('🔍 [DEBUG] 服务配置加载:', {
-          serviceName: service.name,
-          serviceConfig,
-          editForm: editForm.value,
-          isRemote: serviceConfig.url && !serviceConfig.command,
-          argsString: editFormArgsString.value,
-          envString: editFormEnvString.value
-        })
-      } else {
-        // 如果没有找到配置，根据服务类型使用默认配置
-        if (service.url) {
-          // 远程服务
-          editForm.value = {
-            url: service.url || '',
-            transport: service.transport || 'streamable-http',
-            timeout: service.timeout || 30
-          }
-        } else {
-          // 本地服务
-          editForm.value = {
-            command: service.command || '',
-            args: service.args || [],
-            working_dir: service.working_dir || '',
-            env: service.env || {}
-          }
-
-          if (Array.isArray(service.args)) {
-            editFormArgsString.value = service.args.join(' ')
-          }
-        }
-
-        // 初始化环境变量字符串
-        if (service.env && typeof service.env === 'object') {
-          editFormEnvString.value = Object.entries(service.env)
-            .map(([key, value]) => `${key}=${value}`)
-            .join('\n')
-        } else {
-          editFormEnvString.value = ''
-        }
-
-        editJsonContent.value = JSON.stringify({ [service.name]: editForm.value }, null, 2)
-      }
-
-      editDialogVisible.value = true
-    } else {
-      ElMessage.error('获取服务配置失败')
+const executeTool = (tool) => {
+  router.push({
+    path: '/for_store/call_tool',
+    query: {
+      agentId: agentId.value,
+      toolName: tool.name,
+      serviceName: tool.service_name
     }
-  } catch (error) {
-    ElMessage.error(`获取服务配置失败: ${error.message}`)
-  }
+  })
 }
 
 const restartService = async (service) => {
   try {
-    // 优先使用client_id，如果没有则使用服务名
     const identifier = service.client_id || service.name
-    console.log('🔍 [DEBUG] 重启服务:', { serviceName: service.name, clientId: service.client_id, identifier })
-
     await agentsStore.restartService(agentId.value, identifier)
-    ElMessage.success(`服务 ${service.name} 重启成功`)
-    await loadServices()
+    ElMessage.success(`Service ${service.name} restarting...`)
+    setTimeout(refreshData, 1000)
   } catch (error) {
-    ElMessage.error(`服务 ${service.name} 重启失败: ${error.message}`)
+    ElMessage.error(`Restart failed: ${error.message}`)
   }
 }
 
 const deleteService = async (service) => {
   try {
     await ElMessageBox.confirm(
-      `确定要删除服务 "${service.name}" 吗？`,
-      '删除确认',
-      {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
+      `Remove service "${service.name}" from this agent?`,
+      'Confirm Deletion',
+      { type: 'warning', confirmButtonText: 'Delete', cancelButtonText: 'Cancel' }
     )
-
-    // 优先使用client_id，如果没有则使用服务名
-    const identifier = service.client_id || service.name
-    console.log('🔍 [DEBUG] 删除服务:', { serviceName: service.name, clientId: service.client_id, identifier })
-
     const { api } = await import('@/api')
-    const response = await api.agent.deleteConfig(agentId.value, identifier)
-
-    if (response.data.success) {
-      ElMessage.success(`服务 ${service.name} 删除成功`)
-      await refreshData()
+    const identifier = service.client_id || service.name
+    const res = await api.agent.deleteConfig(agentId.value, identifier)
+    
+    if (res.data.success) {
+      ElMessage.success('Service removed')
+      refreshData()
     } else {
-      ElMessage.error(response.data.message || `服务 ${service.name} 删除失败`)
+      throw new Error(res.data.message)
     }
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error(`服务 ${service.name} 删除失败: ${error.message}`)
-    }
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error(e.message)
   }
 }
 
-const executeTool = (tool) => {
-  router.push(`/for_store/call_tool?agentId=${agentId.value}&toolName=${tool.name}&serviceName=${tool.service_name}`)
+// Edit Logic
+const editService = async (service) => {
+  try {
+    editingService.value = service
+    const { api } = await import('@/api')
+    const res = await api.agent.showConfig(agentId.value)
+    
+    if (res.data.success) {
+      const fullConfig = res.data.data.services?.[service.name]?.config || {}
+      // Fallback if config not found
+      if (!Object.keys(fullConfig).length) {
+         if (service.url) fullConfig.url = service.url
+         if (service.command) fullConfig.command = service.command
+      }
+      
+      editJsonContent.value = JSON.stringify({ [service.name]: fullConfig }, null, 2)
+      editDialogVisible.value = true
+    }
+  } catch (e) {
+    ElMessage.error('Failed to load config')
+  }
 }
 
-// 编辑服务相关方法
 const formatEditJson = () => {
   try {
-    const parsed = JSON.parse(editJsonContent.value)
-    editJsonContent.value = JSON.stringify(parsed, null, 2)
-    ElMessage.success('JSON格式化成功')
-  } catch (error) {
-    ElMessage.error('JSON格式错误')
-  }
+    const p = JSON.parse(editJsonContent.value)
+    editJsonContent.value = JSON.stringify(p, null, 2)
+  } catch (e) { ElMessage.error('Invalid JSON') }
 }
 
 const validateEditJson = () => {
   try {
     JSON.parse(editJsonContent.value)
-    ElMessage.success('JSON格式正确')
-  } catch (error) {
-    ElMessage.error('JSON格式错误: ' + error.message)
-  }
+    ElMessage.success('Valid JSON')
+  } catch (e) { ElMessage.error('Invalid JSON') }
 }
 
 const saveServiceEdit = async () => {
-  if (!editingService.value) return
-
   try {
     editSaving.value = true
-
+    const parsed = JSON.parse(editJsonContent.value)
+    const serviceName = editingService.value.name
+    const config = parsed[serviceName] || parsed
+    
     const { api } = await import('@/api')
-    let config
-
-    if (editMode.value === 'fields') {
-      // 字段编辑模式 - 处理不同类型的服务
-      config = { ...editForm.value }
-
-      // 处理args字段（从字符串转换为数组）
-      if (editFormArgsString.value.trim()) {
-        config.args = editFormArgsString.value.trim().split(/\s+/)
-      } else if (config.args !== undefined) {
-        config.args = []
-      }
-
-      // 处理env字段（从字符串转换为对象）
-      if (editFormEnvString.value.trim()) {
-        config.env = {}
-        editFormEnvString.value.split('\n').forEach(line => {
-          const trimmedLine = line.trim()
-          if (trimmedLine && trimmedLine.includes('=')) {
-            const [key, ...valueParts] = trimmedLine.split('=')
-            const value = valueParts.join('=')
-            if (key.trim()) {
-              config.env[key.trim()] = value
-            }
-          }
-        })
-      } else if (config.env !== undefined) {
-        config.env = {}
-      }
-
-      // 清理不相关的字段
-      if (isRemoteService.value) {
-        // 远程服务：删除本地服务字段
-        delete config.command
-        delete config.args
-        delete config.working_dir
-      } else {
-        // 本地服务：删除远程服务字段
-        delete config.url
-        delete config.transport
-      }
-    } else {
-      // JSON编辑模式
-      try {
-        const parsed = JSON.parse(editJsonContent.value)
-        // 提取服务配置
-        const serviceName = editingService.value.name
-        config = parsed[serviceName] || parsed
-      } catch (error) {
-        ElMessage.error('JSON格式错误')
-        return
-      }
-    }
-
-    // 优先使用client_id，如果没有则使用服务名
-    const identifier = editingService.value.client_id || editingService.value.name
-    console.log('🔍 [DEBUG] 更新服务配置:', { serviceName: editingService.value.name, clientId: editingService.value.client_id, identifier, config })
-
-    const response = await api.agent.updateConfig(agentId.value, identifier, config)
-
-    if (response.data.success) {
-      ElMessage.success('服务配置更新成功')
+    const identifier = editingService.value.client_id || serviceName
+    
+    const res = await api.agent.updateConfig(agentId.value, identifier, config)
+    if (res.data.success) {
+      ElMessage.success('Configuration updated')
       editDialogVisible.value = false
-      await refreshData()
+      refreshData()
     } else {
-      ElMessage.error(response.data.message || '服务配置更新失败')
+      throw new Error(res.data.message)
     }
-  } catch (error) {
-    ElMessage.error(`服务配置更新失败: ${error.message}`)
+  } catch (e) {
+    ElMessage.error(e.message)
   } finally {
     editSaving.value = false
   }
 }
 
-// 生命周期
-onMounted(async () => {
-  await refreshData()
-})
+onMounted(refreshData)
 </script>
 
 <style lang="scss" scoped>
-.agent-detail {
-  .page-header {
-    @include flex-between;
-    margin-bottom: 20px;
+.page-container {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 20px;
+  width: 100%;
+}
 
-    .header-left {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-
-      .back-btn {
-        padding: 8px 16px;
-      }
-
-      .title-section {
-        .page-title {
-          margin: 0 0 4px 0;
-          font-size: 24px;
-          font-weight: var(--font-weight-medium);
-        }
-
-        .page-description {
-          margin: 0;
-          color: var(--text-secondary);
-          font-family: monospace;
-        }
-      }
-    }
-
-    .header-right {
-      display: flex;
-      gap: 12px;
-    }
-  }
-
-  .stats-row {
-    margin-bottom: 20px;
-
-    .stat-card {
-      .stat-content {
-        text-align: center;
-
-        .stat-value {
-          font-size: 32px;
-          font-weight: var(--font-weight-bold);
-          color: var(--primary-color);
-          margin-bottom: 8px;
-        }
-
-        .stat-label {
-          color: var(--text-secondary);
-          font-size: var(--font-size-sm);
-        }
-      }
-    }
-  }
-
-  .services-card, .tools-card {
-    margin-bottom: 20px;
-
-    .card-header {
-      @include flex-between;
-      align-items: center;
-    }
-  }
-
-  .tools-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 16px;
-
-    .tool-card {
-      @include card-shadow;
-      padding: 16px;
-      border-radius: var(--border-radius-base);
-      cursor: pointer;
-      transition: all 0.3s ease;
-
-      &:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-      }
-
-      .tool-header {
-        margin-bottom: 8px;
-
-        .tool-name {
-          font-weight: var(--font-weight-medium);
-          margin-bottom: 4px;
-        }
-
-        .tool-service {
-          font-size: var(--font-size-xs);
-          color: var(--text-secondary);
-        }
-      }
-
-      .tool-description {
-        color: var(--text-regular);
-        font-size: var(--font-size-sm);
-      }
-    }
-  }
-
-  .empty-container {
-    text-align: center;
-    padding: 40px 20px;
-  }
-
-  // 服务列表样式
-  .service-name {
+// Header
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+  
+  .header-left {
     display: flex;
     align-items: center;
-    gap: 8px;
-
-    .service-status-indicator {
-      position: relative;
-      display: flex;
-      align-items: center;
-
-      .service-icon {
-        font-size: 16px;
-
-        &.local {
-          color: var(--el-color-success);
-        }
-
-        &.remote {
-          color: var(--el-color-info);
-        }
-      }
-
-      .active-badge, .config-badge {
-        position: absolute;
-        top: -2px;
-        right: -2px;
-      }
-    }
-
-    .service-name-content {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-
-      .service-name-text {
-        font-weight: 500;
-      }
-
-      .config-only-hint {
-        font-size: 11px;
-        color: var(--el-text-color-placeholder);
-        background: var(--el-fill-color-lighter);
-        padding: 1px 4px;
-        border-radius: 2px;
-      }
+    gap: 16px;
+    
+    .back-btn {
+      border-color: var(--border-color);
+      color: var(--text-secondary);
+      &:hover { color: var(--text-primary); border-color: var(--text-secondary); }
     }
   }
+}
 
-  .connection-info {
-    .url, .command {
-      font-family: var(--el-font-family-mono);
-      font-size: 12px;
-      color: var(--el-text-color-primary);
-      margin-bottom: 2px;
-    }
+.page-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
 
-    .transport, .working-dir {
+.page-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.header-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.action-btn {
+  font-weight: 500;
+  border-radius: 6px;
+}
+
+// KPI Grid
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+
+  @media (max-width: 1024px) { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 640px) { grid-template-columns: 1fr; }
+}
+
+.kpi-card {
+  height: 100%;
+  &.status-active { border-left: 3px solid var(--color-success) !important; }
+  &.status-issue { border-left: 3px solid var(--color-danger) !important; }
+}
+
+// Layout
+.main-layout {
+  display: grid;
+  grid-template-columns: 2.5fr 1fr;
+  gap: 20px;
+  
+  @media (max-width: 1024px) { grid-template-columns: 1fr; }
+}
+
+.content-column {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+// Panels
+.panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  
+  .panel-title {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+  }
+  
+  .count-badge {
+    background: var(--bg-hover);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+}
+
+.panel-body {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+// Table Styles
+.table-container {
+  overflow-x: auto;
+}
+
+:deep(.atom-table) {
+  --el-table-border-color: var(--border-color);
+  --el-table-header-bg-color: transparent;
+  --el-table-row-hover-bg-color: var(--bg-hover);
+  background: transparent;
+
+  th.el-table__cell {
+    background: transparent !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.05em;
+    padding: 10px 16px;
+  }
+
+  td.el-table__cell {
+    border-bottom: 1px solid var(--border-color) !important;
+    padding: 12px 16px;
+    font-size: 13px;
+  }
+  
+  .el-table__inner-wrapper::before { display: none; }
+}
+
+// Service Cell
+.service-name-cell {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  
+  .status-indicator {
+    margin-top: 6px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    &.is-active { background: var(--color-success); box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1); }
+    &.is-error { background: var(--color-danger); }
+    &.is-inactive { background: var(--text-disabled); }
+  }
+  
+  .name-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  
+  .meta-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  
+  .type-tag {
+    height: 18px;
+    font-size: 10px;
+    padding: 0 4px;
+    border-radius: 3px;
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    border: none;
+  }
+  
+  .config-badge {
+    font-size: 10px;
+    color: var(--color-warning);
+    font-weight: 500;
+  }
+}
+
+// Connection Cell
+.connection-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  
+  .mono-text {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-primary);
+    
+    &.url { color: var(--color-accent); text-decoration: underline; cursor: pointer; }
+    &.command { color: var(--text-primary); background: var(--bg-hover); padding: 2px 4px; border-radius: 3px; display: inline-block; width: fit-content;}
+  }
+  
+  .transport-text {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+}
+
+// Common Text
+.primary-text { font-weight: 500; color: var(--text-primary); }
+.secondary-text { font-size: 12px; color: var(--text-secondary); }
+.mono-number { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); }
+.truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; max-width: 100%; }
+
+// Actions
+.actions-group {
+  .el-button { padding: 0 4px; font-size: 12px; }
+}
+
+// Info List (Right Col)
+.info-list {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 0 16px;
+  
+  .info-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 13px;
+    color: var(--text-secondary);
+    
+    &:last-child { border-bottom: none; }
+    
+    .mono-val { font-family: var(--font-mono); color: var(--text-primary); }
+    
+    .status-badge {
+      padding: 2px 8px;
+      border-radius: 10px;
       font-size: 11px;
-      color: var(--el-text-color-secondary);
+      font-weight: 500;
+      &.active { background: rgba(16, 185, 129, 0.1); color: var(--color-success); }
+      &.warn { background: rgba(245, 158, 11, 0.1); color: var(--color-warning); }
     }
   }
+}
 
-  .tool-count-badge {
+// Actions Grid
+.actions-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  
+  .action-card-btn {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
     cursor: pointer;
-
-    &:hover {
-      transform: scale(1.1);
-    }
+    transition: all 0.2s;
+    
+    &:hover { border-color: var(--text-secondary); background: var(--bg-hover); }
+    
+    .el-icon { font-size: 18px; color: var(--text-secondary); }
+    span { font-size: 13px; font-weight: 500; color: var(--text-primary); }
   }
+}
 
-  .text-muted {
-    color: var(--el-text-color-disabled);
-  }
+// Dialog
+.editor-toolbar {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  .label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+}
 
-  // 编辑服务弹窗样式
-  .edit-service-content {
-    .edit-mode-selector {
-      margin-bottom: 20px;
-      text-align: center;
-    }
-
-    .fields-edit-mode {
-      .client-id-display {
-        margin-bottom: 20px;
-        padding-bottom: 16px;
-        border-bottom: 1px solid var(--el-border-color-lighter);
-
-        .readonly-field {
-          :deep(.el-input__inner) {
-            background-color: var(--el-fill-color-lighter);
-            color: var(--el-text-color-secondary);
-            cursor: not-allowed;
-          }
-
-          .readonly-icon {
-            color: var(--el-text-color-placeholder);
-          }
-        }
-      }
-
-      .edit-form {
-        .field-hint {
-          font-size: 12px;
-          color: var(--el-text-color-secondary);
-          margin-top: 4px;
-          line-height: 1.4;
-        }
-      }
-    }
-
-    .json-edit-mode {
-      .json-actions {
-        margin-top: 16px;
-        display: flex;
-        gap: 12px;
-        justify-content: center;
-      }
-    }
+:deep(.code-input) {
+  textarea {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    padding: 12px;
+    
+    &:focus { border-color: var(--text-secondary); box-shadow: none; }
   }
 }
 </style>

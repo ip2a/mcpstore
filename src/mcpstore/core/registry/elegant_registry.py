@@ -3,10 +3,9 @@
 展示真正的工厂类设计模式
 """
 
-from typing import Dict, Any, List, Optional, Protocol, TypeVar, Type
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
+from typing import Dict, Any, List, Optional, Protocol, Type
 
 logger = logging.getLogger(__name__)
 
@@ -16,13 +15,13 @@ class IServiceStateService(Protocol):
     """服务状态服务接口"""
     def get_service_state(self, agent_id: str, service_name: str): ...
     def set_service_state(self, agent_id: str, service_name: str, state): ...
-    def get_service_metadata(self, agent_id: str, service_name: str): ...
+    async def get_service_metadata_async(self, agent_id: str, service_name: str): ...
     def set_service_metadata(self, agent_id: str, service_name: str, metadata): ...
     def has_service(self, agent_id: str, service_name: str) -> bool: ...
 
 class IAgentClientMappingService(Protocol):
     """代理客户端映射服务接口"""
-    def get_agent_clients_from_cache(self, agent_id: str) -> List[str]: ...
+    async def get_agent_clients_async(self, agent_id: str) -> List[str]: ...
     def add_service_client_mapping(self, agent_id: str, service_name: str, client_id: str): ...
     def get_service_client_id(self, agent_id: str, service_name: str): ...
 
@@ -132,9 +131,9 @@ class ElegantServiceRegistry:
         """显式委托方法 - 性能优化"""
         return self._factory.service_state_service.get_service_state(agent_id, service_name)
 
-    def get_service_metadata(self, agent_id: str, service_name: str):
-        """显式委托方法 - 性能优化"""
-        return self._factory.service_state_service.get_service_metadata(agent_id, service_name)
+    async def get_service_metadata_async(self, agent_id: str, service_name: str):
+        """显式委托方法 - 从 pykv 异步获取元数据"""
+        return await self._factory.service_state_service.get_service_metadata_async(agent_id, service_name)
 
     def set_service_metadata(self, agent_id: str, service_name: str, metadata):
         """显式委托方法 - 性能优化"""
@@ -144,9 +143,26 @@ class ElegantServiceRegistry:
         """显式委托方法 - 性能优化"""
         return self._factory.service_state_service.has_service(agent_id, service_name)
 
-    def get_agent_clients_from_cache(self, agent_id: str) -> List[str]:
-        """显式委托方法 - 性能优化"""
-        return self._factory.agent_client_service.get_agent_clients_from_cache(agent_id)
+    async def has_service_async(self, agent_id: str, service_name: str) -> bool:
+        """
+        异步检查指定 Agent 是否拥有指定服务
+
+        遵循 "Functional Core, Imperative Shell" 架构原则：
+        - 异步外壳直接使用 await 调用异步操作
+        - 在异步上下文中必须使用此方法，而非同步版本
+
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+
+        Returns:
+            服务是否存在
+        """
+        return await self._factory.service_state_service.has_service_async(agent_id, service_name)
+
+    async def get_agent_clients_async(self, agent_id: str) -> List[str]:
+        """显式委托方法 - 从 pykv 获取 Agent 客户端"""
+        return await self._factory.agent_client_service.get_agent_clients_async(agent_id)
 
     def get_client_config_from_cache(self, client_id: str) -> Optional[Dict[str, Any]]:
         """显式委托方法 - 性能优化"""
@@ -179,99 +195,3 @@ class ElegantServiceRegistry:
             name: f"{type(service).__module__}.{type(service).__name__}"
             for name, service in self._services.items()
         }
-
-# === 4. 使用示例和测试 ===
-
-def create_mock_services():
-    """创建模拟服务用于测试"""
-
-    class MockServiceStateService:
-        def get_service_state(self, agent_id, service_name):
-            return f"state_{agent_id}_{service_name}"
-        def set_service_state(self, agent_id, service_name, state):
-            pass
-        def get_service_metadata(self, agent_id, service_name):
-            return f"metadata_{agent_id}_{service_name}"
-        def set_service_metadata(self, agent_id, service_name, metadata):
-            pass
-        def has_service(self, agent_id, service_name):
-            return True
-
-    class MockAgentClientMappingService:
-        def get_agent_clients_from_cache(self, agent_id):
-            return [f"client_{agent_id}_1", f"client_{agent_id}_2"]
-        def add_service_client_mapping(self, agent_id, service_name, client_id):
-            pass
-        def get_service_client_id(self, agent_id, service_name):
-            return f"client_{agent_id}_{service_name}"
-
-    class MockClientConfigService:
-        def get_client_config_from_cache(self, client_id):
-            return {"mock": f"config_{client_id}"}
-        def add_client_config(self, client_id, config):
-            pass
-
-    return MockServiceStateService, MockAgentClientMappingService, MockClientConfigService
-
-def demo_elegant_implementation():
-    """演示优雅的实现"""
-    print("🎭 演示优雅的注册表实现")
-    print("=" * 50)
-
-    # 1. 使用工厂模式创建服务工厂
-    state_impl, mapping_impl, config_impl = create_mock_services()
-
-    factory = RegistryServiceFactory.create(
-        service_state_impl=state_impl,
-        agent_client_impl=mapping_impl,
-        client_config_impl=config_impl
-    )
-
-    print(" 工厂模式创建成功")
-    print(f"   服务工厂类型: {type(factory)}")
-
-    # 2. 使用工厂创建注册表
-    registry = factory.create_service_registry()
-
-    print(" 注册表创建成功")
-    print(f"   注册表类型: {type(registry)}")
-
-    # 3. 测试服务调用
-    print("\n🧪 测试服务调用:")
-
-    # 这些方法会通过动态代理自动找到对应的服务
-    state = registry.get_service_state("agent1", "service1")
-    metadata = registry.get_service_metadata("agent1", "service1")
-    clients = registry.get_agent_clients_from_cache("agent1")
-    config = registry.get_client_config_from_cache("client1")
-
-    print(f"   服务状态: {state}")
-    print(f"   服务元数据: {metadata}")
-    print(f"   客户端列表: {clients}")
-    print(f"   客户端配置: {config}")
-
-    # 4. 测试组合模式的灵活性
-    print("\n🔄 测试服务替换:")
-
-    class EnhancedServiceState:
-        def get_service_state(self, agent_id, service_name):
-            return f"enhanced_state_{agent_id}_{service_name}"
-        # ... 其他方法
-
-    registry.replace_service('state', EnhancedServiceState())
-
-    new_state = registry.get_service_state("agent1", "service1")
-    print(f"   增强后的服务状态: {new_state}")
-
-    # 5. 显示当前服务信息
-    print("\n📊 当前服务信息:")
-    service_info = registry.get_service_info()
-    for service_name, service_class in service_info.items():
-        print(f"   {service_name}: {service_class}")
-
-    print("\n🎉 优雅的实现演示完成！")
-
-    return registry
-
-if __name__ == "__main__":
-    demo_elegant_implementation()

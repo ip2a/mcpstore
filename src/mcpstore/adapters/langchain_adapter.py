@@ -4,13 +4,15 @@ import json
 import keyword
 import logging
 import re
+import warnings
+from dataclasses import asdict, is_dataclass
 from typing import Type, List, TYPE_CHECKING
 
 from langchain_core.tools import Tool, StructuredTool, ToolException
 from pydantic import BaseModel, create_model, Field, ConfigDict
-import warnings
 
-from ..core.utils.async_sync_helper import get_global_helper
+from .common import call_tool_response_helper
+from ..core.bridge import get_async_bridge
 
 # Use TYPE_CHECKING and string hints to avoid circular imports
 if TYPE_CHECKING:
@@ -26,28 +28,51 @@ class LangChainAdapter:
     """
     def __init__(self, context: 'MCPStoreContext', response_format: str = "text"):
         self._context = context
-        self._sync_helper = get_global_helper()
+        # Use the unified async bridge to avoid legacy helpers and loop conflicts
+        self._bridge = get_async_bridge()
         # Adapter-only rendering preference for tool outputs
         self._response_format = response_format if response_format in ("text", "content_and_artifact") else "text"
 
-    def _build_artifacts(self, contents: list) -> list:
-        """Convert non-text ContentBlocks into artifact dicts.
-        Only used when response_format == "content_and_artifact".
+    @staticmethod
+    def _serialize_unknown(obj):
+        if obj is None:
+            return None
+        if hasattr(obj, "model_dump"):
+            try:
+                return obj.model_dump()
+            except Exception:
+                pass
+        if hasattr(obj, "dict"):
+            try:
+                return obj.dict()
+            except Exception:
+                pass
+        if is_dataclass(obj):
+            try:
+                return asdict(obj)
+            except Exception:
+                pass
+        if hasattr(obj, "__dict__"):
+            try:
+                return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
+            except Exception:
+                pass
+        return str(obj)
+
+    def _normalize_structured_value(self, value):
         """
-        artifacts = []
+        确保 structured/data 字段始终是 LangChain 能消费的基础类型。
+        """
+        if value is None:
+            return None
+        if isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, (dict, list)):
+            return value
         try:
-            for block in contents or []:
-                if hasattr(block, 'text'):
-                    continue
-                # Generic mapping with best-effort fields
-                item = {"type": getattr(block, "type", block.__class__.__name__.lower())}
-                for attr in ("uri", "mime", "mime_type", "name", "filename", "size", "bytes", "width", "height"):
-                    if hasattr(block, attr):
-                        item[attr] = getattr(block, attr)
-                artifacts.append(item)
+            return json.loads(json.dumps(value, default=self._serialize_unknown, ensure_ascii=False))
         except Exception:
-            pass
-        return artifacts
+            return str(value)
 
     def _enhance_description(self, tool_info: 'ToolInfo') -> str:
         """
@@ -285,34 +310,22 @@ class LangChainAdapter:
                     )
                 )
 
-                # Bridge FastMCP -> LangChain: extract TextContent into string
-                # If tool signals error, raise ToolException with textual message
-                is_error = bool(getattr(result, 'is_error', False) or getattr(result, 'isError', False))
-                contents = getattr(result, 'content', []) or []
-                text_blocks = []
-                try:
-                    for block in contents:
-                        if hasattr(block, 'text'):
-                            text_blocks.append(block.text)
-                except Exception:
-                    pass
+                view = call_tool_response_helper(result)
 
-                if not text_blocks:
-                    output = ""
-                elif len(text_blocks) == 1:
-                    output = text_blocks[0]
-                else:
-                    output = "\n".join(text_blocks)
+                if view.is_error:
+                    raise ToolException(view.error_message or view.text or "Tool execution failed")
 
-                if is_error:
-                    raise ToolException(output)
-
-                # Optional artifacts output for LangChain-only adapter
                 if getattr(self, "_response_format", "text") == "content_and_artifact":
-                    artifacts = self._build_artifacts(contents)
-                    return {"text": output, "artifacts": artifacts}
+                    response = {"text": view.text, "artifacts": view.artifacts}
+                    structured = self._normalize_structured_value(view.structured)
+                    data = self._normalize_structured_value(view.data)
+                    if structured is not None:
+                        response["structured"] = structured
+                    if data is not None:
+                        response["data"] = data
+                    return response
 
-                return output
+                return view.text
             except Exception as e:
                 # Provide more detailed error information for debugging
                 error_msg = f"Tool '{tool_name}' execution failed: {str(e)}"
@@ -381,32 +394,22 @@ class LangChainAdapter:
                     )
                 )
 
-                # Bridge FastMCP -> LangChain (async): extract TextContent into string
-                is_error = bool(getattr(result, 'is_error', False) or getattr(result, 'isError', False))
-                contents = getattr(result, 'content', []) or []
-                text_blocks = []
-                try:
-                    for block in contents:
-                        if hasattr(block, 'text'):
-                            text_blocks.append(block.text)
-                except Exception:
-                    pass
+                view = call_tool_response_helper(result)
 
-                if not text_blocks:
-                    output = ""
-                elif len(text_blocks) == 1:
-                    output = text_blocks[0]
-                else:
-                    output = "\n".join(text_blocks)
-
-                if is_error:
-                    raise ToolException(output)
+                if view.is_error:
+                    raise ToolException(view.error_message or view.text or "Tool execution failed")
 
                 if getattr(self, "_response_format", "text") == "content_and_artifact":
-                    artifacts = self._build_artifacts(contents)
-                    return {"text": output, "artifacts": artifacts}
+                    response = {"text": view.text, "artifacts": view.artifacts}
+                    structured = self._normalize_structured_value(view.structured)
+                    data = self._normalize_structured_value(view.data)
+                    if structured is not None:
+                        response["structured"] = structured
+                    if data is not None:
+                        response["data"] = data
+                    return response
 
-                return output
+                return view.text
             except Exception as e:
                 error_msg = f"Tool '{tool_name}' execution failed: {str(e)}"
                 if args or kwargs:
@@ -418,7 +421,7 @@ class LangChainAdapter:
 
     def list_tools(self) -> List[Tool]:
         """Get all available mcpstore tools and convert them to LangChain Tool list (synchronous version)."""
-        return self._sync_helper.run_async(self.list_tools_async())
+        return self._bridge.run(self.list_tools_async(), op_name="LangChainAdapter.list_tools")
 
     async def list_tools_async(self) -> List[Tool]:
         """
@@ -595,32 +598,22 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                     )
                 )
 
-                # Bridge FastMCP -> LangChain (session sync)
-                is_error = bool(getattr(result, 'is_error', False) or getattr(result, 'isError', False))
-                contents = getattr(result, 'content', []) or []
-                text_blocks = []
-                try:
-                    for block in contents:
-                        if hasattr(block, 'text'):
-                            text_blocks.append(block.text)
-                except Exception:
-                    pass
+                view = call_tool_response_helper(result)
 
-                if not text_blocks:
-                    output = ""
-                elif len(text_blocks) == 1:
-                    output = text_blocks[0]
-                else:
-                    output = "\n".join(text_blocks)
-
-                if is_error:
-                    raise ToolException(output)
+                if view.is_error:
+                    raise ToolException(view.error_message or view.text or "Tool execution failed")
 
                 if getattr(self, "_response_format", "text") == "content_and_artifact":
-                    artifacts = self._build_artifacts(contents)
-                    return {"text": output, "artifacts": artifacts}
+                    response = {"text": view.text, "artifacts": view.artifacts}
+                    structured = self._normalize_structured_value(view.structured)
+                    data = self._normalize_structured_value(view.data)
+                    if structured is not None:
+                        response["structured"] = structured
+                    if data is not None:
+                        response["data"] = data
+                    return response
 
-                return output
+                return view.text
 
             except Exception as e:
                 error_msg = f"Tool execution failed: {str(e)}"
@@ -685,32 +678,22 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                     )
                 )
 
-                # Bridge FastMCP -> LangChain (session async)
-                is_error = bool(getattr(result, 'is_error', False) or getattr(result, 'isError', False))
-                contents = getattr(result, 'content', []) or []
-                text_blocks = []
-                try:
-                    for block in contents:
-                        if hasattr(block, 'text'):
-                            text_blocks.append(block.text)
-                except Exception:
-                    pass
+                view = call_tool_response_helper(result)
 
-                if not text_blocks:
-                    output = ""
-                elif len(text_blocks) == 1:
-                    output = text_blocks[0]
-                else:
-                    output = "\n".join(text_blocks)
-
-                if is_error:
-                    raise ToolException(output)
+                if view.is_error:
+                    raise ToolException(view.error_message or view.text or "Tool execution failed")
 
                 if getattr(self, "_response_format", "text") == "content_and_artifact":
-                    artifacts = self._build_artifacts(contents)
-                    return {"text": output, "artifacts": artifacts}
+                    response = {"text": view.text, "artifacts": view.artifacts}
+                    structured = self._normalize_structured_value(view.structured)
+                    data = self._normalize_structured_value(view.data)
+                    if structured is not None:
+                        response["structured"] = structured
+                    if data is not None:
+                        response["data"] = data
+                    return response
 
-                return output
+                return view.text
 
             except Exception as e:
                 error_msg = f"Async tool execution failed: {str(e)}"
@@ -764,4 +747,4 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
         Returns:
             List of LangChain Tool objects bound to the session
         """
-        return self._context._sync_helper.run_async(self.list_tools_async())
+        return self._context._bridge.run(self.list_tools_async(), op_name="LangChainAdapter.list_tools_for_session")

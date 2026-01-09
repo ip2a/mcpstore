@@ -1,18 +1,20 @@
 """
-MCPStore API - Store-level routes
-Contains all Store-level API endpoints
+MCPStore API - Store 级别路由
+定义所有 Store 作用域的 API 端点。
 """
 
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Dict, Any, List, Union
 
-from fastapi import APIRouter, Depends, Request, Query
+from fastapi import APIRouter, Request, Query, Body
 
-from mcpstore import MCPStore
-from mcpstore.core.models import ResponseBuilder, ErrorCode, timed_response
-from mcpstore.core.models.common import APIResponse  # Keep for response_model
-from .api_decorators import handle_exceptions, get_store
+from mcpstore.core.models import (
+    APIResponse,
+    ErrorCode,
+    ResponseBuilder,
+    timed_response,
+)
+from .api_dependencies import get_store
 from .api_models import (
-    ToolExecutionRecordResponse, ToolRecordsResponse, ToolRecordsSummaryResponse,
     SimpleToolExecutionRequest
 )
 from .api_service_utils import (
@@ -33,6 +35,7 @@ store_router = APIRouter()
 async def store_sync_status():
     """Get sync status information"""
     store = get_store()
+    context = store.for_store()
     
     if hasattr(store.orchestrator, 'sync_manager') and store.orchestrator.sync_manager:
         status = store.orchestrator.sync_manager.get_sync_status()
@@ -52,47 +55,72 @@ async def store_sync_status():
 @store_router.post("/for_store/add_service", response_model=APIResponse)
 @timed_response
 async def store_add_service(
-    payload: Optional[Dict[str, Any]] = None
+    payload: Union[Dict[str, Any], List[Dict[str, Any]], str] = Body(
+        ...,
+        description="服务配置，支持单个服务配置或包含 mcpServers 的字典，也可传入配置列表"
+    )
 ):
-    """Store 级别添加服务
-    
-    支持三种模式:
-    1. 空参数注册: 注册所有 mcp.json 中的服务
-    2. URL方式添加服务
-    3. 命令方式添加服务(本地服务)
-    
+    """
+    Store 级别添加服务（必填 payload，不再支持空参数触发全量同步）
+
+    支持模式:
+    1. 直接传入单个服务配置（url/command 等）
+    2. 传入包含 mcpServers 的字典（兼容 mcp.json 结构）
+    3. 传入配置列表（一次注册多个服务）
+    4. 传入 JSON 字符串配置（内部会解析）
     """
     store = get_store()
-    
-    # 添加服务
+
+    # 校验必填参数，拒绝空载
     if payload is None:
-        # 空参数：从 mcp.json 全量同步到缓存（统一同步管理器）
-        sync_mgr = getattr(store.orchestrator, 'sync_manager', None)
-        if not sync_mgr:
-            return ResponseBuilder.error(
-                code=ErrorCode.INTERNAL_ERROR,
-                message="Sync manager not initialized"
-            )
-        await sync_mgr.sync_global_agent_store_from_mcp_json()
-        context_result = True
-        service_name = "all services"
-    else:
-        # 有参数：添加特定服务
-        context_result = await store.for_store().add_service_async(payload)
-        service_name = payload.get("name", "unknown")
-    
-    if not context_result:
+        return ResponseBuilder.error(
+            code=ErrorCode.MISSING_PARAMETER,
+            message="缺少必填参数 payload（服务配置）",
+            details={"expected": "服务配置对象或 mcpServers 字典"}
+        )
+    if isinstance(payload, (dict, list)) and not payload:
+        return ResponseBuilder.error(
+            code=ErrorCode.MISSING_PARAMETER,
+            message="服务配置不能为空",
+            details={"expected": "至少包含一个服务配置"}
+        )
+
+    # 添加服务
+    context = store.for_store()
+    try:
+        await context.bridge_execute(context.add_service_async(payload))
+    except Exception as e:
         return ResponseBuilder.error(
             code=ErrorCode.SERVICE_INITIALIZATION_FAILED,
-            message="Service registration failed",
-            details={"service_name": service_name}
+            message="服务注册失败",
+            details={"error": str(e)}
         )
+
+    # 提取服务名用于响应
+    service_names: List[str] = []
+    if isinstance(payload, dict):
+        if "name" in payload:
+            service_names = [str(payload.get("name"))]
+        else:
+            mcp_servers = payload.get("mcpServers") if isinstance(payload, dict) else None
+            if isinstance(mcp_servers, dict):
+                service_names = list(mcp_servers.keys())
+    elif isinstance(payload, list):
+        service_names = [
+            str(item.get("name"))
+            for item in payload
+            if isinstance(item, dict) and item.get("name")
+        ]
+    else:
+        service_names = ["(字符串配置)"]
+
+    display_name = service_names or ["unknown"]
     
     # 返回成功，附带服务基本信息
     return ResponseBuilder.success(
-        message=f"Service '{service_name}' added successfully",
+        message="服务添加请求已提交",
         data={
-            "service_name": service_name,
+            "service_names": display_name,
             "status": "initializing"
         }
     )
@@ -144,7 +172,6 @@ async def store_list_services(
        → 按状态降序排列，返回全部
     """
     from .api_models import (
-        EnhancedPaginationInfo,
         ListFilterInfo,
         ListSortInfo,
         create_enhanced_pagination_info
@@ -154,7 +181,7 @@ async def store_list_services(
     context = store.for_store()
 
     # 1. 获取所有服务（使用 async 版本）
-    all_services = await context.list_services_async()
+    all_services = await context.bridge_execute(context.list_services_async())
     original_count = len(all_services)
 
     # 2. 应用过滤
@@ -313,6 +340,7 @@ async def store_reset_service(request: Request):
     body = await request.json()
 
     store = get_store()
+    context = store.for_store()
 
     # 提取参数
     identifier = body.get("identifier")
@@ -360,8 +388,11 @@ async def store_reset_service(request: Request):
     if not resolved_service_name:
         resolved_service_name = used_identifier
 
-    # 校验服务是否存在
-    if not registry.has_service(agent_id, resolved_service_name):
+    # 校验服务是否存在（使用异步 API）
+    service_exists = await context.bridge_execute(
+        registry.has_service_async(agent_id, resolved_service_name)
+    )
+    if not service_exists:
         return ResponseBuilder.error(
             code=ErrorCode.SERVICE_NOT_FOUND,
             message=f"Service '{resolved_service_name}' not found",
@@ -369,10 +400,12 @@ async def store_reset_service(request: Request):
         )
 
     app_service = store.container.service_application_service
-    ok = await app_service.reset_service(
-        agent_id=agent_id,
-        service_name=resolved_service_name,
-        wait_timeout=0.0,
+    ok = await context.bridge_execute(
+        app_service.reset_service(
+            agent_id=agent_id,
+            service_name=resolved_service_name,
+            wait_timeout=0.0,
+        )
     )
 
     if not ok:
@@ -433,8 +466,6 @@ async def store_list_tools(
        → 按名称升序排列，返回全部
     """
     from .api_models import (
-        EnhancedPaginationInfo,
-        ListFilterInfo,
         ListSortInfo,
         create_enhanced_pagination_info
     )
@@ -443,7 +474,7 @@ async def store_list_tools(
     context = store.for_store()
 
     # 1. 获取所有工具（使用 async 版本）
-    all_tools = await context.list_tools_async()
+    all_tools = await context.bridge_execute(context.list_tools_async())
     original_count = len(all_tools)
 
     # 2. 应用过滤
@@ -558,7 +589,7 @@ async def store_check_services():
     """Store 级别批量健康检查"""
     store = get_store()
     context = store.for_store()
-    health_status = await context.check_services_async()
+    health_status = await context.bridge_execute(context.check_services_async())
     
     return ResponseBuilder.success(
         message=f"Health check completed for {len(health_status.get('services', []))} services",
@@ -571,9 +602,13 @@ async def store_list_agents():
     """Store 级列出所有 Agents 概要信息（增强版，无分页）
 
     返回统一结构，包含 agents 明细与汇总 summary。
+    
+    [架构说明] 使用异步方法 list_agents_async() 避免在 FastAPI 事件循环中触发 AOB 冲突
     """
     store = get_store()
-    agents = store.for_store().list_agents()  # List[Dict[str, Any]]
+    # 使用异步方法，避免在 FastAPI 事件循环中调用同步方法触发 AOB 冲突
+    context = store.for_store()
+    agents = await context.bridge_execute(context.list_agents_async())
 
     total_agents = len(agents)
     total_services = sum(int(a.get("service_count", 0)) for a in agents)
@@ -602,7 +637,10 @@ async def store_list_agents():
 async def store_call_tool(request: SimpleToolExecutionRequest):
     """Store 级别工具执行"""
     store = get_store()
-    result = await store.for_store().call_tool_async(request.tool_name, request.args)
+    context = store.for_store()
+    result = await context.bridge_execute(
+        context.call_tool_async(request.tool_name, request.args)
+    )
 
     # 规范化 CallToolResult 或其它返回值为可序列化结构
     def _normalize_result(res):
@@ -638,8 +676,8 @@ async def store_call_tool(request: SimpleToolExecutionRequest):
         data=normalized
     )
 
-# ❌ 已删除 POST /for_store/get_service_info (v0.6.0)
-# 请使用 GET /for_store/service_info/{service_name} 替代（RESTful规范）
+# Deleted POST /for_store/get_service_info (v0.6.0)
+# Please use GET /for_store/service_info/{service_name} instead (RESTful standard)
 
 @store_router.put("/for_store/update_service/{service_name}", response_model=APIResponse)
 @timed_response
@@ -649,7 +687,9 @@ async def store_update_service(service_name: str, request: Request):
     
     store = get_store()
     context = store.for_store()
-    result = await context.update_service_async(service_name, body)
+    result = await context.bridge_execute(
+        context.update_service_async(service_name, body)
+    )
     
     if not result:
         return ResponseBuilder.error(
@@ -669,7 +709,9 @@ async def store_delete_service(service_name: str):
     """Store 级别删除服务"""
     store = get_store()
     context = store.for_store()
-    result = await context.delete_service_async(service_name)
+    result = await context.bridge_execute(
+        context.delete_service_async(service_name)
+    )
     
     if not result:
         return ResponseBuilder.error(
@@ -712,7 +754,9 @@ async def store_disconnect_service(request: Request):
     context = store.for_store()
 
     try:
-        ok = await context.disconnect_service_async(service_name, reason=reason)
+        ok = await context.bridge_execute(
+            context.disconnect_service_async(service_name, reason=reason)
+        )
         if ok:
             return ResponseBuilder.success(
                 message=f"Service '{service_name}' disconnected",
@@ -732,14 +776,15 @@ async def store_disconnect_service(request: Request):
 
 @store_router.get("/for_store/show_config", response_model=APIResponse)
 @timed_response
-async def store_show_config(scope: str = "all"):
+async def store_show_config():
     """获取运行时配置和服务映射关系
     
-    Args:
-        scope: 显示范围 ("all" 或 "global_agent_store")
+    返回格式与 mcp.json 一致：{"mcpServers": {...}}
+    服务名称使用全局名称（Store 添加的服务使用原始名称，Agent 添加的服务使用 name_byagent_agentId 格式）
     """
     store = get_store()
-    config_data = await store.for_store().show_config_async(scope=scope)
+    context = store.for_store()
+    config_data = await context.bridge_execute(context.show_config_async())
     
     # 检查是否有错误
     if "error" in config_data:
@@ -749,9 +794,8 @@ async def store_show_config(scope: str = "all"):
             details=config_data
         )
     
-    scope_desc = "所有Agent配置" if scope == "all" else "global_agent_store配置"
     return ResponseBuilder.success(
-        message=f"Retrieved {scope_desc}",
+        message="Retrieved service configuration",
         data=config_data
     )
 
@@ -760,7 +804,10 @@ async def store_show_config(scope: str = "all"):
 async def store_delete_config(client_id_or_service_name: str):
     """Store 级别删除服务配置"""
     store = get_store()
-    result = await store.for_store().delete_config_async(client_id_or_service_name)
+    context = store.for_store()
+    result = await context.bridge_execute(
+        context.delete_config_async(client_id_or_service_name)
+    )
     
     if result.get("success"):
         return ResponseBuilder.success(
@@ -802,25 +849,33 @@ async def store_update_config(client_id_or_service_name: str, new_config: dict):
 
 @store_router.post("/for_store/reset_config", response_model=APIResponse)
 @timed_response
-async def store_reset_config(scope: str = "all"):
+async def store_reset_config():
     """重置配置（缓存+文件全量重置）
     
-    ⚠️ 此操作不可逆，请谨慎使用
+    清空所有 pykv 缓存数据和 mcp.json 文件。
+    相当于批量执行 delete_service 操作。
+    
+    清理内容：
+    - pykv 实体层：services, tools
+    - pykv 关系层：agent_services, service_tools
+    - pykv 状态层：service_status, service_metadata
+    - mcp.json 文件
+    
+    [警告] 此操作不可逆，请谨慎使用
     """
     store = get_store()
-    success = await store.for_store().reset_config_async(scope=scope)
+    context = store.for_store()
+    success = await context.bridge_execute(context.reset_config_async())
     
     if not success:
         return ResponseBuilder.error(
             code=ErrorCode.CONFIGURATION_ERROR,
-            message=f"Failed to reset configuration",
-            details={"scope": scope}
+            message="Failed to reset configuration"
         )
     
-    scope_desc = "所有配置" if scope == "all" else "global_agent_store配置"
     return ResponseBuilder.success(
-        message=f"{scope_desc} reset successfully",
-        data={"scope": scope, "reset": True}
+        message="All configuration reset successfully",
+        data={"reset": True}
     )
 
 # Removed shard-file reset APIs (client_services.json / agent_clients.json) in single-source mode
@@ -828,27 +883,14 @@ async def store_reset_config(scope: str = "all"):
 @store_router.get("/for_store/setup_config", response_model=APIResponse)
 @timed_response
 async def store_setup_config():
-    """获取初始化的所有配置详情
-    
-    🚧 此接口正在开发中，返回结构可能会调整
-    """
+    """获取启动时的配置快照（在 MCPStore.setup_store 阶段记录）"""
     store = get_store()
-    
-    # TODO: 实现完整的配置详情获取逻辑
-    # 临时返回基础信息
-    setup_info = {
-        "status": "under_development",
-        "message": "此接口正在开发中，将在后续版本实现完整功能",
-        "available_endpoints": {
-            "config_query": "GET /for_store/show_config - 查看运行时配置",
-            "mcp_json": "GET /for_store/show_mcpjson - 查看 mcp.json 文件",
-            "services": "GET /for_store/list_services - 查看所有服务"
-        }
-    }
+    context = store.for_store()
+    setup_snapshot = context.setup_config()
     
     return ResponseBuilder.success(
-        message="Setup config endpoint (under development)",
-        data=setup_info
+        message="Setup configuration snapshot retrieved",
+        data=setup_snapshot
     )
 
 # === Store 级别统计和监控 ===
@@ -858,98 +900,16 @@ async def store_setup_config():
 async def get_store_tool_records(limit: int = 50):
     """获取Store级别的工具执行记录"""
     store = get_store()
-    records_data = await store.for_store().get_tool_records_async(limit)
+    context = store.for_store()
+    records_data = await context.bridge_execute(
+        context.get_tool_records_async(limit)
+    )
     
     # 简化返回结构
     return ResponseBuilder.success(
         message=f"Retrieved {len(records_data.get('executions', []))} tool execution records",
         data=records_data
     )
-
-# === 向后兼容性路由 ===
-@store_router.post("/for_store/restart_service", response_model=APIResponse)
-@timed_response
-async def store_restart_service(request: Request):
-    """Store 级别重启服务"""
-    body = await request.json()
-    
-    # 提取参数
-    service_name = body.get("service_name")
-    if not service_name:
-        return ResponseBuilder.error(
-            code=ErrorCode.VALIDATION_ERROR,
-            message="Missing required parameter: service_name",
-            field="service_name"
-        )
-    
-    # 调用应用服务（通过 ServiceApplicationService 收敛生命周期操作）
-    store = get_store()
-
-    app_service = store.container.service_application_service
-    agent_id = store.client_manager.global_agent_store_id
-
-    result = await app_service.restart_service(
-        service_name=service_name,
-        agent_id=agent_id,
-        wait_timeout=0.0,  # 与原实现保持一致：不等待收敛
-    )
-    
-    if not result:
-        return ResponseBuilder.error(
-            code=ErrorCode.SERVICE_OPERATION_FAILED,
-            message=f"Failed to restart service '{service_name}'",
-            field="service_name"
-        )
-    
-    return ResponseBuilder.success(
-        message=f"Service '{service_name}' restarted successfully",
-        data={"service_name": service_name, "restarted": True}
-    )
-
-@store_router.post("/for_store/wait_service", response_model=APIResponse)
-@timed_response
-async def store_wait_service(request: Request):
-    """Store 级别等待服务达到指定状态"""
-    body = await request.json()
-    
-    # 提取参数
-    client_id_or_service_name = body.get("client_id_or_service_name")
-    if not client_id_or_service_name:
-        return ResponseBuilder.error(
-            code=ErrorCode.VALIDATION_ERROR,
-            message="Missing required parameter: client_id_or_service_name",
-            field="client_id_or_service_name"
-        )
-    
-    status = body.get("status", "healthy")
-    timeout = body.get("timeout", 10.0)
-    raise_on_timeout = body.get("raise_on_timeout", False)
-    
-    # 调用 SDK
-    store = get_store()
-    context = store.for_store()
-    
-    result = await context.wait_service_async(
-        client_id_or_service_name=client_id_or_service_name,
-        status=status,
-        timeout=timeout,
-        raise_on_timeout=raise_on_timeout
-    )
-    
-    return ResponseBuilder.success(
-        message=f"Service wait {'completed' if result else 'timeout'}",
-        data={
-            "service": client_id_or_service_name,
-            "target_status": status,
-            "result": result
-        }
-    )
-# ===  Agent 相关端点已移除 ===
-# 使用 /for_agent/{agent_id}/list_services 来获取Agent的服务列表（推荐）
-
- 
-
-
 
 @store_router.get("/for_store/show_mcpjson", response_model=APIResponse)
 @timed_response
@@ -973,7 +933,7 @@ async def store_get_service_info_detailed(service_name: str):
     context = store.for_store()
     
     # 查找服务（使用 async 版本）
-    all_services = await context.list_services_async()
+    all_services = await context.bridge_execute(context.list_services_async())
     service = None
     for s in all_services:
         s_name = s.get("name") if isinstance(s, dict) else s.name
@@ -1018,10 +978,14 @@ async def store_get_service_info_detailed(service_name: str):
 async def store_get_service_status(service_name: str):
     """获取服务状态（轻量级，纯缓存读取）"""
     store = get_store()
+    context = store.for_store()
     agent_id = store.client_manager.global_agent_store_id
 
-    # 先按 Registry 视角检查服务是否存在
-    if not store.registry.has_service(agent_id, service_name):
+    # 先按 Registry 视角检查服务是否存在（使用异步 API）
+    service_exists = await context.bridge_execute(
+        store.registry.has_service_async(agent_id, service_name)
+    )
+    if not service_exists:
         return ResponseBuilder.error(
             code=ErrorCode.SERVICE_NOT_FOUND,
             message=f"Service '{service_name}' not found",
@@ -1029,7 +993,9 @@ async def store_get_service_status(service_name: str):
         )
 
     app_service = store.container.service_application_service
-    status = await app_service.get_service_status(agent_id=agent_id, service_name=service_name)
+    status = await context.bridge_execute(
+        app_service.get_service_status(agent_id=agent_id, service_name=service_name)
+    )
 
     status_info = {
         "name": service_name,

@@ -98,8 +98,18 @@ class CacheRepository:
     def get_service_client_id(self, agent_id: str, service_name: str) -> Optional[str]:
         return self.cache_backend.get_service_client_id(agent_id, service_name)
 
+    async def get_agent_clients_async(self, agent_id: str):
+        """从 pykv 获取 Agent 的所有 Client ID（异步版本）"""
+        return await self.registry.get_agent_clients_async(agent_id)
+
     def get_agent_clients(self, agent_id: str):
-        return self.cache_backend.get_agent_clients_from_cache(agent_id)
+        """从 pykv 获取 Agent 的所有 Client ID（同步版本）"""
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            raise RuntimeError("get_agent_clients cannot be called in async context, please use get_agent_clients_async")
+        except RuntimeError:
+            return asyncio.run(self.get_agent_clients_async(agent_id))
 
     def get_client_config(self, client_id: str):
         return self.cache_backend.get_client_config_from_cache(client_id)

@@ -32,22 +32,35 @@
         >
           <!-- 传输类型 -->
           <el-form-item label="传输类型">
-            <el-checkbox v-model="form.updateTransport">更新传输类型</el-checkbox>
+            <el-checkbox v-model="form.updateTransport">
+              更新传输类型
+            </el-checkbox>
             <el-select
               v-model="form.transport"
               :disabled="!form.updateTransport"
               placeholder="选择传输类型"
               style="margin-left: 12px; width: 200px;"
             >
-              <el-option label="HTTP" value="http" />
-              <el-option label="Streamable HTTP" value="streamable-http" />
-              <el-option label="SSE" value="sse" />
+              <el-option
+                label="HTTP"
+                value="http"
+              />
+              <el-option
+                label="Streamable HTTP"
+                value="streamable-http"
+              />
+              <el-option
+                label="SSE"
+                value="sse"
+              />
             </el-select>
           </el-form-item>
 
           <!-- 超时时间 -->
           <el-form-item label="超时时间">
-            <el-checkbox v-model="form.updateTimeout">更新超时时间</el-checkbox>
+            <el-checkbox v-model="form.updateTimeout">
+              更新超时时间
+            </el-checkbox>
             <el-input-number
               v-model="form.timeout"
               :disabled="!form.updateTimeout"
@@ -60,7 +73,9 @@
 
           <!-- 保持连接 -->
           <el-form-item label="保持连接">
-            <el-checkbox v-model="form.updateKeepAlive">更新保持连接</el-checkbox>
+            <el-checkbox v-model="form.updateKeepAlive">
+              更新保持连接
+            </el-checkbox>
             <el-switch
               v-model="form.keep_alive"
               :disabled="!form.updateKeepAlive"
@@ -70,8 +85,13 @@
 
           <!-- 请求头 -->
           <el-form-item label="请求头">
-            <el-checkbox v-model="form.updateHeaders">更新请求头</el-checkbox>
-            <div v-if="form.updateHeaders" class="headers-editor">
+            <el-checkbox v-model="form.updateHeaders">
+              更新请求头
+            </el-checkbox>
+            <div
+              v-if="form.updateHeaders"
+              class="headers-editor"
+            >
               <div
                 v-for="(header, index) in form.headers"
                 :key="index"
@@ -90,15 +110,15 @@
                 <el-button
                   type="danger"
                   :icon="Delete"
-                  @click="removeHeader(index)"
                   style="margin-left: 8px;"
+                  @click="removeHeader(index)"
                 />
               </div>
               <el-button
                 type="primary"
                 :icon="Plus"
-                @click="addHeader"
                 style="margin-top: 8px;"
+                @click="addHeader"
               >
                 添加Header
               </el-button>
@@ -107,8 +127,13 @@
 
           <!-- 环境变量 -->
           <el-form-item label="环境变量">
-            <el-checkbox v-model="form.updateEnv">更新环境变量</el-checkbox>
-            <div v-if="form.updateEnv" class="env-editor">
+            <el-checkbox v-model="form.updateEnv">
+              更新环境变量
+            </el-checkbox>
+            <div
+              v-if="form.updateEnv"
+              class="env-editor"
+            >
               <div
                 v-for="(env, index) in form.env"
                 :key="index"
@@ -129,15 +154,15 @@
                 <el-button
                   type="danger"
                   :icon="Delete"
-                  @click="removeEnv(index)"
                   style="margin-left: 8px;"
+                  @click="removeEnv(index)"
                 />
               </div>
               <el-button
                 type="primary"
                 :icon="Plus"
-                @click="addEnv"
                 style="margin-top: 8px;"
+                @click="addEnv"
               >
                 添加环境变量
               </el-button>
@@ -160,12 +185,14 @@
     </div>
 
     <template #footer>
-      <el-button @click="handleClose">取消</el-button>
+      <el-button @click="handleClose">
+        取消
+      </el-button>
       <el-button
         type="primary"
-        @click="handleUpdate"
         :loading="updating"
         :disabled="!hasUpdates"
+        @click="handleUpdate"
       >
         批量更新
       </el-button>

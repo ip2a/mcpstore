@@ -1,0 +1,57 @@
+{
+  "api": {
+    "baseURL": "http://localhost:18200",
+    "timeout": 30000,
+    "retries": 3
+  },
+  "websocket": {
+    "url": "ws://localhost:18200/ws",
+    "reconnectInterval": 5000,
+    "maxReconnectAttempts": 10
+  },
+  "auth": {
+    "type": "basic",
+    "loginEndpoint": "/auth/login",
+    "tokenStorage": "localStorage",
+    "refreshThreshold": 300000
+  },
+  "ui": {
+    "theme": "light",
+    "language": "zh-CN",
+    "timezone": "Asia/Shanghai",
+    "dateFormat": "YYYY-MM-DD HH:mm:ss",
+    "itemsPerPage": 20,
+    "enableAnimations": true,
+    "showDebugInfo": true
+  },
+  "features": {
+    "realtimeUpdates": true,
+    "darkMode": false,
+    "compactMode": false,
+    "showHiddenServices": true,
+    "enableExperimental": true
+  },
+  "monitoring": {
+    "enabled": true,
+    "trackErrors": true,
+    "trackPerformance": true,
+    "sentryDSN": "",
+    "logLevel": "debug"
+  },
+  "cache": {
+    "services": {
+      "ttl": 60000,
+      "maxEntries": 100
+    },
+    "tools": {
+      "ttl": 30000,
+      "maxEntries": 500
+    }
+  },
+  "devtools": {
+    "enabled": true,
+    "mockData": false,
+    "hotReload": true,
+    "vueDevtools": true
+  }
+}
