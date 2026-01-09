@@ -433,6 +433,44 @@ class ServiceManagementMixin:
             logger.error(f"Failed to delete service {name}: {e}")
             return False
 
+    def _normalize_agent_local_name(self, input_name: str) -> str:
+        """
+        将输入的服务标识归一化为当前 Agent 的本地服务名。
+
+        支持三种输入：
+        1) 纯本地名（默认）
+        2) 全局名格式：<local>_byagent_<agent_id>
+        3) 冒号分隔：<agent_id>:<local>
+
+        若提供的 agent_id 与当前上下文不一致则抛出异常，避免误删。
+        """
+        if not input_name:
+            raise ValueError("service name is required")
+
+        from .agent_service_mapper import AgentServiceMapper
+
+        # 全局名格式
+        if AgentServiceMapper.is_any_agent_service(input_name):
+            parsed_agent, local_name = AgentServiceMapper.parse_agent_service_name(input_name)
+            if parsed_agent != self._agent_id:
+                raise ValueError(
+                    f"输入服务归属的 agent_id={parsed_agent} 与当前 agent_id={self._agent_id} 不一致"
+                )
+            return local_name
+
+        # 冒号分隔格式
+        if ":" in input_name:
+            maybe_agent, maybe_local = input_name.split(":", 1)
+            if maybe_local and maybe_agent:
+                if maybe_agent != self._agent_id:
+                    raise ValueError(
+                        f"输入服务归属的 agent_id={maybe_agent} 与当前 agent_id={self._agent_id} 不一致"
+                    )
+                return maybe_local
+
+        # 默认当作本地名
+        return input_name
+
     async def delete_service_two_step(self, service_name: str) -> Dict[str, Any]:
         """
         两步删除服务：从配置文件删除 + 从Registry注销
@@ -1396,6 +1434,9 @@ class ServiceManagementMixin:
     async def _delete_agent_service_with_sync(self, local_name: str):
         """Agent 服务删除（带双向同步），返回是否成功"""
         try:
+            # 宽容输入：支持本地名、全局名或 "agent:service" 格式
+            local_name = self._normalize_agent_local_name(local_name)
+
             success = True
             # 1. 获取全局名称（使用异步版本，避免 AOB 事件循环冲突）
             global_name = await self._store.registry.get_global_name_from_agent_service_async(self._agent_id, local_name)

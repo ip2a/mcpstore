@@ -396,34 +396,44 @@ class UnifiedMCPSyncManager:
                 return
 
             logger.debug(f"Batch registering {len(services_to_register)} services to Registry")
-
-            # single-source: register services_to_register directly if not present
             registered_count = 0
             skipped_count = 0
+            event_bus = getattr(getattr(self.orchestrator, "container", None), "_event_bus", None) or getattr(self.orchestrator, "event_bus", None)
 
             for service_name, config in services_to_register.items():
-                # 使用异步 API 检查服务是否存在，避免在异步上下文中调用同步 API
                 if await self.orchestrator.registry.has_service_async(agent_id, service_name):
                     skipped_count += 1
                     continue
                 try:
-                    if hasattr(self.orchestrator, 'store') and self.orchestrator.store:
-                        # Use existing add_service_async with explicit mcpServers shape (no extra kwargs)
-                        await self.orchestrator.store.for_store().add_service_async(
-                            config={"mcpServers": {service_name: config}}
-                        )
-                    else:
-                        # Update mcp.json directly then let lifecycle initialize
-                        current = self.orchestrator.mcp_config.load_config()
-                        m = current.get("mcpServers", {})
-                        m[service_name] = config
-                        current["mcpServers"] = m
-                        self.orchestrator.mcp_config.save_config(current)
+                    if not event_bus:
+                        raise RuntimeError("EventBus unavailable for bootstrap registration")
+
+                    from mcpstore.core.events.service_events import ServiceBootstrapRequested
+                    from mcpstore.core.utils.id_generator import ClientIDGenerator
+
+                    client_id = ClientIDGenerator.generate_deterministic_id(
+                        agent_id=agent_id,
+                        service_name=service_name,
+                        service_config=config,
+                        global_agent_store_id=getattr(self.orchestrator.client_manager, "global_agent_store_id", "global_agent_store")
+                    )
+
+                    bootstrap_event = ServiceBootstrapRequested(
+                        agent_id=agent_id,
+                        service_name=service_name,
+                        service_config=config,
+                        client_id=client_id,
+                        global_name=service_name,
+                        origin_agent_id=agent_id,
+                        origin_local_name=service_name,
+                        source="sync_mcpjson"
+                    )
+                    await event_bus.publish(bootstrap_event, wait=False)
                     registered_count += 1
                 except Exception as e:
                     logger.error(f"Failed to register service {service_name}: {e}")
 
-            logger.info(f"Batch registration completed: {registered_count} registered, {skipped_count} skipped")
+            logger.info(f"Batch registration completed (bootstrap path): {registered_count} registered, {skipped_count} skipped")
 
         except Exception as e:
             logger.error(f"Error in batch register to registry: {e}")

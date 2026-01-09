@@ -15,7 +15,13 @@ from typing import List, Callable
 
 from mcpstore.core.events.event_bus import EventBus
 from mcpstore.core.events.service_events import (
-    ServiceAddRequested, ServiceCached, ServiceConnected, ServiceOperationFailed
+    ServiceAddRequested,
+    ServiceBootstrapRequested,
+    ServiceBootstrapped,
+    ServiceBootstrapFailed,
+    ServiceCached,
+    ServiceConnected,
+    ServiceOperationFailed,
 )
 from mcpstore.core.models.service import ServiceConnectionState
 
@@ -64,10 +70,102 @@ class CacheManager:
         
         # Subscribe to events
         self._event_bus.subscribe(ServiceAddRequested, self._on_service_add_requested, priority=100)
+        self._event_bus.subscribe(ServiceBootstrapRequested, self._on_service_bootstrap_requested, priority=100)
         self._event_bus.subscribe(ServiceConnected, self._on_service_connected, priority=50)
         
         logger.info("CacheManager initialized and subscribed to events")
-    
+
+    async def _on_service_bootstrap_requested(self, event: ServiceBootstrapRequested):
+        """
+        处理 setup/bootstrap 场景的服务重放：只构建缓存与关系，不触发阻塞链路
+        """
+        logger.info(f"[CACHE] [BOOTSTRAP] Processing ServiceBootstrapRequested: {event.service_name}")
+        logger.debug(f"[CACHE] [BOOTSTRAP] agent_id={event.agent_id}, client_id={event.client_id}, global_name={event.global_name}")
+        origin_agent = event.origin_agent_id or event.agent_id
+        origin_local_name = event.origin_local_name or event.service_name
+        global_name = event.global_name or event.service_name
+        global_agent_id = self._registry._naming.GLOBAL_AGENT_STORE
+
+        transaction = CacheTransaction(agent_id=origin_agent)
+
+        try:
+            async with self._agent_locks.write(
+                origin_agent,
+                operation="cache_on_service_bootstrap_requested"
+            ):
+                await self._registry._ensure_agent_entity(origin_agent)
+                await self._registry._ensure_agent_entity(global_agent_id)
+
+                # 写入服务实体与初始状态
+                await self._registry.add_service_async(
+                    agent_id=global_agent_id,
+                    name=global_name,
+                    session=None,
+                    tools=[],
+                    service_config=event.service_config,
+                    state=ServiceConnectionState.INITIALIZING
+                )
+                transaction.record(
+                    "add_service_global_bootstrap",
+                    self._registry.remove_service_async,
+                    global_agent_id, global_name
+                )
+
+                # 建立 Agent-Service 关系
+                await self._registry._relation_manager.add_agent_service(
+                    agent_id=origin_agent,
+                    service_original_name=origin_local_name,
+                    service_global_name=global_name,
+                    client_id=event.client_id
+                )
+                transaction.record(
+                    "add_agent_service_bootstrap",
+                    self._registry._relation_manager.remove_agent_service,
+                    origin_agent, global_name
+                )
+
+                # 设置 service-client 映射（双向）
+                await self._registry.set_service_client_mapping_async(origin_agent, origin_local_name, event.client_id)
+                transaction.record(
+                    "set_service_client_mapping_origin_bootstrap",
+                    self._registry.remove_service_client_mapping,
+                    origin_agent, origin_local_name
+                )
+                await self._registry.set_service_client_mapping_async(global_agent_id, global_name, event.client_id)
+                transaction.record(
+                    "set_service_client_mapping_global_bootstrap",
+                    self._registry.remove_service_client_mapping,
+                    global_agent_id, global_name
+                )
+
+                # 发布 bootstrap 完成事件，交给生命周期与健康组件后台处理
+                bootstrapped = ServiceBootstrapped(
+                    agent_id=origin_agent,
+                    service_name=origin_local_name,
+                    client_id=event.client_id,
+                    global_name=global_name,
+                    source=event.source,
+                    service_config=event.service_config
+                )
+                await self._event_bus.publish(bootstrapped, wait=False)
+
+        except Exception as e:
+            logger.error(f"[CACHE] [BOOTSTRAP] Failed to cache service {event.service_name}: {e}", exc_info=True)
+            await transaction.rollback()
+
+            failed_event = ServiceBootstrapFailed(
+                agent_id=origin_agent,
+                service_name=origin_local_name,
+                error_message=str(e),
+                source=event.source,
+                original_event=event
+            )
+            try:
+                await self._event_bus.publish(failed_event, wait=False)
+            except Exception as pub_err:
+                logger.error(f"[CACHE] [BOOTSTRAP] Failed to publish ServiceBootstrapFailed: {pub_err}")
+            return
+
     async def _on_service_add_requested(self, event: ServiceAddRequested):
         """
         Handle service add request - immediately add to cache

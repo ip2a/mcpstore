@@ -8,13 +8,19 @@ Responsibilities:
 4. Manage state metadata
 """
 
+import asyncio
 import logging
 from datetime import datetime
 
 from mcpstore.core.events.event_bus import EventBus
 from mcpstore.core.events.service_events import (
-    ServiceCached, ServiceInitialized, ServiceConnected,
-    ServiceConnectionFailed, ServiceStateChanged
+    ServiceCached,
+    ServiceInitialized,
+    ServiceConnected,
+    ServiceConnectionFailed,
+    ServiceStateChanged,
+    ServiceBootstrapped,
+    ServiceBootstrapFailed,
 )
 from mcpstore.core.models.service import ServiceConnectionState, ServiceStateMetadata
 
@@ -59,6 +65,8 @@ class LifecycleManager:
         self._event_bus.subscribe(ServiceCached, self._on_service_cached, priority=90)
         self._event_bus.subscribe(ServiceConnected, self._on_service_connected, priority=40)
         self._event_bus.subscribe(ServiceConnectionFailed, self._on_service_connection_failed, priority=40)
+        self._event_bus.subscribe(ServiceBootstrapped, self._on_service_bootstrapped, priority=70)
+        self._event_bus.subscribe(ServiceBootstrapFailed, self._on_service_bootstrap_failed, priority=20)
 
         # [NEW] Subscribe to health check and timeout events
         from mcpstore.core.events.service_events import HealthCheckCompleted, ServiceTimeout, ReconnectionRequested
@@ -69,6 +77,8 @@ class LifecycleManager:
         logger.info("LifecycleManager initialized and subscribed to events")
         # 健康成功但无工具时的重连尝试上限，避免无工具服务产生无限循环
         self._max_tool_resync_attempts = 2
+        # setup/bootstrap 链路的连接并发限制，避免启动时风暴
+        self._bootstrap_semaphore = asyncio.Semaphore(5)
 
     async def _set_service_metadata_async(self, agent_id: str, service_name: str, metadata) -> None:
         """
@@ -269,7 +279,81 @@ class LifecycleManager:
                 await self._event_bus.publish(error_event, wait=False)
             except Exception as publish_error:
                 logger.error(f"[LIFECYCLE] Failed to publish error event for {event.service_name}: {publish_error}")
-    
+
+    async def _on_service_bootstrapped(self, event: ServiceBootstrapped):
+        """
+        处理 setup/bootstrap 重放完成事件：写入元数据并后台触发连接/健康收敛
+        """
+        logger.info(f"[LIFECYCLE] [BOOTSTRAP] Initializing lifecycle for: {event.service_name}")
+
+        try:
+            service_config = event.service_config or {}
+            if not service_config:
+                try:
+                    service_info = await self._registry.get_complete_service_info_async(event.agent_id, event.service_name)
+                    if service_info and service_info.get("config"):
+                        service_config = service_info["config"]
+                        logger.debug(f"[LIFECYCLE] [BOOTSTRAP] Loaded service_config from entity for: {event.service_name}")
+                except Exception as entity_error:
+                    logger.error(f"[LIFECYCLE] [BOOTSTRAP] Cannot load service_config: {entity_error}")
+                    raise
+
+            metadata = ServiceStateMetadata(
+                service_name=event.service_name,
+                agent_id=event.agent_id,
+                state_entered_time=datetime.now(),
+                consecutive_failures=0,
+                reconnect_attempts=0,
+                next_retry_time=None,
+                error_message=None,
+                service_config=service_config
+            )
+
+            await self._set_service_metadata_async(event.agent_id, event.service_name, metadata)
+            await self._set_service_state_async(event.agent_id, event.service_name, ServiceConnectionState.INITIALIZING)
+
+            async def _dispatch_connect_and_health():
+                async with self._bootstrap_semaphore:
+                    try:
+                        init_event = ServiceInitialized(
+                            agent_id=event.agent_id,
+                            service_name=event.service_name,
+                            initial_state="initializing"
+                        )
+                        await self._event_bus.publish(init_event, wait=True)
+                    except Exception as connect_err:
+                        failed_event = ServiceBootstrapFailed(
+                            agent_id=event.agent_id,
+                            service_name=event.service_name,
+                            error_message=str(connect_err),
+                            source=event.source,
+                            original_event=event
+                        )
+                        try:
+                            await self._event_bus.publish(failed_event, wait=False)
+                        except Exception:
+                            logger.error(f"[LIFECYCLE] [BOOTSTRAP] Failed to publish ServiceBootstrapFailed for {event.service_name}")
+
+            asyncio.create_task(_dispatch_connect_and_health())
+
+        except Exception as e:
+            logger.error(f"[LIFECYCLE] [BOOTSTRAP] Failed to initialize lifecycle for {event.service_name}: {e}", exc_info=True)
+            try:
+                failed_event = ServiceBootstrapFailed(
+                    agent_id=event.agent_id,
+                    service_name=event.service_name,
+                    error_message=str(e),
+                    source=event.source,
+                    original_event=event
+                )
+                await self._event_bus.publish(failed_event, wait=False)
+            except Exception as pub_err:
+                logger.error(f"[LIFECYCLE] [BOOTSTRAP] Failed to publish ServiceBootstrapFailed: {pub_err}")
+
+    async def _on_service_bootstrap_failed(self, event: ServiceBootstrapFailed):
+        """记录 bootstrap 失败，保持非阻塞"""
+        logger.error(f"[LIFECYCLE] [BOOTSTRAP] Service bootstrap failed: {event.service_name} error={event.error_message}")
+
     async def _on_service_connected(self, event: ServiceConnected):
         """
         Handle successful service connection - transition state to HEALTHY

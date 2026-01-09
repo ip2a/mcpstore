@@ -57,6 +57,49 @@ class ServiceAddRequested(DomainEvent):
 
 
 @dataclass(frozen=True)
+class ServiceBootstrapRequested(DomainEvent):
+    """
+    服务启动重放请求事件（用于 setup/bootstrap 场景，非用户主动添加）
+    """
+    agent_id: str = ""
+    service_name: str = ""
+    service_config: Dict[str, Any] = field(default_factory=dict)
+    client_id: str = ""
+    global_name: str = ""
+    origin_agent_id: Optional[str] = None
+    origin_local_name: Optional[str] = None
+    source: str = "bootstrap"  # bootstrap_mcpjson / sync_mcpjson 等
+
+    def __post_init__(self):
+        super().__post_init__()
+        if not self.service_name:
+            raise ValueError("service_name cannot be empty")
+        if not self.service_config:
+            raise ValueError("service_config cannot be empty")
+
+
+@dataclass(frozen=True)
+class ServiceBootstrapped(DomainEvent):
+    """服务已完成启动重放的缓存构建"""
+    agent_id: str = ""
+    service_name: str = ""
+    client_id: str = ""
+    global_name: str = ""
+    source: str = "bootstrap"
+    service_config: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ServiceBootstrapFailed(DomainEvent):
+    """服务启动重放失败事件"""
+    agent_id: str = ""
+    service_name: str = ""
+    error_message: str = ""
+    source: str = "bootstrap"
+    original_event: Optional[DomainEvent] = None
+
+
+@dataclass(frozen=True)
 class ServiceCached(DomainEvent):
     """服务已缓存事件"""
     agent_id: str = ""
