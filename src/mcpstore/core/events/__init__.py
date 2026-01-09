@@ -11,6 +11,9 @@ from .service_events import (
     DomainEvent,
     EventPriority,
     ServiceAddRequested,
+    ServiceBootstrapRequested,
+    ServiceBootstrapped,
+    ServiceBootstrapFailed,
     ServiceCached,
     ServiceInitialized,
     ServiceConnectionRequested,
@@ -35,6 +38,9 @@ __all__ = [
     
     # 服务事件
     "ServiceAddRequested",
+    "ServiceBootstrapRequested",
+    "ServiceBootstrapped",
+    "ServiceBootstrapFailed",
     "ServiceCached",
     "ServiceInitialized",
     "ServiceConnectionRequested",
@@ -50,4 +56,3 @@ __all__ = [
     "ReconnectionRequested",
     "ReconnectionScheduled",
 ]
-

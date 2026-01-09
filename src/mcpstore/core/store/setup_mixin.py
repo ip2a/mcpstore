@@ -160,8 +160,6 @@ class SetupMixin:
 
             # 解析服务并建立映射关系
             global_agent_store_id = self.client_manager.global_agent_store_id
-            app_service = self.container.service_application_service
-
             for service_name, service_config in mcp_servers.items():
                 try:
                     # 通过名称后缀解析是否为 Agent 服务
@@ -182,22 +180,33 @@ class SetupMixin:
                         logger.info(f"[INIT_MCP] [SKIP] Service already exists in cache: {agent_id}:{local_name}")
                         continue
 
-                    # 通过应用服务发布事件驱动的添加流程（语义一致，自动创建实体/关系/状态）
-                    add_result = await app_service.add_service(
+                    # 发布 bootstrap 事件，构建缓存后后台连接
+                    from mcpstore.core.events.service_events import ServiceBootstrapRequested
+                    from mcpstore.core.utils.id_generator import ClientIDGenerator
+
+                    client_id = ClientIDGenerator.generate_deterministic_id(
                         agent_id=agent_id,
                         service_name=local_name,
                         service_config=service_config,
-                        wait_timeout=0.0,
-                        source="bootstrap_mcpjson",
+                        global_agent_store_id=global_agent_store_id
+                    )
+
+                    event_bus = getattr(getattr(self, "container", None), "_event_bus", None) or getattr(self, "event_bus", None) or getattr(getattr(self, "orchestrator", None), "event_bus", None)
+                    if not event_bus:
+                        raise RuntimeError("EventBus is not available during setup bootstrap")
+
+                    bootstrap_event = ServiceBootstrapRequested(
+                        agent_id=agent_id,
+                        service_name=local_name,
+                        service_config=service_config,
+                        client_id=client_id,
                         global_name=global_name,
                         origin_agent_id=agent_id,
                         origin_local_name=local_name,
+                        source="bootstrap_mcpjson"
                     )
-
-                    if add_result.success:
-                        logger.info(f"[INIT_MCP] [OK] Replayed service from mcp.json: {service_name} -> agent={agent_id}")
-                    else:
-                        logger.error(f"[INIT_MCP] [FAIL] Failed to replay service {service_name}: {add_result.error_message}")
+                    await event_bus.publish(bootstrap_event, wait=False)
+                    logger.info(f"[INIT_MCP] [OK] Published bootstrap event for service: {service_name} -> agent={agent_id}")
 
                 except Exception as e:
                     logger.error(f"[INIT_MCP] [ERROR] Failed to process service {service_name}: {e}")
