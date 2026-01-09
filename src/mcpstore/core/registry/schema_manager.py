@@ -1,7 +1,7 @@
 """
 Schema Manager - Placeholder for missing dependency
 """
-
+#TODO:这个是做什么的？
 def get_schema_manager():
     """
     Get schema manager instance.

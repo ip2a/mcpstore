@@ -160,99 +160,60 @@ markdown_extensions:
 # Navigation
 nav:
   - 首页:
-    - 安装指南: index.md
-    - 快速开始: quickstart.md
-  
-  - SDK:
-    - Store:
-      - for_store(): store/overview.md
-      - Store 方法:
-        - get_id(): store/get-id.md
-        - get_info(): store/get-info.md
-        - get_stats(): store/get-stats.md
-        - get_context(): store/get-context.md
-        - list_agents(): store/list-agents.md
-    
-    - Services (服务):
-      - 名称待定1: services/overview.md
-      - Service Proxy: services/service-proxy.md
+      - 文档导览: index.md
+      - 快速开始: quickstart.md
 
+  - 理解 Store 与数据源:
+      - Store 角色与边界: store/overview.md
+      - Agent 与 Store 的关系: store/list-agents.md
+      - 数据源与服务代理: services/service-proxy.md
+      - 缓存/数据源架构: architecture/cache-architecture.md
+
+  - 构建与配置:
+      - Store 初始化流程: quickstart.md
+      - 配置项说明: api/cache-config.md
+      - 配置参考手册: api/cache-config-reference.md
+
+  - 服务治理:
+      - 服务概览: services/overview.md
       - 添加服务: services/add-service.md
-      - 列出服务: services/list-services.md
-      - 服务管理:
-        - find_service(): services/find-service.md
-        - init_service(): services/init-service.md
-        - disconnect_service(): services/disconnect-service.md
-        - remove_service(): services/remove-service.md
-        - delete_service(): services/delete-service.md
-        - wait_service(): services/wait-service.md
-        - check_services(): services/check-services.md
-        - check_health(): services/check-health.md
+      - Hub 服务管理: hub/services.md
+      - 服务列表与发现: services/list-services.md
+      - 状态与健康: services/check-health.md
+      - 配置读写: services/show-config.md
+      - 更新与补丁: services/update-service.md
+      - 重载与等待: services/restart-service.md
+      - 清理与删除: services/delete-service.md
 
- 
-        - update_service(): services/update-service.md
-        - patch_service(): services/patch-service.md
-        - restart_service(): services/restart-service.md
-        - refresh_content(): services/refresh-content.md
-      - 服务信息:
-        - service_info(): services/service-info.md
-        - service_status(): services/service-status.md
-        - get_service_info(): services/get-service-info.md
-        - get_service_status(): services/get-service-status.md
-      - 配置管理:
-        - update_config(): services/update-config.md
-        - reset_config(): services/reset-config.md
-        - show_config(): services/show-config.md
-        - delete_config(): services/delete-config.md
-    
-    - Tools (工具):
-      - 概述: tools/overview.md
-      - Tool Proxy: tools/tool-proxy.md
-      - 常用方法:
-        - list_tools(): tools/list-tools.md
-        - call_tool(): tools/call-tool.md
-      - 工具查找:
-        - find_tool(): tools/find-tool.md
-      - 工具信息:
-        - tool_info(): tools/tool-info.md
-        - tool_tags(): tools/tool-tags.md
-        - tool_schema(): tools/tool-schema.md
-      - 工具配置:
-        - set_redirect(): tools/set-redirect.md
-    
-    - Resources (资源):
-      - list_resources(): resources/list-resources.md
-      - read_resource(): resources/read-resource.md
-    
-    - Prompts (提示词):
-      - list_prompts(): prompts/list-prompts.md
-      - get_prompt(): prompts/get-prompt.md
-    
-    - Hub (中心):
-      - hub_services(): hub/services.md
-      - hub_tools(): hub/tools.md
-    
-    - Session (会话):
-      - 会话管理: session/sessions.md
-  
-  - 框架集成:
-    - 集成概览: integrations/overview.md
-  
-  - 数据库支持:
-    - Redis 支持: database/redis.md
-  
-  - REST API:
-    - API 概述: api/overview.md
-    - API 参考:
-      - 核心类: api/reference.md
-      - 服务端点: api/services.md
-      - 工具端点: api/tools.md
-      - 框架适配器: api/adapters.md
-      - 会话管理: api/sessions.md
-      - 健康检查: api/health.md
-      - 配置管理: api/config.md
-    - 错误代码: api/errors.md
-    - 认证授权: api/auth.md
-  
-  - CLI 命令行:
-    - 命令参考: cli/commands.md
+  - 三大原语:
+      - Prompt:
+          - 列出 Prompt: prompts/list-prompts.md
+          - 获取 Prompt: prompts/get-prompt.md
+      - Resource:
+          - 列出资源: resources/list-resources.md
+          - 读取资源: resources/read-resource.md
+      - Tool:
+          - 工具概览: tools/overview.md
+          - 列出工具: tools/list-tools.md
+          - 查找工具: tools/find-tool.md
+          - 调用工具: tools/call-tool.md
+          - 工具信息: tools/tool-info.md
+          - 路由策略: tools/tool-tags.md
+          - 代理与重定向: tools/tool-proxy.md
+
+  - 创建 Agent 与上下文:
+      - Agent 创建与接入: integrations/overview.md
+      - Agent 信息与连接详情: store/get-info.md
+      - 会话与上下文: session/sessions.md
+
+  - API 参考:
+      - API 总览: api/overview.md
+      - 认证与配置: api/auth.md
+      - 服务端点参考: api/reference.md
+      - 错误与健康检查: api/errors.md
+
+  - CLI 使用:
+      - CLI 命令: cli/commands.md
+
+  - 示例:
+      - 缓存配置示例: examples/cache-config-examples.md

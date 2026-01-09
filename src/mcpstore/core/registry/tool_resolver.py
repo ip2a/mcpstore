@@ -9,6 +9,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 
+from ..models.tool_result import CallToolFailureResult
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -602,19 +604,8 @@ class FastMCPToolExecutor:
             logger.error(f"Tool '{tool_name}' execution failed: {e}")
             if raise_on_error:
                 raise
-            # Return FastMCP-compatible error signal: when direct exception propagation is disabled, return empty content + is_error=True
-            try:
-                from types import SimpleNamespace
-                return SimpleNamespace(
-                    content=[],
-                    structured_content=None,
-                    data=None,
-                    is_error=True,
-                    error=str(e),
-                )
-            except Exception:
-                # Final fallback: still raise original exception
-                raise
+            failure = CallToolFailureResult(str(e))
+            return failure.unwrap()
     
     def extract_result_data(self, result: 'CallToolResult') -> Any:
         """

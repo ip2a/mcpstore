@@ -5,10 +5,8 @@
 提供配置快照的导出功能，支持多种格式和输出方式
 """
 
-import asyncio
 import logging
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -17,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from mcpstore.config.toml_config import get_config
 from mcpstore.core.configuration.config_snapshot import (
-    ConfigSnapshot, ConfigSnapshotFormatter, ConfigSnapshotError
+    ConfigSnapshotFormatter, ConfigSnapshotError
 )
 from mcpstore.core.configuration.config_snapshot_generator import ConfigSnapshotGenerator
 
@@ -38,8 +36,8 @@ class ConfigExportService:
             config = get_config()
             self.generator = ConfigSnapshotGenerator(config)
         except Exception as e:
-            logger.error(f"初始化配置快照生成器失败: {e}")
-            raise ConfigSnapshotError(f"无法初始化配置导出服务: {e}")
+            logger.error(f"[CONFIG_EXPORT] [ERROR] Failed to initialize configuration snapshot generator: {e}")
+            raise ConfigSnapshotError(f"Failed to initialize configuration export service: {e}")
 
     async def export_config(self,
                            format: str = "table",
@@ -66,11 +64,11 @@ class ConfigExportService:
             ConfigSnapshotError: 导出过程中的错误
         """
         if not self.generator:
-            raise ConfigSnapshotError("配置快照生成器未初始化")
+            raise ConfigSnapshotError("Configuration snapshot generator not initialized")
 
         # 验证格式
         if format not in ["json", "yaml", "table"]:
-            raise ConfigSnapshotError(f"不支持的格式: {format}，支持的格式: json, yaml, table")
+            raise ConfigSnapshotError(f"Unsupported format: {format}, supported formats: json, yaml, table")
 
         try:
             # 生成配置快照
@@ -93,13 +91,13 @@ class ConfigExportService:
             # 输出到文件或返回字符串
             if output_file:
                 await self._write_to_file(content, output_file)
-                return f"配置已导出到: {output_file}"
+                return f"Configuration exported to: {output_file}"
             else:
                 return content
 
         except Exception as e:
-            logger.error(f"导出配置失败: {e}")
-            raise ConfigSnapshotError(f"导出配置失败: {e}")
+            logger.error(f"[CONFIG_EXPORT] [ERROR] Failed to export configuration: {e}")
+            raise ConfigSnapshotError(f"Failed to export configuration: {e}")
 
     async def _write_to_file(self, content: str, file_path: Union[str, Path]):
         """写入内容到文件"""
@@ -110,9 +108,9 @@ class ConfigExportService:
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(content)
 
-            logger.info(f"配置快照已保存到: {path}")
+            logger.info(f"[CONFIG_EXPORT] [SAVE] Configuration snapshot saved to: {path}")
         except Exception as e:
-            raise ConfigSnapshotError(f"写入文件失败 {file_path}: {e}")
+            raise ConfigSnapshotError(f"Failed to write file {file_path}: {e}")
 
     async def get_config_summary(self) -> Dict[str, Any]:
         """
@@ -122,7 +120,7 @@ class ConfigExportService:
             Dict[str, Any]: 配置摘要
         """
         if not self.generator:
-            raise ConfigSnapshotError("配置快照生成器未初始化")
+            raise ConfigSnapshotError("Configuration snapshot generator not initialized")
 
         try:
             # 生成快照（不包含敏感配置）
@@ -150,8 +148,8 @@ class ConfigExportService:
             return summary
 
         except Exception as e:
-            logger.error(f"获取配置摘要失败: {e}")
-            raise ConfigSnapshotError(f"获取配置摘要失败: {e}")
+            logger.error(f"[CONFIG_EXPORT] [ERROR] Failed to get configuration summary: {e}")
+            raise ConfigSnapshotError(f"Failed to get configuration summary: {e}")
 
     async def search_config(self,
                            query: str,
@@ -167,7 +165,7 @@ class ConfigExportService:
             Dict[str, Any]: 搜索结果
         """
         if not self.generator:
-            raise ConfigSnapshotError("配置快照生成器未初始化")
+            raise ConfigSnapshotError("Configuration snapshot generator not initialized")
 
         try:
             # 使用查询作为正则表达式过滤
@@ -198,8 +196,8 @@ class ConfigExportService:
             }
 
         except Exception as e:
-            logger.error(f"搜索配置失败: {e}")
-            raise ConfigSnapshotError(f"搜索配置失败: {e}")
+            logger.error(f"[CONFIG_EXPORT] [ERROR] Failed to search configuration: {e}")
+            raise ConfigSnapshotError(f"Failed to search configuration: {e}")
 
     async def validate_config(self) -> Dict[str, Any]:
         """
@@ -209,7 +207,7 @@ class ConfigExportService:
             Dict[str, Any]: 验证结果
         """
         if not self.generator:
-            raise ConfigSnapshotError("配置快照生成器未初始化")
+            raise ConfigSnapshotError("Configuration snapshot generator not initialized")
 
         try:
             # 生成完整快照
@@ -243,13 +241,13 @@ class ConfigExportService:
                     # 检查无效的来源
                     if item.source.value not in ["default", "toml", "kv", "env"]:
                         validation_result["warnings"].append(
-                            f"配置项 {item.key} 具有未知的来源: {item.source.value}"
+                            f"Configuration item {item.key} has unknown source: {item.source.value}"
                         )
 
                     # 检查空值
                     if item.value is None or item.value == "":
                         validation_result["warnings"].append(
-                            f"配置项 {item.key} 值为空"
+                            f"Configuration item {item.key} has empty value"
                         )
 
             # 如果有错误，标记为无效
@@ -259,8 +257,8 @@ class ConfigExportService:
             return validation_result
 
         except Exception as e:
-            logger.error(f"验证配置失败: {e}")
-            raise ConfigSnapshotError(f"验证配置失败: {e}")
+            logger.error(f"[CONFIG_EXPORT] [ERROR] Failed to validate configuration: {e}")
+            raise ConfigSnapshotError(f"Failed to validate configuration: {e}")
 
     async def export_diff(self,
                          baseline_file: Union[str, Path],
@@ -281,7 +279,7 @@ class ConfigExportService:
             # 读取基线配置
             baseline_path = Path(baseline_file)
             if not baseline_path.exists():
-                raise ConfigSnapshotError(f"基线文件不存在: {baseline_file}")
+                raise ConfigSnapshotError(f"Baseline file not found: {baseline_file}")
 
             import json
             with open(baseline_path, 'r', encoding='utf-8') as f:
@@ -346,13 +344,13 @@ class ConfigExportService:
             # 输出到文件或返回字符串
             if output_file:
                 await self._write_to_file(content, output_file)
-                return f"配置差异已导出到: {output_file}"
+                return f"Configuration diff exported to: {output_file}"
             else:
                 return content
 
         except Exception as e:
-            logger.error(f"导出配置差异失败: {e}")
-            raise ConfigSnapshotError(f"导出配置差异失败: {e}")
+            logger.error(f"[CONFIG_EXPORT] [ERROR] Failed to export configuration diff: {e}")
+            raise ConfigSnapshotError(f"Failed to export configuration diff: {e}")
 
     def _format_diff_table(self, diff: Dict[str, Any]) -> str:
         """格式化差异为表格"""
@@ -364,35 +362,35 @@ class ConfigExportService:
 
         # 新增配置
         if diff["added"]:
-            lines.append(f"\n🆕 新增配置 ({len(diff['added'])} 项):")
+            lines.append(f"\n[ADDED] New configuration ({len(diff['added'])} items):")
             lines.append("-" * 100)
             for key, value in diff["added"].items():
                 lines.append(f"  {key:<50} = {value}")
 
         # 删除配置
         if diff["removed"]:
-            lines.append(f"\n❌ 删除配置 ({len(diff['removed'])} 项):")
+            lines.append(f"\nRemoved config ({len(diff['removed'])} items):")
             lines.append("-" * 100)
             for key, value in diff["removed"].items():
                 lines.append(f"  {key:<50} = {value}")
 
         # 修改配置
         if diff["modified"]:
-            lines.append(f"\n🔄 修改配置 ({len(diff['modified'])} 项):")
+            lines.append(f"\nModified config ({len(diff['modified'])} items):")
             lines.append("-" * 100)
             for key, change in diff["modified"].items():
                 lines.append(f"  {key:<50}")
-                lines.append(f"    旧值: {change['old']}")
-                lines.append(f"    新值: {change['new']}")
+                lines.append(f"    Old value: {change['old']}")
+                lines.append(f"    New value: {change['new']}")
 
         # 未变更配置
         if diff["unchanged"]:
-            lines.append(f"\n 未变更配置 ({len(diff['unchanged'])} 项):")
+            lines.append(f"\n[UNCHANGED] Unchanged configuration ({len(diff['unchanged'])} items):")
             lines.append("-" * 100)
             for key, value in list(diff["unchanged"].items())[:10]:  # 只显示前10项
                 lines.append(f"  {key:<50} = {value}")
             if len(diff["unchanged"]) > 10:
-                lines.append(f"  ... 还有 {len(diff['unchanged']) - 10} 项未变更配置")
+                lines.append(f"  ... {len(diff['unchanged']) - 10} more unchanged configuration items")
 
         return "\n".join(lines)
 

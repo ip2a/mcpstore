@@ -16,6 +16,7 @@ This package splits the original large context.py file into multiple specialized
 
 from .agent_service_mapper import AgentServiceMapper
 from .base_context import MCPStoreContext
+from .cache_proxy import CacheProxy
 from .service_management import UpdateServiceAuthHelper
 from .service_proxy import ServiceProxy
 from .session import Session, SessionContext
@@ -47,5 +48,6 @@ __all__ = [
     'ToolTransformConfig',
     'ArgumentTransform',
     'TransformationType',
-    'get_transformation_manager'
+    'get_transformation_manager',
+    'CacheProxy'
 ]

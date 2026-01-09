@@ -3,6 +3,7 @@ MCPOrchestrator Resources and Prompts Module
 Resources/Prompts模块 - 包含FastMCP的Resources和Prompts功能支持
 """
 
+import asyncio
 import logging
 import time
 from typing import Dict, Any, Optional
@@ -110,9 +111,7 @@ class ResourcesPromptsMixin:
         Returns:
             Dict: 包含资源列表的响应
         """
-        return self._sync_helper.run_async(
-            self.list_resources_async(service_name, client_id)
-        )
+        return asyncio.run(self.list_resources_async(service_name, client_id))
 
     async def list_resources_async(
         self,
@@ -136,7 +135,7 @@ class ResourcesPromptsMixin:
             if service_name:
                 # 获取特定服务的资源
                 # 从Registry获取当前活跃会话
-                service_config = self.registry.get_service_config_from_cache(client_id, service_name)
+                service_config = await self.registry.get_service_config_from_cache_async(client_id, service_name)
                 if not service_config:
                     return {
                         "success": False,
@@ -162,7 +161,7 @@ class ResourcesPromptsMixin:
 
                 for sname in services:
                     try:
-                        s_config = self.registry.get_service_config_from_cache(client_id, sname)
+                        s_config = await self.registry.get_service_config_from_cache_async(client_id, sname)
                         if not s_config:
                             all_resources[sname] = []
                             continue
@@ -206,9 +205,7 @@ class ResourcesPromptsMixin:
         Returns:
             Dict: 包含资源模板列表的响应
         """
-        return self._sync_helper.run_async(
-            self.list_resource_templates_async(service_name, client_id)
-        )
+        return asyncio.run(self.list_resource_templates_async(service_name, client_id))
 
     async def list_resource_templates_async(
         self,
@@ -231,7 +228,7 @@ class ResourcesPromptsMixin:
 
             if service_name:
                 # 获取特定服务的资源模板（使用临时client）
-                service_config = self.registry.get_service_config_from_cache(client_id, service_name)
+                service_config = await self.registry.get_service_config_from_cache_async(client_id, service_name)
                 if not service_config:
                     return {
                         "success": False,
@@ -257,7 +254,7 @@ class ResourcesPromptsMixin:
 
                 for sname in services:
                     try:
-                        s_config = self.registry.get_service_config_from_cache(client_id, sname)
+                        s_config = await self.registry.get_service_config_from_cache_async(client_id, sname)
                         if not s_config:
                             all_templates[sname] = []
                             continue
@@ -303,9 +300,7 @@ class ResourcesPromptsMixin:
         Returns:
             Dict: 包含资源内容的响应
         """
-        return self._sync_helper.run_async(
-            self.read_resource_async(uri, service_name, client_id)
-        )
+        return asyncio.run(self.read_resource_async(uri, service_name, client_id))
 
     async def read_resource_async(
         self,
@@ -340,7 +335,7 @@ class ResourcesPromptsMixin:
 
             if service_name:
                 # 从特定服务读取资源（使用临时client）
-                service_config = self.registry.get_service_config_from_cache(client_id, service_name)
+                service_config = await self.registry.get_service_config_from_cache_async(client_id, service_name)
                 if not service_config:
                     return {
                         "success": False,
@@ -371,7 +366,7 @@ class ResourcesPromptsMixin:
 
                 for sname in services:
                     try:
-                        s_config = self.registry.get_service_config_from_cache(client_id, sname)
+                        s_config = await self.registry.get_service_config_from_cache_async(client_id, sname)
                         if not s_config:
                             continue
                         async with temp_client_for_service(sname, s_config) as client:
@@ -423,9 +418,7 @@ class ResourcesPromptsMixin:
         Returns:
             Dict: 包含提示词列表的响应
         """
-        return self._sync_helper.run_async(
-            self.list_prompts_async(service_name, client_id)
-        )
+        return asyncio.run(self.list_prompts_async(service_name, client_id))
 
     async def list_prompts_async(
         self,
@@ -448,7 +441,7 @@ class ResourcesPromptsMixin:
 
             if service_name:
                 # 获取特定服务的提示词
-                service_config = self.registry.get_service_config_from_cache(client_id, service_name)
+                service_config = await self.registry.get_service_config_from_cache_async(client_id, service_name)
                 if not service_config:
                     return {
                         "success": False,
@@ -474,7 +467,7 @@ class ResourcesPromptsMixin:
 
                 for sname in services:
                     try:
-                        s_config = self.registry.get_service_config_from_cache(client_id, sname)
+                        s_config = await self.registry.get_service_config_from_cache_async(client_id, sname)
                         if not s_config:
                             all_prompts[sname] = []
                             continue
@@ -522,9 +515,7 @@ class ResourcesPromptsMixin:
         Returns:
             Dict: 包含提示词内容的响应
         """
-        return self._sync_helper.run_async(
-            self.get_prompt_async(name, arguments, service_name, client_id)
-        )
+        return asyncio.run(self.get_prompt_async(name, arguments, service_name, client_id))
 
     async def get_prompt_async(
         self,
@@ -554,7 +545,7 @@ class ResourcesPromptsMixin:
 
             if service_name:
                 # 从特定服务获取提示词（使用临时client）
-                service_config = self.registry.get_service_config_from_cache(client_id, service_name)
+                service_config = await self.registry.get_service_config_from_cache_async(client_id, service_name)
                 if not service_config:
                     return {
                         "success": False,
@@ -586,7 +577,7 @@ class ResourcesPromptsMixin:
 
                 for sname in services:
                     try:
-                        s_config = self.registry.get_service_config_from_cache(client_id, sname)
+                        s_config = await self.registry.get_service_config_from_cache_async(client_id, sname)
                         if not s_config:
                             continue
                         async with temp_client_for_service(sname, s_config) as client:

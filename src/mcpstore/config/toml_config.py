@@ -8,13 +8,12 @@ Task T1: Configuration directory and default TOML file initialization
 Task T2: TOML loading, default value merging, and validation pipeline
 """
 
-import os
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, Union, Tuple, List
+
 import toml
 
-from .path_utils import get_user_data_dir, get_user_config_path
 from .config_defaults import (
     get_all_defaults,
     ServerConfigDefaults,
@@ -26,6 +25,7 @@ from .config_defaults import (
     StandaloneConfigDefaults,
     LoggingConfigDefaults,
 )
+from .path_utils import get_user_data_dir, get_user_config_path
 
 logger = logging.getLogger(__name__)
 
@@ -86,23 +86,20 @@ def get_default_config_template() -> str:
         return "[" + ", ".join(parts) + "]"
 
     server = defaults["server"]
-    cache = defaults["cache"]
-    cache_memory = defaults["cache.memory"]
-    cache_redis = defaults["cache.redis"]
     health = defaults["health_check"]
     content = defaults["content_update"]
     monitoring = defaults["monitoring"]
     standalone = defaults["standalone"]
-    logging_defaults = defaults["logging"]
-    wrapper = defaults["wrapper"]
-    sync = defaults["sync"]
-    transaction = defaults["transaction"]
-    api = defaults["api"]
+    # Note: Removed configurations that are not managed via TOML:
+    # cache, wrapper, sync, transaction, api, tool_set, logging
 
     return f'''# =============================================================================
 # MCPStore 统一配置文件
 # 自动生成，用户可修改
-# 描述：统一管理所有非敏感配置项，包含健康检查、缓存、监控、日志等配置
+# 描述：统一管理所有非敏感配置项，包含健康检查、监控、日志等配置
+#
+# 注意：缓存配置由代码参数控制，不在此文件中配置
+# 使用示例：MCPStore.setup_store(cache=RedisConfig(url="redis://localhost:6379/0"))
 
 [server]
 # API服务器配置
@@ -111,30 +108,6 @@ port = {server["port"]}
 reload = {_bool(server["reload"])}
 auto_open_browser = {_bool(server["auto_open_browser"])}
 show_startup_info = {_bool(server["show_startup_info"])}
-
-[cache]
-# 缓存系统配置 (可选值: "memory", "redis")
-type = "{cache["type"]}"
-
-[cache.memory]
-# 内存缓存配置
-timeout = {cache_memory["timeout"]}
-retry_attempts = {cache_memory["retry_attempts"]}
-health_check = {_bool(cache_memory["health_check"])}
-# max_size = null  # Commented out as null is not valid TOML
-cleanup_interval = {cache_memory["cleanup_interval"]}
-
-[cache.redis]
-# Redis缓存配置 - 注意：url, host, port, namespace, password 不在TOML中管理
-timeout = {cache_redis["timeout"]}
-retry_attempts = {cache_redis["retry_attempts"]}
-health_check = {_bool(cache_redis["health_check"])}
-max_connections = {cache_redis["max_connections"]}
-retry_on_timeout = {_bool(cache_redis["retry_on_timeout"])}
-socket_keepalive = {_bool(cache_redis["socket_keepalive"])}
-socket_connect_timeout = {cache_redis["socket_connect_timeout"]}
-socket_timeout = {cache_redis["socket_timeout"]}
-health_check_interval = {cache_redis["health_check_interval"]}
 
 [health_check]
 # 健康检查配置
@@ -148,6 +121,9 @@ long_retry_interval = {health["long_retry_interval"]}
 normal_heartbeat_interval = {health["normal_heartbeat_interval"]}
 warning_heartbeat_interval = {health["warning_heartbeat_interval"]}
 health_check_ping_timeout = {health["health_check_ping_timeout"]}
+ping_timeout_http = {health["ping_timeout_http"]}
+ping_timeout_sse = {health["ping_timeout_sse"]}
+ping_timeout_stdio = {health["ping_timeout_stdio"]}
 initialization_timeout = {health["initialization_timeout"]}
 disconnection_timeout = {health["disconnection_timeout"]}
 
@@ -193,33 +169,16 @@ log_level = "{standalone["log_level"]}"
 log_format = "{standalone["log_format"]}"
 enable_debug = {_bool(standalone["enable_debug"])}
 
-[logging]
-# 日志配置
-level = "{logging_defaults["level"]}"
-enable_debug = {_bool(logging_defaults["enable_debug"])}
-format = "{logging_defaults["format"]}"
-
-[wrapper]
-# 包装器配置常量
-DEFAULT_MAX_ITEM_SIZE = {wrapper["DEFAULT_MAX_ITEM_SIZE"]}
-DEFAULT_COMPRESSION_THRESHOLD = {wrapper["DEFAULT_COMPRESSION_THRESHOLD"]}
-
-[sync]
-# 同步配置
-debounce_delay = {sync["debounce_delay"]}
-min_sync_interval = {sync["min_sync_interval"]}
-
-[transaction]
-# 事务配置
-timeout = {transaction["timeout"]}
-
-[api]
-# API配置
-enable_cors = {_bool(api["enable_cors"])}
-cors_origins = {_list(api["cors_origins"])}
-rate_limit_enabled = {_bool(api["rate_limit_enabled"])}
-rate_limit_requests = {api["rate_limit_requests"]}
-rate_limit_window = {api["rate_limit_window"]}
+# =============================================================================
+# 以下配置项已移除（不通过TOML管理）：
+# - [logging] : 由 setup_store(debug=...) 参数控制
+# - [cache] / [cache.memory] / [cache.redis] : 由 setup_store(cache=...) 参数控制
+# - [wrapper] : 使用代码中的 WrapperConfigDefaults
+# - [sync] : 硬编码在 unified_sync_manager.py
+# - [transaction] : 硬编码在 cache_manager.py
+# - [api] : 未实际使用
+# - [tool_set] : 未实际使用
+# =============================================================================
 '''
 
 
@@ -288,6 +247,7 @@ class ConfigValidator:
     """Configuration validation and processing class for T2."""
 
     # Validation rules for configuration values
+    # Note: Cache configuration removed - managed via setup_store(cache=...) parameter
     VALIDATION_RULES = {
         # Server configuration
         "server.port": {"min": 1000, "max": 65535, "type": int},
@@ -295,22 +255,6 @@ class ConfigValidator:
         "server.reload": {"type": bool},
         "server.auto_open_browser": {"type": bool},
         "server.show_startup_info": {"type": bool},
-
-        # Cache configuration
-        "cache.type": {"type": str, "allowed_values": ["memory", "redis"]},
-        "cache.memory.timeout": {"min": 0.1, "max": 300.0, "type": float},
-        "cache.memory.retry_attempts": {"min": 0, "max": 10, "type": int},
-        "cache.memory.health_check": {"type": bool},
-        "cache.memory.cleanup_interval": {"min": 10, "max": 3600, "type": int},
-        "cache.redis.timeout": {"min": 0.1, "max": 300.0, "type": float},
-        "cache.redis.retry_attempts": {"min": 0, "max": 10, "type": int},
-        "cache.redis.health_check": {"type": bool},
-        "cache.redis.max_connections": {"min": 1, "max": 1000, "type": int},
-        "cache.redis.retry_on_timeout": {"type": bool},
-        "cache.redis.socket_keepalive": {"type": bool},
-        "cache.redis.socket_connect_timeout": {"min": 0.1, "max": 60.0, "type": float},
-        "cache.redis.socket_timeout": {"min": 0.1, "max": 60.0, "type": float},
-        "cache.redis.health_check_interval": {"min": 1, "max": 300, "type": int},
 
         # Health check configuration
         "health_check.enabled": {"type": bool},
@@ -364,28 +308,13 @@ class ConfigValidator:
         "standalone.log_level": {"type": str, "allowed_values": ["DEBUG", "INFO", "WARNING", "ERROR"]},
         "standalone.log_format": {"type": str, "allowed_values": ["json", "text"]},
 
-        # API configuration
-        "api.enable_cors": {"type": bool},
-        "api.cors_origins": {"type": list},  # Will be validated separately
-        "api.rate_limit_enabled": {"type": bool},
-        "api.rate_limit_requests": {"min": 1, "max": 10000, "type": int},
-        "api.rate_limit_window": {"min": 1, "max": 3600, "type": int},
-
-        # Logging configuration
-        "logging.level": {"type": str, "allowed_values": ["DEBUG", "INFO", "WARNING", "ERROR"]},
-        "logging.enable_debug": {"type": bool},
-        "logging.format": {"type": str, "allowed_values": ["json", "text"]},
-
-        # Wrapper configuration
-        "wrapper.DEFAULT_MAX_ITEM_SIZE": {"min": 1024, "max": 104857600, "type": int},  # 1KB to 100MB
-        "wrapper.DEFAULT_COMPRESSION_THRESHOLD": {"min": 512, "max": 1048576, "type": int},  # 512B to 1MB
-
-        # Sync configuration
-        "sync.debounce_delay": {"min": 0.1, "max": 60.0, "type": float},
-        "sync.min_sync_interval": {"min": 0.5, "max": 300.0, "type": float},
-
-        # Transaction configuration
-        "transaction.timeout": {"min": 1.0, "max": 3600.0, "type": float},
+        # Note: Following configurations removed (not managed via TOML):
+        # - logging.* : Controlled by setup_store(debug=...) parameter
+        # - api.* : Not actually used
+        # - wrapper.* : Uses WrapperConfigDefaults in code
+        # - sync.* : Hardcoded in unified_sync_manager.py
+        # - transaction.* : Hardcoded in cache_manager.py
+        # - tool_set.* : Not actually used
     }
 
     @classmethod
@@ -746,7 +675,7 @@ class ConfigFlattener:
                     store_value = {"value": value}
 
                 await kv_store.put(key, store_value)
-                logger.debug(f"Put config key: {key} = {store_value}")
+                # logger.debug(f"Put config key: {key} = {store_value}")  # Commented out: avoid 80 duplicate logs
 
             logger.info(f"Successfully wrote {len(flattened)} configuration keys to KV store")
             return True
@@ -870,7 +799,7 @@ def initialize_config_system_with_kv(config_path: Optional[Path] = None) -> Tupl
 
 import asyncio
 from typing import Protocol, runtime_checkable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 # Import existing configuration classes for type conversion
 try:
@@ -1254,6 +1183,22 @@ class MCPStoreConfig:
             "show_startup_info": await self._get_config_value("server.show_startup_info", True),
             "log_level": await self._get_config_value("server.log_level", "info"),
             "url_prefix": await self._get_config_value("server.url_prefix", ""),
+        }
+
+    async def get_tool_set_config_async(self) -> Dict[str, Any]:
+        """
+        获取工具集配置
+
+        Returns:
+            Dict: 工具集配置字典，包含以下键：
+                - enable_tool_set: 是否启用工具集管理功能
+                - cache_ttl_seconds: 缓存过期时间（秒）
+                - max_tools_per_service: 每个服务的最大工具数量
+        """
+        return {
+            "enable_tool_set": await self._get_config_value("tool_set.enable_tool_set", True),
+            "cache_ttl_seconds": await self._get_config_value("tool_set.cache_ttl_seconds", 3600),
+            "max_tools_per_service": await self._get_config_value("tool_set.max_tools_per_service", 1000),
         }
 
     async def get_raw_config_section(self, section: str) -> Dict[str, Any]:

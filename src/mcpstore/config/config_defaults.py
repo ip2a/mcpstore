@@ -29,9 +29,16 @@ class HealthCheckConfigDefaults:
     base_reconnect_delay: float = 1.0
     max_reconnect_delay: float = 60.0
     long_retry_interval: float = 300.0
-    normal_heartbeat_interval: float = 30.0
+    # 健康状态的轻量心跳（默认 10s）
+    normal_heartbeat_interval: float = 10.0
     warning_heartbeat_interval: float = 10.0
     health_check_ping_timeout: float = 10.0
+    # 在 WARNING/RECONNECTING 状态下使用更宽松的 ping 超时，避免短暂抖动触发误判
+    warning_ping_timeout: float = 30.0
+    # 按传输类型的默认 ping 超时
+    ping_timeout_http: float = 20.0
+    ping_timeout_sse: float = 20.0
+    ping_timeout_stdio: float = 40.0
     initialization_timeout: float = 300.0
     disconnection_timeout: float = 10.0
 
@@ -174,9 +181,20 @@ class APIConfigDefaults:
             self.cors_origins = ["*"]
 
 
+@dataclass
+class ToolSetConfigDefaults:
+    """Default tool set configuration."""
+    enable_tool_set: bool = True
+    cache_ttl_seconds: int = 3600
+    max_tools_per_service: int = 1000
+
+
 def get_all_defaults() -> Dict[str, Dict[str, Any]]:
     """
     Get all default configuration values as a dictionary.
+
+    Note: Cache, wrapper, sync, transaction, api, tool_set, and logging configurations
+    are removed as they are not managed via TOML configuration files.
 
     Returns:
         Dictionary containing all default configurations grouped by section
@@ -186,14 +204,7 @@ def get_all_defaults() -> Dict[str, Dict[str, Any]]:
     service_lifecycle = ServiceLifecycleConfigDefaults()
     content_update = ContentUpdateConfigDefaults()
     monitoring = MonitoringConfigDefaults()
-    cache_memory = CacheMemoryConfigDefaults()
-    cache_redis = CacheRedisConfigDefaults()
     standalone = StandaloneConfigDefaults()
-    logging = LoggingConfigDefaults()
-    wrapper = WrapperConfigDefaults()
-    sync = SyncConfigDefaults()
-    transaction = TransactionConfigDefaults()
-    api = APIConfigDefaults()
 
     return {
         "server": {
@@ -202,27 +213,6 @@ def get_all_defaults() -> Dict[str, Dict[str, Any]]:
             "reload": server.reload,
             "auto_open_browser": server.auto_open_browser,
             "show_startup_info": server.show_startup_info,
-        },
-        "cache": {
-            "type": "memory",  # Default cache type
-        },
-        "cache.memory": {
-            "timeout": cache_memory.timeout,
-            "retry_attempts": cache_memory.retry_attempts,
-            "health_check": cache_memory.health_check,
-            "max_size": cache_memory.max_size,
-            "cleanup_interval": cache_memory.cleanup_interval,
-        },
-        "cache.redis": {
-            "timeout": cache_redis.timeout,
-            "retry_attempts": cache_redis.retry_attempts,
-            "health_check": cache_redis.health_check,
-            "max_connections": cache_redis.max_connections,
-            "retry_on_timeout": cache_redis.retry_on_timeout,
-            "socket_keepalive": cache_redis.socket_keepalive,
-            "socket_connect_timeout": cache_redis.socket_connect_timeout,
-            "socket_timeout": cache_redis.socket_timeout,
-            "health_check_interval": cache_redis.health_check_interval,
         },
         "health_check": {
             "enabled": health_check.enabled,
@@ -276,27 +266,12 @@ def get_all_defaults() -> Dict[str, Dict[str, Any]]:
             "log_format": standalone.log_format,
             "enable_debug": standalone.enable_debug,
         },
-        "logging": {
-            "level": logging.level,
-            "enable_debug": logging.enable_debug,
-            "format": logging.format,
-        },
-        "wrapper": {
-            "DEFAULT_MAX_ITEM_SIZE": wrapper.DEFAULT_MAX_ITEM_SIZE,
-            "DEFAULT_COMPRESSION_THRESHOLD": wrapper.DEFAULT_COMPRESSION_THRESHOLD,
-        },
-        "sync": {
-            "debounce_delay": sync.debounce_delay,
-            "min_sync_interval": sync.min_sync_interval,
-        },
-        "transaction": {
-            "timeout": transaction.timeout,
-        },
-        "api": {
-            "enable_cors": api.enable_cors,
-            "cors_origins": api.cors_origins,
-            "rate_limit_enabled": api.rate_limit_enabled,
-            "rate_limit_requests": api.rate_limit_requests,
-            "rate_limit_window": api.rate_limit_window,
-        },
+        # Note: Removed configurations not managed via TOML:
+        # - logging: Controlled by setup_store(debug=...) parameter
+        # - cache: Controlled by setup_store(cache=...) parameter
+        # - wrapper: Uses WrapperConfigDefaults in code
+        # - sync: Hardcoded in unified_sync_manager.py
+        # - transaction: Hardcoded in cache_manager.py
+        # - api: Not actually used
+        # - tool_set: Not actually used
     }

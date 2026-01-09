@@ -22,15 +22,24 @@
       </template>
       
       <div class="test-actions">
-        <el-button @click="testApiConnection" :loading="testing">
+        <el-button
+          :loading="testing"
+          @click="testApiConnection"
+        >
           测试API连接
         </el-button>
-        <el-button @click="testStoreServices" :loading="testing">
+        <el-button
+          :loading="testing"
+          @click="testStoreServices"
+        >
           测试服务列表
         </el-button>
       </div>
       
-      <div v-if="testResult" class="test-result">
+      <div
+        v-if="testResult"
+        class="test-result"
+      >
         <h4>测试结果:</h4>
         <pre>{{ testResult }}</pre>
       </div>
@@ -42,9 +51,15 @@
       </template>
       
       <div class="test-actions">
-        <el-button @click="goToDashboard">跳转到仪表板</el-button>
-        <el-button @click="goToServices">跳转到服务列表</el-button>
-        <el-button @click="goToTools">跳转到工具列表</el-button>
+        <el-button @click="goToDashboard">
+          跳转到仪表板
+        </el-button>
+        <el-button @click="goToServices">
+          跳转到服务列表
+        </el-button>
+        <el-button @click="goToTools">
+          跳转到工具列表
+        </el-button>
       </div>
     </el-card>
   </div>

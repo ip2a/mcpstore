@@ -7,8 +7,9 @@ handling synchronization, collection naming, and value wrapping/unwrapping.
 Extracted from core_registry.py to reduce God Object complexity.
 """
 
+import asyncio
 import logging
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import Any, Dict, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from key_value.aio.protocols import AsyncKeyValue
@@ -19,49 +20,35 @@ logger = logging.getLogger(__name__)
 class KVStorageAdapter:
     """
     Adapter for py-key-value storage operations.
-    
-    Provides:
-    - Sync-to-async conversion for KV operations
-    - Collection name generation strategy
-    - Value wrapping/unwrapping for scalar values
-    - Error handling and logging
+
+    根据MCPStore核心架构原则重构：
+    - 提供同步和异步两个版本的API
+    - 同步方法使用asyncio.run()桥接
+    - 不再使用AsyncSyncHelper
     """
-    
+
     def __init__(self, kv_store: 'AsyncKeyValue'):
         """
         Initialize KV storage adapter.
-        
+
         Args:
             kv_store: AsyncKeyValue instance for data storage
         """
         self._kv_store = kv_store
-        self._sync_helper: Optional[Any] = None  # Lazy initialization
-    
-    def _ensure_sync_helper(self):
-        """Ensure AsyncSyncHelper is initialized (lazy initialization)."""
-        if self._sync_helper is None:
-            from mcpstore.core.utils.async_sync_helper import AsyncSyncHelper
-            self._sync_helper = AsyncSyncHelper()
-            logger.debug("AsyncSyncHelper initialized for KVStorageAdapter")
-        return self._sync_helper
-    
+
     def sync_to_kv(self, coro, operation_name: str = "KV operation"):
         """
         Synchronously execute an async KV store operation.
-        
-        This is a bridge method for synchronous code that must perform KV
-        operations. It uses AsyncSyncHelper to run async operations in a
-        synchronous context.
-        
+
+        根据MCPStore核心架构原则，使用asyncio.run()来桥接同步和异步代码。
+
         Args:
             coro: Coroutine to execute
             operation_name: Description of the operation for logging
-        
         """
         try:
             logger.debug(f"[KV_SYNC] Starting sync: {operation_name}")
-            helper = self._ensure_sync_helper()
-            helper.run_async(coro, timeout=5.0)
+            asyncio.run(coro)
             logger.debug(f"[KV_SYNC] Successfully synced: {operation_name}")
         except Exception as e:
             # Treat KV sync failures as hard errors so they are not hidden
@@ -70,36 +57,49 @@ class KVStorageAdapter:
                 exc_info=True,
             )
             raise
+
+    async def async_to_kv(self, coro, operation_name: str = "KV operation"):
+        """
+        Asynchronously execute an async KV store operation.
+
+        异步版本的KV操作，直接await即可。
+
+        Args:
+            coro: Coroutine to execute
+            operation_name: Description of the operation for logging
+        """
+        try:
+            logger.debug(f"[KV_ASYNC] Starting async: {operation_name}")
+            await coro
+            logger.debug(f"[KV_ASYNC] Successfully completed: {operation_name}")
+        except Exception as e:
+            logger.error(
+                f"[KV_ASYNC] Failed to execute KV operation: {operation_name}. Error: {e}",
+                exc_info=True,
+            )
+            raise
     
     def get_collection(self, agent_id: str, data_type: str) -> str:
         """
-        Generate Collection name for py-key-value storage.
+        生成 Collection 名称（已废弃）。
         
-        This method implements the Collection mapping strategy for organizing data
-        in the KV store with agent_id isolation.
+        此方法使用旧的命名格式，已被新的三层缓存架构替代。
+        不应再使用此方法。
         
         Args:
-            agent_id: Agent identifier (e.g., "global_agent_store", "agent_123")
-            data_type: Type of data being stored (e.g., "tools", "states", "metadata")
+            agent_id: Agent 标识符
+            data_type: 数据类型
         
-        Returns:
-            Collection name in format "agent:{agent_id}:{data_type}"
-        
-        Examples:
-            >>> adapter.get_collection("global_agent_store", "tools")
-            "agent:global_agent_store:tools"
-            
-            >>> adapter.get_collection("agent_123", "states")
-            "agent:agent_123:states"
-        
-        Note:
-            This naming strategy ensures:
-            - Clear agent_id isolation
-            - Logical grouping by data type
-            - Easy querying and debugging
-            - Consistent with py-key-value Collection semantics
+        Raises:
+            NotImplementedError: 此方法已废弃
         """
-        return f"agent:{agent_id}:{data_type}"
+        raise NotImplementedError(
+            "旧的 Collection 命名格式已废弃。请使用新的三层缓存架构：\n"
+            "- 实体层: {namespace}:entity:{entity_type}\n"
+            "- 关系层: {namespace}:relations:{relation_type}\n"
+            "- 状态层: {namespace}:state:{state_type}\n"
+            "请使用 CacheLayerManager 进行缓存操作。"
+        )
     
     def wrap_scalar_value(self, value: Any) -> Dict[str, Any]:
         """

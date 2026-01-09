@@ -2,9 +2,6 @@
 Configuration module
 """
 
-# Direct import of original config module
-from .config import LoggingConfig, load_app_config
-
 # Import cache configuration classes (required)
 from .cache_config import (
     CacheType,
@@ -17,13 +14,13 @@ from .cache_config import (
     create_kv_store,
     create_kv_store_async,
 )
-
+# Direct import of original config module
+from .config import LoggingConfig, load_app_config
 # Import health check functionality
 from .health_check import (
     RedisHealthCheck,
     start_health_check
 )
-
 # Import error handling
 from .redis_errors import (
     RedisConnectionFailure,
@@ -32,7 +29,6 @@ from .redis_errors import (
     handle_redis_connection_error,
     test_redis_connection
 )
-
 # Import TOML configuration management
 from .toml_config import (
     initialize_config_system,

@@ -1,89 +1,232 @@
 <template>
-  <div class="tool-records">
-    <div class="page-header">
-      <div class="header-left">
-        <h2 class="page-title">工具使用记录</h2>
-        <p class="page-description">查看最近的工具调用记录，支持按工具和服务筛选</p>
+  <div class="tool-records-container">
+    <!-- Header -->
+    <header class="page-header">
+      <div class="header-content">
+        <h1 class="page-title">
+          Activity Log
+        </h1>
+        <p class="page-subtitle">
+          History of all tool executions and outcomes
+        </p>
       </div>
-      <div class="header-right">
-        <el-input v-model="filters.toolName" placeholder="按工具名称筛选" clearable class="w-220" @change="reload" />
-        <el-input v-model="filters.serviceName" placeholder="按服务名称筛选" clearable class="w-220" @change="reload" />
-        <el-button type="primary" :loading="loading" @click="reload">
-          <el-icon><Refresh /></el-icon>
-          刷新
-        </el-button>
-      </div>
-    </div>
-
-    <el-card shadow="never">
-      <el-table :data="records" stripe style="width: 100%" :loading="loading">
-        <el-table-column type="index" label="#" width="60" />
-        <el-table-column label="时间" width="180">
-          <template #default="{ row }">
-            <div class="time-col">
-              <div>{{ formatDateTime(normalizeTs(row.timestamp || row.created_at)) }}</div>
-              <div class="sub">{{ formatRelativeTime(normalizeTs(row.timestamp || row.created_at)) }}</div>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column prop="tool_name" label="工具" width="220" />
-        <el-table-column prop="service_name" label="服务" width="200" />
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag :type="row.error ? 'danger' : 'success'" size="small">
-              {{ row.error ? '失败' : '成功' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="耗时(ms)" width="110" align="right">
-          <template #default="{ row }">{{ row.elapsed_ms ?? row.duration_ms ?? row.response_time ?? '-' }}</template>
-        </el-table-column>
-        <el-table-column label="请求参数" min-width="260">
-          <template #default="{ row }">
-            <el-tooltip :content="formatJSON(row.params || row.args || row.arguments)" placement="top" :show-after="400">
-              <span class="mono">{{ truncateText(formatJSON(row.params || row.args || row.arguments), 80) }}</span>
-            </el-tooltip>
-          </template>
-        </el-table-column>
-        <el-table-column label="响应摘要" min-width="260">
-          <template #default="{ row }">
-            <el-tooltip :content="formatJSON(row.result || row.response)" placement="top" :show-after="400">
-              <span class="mono">{{ truncateText(formatJSON(row.result || row.response), 80) }}</span>
-            </el-tooltip>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <div class="table-footer">
-        <el-pagination
-          background
-          layout="total, sizes, prev, pager, next, jumper"
-          :total="total"
-          v-model:page-size="pageSize"
-          v-model:current-page="page"
-          :page-sizes="[10, 20, 50, 100]"
-          @current-change="reload"
-          @size-change="handleSizeChange"
+      <div class="header-actions">
+        <el-button 
+          :icon="Refresh" 
+          :loading="loading" 
+          circle 
+          plain 
+          class="refresh-btn"
+          @click="reload" 
         />
       </div>
-    </el-card>
+    </header>
+
+    <!-- Main Content -->
+    <section class="panel-section">
+      <!-- Filters -->
+      <div class="panel-header">
+        <h3 class="panel-title">
+          Records
+        </h3>
+        <div class="panel-controls">
+          <div class="search-wrapper">
+            <el-icon class="search-icon">
+              <Search />
+            </el-icon>
+            <input
+              v-model="filters.toolName"
+              class="atom-input small"
+              placeholder="Filter by tool..."
+              @change="reload"
+            >
+          </div>
+          <div class="search-wrapper">
+            <el-icon class="search-icon">
+              <Connection />
+            </el-icon>
+            <input
+              v-model="filters.serviceName"
+              class="atom-input small"
+              placeholder="Filter by service..."
+              @change="reload"
+            >
+          </div>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="panel-body table-container">
+        <el-table
+          v-loading="loading"
+          :data="records"
+          class="atom-table"
+          size="small"
+        >
+          <el-table-column
+            label="TIME"
+            width="160"
+          >
+            <template #default="{ row }">
+              <div class="time-cell">
+                <span class="main-time">{{ formatTime(row.timestamp || row.created_at) }}</span>
+                <span class="rel-time">{{ formatRelative(row.timestamp || row.created_at) }}</span>
+              </div>
+            </template>
+          </el-table-column>
+
+          <el-table-column
+            label="TOOL / SERVICE"
+            min-width="240"
+          >
+            <template #default="{ row }">
+              <div class="identity-cell">
+                <span class="tool-name">{{ row.tool_name }}</span>
+                <span class="service-name">{{ row.service_name }}</span>
+              </div>
+            </template>
+          </el-table-column>
+
+          <el-table-column
+            label="DURATION"
+            width="100"
+            align="right"
+          >
+            <template #default="{ row }">
+              <span class="mono-text">{{ formatDuration(row) }}</span>
+            </template>
+          </el-table-column>
+
+          <el-table-column
+            label="STATUS"
+            width="100"
+            align="center"
+          >
+            <template #default="{ row }">
+              <span :class="['status-badge', row.error ? 'error' : 'success']">
+                {{ row.error ? 'FAIL' : 'OK' }}
+              </span>
+            </template>
+          </el-table-column>
+
+          <el-table-column
+            label="PAYLOAD"
+            min-width="200"
+          >
+            <template #default="{ row }">
+              <span
+                class="truncate-code"
+                :title="formatJSON(row.params || row.args)"
+              >
+                {{ formatJSON(row.params || row.args) }}
+              </span>
+            </template>
+          </el-table-column>
+
+          <el-table-column
+            label=""
+            width="80"
+            align="right"
+          >
+            <template #default="{ row }">
+              <button
+                class="text-btn"
+                @click="viewDetails(row)"
+              >
+                View
+              </button>
+            </template>
+          </el-table-column>
+          
+          <template #empty>
+            <div class="empty-state">
+              No records found.
+            </div>
+          </template>
+        </el-table>
+        
+        <!-- Pagination -->
+        <div class="pagination-bar">
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="pageSize"
+            :total="total"
+            layout="prev, pager, next"
+            small
+            background
+            @current-change="reload"
+          />
+        </div>
+      </div>
+    </section>
+
+    <!-- Detail Dialog -->
+    <el-dialog
+      v-model="detailsVisible"
+      title="Execution Details"
+      width="600px"
+      class="atom-dialog"
+    >
+      <div
+        v-if="selectedRecord"
+        class="detail-content"
+      >
+        <div class="detail-header">
+          <div class="dh-item">
+            <label>Tool</label>
+            <span>{{ selectedRecord.tool_name }}</span>
+          </div>
+          <div class="dh-item">
+            <label>Service</label>
+            <span>{{ selectedRecord.service_name }}</span>
+          </div>
+          <div class="dh-item right">
+            <span :class="['status-badge', selectedRecord.error ? 'error' : 'success']">
+              {{ selectedRecord.error ? 'FAILURE' : 'SUCCESS' }}
+            </span>
+          </div>
+        </div>
+          
+        <div class="detail-section">
+          <label>Parameters</label>
+          <pre class="code-block">{{ formatJSON(selectedRecord.params || selectedRecord.args, true) }}</pre>
+        </div>
+          
+        <div class="detail-section">
+          <label>Result / Error</label>
+          <pre class="code-block">{{ formatJSON(selectedRecord.result || selectedRecord.response || selectedRecord.error, true) }}</pre>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="detailsVisible = false">
+          Close
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 import { api } from '@/api'
-import { formatDateTime, formatRelativeTime, formatJSON, truncateText } from '@/utils/format'
-import { Refresh } from '@element-plus/icons-vue'
+import dayjs from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
+import { Refresh, Search, Connection } from '@element-plus/icons-vue'
 
+dayjs.extend(relativeTime)
+
+// State
 const records = ref([])
 const loading = ref(false)
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
-
 const filters = ref({ toolName: '', serviceName: '' })
 
+const detailsVisible = ref(false)
+const selectedRecord = ref(null)
+
+// Methods
 const reload = async () => {
   loading.value = true
   try {
@@ -94,10 +237,9 @@ const reload = async () => {
       page_size: pageSize.value
     }
     const data = await api.store.getToolRecordsPaged(params)
-    // 兼容返回结构：{ executions: [], summary: {...}, pagination: {...} } 或 { list: [], total: N }
     const list = data?.executions || data?.list || []
     const totalCount = data?.pagination?.total || data?.total || list.length
-
+    
     records.value = list
     total.value = totalCount
   } finally {
@@ -105,45 +247,281 @@ const reload = async () => {
   }
 }
 
-const handleSizeChange = () => {
-  page.value = 1
-  reload()
+const viewDetails = (row) => {
+  selectedRecord.value = row
+  detailsVisible.value = true
+}
+
+// Formatters
+const normalizeTs = (ts) => {
+  if (!ts) return null
+  const n = Number(ts)
+  return (!isNaN(n) && n < 1e12) ? n * 1000 : (isNaN(n) ? ts : n)
+}
+
+const formatTime = (ts) => {
+  const t = normalizeTs(ts)
+  return t ? dayjs(t).format('HH:mm:ss') : '-'
+}
+
+const formatRelative = (ts) => {
+  const t = normalizeTs(ts)
+  return t ? dayjs(t).fromNow() : ''
+}
+
+const formatDuration = (row) => {
+  const ms = row.elapsed_ms ?? row.duration_ms ?? row.response_time
+  return ms ? `${ms}ms` : '-'
+}
+
+const formatJSON = (val, pretty = false) => {
+  if (!val) return ''
+  try {
+    const obj = typeof val === 'string' ? JSON.parse(val) : val
+    return JSON.stringify(obj, null, pretty ? 2 : 0)
+  } catch {
+    return String(val)
+  }
 }
 
 onMounted(() => reload())
-
-// 工具方法：将秒级/字符串时间戳规范化为毫秒数
-const normalizeTs = (ts) => {
-  if (!ts) return ''
-  if (typeof ts === 'number') return ts < 1e12 ? ts * 1000 : ts
-  const n = Number(ts)
-  if (!isNaN(n)) return n < 1e12 ? n * 1000 : n
-  return ts
-}
 </script>
 
-<style scoped lang="scss">
-.tool-records {
-  width: 92%;
+<style lang="scss" scoped>
+.tool-records-container {
+  max-width: 1200px;
   margin: 0 auto;
-  max-width: none;
-  .page-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
+  padding: 20px;
+  width: 100%;
+}
 
-    .page-title { margin: 0 0 4px; font-size: 22px; font-weight: 600; }
-    .page-description { margin: 0; color: var(--el-text-color-secondary); }
+// Header
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+}
 
-    .header-right { display: flex; gap: 12px; }
-    .w-220 { width: 220px; }
+.page-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.page-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.refresh-btn {
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+  &:hover { color: var(--text-primary); border-color: var(--text-secondary); background: transparent; }
+}
+
+// Panel
+.panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  
+  .panel-title {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    letter-spacing: 0.05em;
+  }
+}
+
+.panel-controls {
+  display: flex;
+  gap: 12px;
+}
+
+// Search Input
+.search-wrapper {
+  position: relative;
+  .search-icon {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-placeholder);
+    font-size: 12px;
+  }
+  .atom-input {
+    border: 1px solid var(--border-color);
+    background: var(--bg-surface);
+    padding: 4px 8px 4px 24px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text-primary);
+    width: 160px;
+    
+    &:focus { outline: none; border-color: var(--text-secondary); }
+  }
+}
+
+// Table
+.table-container {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  min-height: 400px;
+  display: flex;
+  flex-direction: column;
+}
+
+:deep(.atom-table) {
+  flex: 1;
+  --el-table-border-color: var(--border-color);
+  --el-table-header-bg-color: transparent;
+  --el-table-row-hover-bg-color: var(--bg-hover);
+  background: transparent;
+
+  th.el-table__cell {
+    background: transparent !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.05em;
+    padding: 8px 12px;
+    text-transform: uppercase;
   }
 
-  .time-col { .sub { color: var(--el-text-color-secondary); font-size: 12px; } }
-  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+  td.el-table__cell {
+    border-bottom: 1px solid var(--border-color) !important;
+    padding: 8px 12px;
+  }
+  
+  .el-table__inner-wrapper::before { display: none; }
+}
 
-  .table-footer { display: flex; justify-content: flex-end; padding: 12px 0; }
+// Cells
+.time-cell {
+  display: flex;
+  flex-direction: column;
+  .main-time { font-size: 13px; color: var(--text-primary); font-family: var(--font-mono); }
+  .rel-time { font-size: 11px; color: var(--text-placeholder); }
+}
+
+.identity-cell {
+  display: flex;
+  flex-direction: column;
+  .tool-name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+  .service-name { font-size: 11px; color: var(--text-secondary); }
+}
+
+.mono-text {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.status-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  
+  &.success { background: #dcfce7; color: #166534; }
+  &.error { background: #fee2e2; color: #991b1b; }
+}
+
+.truncate-code {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.text-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 0;
+  &:hover { color: var(--text-primary); text-decoration: underline; }
+}
+
+.empty-state {
+  padding: 40px;
+  text-align: center;
+  color: var(--text-placeholder);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.pagination-bar {
+  padding: 8px;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  justify-content: flex-end;
+}
+
+// Dialog
+.detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.detail-header {
+  display: flex;
+  gap: 24px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+  
+  .dh-item {
+    display: flex;
+    flex-direction: column;
+    label { font-size: 10px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 2px; }
+    span { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+    
+    &.right { margin-left: auto; align-items: flex-end; justify-content: center; }
+  }
+}
+
+.detail-section {
+  label {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+}
+
+.code-block {
+  background: var(--bg-body);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 12px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: auto;
+  max-height: 200px;
+  color: var(--text-primary);
 }
 </style>
-

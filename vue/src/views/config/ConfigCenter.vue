@@ -1,281 +1,259 @@
 <template>
-  <div class="config-center">
-    <!-- Page Header -->
-    <div class="page-header">
+  <div class="config-center-container">
+    <!-- Header -->
+    <header class="page-header">
       <div class="header-content">
-        <div class="header-title">
-          <h1>配置中心</h1>
-          <p class="subtitle">管理和编辑系统配置文件</p>
+        <h1 class="page-title">
+          Configuration
+        </h1>
+        <p class="page-subtitle">
+          Manage system and service configurations (mcp.json)
+        </p>
+      </div>
+      <div class="header-actions">
+        <el-button 
+          :icon="Upload" 
+          type="primary" 
+          color="#000"
+          class="import-btn"
+          @click="showImportDialog"
+        >
+          Import
+        </el-button>
+      </div>
+    </header>
+
+    <!-- Main Layout -->
+    <div class="main-layout">
+      <!-- Left: File Browser & Stats -->
+      <div class="panel-column left-col">
+        <!-- File List -->
+        <section class="panel-section">
+          <div class="panel-header">
+            <h3 class="panel-title">
+              Files
+            </h3>
+            <div class="panel-controls">
+              <div class="search-wrapper">
+                <el-icon class="search-icon">
+                  <Search />
+                </el-icon>
+                <input
+                  v-model="searchQuery"
+                  class="atom-input small"
+                  placeholder="Search..."
+                >
+              </div>
+            </div>
+          </div>
+          <div class="panel-body files-list">
+            <div 
+              v-for="file in filteredConfigFiles" 
+              :key="file.name"
+              class="file-item" 
+              :class="{ active: selectedFile?.name === file.name }"
+              @click="selectFile(file)"
+            >
+              <el-icon class="file-icon">
+                <Document />
+              </el-icon>
+              <div class="file-info">
+                <span class="name">{{ file.name }}</span>
+                <span class="meta">{{ file.type.toUpperCase() }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="panel-footer">
+            <span>{{ configFiles.length }} files</span>
+          </div>
+        </section>
+         
+        <!-- Stats -->
+        <section
+          v-if="isMcpJson && hasServices"
+          class="panel-section"
+        >
+          <div class="panel-header">
+            <h3 class="panel-title">
+              Stats
+            </h3>
+          </div>
+          <div class="panel-body stats-card">
+            <div class="stat-row">
+              <span class="label">Total Services</span>
+              <span class="value">{{ serviceCount }}</span>
+            </div>
+            <div class="divider" />
+            <div class="service-tags">
+              <span
+                v-for="svc in servicesList.slice(0, 10)"
+                :key="svc.name"
+                class="tag"
+              >
+                {{ svc.name }}
+              </span>
+              <span
+                v-if="servicesList.length > 10"
+                class="tag more"
+              >+{{ servicesList.length - 10 }}</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Right: Editor -->
+      <div class="panel-column right-col">
+        <div
+          v-if="selectedFile"
+          class="editor-panel"
+        >
+          <div class="editor-toolbar">
+            <div class="file-status">
+              <span class="filename">{{ selectedFile.name }}</span>
+              <span
+                v-if="isModified"
+                class="status-badge modified"
+              >MODIFIED</span>
+              <span
+                v-if="hasErrors"
+                class="status-badge error"
+              >SYNTAX ERROR</span>
+            </div>
+               
+            <div class="editor-actions">
+              <template v-if="isMcpJson">
+                <button
+                  class="text-btn"
+                  :disabled="!hasServices"
+                  @click="showServicePreviewDialog"
+                >
+                  Preview
+                </button>
+                <button
+                  class="text-btn danger"
+                  @click="clearConfig"
+                >
+                  Clear
+                </button>
+                <button
+                  class="text-btn"
+                  @click="resetConfig"
+                >
+                  Reset
+                </button>
+              </template>
+              <button
+                class="text-btn"
+                @click="exportConfig"
+              >
+                Export
+              </button>
+              <button
+                class="text-btn primary"
+                :disabled="hasErrors || !isModified"
+                @click="saveConfig"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+            
+          <div class="editor-area">
+            <textarea 
+              v-model="configText"
+              class="code-editor" 
+              spellcheck="false"
+              @input="onConfigChange"
+            />
+          </div>
         </div>
-        <div class="header-actions">
-          <el-button
-            type="success"
-            :icon="Upload"
-            @click="showImportDialog"
-          >
-            导入配置
-          </el-button>
+         
+        <div
+          v-else
+          class="empty-state"
+        >
+          <el-icon class="icon">
+            <Document />
+          </el-icon>
+          <p>Select a configuration file to edit.</p>
         </div>
       </div>
     </div>
 
-    <!-- Main Content -->
-    <el-row :gutter="20">
-      <!-- Left Side: File List + Service Preview -->
-      <el-col :span="8">
-        <!-- Config Files List -->
-        <el-card class="files-card">
-          <template #header>
-            <div class="card-header">
-              <span>配置文件</span>
-              <el-input
-                v-model="searchQuery"
-                placeholder="搜索配置..."
-                size="small"
-                :prefix-icon="Search"
-                clearable
-              />
-            </div>
-          </template>
-          
-          <div class="files-list">
-            <div
-              v-for="file in filteredConfigFiles"
-              :key="file.name"
-              class="file-item"
-              :class="{ active: selectedFile?.name === file.name }"
-              @click="selectFile(file)"
-            >
-              <div class="file-info">
-                <div class="file-icon">
-                  <el-icon><Document /></el-icon>
-                </div>
-                <div class="file-details">
-                  <div class="file-name">{{ file.name }}</div>
-                  <el-tag size="small" :type="file.type === 'json' ? 'primary' : 'info'">
-                    {{ file.type.toUpperCase() }}
-                  </el-tag>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <template #footer>
-            <div class="files-footer">
-              <span>共 {{ configFiles.length }} 个配置文件</span>
-            </div>
-          </template>
-        </el-card>
-
-        <!-- Service Preview (Only for mcp.json) - Simple Summary -->
-        <el-card v-if="isMcpJson" class="services-card">
-          <template #header>
-            <div class="card-header-row">
-              <span>
-                <el-icon><List /></el-icon>
-                服务统计
-              </span>
-            </div>
-          </template>
-          
-          <div class="service-stats">
-            <el-statistic title="服务总数" :value="serviceCount">
-              <template #suffix>个</template>
-            </el-statistic>
-            
-            <el-divider />
-            
-            <div v-if="hasServices" class="service-names">
-              <div class="stat-label">服务列表：</div>
-              <el-tag 
-                v-for="service in servicesList" 
-                :key="service.name"
-                size="small"
-                class="service-tag"
-              >
-                {{ service.name }}
-              </el-tag>
-            </div>
-            
-            <el-empty v-else description="暂无服务配置" :image-size="60" />
-          </div>
-        </el-card>
-      </el-col>
-
-      <!-- Right Side: Editor -->
-      <el-col :span="16">
-        <el-card v-if="selectedFile" class="editor-card">
-          <template #header>
-            <div class="editor-header">
-              <div class="file-info">
-                <h3>{{ selectedFile.name }}</h3>
-                <el-tag v-if="isModified" type="warning" size="small">已修改</el-tag>
-                <el-tag v-if="hasErrors" type="danger" size="small">语法错误</el-tag>
-                <el-tag v-if="!hasErrors && configText" type="success" size="small">语法正确</el-tag>
-              </div>
-              <div class="editor-actions">
-                <!-- MCP JSON specific buttons -->
-                <template v-if="isMcpJson">
-                  <el-button
-                    size="small"
-                    :icon="View"
-                    @click="showServicePreviewDialog"
-                    :disabled="!hasServices"
-                  >
-                    服务预览
-                  </el-button>
-                  <el-button
-                    size="small"
-                    type="danger"
-                    :icon="Delete"
-                    @click="clearConfig"
-                    plain
-                  >
-                    清空
-                  </el-button>
-                  <el-button
-                    size="small"
-                    type="warning"
-                    :icon="RefreshLeft"
-                    @click="resetConfig"
-                    plain
-                  >
-                    重置
-                  </el-button>
-                </template>
-                
-                <!-- Common buttons -->
-                <el-button
-                  size="small"
-                  :icon="Download"
-                  @click="exportConfig"
-                >
-                  导出
-                </el-button>
-                <el-button
-                  size="small"
-                  type="success"
-                  :icon="Check"
-                  @click="saveConfig"
-                  :loading="saving"
-                  :disabled="hasErrors || !isModified"
-                >
-                  提交
-                </el-button>
-              </div>
-            </div>
-          </template>
-
-          <!-- JSON Editor -->
-          <div class="editor-container">
-            <el-input
-              v-model="configText"
-              type="textarea"
-              :rows="25"
-              placeholder="请输入 JSON 配置..."
-              @input="onConfigChange"
-              class="json-editor"
-            />
-          </div>
-        </el-card>
-
-        <!-- Empty State -->
-        <el-card v-else class="empty-card">
-          <el-empty description="请从左侧选择一个配置文件" />
-        </el-card>
-      </el-col>
-    </el-row>
-
     <!-- Import Dialog -->
     <el-dialog
       v-model="importDialogVisible"
-      title="导入配置"
-      width="500px"
+      title="Import Configuration"
+      width="400px"
+      class="atom-dialog"
     >
-      <el-form label-width="100px">
-        <el-form-item label="配置类型">
-          <el-select v-model="importType" placeholder="选择配置类型">
-            <el-option label="MCP JSON 配置" value="mcpjson" />
-          </el-select>
-        </el-form-item>
-        
-        <el-form-item label="选择文件">
-          <el-upload
-            ref="uploadRef"
-            :auto-upload="false"
-            :limit="1"
+      <div class="dialog-content">
+        <p class="dialog-desc">
+          Importing will overwrite your current configuration. Only valid JSON files are accepted.
+        </p>
+        <div class="upload-area">
+          <input
+            ref="fileInput"
+            type="file"
             accept=".json"
-            :on-change="handleFileChange"
-            :file-list="fileList"
+            @change="handleFileChange"
           >
-            <el-button :icon="Upload">选择 JSON 文件</el-button>
-          </el-upload>
-        </el-form-item>
-
-        <el-alert
-          title="注意：导入将覆盖当前配置"
-          type="warning"
-          :closable="false"
-          show-icon
-        />
-      </el-form>
-
+        </div>
+      </div>
       <template #footer>
-        <el-button @click="importDialogVisible = false">取消</el-button>
-        <el-button
-          type="primary"
-          @click="confirmImport"
-          :disabled="!selectedImportFile"
-        >
-          确认导入
-        </el-button>
+        <div class="dialog-footer">
+          <el-button @click="importDialogVisible = false">
+            Cancel
+          </el-button>
+          <el-button
+            type="primary"
+            color="#000"
+            :disabled="!selectedImportFile"
+            @click="confirmImport"
+          >
+            Import
+          </el-button>
+        </div>
       </template>
     </el-dialog>
 
-    <!-- Service Preview Dialog - Simplified -->
+    <!-- Preview Dialog -->
     <el-dialog
       v-model="previewDialogVisible"
-      title="服务预览详情"
-      width="700px"
+      title="Services Preview"
+      width="600px"
+      class="atom-dialog"
     >
-      <el-descriptions :column="2" border>
-        <el-descriptions-item label="服务总数">
-          {{ serviceCount }} 个
-        </el-descriptions-item>
-      </el-descriptions>
-      
-      <el-divider content-position="left">服务列表</el-divider>
-      
-      <div v-if="hasServices" class="preview-services">
-        <el-card 
-          v-for="(service, idx) in servicesList" 
-          :key="service.name"
-          class="preview-service-card"
-          shadow="hover"
+      <div class="preview-list">
+        <div
+          v-for="(svc, idx) in servicesList"
+          :key="idx"
+          class="preview-item"
         >
-          <div class="preview-header">
-            <span class="preview-index">{{ idx + 1 }}.</span>
-            <span class="preview-name">{{ service.name }}</span>
+          <div class="item-header">
+            <span class="idx">{{ idx + 1 }}.</span>
+            <span class="name">{{ svc.name }}</span>
           </div>
-          <div v-if="service.url" class="preview-detail">
-            <span class="label">URL:</span>
-            <span class="value">{{ service.url }}</span>
+          <div class="item-details">
+            <div
+              v-if="svc.url"
+              class="detail"
+            >
+              <span class="lbl">URL:</span> {{ svc.url }}
+            </div>
+            <div
+              v-if="svc.command"
+              class="detail"
+            >
+              <span class="lbl">CMD:</span> {{ svc.command }} {{ (svc.args||[]).join(' ') }}
+            </div>
           </div>
-          <div v-if="service.command" class="preview-detail">
-            <span class="label">命令:</span>
-            <span class="value">{{ service.command }}</span>
-          </div>
-          <div v-if="service.args && service.args.length" class="preview-detail">
-            <span class="label">参数:</span>
-            <span class="value">{{ service.args.join(' ') }}</span>
-          </div>
-        </el-card>
+        </div>
       </div>
-      
-      <el-empty v-else description="暂无服务" />
-
       <template #footer>
-        <el-button @click="previewDialogVisible = false">关闭</el-button>
+        <el-button @click="previewDialogVisible = false">
+          Close
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -285,10 +263,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '@/api'
-import {
-  Document, Search, Upload, List, View, Delete, RefreshLeft,
-  Download, Check
-} from '@element-plus/icons-vue'
+import { Document, Search, Upload } from '@element-plus/icons-vue'
 
 // State
 const searchQuery = ref('')
@@ -298,54 +273,30 @@ const originalConfigText = ref('')
 const isModified = ref(false)
 const hasErrors = ref(false)
 const saving = ref(false)
-const resetting = ref(false)
 
-// Import dialog
+// Dialogs
 const importDialogVisible = ref(false)
-const importType = ref('mcpjson')
 const selectedImportFile = ref(null)
-const fileList = ref([])
-const uploadRef = ref(null)
-
-// Service preview dialog
 const previewDialogVisible = ref(false)
+const fileInput = ref(null)
 
-// Config files list
-const configFiles = ref([
-  { name: 'mcp.json', type: 'json', path: '/config/mcp.json' },
-  // Add more config files here if needed
-])
+const configFiles = ref([{ name: 'mcp.json', type: 'json', path: '/config/mcp.json' }])
 
 // Computed
 const filteredConfigFiles = computed(() => {
   if (!searchQuery.value) return configFiles.value
-  const query = searchQuery.value.toLowerCase()
-  return configFiles.value.filter(file =>
-    file.name.toLowerCase().includes(query)
-  )
+  return configFiles.value.filter(f => f.name.toLowerCase().includes(searchQuery.value.toLowerCase()))
 })
 
-const isMcpJson = computed(() => {
-  return selectedFile.value?.name === 'mcp.json'
-})
+const isMcpJson = computed(() => selectedFile.value?.name === 'mcp.json')
 
-// Parse mcp.json config
 const parsedConfig = computed(() => {
-  if (!isMcpJson.value) return null
-  try {
-    return JSON.parse(configText.value)
-  } catch {
-    return null
-  }
+  try { return JSON.parse(configText.value) } catch { return null }
 })
 
 const servicesList = computed(() => {
   if (!parsedConfig.value?.mcpServers) return []
-  const servers = parsedConfig.value.mcpServers
-  return Object.keys(servers).map(name => ({
-    name,
-    ...servers[name]
-  }))
+  return Object.entries(parsedConfig.value.mcpServers).map(([k, v]) => ({ name: k, ...v }))
 })
 
 const serviceCount = computed(() => servicesList.value.length)
@@ -354,29 +305,19 @@ const hasServices = computed(() => serviceCount.value > 0)
 // Methods
 const selectFile = async (file) => {
   selectedFile.value = file
-  
-  if (file.name === 'mcp.json') {
-    await loadMcpJson()
-  } else {
-    // Load other config files if needed
-    configText.value = ''
-    originalConfigText.value = ''
-  }
+  if (file.name === 'mcp.json') await loadMcpJson()
+  else { configText.value = ''; originalConfigText.value = '' }
 }
 
 const loadMcpJson = async () => {
   try {
-    // getMcpJson() 已经通过 extractResponseData 提取了 data 字段
     const data = await api.store.getMcpJson()
-    // data 就是 { mcpServers: {...} } 对象
-    configText.value = typeof data === 'string' 
-      ? data 
-      : JSON.stringify(data, null, 2)
+    configText.value = typeof data === 'string' ? data : JSON.stringify(data, null, 2)
     originalConfigText.value = configText.value
     isModified.value = false
     validateJson()
-  } catch (error) {
-    ElMessage.error('加载配置失败: ' + error.message)
+  } catch (e) {
+    ElMessage.error('Failed to load config')
   }
 }
 
@@ -387,385 +328,388 @@ const onConfigChange = () => {
 
 const validateJson = () => {
   try {
-    if (configText.value.trim()) {
-      JSON.parse(configText.value)
-      hasErrors.value = false
-    }
-  } catch {
-    hasErrors.value = true
-  }
+    if (configText.value.trim()) { JSON.parse(configText.value); hasErrors.value = false }
+  } catch { hasErrors.value = true }
 }
 
 const saveConfig = async () => {
-  if (hasErrors.value) {
-    ElMessage.error('请先修复 JSON 语法错误')
-    return
-  }
-
-  if (!isModified.value) {
-    ElMessage.info('配置未修改')
-    return
-  }
-
+  if (hasErrors.value) return ElMessage.error('Fix syntax errors first')
   try {
-    await ElMessageBox.confirm(
-      '确定要提交配置吗？提交后会更新 mcp.json 文件并重新加载服务。',
-      '确认提交',
-      {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
-
+    await ElMessageBox.confirm('Save changes? This will reload services.', 'Confirm')
     saving.value = true
-    
-    if (isMcpJson.value) {
-      const config = JSON.parse(configText.value)
-      await api.store.resetMcpJson(config)
-      ElMessage.success('配置已提交，服务将自动重新加载')
-      originalConfigText.value = configText.value
-      isModified.value = false
-    }
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error('提交失败: ' + error.message)
-    }
+    const config = JSON.parse(configText.value)
+    await api.store.resetMcpJson(config)
+    ElMessage.success('Saved')
+    originalConfigText.value = configText.value
+    isModified.value = false
+  } catch (e) {
+     if(e !== 'cancel') ElMessage.error('Save failed')
   } finally {
-    saving.value = false
+     saving.value = false
   }
 }
 
 const clearConfig = async () => {
   try {
-    await ElMessageBox.confirm('确定要清空所有配置吗？', '确认清空', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-    
+    await ElMessageBox.confirm('Clear configuration?', 'Warning', { type: 'warning' })
     configText.value = JSON.stringify({ mcpServers: {} }, null, 2)
     isModified.value = true
-    ElMessage.success('配置已清空（未保存）')
-  } catch {
-    // User cancelled
-  }
+  } catch (e) { /* cancelled */ }
 }
 
 const resetConfig = async () => {
   try {
-    await ElMessageBox.confirm(
-      '确定要重置配置吗？这将从服务器重新加载原始配置，本地未提交的修改将丢失。',
-      '确认重置',
-      {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
-    
-    resetting.value = true
-    
-    // TODO: 后续添加专门的重置接口
-    // 目前使用重新加载来实现重置
+    await ElMessageBox.confirm('Discard changes and reload?', 'Warning', { type: 'warning' })
     await loadMcpJson()
-    ElMessage.success('配置已重置')
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error('重置失败: ' + error.message)
-    }
-  } finally {
-    resetting.value = false
-  }
+    ElMessage.success('Reset')
+  } catch (e) { /* cancelled */ }
 }
 
 const exportConfig = () => {
-  if (!configText.value) {
-    ElMessage.warning('没有可导出的内容')
-    return
-  }
-
   const blob = new Blob([configText.value], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = selectedFile.value?.name || 'config.json'
-  link.click()
-  URL.revokeObjectURL(url)
-  ElMessage.success('配置已导出')
+  const a = document.createElement('a')
+  a.href = url
+  a.download = selectedFile.value?.name || 'config.json'
+  a.click()
 }
 
 const showImportDialog = () => {
   importDialogVisible.value = true
   selectedImportFile.value = null
-  fileList.value = []
+  if(fileInput.value) fileInput.value.value = ''
 }
 
-const handleFileChange = (file) => {
-  selectedImportFile.value = file
-  fileList.value = [file]
+const handleFileChange = (e) => {
+  selectedImportFile.value = e.target.files[0]
 }
 
-const confirmImport = async () => {
+const confirmImport = () => {
   if (!selectedImportFile.value) return
-
-  try {
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      try {
-        const content = e.target.result
-        JSON.parse(content) // Validate JSON
-        configText.value = content
-        isModified.value = true
-        importDialogVisible.value = false
-        ElMessage.success('配置已导入（未保存）')
-        
-        // Select mcp.json
-        const mcpFile = configFiles.value.find(f => f.name === 'mcp.json')
-        if (mcpFile) {
-          selectedFile.value = mcpFile
-        }
-      } catch (error) {
-        ElMessage.error('JSON 格式错误: ' + error.message)
-      }
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    try {
+      JSON.parse(e.target.result)
+      configText.value = e.target.result
+      isModified.value = true
+      importDialogVisible.value = false
+      ElMessage.success('Imported')
+      if(!selectedFile.value) selectFile(configFiles.value[0])
+    } catch {
+      ElMessage.error('Invalid JSON')
     }
-    reader.readAsText(selectedImportFile.value.raw)
-  } catch (error) {
-    ElMessage.error('导入失败: ' + error.message)
   }
+  reader.readAsText(selectedImportFile.value)
 }
 
-const showServicePreviewDialog = () => {
-  previewDialogVisible.value = true
-}
+const showServicePreviewDialog = () => previewDialogVisible.value = true
 
-// Lifecycle
 onMounted(() => {
-  // Auto select mcp.json
-  const mcpFile = configFiles.value.find(f => f.name === 'mcp.json')
-  if (mcpFile) {
-    selectFile(mcpFile)
-  }
+  if(configFiles.value.length) selectFile(configFiles.value[0])
 })
 </script>
 
-<style scoped>
-.config-center {
-  width: 92%;
+<style lang="scss" scoped>
+.config-center-container {
+  max-width: 1400px;
   margin: 0 auto;
-  max-width: none;
   padding: 20px;
+  width: 100%;
 }
 
+// Header
 .page-header {
-  margin-bottom: 20px;
-}
-
-.header-content {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-end;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
 }
 
-.header-title h1 {
-  margin: 0 0 4px 0;
-  font-size: 24px;
+.page-title {
+  font-size: 20px;
   font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
 }
 
-.subtitle {
-  margin: 0;
-  color: var(--el-text-color-secondary);
-  font-size: 14px;
+.page-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
-.header-actions {
+.import-btn {
+  font-weight: 500;
+  border-radius: 6px;
+}
+
+// Main Layout
+.main-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 24px;
+  height: calc(100vh - 200px);
+  min-height: 500px;
+  
+  @media (max-width: 768px) {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+}
+
+.panel-column {
   display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.panel-section {
+  display: flex;
+  flex-direction: column;
   gap: 12px;
 }
 
-/* Files Card */
-.files-card {
-  margin-bottom: 20px;
-}
-
-.card-header {
+.panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  
+  .panel-title {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+  }
 }
 
+.panel-body {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.panel-footer {
+  font-size: 11px;
+  color: var(--text-placeholder);
+  text-align: center;
+  margin-top: 8px;
+}
+
+// Files List
 .files-list {
-  max-height: 300px;
-  overflow-y: auto;
+  padding: 8px;
 }
 
 .file-item {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 12px;
+  gap: 12px;
+  padding: 10px 12px;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
-  margin-bottom: 8px;
+  
+  &:hover { background: var(--bg-hover); }
+  &.active { background: var(--bg-hover); border: 1px solid var(--border-color); }
+  
+  .file-icon { font-size: 18px; color: var(--text-secondary); }
+  
+  .file-info {
+    display: flex;
+    flex-direction: column;
+    
+    .name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+    .meta { font-size: 10px; color: var(--text-placeholder); }
+  }
 }
 
-.file-item:hover {
-  background: var(--el-fill-color-light);
+// Search
+.search-wrapper {
+  position: relative;
+  .search-icon {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-placeholder);
+    font-size: 12px;
+  }
+  .atom-input {
+    border: 1px solid var(--border-color);
+    background: var(--bg-body);
+    padding: 4px 8px 4px 24px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text-primary);
+    width: 140px;
+    
+    &:focus { outline: none; border-color: var(--text-secondary); }
+  }
 }
 
-.file-item.active {
-  background: var(--el-color-primary-light-9);
-  border: 1px solid var(--el-color-primary);
+// Stats
+.stats-card {
+  padding: 16px;
+  
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    
+    .label { font-size: 12px; color: var(--text-secondary); }
+    .value { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+  }
+  
+  .divider { height: 1px; background: var(--border-color); margin: 12px 0; }
+  
+  .service-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    
+    .tag {
+      font-size: 11px;
+      background: var(--bg-hover);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--text-secondary);
+      
+      &.more { background: transparent; border: 1px dashed var(--border-color); }
+    }
+  }
 }
 
-.file-info {
+// Editor
+.editor-panel {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 1;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
 }
 
-.file-icon {
-  font-size: 24px;
-  color: var(--el-color-primary);
-}
-
-.file-details {
-  flex: 1;
-}
-
-.file-name {
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-
-.files-footer {
-  text-align: center;
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-}
-
-/* Services Card */
-.services-card {
-  max-height: 450px;
-}
-
-.service-stats {
-  padding: 10px 0;
-}
-
-.service-names {
-  margin-top: 12px;
-}
-
-.stat-label {
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-  margin-bottom: 8px;
-}
-
-.service-tag {
-  margin: 4px 4px 4px 0;
-}
-
-.card-header-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* Editor Card */
-.editor-card {
-  min-height: 600px;
-}
-
-.editor-header {
+.editor-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  
+  .file-status {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    
+    .filename { font-weight: 600; font-size: 14px; color: var(--text-primary); }
+    
+    .status-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      
+      &.modified { background: #fff7ed; color: #c2410c; }
+      &.error { background: #fee2e2; color: #991b1b; }
+    }
+  }
+  
+  .editor-actions {
+    display: flex;
+    gap: 12px;
+  }
 }
 
-.file-info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.text-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  padding: 0;
+  
+  &:hover { color: var(--text-primary); text-decoration: underline; }
+  &.danger:hover { color: var(--color-danger); }
+  &.primary { color: var(--text-primary); font-weight: 600; }
+  &:disabled { opacity: 0.5; cursor: not-allowed; text-decoration: none; }
 }
 
-.file-info h3 {
-  margin: 0;
-  font-size: 16px;
+.editor-area {
+  flex: 1;
+  position: relative;
 }
 
-.editor-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.editor-container {
-  margin-top: 16px;
-}
-
-.json-editor :deep(textarea) {
-  font-family: 'Courier New', Consolas, monospace;
+.code-editor {
+  width: 100%;
+  height: 100%;
+  border: none;
+  resize: none;
+  padding: 16px;
+  font-family: var(--font-mono);
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-body);
+  box-sizing: border-box;
+  
+  &:focus { outline: none; }
 }
 
-.empty-card {
-  min-height: 600px;
+.empty-state {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  height: 100%;
+  color: var(--text-placeholder);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  
+  .icon { font-size: 48px; margin-bottom: 16px; }
 }
 
-/* Preview Dialog */
-.preview-services {
+// Dialogs
+.dialog-content {
+  .dialog-desc { font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; }
+  .upload-area { margin-bottom: 8px; }
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.preview-list {
   max-height: 400px;
   overflow-y: auto;
-  margin-top: 12px;
-}
-
-.preview-service-card {
-  margin-bottom: 12px;
-}
-
-.preview-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  font-weight: 600;
-  font-size: 15px;
-}
-
-.preview-index {
-  color: var(--el-color-primary);
-}
-
-.preview-name {
-  color: var(--el-text-color-primary);
-}
-
-.preview-detail {
-  font-size: 13px;
-  margin-bottom: 6px;
-  display: flex;
-  gap: 8px;
-}
-
-.preview-detail .label {
-  color: var(--el-text-color-secondary);
-  min-width: 50px;
-}
-
-.preview-detail .value {
-  color: var(--el-text-color-primary);
-  word-break: break-all;
-  flex: 1;
+  
+  .preview-item {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border-color);
+    &:last-child { border-bottom: none; }
+    
+    .item-header {
+      margin-bottom: 6px;
+      font-size: 13px;
+      .idx { color: var(--color-accent); margin-right: 8px; font-weight: 600; }
+      .name { font-weight: 600; }
+    }
+    
+    .item-details {
+      padding-left: 20px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      
+      .detail { margin-bottom: 2px; }
+      .lbl { color: var(--text-placeholder); }
+    }
+  }
 }
 </style>
-

@@ -15,76 +15,9 @@ logger = logging.getLogger(__name__)
 class ServiceManagementMixin:
     """Service management mixin class"""
 
-    async def tools_snapshot(self, agent_id: Optional[str] = None) -> List[Any]:
-        """Public API: read immutable snapshot bundle and project agent view (A+B+D).
-
-        - Always read global tools from the registry's current snapshot bundle.
-        - If agent_id provided, project the global services to agent-local names using
-          the mapping snapshot included in the bundle.
-        - No waiting/retry. Pure read and projection.
-        """
-        try:
-            bundle = self.registry.get_tools_snapshot_bundle()
-            # Trigger rebuild if bundle doesn't exist or is marked dirty
-            if (not bundle) or getattr(self.registry, 'is_tools_snapshot_dirty', lambda: False)():
-                reason = 'none' if not bundle else 'dirty'
-                logger.debug(f"[SNAPSHOT] tools_snapshot: trigger rebuild (reason={reason})")
-                bundle = self.registry.rebuild_tools_snapshot(self.client_manager.global_agent_store_id)
-            else:
-                meta = bundle.get("meta", {}) if isinstance(bundle, dict) else {}
-                logger.debug(f"[SNAPSHOT] tools_snapshot: using bundle version={meta.get('version')}")
-
-            tools_section = bundle.get("tools", {})
-            mappings = bundle.get("mappings", {})
-            services_index: Dict[str, List[Dict[str, Any]]] = tools_section.get("services", {})
-
-            # Flatten global tools
-            flat_global: List[Dict[str, Any]] = []
-            for svc, items in services_index.items():
-                if not items:
-                    continue
-                for it in items:
-                    # ensure service_name is global name here
-                    entry = dict(it)
-                    entry["service_name"] = svc
-                    flat_global.append(entry)
-
-            if not agent_id:
-                return flat_global
-
-            # Agent projection: global -> local service names
-            agent_map = mappings.get("agent_to_global", {}).get(agent_id, {})
-            # Build reverse map for this agent only: global -> local
-            reverse_map: Dict[str, str] = {g: l for (l, g) in agent_map.items()}
-
-            projected: List[Dict[str, Any]] = []
-            for item in flat_global:
-                gsvc = item.get("service_name")
-                lsvc = reverse_map.get(gsvc)
-                if not lsvc:
-                    # Strict projection: skip services without mapping for this agent
-                    continue
-                new_item = dict(item)
-                new_item["service_name"] = lsvc
-                # Rewrite tool name to use local service prefix to keep name/service consistent
-                name = new_item.get("name")
-                if isinstance(name, str):
-                    if name.startswith(f"{gsvc}_"):
-                        # service_tool -> replace global service with local
-                        suffix = name[len(gsvc) + 1:]
-                        new_item["name"] = f"{lsvc}_{suffix}"
-                    elif name.startswith(f"{gsvc}__"):
-                        # legacy double-underscore format: normalize to single underscore
-                        suffix = name[len(gsvc) + 2:]
-                        new_item["name"] = f"{lsvc}_{suffix}"
-                projected.append(new_item)
-
-            logger.debug(f"[SNAPSHOT] tools_snapshot: return_count={len(projected)} (agent_view)")
-            return projected
-
-        except Exception as e:
-            logger.error(f"Failed to get tools snapshot: {e}")
-            return []
+    # tools_snapshot 和 _get_all_tools_from_cache 已删除
+    # 所有工具数据直接从 pykv 读取，不使用快照
+    # 参见 tool_operations.py 中的 list_tools_async 方法
 
     async def register_agent_client(self, agent_id: str, config: Dict[str, Any] = None) -> Client:
         """
@@ -132,7 +65,7 @@ class ServiceManagementMixin:
         agent_id = self.client_manager.global_agent_store_id
 
         for name in config.get("mcpServers", {}).keys():
-            state = self.registry._service_state_service.get_service_state(agent_id, name)
+            state = await self.registry._service_state_service.get_service_state_async(agent_id, name)
 
             # 新服务（state=None）也应纳入处理范围
             if state is None or state in processable_states:
@@ -177,7 +110,13 @@ class ServiceManagementMixin:
         return {"mcpServers": selected}
 
     async def remove_service(self, service_name: str, agent_id: str = None):
-        """Remove service and handle lifecycle state"""
+        """
+        Remove service and handle lifecycle state
+        
+        Args:
+            service_name: 服务名称
+            agent_id: Agent ID（可选）
+        """
         try:
             #  Fix: safer agent_id handling
             if agent_id is None:
@@ -191,11 +130,11 @@ class ServiceManagementMixin:
                 logger.debug(f"Using provided agent_id: {agent_key}")
 
             # 🆕 Event-driven architecture: directly check service status from registry
-            current_state = self.registry._service_state_service.get_service_state(agent_key, service_name)
+            current_state = await self.registry._service_state_service.get_service_state_async(agent_key, service_name)
             if current_state is None:
                 logger.warning(f"Service {service_name} not found in lifecycle manager for agent {agent_key}")
-                # Check if it exists in the registry
-                if not self.registry.has_service(agent_key, service_name):
+                # Check if it exists in the registry（使用异步 API）
+                if not await self.registry.has_service_async(agent_key, service_name):
                     logger.warning(f"Service {service_name} not found in registry for agent {agent_key}, skipping removal")
                     return
                 else:
@@ -221,8 +160,8 @@ class ServiceManagementMixin:
                 logger.warning(f"Error removing from content monitoring: {e}")
 
             try:
-                # Remove service from registry (will internally trigger tools_changed)
-                self.registry.remove_service(agent_key, service_name)
+                # Remove service from registry（使用异步版本）
+                await self.registry.remove_service_async(agent_key, service_name)
 
                 # Cancel health monitoring (if exists)
                 try:
@@ -245,13 +184,36 @@ class ServiceManagementMixin:
             except Exception as e:
                 logger.warning(f"Error removing lifecycle data: {e}")
 
-            # A+B+D: Trigger unified snapshot update after changes (strong consistency)
+            # 清理服务状态（使用 StateManager）
             try:
-                gid = self.client_manager.global_agent_store_id
-                if hasattr(self.registry, 'tools_changed'):
-                    self.registry.tools_changed(gid, aggressive=True)
+                # 获取服务的全局名称
+                global_agent_store_id = self.client_manager.global_agent_store_id
+                if agent_key != global_agent_store_id:
+                    # Agent 模式：需要获取全局服务名
+                    service_global_name = self.registry.get_global_name_from_agent_service(
+                        agent_key, service_name
+                    )
+                else:
+                    # Store 模式：服务名就是全局名称
+                    service_global_name = service_name
+                
+                if service_global_name:
+                    # 使用新的状态管理器删除服务状态
+                    state_manager = self.registry._cache_state_manager
+                    await state_manager.delete_service_status(service_global_name)
+                    logger.info(
+                        f"Service status cleanup successful: service_global_name={service_global_name}"
+                    )
+                else:
+                    logger.debug(
+                        f"Cannot get service global name, skipping status cleanup: "
+                        f"agent_id={agent_key}, service_name={service_name}"
+                    )
             except Exception as e:
-                logger.warning(f"[SNAPSHOT] tools_changed failed after removal: {e}")
+                logger.warning(
+                    f"Service status cleanup failed (does not affect service removal): "
+                    f"agent_id={agent_key}, service_name={service_name}, error={e}"
+                )
 
             logger.debug(f"Service removal completed: {service_name} from agent {agent_key}")
 
@@ -305,16 +267,16 @@ class ServiceManagementMixin:
 
             logger.debug(f"Restarting service {service_name} for agent {agent_key}")
 
-            # Check if service exists
-            if not self.registry.has_service(agent_key, service_name):
+            # Check if service exists（使用异步 API）
+            if not await self.registry.has_service_async(agent_key, service_name):
                 logger.warning(f"[RESTART_SERVICE] Service '{service_name}' not found in registry")
                 return False
 
-            # Get service metadata
-            metadata = self.registry.get_service_metadata(agent_key, service_name)
+            # 从 pykv 异步获取服务元数据
+            metadata = await self.registry.get_service_metadata_async(agent_key, service_name)
             if not metadata:
                 logger.error(f" [RESTART_SERVICE] No metadata found for service '{service_name}'")
-                return False
+                raise RuntimeError(f"No metadata found for service '{service_name}'")
 
             # Reset service state to INITIALIZING（通过 LifecycleManager 统一入口）
             await self.lifecycle_manager._transition_state(
@@ -433,16 +395,16 @@ class ServiceManagementMixin:
 
         return False
 
-    def get_service_status(self, service_name: str, client_id: str = None) -> dict:
+    async def get_service_status_async(self, service_name: str, client_id: str = None) -> dict:
         """
-        Get service status information - pure cache query, no business logic execution
+        异步获取服务状态信息 - 从 pykv 读取
 
         Args:
-            service_name: Service name
-            client_id: Client ID (optional, default uses global_agent_store_id)
+            service_name: 服务名称
+            client_id: Client ID（可选，默认使用 global_agent_store_id）
 
         Returns:
-            dict: Dictionary containing status information
+            dict: 包含状态信息的字典
             {
                 "service_name": str,
                 "status": str,  # "healthy", "warning", "disconnected", "unknown", etc.
@@ -456,9 +418,12 @@ class ServiceManagementMixin:
         try:
             agent_key = client_id or self.client_manager.global_agent_store_id
 
-            # Get service status from cache
-            state = self.registry._service_state_service.get_service_state(agent_key, service_name)
-            metadata = self.registry._service_state_service.get_service_metadata(agent_key, service_name)
+            # 从 pykv 异步获取服务状态
+            state = await self.registry._service_state_service.get_service_state_async(agent_key, service_name)
+            metadata = await self.registry._service_state_service.get_service_metadata_async(
+                agent_key,
+                service_name,
+            )
 
             # Build status response
             status_response = {

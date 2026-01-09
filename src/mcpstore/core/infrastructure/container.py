@@ -68,17 +68,24 @@ class ServiceContainer:
         from mcpstore.config.toml_config import get_lifecycle_config_with_defaults
         lifecycle_config = get_lifecycle_config_with_defaults()
 
+        # 获取HTTP超时配置
+        from mcpstore.config.config_defaults import StandaloneConfigDefaults
+        http_timeout_seconds = float(StandaloneConfigDefaults().http_timeout_seconds)
+        logger.debug(f"[CONTAINER] HTTP timeout configured: {http_timeout_seconds} seconds")
+
         self._lifecycle_manager = LifecycleManager(
             event_bus=self._event_bus,
             registry=self._registry,
-            lifecycle_config=lifecycle_config
+            lifecycle_config=lifecycle_config,
+            agent_locks=self._agent_locks
         )
 
         self._connection_manager = ConnectionManager(
             event_bus=self._event_bus,
             registry=self._registry,
             config_processor=self._config_processor,
-            local_service_manager=self._local_service_manager
+            local_service_manager=self._local_service_manager,
+            http_timeout_seconds=http_timeout_seconds
         )
 
         self._persistence_manager = PersistenceManager(

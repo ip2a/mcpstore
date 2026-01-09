@@ -80,7 +80,8 @@ from mcpstore.utils.watchdog.events import (
     FileMovedEvent,
     generate_sub_moved_events,
 )
-from mcpstore.utils.watchdog.observers.api import DEFAULT_EMITTER_TIMEOUT, DEFAULT_OBSERVER_TIMEOUT, BaseObserver, EventEmitter
+from mcpstore.utils.watchdog.observers.api import DEFAULT_EMITTER_TIMEOUT, DEFAULT_OBSERVER_TIMEOUT, BaseObserver, \
+    EventEmitter
 from mcpstore.utils.watchdog.utils import platform
 from mcpstore.utils.watchdog.utils.dirsnapshot import DirectorySnapshot
 

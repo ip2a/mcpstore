@@ -8,9 +8,8 @@ Non-sensitive configuration is loaded from MCPStoreConfig, sensitive configurati
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Literal, Union
-from redis.asyncio import Redis
 
-from .cache_environment import get_sensitive_redis_config, get_cache_type_from_env
+from redis.asyncio import Redis
 
 
 class CacheType(Enum):
@@ -20,10 +19,19 @@ class CacheType(Enum):
 
 
 class DataSourceStrategy(Enum):
-    """Data source strategy enumeration."""
-    JSON_MEMORY = "json_memory"      # JSON file + Memory (standard configuration)
-    JSON_CUSTOM = "json_custom"      # JSON file + Custom data source (e.g., Redis)
-    CUSTOM_ONLY = "custom_only"      # Custom data source only (no JSON sync)
+    """
+    数据源策略枚举
+    
+    定义了三种数据源策略，决定数据如何存储和同步：
+    - local_memory: JSON + Memory 缓存，标准本地配置
+    - local_db: JSON + Redis 缓存，本地配置 + 远程存储
+    - only_db: 仅 Redis 缓存，无本地 JSON 文件
+    
+    注意: 所有一致性数据统一通过 add_service() 写入三层缓存架构
+    """
+    LOCAL_MEMORY = "local_memory"    # JSON + Memory 缓存 (标准本地配置)
+    LOCAL_DB = "local_db"            # JSON + Redis 缓存 (本地配置 + 远程存储)
+    ONLY_DB = "only_db"              # 仅 Redis 缓存 (无本地 JSON 文件)
 
 
 
@@ -131,44 +139,52 @@ def get_namespace(config: RedisConfig) -> str:
 
 def detect_strategy(
     cache_config: Optional[BaseCacheConfig],
-    json_path: Optional[str]
+    json_path: Optional[str],
+    *,
+    only_db: bool = False,
 ) -> DataSourceStrategy:
     """
-    Automatically detect data source strategy based on configuration.
+    根据配置自动检测数据源策略
     
     Args:
-        cache_config: Cache configuration object (MemoryConfig or RedisConfig)
-        json_path: JSON file path (optional)
+        cache_config: 缓存配置对象 (MemoryConfig 或 RedisConfig)
+        json_path: JSON 文件路径 (可选)
     
     Returns:
-        DataSourceStrategy enum value
+        DataSourceStrategy 枚举值
     
-    Strategy Detection Logic:
-    - JSON + Memory → JSON_MEMORY (standard configuration)
-    - JSON + Redis/Custom → JSON_CUSTOM (needs synchronization)
-    - No JSON + Any → CUSTOM_ONLY (no synchronization needed)
+    策略检测逻辑:
+    - JSON + Memory → LOCAL_MEMORY (标准本地配置)
+    - JSON + Redis → LOCAL_DB (本地配置 + 远程存储)
+    - 无 JSON + 任意 → ONLY_DB (仅远程存储)
+    
+    注意: 所有一致性数据统一通过 add_service() 写入三层缓存架构
     
     Examples:
         >>> detect_strategy(MemoryConfig(), "mcp.json")
-        DataSourceStrategy.JSON_MEMORY
+        DataSourceStrategy.LOCAL_MEMORY
         
         >>> detect_strategy(RedisConfig(url="redis://localhost:6379/0"), "mcp.json")
-        DataSourceStrategy.JSON_CUSTOM
+        DataSourceStrategy.LOCAL_DB
         
         >>> detect_strategy(RedisConfig(url="redis://localhost:6379/0"), None)
-        DataSourceStrategy.CUSTOM_ONLY
+        DataSourceStrategy.ONLY_DB
     """
+    if only_db:
+        return DataSourceStrategy.ONLY_DB
+
     has_json = json_path is not None
     is_memory = isinstance(cache_config, MemoryConfig)
-    
-    if has_json:
-        if is_memory:
-            return DataSourceStrategy.JSON_MEMORY  # Standard configuration
-        else:
-            return DataSourceStrategy.JSON_CUSTOM  # JSON + custom data source
+
+    if not has_json:
+        # 在新语义下，只要未显式启用 only_db，就认为仍需同步本地配置
+        # 此时缺少 json_path 说明调用方未提供，自行降级为默认路径
+        has_json = True
+
+    if is_memory:
+        return DataSourceStrategy.LOCAL_MEMORY
     else:
-        # No JSON file
-        return DataSourceStrategy.CUSTOM_ONLY  # Only use data source
+        return DataSourceStrategy.LOCAL_DB
 
 
 async def create_kv_store_async(cache_config: Union[MemoryConfig, RedisConfig], test_connection: bool = True):
@@ -361,104 +377,3 @@ def create_kv_store(cache_config: Union[MemoryConfig, RedisConfig], test_connect
             raise handle_redis_connection_error(e, cache_config)
     
     raise ValueError(f"Unsupported cache config type: {type(cache_config)}")
-
-
-def create_cache_config_from_mcpstore(cache_type: Optional[str] = None) -> Union[MemoryConfig, RedisConfig]:
-    """
-    Create cache configuration from MCPStoreConfig and environment variables.
-
-    This function combines non-sensitive configuration from MCPStoreConfig with
-    sensitive configuration from environment variables to create a complete cache config.
-
-    Args:
-        cache_type: Cache type ("memory" or "redis"), if None will read from env
-
-    Returns:
-        MemoryConfig or RedisConfig instance
-
-    Raises:
-        ImportError: If MCPStoreConfig is not available
-        ValueError: If Redis configuration is invalid
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-
-    # Determine cache type
-    if cache_type is None:
-        cache_type = get_cache_type_from_env()
-
-    logger.info(f"Creating {cache_type} cache configuration from MCPStoreConfig + environment")
-
-    try:
-        from .toml_config import get_cache_memory_config_with_defaults, get_cache_redis_config_with_defaults
-    except ImportError as e:
-        logger.warning(f"MCPStoreConfig not available, using defaults: {e}")
-        # Fallback to defaults if MCPStoreConfig not available
-        if cache_type == "redis":
-            sensitive_config = get_sensitive_redis_config()
-            # Add allow_partial if no sensitive connection info provided
-            if not any(key in sensitive_config for key in ['url', 'host', 'client']):
-                sensitive_config['allow_partial'] = True
-            return RedisConfig(**sensitive_config)
-        else:
-            return MemoryConfig()
-
-    if cache_type == "memory":
-        # Get memory config from MCPStoreConfig
-        memory_config = get_cache_memory_config_with_defaults()
-        logger.debug(f"Memory cache config from MCPStoreConfig: timeout={memory_config.timeout}, retry_attempts={memory_config.retry_attempts}")
-        return memory_config
-
-    elif cache_type == "redis":
-        # Get non-sensitive config from MCPStoreConfig
-        redis_config = get_cache_redis_config_with_defaults()
-
-        # Get sensitive config from environment variables
-        sensitive_config = get_sensitive_redis_config()
-
-        # Combine configurations (sensitive takes precedence)
-        combined_config = {
-            # Non-sensitive from MCPStoreConfig
-            "timeout": redis_config.timeout,
-            "retry_attempts": redis_config.retry_attempts,
-            "health_check": redis_config.health_check,
-            "max_connections": redis_config.max_connections,
-            "retry_on_timeout": redis_config.retry_on_timeout,
-            "socket_keepalive": redis_config.socket_keepalive,
-            "socket_connect_timeout": redis_config.socket_connect_timeout,
-            "socket_timeout": redis_config.socket_timeout,
-            "health_check_interval": redis_config.health_check_interval,
-
-            # Sensitive from environment
-            **sensitive_config
-        }
-
-        logger.debug(f"Redis cache config combined: timeout={combined_config["timeout"]}, max_connections={combined_config["max_connections"]}")
-        logger.info(f"Redis sensitive config loaded: has_url={bool(combined_config.get("url"))}, has_password={bool(combined_config.get("password"))}")
-
-        return RedisConfig(**combined_config)
-
-    else:
-        raise ValueError(f"Unsupported cache type: {cache_type}")
-
-
-def get_cache_config_summary(config: Union[MemoryConfig, RedisConfig]) -> str:
-    """
-    Get a safe summary of cache configuration (excludes sensitive data).
-
-    Args:
-        config: Cache configuration object
-
-    Returns:
-        Safe configuration summary string
-    """
-    if isinstance(config, MemoryConfig):
-        return f"MemoryCache(timeout={config.timeout}, retry_attempts={config.retry_attempts}, max_size={config.max_size})"
-    elif isinstance(config, RedisConfig):
-        # Only include non-sensitive information
-        return (f"RedisCache(timeout={config.timeout}, retry_attempts={config.retry_attempts}, "
-                f"max_connections={config.max_connections}, retry_on_timeout={config.retry_on_timeout}, "
-                f"health_check_interval={config.health_check_interval}, url_set={bool(config.url)})")
-    else:
-        return f"UnknownCache(type={type(config).__name__})"
-

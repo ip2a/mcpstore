@@ -8,21 +8,48 @@
       </template>
       
       <div class="test-buttons">
-        <el-button @click="testServicesAPI" :loading="testing">测试Services API</el-button>
-        <el-button @click="testToolsAPI" :loading="testing">测试Tools API</el-button>
-        <el-button @click="testHealthAPI" :loading="testing">测试Health API</el-button>
-        <el-button @click="clearResults">清除结果</el-button>
+        <el-button
+          :loading="testing"
+          @click="testServicesAPI"
+        >
+          测试Services API
+        </el-button>
+        <el-button
+          :loading="testing"
+          @click="testToolsAPI"
+        >
+          测试Tools API
+        </el-button>
+        <el-button
+          :loading="testing"
+          @click="testHealthAPI"
+        >
+          测试Health API
+        </el-button>
+        <el-button @click="clearResults">
+          清除结果
+        </el-button>
       </div>
     </el-card>
 
-    <el-card v-if="results.length > 0" class="results-card">
+    <el-card
+      v-if="results.length > 0"
+      class="results-card"
+    >
       <template #header>
         <span>测试结果</span>
       </template>
       
-      <div v-for="(result, index) in results" :key="index" class="result-item">
+      <div
+        v-for="(result, index) in results"
+        :key="index"
+        class="result-item"
+      >
         <h4>{{ result.title }}</h4>
-        <div class="result-status" :class="result.success ? 'success' : 'error'">
+        <div
+          class="result-status"
+          :class="result.success ? 'success' : 'error'"
+        >
           {{ result.success ? '✅ 成功' : '❌ 失败' }}
         </div>
         <div class="result-details">

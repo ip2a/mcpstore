@@ -5,7 +5,6 @@ MCPStore Configuration Dataclasses
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
 
 from .config_defaults import ContentUpdateConfigDefaults, HealthCheckConfigDefaults, ServiceLifecycleConfigDefaults
 
@@ -46,6 +45,10 @@ class ServiceLifecycleConfig:
     normal_heartbeat_interval: float = _health_defaults.normal_heartbeat_interval     # Normal state heartbeat interval
     warning_heartbeat_interval: float = _health_defaults.warning_heartbeat_interval    # Warning state heartbeat interval
     health_check_ping_timeout: float = _health_defaults.health_check_ping_timeout     # Health check ping timeout
+    warning_ping_timeout: float = _health_defaults.warning_ping_timeout          # Warning/Reconnecting 状态下的宽松超时
+    ping_timeout_http: float = _health_defaults.ping_timeout_http               # HTTP 传输默认 ping 超时
+    ping_timeout_sse: float = _health_defaults.ping_timeout_sse                # SSE 传输默认 ping 超时
+    ping_timeout_stdio: float = _health_defaults.ping_timeout_stdio              # STDIO/Studio 传输默认 ping 超时
     disconnection_timeout: float = _health_defaults.disconnection_timeout         # Disconnection detection timeout
 
     # Lifecycle timeouts

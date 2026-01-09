@@ -11,9 +11,8 @@ from typing import Dict, Set, Optional, List, Any, Tuple
 
 from fastmcp import Client
 
-from mcpstore.core.configuration.config_processor import ConfigProcessor
-from mcpstore.core.models.service import ServiceConnectionState
 from mcpstore.config.config_dataclasses import ContentUpdateConfig
+from mcpstore.core.configuration.config_processor import ConfigProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +221,46 @@ class ServiceContentManager:
             await asyncio.gather(*update_tasks, return_exceptions=True)
 
 
+    async def _get_service_config_from_pykv_async(self, agent_id: str, service_name: str) -> Optional[Dict[str, Any]]:
+        """
+        从 pykv 获取服务配置
+
+        遵循 "pykv 唯一真相数据源" 原则，从 ServiceEntity 中读取配置。
+
+        Args:
+            agent_id: Agent ID
+            service_name: 服务名称
+
+        Returns:
+            服务配置字典，如果不存在返回 None
+        """
+        try:
+            # 生成服务全局名称
+            from mcpstore.core.cache.naming_service import NamingService
+            global_name = NamingService.generate_service_global_name(service_name, agent_id)
+
+            # 从 pykv 获取服务实体
+            # 使用 ServiceRegistry 的 _cache_service_manager（ServiceEntityManager）
+            service_entity_manager = self.registry._cache_service_manager
+            service_entity = await service_entity_manager.get_service(global_name)
+
+            if service_entity is None:
+                logger.debug(f"Service entity not found in pykv: {global_name}")
+                return None
+
+            # 返回服务配置（ServiceEntity 是 dataclass，直接访问 config 属性）
+            config = service_entity.config
+            if not config:
+                logger.debug(f"Service entity config is empty: {global_name}")
+                return None
+
+            logger.debug(f"Successfully retrieved service config from pykv: {global_name}")
+            return config
+
+        except Exception as e:
+            logger.error(f"Failed to get service config from pykv: agent_id={agent_id}, service_name={service_name}, error={e}")
+            raise
+
     async def _update_service_content_with_cleanup(self, agent_id: str, service_name: str):
         """带清理的服务内容更新"""
         try:
@@ -239,10 +278,10 @@ class ServiceContentManager:
     async def _update_service_content(self, agent_id: str, service_name: str) -> bool:
         """更新服务内容（工具、资源、提示词）"""
         try:
-            # 获取服务配置
-            service_config = self.orchestrator.mcp_config.get_service_config(service_name)
+            # 从 pykv 获取服务配置（遵循 pykv 唯一真相数据源原则）
+            service_config = await self._get_service_config_from_pykv_async(agent_id, service_name)
             if not service_config:
-                logger.warning(f"No configuration found for service {service_name}")
+                logger.warning(f"Service config not found in pykv: agent_id={agent_id}, service_name={service_name}")
                 return False
 
             # 创建临时客户端
@@ -354,22 +393,15 @@ class ServiceContentManager:
                 tool_def = tool_dict
             processed_tools.append((tool_name, tool_def))
 
-        # 加锁执行原子更新
+        # 加锁执行原子更新，使用异步版本避免事件循环冲突
         locks_owner = getattr(self.orchestrator, 'store', None)
         agent_locks = getattr(locks_owner, 'agent_locks', None) if locks_owner else None
         if agent_locks:
             async with agent_locks.write(agent_id):
                 self.registry.clear_service_tools_only(agent_id, service_name)
-                self.registry.add_service(agent_id=agent_id, name=service_name, session=service_session, tools=processed_tools, preserve_mappings=True)
+                await self.registry.add_service_async(agent_id=agent_id, name=service_name, session=service_session, tools=processed_tools, preserve_mappings=True)
         else:
             self.registry.clear_service_tools_only(agent_id, service_name)
-            self.registry.add_service(agent_id=agent_id, name=service_name, session=service_session, tools=processed_tools, preserve_mappings=True)
+            await self.registry.add_service_async(agent_id=agent_id, name=service_name, session=service_session, tools=processed_tools, preserve_mappings=True)
 
         logger.debug(f"Updated tool cache for {service_name}: {len(processed_tools)} tools")
-
-        # A+B+D: 工具缓存更新后，重建并发布全局快照
-        try:
-            global_agent_id = self.orchestrator.client_manager.global_agent_store_id
-            self.registry.rebuild_tools_snapshot(global_agent_id)
-        except Exception as e:
-            logger.warning(f"[SNAPSHOT] rebuild failed in content manager: {e}")

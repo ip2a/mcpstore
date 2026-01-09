@@ -27,7 +27,7 @@ class ServiceStateMachine:
         logger.debug(f"[STATE_TRANSITION] attempting service='{service_name}' from={old_state} to={new_state}")
 
         if old_state == new_state:
-            logger.debug(f"⏸️ [STATE_TRANSITION] No change needed for {service_name}: already in {new_state}")
+            logger.debug(f"[STATE_TRANSITION] No change needed for {service_name}: already in {new_state}")
             return
 
         # Update state

@@ -18,9 +18,9 @@ import os
 import time
 from typing import Dict, Any
 
+from mcpstore.utils.watchdog.events import FileSystemEventHandler
 # 强制使用内置 watchdog（不再可选）
 from mcpstore.utils.watchdog.observers import Observer
-from mcpstore.utils.watchdog.events import FileSystemEventHandler
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +189,6 @@ class UnifiedMCPSyncManager:
         async with self.sync_lock:
             try:
                 #  新增：检查同步频率，避免过度同步
-                import time
                 current_time = time.time()
 
                 if self.last_sync_time and (current_time - self.last_sync_time) < self.min_sync_interval:
@@ -229,7 +228,7 @@ class UnifiedMCPSyncManager:
             global_agent_store_id = self.orchestrator.client_manager.global_agent_store_id
 
             # 获取当前global_agent_store的服务
-            current_services = self._get_current_global_agent_store_services()
+            current_services = await self._get_current_global_agent_store_services()
             
             # 计算差异
             current_names = set(current_services.keys())
@@ -329,16 +328,35 @@ class UnifiedMCPSyncManager:
             logger.error(f"Error syncing main client services: {e}")
             raise
 
-    def _get_current_global_agent_store_services(self) -> Dict[str, Any]:
+    async def _get_current_global_agent_store_services(self) -> Dict[str, Any]:
         """获取当前global_agent_store的服务配置"""
         try:
-            # single-source: derive current services from registry cache only
+            # single-source: derive current services from registry cache layer
             agent_id = self.orchestrator.client_manager.global_agent_store_id
             current_services = {}
-            for service_name in self.orchestrator.registry._service_state_service.get_all_service_names(agent_id):
-                config = self.orchestrator.mcp_config.get_service_config(service_name) or {}
-                if config:
-                    current_services[service_name] = config
+            try:
+                # 使用 _cache_layer_manager（CacheLayerManager）获取所有服务实体
+                # 不再使用 _cache_layer，因为它在 Redis 模式下是 RedisStore，没有 get_all_entities_async 方法
+                service_entities = await self.orchestrator.registry._cache_layer_manager.get_all_entities_async("services")
+
+                for entity_key, entity_data in service_entities.items():
+                    if hasattr(entity_data, 'value'):
+                        data = entity_data.value
+                    elif isinstance(entity_data, dict):
+                        data = entity_data
+                    else:
+                        continue
+
+                    # 只处理指定agent_id的服务
+                    if data.get('source_agent') == agent_id:
+                        service_name = data.get('service_original_name', entity_key)
+                        config = self.orchestrator.mcp_config.get_service_config(service_name) or {}
+                        if config:
+                            current_services[service_name] = config
+
+            except Exception as e:
+                logger.error(f"Failed to get current service: {e}")
+                current_services = {}
 
             return current_services
 
@@ -361,9 +379,9 @@ class UnifiedMCPSyncManager:
                 self.orchestrator.client_manager._remove_client_and_mapping(global_agent_store_id, client_id)
                 logger.debug(f"Removed client {client_id} containing service {service_name}")
 
-            # 从Registry移除
-            if hasattr(self.orchestrator.registry, 'remove_service'):
-                self.orchestrator.registry.remove_service(global_agent_store_id, service_name)
+            # 从Registry移除（使用异步版本）
+            if hasattr(self.orchestrator.registry, 'remove_service_async'):
+                await self.orchestrator.registry.remove_service_async(global_agent_store_id, service_name)
 
             return len(matching_clients) > 0
 
@@ -378,44 +396,55 @@ class UnifiedMCPSyncManager:
                 return
 
             logger.debug(f"Batch registering {len(services_to_register)} services to Registry")
-
-            # single-source: register services_to_register directly if not present
             registered_count = 0
             skipped_count = 0
+            event_bus = getattr(getattr(self.orchestrator, "container", None), "_event_bus", None) or getattr(self.orchestrator, "event_bus", None)
 
             for service_name, config in services_to_register.items():
-                if self.orchestrator.registry.has_service(agent_id, service_name):
+                if await self.orchestrator.registry.has_service_async(agent_id, service_name):
                     skipped_count += 1
                     continue
                 try:
-                    if hasattr(self.orchestrator, 'store') and self.orchestrator.store:
-                        # Use existing add_service_async with explicit mcpServers shape (no extra kwargs)
-                        await self.orchestrator.store.for_store().add_service_async(
-                            config={"mcpServers": {service_name: config}}
-                        )
-                    else:
-                        # Update mcp.json directly then let lifecycle initialize
-                        current = self.orchestrator.mcp_config.load_config()
-                        m = current.get("mcpServers", {})
-                        m[service_name] = config
-                        current["mcpServers"] = m
-                        self.orchestrator.mcp_config.save_config(current)
+                    if not event_bus:
+                        raise RuntimeError("EventBus unavailable for bootstrap registration")
+
+                    from mcpstore.core.events.service_events import ServiceBootstrapRequested
+                    from mcpstore.core.utils.id_generator import ClientIDGenerator
+
+                    client_id = ClientIDGenerator.generate_deterministic_id(
+                        agent_id=agent_id,
+                        service_name=service_name,
+                        service_config=config,
+                        global_agent_store_id=getattr(self.orchestrator.client_manager, "global_agent_store_id", "global_agent_store")
+                    )
+
+                    bootstrap_event = ServiceBootstrapRequested(
+                        agent_id=agent_id,
+                        service_name=service_name,
+                        service_config=config,
+                        client_id=client_id,
+                        global_name=service_name,
+                        origin_agent_id=agent_id,
+                        origin_local_name=service_name,
+                        source="sync_mcpjson"
+                    )
+                    await event_bus.publish(bootstrap_event, wait=False)
                     registered_count += 1
                 except Exception as e:
                     logger.error(f"Failed to register service {service_name}: {e}")
 
-            logger.info(f"Batch registration completed: {registered_count} registered, {skipped_count} skipped")
+            logger.info(f"Batch registration completed (bootstrap path): {registered_count} registered, {skipped_count} skipped")
 
         except Exception as e:
             logger.error(f"Error in batch register to registry: {e}")
 
     async def _add_service_to_cache_mapping(self, agent_id: str, service_name: str, service_config: Dict[str, Any]) -> bool:
         """
-        将服务添加到缓存映射（Registry中的两个映射字段）
+        将服务添加到缓存映射（Registry中的映射字段）
 
-        缓存映射指的是：
-        - registry.agent_clients: Agent-Client映射
-        - registry.client_configs: Client配置映射
+        注意：
+        - registry.agent_clients: 已移除 (Phase 4) - 现在从 pyvk 推导
+        - registry.clients: 已移除 (Phase 5) - 现在存储在 pyvk
 
         Args:
             agent_id: Agent ID
@@ -433,12 +462,12 @@ class UnifiedMCPSyncManager:
                 return False
 
             #  修复：检查是否已存在该服务的client_id，避免重复生成
-            existing_client_id = self._find_existing_client_id_for_service(agent_id, service_name)
+            existing_client_id = await self._find_existing_client_id_for_service_async(agent_id, service_name)
 
             if existing_client_id:
                 # 使用现有的client_id，只更新配置
                 client_id = existing_client_id
-                logger.debug(f" 使用现有client_id: {service_name} -> {client_id}")
+                logger.debug(f" Using existing client_id: {service_name} -> {client_id}")
             else:
                 #  使用统一的ClientIDGenerator生成确定性client_id
                 from mcpstore.core.utils.id_generator import ClientIDGenerator
@@ -452,7 +481,7 @@ class UnifiedMCPSyncManager:
                     service_config=service_config,
                     global_agent_store_id=global_agent_store_id
                 )
-                logger.debug(f" 生成新client_id: {service_name} -> {client_id}")
+                logger.debug(f" Generating new client_id: {service_name} -> {client_id}")
 
             # 更新缓存映射1：Agent-Client映射（通过Registry公共API）
             try:
@@ -461,27 +490,47 @@ class UnifiedMCPSyncManager:
                 logger.error(f"Failed to add agent-client mapping for {agent_id}/{client_id}: {e}")
                 return False
 
-            # 更新缓存映射2：Client配置映射（通过Registry公共API）
+            # 更新缓存映射2：Client实体（使用 main_registry 格式）
             try:
-                registry.add_client_config(client_id, {
-                    "mcpServers": {service_name: service_config}
+                # 获取或创建 client 实体（使用 main_registry 格式）
+                client_entity = await registry._cache_layer_manager.get_entity("clients", client_id)
+                if not isinstance(client_entity, dict):
+                    # 创建新的 client 实体
+                    client_entity = {
+                        "client_id": client_id,
+                        "agent_id": agent_id,
+                        "services": [],
+                        "created_time": int(time.time()),
+                    }
+                
+                # 更新 services 列表
+                services = client_entity.get("services") or []
+                if service_name not in services:
+                    services.append(service_name)
+                
+                client_entity.update({
+                    "agent_id": agent_id,
+                    "services": services,
+                    "updated_time": int(time.time()),
                 })
+                
+                await registry._cache_layer_manager.put_entity("clients", client_id, client_entity)
             except Exception as e:
-                logger.error(f"Failed to add client config for {client_id}: {e}")
-                return False
+                logger.error(f"Failed to create/update client entity for {client_id}: {e}")
+                raise  # 按要求抛出错误，不做静默处理
 
-            logger.debug(f"缓存映射更新成功: {service_name} -> {client_id}")
-            logger.debug(f"   - agent_clients[{agent_id}] 已通过Registry API更新")
-            logger.debug(f"   - client_configs[{client_id}] 已通过Registry API更新")
+            logger.debug(f"Cache mapping updated successfully: {service_name} -> {client_id}")
+            logger.debug(f"   - agent_clients[{agent_id}] updated via Registry API")
+            logger.debug(f"   - clients[{client_id}] updated via Registry API")
             return True
 
         except Exception as e:
             logger.error(f"Failed to add service to cache mapping: {e}")
             return False
 
-    def _find_existing_client_id_for_service(self, agent_id: str, service_name: str) -> str:
+    async def _find_existing_client_id_for_service_async(self, agent_id: str, service_name: str) -> str:
         """
-        查找指定服务是否已有对应的client_id
+        查找指定服务是否已有对应的client_id（异步版本）
 
         Args:
             agent_id: Agent ID
@@ -495,15 +544,17 @@ class UnifiedMCPSyncManager:
             if not registry:
                 return None
 
-            # 获取该agent的所有client_id（通过Registry公共API）
-            client_ids = registry.get_agent_clients_from_cache(agent_id)
+            # 获取该agent的所有client_id（通过Registry公共API）- 从 pykv 获取
+            client_ids = await registry.get_agent_clients_async(agent_id)
 
-            # 遍历每个client_id，检查是否包含目标服务
+            # 遍历每个client_id，检查是否包含目标服务（使用新格式：services 列表）
             for client_id in client_ids:
-                client_config = registry.get_client_config_from_cache(client_id) or {}
-                if service_name in client_config.get("mcpServers", {}):
-                    logger.debug(f" 找到现有client_id: {service_name} -> {client_id}")
-                    return client_id
+                client_entity = await registry.get_client_config_from_cache_async(client_id)
+                if client_entity and isinstance(client_entity, dict):
+                    services = client_entity.get("services", [])
+                    if service_name in services:
+                        logger.debug(f" Found existing client_id: {service_name} -> {client_id}")
+                        return client_id
 
             return None
 
@@ -566,4 +617,3 @@ class UnifiedMCPSyncManager:
             "sync_lock_locked": self.sync_lock.locked(),
             "file_observer_running": self.file_observer is not None and self.file_observer.is_alive() if self.file_observer else False
         }
-

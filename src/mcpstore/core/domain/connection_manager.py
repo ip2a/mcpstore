@@ -11,12 +11,12 @@ import asyncio
 import logging
 from typing import Dict, Any, Tuple, List
 
+from mcpstore.core.configuration.config_processor import ConfigProcessor
 from mcpstore.core.events.event_bus import EventBus
 from mcpstore.core.events.service_events import (
     ServiceInitialized, ServiceConnectionRequested,
     ServiceConnected, ServiceConnectionFailed
 )
-from mcpstore.core.configuration.config_processor import ConfigProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +36,14 @@ class ConnectionManager:
         event_bus: EventBus,
         registry: 'CoreRegistry',
         config_processor: 'ConfigProcessor',
-        local_service_manager: 'LocalServiceManagerAdapter'
+        local_service_manager: 'LocalServiceManagerAdapter',
+        http_timeout_seconds: float = 10.0
     ):
         self._event_bus = event_bus
         self._registry = registry
         self._config_processor = config_processor
         self._local_service_manager = local_service_manager
+        self._http_timeout_seconds = http_timeout_seconds
 
         # Subscribe to events
         self._event_bus.subscribe(ServiceInitialized, self._on_service_initialized, priority=80)
@@ -52,15 +54,18 @@ class ConnectionManager:
         self._event_bus.subscribe(ReconnectionRequested, self._on_reconnection_requested, priority=100)
 
         logger.info(f"ConnectionManager initialized (bus={hex(id(self._event_bus))}) and subscribed to events")
+        logger.debug(f"[CONNECTION] HTTP timeout configured: {self._http_timeout_seconds} seconds")
 
     async def _on_service_initialized(self, event: ServiceInitialized):
         """
         Handle service initialization completion - trigger connection
+        
+        ServiceInitialized 表示缓存和生命周期元数据已经写入，此时才发布连接事件。
         """
-        logger.info(f"[CONNECTION] Triggering connection for: {event.service_name}")
+        logger.info(f"[CONNECTION] Triggering connection for: {event.service_name} (from ServiceInitialized)")
 
-        # Get service configuration
-        service_config = self._get_service_config(event.agent_id, event.service_name)
+        # Get service configuration（使用异步版本）
+        service_config = await self._get_service_config_async(event.agent_id, event.service_name)
         if not service_config:
             logger.error(f"[CONNECTION] No config found for {event.service_name}")
             return
@@ -72,12 +77,16 @@ class ConnectionManager:
         except Exception as e:
             logger.debug(f"[CONNECTION] Subscriber count check failed: {e}")
 
+        # Use configured timeout instead of hardcoded value
+        timeout = self._http_timeout_seconds
+        logger.debug(f"[CONNECTION] Using configured HTTP timeout: {timeout} seconds for {event.service_name}")
+
         # Publish connection request event (decoupled)
         connection_request = ServiceConnectionRequested(
             agent_id=event.agent_id,
             service_name=event.service_name,
             service_config=service_config,
-            timeout=3.0
+            timeout=timeout
         )
         # Use synchronous dispatch to avoid event-loop race during restart/initialization
         await self._event_bus.publish(connection_request, wait=True)
@@ -86,7 +95,7 @@ class ConnectionManager:
         """
         Handle connection request - execute actual connection
         """
-        logger.info(f"[CONNECTION] Connecting to: {event.service_name} (bus={hex(id(self._event_bus))})")
+        logger.info(f"[CONNECTION] Connecting to: {event.service_name} (bus={hex(id(self._event_bus))}, timeout={event.timeout}s)")
 
         start_time = asyncio.get_event_loop().time()
 
@@ -121,7 +130,11 @@ class ConnectionManager:
             await self._event_bus.publish(connected_event)
 
         except asyncio.TimeoutError:
-            logger.warning(f"[CONNECTION] Timeout: {event.service_name}")
+            elapsed = asyncio.get_event_loop().time() - start_time
+            logger.warning(
+                f"[CONNECTION] Timeout: {event.service_name} "
+                f"(configured={event.timeout}s, elapsed={elapsed:.3f}s)"
+            )
             await self._publish_connection_failed(
                 event, "Connection timeout", "timeout", 0
             )
@@ -162,19 +175,12 @@ class ConnectionManager:
         """Connect to local service"""
         from fastmcp import Client
 
-        # 1. Start local process
-        success, message = await self._local_service_manager.start_local_service(
-            service_name, service_config
-        )
-        if not success:
-            raise RuntimeError(f"Failed to start local service: {message}")
-
-        # 2. Process configuration
+        # 1. Process configuration
         processed_config = self._config_processor.process_user_config_for_fastmcp({
             "mcpServers": {service_name: service_config}
         })
 
-        # 3. Create client and connect
+        # 2. Create client and connect（FastMCP Client 会在 async with 中自动启动本地进程）
         client = Client(processed_config)
 
         async with asyncio.timeout(timeout):
@@ -266,7 +272,8 @@ class ConnectionManager:
             error_type=error_type,
             retry_count=retry_count
         )
-        await self._event_bus.publish(failed_event)
+        # 关键修复：使用 wait=True 确保状态更新完成，避免任务被取消导致状态不更新
+        await self._event_bus.publish(failed_event, wait=True)
 
     async def _on_reconnection_requested(self, event: 'ReconnectionRequested'):
         """
@@ -274,8 +281,8 @@ class ConnectionManager:
         """
         logger.info(f"[CONNECTION] Reconnection requested: {event.service_name} (retry={event.retry_count})")
 
-        # Get service configuration
-        service_config = self._get_service_config(event.agent_id, event.service_name)
+        # Get service configuration（使用异步版本）
+        service_config = await self._get_service_config_async(event.agent_id, event.service_name)
         if not service_config:
             logger.error(f"[CONNECTION] No config found for reconnection: {event.service_name}")
             return
@@ -289,46 +296,37 @@ class ConnectionManager:
         )
         await self._event_bus.publish(connection_request, wait=True)
 
-    def _get_service_config(self, agent_id: str, service_name: str) -> Dict[str, Any]:
-        """Get service configuration from cache"""
+    async def _get_service_config_async(self, agent_id: str, service_name: str) -> Dict[str, Any]:
+        """
+        从服务实体中获取服务配置（异步版本）
+        
+        在新架构中，服务配置存储在服务实体中（service_entity.config），
+        不再从 client_config 中获取。
+        """
         logger.debug(f"[CONNECTION] Getting config for {agent_id}:{service_name}")
 
-        # Get configuration strictly through client_id → client_config → mcpServers
-        client_id = self._registry.get_service_client_id(agent_id, service_name)
-        if not client_id:
-            msg = f"No client_id mapping found for {agent_id}:{service_name}"
-            logger.error(f"[CONNECTION] {msg}")
-            raise RuntimeError(msg)
-
-        logger.debug(f"[CONNECTION] Found client_id for {agent_id}:{service_name}: {client_id}")
-
-        client_config = self._registry.get_client_config_from_cache(client_id)
-        if not client_config:
-            msg = (
-                f"No client config found for client_id={client_id} "
-                f"when resolving service {service_name} (agent={agent_id})"
+        # 生成服务全局名称
+        service_global_name = self._registry._naming.generate_service_global_name(
+            service_name, agent_id
+        )
+        
+        # 从 pykv 获取服务实体
+        service_entity = await self._registry._cache_service_manager.get_service(
+            service_global_name
+        )
+        
+        if service_entity is None:
+            raise RuntimeError(
+                f"Service entity does not exist: service_name={service_name}, "
+                f"agent_id={agent_id}, global_name={service_global_name}"
             )
-            logger.error(f"[CONNECTION] {msg}")
-            raise RuntimeError(msg)
-
-        mcp_servers = client_config.get("mcpServers")
-        if not isinstance(mcp_servers, dict):
-            msg = (
-                f"Invalid client config for client_id={client_id}: "
-                f"'mcpServers' must be a dict, got {type(mcp_servers).__name__}"
+        
+        service_config = service_entity.config
+        if not service_config:
+            raise RuntimeError(
+                f"Service configuration is empty: service_name={service_name}, "
+                f"agent_id={agent_id}, global_name={service_global_name}"
             )
-            logger.error(f"[CONNECTION] {msg}")
-            raise RuntimeError(msg)
-
-        service_config = mcp_servers.get(service_name)
-        if not isinstance(service_config, dict) or not service_config:
-            msg = (
-                f"Service {service_name} not found in client config for client_id={client_id} "
-                f"(agent={agent_id})"
-            )
-            logger.error(f"[CONNECTION] {msg}")
-            raise RuntimeError(msg)
-
+        
         logger.debug(f"[CONNECTION] Found config for {service_name}: {list(service_config.keys())}")
         return service_config
-

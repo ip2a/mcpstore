@@ -20,7 +20,6 @@ import asyncio
 import functools
 import inspect
 import threading
-from contextlib import contextmanager, asynccontextmanager
 from typing import Any, Callable, Optional, Dict
 
 
@@ -33,13 +32,13 @@ class AtomicWriteLocks:
 
     Stored on an owning object as `._atomic_write_locks`.
 
-    ⚠️ NOTE: This class is now DEPRECATED in favor of AgentLocks.
+    NOTE: This class is now DEPRECATED in favor of AgentLocks.
     It's kept for backward compatibility but should not be used in new code.
     """
 
     def __init__(self) -> None:
         self._locks: Dict[str, asyncio.Lock] = {}
-        # 🔧 FIX: Use threading.Lock instead of asyncio.Lock for thread-safe creation
+        # FIX: Use threading.Lock instead of asyncio.Lock for thread-safe creation
         self._global_lock = threading.Lock()
 
     def get(self, agent_id: str) -> asyncio.Lock:
@@ -48,7 +47,7 @@ class AtomicWriteLocks:
         if lock is not None:
             return lock
 
-        # 🔧 FIX: Use threading lock to avoid deadlock when called from running event loop
+        # FIX: Use threading lock to avoid deadlock when called from running event loop
         # This is safe because we're only protecting the dictionary mutation, not async operations
         with self._global_lock:
             # Double-check pattern
@@ -117,7 +116,7 @@ def atomic_write(agent_id_param: str = "agent_id", use_lock: bool = True):
 
     Works with both async and sync methods.
 
-    ⚠️ IMPORTANT: When use_lock=True for sync methods called from async contexts,
+    IMPORTANT: When use_lock=True for sync methods called from async contexts,
     the decorator will skip internal locking and rely on external AgentLocks to avoid deadlock.
     """
 
@@ -172,7 +171,7 @@ def atomic_write(agent_id_param: str = "agent_id", use_lock: bool = True):
 
                 agent_id = _resolve_agent_id(fn, args, kwargs, agent_id_param)
 
-                # 🔧 FIX: Skip internal locking for sync methods to avoid deadlock
+                # FIX: Skip internal locking for sync methods to avoid deadlock
                 # when called from async contexts that already hold AgentLocks
                 lock = None
                 if use_lock and agent_id:

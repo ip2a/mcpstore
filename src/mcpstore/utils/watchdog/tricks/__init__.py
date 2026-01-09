@@ -34,7 +34,8 @@ import subprocess
 import threading
 import time
 
-from mcpstore.utils.watchdog.events import EVENT_TYPE_CLOSED_NO_WRITE, EVENT_TYPE_OPENED, FileSystemEvent, PatternMatchingEventHandler
+from mcpstore.utils.watchdog.events import EVENT_TYPE_CLOSED_NO_WRITE, EVENT_TYPE_OPENED, FileSystemEvent, \
+    PatternMatchingEventHandler
 from mcpstore.utils.watchdog.utils import echo, platform
 from mcpstore.utils.watchdog.utils.event_debouncer import EventDebouncer
 from mcpstore.utils.watchdog.utils.process_watcher import ProcessWatcher

@@ -45,18 +45,19 @@ class PersistenceManager:
         处理服务添加请求 - 异步持久化
         """
         logger.info(f"[PERSISTENCE] Persisting service: {event.service_name}")
+        target_name = event.global_name or event.service_name
         
         try:
             async with self._persistence_lock:
                 # 持久化到 mcp.json
-                await self._persist_to_mcp_json(event.service_name, event.service_config)
+                await self._persist_to_mcp_json(target_name, event.service_config)
             
-            logger.info(f"[PERSISTENCE] Service persisted: {event.service_name}")
+            logger.info(f"[PERSISTENCE] Service persisted: {target_name}")
             
             # 发布持久化完成事件
             persisted_event = ServicePersisted(
                 agent_id=event.agent_id,
-                service_name=event.service_name,
+                service_name=target_name,
                 file_path="mcp.json"
             )
             await self._event_bus.publish(persisted_event)
@@ -71,15 +72,18 @@ class PersistenceManager:
         # 读取当前配置
         current_config = self._config_manager.mcp_config.load_config()
 
+        # 使用全局名（若事件携带）
+        from mcpstore.core.events.service_events import ServiceAddRequested  # type hint
+        target_name = service_name
+
         # 更新配置
         if "mcpServers" not in current_config:
             current_config["mcpServers"] = {}
 
-        current_config["mcpServers"][service_name] = service_config
+        current_config["mcpServers"][target_name] = service_config
 
         # 保存配置
         success = self._config_manager.mcp_config.save_config(current_config)
 
         if not success:
             raise RuntimeError("Failed to save config to mcp.json")
-

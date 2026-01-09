@@ -1,6 +1,9 @@
 <template>
   <div class="external-link-page">
-    <el-card class="link-card" shadow="hover">
+    <el-card
+      class="link-card"
+      shadow="hover"
+    >
       <div class="link-content">
         <!-- 图标 -->
         <div class="link-icon">
@@ -10,10 +13,14 @@
         </div>
 
         <!-- 标题 -->
-        <h2 class="link-title">{{ title }}</h2>
+        <h2 class="link-title">
+          {{ title }}
+        </h2>
 
         <!-- 描述 -->
-        <p class="link-description">{{ description }}</p>
+        <p class="link-description">
+          {{ description }}
+        </p>
 
         <!-- URL 显示 -->
         <div class="link-url">
@@ -23,12 +30,23 @@
 
         <!-- 操作按钮 -->
         <div class="link-actions">
-          <el-button type="primary" size="large" @click="openInNewTab">
-            <el-icon class="mr-2"><TopRight /></el-icon>
+          <el-button
+            type="primary"
+            size="large"
+            @click="openInNewTab"
+          >
+            <el-icon class="mr-2">
+              <TopRight />
+            </el-icon>
             Open in New Tab
           </el-button>
-          <el-button size="large" @click="copyLink">
-            <el-icon class="mr-2"><CopyDocument /></el-icon>
+          <el-button
+            size="large"
+            @click="copyLink"
+          >
+            <el-icon class="mr-2">
+              <CopyDocument />
+            </el-icon>
             Copy Link
           </el-button>
         </div>

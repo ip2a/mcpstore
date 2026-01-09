@@ -22,6 +22,7 @@ from .service_events import (
     ServiceInitialized,
     ServiceConnectionRequested,
     HealthCheckRequested,
+    ServiceAddRequested,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,10 +58,12 @@ class EventBus:
 
         logger.info(f"EventBus initialized id={hex(id(self))}")
         # 关键事件白名单：这些事件将被强制以同步方式派发（wait=True）
+        # ServiceAddRequested 必须同步执行，确保缓存操作完成后再继续
         self._critical_sync_events = (
             ServiceInitialized,
             ServiceConnectionRequested,
             HealthCheckRequested,
+            ServiceAddRequested,
         )
 
     def subscribe(
@@ -122,6 +125,12 @@ class EventBus:
         is_critical = isinstance(event, self._critical_sync_events)
         if is_critical and not wait:
             logger.debug(f"[BUS {hex(id(self))}] Critical event {event.__class__.__name__} forcing wait=True")
+            wait = True
+
+        # 使 ServiceCached 也同步执行，避免生命周期初始化被取消
+        from .service_events import ServiceCached
+        if isinstance(event, ServiceCached) and not wait:
+            logger.debug(f"[BUS {hex(id(self))}] ServiceCached forcing wait=True to ensure lifecycle init")
             wait = True
         logger.debug(f"[BUS {hex(id(self))}] Publishing event: {event.__class__.__name__} (id={event.event_id}) wait={wait}")
 
@@ -222,4 +231,3 @@ class EventBus:
         else:
             self._subscribers.clear()
             logger.debug("Unsubscribed all handlers from all events")
-

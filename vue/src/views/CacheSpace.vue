@@ -1,696 +1,738 @@
 <template>
-  <div class="cache-space">
-    <!-- Page Header -->
-    <div class="page-header">
+  <div class="cache-space-container">
+    <!-- Header -->
+    <header class="page-header">
       <div class="header-content">
-        <div class="header-title">
-          <h1>缓存空间</h1>
-          <p class="subtitle">查看和监控系统缓存数据（只读）</p>
-        </div>
-        <div class="header-actions">
-          <el-button
-            type="primary"
-            :icon="Refresh"
-            @click="refreshCache"
-            :loading="loading"
-          >
-            刷新
-          </el-button>
-        </div>
+        <h1 class="page-title">
+          Cache Inspector
+        </h1>
+        <p class="page-subtitle">
+          Inspect and monitor system cache state
+        </p>
       </div>
+      <div class="header-actions">
+        <el-button 
+          :icon="Refresh" 
+          :loading="loading.stats" 
+          circle
+          plain
+          class="refresh-btn"
+          @click="initialize"
+        />
+      </div>
+    </header>
+
+    <!-- KPI Grid -->
+    <div class="kpi-grid">
+      <StatCard
+        title="Total Entities"
+        :value="totalEntities"
+        :icon="Coin"
+        class="kpi-card"
+      />
+      <StatCard
+        title="Total Relations"
+        :value="totalRelations"
+        :icon="Connection"
+        class="kpi-card"
+      />
+       <StatCard
+        title="Total States"
+        :value="totalStates"
+        :icon="Bell"
+        class="kpi-card"
+      />
     </div>
 
-    <!-- Stats Cards -->
-    <el-row :gutter="20" class="stats-cards">
-      <el-col :xs="24" :sm="8">
-        <div class="stat-card">
-          <div class="stat-icon cache">
-            <el-icon size="24"><Coin /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ totalKeys }}</div>
-            <div class="stat-label">缓存键总数</div>
-          </div>
-        </div>
-      </el-col>
-      <el-col :xs="24" :sm="8">
-        <div class="stat-card">
-          <div class="stat-icon service">
-            <el-icon size="24"><Connection /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ serviceKeys }}</div>
-            <div class="stat-label">服务缓存</div>
-          </div>
-        </div>
-      </el-col>
-      <el-col :xs="24" :sm="8">
-        <div class="stat-card">
-          <div class="stat-icon tool">
-            <el-icon size="24"><Tools /></el-icon>
-          </div>
-          <div class="stat-content">
-            <div class="stat-value">{{ toolKeys }}</div>
-            <div class="stat-label">工具缓存</div>
-          </div>
-        </div>
-      </el-col>
-    </el-row>
-
-    <!-- Main Content -->
-    <el-row :gutter="20">
-      <!-- Left Side: Cache Keys List -->
-      <el-col :span="8">
-        <el-card class="keys-card">
-          <template #header>
-            <div class="card-header">
-              <span>缓存键列表</span>
-              <el-input
-                v-model="searchQuery"
-                placeholder="搜索键名..."
-                size="small"
-                :prefix-icon="Search"
-                clearable
-              />
+    <!-- Main Layout -->
+    <div class="main-layout">
+      <!-- Left Panel: Keys List -->
+      <div class="panel-column left-col">
+        <section class="panel-section full-height">
+          <!-- Layer Tabs -->
+          <div class="tabs-header layer-tabs">
+            <div 
+              v-for="layer in ['entities', 'relations', 'states']"
+              :key="layer"
+              class="tab-item" 
+              :class="{ active: activeLayer === layer }"
+              @click="activeLayer = layer"
+            >
+              {{ layer.charAt(0).toUpperCase() + layer.slice(1) }}
             </div>
-          </template>
+          </div>
           
-          <!-- Category Tabs -->
-          <el-tabs v-model="activeCategory" @tab-change="handleCategoryChange">
-            <el-tab-pane label="全部" name="all">
-              <div class="keys-list">
-                <div
-                  v-for="key in filteredKeys"
-                  :key="key.key"
-                  class="key-item"
-                  :class="{ active: selectedKey?.key === key.key }"
-                  @click="selectKey(key)"
-                >
-                  <div class="key-info">
-                    <div class="key-icon">
-                      <el-icon><Key /></el-icon>
-                    </div>
-                    <div class="key-details">
-                      <div class="key-name">{{ key.key }}</div>
-                      <div class="key-meta">
-                        <el-tag size="small" :type="getCategoryTag(key.category)">
-                          {{ key.category }}
-                        </el-tag>
-                        <span class="key-type">{{ key.type }}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </el-tab-pane>
-            <el-tab-pane label="服务" name="service" />
-            <el-tab-pane label="工具" name="tool" />
-            <el-tab-pane label="配置" name="config" />
-            <el-tab-pane label="状态" name="status" />
-          </el-tabs>
-
-          <template #footer>
-            <div class="keys-footer">
-              <span>共 {{ filteredKeys.length }} 个缓存键</span>
+          <!-- Type Filters -->
+          <div class="tabs-header type-filters">
+            <div
+              class="tab-item small"
+              :class="{ active: activeType === 'all' }"
+              @click="activeType = 'all'"
+            >
+              All
             </div>
-          </template>
-        </el-card>
-      </el-col>
+            <div 
+              v-for="type in layerTypes" 
+              :key="type"
+              class="tab-item small" 
+              :class="{ active: activeType === type }"
+              @click="activeType = type"
+            >
+              {{ type }} ({{ stats[activeLayer]?.[type] || 0 }})
+            </div>
+          </div>
+          
+          <div class="panel-header">
+            <h3 class="panel-title">
+              Keys
+            </h3>
+            <div class="panel-controls">
+              <div class="search-wrapper">
+                <el-icon class="search-icon">
+                  <Search />
+                </el-icon>
+                <input
+                  v-model="searchQuery"
+                  class="atom-input small"
+                  placeholder="Filter by key..."
+                  @input="handleSearch"
+                >
+              </div>
+            </div>
+          </div>
 
-      <!-- Right Side: Cache Value Display -->
-      <el-col :span="16">
-        <el-card v-if="selectedKey" class="value-card">
-          <template #header>
-            <div class="value-header">
-              <div class="header-info">
-                <h3>{{ selectedKey.key }}</h3>
-                <div class="header-tags">
-                  <el-tag size="small" :type="getCategoryTag(selectedKey.category)">
-                    {{ selectedKey.category }}
-                  </el-tag>
-                  <el-tag size="small" type="info">{{ selectedKey.type }}</el-tag>
-                  <el-tag v-if="selectedKey.ttl > 0" size="small" type="warning">
-                    TTL: {{ formatTTL(selectedKey.ttl) }}
-                  </el-tag>
-                  <el-tag v-else size="small" type="success">永久</el-tag>
+          <div class="panel-body keys-list">
+            <div 
+              v-for="key in keysList" 
+              :key="key.key" 
+              class="key-item" 
+              :class="{ active: selectedKey?.key === key.key }"
+              @click="selectKey(key)"
+            >
+              <div class="key-icon">
+                <el-icon><Key /></el-icon>
+              </div>
+              <div class="key-content">
+                <span
+                  class="key-name"
+                  :title="key.key"
+                >{{ key.key }}</span>
+                <div class="key-meta">
+                  <span :class="['tag', key.category]">{{ key.category }}</span>
+                  <span class="type">{{ key.originalType }}</span>
                 </div>
               </div>
-              <div class="header-actions">
-                <el-button
-                  size="small"
-                  :icon="CopyDocument"
+            </div>
+             
+            <div
+              v-if="keysList.length === 0 && !loading.list"
+              class="empty-state small"
+            >
+              No keys found.
+            </div>
+             <div
+              v-if="loading.list"
+              class="empty-state small"
+            >
+              Loading...
+            </div>
+          </div>
+          <div class="panel-footer">
+            <span>Showing {{ keysList.length }} keys</span>
+          </div>
+        </section>
+      </div>
+
+      <!-- Right Panel: Value Inspector -->
+      <div class="panel-column right-col">
+        <section class="panel-section full-height">
+          <div
+            v-if="selectedKey"
+            class="value-inspector"
+          >
+            <div class="inspector-header">
+              <div class="key-title">
+                <h3>{{ selectedKey.key }}</h3>
+                <div class="meta-badges">
+                  <span class="badge">{{ (selectedKey.type || 'unknown').toUpperCase() }}</span>
+                  <span class="badge size">{{ formatSize(selectedKey.size) }}</span>
+                  <span
+                    class="badge ttl"
+                    :class="{ infinite: selectedKey.ttl < 0 }"
+                  >
+                    {{ formatTTL(selectedKey.ttl) }}
+                  </span>
+                </div>
+              </div>
+              <div class="actions">
+                <button
+                  class="text-btn"
                   @click="copyValue"
                 >
-                  复制值
-                </el-button>
-                <el-button
-                  size="small"
-                  :icon="Download"
+                  Copy
+                </button>
+                <button
+                  class="text-btn"
                   @click="exportValue"
                 >
-                  导出
-                </el-button>
+                  Export
+                </button>
               </div>
             </div>
-          </template>
-
-          <!-- Cache Value Display -->
-          <div class="value-container">
-            <el-descriptions :column="1" border class="value-meta">
-              <el-descriptions-item label="键名">
-                {{ selectedKey.key }}
-              </el-descriptions-item>
-              <el-descriptions-item label="类型">
-                {{ selectedKey.type }}
-              </el-descriptions-item>
-              <el-descriptions-item label="分类">
-                {{ selectedKey.category }}
-              </el-descriptions-item>
-              <el-descriptions-item label="大小">
-                {{ formatSize(selectedKey.size) }}
-              </el-descriptions-item>
-              <el-descriptions-item label="创建时间">
-                {{ formatTime(selectedKey.created_at) }}
-              </el-descriptions-item>
-              <el-descriptions-item label="更新时间">
-                {{ formatTime(selectedKey.updated_at) }}
-              </el-descriptions-item>
-            </el-descriptions>
-
-            <el-divider content-position="left">缓存值</el-divider>
-
-            <!-- Value Display based on type -->
-            <div class="value-display">
-              <!-- String/JSON Display -->
-              <el-input
+              
+            <div class="inspector-body">
+              <div
                 v-if="['string', 'json', 'object'].includes(selectedKey.type)"
-                v-model="displayValue"
-                type="textarea"
-                :rows="20"
-                readonly
-                class="value-textarea"
-              />
-
-              <!-- Hash Display -->
-              <el-table
-                v-else-if="selectedKey.type === 'hash'"
-                :data="hashTableData"
-                stripe
-                border
+                class="code-view"
               >
-                <el-table-column prop="field" label="字段" width="200" />
-                <el-table-column prop="value" label="值" show-overflow-tooltip />
-              </el-table>
-
-              <!-- List Display -->
-              <el-table
-                v-else-if="selectedKey.type === 'list'"
-                :data="listTableData"
-                stripe
-                border
-              >
-                <el-table-column type="index" label="索引" width="80" />
-                <el-table-column prop="value" label="值" show-overflow-tooltip />
-              </el-table>
-
-              <!-- Set Display -->
-              <div v-else-if="selectedKey.type === 'set'" class="set-display">
-                <el-tag
-                  v-for="(item, idx) in selectedKey.value"
-                  :key="idx"
-                  size="large"
-                  class="set-tag"
-                >
-                  {{ item }}
-                </el-tag>
+                <textarea
+                  readonly
+                  class="code-editor"
+                  :value="displayValue"
+                />
+              </div>
+            </div>
+              
+            <div class="inspector-footer">
+              <div class="time-info">
+                <span>Created: {{ formatTime(selectedKey.created_at) }}</span>
+                <span>Updated: {{ formatTime(selectedKey.updated_at) }}</span>
               </div>
             </div>
           </div>
-        </el-card>
-
-        <!-- Empty State -->
-        <el-card v-else class="empty-card">
-          <el-empty description="请从左侧选择一个缓存键" />
-        </el-card>
-      </el-col>
-    </el-row>
+           
+          <div
+            v-else
+            class="empty-state"
+          >
+            <el-icon class="icon">
+              <Coin />
+            </el-icon>
+            <p>Select a key to inspect value.</p>
+          </div>
+        </section>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import StatCard from '@/components/common/StatCard.vue'
+import { cacheApi } from '@/api/cache'
+import { debounce } from 'lodash-es'
 import {
-  Refresh, Coin, Connection, Tools, Search, Key, CopyDocument, Download
+  Refresh, Coin, Connection, Bell, Search, Key
 } from '@element-plus/icons-vue'
 
 // State
-const loading = ref(false)
+const loading = ref({ list: false, stats: false })
 const searchQuery = ref('')
-const activeCategory = ref('all')
+const activeLayer = ref('entities')
+const activeType = ref('all')
+const keysList = ref([])
 const selectedKey = ref(null)
+const stats = ref({}) // To store counts from inspect API
 
-// Mock Cache Data (虚拟数据)
-const cacheKeys = ref([
-  {
-    key: 'store:services:list',
-    category: 'service',
-    type: 'json',
-    value: JSON.stringify({
-      services: [
-        { name: 'weather-api', status: 'healthy', tools_count: 5 },
-        { name: 'local-tool', status: 'active', tools_count: 3 }
-      ]
-    }, null, 2),
-    size: 2048,
-    ttl: -1,
-    created_at: Date.now() - 86400000,
-    updated_at: Date.now() - 3600000
-  },
-  {
-    key: 'store:tools:list',
-    category: 'tool',
-    type: 'json',
-    value: JSON.stringify({
-      tools: [
-        { name: 'get_weather', service: 'weather-api', description: 'Get weather data' },
-        { name: 'search_tool', service: 'local-tool', description: 'Search information' }
-      ]
-    }, null, 2),
-    size: 1536,
-    ttl: -1,
-    created_at: Date.now() - 43200000,
-    updated_at: Date.now() - 1800000
-  },
-  {
-    key: 'service:weather-api:status',
-    category: 'status',
-    type: 'hash',
-    value: {
-      status: 'healthy',
-      last_check: new Date().toISOString(),
-      response_time: '123ms',
-      consecutive_successes: 50
-    },
-    size: 512,
-    ttl: 300,
-    created_at: Date.now() - 7200000,
-    updated_at: Date.now() - 60000
-  },
-  {
-    key: 'config:mcp.json',
-    category: 'config',
-    type: 'json',
-    value: JSON.stringify({
-      mcpServers: {
-        'sequential-thinking': {
-          command: 'npx',
-          args: ['-y', '@modelcontextprotocol/server-sequential-thinking']
-        }
-      }
-    }, null, 2),
-    size: 1024,
-    ttl: -1,
-    created_at: Date.now() - 172800000,
-    updated_at: Date.now() - 7200000
-  },
-  {
-    key: 'tool:records:recent',
-    category: 'tool',
-    type: 'list',
-    value: [
-      'get_weather: Beijing -> 22°C',
-      'search_tool: AI -> 100 results',
-      'get_weather: Shanghai -> 25°C'
-    ],
-    size: 768,
-    ttl: 3600,
-    created_at: Date.now() - 3600000,
-    updated_at: Date.now() - 300000
-  },
-  {
-    key: 'service:tags',
-    category: 'service',
-    type: 'set',
-    value: ['weather', 'tool', 'api', 'mcp', 'stdio'],
-    size: 256,
-    ttl: -1,
-    created_at: Date.now() - 86400000,
-    updated_at: Date.now() - 86400000
+// Computed: KPI Totals
+const totalEntities = computed(() => Object.values(stats.value.entities || {}).reduce((a, b) => a + b, 0))
+const totalRelations = computed(() => Object.values(stats.value.relations || {}).reduce((a, b) => a + b, 0))
+const totalStates = computed(() => Object.values(stats.value.states || {}).reduce((a, b) => a + b, 0))
+
+// Computed: Dynamic Types for selected layer
+const layerTypes = computed(() => {
+  if (stats.value && stats.value[activeLayer.value]) {
+    return Object.keys(stats.value[activeLayer.value])
   }
-])
-
-// Computed
-const filteredKeys = computed(() => {
-  let keys = cacheKeys.value
-
-  // Category filter
-  if (activeCategory.value !== 'all') {
-    keys = keys.filter(k => k.category === activeCategory.value)
-  }
-
-  // Search filter
-  if (searchQuery.value) {
-    const query = searchQuery.value.toLowerCase()
-    keys = keys.filter(k => k.key.toLowerCase().includes(query))
-  }
-
-  return keys
+  return []
 })
 
-const totalKeys = computed(() => cacheKeys.value.length)
-const serviceKeys = computed(() => cacheKeys.value.filter(k => k.category === 'service').length)
-const toolKeys = computed(() => cacheKeys.value.filter(k => k.category === 'tool').length)
-
+// Computed: Value Display
 const displayValue = computed(() => {
   if (!selectedKey.value) return ''
-  
-  if (typeof selectedKey.value.value === 'string') {
-    return selectedKey.value.value
-  }
-  
-  return JSON.stringify(selectedKey.value.value, null, 2)
+  const { value } = selectedKey.value
+  return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
 })
 
-const hashTableData = computed(() => {
-  if (!selectedKey.value || selectedKey.value.type !== 'hash') return []
-  
-  return Object.entries(selectedKey.value.value).map(([field, value]) => ({
-    field,
-    value: typeof value === 'object' ? JSON.stringify(value) : String(value)
-  }))
-})
+// --- Methods ---
 
-const listTableData = computed(() => {
-  if (!selectedKey.value || selectedKey.value.type !== 'list') return []
-  
-  return selectedKey.value.value.map(value => ({ value }))
-})
-
-// Methods
-const refreshCache = async () => {
-  loading.value = true
+// Initialization
+const initialize = async () => {
+  loading.value.stats = true
   try {
-    // TODO: 调用实际的 API 接口获取缓存数据
-    await new Promise(resolve => setTimeout(resolve, 500))
-    ElMessage.success('缓存数据已刷新')
-  } catch (error) {
-    ElMessage.error('刷新失败: ' + error.message)
+    const res = await cacheApi.inspect()
+    const payload = res?.data
+    console.log('Cache Inspector Initialized:', payload) // Debug log
+    // TODO: 后续统一在 cacheApi 中解包响应，避免在视图层手动访问 Axios 响应
+    if (payload?.success && payload.data?.counts) {
+      stats.value = payload.data.counts
+      ElMessage.success('Stats refreshed')
+      // Trigger initial data fetch
+      if (!layerTypes.value.includes(activeType.value)) {
+        activeType.value = 'all'
+      } else {
+        fetchData() // Re-fetch if type still valid
+      }
+    } else {
+      console.warn('Inspect API returned invalid data:', payload)
+      stats.value = {}
+    }
+  } catch (e) {
+    ElMessage.error(e.message || 'Failed to load stats')
+    console.error('Inspect API Error:', e)
+    stats.value = {}
   } finally {
-    loading.value = false
+    loading.value.stats = false
   }
 }
+
+// Data Fetching
+const fetchData = async () => {
+  loading.value.list = true
+  selectedKey.value = null
+  keysList.value = []
+  
+  try {
+    let res
+    const params = {}
+    if (searchQuery.value) params.key = searchQuery.value
+    if (activeType.value !== 'all') params.type = activeType.value
+
+    const apiMap = {
+      entities: cacheApi.getEntities,
+      relations: cacheApi.getRelations,
+      states: cacheApi.getStates
+    }
+
+    const apiMethod = apiMap[activeLayer.value]
+    if (apiMethod) {
+      res = await apiMethod(params)
+    }
+
+    const payload = res?.data
+    // TODO: 后续统一在 cacheApi 中解包响应，减少以下重复逻辑
+    if (payload?.success) {
+      const items = payload.data?.items || []
+      keysList.value = items.map(item => {
+        const { _key, _type, ...value } = item
+        return {
+          key: _key || `unknown:${Math.random()}`,
+          originalType: _type,
+          category: _type?.split('_')[0] || 'unknown',
+          type: typeof value === 'object' ? 'json' : 'string',
+          value,
+          size: JSON.stringify(value).length,
+          ttl: item.ttl || -1,
+          created_at: item.created_at,
+          updated_at: item.updated_at
+        }
+      })
+    }
+  } catch (e) {
+    ElMessage.error(e.message || 'Failed to load data')
+    console.error(e)
+  } finally {
+    loading.value.list = false
+  }
+}
+
+// Event Handlers
+const handleSearch = debounce(() => {
+  fetchData()
+}, 300)
 
 const selectKey = (key) => {
   selectedKey.value = key
 }
 
-const handleCategoryChange = () => {
-  selectedKey.value = null
-}
-
-const getCategoryTag = (category) => {
-  const tags = {
-    service: 'primary',
-    tool: 'success',
-    config: 'warning',
-    status: 'info'
+// Watchers
+watch(activeLayer, (newLayer, oldLayer) => {
+  if (newLayer !== oldLayer) {
+    activeType.value = 'all' // Reset to 'all' when layer changes
+    fetchData() // Explicitly fetch data for the new layer
   }
-  return tags[category] || 'info'
-}
+})
 
+watch(activeType, () => {
+  searchQuery.value = '' // Reset search on type change
+  fetchData()
+})
+
+// Lifecycle
+onMounted(() => {
+  initialize()
+})
+
+// --- Utility Functions ---
 const formatTTL = (seconds) => {
-  if (seconds < 0) return '永久'
-  if (seconds < 60) return `${seconds}秒`
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}分钟`
-  return `${Math.floor(seconds / 3600)}小时`
+  if (seconds === null || seconds === undefined || seconds < 0) return '∞'
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
+  return `${Math.floor(seconds / 3600)}h`
 }
 
 const formatSize = (bytes) => {
+  if (!bytes) return '0 B'
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
 }
 
-const formatTime = (timestamp) => {
-  return new Date(timestamp).toLocaleString('zh-CN')
+const formatTime = (ts) => {
+  if (!ts) return '-'
+  return new Date(ts).toLocaleString()
 }
 
 const copyValue = async () => {
+  if (!selectedKey.value) return
   try {
     await navigator.clipboard.writeText(displayValue.value)
-    ElMessage.success('已复制到剪贴板')
-  } catch (error) {
-    ElMessage.error('复制失败: ' + error.message)
+    ElMessage.success('Copied')
+  } catch {
+    ElMessage.error('Copy failed')
   }
 }
 
 const exportValue = () => {
   if (!selectedKey.value) return
-
   const blob = new Blob([displayValue.value], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `${selectedKey.value.key.replace(/:/g, '_')}.json`
-  link.click()
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${selectedKey.value.key.replace(/:/g, '_')}.json`
+  a.click()
   URL.revokeObjectURL(url)
-  ElMessage.success('已导出')
 }
-
-// Lifecycle
-onMounted(() => {
-  // Auto select first key
-  if (cacheKeys.value.length > 0) {
-    selectedKey.value = cacheKeys.value[0]
-  }
-})
 </script>
 
-<style scoped>
-.cache-space {
+<style lang="scss" scoped>
+.cache-space-container {
+  max-width: 1400px;
+  margin: 0 auto;
   padding: 20px;
+  width: 100%;
 }
 
+// Header
 .page-header {
-  margin-bottom: 20px;
-}
-
-.header-content {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-end;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
 }
 
-.header-title h1 {
-  margin: 0 0 4px 0;
-  font-size: 24px;
+.page-title {
+  font-size: 20px;
   font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
 }
 
-.subtitle {
-  margin: 0;
-  color: var(--el-text-color-secondary);
-  font-size: 14px;
+.page-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
-.header-actions {
-  display: flex;
-  gap: 12px;
+.refresh-btn {
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+  &:hover { color: var(--text-primary); background: transparent; border-color: var(--text-secondary); }
 }
 
-/* Stats Cards */
-.stats-cards {
-  margin-bottom: 20px;
-}
-
-.stat-card {
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  padding: 20px;
-  display: flex;
-  align-items: center;
+// KPI
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
-  background: var(--el-bg-color);
-  border-radius: 8px;
+  margin-bottom: 24px;
+  
+  @media (max-width: 768px) { grid-template-columns: 1fr; }
 }
 
-.stat-icon {
-  width: 50px;
-  height: 50px;
-  border-radius: 8px;
+.kpi-card { height: 100%; }
+
+// Layout
+.main-layout {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 24px;
+  height: calc(100vh - 320px); // Adjusted height
+  min-height: 500px;
+  
+  @media (max-width: 900px) {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+}
+
+.panel-column {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
+  flex-direction: column;
+  gap: 24px;
 }
 
-.stat-icon.cache {
-  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+.panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  &.full-height { height: 100%; }
 }
 
-.stat-icon.service {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-}
-
-.stat-icon.tool {
-  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-}
-
-.stat-content {
-  flex: 1;
-}
-
-.stat-value {
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
-}
-
-.stat-label {
-  font-size: 14px;
-  color: var(--el-text-color-secondary);
-}
-
-/* Keys Card */
-.keys-card {
-  min-height: 600px;
-}
-
-.card-header {
+.panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  margin-bottom: 12px;
+  border-top: 1px solid var(--border-color);
+  padding-top: 12px;
+  
+  .panel-title {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    letter-spacing: 0.05em;
+  }
 }
 
+.panel-body {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-footer {
+  font-size: 11px;
+  color: var(--text-placeholder);
+  text-align: center;
+  margin-top: 8px;
+}
+
+// Search & Tabs
+.search-wrapper {
+  position: relative;
+  .search-icon {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-placeholder);
+    font-size: 12px;
+  }
+  .atom-input {
+    border: 1px solid var(--border-color);
+    background: var(--bg-surface);
+    padding: 4px 8px 4px 24px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text-primary);
+    width: 140px;
+    &:focus { outline: none; border-color: var(--text-secondary); }
+  }
+}
+
+.tabs-header {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+  
+  &.layer-tabs {
+    margin-bottom: 16px;
+    .tab-item {
+      font-size: 14px;
+      padding: 6px 12px;
+      font-weight: 600;
+    }
+  }
+
+  &.type-filters {
+    margin-bottom: 12px;
+    .tab-item {
+      font-size: 11px;
+      padding: 4px 8px;
+      font-weight: 500;
+      &.small { // ensure consistent naming if needed
+        font-size: 11px;
+        padding: 4px 8px;
+        font-weight: 500;
+      }
+    }
+  }
+  
+  .tab-item {
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+    
+    &:hover { background: var(--bg-hover); color: var(--text-primary); }
+    &.active { background: var(--text-primary); color: var(--bg-surface); }
+  }
+}
+
+// Keys List
 .keys-list {
-  max-height: 450px;
   overflow-y: auto;
+  padding: 8px;
 }
 
 .key-item {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 12px;
+  gap: 12px;
+  padding: 10px;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
-  margin-bottom: 8px;
+  border: 1px solid transparent;
+  
+  &:hover { background: var(--bg-hover); }
+  &.active { background: var(--bg-hover); border-color: var(--border-color); }
+  
+  .key-icon { font-size: 16px; color: var(--text-secondary); }
+  
+  .key-content {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    
+    .key-name { 
+      font-size: 13px; 
+      font-weight: 500; 
+      color: var(--text-primary); 
+      white-space: nowrap; 
+      overflow: hidden; 
+      text-overflow: ellipsis; 
+    }
+    
+    .key-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 2px;
+      
+      .tag { 
+        font-size: 9px; 
+        text-transform: uppercase; 
+        font-weight: 700;
+        
+        &.service, &.entities { color: var(--color-accent); }
+        &.tool { color: var(--color-success); }
+        &.config, &.states { color: var(--color-warning); }
+        &.relations { color: #9333ea; } // A new color for relations
+      }
+      
+      .type { font-size: 10px; color: var(--text-placeholder); }
+    }
+  }
 }
 
-.key-item:hover {
-  background: var(--el-fill-color-light);
-}
-
-.key-item.active {
-  background: var(--el-color-primary-light-9);
-  border: 1px solid var(--el-color-primary);
-}
-
-.key-info {
+// Value Inspector
+.value-inspector {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 1;
+  flex-direction: column;
+  height: 100%;
 }
 
-.key-icon {
-  font-size: 20px;
-  color: var(--el-color-primary);
-}
-
-.key-details {
-  flex: 1;
-  min-width: 0;
-}
-
-.key-name {
-  font-weight: 600;
-  margin-bottom: 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.key-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-}
-
-.key-type {
-  color: var(--el-text-color-secondary);
-}
-
-.keys-footer {
-  text-align: center;
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-}
-
-/* Value Card */
-.value-card {
-  min-height: 600px;
-}
-
-.value-header {
+.inspector-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--border-color);
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  
+  .key-title {
+    h3 { margin: 0 0 8px; font-size: 16px; word-break: break-all; color: var(--text-primary); }
+    .meta-badges {
+      display: flex;
+      gap: 8px;
+      
+      .badge {
+        font-size: 10px;
+        font-weight: 700;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: var(--bg-hover);
+        color: var(--text-secondary);
+        
+        &.ttl { 
+           &.infinite { color: var(--color-success); background: #dcfce7; }
+        }
+      }
+    }
+  }
+  
+  .actions {
+    display: flex;
+    gap: 8px;
+  }
 }
 
-.header-info h3 {
-  margin: 0 0 8px 0;
-  font-size: 16px;
-  word-break: break-all;
-}
-
-.header-tags {
+.inspector-body {
+  flex: 1;
+  overflow: hidden;
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  
+  .code-view { flex: 1; position: relative; }
+  .code-editor {
+    width: 100%;
+    height: 100%;
+    border: none;
+    resize: none;
+    padding: 16px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.5;
+    background: var(--bg-body);
+    color: var(--text-primary);
+    box-sizing: border-box;
+    &:focus { outline: none; }
+  }
 }
 
-.header-actions {
+.inspector-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-hover);
+  
+  .time-info {
+    display: flex;
+    gap: 16px;
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+}
+
+.text-btn {
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  &:hover { color: var(--text-primary); border-color: var(--text-primary); }
+}
+
+.empty-state {
   display: flex;
-  gap: 8px;
-}
-
-.value-container {
-  margin-top: 16px;
-}
-
-.value-meta {
-  margin-bottom: 20px;
-}
-
-.value-display {
-  margin-top: 12px;
-}
-
-.value-textarea :deep(textarea) {
-  font-family: 'Courier New', Consolas, monospace;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.set-display {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.set-tag {
-  padding: 8px 12px;
-}
-
-.empty-card {
-  min-height: 600px;
-  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  height: 100%;
+  color: var(--text-placeholder);
+  
+  .icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
+  &.small { font-size: 12px; font-style: italic; }
 }
 </style>
-

@@ -6,6 +6,8 @@ All data is retrieved on demand from registry/cache to ensure freshness.
 
 from typing import Any, Dict, List, TYPE_CHECKING
 
+from mcpstore.core.models.tool import ToolInfo
+
 if TYPE_CHECKING:
     from .base_context import MCPStoreContext
     from .service_proxy import ServiceProxy
@@ -35,74 +37,63 @@ class StoreProxy:
 
     # ---- Lists & queries ----
     def list_services(self, *args, **kwargs) -> List[Dict[str, Any]]:
-        # Delegates to context.list_services() which returns model objects; coerce to dicts (prefer Pydantic v2 model_dump)
-        items = self._context.list_services(*args, **kwargs)
-        result: List[Dict[str, Any]] = []
-        for s in items:
-            if hasattr(s, "model_dump"):
-                try:
-                    result.append(s.model_dump())
-                    continue
-                except Exception:
-                    pass
-            if hasattr(s, "dict"):
-                try:
-                    result.append(s.dict())
-                    continue
-                except Exception:
-                    pass
-            result.append(s if isinstance(s, dict) else {"value": str(s)})
-        return result
+        # 直接返回 ServiceInfo 模型列表，调用方如需 JSON 可自行 model_dump()
+        return self._context.list_services(*args, **kwargs)
 
-    def list_tools(self, *args, **kwargs) -> List[Dict[str, Any]]:
-        items = self._context.list_tools(*args, **kwargs)
-        result: List[Dict[str, Any]] = []
-        for t in items:
-            if isinstance(t, dict):
-                result.append(t)
-                continue
-            if hasattr(t, "model_dump"):
-                try:
-                    result.append(t.model_dump())
-                    continue
-                except Exception:
-                    pass
-            if hasattr(t, "dict"):
-                try:
-                    result.append(t.dict())
-                    continue
-                except Exception:
-                    pass
-            result.append({"name": getattr(t, "name", str(t))})
-        return result
+    def list_tools(self, *args, **kwargs):
+        """
+        列出工具列表
+        
+        直接返回 ToolInfo 对象列表，不转换为字典。
+        
+        Returns:
+            List[ToolInfo]: 工具列表
+        """
+        return self._context.list_tools(*args, **kwargs)
 
     def find_service(self, name: str) -> "ServiceProxy":
         from .service_proxy import ServiceProxy
         return ServiceProxy(self._context, name)
 
     def list_agents(self) -> List[Dict[str, Any]]:
-        # Aggregate from registry cache with agent→global mapping
+        # 同步方法，使用异步桥在统一事件循环中执行
+        return self._context._run_async_via_bridge(
+            self.list_agents_async(),
+            op_name="store_proxy.list_agents"
+        )
+
+    async def list_agents_async(self) -> List[Dict[str, Any]]:
         registry = self._context._store.registry
         global_agent_id = self._context._store.client_manager.global_agent_store_id
-        agent_ids = registry.get_all_agent_ids()
+        agent_ids = set(await registry.get_all_agent_ids_async() or [])
+        agent_ids.add(global_agent_id)
+
+        # 读取 Agent 元数据（可选）
+        agents_entities = await registry._cache_layer_manager.get_all_entities_async("agents") or {}
 
         result: List[Dict[str, Any]] = []
-        for agent_id in agent_ids:
-            client_ids = registry.get_agent_clients_from_cache(agent_id)
-            # Use mapping to get this agent's global services
-            global_service_names = registry.get_agent_services(agent_id) or []
+        for agent_id in sorted(agent_ids):
+            # 从 pykv 获取 Agent 客户端
+            client_ids = await registry.get_agent_clients_async(agent_id)
+            # Agent 服务列表（全局名）
+            global_service_names = await registry.get_agent_services_async(agent_id) or []
             tool_count = 0
             healthy = 0
             unhealthy = 0
             for gname in global_service_names:
-                tools = registry.get_tools_for_service(global_agent_id, gname) or []
+                tools = await registry.get_tools_for_service_async(global_agent_id, gname) or []
                 tool_count += len(tools)
-                state = registry._service_state_service.get_service_state(global_agent_id, gname)
+                state = await registry._service_state_service.get_service_state_async(
+                    global_agent_id,
+                    gname
+                )
                 state_value = getattr(state, "value", str(state))
                 if state_value in ("healthy", "warning"):
                     healthy += 1
                 else:
                     unhealthy += 1
+
+            agent_meta = agents_entities.get(agent_id) if isinstance(agents_entities, dict) else {}
             result.append({
                 "agent_id": agent_id,
                 "client_ids": client_ids,
@@ -111,9 +102,13 @@ class StoreProxy:
                 "healthy_services": healthy,
                 "unhealthy_services": unhealthy,
                 "is_active": bool(global_service_names and healthy > 0),
-                "last_activity": None,
+                "last_activity": agent_meta.get("last_active") if isinstance(agent_meta, dict) else None,
             })
         return result
+
+    def find_cache(self) -> "CacheProxy":
+        from .cache_proxy import CacheProxy
+        return CacheProxy(self._context, scope="global", scope_value=None)
 
     def find_agent(self, agent_id: str) -> "AgentProxy":
         """
@@ -136,33 +131,13 @@ class StoreProxy:
     def check_services(self) -> Dict[str, Any]:
         return self._context.check_services()
 
-    def call_tool(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
-        # Delegate and normalize to dict as store layer does
-        res = self._context.call_tool(tool_name, args)
-        # Normalization: align with api_store _normalize_result behavior
-        try:
-            if hasattr(res, 'content'):
-                items = []
-                for c in getattr(res, 'content', []) or []:
-                    try:
-                        if isinstance(c, dict):
-                            items.append(c)
-                        elif hasattr(c, 'type') and hasattr(c, 'text'):
-                            items.append({"type": getattr(c, 'type', 'text'), "text": getattr(c, 'text', '')})
-                        elif hasattr(c, 'type') and hasattr(c, 'uri'):
-                            items.append({"type": getattr(c, 'type', 'uri'), "uri": getattr(c, 'uri', '')})
-                        else:
-                            items.append(str(c))
-                    except Exception:
-                        items.append(str(c))
-                return {"content": items, "is_error": bool(getattr(res, 'is_error', False))}
-            if isinstance(res, dict):
-                return res
-            if isinstance(res, list):
-                return {"result": res}
-            return {"result": str(res)}
-        except Exception:
-            return {"result": str(res)}
+    def call_tool(self, tool_name: str, args: Dict[str, Any]):
+        """
+        调用工具（同步版本），直接返回 FastMCP CallToolResult。
+
+        需要结构化/文本化视图的调用方，应该自行从结果的 content / structured_content / data 中提取。
+        """
+        return self._context.call_tool(tool_name, args)
 
     # ---- Mutations ----
     def add_service(self, config: Dict[str, Any]) -> bool:
@@ -187,8 +162,8 @@ class StoreProxy:
     async def delete_config_async(self, client_id_or_service_name: str) -> Dict[str, Any]:
         return await self._context.delete_config_async(client_id_or_service_name)
 
-    async def reset_config_async(self, scope: str = "all") -> bool:
-        return await self._context.reset_config_async(scope)
+    async def reset_config_async(self) -> bool:
+        return await self._context.reset_config_async()
 
     async def get_tool_records_async(self, limit: int = 50) -> Dict[str, Any]:
         return await self._context.get_tool_records_async(limit)
@@ -286,8 +261,8 @@ class StoreProxy:
         return self._context.list_changed_tools(service_name, force_refresh)
 
     # ---- Config management ----
-    def reset_config(self, scope: str = "all") -> bool:
-        return bool(self._context.reset_config(scope))
+    def reset_config(self) -> bool:
+        return bool(self._context.reset_config())
 
     def show_config(self) -> Dict[str, Any]:
         return self._context.show_config()
@@ -391,17 +366,66 @@ class StoreProxy:
     async def import_api_async(self, api_url: str, api_name: str = None):
         return await self._context.import_api_async(api_url, api_name)
 
-    def hub_services(self):
-        return self._context.hub_services()
-
-    def hub_tools(self):
-        return self._context.hub_tools()
-
     def reset_mcp_json_file(self) -> bool:
         return self._context.reset_mcp_json_file()
 
     async def reset_mcp_json_file_async(self, scope: str = "all") -> bool:
         return await self._context.reset_mcp_json_file_async(scope)
+
+    # ---- Hub MCP helpers ----
+    def hub_http(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/mcp", *, block: bool = False, show_banner: bool = False, **fastmcp_kwargs):
+        """
+        将当前 Store 暴露为 HTTP MCP 端点。
+
+        Args:
+            port: 监听端口
+            host: 监听地址
+            path: HTTP 路径
+            background: 是否在后台线程运行（默认阻塞当前调用）
+            show_banner: 是否显示 FastMCP 启动横幅
+            **fastmcp_kwargs: 透传给 FastMCP 的参数（如 auth）
+        Returns:
+            HubMCPServer: Hub 服务器实例，可用于 stop()/restart()
+        """
+        from mcpstore.core.hub.server import HubMCPServer
+
+        hub = HubMCPServer(
+            exposed_object=self._context,
+            transport="http",
+            port=port,
+            host=host,
+            path=path,
+            **fastmcp_kwargs,
+        )
+        hub.start(block=block, show_banner=show_banner)
+        return hub
+
+    def hub_sse(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/sse", *, block: bool = False, show_banner: bool = False, **fastmcp_kwargs):
+        """将当前 Store 暴露为 SSE MCP 端点。"""
+        from mcpstore.core.hub.server import HubMCPServer
+
+        hub = HubMCPServer(
+            exposed_object=self._context,
+            transport="sse",
+            port=port,
+            host=host,
+            path=path,
+            **fastmcp_kwargs,
+        )
+        hub.start(block=block, show_banner=show_banner)
+        return hub
+
+    def hub_stdio(self, *, block: bool = False, show_banner: bool = False, **fastmcp_kwargs):
+        """将当前 Store 暴露为 stdio MCP 端点。"""
+        from mcpstore.core.hub.server import HubMCPServer
+
+        hub = HubMCPServer(
+            exposed_object=self._context,
+            transport="stdio",
+            **fastmcp_kwargs,
+        )
+        hub.start(block=block, show_banner=show_banner)
+        return hub
 
     # ---- Tool lookup ----
     def find_tool(self, tool_name: str):
@@ -416,5 +440,3 @@ class StoreProxy:
     def __getattr__(self, name: str):
         # Fallback delegation to preserve existing callsites expecting context methods
         return getattr(self._context, name)
-
-

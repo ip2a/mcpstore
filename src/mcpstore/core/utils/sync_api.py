@@ -13,31 +13,35 @@ This module introduces two helpers:
 - sync_api(...): decorator for future adoption; not applied anywhere yet.
 """
 
+import asyncio
 import functools
+import logging
 from typing import Any, Callable, Optional
 
-from .async_sync_helper import get_global_helper
+logger = logging.getLogger(__name__)
 
 
 def run_sync(coro, *, timeout: Optional[float] = None, force_background: Optional[bool] = None):
-    """Run an async coroutine from sync code using the global helper.
+    """Run an async coroutine from sync code using asyncio.run.
+
+    根据MCPStore核心架构原则，使用最简单的asyncio.run()来桥接同步和异步代码。
 
     Args:
         coro: Awaitable to execute
-        timeout: Optional timeout seconds
-        force_background: Optional policy to force background loop
+        timeout: Optional timeout seconds (暂时忽略，因为asyncio.run()不支持超时)
+        force_background: Optional policy to force background loop (忽略，违反核心原则)
 
     Returns:
         Any: Result of the coroutine
     """
-    helper = get_global_helper()
-    if force_background is None and timeout is None:
-        return helper.run_async(coro)
-    if force_background is None:
-        return helper.run_async(coro, timeout=timeout)
-    if timeout is None:
-        return helper.run_async(coro, force_background=force_background)
-    return helper.run_async(coro, timeout=timeout, force_background=force_background)
+    if force_background:
+        logger.warning("force_background=True parameter violates core architecture principles, will be ignored")
+
+    # 简单使用asyncio.run()，符合核心原则
+    if timeout is not None:
+        logger.warning("timeout parameter is not currently supported, will be ignored")
+
+    return asyncio.run(coro)
 
 
 def sync_api(*, timeout: Optional[float] = None, force_background: Optional[bool] = None) -> Callable:

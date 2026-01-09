@@ -17,7 +17,8 @@ from mcpstore.utils.watchdog.events import (
     generate_sub_created_events,
     generate_sub_moved_events,
 )
-from mcpstore.utils.watchdog.observers.api import DEFAULT_EMITTER_TIMEOUT, DEFAULT_OBSERVER_TIMEOUT, BaseObserver, EventEmitter
+from mcpstore.utils.watchdog.observers.api import DEFAULT_EMITTER_TIMEOUT, DEFAULT_OBSERVER_TIMEOUT, BaseObserver, \
+    EventEmitter
 from mcpstore.utils.watchdog.observers.winapi import close_directory_handle, get_directory_handle, read_events
 
 if TYPE_CHECKING:

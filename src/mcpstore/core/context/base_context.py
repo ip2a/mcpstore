@@ -3,16 +3,17 @@ MCPStore Base Context Module
 Core context classes and basic functionality
 """
 
+import asyncio
 import logging
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
 
-from .agent_service_mapper import AgentServiceMapper
-from .tool_transformation import get_transformation_manager
-from ..performance import get_performance_optimizer
-from ..integration.openapi_integration import get_openapi_manager
 from mcpstore.extensions.monitoring import MonitoringManager
 from mcpstore.extensions.monitoring.analytics import get_monitoring_manager
-from ..utils.async_sync_helper import get_global_helper
+from .agent_service_mapper import AgentServiceMapper
+from .tool_transformation import get_transformation_manager
+from ..bridge import get_async_bridge
+from ..integration.openapi_integration import get_openapi_manager
+from ..performance import get_performance_optimizer
 
 # Create logger instance
 logger = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ from .agent_statistics import AgentStatisticsMixin
 from .service_proxy import ServiceProxy
 from .internal.context_kernel import create_kernel
 from .store_proxy import StoreProxy
+from .cache_proxy import CacheProxy
 
 class MCPStoreContext(
     ServiceOperationsMixin,
@@ -54,10 +56,9 @@ class MCPStoreContext(
         self._store = store
         self._agent_id = agent_id
         self._context_type = ContextType.STORE if agent_id is None else ContextType.AGENT
+        self._bridge = get_async_bridge()
 
-        # Async/sync compatibility helper
-        self._sync_helper = get_global_helper()
-
+  
         # Initialize wait strategy for service operations
         from .service_operations import AddServiceWaitStrategy
         self.wait_strategy = AddServiceWaitStrategy()
@@ -72,21 +73,24 @@ class MCPStoreContext(
         self._monitoring_manager = get_monitoring_manager()
 
         # Monitoring manager - unified behavior for both branches
-        from pathlib import Path
+        data_dir = None
         if hasattr(self._store, '_data_space_manager') and self._store._data_space_manager:
-            # Use data space manager path - consistent with fallback branch
-            workspace_dir = self._store._data_space_manager.workspace_dir
-            data_dir = workspace_dir / "monitoring"
+            data_dir = self._store._data_space_manager.workspace_dir / "monitoring"
         else:
-            # Use default path (backward compatibility)
-            config_dir = Path(self._store.config.json_path).parent
-            data_dir = config_dir / "monitoring"
+            logger.warning("[MONITORING] Data space manager not initialized; monitoring disabled (no fallback path).")
 
-        self._monitoring = MonitoringManager(
-            data_dir,
-            self._store.tool_record_max_file_size,
-            self._store.tool_record_retention_days
-        )
+        if data_dir is not None:
+            try:
+                self._monitoring = MonitoringManager(
+                    data_dir,
+                    self._store.tool_record_max_file_size,
+                    self._store.tool_record_retention_days
+                )
+            except Exception as monitor_init_error:
+                logger.warning(f"[MONITORING] Failed to initialize monitoring at data space: {monitor_init_error}")
+                self._monitoring = None
+        else:
+            self._monitoring = None
 
         # Agent service name mapper
         # global_agent_store does not use service mapper as it uses original service names
@@ -109,10 +113,43 @@ class MCPStoreContext(
         except Exception:
             self._kernel = None
 
+    # internal helper for sync methods
+    def _run_async_via_bridge(self, coro, op_name: str, timeout: float | None = None):
+        """使用 Async Orchestrated Bridge 在同步环境中执行协程。"""
+        return self._bridge.run(coro, op_name=op_name, timeout=timeout)
+
+    async def bridge_execute(self, coro, op_name: str | None = None):
+        """
+        在任意事件循环中安全执行需要访问 pykv 的协程。
+
+        - 如果当前运行在 AOB 的 loop 中，直接 await。
+        - 否则通过 asyncio.to_thread 调用同步桥，保证 Redis Future 仍在 AOB loop 上执行。
+        """
+        op_label = op_name or "context_bridge_execute"
+        bridge_loop = getattr(self._bridge, "_loop", None)
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if bridge_loop and running_loop is bridge_loop:
+            return await coro
+
+        if running_loop is None:
+            return self._bridge.run(coro, op_name=op_label)
+
+        return await asyncio.to_thread(self._bridge.run, coro, op_name=op_label)
+
     # ---- Objectified entries ----
     def for_store(self) -> 'StoreProxy':
         """Return StoreProxy for objectified store-view."""
         return StoreProxy(self)
+
+    def find_cache(self) -> 'CacheProxy':
+        """Return CacheProxy (scope depends on context)."""
+        scope = "global" if self._context_type == ContextType.STORE else "agent"
+        scope_value = None if scope == "global" else self._agent_id
+        return CacheProxy(self, scope=scope, scope_value=scope_value)
 
     def find_agent(self, agent_id: str) -> 'AgentProxy':
         """
@@ -183,51 +220,6 @@ class MCPStoreContext(
         """Return an OpenAI adapter that produces OpenAI function calling format tools."""
         from ...adapters.openai_adapter import OpenAIAdapter
         return OpenAIAdapter(self)
-
-    # === Hub Services Extension ===
-
-    def hub_services(self) -> 'HubServicesBuilder':
-        """
-        Create Hub services packaging builder
-
-        Packages cached services in current context as independent Hub service processes.
-        Based on existing service data without new service registration.
-
-        Returns:
-            HubServicesBuilder: Hub services builder with chainable method calls
-
-        Example:
-            # Store-level Hub
-            hub = store.for_store().hub_services()\\
-                .with_name("global-hub")\\
-                .with_description("Global services hub")\\
-                .build()
-
-            # Agent-level Hub
-            hub = store.for_agent("team1").hub_services()\\
-                .with_name("team-hub")\\
-                .filter_services(category="api")\\
-                .build()
-        """
-        from mcpstore.extensions.hub.builder import HubServicesBuilder
-        return HubServicesBuilder(self, self._context_type.value, self._agent_id)
-
-    def hub_tools(self) -> 'HubToolsBuilder':
-        """
-        Create Hub tools packaging builder
-
-        Packages tools at tool level as Hub services.
-        Note: This feature is a placeholder implementation in current version,
-        full functionality will be available in later versions.
-
-        Returns:
-            HubToolsBuilder: Hub tools builder
-
-        Raises:
-            NotImplementedError: Feature not implemented in current version
-        """
-        from mcpstore.extensions.hub.builder import HubToolsBuilder
-        return HubToolsBuilder(self, self._context_type.value, self._agent_id)
 
     def find_service(self, service_name: str) -> 'ServiceProxy':
         """
@@ -350,18 +342,31 @@ class MCPStoreContext(
 
     def record_api_call(self, response_time: float):
         """Record API call"""
-        self._monitoring.record_api_call(response_time)
+        if self._monitoring:
+            self._monitoring.record_api_call(response_time)
 
     def increment_active_connections(self):
         """Increment active connection count"""
-        self._monitoring.increment_active_connections()
+        if self._monitoring:
+            self._monitoring.increment_active_connections()
 
     def decrement_active_connections(self):
         """Decrement active connection count"""
-        self._monitoring.decrement_active_connections()
+        if self._monitoring:
+            self._monitoring.decrement_active_connections()
 
     def get_tool_records(self, limit: int = 50) -> Dict[str, Any]:
         """Get tool execution records"""
+        if not self._monitoring:
+            return {
+                "executions": [],
+                "summary": {
+                    "total_executions": 0,
+                    "by_tool": {},
+                    "by_service": {}
+                },
+                "warning": "Monitoring disabled"
+            }
         return self._monitoring.get_tool_records(limit)
 
     async def get_tool_records_async(self, limit: int = 50) -> Dict[str, Any]:

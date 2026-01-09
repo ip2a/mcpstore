@@ -105,7 +105,7 @@ def load_config(path: Optional[str] = None) -> Dict[str, Any]:
         config_path = get_default_config_path()
     
     if not config_path.exists():
-        typer.echo(f"⚠️  Configuration file not found: {config_path}")
+        typer.echo(f"[WARNING] Configuration file not found: {config_path}")
         return {}
     
     try:
@@ -228,15 +228,15 @@ def _format_service_info(name: str, server_config: Dict[str, Any]) -> None:
     service_type = _detect_service_type(server_config)
     desc = server_config.get("description", "No description")
 
-    # Service type icon
-    type_icons = {
-        "url": "🌐",
-        "command": "📦",
-        "unknown": "❓"
+    # Service type prefix
+    type_prefixes = {
+        "url": "[URL]",
+        "command": "[CMD]",
+        "unknown": "[?]"
     }
 
-    icon = type_icons.get(service_type, "❓")
-    typer.echo(f"\n   {icon} {name} ({service_type} service)")
+    prefix = type_prefixes.get(service_type, "[?]")
+    typer.echo(f"\n   {prefix} {name} ({service_type} service)")
     typer.echo(f"      Description: {desc}")
 
     # Show different information based on service type
@@ -280,7 +280,7 @@ def show_config(path: Optional[str] = None):
 
     separator = ConfigConstants.SEPARATOR_CHAR * ConfigConstants.SEPARATOR_LENGTH
 
-    typer.echo("\n📋 Current Configuration:")
+    typer.echo("\n[CONFIG] Current Configuration:")
     typer.echo(separator)
 
     # Show basic information
@@ -294,7 +294,7 @@ def show_config(path: Optional[str] = None):
 
     # Show service list
     servers = config.get("mcpServers", {})
-    typer.echo(f"\n MCP Services ({len(servers)} configured):")
+    typer.echo(f"\nMCP Services ({len(servers)} configured):")
 
     if not servers:
         typer.echo("   No services configured")
@@ -353,7 +353,7 @@ def add_example_services(path: Optional[str] = None):
             added_count += 1
             typer.echo(f" Added example service: {name}")
         else:
-            typer.echo(f"⚠️  Service '{name}' already exists, skipping")
+            typer.echo(f"[WARNING] Service '{name}' already exists, skipping")
 
     if added_count > 0:
         config["mcpServers"] = servers
@@ -410,8 +410,8 @@ def _show_config_path(path: Optional[str] = None):
 
     if config_path.exists():
         stat = config_path.stat()
-        typer.echo(f"📏 Size: {stat.st_size} bytes")
+        typer.echo(f"[INFO] Size: {stat.st_size} bytes")
         from datetime import datetime
         modified_time = datetime.fromtimestamp(stat.st_mtime)
-        typer.echo(f"🕒 Last modified: {modified_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        typer.echo(f"[INFO] Last modified: {modified_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
