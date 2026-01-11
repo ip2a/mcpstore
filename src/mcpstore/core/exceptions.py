@@ -6,7 +6,7 @@ Provides a comprehensive exception hierarchy for both SDK and API usage
 import logging
 import traceback
 import uuid
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Dict, Any, Union
 
@@ -131,7 +131,7 @@ class MCPStoreException(Exception):
         self.field = field
         self.details = details or {}
         self.cause = cause
-        self.timestamp = datetime.now(UTC)
+        self.timestamp = datetime.now(timezone.utc)
         self.error_id = str(uuid.uuid4())[:8]
         
         # Capture stack trace if cause is provided
