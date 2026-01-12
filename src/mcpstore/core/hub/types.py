@@ -16,7 +16,7 @@ class HubMCPStatus(Enum):
     定义 Hub MCP 服务器的所有可能状态。
     """
     
-    INITIALIZING = "initializing"  # 初始化中
+    STARTUP = "startup"  # 初始化中
     RUNNING = "running"            # 运行中
     STOPPING = "stopping"          # 停止中
     STOPPED = "stopped"            # 已停止

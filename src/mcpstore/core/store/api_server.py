@@ -31,7 +31,7 @@ class APIServerMixin:
             host: 服务器监听地址，默认 "0.0.0.0"（所有网络接口）
             port: 服务器监听端口，默认 18200
             reload: 是否启用自动重载（开发模式），默认 False
-            log_level: 日志级别，可选值: "critical", "error", "warning", "info", "debug", "trace"
+            log_level: 日志级别，可选值: "critical", "error", "degraded", "info", "debug", "trace"
             auto_open_browser: 是否自动打开浏览器，默认 False
             show_startup_info: 是否显示启动信息，默认 True
             url_prefix: URL 前缀，如 "/api/v1"。默认为空（无前缀）
@@ -110,7 +110,7 @@ class APIServerMixin:
                         webbrowser.open(doc_url)
                     except Exception as e:
                         if show_startup_info:
-                            print(f"[WARNING] Failed to open browser: {e}")
+                            print(f"[DEGRADED] Failed to open browser: {e}")
 
                 threading.Thread(target=open_browser, daemon=True).start()
 

@@ -94,8 +94,13 @@ class ServiceOperationHelper:
             # 添加生命周期信息 - 从 pykv 异步获取元数据
             if hasattr(store, 'orchestrator') and store.orchestrator:
                 lifecycle_manager = store.orchestrator.lifecycle_manager
-                target_agent_id = agent_id or store.orchestrator.client_manager.global_agent_store_id
-                
+                # Store 视角使用 global_agent_store；Agent 视角必须显式传入 agent_id
+                if context_type == "store":
+                    target_agent_id = store.orchestrator.client_manager.global_agent_store_id
+                else:
+                    # 上方已校验 agent_id 必填，这里直接使用
+                    target_agent_id = agent_id
+
                 state = lifecycle_manager.get_service_state(target_agent_id, service_name)
                 # 从 pykv 异步获取元数据
                 metadata = await context.bridge_execute(

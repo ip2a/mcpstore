@@ -88,7 +88,7 @@ class StoreProxy:
                     gname
                 )
                 state_value = getattr(state, "value", str(state))
-                if state_value in ("healthy", "warning"):
+                if state_value in ("healthy", "degraded"):
                     healthy += 1
                 else:
                     unhealthy += 1
@@ -215,6 +215,10 @@ class StoreProxy:
     async def check_services_async(self) -> Dict[str, Any]:
         return await self._context.check_services_async()
 
+    # 别名：符合命名规范
+    async def service_info_async(self, name: str) -> Dict[str, Any]:
+        return await self.get_service_info_async(name)
+
     async def get_service_info_async(self, name: str) -> Dict[str, Any]:
         info = await self._context.get_service_info_async(name)
         try:
@@ -228,6 +232,9 @@ class StoreProxy:
         except Exception:
             return {"result": str(info)}
 
+    async def service_status_async(self, name: str) -> Dict[str, Any]:
+        return await self.get_service_status_async(name)
+
     async def get_service_status_async(self, name: str) -> Dict[str, Any]:
         status = await self._context.get_service_status_async(name)
         try:
@@ -240,6 +247,9 @@ class StoreProxy:
             return {"result": str(status)}
         except Exception:
             return {"result": str(status)}
+
+    async def tool_records_async(self, limit: int = 50) -> Dict[str, Any]:
+        return await self._context.tool_records_async(limit)
 
     # ---- Resources & Prompts ----
     def list_resources(self, service_name: str = None) -> Dict[str, Any]:

@@ -329,7 +329,7 @@ class MonitoringManager:
             return {
                 "executions": [],
                 "summary": self._default_summary(),
-                "warning": "Monitoring disabled"
+                "degraded": "Monitoring disabled"
             }
         try:
             executions = list(self._recent_records)

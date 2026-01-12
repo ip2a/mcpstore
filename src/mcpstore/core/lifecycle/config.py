@@ -17,8 +17,8 @@ _service_defaults = ServiceLifecycleConfigDefaults()
 class ServiceLifecycleConfig:
     """Service lifecycle configuration (single source of truth)"""
     # State transition thresholds (failure count)
-    warning_failure_threshold: int = _health_defaults.warning_failure_threshold          # First failure in HEALTHY enters WARNING
-    reconnecting_failure_threshold: int = _health_defaults.reconnecting_failure_threshold     # Two consecutive failures in WARNING enter RECONNECTING
+    warning_failure_threshold: int = _health_defaults.warning_failure_threshold          # First failure in HEALTHY enters DEGRADED
+    reconnecting_failure_threshold: int = _health_defaults.reconnecting_failure_threshold     # Two consecutive failures in DEGRADED enter CIRCUIT_OPEN
     max_reconnect_attempts: int = _health_defaults.max_reconnect_attempts            # Maximum reconnection attempts
 
     # Reconnection backoff

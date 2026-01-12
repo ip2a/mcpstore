@@ -187,24 +187,19 @@ async def agent_list_services(
         data=response_data
     )
 
-@agent_router.get("/for_agent/{agent_id}/summary", response_model=APIResponse)
+@agent_router.get("/for_agent/{agent_id}/agent_status", response_model=APIResponse)
 @timed_response
-async def agent_summary(agent_id: str):
-    """Return agent-level statistical summary (object-oriented entry point wrapper)."""
+async def agent_status(agent_id: str):
+    """返回 Agent 级别的状态与统计信息（使用 SDK 封装接口）。"""
     validate_agent_id(agent_id)
     store = get_store()
     context = store.for_agent(agent_id)
-    stats_obj = await context.bridge_execute(
-        context._get_agent_statistics(agent_id)
+    stats = await context.bridge_execute(
+        context.get_stats_async()
     )
-    if hasattr(stats_obj, "__dict__"):
-        stats = dict(stats_obj.__dict__)
-        services = stats.get("services", [])
-        stats["services"] = [s.__dict__ if hasattr(s, "__dict__") else s for s in services]
-    else:
-        stats = stats_obj
+
     return ResponseBuilder.success(
-        message=f"Agent '{agent_id}' summary returned",
+        message=f"Agent '{agent_id}' status returned",
         data=stats
     )
 
@@ -265,7 +260,7 @@ async def agent_reset_service(agent_id: str, request: Request):
     
     return ResponseBuilder.success(
         message=f"Service '{used_identifier}' reset successfully for agent '{agent_id}'",
-        data={"service_name": used_identifier, "agent_id": agent_id, "status": "initializing"}
+        data={"service_name": used_identifier, "agent_id": agent_id, "status": "startup"}
     )
 
 @agent_router.get("/for_agent/{agent_id}/list_tools", response_model=APIResponse)
@@ -625,7 +620,7 @@ async def get_agent_tool_records(agent_id: str, limit: int = 50):
     store = get_store()
     context = store.for_agent(agent_id)
     records_data = await context.bridge_execute(
-        context.get_tool_records_async(limit)
+        context.tool_records_async(limit)
     )
     
     return ResponseBuilder.success(
@@ -699,7 +694,7 @@ async def agent_get_service_info_detailed(agent_id: str, service_name: str):
 
     # Use SDK to get service information（使用 async 版本）
     info = await context.bridge_execute(
-        context.get_service_info_async(service_name)
+        context.service_info_async(service_name)
     )
     if not info or not getattr(info, 'success', False):
         return ResponseBuilder.error(
@@ -730,26 +725,8 @@ async def agent_get_service_status(agent_id: str, service_name: str):
     store = get_store()
     context = store.for_agent(agent_id)
 
-    # 使用 Agent 解析逻辑将本地服务名解析为全局服务名
-    try:
-        _, global_service_name = await context.bridge_execute(
-            context._resolve_client_id_async(service_name, agent_id)
-        )
-    except Exception as e:
-        return ResponseBuilder.error(
-            code=ErrorCode.SERVICE_NOT_FOUND,
-            message=str(e),
-            field="service_name"
-        )
-
-    global_agent_id = store.client_manager.global_agent_store_id
-    app_service = store.container.service_application_service
-
     status = await context.bridge_execute(
-        app_service.get_service_status_async(
-            agent_id=global_agent_id,
-            service_name=global_service_name,
-        )
+        context.service_status_async(service_name)
     )
 
     # 如果状态为 unknown 且没有 client_id，视为服务不存在或已移除

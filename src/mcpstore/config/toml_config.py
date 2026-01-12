@@ -110,22 +110,35 @@ auto_open_browser = {_bool(server["auto_open_browser"])}
 show_startup_info = {_bool(server["show_startup_info"])}
 
 [health_check]
-# 健康检查配置
+# 健康检查与熔断配置（新模型，无兼容层）
 enabled = {_bool(health["enabled"])}
-warning_failure_threshold = {health["warning_failure_threshold"]}
-reconnecting_failure_threshold = {health["reconnecting_failure_threshold"]}
-max_reconnect_attempts = {health["max_reconnect_attempts"]}
-base_reconnect_delay = {health["base_reconnect_delay"]}
-max_reconnect_delay = {health["max_reconnect_delay"]}
-long_retry_interval = {health["long_retry_interval"]}
-normal_heartbeat_interval = {health["normal_heartbeat_interval"]}
-warning_heartbeat_interval = {health["warning_heartbeat_interval"]}
-health_check_ping_timeout = {health["health_check_ping_timeout"]}
+startup_interval = {health["startup_interval"]}
+startup_timeout = {health["startup_timeout"]}
+startup_hard_timeout = {health["startup_hard_timeout"]}
+readiness_interval = {health["readiness_interval"]}
+readiness_success_threshold = {health["readiness_success_threshold"]}
+readiness_failure_threshold = {health["readiness_failure_threshold"]}
+liveness_interval = {health["liveness_interval"]}
+liveness_failure_threshold = {health["liveness_failure_threshold"]}
 ping_timeout_http = {health["ping_timeout_http"]}
 ping_timeout_sse = {health["ping_timeout_sse"]}
 ping_timeout_stdio = {health["ping_timeout_stdio"]}
-initialization_timeout = {health["initialization_timeout"]}
-disconnection_timeout = {health["disconnection_timeout"]}
+warning_ping_timeout = {health["warning_ping_timeout"]}
+window_size = {health["window_size"]}
+window_min_calls = {health["window_min_calls"]}
+error_rate_threshold = {health["error_rate_threshold"]}
+latency_p95_warn = {health["latency_p95_warn"]}
+latency_p99_critical = {health["latency_p99_critical"]}
+max_reconnect_attempts = {health["max_reconnect_attempts"]}
+backoff_base = {health["backoff_base"]}
+backoff_max = {health["backoff_max"]}
+backoff_jitter = {health["backoff_jitter"]}
+backoff_max_duration = {health["backoff_max_duration"]}
+half_open_max_calls = {health["half_open_max_calls"]}
+half_open_success_rate_threshold = {health["half_open_success_rate_threshold"]}
+reconnect_hard_timeout = {health["reconnect_hard_timeout"]}
+lease_ttl = {health["lease_ttl"]}
+lease_renew_interval = {health["lease_renew_interval"]}
 
 [content_update]
 # 内容更新配置
@@ -139,7 +152,6 @@ failure_backoff_multiplier = {content["failure_backoff_multiplier"]}
 
 [monitoring]
 # 监控系统配置
-health_check_seconds = {monitoring["health_check_seconds"]}
 tools_update_hours = {monitoring["tools_update_hours"]}
 reconnection_seconds = {monitoring["reconnection_seconds"]}
 cleanup_hours = {monitoring["cleanup_hours"]}
@@ -149,10 +161,6 @@ update_tools_on_reconnection = {_bool(monitoring["update_tools_on_reconnection"]
 detect_tools_changes = {_bool(monitoring["detect_tools_changes"])}
 local_service_ping_timeout = {monitoring["local_service_ping_timeout"]}
 remote_service_ping_timeout = {monitoring["remote_service_ping_timeout"]}
-startup_wait_time = {monitoring["startup_wait_time"]}
-healthy_response_threshold = {monitoring["healthy_response_threshold"]}
-warning_response_threshold = {monitoring["warning_response_threshold"]}
-slow_response_threshold = {monitoring["slow_response_threshold"]}
 enable_adaptive_timeout = {_bool(monitoring["enable_adaptive_timeout"])}
 adaptive_timeout_multiplier = {monitoring["adaptive_timeout_multiplier"]}
 response_time_history_size = {monitoring["response_time_history_size"]}
@@ -258,17 +266,33 @@ class ConfigValidator:
 
         # Health check configuration
         "health_check.enabled": {"type": bool},
-        "health_check.warning_failure_threshold": {"min": 0, "max": 10, "type": int},
-        "health_check.reconnecting_failure_threshold": {"min": 0, "max": 10, "type": int},
+        "health_check.startup_interval": {"min": 0.1, "max": 60.0, "type": float},
+        "health_check.startup_timeout": {"min": 1.0, "max": 1800.0, "type": float},
+        "health_check.startup_hard_timeout": {"min": 1.0, "max": 7200.0, "type": float},
+        "health_check.readiness_interval": {"min": 1.0, "max": 300.0, "type": float},
+        "health_check.readiness_success_threshold": {"min": 1, "max": 10, "type": int},
+        "health_check.readiness_failure_threshold": {"min": 1, "max": 10, "type": int},
+        "health_check.liveness_interval": {"min": 1.0, "max": 300.0, "type": float},
+        "health_check.liveness_failure_threshold": {"min": 1, "max": 10, "type": int},
+        "health_check.ping_timeout_http": {"min": 0.1, "max": 600.0, "type": float},
+        "health_check.ping_timeout_sse": {"min": 0.1, "max": 600.0, "type": float},
+        "health_check.ping_timeout_stdio": {"min": 0.1, "max": 1200.0, "type": float},
+        "health_check.warning_ping_timeout": {"min": 0.1, "max": 1200.0, "type": float},
+        "health_check.window_size": {"min": 1, "max": 1000, "type": int},
+        "health_check.window_min_calls": {"min": 1, "max": 1000, "type": int},
+        "health_check.error_rate_threshold": {"min": 0.0, "max": 1.0, "type": float},
+        "health_check.latency_p95_warn": {"min": 0.01, "max": 30.0, "type": float},
+        "health_check.latency_p99_critical": {"min": 0.01, "max": 60.0, "type": float},
         "health_check.max_reconnect_attempts": {"min": 1, "max": 100, "type": int},
-        "health_check.base_reconnect_delay": {"min": 0.1, "max": 300.0, "type": float},
-        "health_check.max_reconnect_delay": {"min": 1.0, "max": 3600.0, "type": float},
-        "health_check.long_retry_interval": {"min": 10.0, "max": 7200.0, "type": float},
-        "health_check.normal_heartbeat_interval": {"min": 1.0, "max": 300.0, "type": float},
-        "health_check.warning_heartbeat_interval": {"min": 1.0, "max": 300.0, "type": float},
-        "health_check.health_check_ping_timeout": {"min": 0.1, "max": 300.0, "type": float},
-        "health_check.initialization_timeout": {"min": 1.0, "max": 1800.0, "type": float},
-        "health_check.disconnection_timeout": {"min": 0.1, "max": 300.0, "type": float},
+        "health_check.backoff_base": {"min": 0.1, "max": 300.0, "type": float},
+        "health_check.backoff_max": {"min": 1.0, "max": 3600.0, "type": float},
+        "health_check.backoff_jitter": {"min": 0.0, "max": 1.0, "type": float},
+        "health_check.backoff_max_duration": {"min": 1.0, "max": 7200.0, "type": float},
+        "health_check.half_open_max_calls": {"min": 1, "max": 100, "type": int},
+        "health_check.half_open_success_rate_threshold": {"min": 0.0, "max": 1.0, "type": float},
+        "health_check.reconnect_hard_timeout": {"min": 1.0, "max": 7200.0, "type": float},
+        "health_check.lease_ttl": {"min": 1.0, "max": 3600.0, "type": float},
+        "health_check.lease_renew_interval": {"min": 0.5, "max": 3600.0, "type": float},
 
         # Content update configuration
         "content_update.tools_update_interval": {"min": 10.0, "max": 86400.0, "type": float},
@@ -285,16 +309,11 @@ class ConfigValidator:
         "monitoring.update_tools_on_reconnection": {"type": bool},
         "monitoring.detect_tools_changes": {"type": bool},
         "monitoring.enable_adaptive_timeout": {"type": bool},
-        "monitoring.health_check_seconds": {"min": 5, "max": 600, "type": int},
         "monitoring.tools_update_hours": {"min": 0.1, "max": 168, "type": float},
         "monitoring.reconnection_seconds": {"min": 5, "max": 1800, "type": int},
         "monitoring.cleanup_hours": {"min": 0.1, "max": 168, "type": float},
         "monitoring.local_service_ping_timeout": {"min": 1, "max": 60, "type": int},
         "monitoring.remote_service_ping_timeout": {"min": 1, "max": 120, "type": int},
-        "monitoring.startup_wait_time": {"min": 0, "max": 60, "type": int},
-        "monitoring.healthy_response_threshold": {"min": 0.1, "max": 10.0, "type": float},
-        "monitoring.warning_response_threshold": {"min": 0.5, "max": 30.0, "type": float},
-        "monitoring.slow_response_threshold": {"min": 1.0, "max": 120.0, "type": float},
         "monitoring.adaptive_timeout_multiplier": {"min": 1.0, "max": 5.0, "type": float},
         "monitoring.response_time_history_size": {"min": 5, "max": 100, "type": int},
 
@@ -305,7 +324,7 @@ class ConfigValidator:
         "standalone.cleanup_interval_seconds": {"min": 10.0, "max": 3600.0, "type": float},
         "standalone.default_transport": {"type": str, "allowed_values": ["stdio", "sse", "websocket"]},
         "standalone.enable_debug": {"type": bool},
-        "standalone.log_level": {"type": str, "allowed_values": ["DEBUG", "INFO", "WARNING", "ERROR"]},
+        "standalone.log_level": {"type": str, "allowed_values": ["DEBUG", "INFO", "DEGRADED", "ERROR"]},
         "standalone.log_format": {"type": str, "allowed_values": ["json", "text"]},
 
         # Note: Following configurations removed (not managed via TOML):
@@ -523,59 +542,7 @@ def _apply_consistency_checks(config: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Configuration with consistency fixes applied
     """
-    # Check heartbeat interval consistency
-    health_config = config.get("health_check", {})
-    normal_interval = health_config.get("normal_heartbeat_interval", 30.0)
-    warning_interval = health_config.get("warning_heartbeat_interval", 10.0)
-
-    if warning_interval >= normal_interval:
-        logger.warning(f"Warning heartbeat interval ({warning_interval}s) should be less than normal interval ({normal_interval}s)")
-        # Fix: set warning interval to half of normal interval
-        fixed_warning_interval = normal_interval / 2
-        health_config["warning_heartbeat_interval"] = fixed_warning_interval
-        logger.info(f"Fixed warning heartbeat interval to {fixed_warning_interval}s")
-        config["health_check"] = health_config
-
-    # Check monitoring vs health check consistency
-    monitoring_config = config.get("monitoring", {})
-    health_check_seconds = monitoring_config.get("health_check_seconds", 30)
-
-    if abs(health_check_seconds - normal_interval) > 5:
-        logger.warning(f"Health check interval mismatch: monitoring.health_check_seconds={health_check_seconds}s, health_check.normal_heartbeat_interval={normal_interval}s")
-        # Use the shorter interval for better responsiveness
-        min_interval = min(health_check_seconds, normal_interval)
-        monitoring_config["health_check_seconds"] = min_interval
-        health_config["normal_heartbeat_interval"] = min_interval
-        logger.info(f"Harmonized health check intervals to {min_interval}s")
-        config["monitoring"] = monitoring_config
-        config["health_check"] = health_config
-
-    # Check response time thresholds consistency
-    healthy_threshold = monitoring_config.get("healthy_response_threshold", 1.0)
-    warning_threshold = monitoring_config.get("warning_response_threshold", 3.0)
-    slow_threshold = monitoring_config.get("slow_response_threshold", 10.0)
-
-    # Ensure healthy < warning < slow
-    if healthy_threshold >= warning_threshold:
-        logger.warning(f"healthy_response_threshold ({healthy_threshold}s) should be less than warning_response_threshold ({warning_threshold}s)")
-        # Fix by making healthy half of warning
-        monitoring_config["healthy_response_threshold"] = min(warning_threshold / 2, 1.0)
-        logger.info(f"Fixed healthy_response_threshold to {monitoring_config['healthy_response_threshold']}s")
-
-    if warning_threshold >= slow_threshold:
-        logger.warning(f"warning_response_threshold ({warning_threshold}s) should be less than slow_response_threshold ({slow_threshold}s)")
-        # Fix by making warning half of slow
-        monitoring_config["warning_response_threshold"] = slow_threshold / 2
-        logger.info(f"Fixed warning_response_threshold to {monitoring_config['warning_response_threshold']}s")
-
-    # Ensure healthy < new warning if we changed it
-    new_warning = monitoring_config["warning_response_threshold"]
-    if monitoring_config["healthy_response_threshold"] >= new_warning:
-        monitoring_config["healthy_response_threshold"] = new_warning / 2
-        logger.info(f"Further fixed healthy_response_threshold to {monitoring_config['healthy_response_threshold']}s")
-
-    config["monitoring"] = monitoring_config
-
+    # 新模型：不再调整旧的心跳/监控阈值，直接返回配置
     return config
 
 
@@ -848,7 +815,6 @@ class AsyncKeyValue(Protocol):
 @dataclass
 class MonitoringConfig:
     """Monitoring configuration dataclass."""
-    health_check_seconds: int = _monitoring_defaults.health_check_seconds
     tools_update_hours: float = _monitoring_defaults.tools_update_hours
     reconnection_seconds: int = _monitoring_defaults.reconnection_seconds
     cleanup_hours: float = _monitoring_defaults.cleanup_hours
@@ -858,10 +824,6 @@ class MonitoringConfig:
     detect_tools_changes: bool = _monitoring_defaults.detect_tools_changes
     local_service_ping_timeout: int = _monitoring_defaults.local_service_ping_timeout
     remote_service_ping_timeout: int = _monitoring_defaults.remote_service_ping_timeout
-    startup_wait_time: int = _monitoring_defaults.startup_wait_time
-    healthy_response_threshold: float = _monitoring_defaults.healthy_response_threshold
-    warning_response_threshold: float = _monitoring_defaults.warning_response_threshold
-    slow_response_threshold: float = _monitoring_defaults.slow_response_threshold
     enable_adaptive_timeout: bool = _monitoring_defaults.enable_adaptive_timeout
     adaptive_timeout_multiplier: float = _monitoring_defaults.adaptive_timeout_multiplier
     response_time_history_size: int = _monitoring_defaults.response_time_history_size
@@ -973,32 +935,70 @@ class MCPStoreConfig:
             # Fallback if import failed
             logger.warning("ServiceLifecycleConfig not available, returning dict")
             return {
-                "warning_failure_threshold": await self._get_config_value("health_check.warning_failure_threshold", 1),
-                "reconnecting_failure_threshold": await self._get_config_value("health_check.reconnecting_failure_threshold", 2),
-                "max_reconnect_attempts": await self._get_config_value("health_check.max_reconnect_attempts", 10),
-                "base_reconnect_delay": await self._get_config_value("health_check.base_reconnect_delay", 1.0),
-                "max_reconnect_delay": await self._get_config_value("health_check.max_reconnect_delay", 60.0),
-                "long_retry_interval": await self._get_config_value("health_check.long_retry_interval", 300.0),
-                "normal_heartbeat_interval": await self._get_config_value("health_check.normal_heartbeat_interval", 30.0),
-                "warning_heartbeat_interval": await self._get_config_value("health_check.warning_heartbeat_interval", 10.0),
-                "health_check_ping_timeout": await self._get_config_value("health_check.health_check_ping_timeout", 10.0),
-                "initialization_timeout": await self._get_config_value("health_check.initialization_timeout", 300.0),
-                "disconnection_timeout": await self._get_config_value("health_check.disconnection_timeout", 10.0),
+                "startup_interval": await self._get_config_value("health_check.startup_interval", _health_defaults.startup_interval),
+                "startup_timeout": await self._get_config_value("health_check.startup_timeout", _health_defaults.startup_timeout),
+                "startup_hard_timeout": await self._get_config_value("health_check.startup_hard_timeout", _health_defaults.startup_hard_timeout),
+                "readiness_interval": await self._get_config_value("health_check.readiness_interval", _health_defaults.readiness_interval),
+                "readiness_success_threshold": await self._get_config_value("health_check.readiness_success_threshold", _health_defaults.readiness_success_threshold),
+                "readiness_failure_threshold": await self._get_config_value("health_check.readiness_failure_threshold", _health_defaults.readiness_failure_threshold),
+                "liveness_interval": await self._get_config_value("health_check.liveness_interval", _health_defaults.liveness_interval),
+                "liveness_failure_threshold": await self._get_config_value("health_check.liveness_failure_threshold", _health_defaults.liveness_failure_threshold),
+                "ping_timeout_http": await self._get_config_value("health_check.ping_timeout_http", _health_defaults.ping_timeout_http),
+                "ping_timeout_sse": await self._get_config_value("health_check.ping_timeout_sse", _health_defaults.ping_timeout_sse),
+                "ping_timeout_stdio": await self._get_config_value("health_check.ping_timeout_stdio", _health_defaults.ping_timeout_stdio),
+                "warning_ping_timeout": await self._get_config_value("health_check.warning_ping_timeout", _health_defaults.warning_ping_timeout),
+                "window_size": await self._get_config_value("health_check.window_size", _health_defaults.window_size),
+                "window_min_calls": await self._get_config_value("health_check.window_min_calls", _health_defaults.window_min_calls),
+                "error_rate_threshold": await self._get_config_value("health_check.error_rate_threshold", _health_defaults.error_rate_threshold),
+                "latency_p95_warn": await self._get_config_value("health_check.latency_p95_warn", _health_defaults.latency_p95_warn),
+                "latency_p99_critical": await self._get_config_value("health_check.latency_p99_critical", _health_defaults.latency_p99_critical),
+                "max_reconnect_attempts": await self._get_config_value("health_check.max_reconnect_attempts", _health_defaults.max_reconnect_attempts),
+                "backoff_base": await self._get_config_value("health_check.backoff_base", _health_defaults.backoff_base),
+                "backoff_max": await self._get_config_value("health_check.backoff_max", _health_defaults.backoff_max),
+                "backoff_jitter": await self._get_config_value("health_check.backoff_jitter", _health_defaults.backoff_jitter),
+                "backoff_max_duration": await self._get_config_value("health_check.backoff_max_duration", _health_defaults.backoff_max_duration),
+                "half_open_max_calls": await self._get_config_value("health_check.half_open_max_calls", _health_defaults.half_open_max_calls),
+                "half_open_success_rate_threshold": await self._get_config_value("health_check.half_open_success_rate_threshold", _health_defaults.half_open_success_rate_threshold),
+                "reconnect_hard_timeout": await self._get_config_value("health_check.reconnect_hard_timeout", _health_defaults.reconnect_hard_timeout),
+                "lease_ttl": await self._get_config_value("health_check.lease_ttl", _health_defaults.lease_ttl),
+                "lease_renew_interval": await self._get_config_value("health_check.lease_renew_interval", _health_defaults.lease_renew_interval),
+                "initialization_timeout": await self._get_config_value("health_check.startup_hard_timeout", _health_defaults.startup_hard_timeout),
+                "termination_timeout": _service_defaults.termination_timeout,
+                "shutdown_timeout": _service_defaults.shutdown_timeout,
             }
 
         # Create ServiceLifecycleConfig from KV values
         return ServiceLifecycleConfig(
-            warning_failure_threshold=await self._get_config_value("health_check.warning_failure_threshold", 1),
-            reconnecting_failure_threshold=await self._get_config_value("health_check.reconnecting_failure_threshold", 2),
-            max_reconnect_attempts=await self._get_config_value("health_check.max_reconnect_attempts", 10),
-            base_reconnect_delay=await self._get_config_value("health_check.base_reconnect_delay", 1.0),
-            max_reconnect_delay=await self._get_config_value("health_check.max_reconnect_delay", 60.0),
-            long_retry_interval=await self._get_config_value("health_check.long_retry_interval", 300.0),
-            normal_heartbeat_interval=await self._get_config_value("health_check.normal_heartbeat_interval", 30.0),
-            warning_heartbeat_interval=await self._get_config_value("health_check.warning_heartbeat_interval", 10.0),
-            health_check_ping_timeout=await self._get_config_value("health_check.health_check_ping_timeout", 10.0),
-            initialization_timeout=await self._get_config_value("health_check.initialization_timeout", 300.0),
-            disconnection_timeout=await self._get_config_value("health_check.disconnection_timeout", 10.0),
+            startup_interval=await self._get_config_value("health_check.startup_interval", _health_defaults.startup_interval),
+            startup_timeout=await self._get_config_value("health_check.startup_timeout", _health_defaults.startup_timeout),
+            startup_hard_timeout=await self._get_config_value("health_check.startup_hard_timeout", _health_defaults.startup_hard_timeout),
+            readiness_interval=await self._get_config_value("health_check.readiness_interval", _health_defaults.readiness_interval),
+            readiness_success_threshold=await self._get_config_value("health_check.readiness_success_threshold", _health_defaults.readiness_success_threshold),
+            readiness_failure_threshold=await self._get_config_value("health_check.readiness_failure_threshold", _health_defaults.readiness_failure_threshold),
+            liveness_interval=await self._get_config_value("health_check.liveness_interval", _health_defaults.liveness_interval),
+            liveness_failure_threshold=await self._get_config_value("health_check.liveness_failure_threshold", _health_defaults.liveness_failure_threshold),
+            ping_timeout_http=await self._get_config_value("health_check.ping_timeout_http", _health_defaults.ping_timeout_http),
+            ping_timeout_sse=await self._get_config_value("health_check.ping_timeout_sse", _health_defaults.ping_timeout_sse),
+            ping_timeout_stdio=await self._get_config_value("health_check.ping_timeout_stdio", _health_defaults.ping_timeout_stdio),
+            warning_ping_timeout=await self._get_config_value("health_check.warning_ping_timeout", _health_defaults.warning_ping_timeout),
+            window_size=await self._get_config_value("health_check.window_size", _health_defaults.window_size),
+            window_min_calls=await self._get_config_value("health_check.window_min_calls", _health_defaults.window_min_calls),
+            error_rate_threshold=await self._get_config_value("health_check.error_rate_threshold", _health_defaults.error_rate_threshold),
+            latency_p95_warn=await self._get_config_value("health_check.latency_p95_warn", _health_defaults.latency_p95_warn),
+            latency_p99_critical=await self._get_config_value("health_check.latency_p99_critical", _health_defaults.latency_p99_critical),
+            max_reconnect_attempts=await self._get_config_value("health_check.max_reconnect_attempts", _health_defaults.max_reconnect_attempts),
+            backoff_base=await self._get_config_value("health_check.backoff_base", _health_defaults.backoff_base),
+            backoff_max=await self._get_config_value("health_check.backoff_max", _health_defaults.backoff_max),
+            backoff_jitter=await self._get_config_value("health_check.backoff_jitter", _health_defaults.backoff_jitter),
+            backoff_max_duration=await self._get_config_value("health_check.backoff_max_duration", _health_defaults.backoff_max_duration),
+            half_open_max_calls=await self._get_config_value("health_check.half_open_max_calls", _health_defaults.half_open_max_calls),
+            half_open_success_rate_threshold=await self._get_config_value("health_check.half_open_success_rate_threshold", _health_defaults.half_open_success_rate_threshold),
+            reconnect_hard_timeout=await self._get_config_value("health_check.reconnect_hard_timeout", _health_defaults.reconnect_hard_timeout),
+            lease_ttl=await self._get_config_value("health_check.lease_ttl", _health_defaults.lease_ttl),
+            lease_renew_interval=await self._get_config_value("health_check.lease_renew_interval", _health_defaults.lease_renew_interval),
+            initialization_timeout=await self._get_config_value("health_check.startup_hard_timeout", _health_defaults.startup_hard_timeout),
+            termination_timeout=_service_defaults.termination_timeout,
+            shutdown_timeout=_service_defaults.shutdown_timeout,
         )
 
     async def get_cache_memory_config(self) -> MemoryConfig:
@@ -1070,7 +1070,6 @@ class MCPStoreConfig:
             MonitoringConfig: Monitoring configuration object
         """
         return MonitoringConfig(
-            health_check_seconds=await self._get_config_value("monitoring.health_check_seconds", 30),
             tools_update_hours=await self._get_config_value("monitoring.tools_update_hours", 2),
             reconnection_seconds=await self._get_config_value("monitoring.reconnection_seconds", 60),
             cleanup_hours=await self._get_config_value("monitoring.cleanup_hours", 24),
@@ -1080,10 +1079,6 @@ class MCPStoreConfig:
             detect_tools_changes=await self._get_config_value("monitoring.detect_tools_changes", False),
             local_service_ping_timeout=await self._get_config_value("monitoring.local_service_ping_timeout", 3),
             remote_service_ping_timeout=await self._get_config_value("monitoring.remote_service_ping_timeout", 5),
-            startup_wait_time=await self._get_config_value("monitoring.startup_wait_time", 2),
-            healthy_response_threshold=await self._get_config_value("monitoring.healthy_response_threshold", 1.0),
-            warning_response_threshold=await self._get_config_value("monitoring.warning_response_threshold", 3.0),
-            slow_response_threshold=await self._get_config_value("monitoring.slow_response_threshold", 10.0),
             enable_adaptive_timeout=await self._get_config_value("monitoring.enable_adaptive_timeout", True),
             adaptive_timeout_multiplier=await self._get_config_value("monitoring.adaptive_timeout_multiplier", 2.0),
             response_time_history_size=await self._get_config_value("monitoring.response_time_history_size", 10),
@@ -1222,21 +1217,36 @@ class MCPStoreConfig:
 
             if section == "health_check":
                 section_config = {
-                    "warning_failure_threshold": await self._get_config_value("health_check.warning_failure_threshold", 1),
-                    "reconnecting_failure_threshold": await self._get_config_value("health_check.reconnecting_failure_threshold", 2),
-                    "max_reconnect_attempts": await self._get_config_value("health_check.max_reconnect_attempts", 10),
-                    "base_reconnect_delay": await self._get_config_value("health_check.base_reconnect_delay", 1.0),
-                    "max_reconnect_delay": await self._get_config_value("health_check.max_reconnect_delay", 60.0),
-                    "long_retry_interval": await self._get_config_value("health_check.long_retry_interval", 300.0),
-                    "normal_heartbeat_interval": await self._get_config_value("health_check.normal_heartbeat_interval", 30.0),
-                    "warning_heartbeat_interval": await self._get_config_value("health_check.warning_heartbeat_interval", 10.0),
-                    "health_check_ping_timeout": await self._get_config_value("health_check.health_check_ping_timeout", 10.0),
-                    "initialization_timeout": await self._get_config_value("health_check.initialization_timeout", 300.0),
-                    "disconnection_timeout": await self._get_config_value("health_check.disconnection_timeout", 10.0),
+                    "startup_interval": await self._get_config_value("health_check.startup_interval", _health_defaults.startup_interval),
+                    "startup_timeout": await self._get_config_value("health_check.startup_timeout", _health_defaults.startup_timeout),
+                    "startup_hard_timeout": await self._get_config_value("health_check.startup_hard_timeout", _health_defaults.startup_hard_timeout),
+                    "readiness_interval": await self._get_config_value("health_check.readiness_interval", _health_defaults.readiness_interval),
+                    "readiness_success_threshold": await self._get_config_value("health_check.readiness_success_threshold", _health_defaults.readiness_success_threshold),
+                    "readiness_failure_threshold": await self._get_config_value("health_check.readiness_failure_threshold", _health_defaults.readiness_failure_threshold),
+                    "liveness_interval": await self._get_config_value("health_check.liveness_interval", _health_defaults.liveness_interval),
+                    "liveness_failure_threshold": await self._get_config_value("health_check.liveness_failure_threshold", _health_defaults.liveness_failure_threshold),
+                    "ping_timeout_http": await self._get_config_value("health_check.ping_timeout_http", _health_defaults.ping_timeout_http),
+                    "ping_timeout_sse": await self._get_config_value("health_check.ping_timeout_sse", _health_defaults.ping_timeout_sse),
+                    "ping_timeout_stdio": await self._get_config_value("health_check.ping_timeout_stdio", _health_defaults.ping_timeout_stdio),
+                    "warning_ping_timeout": await self._get_config_value("health_check.warning_ping_timeout", _health_defaults.warning_ping_timeout),
+                    "window_size": await self._get_config_value("health_check.window_size", _health_defaults.window_size),
+                    "window_min_calls": await self._get_config_value("health_check.window_min_calls", _health_defaults.window_min_calls),
+                    "error_rate_threshold": await self._get_config_value("health_check.error_rate_threshold", _health_defaults.error_rate_threshold),
+                    "latency_p95_warn": await self._get_config_value("health_check.latency_p95_warn", _health_defaults.latency_p95_warn),
+                    "latency_p99_critical": await self._get_config_value("health_check.latency_p99_critical", _health_defaults.latency_p99_critical),
+                    "max_reconnect_attempts": await self._get_config_value("health_check.max_reconnect_attempts", _health_defaults.max_reconnect_attempts),
+                    "backoff_base": await self._get_config_value("health_check.backoff_base", _health_defaults.backoff_base),
+                    "backoff_max": await self._get_config_value("health_check.backoff_max", _health_defaults.backoff_max),
+                    "backoff_jitter": await self._get_config_value("health_check.backoff_jitter", _health_defaults.backoff_jitter),
+                    "backoff_max_duration": await self._get_config_value("health_check.backoff_max_duration", _health_defaults.backoff_max_duration),
+                    "half_open_max_calls": await self._get_config_value("health_check.half_open_max_calls", _health_defaults.half_open_max_calls),
+                    "half_open_success_rate_threshold": await self._get_config_value("health_check.half_open_success_rate_threshold", _health_defaults.half_open_success_rate_threshold),
+                    "reconnect_hard_timeout": await self._get_config_value("health_check.reconnect_hard_timeout", _health_defaults.reconnect_hard_timeout),
+                    "lease_ttl": await self._get_config_value("health_check.lease_ttl", _health_defaults.lease_ttl),
+                    "lease_renew_interval": await self._get_config_value("health_check.lease_renew_interval", _health_defaults.lease_renew_interval),
                 }
             elif section == "monitoring":
                 section_config = {
-                    "health_check_seconds": await self._get_config_value("monitoring.health_check_seconds", 30),
                     "tools_update_hours": await self._get_config_value("monitoring.tools_update_hours", 2),
                     "reconnection_seconds": await self._get_config_value("monitoring.reconnection_seconds", 60),
                     "cleanup_hours": await self._get_config_value("monitoring.cleanup_hours", 24),

@@ -2,7 +2,7 @@
 重连调度器 - 负责自动重连管理
 
 职责:
-1. 定期扫描 RECONNECTING 状态的服务
+1. 定期扫描 CIRCUIT_OPEN 状态的服务
 2. 检查是否到达重连时间
 3. 发布 ReconnectionRequested 事件
 4. 管理重连延迟策略（指数退避）
@@ -30,7 +30,7 @@ class ReconnectionScheduler:
     重连调度器
     
     职责:
-    1. 定期扫描 RECONNECTING 状态的服务
+    1. 定期扫描 CIRCUIT_OPEN 状态的服务
     2. 检查是否到达重连时间
     3. 发布 ReconnectionRequested 事件
     4. 管理重连延迟策略（指数退避）
@@ -112,7 +112,7 @@ class ReconnectionScheduler:
     
     async def _scan_reconnection_services(self):
         """
-        扫描所有 RECONNECTING 状态的服务
+        扫描所有 CIRCUIT_OPEN 状态的服务
 
         严格按照Functional Core, Imperative Shell原则：
         1. 调用纯同步核心生成扫描计划
@@ -183,8 +183,8 @@ class ReconnectionScheduler:
                 # 从缓存层获取服务状态
                 state = await self._get_service_state_from_cache(agent_id, service_name)
 
-                # 只处理 RECONNECTING 状态的服务
-                if state != ServiceConnectionState.RECONNECTING:
+                # 只处理 CIRCUIT_OPEN 状态的服务
+                if state != ServiceConnectionState.CIRCUIT_OPEN:
                     continue
 
                 # 从缓存层获取服务元数据
@@ -201,7 +201,7 @@ class ReconnectionScheduler:
                         logger.warning(
                             f"[RECONNECT] Max retries reached: {service_name} (retries={retry_count})"
                         )
-                        # 转换到 UNREACHABLE 状态
+                        # 转换到 DISCONNECTED 状态
                         await self._transition_to_unreachable(agent_id, service_name)
                         continue
 
@@ -354,7 +354,7 @@ class ReconnectionScheduler:
 
     async def _transition_to_unreachable(self, agent_id: str, service_name: str):
         """
-        将服务转换到UNREACHABLE状态
+        将服务转换到DISCONNECTED状态
 
         Args:
             agent_id: Agent ID
@@ -367,8 +367,8 @@ class ReconnectionScheduler:
             state_event = ServiceStateChanged(
                 agent_id=agent_id,
                 service_name=service_name,
-                old_state="RECONNECTING",
-                new_state="UNREACHABLE",
+                old_state="CIRCUIT_OPEN",
+                new_state="DISCONNECTED",
                 timestamp=datetime.now(),
                 reason="Max retries exceeded"
             )
@@ -413,8 +413,8 @@ class ReconnectionScheduler:
                 await self._registry.set_service_metadata_async(event.agent_id, event.service_name, metadata)
                 logger.info(f"[RECONNECT] Service recovered, resetting retry count: {event.service_name}")
 
-        # 如果服务进入 RECONNECTING 状态，调度重连
-        elif event.new_state == "RECONNECTING":
+        # 如果服务进入 CIRCUIT_OPEN 状态，调度重连
+        elif event.new_state == "CIRCUIT_OPEN":
             await self._schedule_reconnection(event.agent_id, event.service_name)
     
     async def _on_connection_failed(self, event: ServiceConnectionFailed):
@@ -482,7 +482,7 @@ class ReconnectionScheduler:
         await self._event_bus.publish(event)
     
     async def _transition_to_unreachable(self, agent_id: str, service_name: str):
-        """通过事件系统请求转换到 UNREACHABLE 状态"""
+        """通过事件系统请求转换到 DISCONNECTED 状态"""
         from mcpstore.core.events.service_events import ServiceTimeout
 
         event = ServiceTimeout(

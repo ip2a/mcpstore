@@ -58,7 +58,10 @@ class PersistenceManager:
             persisted_event = ServicePersisted(
                 agent_id=event.agent_id,
                 service_name=target_name,
-                file_path="mcp.json"
+                file_path="mcp.json",
+                stage="config",
+                tool_count=0,
+                details={"source": event.source}
             )
             await self._event_bus.publish(persisted_event)
             

@@ -310,6 +310,23 @@ class AgentProxy:
         except Exception:
             return {"result": str(status)}
 
+    # 别名：符合命名规范
+    def service_info(self, name: str) -> Dict[str, Any]:
+        return self.get_service_info(name)
+
+    def service_status(self, name: str) -> Dict[str, Any]:
+        return self.get_service_status(name)
+
+    async def service_info_async(self, name: str) -> Dict[str, Any]:
+        return await self.get_service_info_async(name)
+
+    async def service_status_async(self, name: str) -> Dict[str, Any]:
+        return await self.get_service_status_async(name)
+
+    async def tool_records_async(self, limit: int = 50) -> Dict[str, Any]:
+        ctx = self._agent_ctx or self._context
+        return await ctx.tool_records_async(limit)
+
 
     def patch_service(self, name: str, updates: Dict[str, Any]) -> bool:
         ctx = self._agent_ctx or self._context

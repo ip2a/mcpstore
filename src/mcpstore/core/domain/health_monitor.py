@@ -126,8 +126,8 @@ class HealthMonitor:
         """
         处理状态变更 - 停止已断开服务的健康检查
         """
-        # 如果服务进入终止/不可达状态，停止健康检查（使用统一小写枚举值）
-        terminal_states = ["disconnected", "disconnecting", "unreachable"]
+        # 如果服务进入终止状态，停止健康检查
+        terminal_states = {ServiceConnectionState.DISCONNECTED.value, ServiceConnectionState.DISCONNECTED}
         if event.new_state in terminal_states:
             task_key = (event.agent_id, event.service_name)
             if task_key in self._health_check_tasks:
@@ -182,7 +182,7 @@ class HealthMonitor:
 
             # 推断传输类型超时
             effective_timeout = self._infer_transport_timeout(service_config)
-            if current_state in (ServiceConnectionState.WARNING, ServiceConnectionState.RECONNECTING):
+            if current_state in (ServiceConnectionState.DEGRADED, ServiceConnectionState.CIRCUIT_OPEN):
                 # 进入警告/重连后延长超时，避免重复误判
                 effective_timeout = max(self._warning_ping_timeout, effective_timeout)
             else:
@@ -345,7 +345,7 @@ class HealthMonitor:
 
         now = time.time()
         last = self._last_check_time.get(key, 0)
-        interval = self._warning_interval if state in (ServiceConnectionState.WARNING, ServiceConnectionState.RECONNECTING) else self._check_interval
+        interval = self._warning_interval if state in (ServiceConnectionState.DEGRADED, ServiceConnectionState.CIRCUIT_OPEN) else self._check_interval
 
         if not force and (now - last) < interval:
             return False
@@ -389,7 +389,7 @@ class HealthMonitor:
 
                 # 检查初始化超时
                 state = await self._registry.get_service_state_async(agent_id, service_name)
-                if state == ServiceConnectionState.INITIALIZING:
+                if state == ServiceConnectionState.STARTUP:
                     state_entered_time = await self._get_state_entered_time(metadata)
                     if state_entered_time:
                         elapsed = current_time - state_entered_time.timestamp()

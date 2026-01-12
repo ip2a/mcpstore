@@ -740,7 +740,7 @@ class ServiceOperationsMixin:
         # 4. 使用 StateManager 更新服务状态
         await state_manager.update_service_status(
             service_global_name=service_global_name,
-            health_status="initializing",
+            health_status="startup",
             tools_status=tools_status
         )
         
@@ -872,7 +872,7 @@ class ServiceOperationsMixin:
             if not success:
                 raise RuntimeError(f"Failed to initialize service {resolved_service_name}")
 
-            logger.info(f" [INIT_SERVICE] Service {resolved_service_name} initialized to INITIALIZING state")
+            logger.info(f" [INIT_SERVICE] Service {resolved_service_name} initialized to STARTUP state")
             return self
 
         except Exception as e:

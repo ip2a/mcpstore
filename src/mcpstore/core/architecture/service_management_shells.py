@@ -115,7 +115,7 @@ class ServiceManagementAsyncShell:
                             )
                         await state_manager.update_service_status(
                             service_global_name=operation.data["key"],
-                            health_status=operation.data.get("health_status", "initializing"),
+                            health_status=operation.data.get("health_status", "startup"),
                             tools_status=operation.data.get("tools_status", [])
                         )
                         logger.debug(f"[ASYNC_SHELL] [SUCCESS] update_state successful, key={operation.data['key']}")

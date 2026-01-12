@@ -508,8 +508,8 @@ class StoreSetupManager:
                 level_name = "DEBUG"
             elif lvl <= logging.INFO:
                 level_name = "INFO"
-            elif lvl <= logging.WARNING:
-                level_name = "WARNING"
+            elif lvl <= logging.DEGRADED:
+                level_name = "DEGRADED"
             elif lvl <= logging.ERROR:
                 level_name = "ERROR"
             elif lvl <= logging.CRITICAL:

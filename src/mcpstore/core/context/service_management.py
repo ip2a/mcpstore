@@ -124,6 +124,10 @@ class ServiceManagementMixin:
                 "agent_id": getattr(self, '_agent_id', 'unknown')
             }
 
+    # 别名：符合命名规范
+    def service_info(self, name: str) -> Any:
+        return self.get_service_info(name)
+
     async def get_service_info_async(self, name: str) -> Any:
         """
         获取服务详情（异步版本），支持 store/agent 上下文
@@ -143,6 +147,9 @@ class ServiceManagementMixin:
         else:
             logger.error(f"[get_service_info] Unknown context type: {self._context_type}")
             return {}
+
+    async def service_info_async(self, name: str) -> Any:
+        return await self.get_service_info_async(name)
 
     def update_service(self,
                       name: str,
@@ -447,29 +454,24 @@ class ServiceManagementMixin:
         if not input_name:
             raise ValueError("service name is required")
 
-        from .agent_service_mapper import AgentServiceMapper
+        # 统一委托给 PerspectiveResolver，避免重复实现视角转换
+        try:
+            from mcpstore.utils.perspective_resolver import PerspectiveResolver
 
-        # 全局名格式
-        if AgentServiceMapper.is_any_agent_service(input_name):
-            parsed_agent, local_name = AgentServiceMapper.parse_agent_service_name(input_name)
-            if parsed_agent != self._agent_id:
-                raise ValueError(
-                    f"输入服务归属的 agent_id={parsed_agent} 与当前 agent_id={self._agent_id} 不一致"
-                )
-            return local_name
-
-        # 冒号分隔格式
-        if ":" in input_name:
-            maybe_agent, maybe_local = input_name.split(":", 1)
-            if maybe_local and maybe_agent:
-                if maybe_agent != self._agent_id:
-                    raise ValueError(
-                        f"输入服务归属的 agent_id={maybe_agent} 与当前 agent_id={self._agent_id} 不一致"
-                    )
-                return maybe_local
-
-        # 默认当作本地名
-        return input_name
+            resolver = PerspectiveResolver()
+            res = resolver.normalize_service_name(
+                self._agent_id,
+                input_name,
+                target="local",
+                strict=True,
+            )
+            logger.debug(
+                f"[PERSPECTIVE] normalize input='{input_name}' -> local='{res.local_name}' method='{res.resolution_method}'"
+            )
+            return res.local_name
+        except Exception as e:
+            logger.error(f"[PERSPECTIVE] normalize_agent_local_name failed: {e}")
+            raise
 
     async def delete_service_two_step(self, service_name: str) -> Dict[str, Any]:
         """
@@ -1164,12 +1166,12 @@ class ServiceManagementMixin:
                 "mcpServers": {service_name: normalized_config}
             })
 
-            # 3. 设置服务状态为INITIALIZING并更新元数据
+            # 3. 设置服务状态为STARTUP并更新元数据
             from mcpstore.core.models.service import ServiceConnectionState
             await self._store.orchestrator.lifecycle_manager._transition_state(
                 agent_id=global_agent_store_id,
                 service_name=service_name,
-                new_state=ServiceConnectionState.INITIALIZING,
+                new_state=ServiceConnectionState.STARTUP,
                 reason="config_updated",
                 source="ServiceManagement",
             )
@@ -1249,12 +1251,12 @@ class ServiceManagementMixin:
                 "mcpServers": {service_name: normalized_config}
             })
 
-            # 3. 设置服务状态为INITIALIZING并更新元数据
+            # 3. 设置服务状态为STARTUP并更新元数据
             from mcpstore.core.models.service import ServiceConnectionState
             await self._store.orchestrator.lifecycle_manager._transition_state(
                 agent_id=self._agent_id,
                 service_name=service_name,
-                new_state=ServiceConnectionState.INITIALIZING,
+                new_state=ServiceConnectionState.STARTUP,
                 reason="agent_config_updated",
                 source="ServiceManagement",
             )
@@ -1325,6 +1327,13 @@ class ServiceManagementMixin:
         except Exception as e:
             logger.error(f"Failed to get service status for {name}: {e}")
             return {"status": "error", "error": str(e)}
+
+    # 别名：符合命名规范
+    def service_status(self, name: str) -> dict:
+        return self.get_service_status(name)
+
+    async def service_status_async(self, name: str) -> dict:
+        return await self.get_service_status_async(name)
 
     def restart_service(self, name: str) -> bool:
         raise RuntimeError("[SERVICE_MANAGEMENT] Synchronous restart_service is disabled, please use restart_service_async.")

@@ -38,7 +38,7 @@ def _summary(data: List[dict], cache) -> dict:
 
 
 # === Store-level cache ===
-@router.get("/for_store/cache/entities", response_model=None)
+@router.get("/for_store/find_cache/read_entities", response_model=None)
 @timed_response
 async def store_cache_entities(type: Optional[str] = Query(None), key: Optional[str] = None):
     store = get_store()
@@ -51,7 +51,7 @@ async def store_cache_entities(type: Optional[str] = Query(None), key: Optional[
     )
 
 
-@router.get("/for_store/cache/relations", response_model=None)
+@router.get("/for_store/find_cache/read_relations", response_model=None)
 @timed_response
 async def store_cache_relations(type: Optional[str] = Query(None), key: Optional[str] = None):
     store = get_store()
@@ -64,7 +64,7 @@ async def store_cache_relations(type: Optional[str] = Query(None), key: Optional
     )
 
 
-@router.get("/for_store/cache/states", response_model=None)
+@router.get("/for_store/find_cache/read_states", response_model=None)
 @timed_response
 async def store_cache_states(type: Optional[str] = Query(None), key: Optional[str] = None):
     store = get_store()
@@ -77,7 +77,7 @@ async def store_cache_states(type: Optional[str] = Query(None), key: Optional[st
     )
 
 
-@router.get("/for_store/cache/inspect", response_model=None)
+@router.get("/for_store/find_cache/inspect_cache", response_model=None)
 @timed_response
 async def store_cache_inspect():
     store = get_store()
@@ -86,7 +86,7 @@ async def store_cache_inspect():
     return ResponseBuilder.success(message="Cache inspect", data=data)
 
 
-@router.get("/for_store/cache/dump", response_model=None)
+@router.get("/for_store/find_cache/dump_cache", response_model=None)
 @timed_response
 async def store_cache_dump():
     store = get_store()
@@ -96,7 +96,7 @@ async def store_cache_dump():
 
 
 # === Agent-level cache ===
-@router.get("/for_agent/{agent_id}/cache/entities", response_model=None)
+@router.get("/for_agent/{agent_id}/find_cache/read_entities", response_model=None)
 @timed_response
 async def agent_cache_entities(agent_id: str, type: Optional[str] = Query(None), key: Optional[str] = None):
     validate_agent_id(agent_id)
@@ -110,7 +110,7 @@ async def agent_cache_entities(agent_id: str, type: Optional[str] = Query(None),
     )
 
 
-@router.get("/for_agent/{agent_id}/cache/relations", response_model=None)
+@router.get("/for_agent/{agent_id}/find_cache/read_relations", response_model=None)
 @timed_response
 async def agent_cache_relations(agent_id: str, type: Optional[str] = Query(None), key: Optional[str] = None):
     validate_agent_id(agent_id)
@@ -124,7 +124,7 @@ async def agent_cache_relations(agent_id: str, type: Optional[str] = Query(None)
     )
 
 
-@router.get("/for_agent/{agent_id}/cache/states", response_model=None)
+@router.get("/for_agent/{agent_id}/find_cache/read_states", response_model=None)
 @timed_response
 async def agent_cache_states(agent_id: str, type: Optional[str] = Query(None), key: Optional[str] = None):
     validate_agent_id(agent_id)
@@ -138,7 +138,7 @@ async def agent_cache_states(agent_id: str, type: Optional[str] = Query(None), k
     )
 
 
-@router.get("/for_agent/{agent_id}/cache/inspect", response_model=None)
+@router.get("/for_agent/{agent_id}/find_cache/inspect_cache", response_model=None)
 @timed_response
 async def agent_cache_inspect(agent_id: str):
     validate_agent_id(agent_id)
@@ -148,7 +148,7 @@ async def agent_cache_inspect(agent_id: str):
     return ResponseBuilder.success(message=f"Cache inspect for agent '{agent_id}'", data=data)
 
 
-@router.get("/for_agent/{agent_id}/cache/dump", response_model=None)
+@router.get("/for_agent/{agent_id}/find_cache/dump_cache", response_model=None)
 @timed_response
 async def agent_cache_dump(agent_id: str):
     validate_agent_id(agent_id)

@@ -31,37 +31,50 @@ class ContentUpdateConfig:
 @dataclass
 class ServiceLifecycleConfig:
     """Service lifecycle configuration (single source of truth)"""
-    # State transition thresholds (failure count)
-    warning_failure_threshold: int = _health_defaults.warning_failure_threshold          # First failure in HEALTHY enters WARNING
-    reconnecting_failure_threshold: int = _health_defaults.reconnecting_failure_threshold     # Two consecutive failures in WARNING enter RECONNECTING
-    max_reconnect_attempts: int = _health_defaults.max_reconnect_attempts            # Maximum reconnection attempts
+    # 探针与就绪
+    startup_interval: float = _health_defaults.startup_interval
+    startup_timeout: float = _health_defaults.startup_timeout
+    startup_hard_timeout: float = _health_defaults.startup_hard_timeout
+    readiness_interval: float = _health_defaults.readiness_interval
+    readiness_success_threshold: int = _health_defaults.readiness_success_threshold
+    readiness_failure_threshold: int = _health_defaults.readiness_failure_threshold
+    liveness_interval: float = _health_defaults.liveness_interval
+    liveness_failure_threshold: int = _health_defaults.liveness_failure_threshold
+    ping_timeout_http: float = _health_defaults.ping_timeout_http
+    ping_timeout_sse: float = _health_defaults.ping_timeout_sse
+    ping_timeout_stdio: float = _health_defaults.ping_timeout_stdio
+    warning_ping_timeout: float = _health_defaults.warning_ping_timeout
 
-    # Reconnection backoff
-    base_reconnect_delay: float = _health_defaults.base_reconnect_delay           # Base reconnection delay (seconds)
-    max_reconnect_delay: float = _health_defaults.max_reconnect_delay           # Maximum reconnection delay (seconds)
-    long_retry_interval: float = _health_defaults.long_retry_interval          # Long retry interval (seconds)
+    # 窗口判定
+    window_size: int = _health_defaults.window_size
+    window_min_calls: int = _health_defaults.window_min_calls
+    error_rate_threshold: float = _health_defaults.error_rate_threshold
+    latency_p95_warn: float = _health_defaults.latency_p95_warn
+    latency_p99_critical: float = _health_defaults.latency_p99_critical
 
-    # Health check (period/threshold/timeout)
-    normal_heartbeat_interval: float = _health_defaults.normal_heartbeat_interval     # Normal state heartbeat interval
-    warning_heartbeat_interval: float = _health_defaults.warning_heartbeat_interval    # Warning state heartbeat interval
-    health_check_ping_timeout: float = _health_defaults.health_check_ping_timeout     # Health check ping timeout
-    warning_ping_timeout: float = _health_defaults.warning_ping_timeout          # Warning/Reconnecting 状态下的宽松超时
-    ping_timeout_http: float = _health_defaults.ping_timeout_http               # HTTP 传输默认 ping 超时
-    ping_timeout_sse: float = _health_defaults.ping_timeout_sse                # SSE 传输默认 ping 超时
-    ping_timeout_stdio: float = _health_defaults.ping_timeout_stdio              # STDIO/Studio 传输默认 ping 超时
-    disconnection_timeout: float = _health_defaults.disconnection_timeout         # Disconnection detection timeout
+    # 退避与熔断/半开
+    max_reconnect_attempts: int = _health_defaults.max_reconnect_attempts
+    backoff_base: float = _health_defaults.backoff_base
+    backoff_max: float = _health_defaults.backoff_max
+    backoff_jitter: float = _health_defaults.backoff_jitter
+    backoff_max_duration: float = _health_defaults.backoff_max_duration
+    half_open_max_calls: int = _health_defaults.half_open_max_calls
+    half_open_success_rate_threshold: float = _health_defaults.half_open_success_rate_threshold
+    reconnect_hard_timeout: float = _health_defaults.reconnect_hard_timeout
 
-    # Lifecycle timeouts
-    initialization_timeout: float = _service_defaults.initialization_timeout        # Service initialization timeout
-    termination_timeout: float = _service_defaults.termination_timeout           # Service termination timeout
-    shutdown_timeout: float = _service_defaults.shutdown_timeout               # Graceful shutdown timeout
+    # 生命周期超时
+    initialization_timeout: float = _service_defaults.initialization_timeout
+    termination_timeout: float = _service_defaults.termination_timeout
+    shutdown_timeout: float = _service_defaults.shutdown_timeout
 
-    # Retry and restart behavior
-    restart_delay_seconds: float = 5.0           # Delay before restart attempt
-    max_restart_attempts: int = 3               # Maximum restart attempts
+    # 租约
+    lease_ttl: float = _health_defaults.lease_ttl
+    lease_renew_interval: float = _health_defaults.lease_renew_interval
 
-    # Logging and monitoring
-    enable_detailed_logging: bool = True       # Enable detailed lifecycle logging
-    collect_startup_metrics: bool = True      # Collect startup performance metrics
-    collect_runtime_metrics: bool = True       # Collect runtime performance metrics
-    collect_shutdown_metrics: bool = True      # Collect shutdown performance metrics
+    # 重启与日志
+    restart_delay_seconds: float = 5.0
+    max_restart_attempts: int = 3
+    enable_detailed_logging: bool = True
+    collect_startup_metrics: bool = True
+    collect_runtime_metrics: bool = True
+    collect_shutdown_metrics: bool = True

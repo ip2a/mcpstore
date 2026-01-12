@@ -148,7 +148,7 @@ class AgentStatisticsMixin:
 
                             # 检查服务是否活跃（有工具且状态不是DISCONNECTED）
                             from mcpstore.core.models.service import ServiceConnectionState
-                            if service_state not in [ServiceConnectionState.DISCONNECTED, ServiceConnectionState.UNREACHABLE]:
+                            if service_state not in [ServiceConnectionState.DISCONNECTED, ServiceConnectionState.DISCONNECTED]:
                                 is_active = True
 
                             service_summary = AgentServiceSummary(
@@ -177,7 +177,7 @@ class AgentStatisticsMixin:
                     logger.warning(f"Failed to process client {client_id} for agent {agent_id}: {e}")
             
             # 统计健康和不健康的服务
-            healthy_services = len([s for s in services if s.status in ["healthy", "warning"]])
+            healthy_services = len([s for s in services if s.status in ["healthy", "degraded"]])
             unhealthy_services = len(services) - healthy_services
 
             return AgentStatistics(

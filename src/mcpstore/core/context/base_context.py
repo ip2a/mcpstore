@@ -309,7 +309,7 @@ class MCPStoreContext(
         This reflects the effective configuration used during MCPStore.setup_store().
         The snapshot includes:
         - mcp_json: Path to mcp.json configuration file
-        - debug_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL, OFF)
+        - debug_level: Logging level (DEBUG, INFO, DEGRADED, ERROR, CRITICAL, OFF)
         - static_config: Static configuration dict (monitoring, network, features, etc.)
         - cache_config: Cache configuration object (MemoryConfig or RedisConfig)
 
@@ -326,7 +326,7 @@ class MCPStoreContext(
             level_name = (
                 "DEBUG" if lvl <= logging.DEBUG else
                 "INFO" if lvl <= logging.INFO else
-                "WARNING" if lvl <= logging.WARNING else
+                "DEGRADED" if lvl <= logging.DEGRADED else
                 "ERROR" if lvl <= logging.ERROR else
                 "CRITICAL" if lvl <= logging.CRITICAL else "OFF"
             )
@@ -365,13 +365,22 @@ class MCPStoreContext(
                     "by_tool": {},
                     "by_service": {}
                 },
-                "warning": "Monitoring disabled"
+                "degraded": "Monitoring disabled"
             }
         return self._monitoring.get_tool_records(limit)
 
     async def get_tool_records_async(self, limit: int = 50) -> Dict[str, Any]:
         """Asynchronously get tool execution records"""
         return self.get_tool_records(limit)
+
+    # 别名：符合“两个单词”命名偏好
+    def tool_records(self, limit: int = 50) -> Dict[str, Any]:
+        """工具执行记录（同步别名）"""
+        return self.get_tool_records(limit)
+
+    async def tool_records_async(self, limit: int = 50) -> Dict[str, Any]:
+        """工具执行记录（异步别名）"""
+        return await self.get_tool_records_async(limit)
 
     # === Internal helper methods ===
 
