@@ -21,26 +21,41 @@ class ServerConfigDefaults:
 
 @dataclass
 class HealthCheckConfigDefaults:
-    """Default health check configuration."""
+    """Default health check configuration (new model, no backward compatibility)."""
     enabled: bool = True
-    warning_failure_threshold: int = 1
-    reconnecting_failure_threshold: int = 2
-    max_reconnect_attempts: int = 10
-    base_reconnect_delay: float = 1.0
-    max_reconnect_delay: float = 60.0
-    long_retry_interval: float = 300.0
-    # 健康状态的轻量心跳（默认 10s）
-    normal_heartbeat_interval: float = 10.0
-    warning_heartbeat_interval: float = 10.0
-    health_check_ping_timeout: float = 10.0
-    # 在 WARNING/RECONNECTING 状态下使用更宽松的 ping 超时，避免短暂抖动触发误判
-    warning_ping_timeout: float = 30.0
-    # 按传输类型的默认 ping 超时
+    # 探针周期与超时
+    startup_interval: float = 1.0
+    startup_timeout: float = 30.0
+    startup_hard_timeout: float = 120.0
+    readiness_interval: float = 5.0
+    readiness_success_threshold: int = 1
+    readiness_failure_threshold: int = 1
+    liveness_interval: float = 10.0
+    liveness_failure_threshold: int = 2
     ping_timeout_http: float = 20.0
     ping_timeout_sse: float = 20.0
     ping_timeout_stdio: float = 40.0
-    initialization_timeout: float = 300.0
-    disconnection_timeout: float = 10.0
+    warning_ping_timeout: float = 30.0  # 在 degraded/circuit_open/half_open 放宽
+    # 滑动窗口判定
+    window_size: int = 20          # 样本窗大小
+    window_min_calls: int = 5
+    error_rate_threshold: float = 0.3
+    latency_p95_warn: float = 2.0
+    latency_p99_critical: float = 5.0
+    # 退避与熔断
+    max_reconnect_attempts: int = 10
+    backoff_base: float = 1.0
+    backoff_max: float = 60.0
+    backoff_jitter: float = 0.1
+    backoff_max_duration: float = 600.0
+    # 半开试探
+    half_open_max_calls: int = 3
+    half_open_success_rate_threshold: float = 0.6
+    # 硬超时
+    reconnect_hard_timeout: float = 900.0
+    # 租约
+    lease_ttl: float = 60.0
+    lease_renew_interval: float = 20.0
 
 
 @dataclass
@@ -83,7 +98,6 @@ class ContentUpdateConfigDefaults:
 @dataclass
 class MonitoringConfigDefaults:
     """Default monitoring configuration."""
-    health_check_seconds: int = 30
     tools_update_hours: float = 2.0
     reconnection_seconds: int = 60
     cleanup_hours: float = 24.0
@@ -93,10 +107,6 @@ class MonitoringConfigDefaults:
     detect_tools_changes: bool = False
     local_service_ping_timeout: int = 3
     remote_service_ping_timeout: int = 5
-    startup_wait_time: int = 2
-    healthy_response_threshold: float = 1.0
-    warning_response_threshold: float = 3.0
-    slow_response_threshold: float = 10.0
     enable_adaptive_timeout: bool = True
     adaptive_timeout_multiplier: float = 2.0
     response_time_history_size: int = 10
@@ -216,17 +226,33 @@ def get_all_defaults() -> Dict[str, Dict[str, Any]]:
         },
         "health_check": {
             "enabled": health_check.enabled,
-            "warning_failure_threshold": health_check.warning_failure_threshold,
-            "reconnecting_failure_threshold": health_check.reconnecting_failure_threshold,
+            "startup_interval": health_check.startup_interval,
+            "startup_timeout": health_check.startup_timeout,
+            "startup_hard_timeout": health_check.startup_hard_timeout,
+            "readiness_interval": health_check.readiness_interval,
+            "readiness_success_threshold": health_check.readiness_success_threshold,
+            "readiness_failure_threshold": health_check.readiness_failure_threshold,
+            "liveness_interval": health_check.liveness_interval,
+            "liveness_failure_threshold": health_check.liveness_failure_threshold,
+            "ping_timeout_http": health_check.ping_timeout_http,
+            "ping_timeout_sse": health_check.ping_timeout_sse,
+            "ping_timeout_stdio": health_check.ping_timeout_stdio,
+            "warning_ping_timeout": health_check.warning_ping_timeout,
+            "window_size": health_check.window_size,
+            "window_min_calls": health_check.window_min_calls,
+            "error_rate_threshold": health_check.error_rate_threshold,
+            "latency_p95_warn": health_check.latency_p95_warn,
+            "latency_p99_critical": health_check.latency_p99_critical,
             "max_reconnect_attempts": health_check.max_reconnect_attempts,
-            "base_reconnect_delay": health_check.base_reconnect_delay,
-            "max_reconnect_delay": health_check.max_reconnect_delay,
-            "long_retry_interval": health_check.long_retry_interval,
-            "normal_heartbeat_interval": health_check.normal_heartbeat_interval,
-            "warning_heartbeat_interval": health_check.warning_heartbeat_interval,
-            "health_check_ping_timeout": health_check.health_check_ping_timeout,
-            "initialization_timeout": health_check.initialization_timeout,
-            "disconnection_timeout": health_check.disconnection_timeout,
+            "backoff_base": health_check.backoff_base,
+            "backoff_max": health_check.backoff_max,
+            "backoff_jitter": health_check.backoff_jitter,
+            "backoff_max_duration": health_check.backoff_max_duration,
+            "half_open_max_calls": health_check.half_open_max_calls,
+            "half_open_success_rate_threshold": health_check.half_open_success_rate_threshold,
+            "reconnect_hard_timeout": health_check.reconnect_hard_timeout,
+            "lease_ttl": health_check.lease_ttl,
+            "lease_renew_interval": health_check.lease_renew_interval,
         },
         "content_update": {
             "tools_update_interval": content_update.tools_update_interval,
@@ -238,7 +264,6 @@ def get_all_defaults() -> Dict[str, Dict[str, Any]]:
             "failure_backoff_multiplier": content_update.failure_backoff_multiplier,
         },
         "monitoring": {
-            "health_check_seconds": monitoring.health_check_seconds,
             "tools_update_hours": monitoring.tools_update_hours,
             "reconnection_seconds": monitoring.reconnection_seconds,
             "cleanup_hours": monitoring.cleanup_hours,
@@ -248,10 +273,6 @@ def get_all_defaults() -> Dict[str, Dict[str, Any]]:
             "detect_tools_changes": monitoring.detect_tools_changes,
             "local_service_ping_timeout": monitoring.local_service_ping_timeout,
             "remote_service_ping_timeout": monitoring.remote_service_ping_timeout,
-            "startup_wait_time": monitoring.startup_wait_time,
-            "healthy_response_threshold": monitoring.healthy_response_threshold,
-            "warning_response_threshold": monitoring.warning_response_threshold,
-            "slow_response_threshold": monitoring.slow_response_threshold,
             "enable_adaptive_timeout": monitoring.enable_adaptive_timeout,
             "adaptive_timeout_multiplier": monitoring.adaptive_timeout_multiplier,
             "response_time_history_size": monitoring.response_time_history_size,

@@ -3,16 +3,20 @@
 MCPStore CLI - Command Line Interface for MCPStore
 """
 import sys
-from typing import Optional
 
 import typer
-import uvicorn
-from typing_extensions import Annotated
+
+from .api.run import register_api_commands
+from .config.commands import register_config_commands
+from .mcp.commands import register_mcp_commands
+
+# 全局注册标记，避免重复注册命令
+_commands_registered = False
 
 # Create main CLI application
 app = typer.Typer(
     name="mcpstore",
-    help="MCPStore - A composable, ready-to-use MCP toolkit for agents and rapid integration.",
+    help="MCPStore - 统一管理/启动/配置 MCP 服务的命令行工具。",
     no_args_is_help=True,
     rich_markup_mode="rich"
 )
@@ -20,177 +24,42 @@ app = typer.Typer(
 @app.callback()
 def callback():
     """
-    MCPStore Command Line Interface
-
-    A powerful toolkit for managing MCP (Model Context Protocol) services.
+    MCPStore 命令行入口
     """
     pass
 
-@app.command("run")
-def run_command(
-    service: Annotated[str, typer.Argument(help="Service to run (api, test, etc.)")],
-    host: Annotated[str, typer.Option("--host", "-h", help="Host to bind to")] = "0.0.0.0",
-    port: Annotated[int, typer.Option("--port", "-p", help="Port to bind to")] = 18200,
-    reload: Annotated[bool, typer.Option("--reload", "-r", help="Enable auto-reload")] = False,
-    log_level: Annotated[str, typer.Option("--log-level", "-l", help="Log level")] = "info",
-    prefix: Annotated[str, typer.Option("--prefix", help="URL prefix (e.g., /api/v1)")] = "",
-):
-    """
-    Run MCPStore services
-
-    Available services:
-    - api: Start the MCPStore API server
-
-    Examples:
-
-    # Basic startup (no prefix)
-    mcpstore run api
-
-    # Use URL prefix
-    mcpstore run api --prefix /api/v1
-    # Access: http://localhost:18200/api/v1/for_store/list_services
-
-    # Development mode + prefix
-    mcpstore run api --reload --prefix /api
-    """
-    if service == "api":
-        run_api(host=host, port=port, reload=reload, log_level=log_level, url_prefix=prefix)
-    else:
-        typer.echo(f" Unknown service: {service}")
-        typer.echo("Available services: api")
-        raise typer.Exit(1)
-
-def run_api(host: str, port: int, reload: bool, log_level: str, url_prefix: str):
-    """Start MCPStore API service"""
-    try:
-        typer.echo("[START] Starting MCPStore API Server...")
-        typer.echo(f"   Host: {host}:{port}")
-
-        if url_prefix:
-            typer.echo(f"   URL Prefix: {url_prefix}")
-            base_url = f"http://{host if host != '0.0.0.0' else 'localhost'}:{port}"
-            typer.echo(f"   Example: {base_url}{url_prefix}/for_store/list_services")
-        else:
-            base_url = f"http://{host if host != '0.0.0.0' else 'localhost'}:{port}"
-            typer.echo(f"   Example: {base_url}/for_store/list_services")
-
-        if reload:
-            typer.echo("   Mode: Development (auto-reload enabled)")
-        typer.echo("   Press Ctrl+C to stop")
-        typer.echo()
-
-        # Pass URL prefix configuration at startup (no environment variables used)
-        if url_prefix:
-            typer.echo(f"   Using URL prefix (applied at app level): {url_prefix}")
-
-        # Start API service
-        uvicorn.run(
-            "mcpstore.scripts.app:app",
-            host=host,
-            port=port,
-            reload=reload,
-            log_level=log_level
-        )
-    except KeyboardInterrupt:
-        typer.echo("\n[STOPPED] Server stopped by user")
-    except Exception as e:
-        typer.echo(f" Failed to start server: {e}")
-        raise typer.Exit(1)
-
 @app.command("version")
 def version():
-    """Show version information"""
+    """显示版本信息"""
     try:
         from mcpstore import __version__
-        version_str = __version__
-    except ImportError:
-        version_str = "0.2.0"
-
-    typer.echo(f"MCPStore version: {version_str}")
-
-@app.command("test")
-def test_command(
-    suite: Annotated[
-        Optional[str],
-        typer.Argument(help="Test suite to run")
-    ] = "all",
-    host: Annotated[str, typer.Option("--host", help="API server host")] = "localhost",
-    port: Annotated[int, typer.Option("--port", help="API server port")] = 18611,
-    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Verbose output")] = False,
-    performance: Annotated[bool, typer.Option("--performance", "-p", help="Include performance tests")] = False,
-    max_concurrent: Annotated[int, typer.Option("--max-concurrent", help="Max concurrent requests for performance tests")] = 10,
-):
-    """
-    Run MCPStore tests
-
-    Available test suites:
-    - health: Quick health check
-    - smoke: Smoke tests (basic functionality)
-    - api: Basic API tests
-    - core: Core functionality tests
-    - advanced: Advanced API tests
-    - performance: Performance and load tests
-    - comprehensive: All tests including performance
-    - all: Basic tests (default)
-    """
-    try:
-        import asyncio
-        from mcpstore.cli.test_runner import run_tests
-
-        # For comprehensive testing, use special handling
-        if suite == "comprehensive":
-            from mcpstore.cli.comprehensive_test import run_comprehensive_tests
-            base_url = f"http://{host}:{port}"
-            success = asyncio.run(run_comprehensive_tests(
-                base_url=base_url,
-                include_performance=performance,
-                max_concurrent=max_concurrent,
-                verbose=verbose
-            ))
-        else:
-            success = asyncio.run(run_tests(suite=suite, host=host, port=port, verbose=verbose))
-
-        if not success:
-            raise typer.Exit(1)
-    except ImportError as e:
-        typer.echo(f" Test runner not available: {e}")
-        raise typer.Exit(1)
     except Exception as e:
-        typer.echo(f" Test failed: {e}")
+        typer.echo(f" 获取版本号失败: {e}")
         raise typer.Exit(1)
 
-@app.command("config")
-def config_command(
-    action: Annotated[str, typer.Argument(help="Action: show, validate, init")],
-    path: Annotated[Optional[str], typer.Option("--path", help="Config file path")] = None,
-):
-    """
-    Manage MCPStore configuration
+    typer.echo(f"MCPStore 版本: {__version__}")
 
-    Actions:
-    - show: Display current configuration
-    - validate: Validate configuration file
-    - init: Initialize default configuration
-    """
-    try:
-        from mcpstore.cli.config_manager import handle_config
-        handle_config(action=action, path=path)
-    except ImportError:
-        typer.echo(" Config manager not available")
-        raise typer.Exit(1)
-    except Exception as e:
-        typer.echo(f" Config operation failed: {e}")
-        raise typer.Exit(1)
+def _register_commands():
+    """拆分后的命令注册"""
+    global _commands_registered
+    if _commands_registered:
+        return
+    register_api_commands(app)
+    register_config_commands(app)
+    register_mcp_commands(app)
+    _commands_registered = True
+
 
 def main():
     """CLI entry point"""
     try:
+        _register_commands()
         app()
     except KeyboardInterrupt:
-        typer.echo("\n[INFO] Goodbye!")
+        typer.echo("\n[INFO] 已退出")
         sys.exit(0)
     except Exception as e:
-        typer.echo(f" CLI error: {e}")
+        typer.echo(f" CLI 异常: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

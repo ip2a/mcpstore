@@ -21,6 +21,7 @@ from mcpstore.core.events.service_events import (
     ServiceStateChanged,
     ServiceBootstrapped,
     ServiceBootstrapFailed,
+    ServiceReady,
 )
 from mcpstore.core.models.service import ServiceConnectionState, ServiceStateMetadata
 
@@ -238,13 +239,13 @@ class LifecycleManager:
 
             # 验证保存成功
             logger.debug(f"[LIFECYCLE] Metadata saved with config keys: {list(service_config.keys()) if service_config else 'None'}")
-            logger.info(f"[LIFECYCLE] Lifecycle initialized: {event.service_name} -> INITIALIZING")
+            logger.info(f"[LIFECYCLE] Lifecycle initialized: {event.service_name} -> STARTUP")
 
             # 4. 发布初始化完成事件（同步等待确保完成）
             initialized_event = ServiceInitialized(
                 agent_id=event.agent_id,
                 service_name=event.service_name,
-                initial_state="initializing"
+                initial_state="startup"
             )
             await self._event_bus.publish(initialized_event, wait=True)
             logger.debug(f"[LIFECYCLE] ServiceInitialized event published for: {event.service_name}")
@@ -310,7 +311,7 @@ class LifecycleManager:
             )
 
             await self._set_service_metadata_async(event.agent_id, event.service_name, metadata)
-            await self._set_service_state_async(event.agent_id, event.service_name, ServiceConnectionState.INITIALIZING)
+            await self._set_service_state_async(event.agent_id, event.service_name, ServiceConnectionState.STARTUP)
 
             async def _dispatch_connect_and_health():
                 async with self._bootstrap_semaphore:
@@ -318,7 +319,7 @@ class LifecycleManager:
                         init_event = ServiceInitialized(
                             agent_id=event.agent_id,
                             service_name=event.service_name,
-                            initial_state="initializing"
+                            initial_state="startup"
                         )
                         await self._event_bus.publish(init_event, wait=True)
                     except Exception as connect_err:
@@ -458,7 +459,7 @@ class LifecycleManager:
             state_changed_event = ServiceStateChanged(
                 agent_id=event.agent_id,
                 service_name=event.service_name,
-                old_state="initializing",
+                old_state="startup",
                 new_state="healthy",
                 reason="connection_successful"
             )
@@ -466,6 +467,24 @@ class LifecycleManager:
             logger.debug(f"[LIFECYCLE] ServiceStateChanged event published for: {event.service_name}")
         except Exception as event_error:
             logger.error(f"[LIFECYCLE] Failed to publish state change event for {event.service_name}: {event_error}")
+
+        # 发布就绪事件：工具状态与健康元数据已落盘
+        try:
+            current_state = await self._registry.get_service_state_async(event.agent_id, event.service_name)
+            health_value = getattr(current_state, "value", str(current_state)) if current_state else "unknown"
+            ready_event = ServiceReady(
+                agent_id=event.agent_id,
+                service_name=event.service_name,
+                tool_count=tools_count or 0,
+                health_status=health_value
+            )
+            if self._event_bus.get_subscriber_count(ServiceReady) > 0:
+                await self._event_bus.publish(ready_event, wait=False)
+                logger.debug(f"[LIFECYCLE] ServiceReady event published for: {event.service_name}")
+            else:
+                logger.debug(f"[LIFECYCLE] No subscribers for ServiceReady, skip publish for: {event.service_name}")
+        except Exception as ready_err:
+            logger.error(f"[LIFECYCLE] Failed to publish ServiceReady for {event.service_name}: {ready_err}")
     
     async def _on_service_connection_failed(self, event: ServiceConnectionFailed):
         """
@@ -501,7 +520,7 @@ class LifecycleManager:
             else:
                 logger.warning(f"[LIFECYCLE] No metadata found for {event.service_name}, skipping failure update")
 
-            # 3. 明确记录：不立即转换状态，让 HealthMonitor 处理；仅在初始连接失败或达到阈值时进入 RECONNECTING
+            # 3. 明确记录：不立即转换状态，让 HealthMonitor 处理；仅在初始连接失败或达到阈值时进入 CIRCUIT_OPEN
             logger.info(f"[LIFECYCLE] Connection failure handled, deferring state transition to health monitor")
 
             try:
@@ -511,12 +530,12 @@ class LifecycleManager:
 
             # 仅在初次连接或明确达到重连阈值时切换，避免单次抖动直接进入重连
             should_enter_reconnecting = False
-            if current_state in (ServiceConnectionState.INITIALIZING, None):
+            if current_state in (ServiceConnectionState.STARTUP, None):
                 should_enter_reconnecting = True
             elif metadata and metadata.consecutive_failures >= self._config.reconnecting_failure_threshold:
                 should_enter_reconnecting = current_state not in (
-                    ServiceConnectionState.RECONNECTING,
-                    ServiceConnectionState.UNREACHABLE,
+                    ServiceConnectionState.CIRCUIT_OPEN,
+                    ServiceConnectionState.DISCONNECTED,
                     ServiceConnectionState.DISCONNECTED,
                 )
 
@@ -524,7 +543,7 @@ class LifecycleManager:
                 await self._transition_state(
                     agent_id=event.agent_id,
                     service_name=event.service_name,
-                    new_state=ServiceConnectionState.RECONNECTING,
+                    new_state=ServiceConnectionState.CIRCUIT_OPEN,
                     reason="connection_failed",
                     source="LifecycleManager"
                 )
@@ -584,11 +603,11 @@ class LifecycleManager:
             if metadata:
                 failures = metadata.consecutive_failures
 
-            # Success: return from INITIALIZING/WARNING to HEALTHY; HEALTHY stays
+            # Success: return from STARTUP/DEGRADED to HEALTHY; HEALTHY stays
             if event.success:
                 # 健康成功但工具为空时触发受控的重连以拉取工具，避免“健康但无工具”
                 await self._maybe_trigger_tool_resync(event.agent_id, event.service_name)
-                if current_state in (ServiceConnectionState.INITIALIZING, ServiceConnectionState.WARNING):
+                if current_state in (ServiceConnectionState.STARTUP, ServiceConnectionState.DEGRADED):
                     await self._transition_state(
                         agent_id=event.agent_id,
                         service_name=event.service_name,
@@ -598,28 +617,28 @@ class LifecycleManager:
                     )
                 return
 
-            # Failure: advance to WARNING/RECONNECTING based on thresholds
+            # Failure: advance to DEGRADED/CIRCUIT_OPEN based on thresholds
             warn_th = self._config.warning_failure_threshold
             rec_th = self._config.reconnecting_failure_threshold
 
-            # Reached reconnection threshold: enter RECONNECTING
+            # Reached reconnection threshold: enter CIRCUIT_OPEN
             if failures >= rec_th:
-                if current_state != ServiceConnectionState.RECONNECTING:
+                if current_state != ServiceConnectionState.CIRCUIT_OPEN:
                     await self._transition_state(
                         agent_id=event.agent_id,
                         service_name=event.service_name,
-                        new_state=ServiceConnectionState.RECONNECTING,
+                        new_state=ServiceConnectionState.CIRCUIT_OPEN,
                         reason="health_check_consecutive_failures",
                         source="HealthMonitor"
                     )
                 return
 
-            # Enter WARNING from HEALTHY (first failure)
+            # Enter DEGRADED from HEALTHY (first failure)
             if current_state == ServiceConnectionState.HEALTHY and failures >= warn_th:
                 await self._transition_state(
                     agent_id=event.agent_id,
                     service_name=event.service_name,
-                    new_state=ServiceConnectionState.WARNING,
+                    new_state=ServiceConnectionState.DEGRADED,
                     reason="health_check_first_failure",
                     source="HealthMonitor"
                 )
@@ -630,7 +649,7 @@ class LifecycleManager:
 
     async def _on_service_timeout(self, event: 'ServiceTimeout'):
         """
-        Handle service timeout - transition state to UNREACHABLE
+        Handle service timeout - transition state to DISCONNECTED
         """
         logger.warning(
             f"[LIFECYCLE] Service timeout: {event.service_name} "
@@ -644,11 +663,11 @@ class LifecycleManager:
                 metadata.error_message = f"Timeout: {event.timeout_type} ({event.elapsed_time:.1f}s)"
                 await self._set_service_metadata_async(event.agent_id, event.service_name, metadata)
 
-            # Transition to UNREACHABLE state
+            # Transition to DISCONNECTED state
             await self._transition_state(
                 agent_id=event.agent_id,
                 service_name=event.service_name,
-                new_state=ServiceConnectionState.UNREACHABLE,
+                new_state=ServiceConnectionState.DISCONNECTED,
                 reason=f"timeout_{event.timeout_type}",
                 source="HealthMonitor"
             )
@@ -685,8 +704,8 @@ class LifecycleManager:
             # 正在初始化/重连时不再触发额外重连，避免并发重复连接
             current_state = await self._registry.get_service_state_async(agent_id, service_name)
             if current_state in (
-                ServiceConnectionState.INITIALIZING,
-                ServiceConnectionState.RECONNECTING,
+                ServiceConnectionState.STARTUP,
+                ServiceConnectionState.CIRCUIT_OPEN,
             ):
                 logger.debug(f"[LIFECYCLE] Skip tool resync while state={getattr(current_state, 'value', current_state)} for {service_name}")
                 return
@@ -806,7 +825,7 @@ class LifecycleManager:
     async def graceful_disconnect(self, agent_id: str, service_name: str, reason: str = "user_requested"):
         """Gracefully disconnect service (does not modify config/registry entities, only lifecycle disconnection).
 
-        - Set state to DISCONNECTING → DISCONNECTED
+        - Set state to DISCONNECTED → DISCONNECTED
         - Record disconnect reason in metadata
         - Upper layer (optional) cleans up tool display cache
         """
@@ -820,11 +839,11 @@ class LifecycleManager:
                 except Exception:
                     pass
 
-            # First enter DISCONNECTING
+            # First enter DISCONNECTED
             await self._transition_state(
                 agent_id=agent_id,
                 service_name=service_name,
-                new_state=ServiceConnectionState.DISCONNECTING,
+                new_state=ServiceConnectionState.DISCONNECTED,
                 reason=reason,
                 source="LifecycleManager"
             )
@@ -996,29 +1015,29 @@ class LifecycleManager:
                 else:
                     logger.debug(f"[LIFECYCLE] Service {service_name} already HEALTHY")
             else:
-                # Failure: if no current state, assume INITIALIZING and transition to RECONNECTING
+                # Failure: if no current state, assume STARTUP and transition to CIRCUIT_OPEN
                 if current_state is None:
-                    logger.info(f"[LIFECYCLE] Assuming current state is INITIALIZING for {service_name}")
-                    current_state = ServiceConnectionState.INITIALIZING
+                    logger.info(f"[LIFECYCLE] Assuming current state is STARTUP for {service_name}")
+                    current_state = ServiceConnectionState.STARTUP
                 # Failure: determine target state based on current state and failure count
                 failure_count = metadata.consecutive_failures if metadata else 1
 
-                if current_state == ServiceConnectionState.INITIALIZING:
-                    # First connection failure -> RECONNECTING
-                    new_state = ServiceConnectionState.RECONNECTING
+                if current_state == ServiceConnectionState.STARTUP:
+                    # First connection failure -> CIRCUIT_OPEN
+                    new_state = ServiceConnectionState.CIRCUIT_OPEN
                     reason = "initial_connection_failed"
-                    logger.info(f"[LIFECYCLE] Will transition {service_name} from INITIALIZING to RECONNECTING (first failure)")
+                    logger.info(f"[LIFECYCLE] Will transition {service_name} from STARTUP to CIRCUIT_OPEN (first failure)")
                 elif failure_count >= self._config.reconnecting_failure_threshold:
-                    # High failure count -> UNREACHABLE
-                    new_state = ServiceConnectionState.UNREACHABLE
+                    # High failure count -> DISCONNECTED
+                    new_state = ServiceConnectionState.DISCONNECTED
                     reason = "connection_unreachable"
                 elif failure_count >= self._config.warning_failure_threshold:
-                    # Medium failure count -> WARNING
-                    new_state = ServiceConnectionState.WARNING
+                    # Medium failure count -> DEGRADED
+                    new_state = ServiceConnectionState.DEGRADED
                     reason = "connection_warning"
                 else:
-                    # Low failure count -> RECONNECTING
-                    new_state = ServiceConnectionState.RECONNECTING
+                    # Low failure count -> CIRCUIT_OPEN
+                    new_state = ServiceConnectionState.CIRCUIT_OPEN
                     reason = "connection_failed"
 
                 if current_state != new_state:

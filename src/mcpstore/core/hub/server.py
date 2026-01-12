@@ -89,7 +89,7 @@ class HubMCPServer:
         )
         
         # 初始化状态
-        self._status = HubMCPStatus.INITIALIZING
+        self._status = HubMCPStatus.STARTUP
         self._fastmcp: Optional[Any] = None  # FastMCP 实例
         self._server_task: Optional[asyncio.Task] = None  # 服务器任务
         self._loop: Optional[asyncio.AbstractEventLoop] = None

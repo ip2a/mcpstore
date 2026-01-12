@@ -116,6 +116,45 @@ class ServiceContainer:
             global_agent_store_id=self._global_agent_store_id
         )
 
+        # 事件诊断订阅：记录就绪/持久化阶段，便于调试与监控
+        async def _on_service_persisting(event):
+            logger.info(
+                "[EVENT] ServicePersisting: agent=%s service=%s stage=%s tools=%s",
+                event.agent_id, event.service_name, getattr(event, "stage", "cache"), getattr(event, "tool_count", 0)
+            )
+
+        async def _on_service_persisted(event):
+            logger.info(
+                "[EVENT] ServicePersisted: agent=%s service=%s stage=%s tools=%s",
+                event.agent_id, event.service_name, getattr(event, "stage", "config"), getattr(event, "tool_count", 0)
+            )
+
+        async def _on_service_ready(event):
+            logger.info(
+                "[EVENT] ServiceReady: agent=%s service=%s health=%s tools=%s",
+                event.agent_id, event.service_name, getattr(event, "health_status", ""), getattr(event, "tool_count", 0)
+            )
+
+        async def _on_tool_sync(event):
+            logger.info(
+                "[EVENT] ToolSync: agent=%s service=%s total=%s phase=%s",
+                event.agent_id, event.service_name, getattr(event, "total_tools", 0),
+                event.__class__.__name__
+            )
+
+        from mcpstore.core.events.service_events import (
+            ServicePersisting,
+            ServicePersisted,
+            ServiceReady,
+            ToolSyncStarted,
+            ToolSyncCompleted,
+        )
+        self._event_bus.subscribe(ServicePersisting, _on_service_persisting, priority=1)
+        self._event_bus.subscribe(ServicePersisted, _on_service_persisted, priority=1)
+        self._event_bus.subscribe(ServiceReady, _on_service_ready, priority=1)
+        self._event_bus.subscribe(ToolSyncStarted, _on_tool_sync, priority=1)
+        self._event_bus.subscribe(ToolSyncCompleted, _on_tool_sync, priority=1)
+
         logger.info("ServiceContainer initialized with all components (including health monitor and reconnection scheduler)")
     
     @property
@@ -181,4 +220,3 @@ class ServiceContainer:
         await self._reconnection_scheduler.stop()
 
         logger.info("ServiceContainer components stopped")
-

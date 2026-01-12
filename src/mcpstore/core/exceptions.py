@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class ErrorSeverity(Enum):
     """Error severity levels"""
     INFO = "info"
-    WARNING = "warning"
+    DEGRADED = "degraded"
     ERROR = "error"
     CRITICAL = "critical"
 

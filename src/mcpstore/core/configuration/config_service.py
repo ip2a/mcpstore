@@ -119,31 +119,39 @@ class ConfigService:
 
     def _initialize_metadata(self):
         """Initialize configuration key metadata."""
-        # Lifecycle configuration
-        self._register_key_metadata(
-            "health_check.warning_failure_threshold",
-            ConfigKeyType.INTEGER,
-            "Number of consecutive failures before warning",
-            HealthCheckConfigDefaults().warning_failure_threshold,
-            min_value=1, max_value=10,
-            category="health_check"
-        )
-        self._register_key_metadata(
-            "health_check.reconnecting_failure_threshold",
-            ConfigKeyType.INTEGER,
-            "Number of consecutive failures before reconnecting",
-            HealthCheckConfigDefaults().reconnecting_failure_threshold,
-            min_value=1, max_value=20,
-            category="health_check"
-        )
-        self._register_key_metadata(
-            "health_check.max_reconnect_attempts",
-            ConfigKeyType.INTEGER,
-            "Maximum number of reconnection attempts",
-            HealthCheckConfigDefaults().max_reconnect_attempts,
-            min_value=1, max_value=100,
-            category="health_check"
-        )
+        hc = HealthCheckConfigDefaults()
+        # 健康检查/探针
+        self._register_key_metadata("health_check.enabled", ConfigKeyType.BOOLEAN, "Enable health checks", hc.enabled, category="health_check")
+        self._register_key_metadata("health_check.startup_interval", ConfigKeyType.FLOAT, "Startup probe interval (s)", hc.startup_interval, min_value=0.1, max_value=60.0, category="health_check")
+        self._register_key_metadata("health_check.startup_timeout", ConfigKeyType.FLOAT, "Startup timeout (s)", hc.startup_timeout, min_value=1.0, max_value=1800.0, category="health_check")
+        self._register_key_metadata("health_check.startup_hard_timeout", ConfigKeyType.FLOAT, "Startup hard timeout (s)", hc.startup_hard_timeout, min_value=1.0, max_value=7200.0, category="health_check")
+        self._register_key_metadata("health_check.readiness_interval", ConfigKeyType.FLOAT, "Readiness probe interval (s)", hc.readiness_interval, min_value=1.0, max_value=300.0, category="health_check")
+        self._register_key_metadata("health_check.readiness_success_threshold", ConfigKeyType.INTEGER, "Readiness success threshold", hc.readiness_success_threshold, min_value=1, max_value=10, category="health_check")
+        self._register_key_metadata("health_check.readiness_failure_threshold", ConfigKeyType.INTEGER, "Readiness failure threshold", hc.readiness_failure_threshold, min_value=1, max_value=10, category="health_check")
+        self._register_key_metadata("health_check.liveness_interval", ConfigKeyType.FLOAT, "Liveness probe interval (s)", hc.liveness_interval, min_value=1.0, max_value=300.0, category="health_check")
+        self._register_key_metadata("health_check.liveness_failure_threshold", ConfigKeyType.INTEGER, "Liveness failure threshold", hc.liveness_failure_threshold, min_value=1, max_value=10, category="health_check")
+        self._register_key_metadata("health_check.ping_timeout_http", ConfigKeyType.FLOAT, "HTTP ping timeout (s)", hc.ping_timeout_http, min_value=0.1, max_value=600.0, category="health_check")
+        self._register_key_metadata("health_check.ping_timeout_sse", ConfigKeyType.FLOAT, "SSE ping timeout (s)", hc.ping_timeout_sse, min_value=0.1, max_value=600.0, category="health_check")
+        self._register_key_metadata("health_check.ping_timeout_stdio", ConfigKeyType.FLOAT, "STDIO ping timeout (s)", hc.ping_timeout_stdio, min_value=0.1, max_value=1200.0, category="health_check")
+        self._register_key_metadata("health_check.warning_ping_timeout", ConfigKeyType.FLOAT, "Relaxed ping timeout for degraded/circuit/half-open (s)", hc.warning_ping_timeout, min_value=0.1, max_value=1200.0, category="health_check")
+        # 窗口判定
+        self._register_key_metadata("health_check.window_size", ConfigKeyType.INTEGER, "Sliding window size", hc.window_size, min_value=1, max_value=1000, category="health_check")
+        self._register_key_metadata("health_check.window_min_calls", ConfigKeyType.INTEGER, "Sliding window min calls", hc.window_min_calls, min_value=1, max_value=1000, category="health_check")
+        self._register_key_metadata("health_check.error_rate_threshold", ConfigKeyType.FLOAT, "Error rate threshold", hc.error_rate_threshold, min_value=0.0, max_value=1.0, category="health_check")
+        self._register_key_metadata("health_check.latency_p95_warn", ConfigKeyType.FLOAT, "P95 warn threshold (s)", hc.latency_p95_warn, min_value=0.01, max_value=30.0, category="health_check")
+        self._register_key_metadata("health_check.latency_p99_critical", ConfigKeyType.FLOAT, "P99 critical threshold (s)", hc.latency_p99_critical, min_value=0.01, max_value=60.0, category="health_check")
+        # 退避/熔断/半开
+        self._register_key_metadata("health_check.max_reconnect_attempts", ConfigKeyType.INTEGER, "Max reconnect attempts", hc.max_reconnect_attempts, min_value=1, max_value=100, category="health_check")
+        self._register_key_metadata("health_check.backoff_base", ConfigKeyType.FLOAT, "Backoff base (s)", hc.backoff_base, min_value=0.1, max_value=300.0, category="health_check")
+        self._register_key_metadata("health_check.backoff_max", ConfigKeyType.FLOAT, "Backoff max (s)", hc.backoff_max, min_value=1.0, max_value=3600.0, category="health_check")
+        self._register_key_metadata("health_check.backoff_jitter", ConfigKeyType.FLOAT, "Backoff jitter", hc.backoff_jitter, min_value=0.0, max_value=1.0, category="health_check")
+        self._register_key_metadata("health_check.backoff_max_duration", ConfigKeyType.FLOAT, "Backoff max duration (s)", hc.backoff_max_duration, min_value=1.0, max_value=7200.0, category="health_check")
+        self._register_key_metadata("health_check.half_open_max_calls", ConfigKeyType.INTEGER, "Half-open max probe calls", hc.half_open_max_calls, min_value=1, max_value=100, category="health_check")
+        self._register_key_metadata("health_check.half_open_success_rate_threshold", ConfigKeyType.FLOAT, "Half-open success rate threshold", hc.half_open_success_rate_threshold, min_value=0.0, max_value=1.0, category="health_check")
+        self._register_key_metadata("health_check.reconnect_hard_timeout", ConfigKeyType.FLOAT, "Reconnect hard timeout (s)", hc.reconnect_hard_timeout, min_value=1.0, max_value=7200.0, category="health_check")
+        # 租约
+        self._register_key_metadata("health_check.lease_ttl", ConfigKeyType.FLOAT, "Lease TTL (s)", hc.lease_ttl, min_value=1.0, max_value=3600.0, category="health_check")
+        self._register_key_metadata("health_check.lease_renew_interval", ConfigKeyType.FLOAT, "Lease renew interval (s)", hc.lease_renew_interval, min_value=0.5, max_value=3600.0, category="health_check")
 
         # Content update configuration
         self._register_key_metadata(
@@ -270,7 +278,7 @@ class ConfigService:
             ConfigKeyType.STRING,
             "Log level",
             StandaloneConfigDefaults().log_level,
-            allowed_values=["DEBUG", "INFO", "WARNING", "ERROR"],
+            allowed_values=["DEBUG", "INFO", "DEGRADED", "ERROR"],
             category="standalone"
         )
         self._register_key_metadata(
@@ -309,7 +317,7 @@ class ConfigService:
             ConfigKeyType.STRING,
             "Server log level",
             "info",
-            allowed_values=["debug", "info", "warning", "error", "critical"],
+            allowed_values=["debug", "info", "degraded", "error", "critical"],
             category="server"
         )
 

@@ -29,7 +29,7 @@ class Severity(Enum):
     """Severity levels"""
     DEBUG = "debug"
     INFO = "info"
-    WARNING = "warning"
+    DEGRADED = "degraded"
     ERROR = "error"
     CRITICAL = "critical"
 
@@ -108,7 +108,7 @@ class EventCollector:
         log_level = {
             Severity.DEBUG: logging.DEBUG,
             Severity.INFO: logging.INFO,
-            Severity.WARNING: logging.WARNING,
+            Severity.DEGRADED: logging.DEGRADED,
             Severity.ERROR: logging.ERROR,
             Severity.CRITICAL: logging.CRITICAL
         }.get(event.severity, logging.INFO)

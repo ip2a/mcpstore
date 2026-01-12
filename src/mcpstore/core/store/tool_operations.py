@@ -54,9 +54,8 @@ class ToolOperationsMixin:
             # 如果状态不健康，先记录但仍尝试执行，失败时再返回真实错误
             from mcpstore.core.models.service import ServiceConnectionState
             state_warn = service_state in [
-                ServiceConnectionState.RECONNECTING,
-                ServiceConnectionState.UNREACHABLE,
-                ServiceConnectionState.DISCONNECTING,
+                ServiceConnectionState.CIRCUIT_OPEN,
+                ServiceConnectionState.HALF_OPEN,
                 ServiceConnectionState.DISCONNECTED
             ]
             if state_warn:

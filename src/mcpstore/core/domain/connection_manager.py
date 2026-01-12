@@ -88,8 +88,8 @@ class ConnectionManager:
             service_config=service_config,
             timeout=timeout
         )
-        # Use synchronous dispatch to avoid event-loop race during restart/initialization
-        await self._event_bus.publish(connection_request, wait=True)
+        # 异步派发，避免 add_service 阻塞；调用方如需等待可使用 wait_service 等工具
+        await self._event_bus.publish(connection_request, wait=False)
 
     async def _on_connection_requested(self, event: ServiceConnectionRequested):
         """
@@ -127,7 +127,8 @@ class ConnectionManager:
                 tools=tools,
                 connection_time=connection_time
             )
-            await self._event_bus.publish(connected_event)
+            # 按调用方指定异步派发；如需一致性由上层等待 Ready/工具事件
+            await self._event_bus.publish(connected_event, wait=False)
 
         except asyncio.TimeoutError:
             elapsed = asyncio.get_event_loop().time() - start_time
@@ -140,7 +141,7 @@ class ConnectionManager:
             )
 
         except Exception as e:
-            # Demote expected network/connectivity errors to WARNING and show friendly message
+            # Demote expected network/connectivity errors to DEGRADED and show friendly message
             network_error = False
             try:
                 import httpx  # type: ignore

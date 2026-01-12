@@ -10,6 +10,7 @@ Implementation of tool-related operations
 """
 
 import logging
+import asyncio
 from typing import Dict, List, Optional, Any, Union, Literal
 
 from mcp import types as mcp_types
@@ -43,7 +44,6 @@ class ToolOperationsMixin:
     ) -> bool:
         """
         检查工具是否可用（同步外壳）
-        
         通过 Async Orchestrated Bridge 在稳定事件循环中执行异步逻辑。
         
         Args:
@@ -206,8 +206,15 @@ class ToolOperationsMixin:
             service_global_name = svc.get("service_global_name")
             if not service_global_name:
                 continue
-            
-            tool_relations = await relation_manager.get_service_tools(service_global_name)
+            service_original_name = svc.get("service_original_name") or service_global_name
+
+            tool_relations = await self._wait_service_tools_ready(
+                agent_id=agent_id,
+                service_global_name=service_global_name,
+                service_original_name=service_original_name,
+                relation_manager=relation_manager,
+                state_manager=state_manager
+            )
             tool_names = [
                 tr.get("tool_global_name")
                 for tr in tool_relations
@@ -394,6 +401,53 @@ class ToolOperationsMixin:
             self.get_system_stats_async(),
             op_name="tool_operations.get_system_stats"
         )
+
+    async def _wait_service_tools_ready(
+        self,
+        agent_id: str,
+        service_global_name: str,
+        service_original_name: str,
+        relation_manager,
+        state_manager,
+        timeout: float = 2.0,
+        interval: float = 0.2
+    ) -> List[dict]:
+        """
+        等待服务工具同步完成（默认等待，失败时抛出“未就绪”错误）
+        - 若工具已确认为空（metadata.tools_confirmed_empty=True）则立即返回空列表
+        - 若在超时时间内未同步完成，抛出明确的未就绪异常
+        """
+        deadline = asyncio.get_event_loop().time() + timeout
+        last_status = None
+        while True:
+            tool_relations = await relation_manager.get_service_tools(service_global_name)
+            status = await state_manager.get_service_status(service_global_name)
+            last_status = status
+
+            # 获取元数据判断是否确认空工具
+            try:
+                metadata = await self._store.registry.get_service_metadata_async(agent_id, service_original_name)
+            except Exception:
+                metadata = None
+
+            tools_confirmed_empty = bool(getattr(metadata, "tools_confirmed_empty", False))
+
+            # 已有工具，或明确确认为空
+            if tool_relations or tools_confirmed_empty:
+                return tool_relations
+
+            # 状态中已有工具列表（防御性）
+            if status and getattr(status, "tools", None):
+                return tool_relations
+
+            if asyncio.get_event_loop().time() >= deadline:
+                raise RuntimeError(
+                    f"服务已添加但工具尚未完成同步，请稍后重试。"
+                    f"service={service_original_name}, agent_id={agent_id}, "
+                    f"state={getattr(status, 'health_status', 'unknown')}, "
+                    f"tools_confirmed_empty={tools_confirmed_empty}"
+                )
+            await asyncio.sleep(interval)
 
     async def get_system_stats_async(self) -> Dict[str, Any]:
         """

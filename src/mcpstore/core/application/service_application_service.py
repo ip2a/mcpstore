@@ -160,10 +160,10 @@ class ServiceApplicationService:
     ) -> bool:
         """重启服务（应用层 API）
 
-        - 通过 LifecycleManager 将状态迁移到 INITIALIZING；
+        - 通过 LifecycleManager 将状态迁移到 STARTUP；
         - 重置基础元数据计数器；
         - 发布 ServiceInitialized + HealthCheckRequested 事件；
-        - 可选：等待状态从 INITIALIZING 收敛到其他状态。
+        - 可选：等待状态从 STARTUP 收敛到其他状态。
         """
         start_time = asyncio.get_event_loop().time()
         agent_key = agent_id or self._global_agent_store_id
@@ -184,11 +184,11 @@ class ServiceApplicationService:
                 )
                 return False
 
-            # 3. 通过 LifecycleManager 统一入口迁移到 INITIALIZING
+            # 3. 通过 LifecycleManager 统一入口迁移到 STARTUP
             await self._lifecycle_manager._transition_state(
                 agent_id=agent_key,
                 service_name=service_name,
-                new_state=ServiceConnectionState.INITIALIZING,
+                new_state=ServiceConnectionState.STARTUP,
                 reason="restart_service",
                 source="ServiceApplicationService",
             )
@@ -206,7 +206,7 @@ class ServiceApplicationService:
             initialized_event = ServiceInitialized(
                 agent_id=agent_key,
                 service_name=service_name,
-                initial_state="initializing",
+                initial_state="startup",
             )
             await self._event_bus.publish(initialized_event, wait=True)
 
@@ -331,7 +331,7 @@ class ServiceApplicationService:
                 status_response["status"] = getattr(state, "value", str(state))
                 status_response["healthy"] = state in [
                     ServiceConnectionState.HEALTHY,
-                    ServiceConnectionState.WARNING,
+                    ServiceConnectionState.DEGRADED,
                 ]
             else:
                 status_response["status"] = "unknown"
@@ -437,7 +437,7 @@ class ServiceApplicationService:
         """
         等待服务状态收敛
         
-        状态收敛定义: 状态不再是 INITIALIZING
+        状态收敛定义: 状态不再是 STARTUP
         """
         logger.debug(f"[WAIT_STATE] Waiting for {service_name} (timeout={timeout}s)")
         
@@ -453,7 +453,7 @@ class ServiceApplicationService:
             
             # 检查状态
             state = self._registry._service_state_service.get_service_state(agent_id, service_name)
-            if state and state != ServiceConnectionState.INITIALIZING:
+            if state and state != ServiceConnectionState.STARTUP:
                 logger.debug(f"[WAIT_STATE] Converged: {service_name} -> {state.value}")
                 return state.value
             

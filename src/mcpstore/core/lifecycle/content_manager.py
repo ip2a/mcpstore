@@ -75,16 +75,16 @@ class ServiceContentManager:
         # 事件驱动处理任务
         self._process_task: Optional[asyncio.Task] = None
 
-        # 订阅事件：仅在 HEALTHY/WARNING 触发更新
+        # 订阅事件：仅在 HEALTHY/DEGRADED 触发更新
         try:
             if self.event_bus is not None:
                 from mcpstore.core.events.service_events import ServiceStateChanged
                 async def _on_state_changed(event: 'ServiceStateChanged'):
                     try:
-                        if event.new_state in ("healthy", "warning"):
+                        if event.new_state in ("healthy", "degraded"):
                             self.update_queue.add((event.agent_id, event.service_name))
                             self._schedule_queue_processing()
-                        elif event.new_state in ("disconnected", "disconnecting", "unreachable"):
+                        elif event.new_state in ("disconnected", "disconnected", "disconnected"):
                             # 终止/不可达时清理队列，避免无效更新
                             self.update_queue.discard((event.agent_id, event.service_name))
                             self.updating_services.discard((event.agent_id, event.service_name))

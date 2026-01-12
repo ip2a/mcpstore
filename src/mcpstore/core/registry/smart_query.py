@@ -38,12 +38,12 @@ class ServiceQueryBuilder:
     
     def healthy(self):
         """只查询健康的服务"""
-        self._filters.append(('state', [ServiceConnectionState.HEALTHY, ServiceConnectionState.WARNING]))
+        self._filters.append(('state', [ServiceConnectionState.HEALTHY, ServiceConnectionState.DEGRADED]))
         return self
     
     def failed(self):
         """只查询失败的服务"""
-        self._filters.append(('state', [ServiceConnectionState.UNREACHABLE, ServiceConnectionState.DISCONNECTED]))
+        self._filters.append(('state', [ServiceConnectionState.DISCONNECTED, ServiceConnectionState.DISCONNECTED]))
         return self
     
     def with_tools(self, min_count: int = 1):

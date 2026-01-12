@@ -404,7 +404,7 @@ class ToolProxy:
                     "recent_calls": len([r for r in tool_records[-10:]]),  # 最近10次
                     "success_rate": self._calculate_success_rate(tool_records),
                     "average_duration": self._calculate_average_duration(tool_records),
-                    **({"warning": warning_msg} if warning_msg else {})
+                    **({"degraded": warning_msg} if warning_msg else {})
                 }
             else:
                 return {
@@ -443,7 +443,7 @@ class ToolProxy:
                     if record.get('tool_name') == self._tool_name
                 ]
                 if records.get('warning'):
-                    tool_records.append({"warning": records.get('warning')})
+                    tool_records.append({"degraded": records.get('warning')})
                 
                 # 返回最近的记录
                 return tool_records[:limit]

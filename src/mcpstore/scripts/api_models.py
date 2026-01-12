@@ -53,7 +53,7 @@ class AddAlertRequest(BaseModel):
 class ServiceHealthResponse(BaseModel):
     """服务健康状态响应"""
     service_name: str = Field(description="服务名称")
-    status: str = Field(description="服务状态: initializing, healthy, warning, reconnecting, unreachable, disconnecting, disconnected")
+    status: str = Field(description="服务状态: init, startup, ready, healthy, degraded, circuit_open, half_open, disconnected")
     response_time: float = Field(description="最近响应时间（秒）")
     last_check_time: float = Field(description="最后检查时间戳")
     consecutive_failures: int = Field(description="连续失败次数")
@@ -67,13 +67,14 @@ class ServiceHealthResponse(BaseModel):
 class HealthSummaryResponse(BaseModel):
     """健康状态汇总响应"""
     total_services: int = Field(description="总服务数量")
-    initializing_count: int = Field(description="初始化中服务数量")
+    init_count: int = Field(description="注册未探针数量")
+    startup_count: int = Field(description="启动探针中数量")
+    ready_count: int = Field(description="业务就绪数量")
     healthy_count: int = Field(description="健康服务数量")
-    warning_count: int = Field(description="警告状态服务数量")
-    reconnecting_count: int = Field(description="重连中服务数量")
-    unreachable_count: int = Field(description="无法访问服务数量")
-    disconnecting_count: int = Field(description="断连中服务数量")
-    disconnected_count: int = Field(description="已断连服务数量")
+    degraded_count: int = Field(description="降级/警告数量")
+    circuit_open_count: int = Field(description="熔断/放逐数量")
+    half_open_count: int = Field(description="半开试探数量")
+    disconnected_count: int = Field(description="已断连/放弃数量")
     services: Dict[str, ServiceHealthResponse] = Field(description="各服务健康状态详情")
 
 # === Agent统计相关响应模型 ===
@@ -81,7 +82,7 @@ class AgentServiceSummaryResponse(BaseModel):
     """Agent服务摘要响应"""
     service_name: str = Field(description="服务名称")
     service_type: str = Field(description="服务类型")
-    status: str = Field(description="服务状态: initializing, healthy, warning, reconnecting, unreachable, disconnecting, disconnected")
+    status: str = Field(description="服务状态: init, startup, ready, healthy, degraded, circuit_open, half_open, disconnected")
     tool_count: int = Field(description="工具数量")
     last_used: Optional[str] = Field(None, description="最后使用时间")
     client_id: Optional[str] = Field(None, description="客户端ID")
@@ -118,15 +119,42 @@ class SimpleToolExecutionRequest(BaseModel):
 
 # === 生命周期配置模型 ===
 class ServiceLifecycleConfig(BaseModel):
-    """服务生命周期配置模型"""
-    # 状态转换阈值
-    warning_failure_threshold: Optional[int] = Field(default=None, ge=1, le=10, description="进入WARNING状态的失败阈值，范围1-10")
-    reconnecting_failure_threshold: Optional[int] = Field(default=None, ge=2, le=10, description="进入RECONNECTING状态的失败阈值，范围2-10")
-    max_reconnect_attempts: Optional[int] = Field(default=None, ge=3, le=20, description="最大重连尝试次数，范围3-20")
-    warning_ping_timeout: Optional[float] = Field(default=None, ge=1, description="WARNING/RECONNECTING状态下的健康检查超时（秒），缺省使用默认值")
-    ping_timeout_http: Optional[float] = Field(default=None, ge=1, description="HTTP 传输健康检查超时（秒）")
-    ping_timeout_sse: Optional[float] = Field(default=None, ge=1, description="SSE 传输健康检查超时（秒）")
-    ping_timeout_stdio: Optional[float] = Field(default=None, ge=1, description="STDIO/Studio 传输健康检查超时（秒）")
+    """服务生命周期配置模型（新健康模型，无兼容层）"""
+    enabled: Optional[bool] = Field(default=None, description="是否启用健康检查")
+    # 探针
+    startup_interval: Optional[float] = Field(default=None, ge=0.1, le=60.0, description="Startup 探针间隔（秒）")
+    startup_timeout: Optional[float] = Field(default=None, ge=1.0, le=1800.0, description="Startup 超时（秒）")
+    startup_hard_timeout: Optional[float] = Field(default=None, ge=1.0, le=7200.0, description="Startup 硬超时（秒）")
+    readiness_interval: Optional[float] = Field(default=None, ge=1.0, le=300.0, description="Readiness 探针间隔（秒）")
+    readiness_success_threshold: Optional[int] = Field(default=None, ge=1, le=10, description="Readiness 连续成功阈值")
+    readiness_failure_threshold: Optional[int] = Field(default=None, ge=1, le=10, description="Readiness 连续失败阈值")
+    liveness_interval: Optional[float] = Field(default=None, ge=1.0, le=300.0, description="Liveness 探针间隔（秒）")
+    liveness_failure_threshold: Optional[int] = Field(default=None, ge=1, le=10, description="Liveness 连续失败阈值")
+    ping_timeout_http: Optional[float] = Field(default=None, ge=0.1, le=600.0, description="HTTP ping 超时（秒）")
+    ping_timeout_sse: Optional[float] = Field(default=None, ge=0.1, le=600.0, description="SSE ping 超时（秒）")
+    ping_timeout_stdio: Optional[float] = Field(default=None, ge=0.1, le=1200.0, description="STDIO ping 超时（秒）")
+    warning_ping_timeout: Optional[float] = Field(default=None, ge=0.1, le=1200.0, description="降级/熔断/半开放宽 ping 超时（秒）")
+    # 窗口判定
+    window_size: Optional[int] = Field(default=None, ge=1, le=1000, description="滑动窗口样本大小")
+    window_min_calls: Optional[int] = Field(default=None, ge=1, le=1000, description="窗口最小样本数")
+    error_rate_threshold: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="错误率阈值")
+    latency_p95_warn: Optional[float] = Field(default=None, ge=0.01, le=30.0, description="P95 警告阈值（秒）")
+    latency_p99_critical: Optional[float] = Field(default=None, ge=0.01, le=60.0, description="P99 危急阈值（秒）")
+    # 退避/熔断/半开
+    max_reconnect_attempts: Optional[int] = Field(default=None, ge=1, le=100, description="最大重连尝试次数")
+    backoff_base: Optional[float] = Field(default=None, ge=0.1, le=300.0, description="退避基数（秒）")
+    backoff_max: Optional[float] = Field(default=None, ge=1.0, le=3600.0, description="退避最大间隔（秒）")
+    backoff_jitter: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="退避抖动系数")
+    backoff_max_duration: Optional[float] = Field(default=None, ge=1.0, le=7200.0, description="退避最大总时长（秒）")
+    half_open_max_calls: Optional[int] = Field(default=None, ge=1, le=100, description="半开试探请求数上限")
+    half_open_success_rate_threshold: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="半开恢复成功率阈值")
+    reconnect_hard_timeout: Optional[float] = Field(default=None, ge=1.0, le=7200.0, description="重连硬超时（秒）")
+    # 租约与生命周期
+    lease_ttl: Optional[float] = Field(default=None, ge=1.0, le=3600.0, description="租约 TTL（秒）")
+    lease_renew_interval: Optional[float] = Field(default=None, ge=0.5, le=3600.0, description="租约续约间隔（秒）")
+    initialization_timeout: Optional[float] = Field(default=None, ge=1.0, le=7200.0, description="初始化硬超时（秒）")
+    termination_timeout: Optional[float] = Field(default=None, ge=1.0, le=3600.0, description="终止超时（秒）")
+    shutdown_timeout: Optional[float] = Field(default=None, ge=1.0, le=3600.0, description="优雅关闭超时（秒）")
 
 # === 服务详情相关响应模型 ===
 
@@ -266,26 +294,9 @@ class PaginatedResponse(BaseModel):
 
 class ExtendedServiceLifecycleConfig(ServiceLifecycleConfig):
     """扩展的服务生命周期配置模型"""
-    # 重试间隔配置
-    base_reconnect_delay: Optional[float] = Field(default=None, ge=0.5, le=10.0, description="基础重连延迟（秒），范围0.5-10.0")
-    max_reconnect_delay: Optional[float] = Field(default=None, ge=10.0, le=300.0, description="最大重连延迟（秒），范围10.0-300.0")
-    
-    # 健康检查配置
-    health_check_interval: Optional[float] = Field(default=None, ge=5.0, le=300.0, description="健康检查间隔（秒），范围5.0-300.0")
-    health_check_timeout: Optional[float] = Field(default=None, ge=1.0, le=60.0, description="健康检查超时（秒），范围1.0-60.0")
-    
-    # 性能监控配置
+    # 性能监控配置（保留）
     enable_performance_metrics: Optional[bool] = Field(default=None, description="是否启用性能指标收集")
     metrics_retention_days: Optional[int] = Field(default=None, ge=1, le=365, description="指标保留天数，范围1-365")
-    long_retry_interval: Optional[float] = Field(default=None, ge=60.0, le=1800.0, description="长周期重试间隔（秒），范围60.0-1800.0")
-
-    # 心跳配置
-    normal_heartbeat_interval: Optional[float] = Field(default=None, ge=10.0, le=300.0, description="正常心跳间隔（秒），范围10.0-300.0")
-    warning_heartbeat_interval: Optional[float] = Field(default=None, ge=5.0, le=60.0, description="警告状态心跳间隔（秒），范围5.0-60.0")
-
-    # 超时配置
-    initialization_timeout: Optional[float] = Field(default=None, ge=5.0, le=120.0, description="初始化超时（秒），范围5.0-120.0")
-    disconnection_timeout: Optional[float] = Field(default=None, ge=1.0, le=60.0, description="断连超时（秒），范围1.0-60.0")
 
 # === 内容更新配置模型 ===
 class ContentUpdateConfig(BaseModel):

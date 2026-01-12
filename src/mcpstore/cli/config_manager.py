@@ -105,7 +105,7 @@ def load_config(path: Optional[str] = None) -> Dict[str, Any]:
         config_path = get_default_config_path()
     
     if not config_path.exists():
-        typer.echo(f"[WARNING] Configuration file not found: {config_path}")
+        typer.echo(f"[DEGRADED] Configuration file not found: {config_path}")
         return {}
     
     try:
@@ -311,7 +311,7 @@ def init_config(path: Optional[str] = None, force: bool = False, with_examples: 
         config_path = get_default_config_path()
 
     if config_path.exists() and not force:
-        typer.echo(f"[WARNING] Configuration file already exists: {config_path}")
+        typer.echo(f"[DEGRADED] Configuration file already exists: {config_path}")
         typer.echo("Use --force to overwrite")
         return
 
@@ -353,7 +353,7 @@ def add_example_services(path: Optional[str] = None):
             added_count += 1
             typer.echo(f" Added example service: {name}")
         else:
-            typer.echo(f"[WARNING] Service '{name}' already exists, skipping")
+            typer.echo(f"[DEGRADED] Service '{name}' already exists, skipping")
 
     if added_count > 0:
         config["mcpServers"] = servers

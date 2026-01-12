@@ -113,7 +113,7 @@ class ServiceInitialized(DomainEvent):
     """服务生命周期已初始化事件"""
     agent_id: str = ""
     service_name: str = ""
-    initial_state: str = "INITIALIZING"  # "initializing"
+    initial_state: str = "STARTUP"  # "startup"
 
 
 @dataclass(frozen=True)
@@ -133,6 +133,18 @@ class ServiceConnected(DomainEvent):
     session: Any = None  # MCP Client session
     tools: List[Tuple[str, Dict[str, Any]]] = field(default_factory=list)
     connection_time: float = 0.0
+
+
+@dataclass(frozen=True)
+class ServicePersisting(DomainEvent):
+    """
+    服务持久化开始（缓存/关系/状态写入）
+    """
+    agent_id: str = ""
+    service_name: str = ""
+    stage: str = "cache"  # cache | config | other
+    tool_count: int = 0
+    source_event: Optional[DomainEvent] = None
 
 
 @dataclass(frozen=True)
@@ -158,10 +170,27 @@ class ServiceStateChanged(DomainEvent):
 
 @dataclass(frozen=True)
 class ServicePersisted(DomainEvent):
-    """服务已持久化事件"""
+    """
+    服务已持久化事件
+    - stage 默认 config；缓存落盘完成时可使用 stage="cache" 并填写工具数量等信息
+    """
     agent_id: str = ""
     service_name: str = ""
     file_path: str = ""
+    stage: str = "config"  # config | cache | other
+    tool_count: int = 0
+    details: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ServiceReady(DomainEvent):
+    """
+    服务已就绪事件：工具状态与健康元数据落盘完成，可对外读取
+    """
+    agent_id: str = ""
+    service_name: str = ""
+    tool_count: int = 0
+    health_status: str = ""
 
 
 @dataclass(frozen=True)
@@ -192,7 +221,7 @@ class HealthCheckCompleted(DomainEvent):
     success: bool = False
     response_time: float = 0.0
     error_message: Optional[str] = None
-    suggested_state: Optional[str] = None  # HEALTHY, WARNING, RECONNECTING, UNREACHABLE
+    suggested_state: Optional[str] = None  # HEALTHY, DEGRADED, CIRCUIT_OPEN, DISCONNECTED
 
 
 @dataclass(frozen=True)
@@ -222,3 +251,23 @@ class ReconnectionScheduled(DomainEvent):
     service_name: str = ""
     next_retry_time: float = 0.0  # timestamp
     retry_delay: float = 0.0  # seconds
+
+
+# === 工具同步相关事件 ===
+
+@dataclass(frozen=True)
+class ToolSyncStarted(DomainEvent):
+    """工具同步开始事件"""
+    agent_id: str = ""
+    service_name: str = ""
+    total_tools: int = 0
+    source: str = "cache_manager"
+
+
+@dataclass(frozen=True)
+class ToolSyncCompleted(DomainEvent):
+    """工具同步完成事件"""
+    agent_id: str = ""
+    service_name: str = ""
+    total_tools: int = 0
+    source: str = "cache_manager"

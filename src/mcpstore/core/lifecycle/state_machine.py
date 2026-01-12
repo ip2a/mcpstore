@@ -51,11 +51,11 @@ class ServiceStateMachine:
                               enter_reconnecting_func, enter_unreachable_func,
                               enter_disconnecting_func, enter_healthy_func):
         """State entry handling logic"""
-        if new_state == ServiceConnectionState.RECONNECTING:
+        if new_state == ServiceConnectionState.CIRCUIT_OPEN:
             await enter_reconnecting_func(agent_id, service_name)
-        elif new_state == ServiceConnectionState.UNREACHABLE:
+        elif new_state == ServiceConnectionState.DISCONNECTED:
             await enter_unreachable_func(agent_id, service_name)
-        elif new_state == ServiceConnectionState.DISCONNECTING:
+        elif new_state == ServiceConnectionState.DISCONNECTED:
             await enter_disconnecting_func(agent_id, service_name)
         elif new_state == ServiceConnectionState.HEALTHY:
             await enter_healthy_func(agent_id, service_name)

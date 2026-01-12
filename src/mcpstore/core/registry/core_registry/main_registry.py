@@ -757,7 +757,7 @@ class ServiceRegistry:
 
         if state is None:
             from mcpstore.core.models.service import ServiceConnectionState
-            state = ServiceConnectionState.INITIALIZING
+            state = ServiceConnectionState.STARTUP
 
         health_status = state.value if hasattr(state, "value") else str(state)
         await self._cache_state_manager.update_service_status(

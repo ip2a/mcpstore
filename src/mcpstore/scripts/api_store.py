@@ -121,7 +121,7 @@ async def store_add_service(
         message="服务添加请求已提交",
         data={
             "service_names": display_name,
-            "status": "initializing"
+            "status": "startup"
         }
     )
 
@@ -335,7 +335,7 @@ async def store_list_services(
 async def store_reset_service(request: Request):
     """Store 级别重置服务状态
     
-    重置已存在服务的状态到 INITIALIZING，清除所有错误计数和历史记录
+    重置已存在服务的状态到 STARTUP，清除所有错误计数和历史记录
     """
     body = await request.json()
 
@@ -417,7 +417,7 @@ async def store_reset_service(request: Request):
 
     return ResponseBuilder.success(
         message=f"Service '{resolved_service_name}' reset successfully",
-        data={"service_name": resolved_service_name, "status": "initializing"}
+        data={"service_name": resolved_service_name, "status": "startup"}
     )
 
 @store_router.get("/for_store/list_tools", response_model=APIResponse)
@@ -902,7 +902,7 @@ async def get_store_tool_records(limit: int = 50):
     store = get_store()
     context = store.for_store()
     records_data = await context.bridge_execute(
-        context.get_tool_records_async(limit)
+        context.tool_records_async(limit)
     )
     
     # 简化返回结构
@@ -931,43 +931,33 @@ async def store_get_service_info_detailed(service_name: str):
     """获取服务详细信息"""
     store = get_store()
     context = store.for_store()
-    
-    # 查找服务（使用 async 版本）
-    all_services = await context.bridge_execute(context.list_services_async())
-    service = None
-    for s in all_services:
-        s_name = s.get("name") if isinstance(s, dict) else s.name
-        if s_name == service_name:
-            service = s
-            break
-    
-    if not service:
+    info = await context.bridge_execute(
+        context.service_info_async(service_name)
+    )
+
+    if not info or not getattr(info, "service", None):
         return ResponseBuilder.error(
             code=ErrorCode.SERVICE_NOT_FOUND,
             message=f"Service '{service_name}' not found",
             field="service_name"
         )
-    
-    # 构建简化的服务信息（兼容字典和对象）
-    if isinstance(service, dict):
-        service_info = {
-            "name": service.get("name", ""),
-            "status": service.get("status", "unknown"),
-            "type": service.get("type", "unknown"),
-            "client_id": service.get("client_id", ""),
-            "url": service.get("url", ""),
-            "tools_count": service.get("tools_count", 0) or service.get("tool_count", 0) or 0
-        }
-    else:
-        service_info = {
-            "name": service.name,
-            "status": service.status.value if service.status else "unknown",
-            "type": service.transport_type.value if service.transport_type else "unknown",
-            "client_id": service.client_id or "",
-            "url": service.url or "",
-            "tools_count": service.tool_count or 0
-        }
-    
+
+    service = info.service
+    service_info = {
+        "name": getattr(service, "name", ""),
+        "status": getattr(service, "status", "unknown"),
+        "type": getattr(service, "transport_type", "unknown"),
+        "client_id": getattr(service, "client_id", ""),
+        "url": getattr(service, "url", ""),
+        "tools_count": getattr(service, "tool_count", 0),
+    }
+
+    # 如果 status/transport 是枚举，转换为字符串
+    if hasattr(service_info["status"], "value"):
+        service_info["status"] = service_info["status"].value
+    if hasattr(service_info["type"], "value"):
+        service_info["type"] = service_info["type"].value
+
     return ResponseBuilder.success(
         message=f"Service info retrieved for '{service_name}'",
         data=service_info
@@ -992,9 +982,9 @@ async def store_get_service_status(service_name: str):
             field="service_name"
         )
 
-    app_service = store.container.service_application_service
+    # 使用 SDK 别名获取状态
     status = await context.bridge_execute(
-        app_service.get_service_status(agent_id=agent_id, service_name=service_name)
+        context.service_status_async(service_name)
     )
 
     status_info = {

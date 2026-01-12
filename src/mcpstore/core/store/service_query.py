@@ -350,7 +350,11 @@ class ServiceQueryMixin:
                 tool_count = len(tools_info)
 
                 # 获取连接状态
-                connected = service_state in [ServiceConnectionState.HEALTHY, ServiceConnectionState.WARNING]
+                connected = service_state in [
+                    ServiceConnectionState.READY,
+                    ServiceConnectionState.HEALTHY,
+                    ServiceConnectionState.DEGRADED,
+                ]
 
                 # [pykv 唯一真相源] 从 pykv 异步获取元数据
                 service_metadata = await self.registry._service_state_service.get_service_metadata_async(lifecycle_agent, lifecycle_name)
