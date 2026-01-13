@@ -191,7 +191,7 @@ class ServiceQueryMixin:
                         continue
 
                     # 从全局命名空间读取该服务的完整信息
-                    complete_info = self.registry.get_complete_service_info(global_agent_id, global_name)
+                    complete_info = await self.registry.get_complete_service_info_async(global_agent_id, global_name)
                     if not complete_info:
                         logger.debug(f"[STORE.LIST_SERVICES] Service not found in global cache: {global_name}")
                         continue
@@ -251,149 +251,67 @@ class ServiceQueryMixin:
         from mcpstore.core.store.client_manager import ClientManager
         client_manager: ClientManager = self.client_manager
 
-        # 严格按上下文获取要查找的服务列表
-        # [pykv 唯一真相源] 从关系层获取
-        relation_manager = self.registry._relation_manager
+        # 统一从 pykv 完整信息接口读取，避免内存或状态缺失导致的误报
         if not agent_id:
-            # Store上下文：只查找global_agent_store下的服务
             effective_agent_id = self.client_manager.global_agent_store_id
             context_type = "store"
         else:
-            # Agent上下文：只查找指定agent下的服务
             effective_agent_id = agent_id
             context_type = f"agent({agent_id})"
-        
-        agent_services = await relation_manager.get_agent_services(effective_agent_id)
-        client_ids = list(set(svc.get("client_id") for svc in agent_services if svc.get("client_id")))
 
-        if not client_ids:
+        complete_info = await self.registry.get_complete_service_info_async(effective_agent_id, name)
+        if not complete_info:
             return ServiceInfoResponse(
                 success=False,
-                message=f"No client_ids found for {context_type} context",
+                message=f"Service '{name}' not found in {context_type} context",
                 service=None,
                 tools=[],
                 connected=False
             )
 
-        # 按client_id顺序查找服务
-        #  修复：服务存储在agent_id级别，而不是client_id级别
-        agent_id_for_query = self.client_manager.global_agent_store_id if not agent_id else agent_id
+        config = complete_info.get("config", {}) or {}
+        state = complete_info.get("state")
+        if isinstance(state, str):
+            try:
+                state = ServiceConnectionState(state)
+            except ValueError:
+                state = None
+        tools_info = complete_info.get("tools") or []
+        tool_count = len(tools_info)
+        client_id = complete_info.get("client_id")
+        local_name = complete_info.get("service_original_name") or name
 
-        # === 健壮名称解析：支持在 Agent 上下文传入“本地名”或“全局名” ===
-        query_names: List[str] = [name]
-        from mcpstore.core.context.agent_service_mapper import AgentServiceMapper
-        try:
-            if agent_id:
-                # 如果传入的是全局名（包含 _byagent_），尝试解析回本地名，确保在 agent 命名空间可匹配
-                if AgentServiceMapper.is_any_agent_service(name):
-                    parsed = self.registry.get_agent_service_from_global_name(name)
-                    if parsed:
-                        parsed_agent_id, local_name = parsed
-                        # 仅当全局名确实属于当前 agent 时才使用解析出的本地名
-                        if parsed_agent_id == agent_id and local_name:
-                            query_names.append(local_name)
-                else:
-                    # 传入可能是本地名，同步构造对应全局名，方便后续 cross-namespace 校验
-                    mapper = AgentServiceMapper(agent_id)
-                    query_names.append(mapper.to_global_name(name))
-        except Exception:
-            pass
+        service_info = ServiceInfo(
+            url=config.get("url", ""),
+            name=local_name,
+            transport_type=self._infer_transport_type(config),
+            status=state or ServiceConnectionState.DISCONNECTED,
+            tool_count=tool_count,
+            keep_alive=config.get("keep_alive", False),
+            working_dir=config.get("working_dir"),
+            env=config.get("env"),
+            last_heartbeat=complete_info.get("last_heartbeat"),
+            command=config.get("command"),
+            args=config.get("args"),
+            package_name=config.get("package_name"),
+            state_metadata=complete_info.get("state_metadata"),
+            last_state_change=complete_info.get("state_entered_time"),
+            client_id=client_id,
+            config=config
+        )
 
-        # [pykv 唯一真相源] 在 async 上下文中必须使用 async 方法从 pykv 读取
-        service_names = await self.registry._service_state_service.get_all_service_names_async(agent_id_for_query)
+        connected = service_info.status in [
+            ServiceConnectionState.READY,
+            ServiceConnectionState.HEALTHY,
+            ServiceConnectionState.DEGRADED,
+        ]
 
-        # 遍历候选名称，找到第一个匹配的（在 agent 命名空间）
-        match_name = next((qn for qn in query_names if qn in service_names), None)
-        if match_name:
-            # 推导本地名/全局名
-            local_name = name
-            global_name = None
-            if agent_id:
-                # 优先从映射表获取全局名（使用异步版本，避免 AOB 事件循环冲突）
-                global_name = await self.registry.get_global_name_from_agent_service_async(agent_id, local_name)
-                # 如果 match_name 已经是全局名，则直接使用
-                if not global_name and AgentServiceMapper.is_any_agent_service(match_name):
-                    global_name = match_name
-                # 如果仍然没有，构造一个（不会影响存在性，仅用于读取配置）
-                if not global_name:
-                    mapper = AgentServiceMapper(agent_id)
-                    global_name = mapper.to_global_name(local_name)
-            else:
-                # store 模式下，名称即全局名
-                global_name = match_name
-
-            # 确定用于读取配置/生命周期/工具的命名空间与名称
-            config_key = global_name  # 单一数据源：mcp.json 使用全局名
-            lifecycle_agent = self.client_manager.global_agent_store_id if agent_id else agent_id_for_query
-            lifecycle_name = global_name if agent_id else match_name
-            tools_agent = self.client_manager.global_agent_store_id if agent_id else agent_id_for_query
-            tools_service = global_name if agent_id else match_name
-
-            # 找到服务，需要确定它属于哪个client_id（保持 agent 视角）
-            # [pykv 唯一真相源] 使用异步方法从 pykv 读取
-            service_client_id = await self.registry._agent_client_service.get_service_client_id_async(agent_id_for_query, match_name)
-            if service_client_id and service_client_id in client_ids:
-                # 找到服务，获取详细信息
-                # 从 mcp.json 读取（使用全局名）
-                config = self.config.get_service_config(config_key) or {}
-
-                # [pykv 唯一真相源] 使用异步方法获取生命周期状态
-                service_state = await self.registry._service_state_service.get_service_state_async(lifecycle_agent, lifecycle_name)
-
-                # 获取工具信息（优先全局命名空间）
-                tool_names = self.registry.get_tools_for_service(tools_agent, tools_service)
-                tools_info = []
-                for tool_name in tool_names:
-                    tool_info = self.registry.get_tool_info(tools_agent, tool_name)
-                    if tool_info:
-                        tools_info.append(tool_info)
-                tool_count = len(tools_info)
-
-                # 获取连接状态
-                connected = service_state in [
-                    ServiceConnectionState.READY,
-                    ServiceConnectionState.HEALTHY,
-                    ServiceConnectionState.DEGRADED,
-                ]
-
-                # [pykv 唯一真相源] 从 pykv 异步获取元数据
-                service_metadata = await self.registry._service_state_service.get_service_metadata_async(lifecycle_agent, lifecycle_name)
-
-                # 构建ServiceInfo（Agent 视图下 name 使用本地名展示）
-                service_info = ServiceInfo(
-                    url=config.get("url", ""),
-                    name=local_name if agent_id else match_name,
-                    transport_type=self._infer_transport_type(config),
-                    status=service_state,
-                    tool_count=tool_count,
-                    keep_alive=config.get("keep_alive", False),
-                    working_dir=config.get("working_dir"),
-                    env=config.get("env"),
-                    last_heartbeat=service_metadata.last_ping_time if service_metadata else None,
-                    command=config.get("command"),
-                    args=config.get("args"),
-                    package_name=config.get("package_name"),
-                    state_metadata=service_metadata,
-                    last_state_change=service_metadata.state_entered_time if service_metadata else None,
-                    client_id=service_client_id,
-                    config=config
-                )
-
-                return ServiceInfoResponse(
-                    success=True,
-                    message=f"Service found in {context_type} context (client_id: {service_client_id})",
-                    service=service_info,
-                    tools=tools_info,
-                    connected=connected
-                )
-
-        # 未找到服务
         return ServiceInfoResponse(
-            success=False,
-            message=f"Service '{name}' not found in {context_type} context (searched {len(client_ids)} clients)",
-            service=None,
-            tools=[],
-            connected=False
+            success=True,
+            message=f"Service found in {context_type} context",
+            service=service_info,
+            tools=tools_info,
+            connected=connected
         )
 
     async def get_health_status(self, id: Optional[str] = None, agent_mode: bool = False) -> Dict[str, Any]:
@@ -425,6 +343,26 @@ class ServiceQueryMixin:
                 # 标注该服务当前映射到哪个 client_id（使用异步版本）
                 client_id = await self.registry._agent_client_service.get_service_client_id_async(agent_ns, name)
 
+                def _remaining_seconds(dt):
+                    import datetime
+                    if dt is None:
+                        return None
+                    if isinstance(dt, (int, float)):
+                        return max(dt - time.time(), 0.0)
+                    if isinstance(dt, datetime.datetime):
+                        return max((dt - datetime.datetime.now()).total_seconds(), 0.0)
+                    return None
+
+                def _remaining_seconds(dt):
+                    import datetime
+                    if dt is None:
+                        return None
+                    if isinstance(dt, (int, float)):
+                        return max(dt - time.time(), 0.0)
+                    if isinstance(dt, datetime.datetime):
+                        return max((dt - datetime.datetime.now()).total_seconds(), 0.0)
+                    return None
+
                 service_status = {
                     "name": name,
                     "url": config.get("url", ""),
@@ -434,10 +372,18 @@ class ServiceQueryMixin:
                     "args": config.get("args"),
                     "package_name": config.get("package_name"),
                     "client_id": client_id,
-                    # 生命周期元数据
+                    # 生命周期元数据（新健康模型）
                     "response_time": getattr(state_metadata, "response_time", None) if state_metadata else None,
                     "consecutive_failures": getattr(state_metadata, "consecutive_failures", 0) if state_metadata else 0,
-                    "last_state_change": (state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None)
+                    "last_state_change": (state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None),
+                    "window_error_rate": getattr(state_metadata, "window_error_rate", None) if state_metadata else None,
+                    "latency_p95": getattr(state_metadata, "latency_p95", None) if state_metadata else None,
+                    "latency_p99": getattr(state_metadata, "latency_p99", None) if state_metadata else None,
+                    "sample_size": getattr(state_metadata, "sample_size", None) if state_metadata else None,
+                    "next_retry_time": (state_metadata.next_retry_time.isoformat() if state_metadata and state_metadata.next_retry_time else None),
+                    "retry_in": _remaining_seconds(getattr(state_metadata, "next_retry_time", None)) if state_metadata else None,
+                    "hard_timeout_in": _remaining_seconds(getattr(state_metadata, "hard_deadline", None)) if state_metadata else None,
+                    "lease_remaining": _remaining_seconds(getattr(state_metadata, "lease_deadline", None)) if state_metadata else None,
                 }
                 services.append(service_status)
             return {
@@ -475,7 +421,15 @@ class ServiceQueryMixin:
                     "client_id": mapped,
                     "response_time": getattr(state_metadata, "response_time", None) if state_metadata else None,
                     "consecutive_failures": getattr(state_metadata, "consecutive_failures", 0) if state_metadata else 0,
-                    "last_state_change": (state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None)
+                    "last_state_change": (state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None),
+                    "window_error_rate": getattr(state_metadata, "window_error_rate", None) if state_metadata else None,
+                    "latency_p95": getattr(state_metadata, "latency_p95", None) if state_metadata else None,
+                    "latency_p99": getattr(state_metadata, "latency_p99", None) if state_metadata else None,
+                    "sample_size": getattr(state_metadata, "sample_size", None) if state_metadata else None,
+                    "next_retry_time": (state_metadata.next_retry_time.isoformat() if state_metadata and state_metadata.next_retry_time else None),
+                    "retry_in": _remaining_seconds(getattr(state_metadata, "next_retry_time", None)) if state_metadata else None,
+                    "hard_timeout_in": _remaining_seconds(getattr(state_metadata, "hard_deadline", None)) if state_metadata else None,
+                    "lease_remaining": _remaining_seconds(getattr(state_metadata, "lease_deadline", None)) if state_metadata else None,
                 }
                 services.append(service_status)
             return {
@@ -503,16 +457,21 @@ class ServiceQueryMixin:
                         "name": name,
                         "url": config.get("url", ""),
                         "transport_type": config.get("transport", ""),
-                        "status": service_state.value if hasattr(service_state, "value") else str(service_state),
-                        "command": config.get("command"),
-                        "args": config.get("args"),
-                        "package_name": config.get("package_name"),
-                        "client_id": mapped_client,
-                        "response_time": getattr(state_metadata, "response_time", None) if state_metadata else None,
-                        "consecutive_failures": getattr(state_metadata, "consecutive_failures", 0) if state_metadata else 0,
-                        "last_state_change": (state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None)
-                    }
-                    services.append(service_status)
+                    "status": service_state.value if hasattr(service_state, "value") else str(service_state),
+                    "command": config.get("command"),
+                    "args": config.get("args"),
+                    "package_name": config.get("package_name"),
+                    "client_id": mapped_client,
+                    "response_time": getattr(state_metadata, "response_time", None) if state_metadata else None,
+                    "consecutive_failures": getattr(state_metadata, "consecutive_failures", 0) if state_metadata else 0,
+                    "last_state_change": (state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None),
+                    "window_error_rate": getattr(state_metadata, "window_error_rate", None) if state_metadata else None,
+                    "latency_p95": getattr(state_metadata, "latency_p95", None) if state_metadata else None,
+                    "latency_p99": getattr(state_metadata, "latency_p99", None) if state_metadata else None,
+                    "sample_size": getattr(state_metadata, "sample_size", None) if state_metadata else None,
+                    "next_retry_time": (state_metadata.next_retry_time.isoformat() if state_metadata and state_metadata.next_retry_time else None),
+                }
+                services.append(service_status)
                 return {
                     "orchestrator_status": "running",
                     "active_services": len(services),

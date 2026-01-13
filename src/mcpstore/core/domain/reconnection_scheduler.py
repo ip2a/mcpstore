@@ -19,7 +19,7 @@ from mcpstore.core.events.service_events import (
     ServiceStateChanged, ReconnectionRequested, ReconnectionScheduled,
     ServiceConnectionFailed
 )
-from mcpstore.core.lifecycle.config import ServiceLifecycleConfig
+from mcpstore.config.config_dataclasses import ServiceLifecycleConfig
 from mcpstore.core.models.service import ServiceConnectionState
 
 logger = logging.getLogger(__name__)
@@ -48,8 +48,8 @@ class ReconnectionScheduler:
         self._config = lifecycle_config
         self._scan_interval = scan_interval
         # 从统一配置读取重连相关参数
-        self._base_delay = lifecycle_config.base_reconnect_delay
-        self._max_delay = lifecycle_config.max_reconnect_delay
+        self._base_delay = lifecycle_config.backoff_base
+        self._max_delay = lifecycle_config.backoff_max
         self._max_retries = lifecycle_config.max_reconnect_attempts
         self._empty_scan_log_interval = 30.0
         self._last_empty_scan_log = 0.0

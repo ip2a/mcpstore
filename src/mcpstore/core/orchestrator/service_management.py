@@ -418,26 +418,29 @@ class ServiceManagementMixin:
         try:
             agent_key = client_id or self.client_manager.global_agent_store_id
 
-            # 从 pykv 异步获取服务状态
-            state = await self.registry._service_state_service.get_service_state_async(agent_key, service_name)
-            metadata = await self.registry._service_state_service.get_service_metadata_async(
-                agent_key,
-                service_name,
-            )
+            # 统一从完整信息读取，避免“关系存在但状态缺失”导致的 unknown
+            complete_info = await self.registry.get_complete_service_info_async(agent_key, service_name)
+            state = complete_info.get("state") if complete_info else None
+            metadata = complete_info.get("state_metadata") if complete_info else None
+            client_id_resolved = complete_info.get("client_id") if complete_info else agent_key
 
             # Build status response
             status_response = {
                 "service_name": service_name,
-                "client_id": agent_key
+                "client_id": client_id_resolved
             }
+
+            if isinstance(state, str):
+                try:
+                    state = ServiceConnectionState(state)
+                except ValueError:
+                    state = None
 
             if state:
                 status_response["status"] = state.value
-                # Determine if healthy: both HEALTHY and DEGRADED are considered healthy
-                from mcpstore.core.models.service import ServiceConnectionState
                 status_response["healthy"] = state in [
                     ServiceConnectionState.HEALTHY,
-                    ServiceConnectionState.DEGRADED
+                    ServiceConnectionState.DEGRADED,
                 ]
             else:
                 status_response["status"] = "unknown"

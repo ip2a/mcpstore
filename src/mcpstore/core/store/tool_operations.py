@@ -94,6 +94,19 @@ class ToolOperationsMixin:
                         error=None,
                         response_time=duration_ms
                     )
+                # 被动反馈：写入健康滑窗
+                try:
+                    container = getattr(self, "container", None)
+                    health_monitor = getattr(container, "health_monitor", None) if container else None
+                    if health_monitor:
+                        health_monitor.record_passive_feedback(
+                            agent_id=state_check_agent_id,
+                            service_name=request.service_name,
+                            success=True,
+                            response_time=duration_ms / 1000.0,
+                        )
+                except Exception as hf_err:
+                    logger.debug(f"[MONITORING] passive feedback (success) failed: {hf_err}")
             except Exception as monitor_error:
                 logger.warning(f"Failed to record tool execution: {monitor_error}")
 
@@ -121,6 +134,19 @@ class ToolOperationsMixin:
                         error=str(e),
                         response_time=duration_ms
                     )
+                # 被动反馈：写入健康滑窗
+                try:
+                    container = getattr(self, "container", None)
+                    health_monitor = getattr(container, "health_monitor", None) if container else None
+                    if health_monitor:
+                        health_monitor.record_passive_feedback(
+                            agent_id=state_check_agent_id,
+                            service_name=request.service_name,
+                            success=False,
+                            response_time=duration_ms / 1000.0,
+                        )
+                except Exception as hf_err:
+                    logger.debug(f"[MONITORING] passive feedback (failure) failed: {hf_err}")
             except Exception as monitor_error:
                 logger.warning(f"Failed to record failed tool execution: {monitor_error}")
 

@@ -173,14 +173,6 @@ class ConfigService:
 
         # Monitoring configuration
         self._register_key_metadata(
-            "monitoring.health_check_seconds",
-            ConfigKeyType.INTEGER,
-            "Health check interval in seconds",
-            MonitoringConfigDefaults().health_check_seconds,
-            min_value=5, max_value=300,
-            category="monitoring"
-        )
-        self._register_key_metadata(
             "monitoring.tools_update_hours",
             ConfigKeyType.FLOAT,
             "Tools update interval in hours",
@@ -193,6 +185,82 @@ class ConfigService:
             ConfigKeyType.BOOLEAN,
             "Enable automatic tools update",
             MonitoringConfigDefaults().enable_tools_update,
+            category="monitoring"
+        )
+        self._register_key_metadata(
+            "monitoring.enable_reconnection",
+            ConfigKeyType.BOOLEAN,
+            "Enable reconnection scheduler",
+            MonitoringConfigDefaults().enable_reconnection,
+            category="monitoring"
+        )
+        self._register_key_metadata(
+            "monitoring.update_tools_on_reconnection",
+            ConfigKeyType.BOOLEAN,
+            "Update tools when reconnecting",
+            MonitoringConfigDefaults().update_tools_on_reconnection,
+            category="monitoring"
+        )
+        self._register_key_metadata(
+            "monitoring.detect_tools_changes",
+            ConfigKeyType.BOOLEAN,
+            "Detect tools changes",
+            MonitoringConfigDefaults().detect_tools_changes,
+            category="monitoring"
+        )
+        self._register_key_metadata(
+            "monitoring.reconnection_seconds",
+            ConfigKeyType.INTEGER,
+            "Reconnection scan interval in seconds",
+            MonitoringConfigDefaults().reconnection_seconds,
+            min_value=5, max_value=1800,
+            category="monitoring"
+        )
+        self._register_key_metadata(
+            "monitoring.cleanup_hours",
+            ConfigKeyType.FLOAT,
+            "Cleanup interval in hours",
+            MonitoringConfigDefaults().cleanup_hours,
+            min_value=0.1, max_value=168.0,
+            category="monitoring"
+        )
+        self._register_key_metadata(
+            "monitoring.local_service_ping_timeout",
+            ConfigKeyType.INTEGER,
+            "Local service ping timeout (s)",
+            MonitoringConfigDefaults().local_service_ping_timeout,
+            min_value=1, max_value=60,
+            category="monitoring"
+        )
+        self._register_key_metadata(
+            "monitoring.remote_service_ping_timeout",
+            ConfigKeyType.INTEGER,
+            "Remote service ping timeout (s)",
+            MonitoringConfigDefaults().remote_service_ping_timeout,
+            min_value=1, max_value=120,
+            category="monitoring"
+        )
+        self._register_key_metadata(
+            "monitoring.enable_adaptive_timeout",
+            ConfigKeyType.BOOLEAN,
+            "Enable adaptive timeout",
+            MonitoringConfigDefaults().enable_adaptive_timeout,
+            category="monitoring"
+        )
+        self._register_key_metadata(
+            "monitoring.adaptive_timeout_multiplier",
+            ConfigKeyType.FLOAT,
+            "Adaptive timeout multiplier",
+            MonitoringConfigDefaults().adaptive_timeout_multiplier,
+            min_value=1.0, max_value=5.0,
+            category="monitoring"
+        )
+        self._register_key_metadata(
+            "monitoring.response_time_history_size",
+            ConfigKeyType.INTEGER,
+            "Response time history size",
+            MonitoringConfigDefaults().response_time_history_size,
+            min_value=5, max_value=100,
             category="monitoring"
         )
 

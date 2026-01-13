@@ -99,8 +99,13 @@ async def store_add_service(
     # 提取服务名用于响应
     service_names: List[str] = []
     if isinstance(payload, dict):
-        if "name" in payload:
+        # 优先检查 service_name 字段
+        if "service_name" in payload:
+            service_names = [str(payload.get("service_name"))]
+        # 其次检查 name 字段
+        elif "name" in payload:
             service_names = [str(payload.get("name"))]
+        # 最后检查 mcpServers
         else:
             mcp_servers = payload.get("mcpServers") if isinstance(payload, dict) else None
             if isinstance(mcp_servers, dict):
@@ -971,11 +976,11 @@ async def store_get_service_status(service_name: str):
     context = store.for_store()
     agent_id = store.client_manager.global_agent_store_id
 
-    # 先按 Registry 视角检查服务是否存在（使用异步 API）
-    service_exists = await context.bridge_execute(
-        store.registry.has_service_async(agent_id, service_name)
+    # 统一从 pykv 完整信息获取，避免“工具存在但实体缺失”导致的误报
+    complete_info = await context.bridge_execute(
+        store.registry.get_complete_service_info_async(agent_id, service_name)
     )
-    if not service_exists:
+    if not complete_info:
         return ResponseBuilder.error(
             code=ErrorCode.SERVICE_NOT_FOUND,
             message=f"Service '{service_name}' not found",

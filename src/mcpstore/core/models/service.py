@@ -50,6 +50,13 @@ class ServiceStateMetadata(BaseModel):
     tool_sync_attempts: int = 0
     tools_confirmed_empty: bool = False
     last_tool_sync: Optional[datetime] = None
+    # 窗口与退避指标
+    window_error_rate: Optional[float] = None
+    latency_p95: Optional[float] = None
+    latency_p99: Optional[float] = None
+    sample_size: Optional[int] = None
+    hard_deadline: Optional[datetime] = None
+    lease_deadline: Optional[datetime] = None
 
 
 class ServiceInfo(BaseModel):

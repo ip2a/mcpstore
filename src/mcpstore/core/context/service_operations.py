@@ -597,10 +597,17 @@ class ServiceOperationsMixin:
                         name: svc_cfg for name, svc_cfg in config[key].items()
                         if isinstance(svc_cfg, dict)
                     }
-                # 单服务格式 {"name": "...", ...}
+                # 单服务格式 {"name": "...", ...} 或 {"service_name": "...", "service_config": {...}}
                 elif "name" in config and isinstance(config.get("name"), str):
                     svc_name = config["name"]
                     svc_cfg = {k: v for k, v in config.items() if k != "name"}
+                    services_to_add = {svc_name: svc_cfg}
+                # 支持 {"service_name": "...", "service_config": {...}} 格式
+                elif "service_name" in config and "service_config" in config:
+                    svc_name = config["service_name"]
+                    svc_cfg = config["service_config"]
+                    if not isinstance(svc_cfg, dict):
+                        raise Exception("service_config must be a dictionary")
                     services_to_add = {svc_name: svc_cfg}
                 else:
                     # 兜底：视为 {service_name: {url/command...}}
