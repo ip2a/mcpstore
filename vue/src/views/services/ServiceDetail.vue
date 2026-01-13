@@ -46,11 +46,16 @@
               Identity
             </h3>
             <div class="panel-controls">
+              <StatusBadge
+                v-if="serviceData.status"
+                :status="serviceData.status"
+                size="small"
+              />
               <span
-                class="status-badge"
-                :class="serviceData.status"
+                v-else
+                class="status-badge unknown"
               >
-                {{ serviceData.status?.toUpperCase() || 'UNKNOWN' }}
+                UNKNOWN
               </span>
             </div>
           </div>
@@ -70,6 +75,60 @@
             <div class="info-row">
               <label>Transport</label>
               <span class="value">{{ serviceData.transport || 'HTTP' }}</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Health -->
+        <section class="panel-section">
+          <div class="panel-header">
+            <h3 class="panel-title">
+              Health
+            </h3>
+            <div class="panel-controls">
+              <span class="hint-text">{{ statusHint }}</span>
+            </div>
+          </div>
+          <div class="panel-body health-grid">
+            <div class="health-card">
+              <p class="label">状态</p>
+              <p class="value mono">{{ getStatusLabel(serviceData.status) }}</p>
+              <p class="hint">{{ statusHint || '---' }}</p>
+            </div>
+            <div class="health-card">
+              <p class="label">错误率</p>
+              <p :class="['value', 'mono', metricTone(serviceData.window_error_rate)]">
+                {{ formatErrorRate(serviceData.window_error_rate) }}
+              </p>
+              <p class="hint">样本 {{ formatSampleSize(serviceData.sample_size) }}</p>
+            </div>
+            <div class="health-card">
+              <p class="label">延迟 P95/P99</p>
+              <p class="value mono">
+                {{ formatLatency(serviceData.latency_p95) }} / {{ formatLatency(serviceData.latency_p99) }}
+              </p>
+              <p class="hint">单位毫秒</p>
+            </div>
+            <div class="health-card">
+              <p class="label">下次重试</p>
+              <p class="value mono">
+                {{ formatRemainingLabel(serviceData.retry_in, serviceData.next_retry_time) }}
+              </p>
+              <p class="hint">{{ formatAbsoluteLabel(serviceData.next_retry_time) }}</p>
+            </div>
+            <div class="health-card">
+              <p class="label">硬超时</p>
+              <p class="value mono">
+                {{ formatRemainingLabel(serviceData.hard_timeout_in, serviceData.hard_deadline) }}
+              </p>
+              <p class="hint">{{ formatAbsoluteLabel(serviceData.hard_deadline) }}</p>
+            </div>
+            <div class="health-card">
+              <p class="label">租约剩余</p>
+              <p class="value mono">
+                {{ formatRemainingLabel(serviceData.lease_remaining, serviceData.lease_deadline) }}
+              </p>
+              <p class="hint">{{ formatAbsoluteLabel(serviceData.lease_deadline) }}</p>
             </div>
           </div>
         </section>
@@ -259,13 +318,16 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSystemStore } from '@/stores/system'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { 
   ArrowLeft, Loading, Refresh, SwitchButton, Delete, ArrowRight 
 } from '@element-plus/icons-vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import { getStatusMeta } from '@/utils/serviceStatus'
+import { formatErrorRate, formatLatency, formatSampleSize, formatRemaining, formatAbsoluteTime, errorRateLevel } from '@/utils/healthMetrics'
 
 const route = useRoute()
 const router = useRouter()
@@ -278,8 +340,44 @@ const serviceTools = ref([])
 const editMode = reactive({ connection: false })
 const editForm = reactive({ url: '', command: '', argsString: '', working_dir: '' })
 const actionLoading = reactive({ restart: false, disconnect: false, delete: false })
+const now = ref(Date.now())
+let heartbeatTimer = null
 
 const serviceName = computed(() => route.params.serviceName)
+const getStatusLabel = (status) => getStatusMeta(status).text
+const metricTone = (rate) => {
+  const level = errorRateLevel(rate)
+  if (level === 'danger') return 'is-danger'
+  if (level === 'warn') return 'is-warn'
+  return ''
+}
+const formatRemainingLabel = (value, deadline) => formatRemaining(value, deadline, now.value)
+const formatAbsoluteLabel = (deadline) => formatAbsoluteTime(deadline)
+const statusHint = computed(() => {
+  const status = serviceData.value?.status
+  if (status === 'ready') return '已就绪，可用但仍在稳定性观察'
+  if (status === 'healthy') return '运行稳定'
+  if (status === 'degraded') return '性能下降，请关注错误率/延迟'
+  if (status === 'half_open') return '半开试探阶段，避免频繁操作'
+  if (status === 'circuit_open') return '已熔断，等待退避恢复'
+  if (status === 'disconnected') return '连接已断开，可能需要手动处理'
+  return ''
+})
+
+const mergeHealthInfo = (target, health) => {
+  if (!target || !health) return
+  target.status = health.status ?? target.status
+  target.window_error_rate = health.window_error_rate ?? target.window_error_rate
+  target.latency_p95 = health.latency_p95 ?? target.latency_p95
+  target.latency_p99 = health.latency_p99 ?? target.latency_p99
+  target.sample_size = health.sample_size ?? target.sample_size
+  target.retry_in = health.retry_in ?? target.retry_in
+  target.hard_timeout_in = health.hard_timeout_in ?? target.hard_timeout_in
+  target.lease_remaining = health.lease_remaining ?? target.lease_remaining
+  target.next_retry_time = health.next_retry_time ?? target.next_retry_time
+  target.hard_deadline = health.hard_deadline ?? target.hard_deadline
+  target.lease_deadline = health.lease_deadline ?? target.lease_deadline
+}
 
 // Methods
 const fetchServiceDetail = async () => {
@@ -289,6 +387,13 @@ const fetchServiceDetail = async () => {
     
     // api.store.getServiceInfo returns the extracted data object directly
     const data = await api.store.getServiceInfo(serviceName.value)
+    let health = null
+    try {
+      health = await api.store.checkServiceHealth(serviceName.value)
+    } catch (healthErr) {
+      console.warn('获取健康详情失败:', healthErr?.message || healthErr)
+    }
+    if (health) mergeHealthInfo(data, health)
     
     if (data) {
       serviceData.value = data
@@ -414,7 +519,19 @@ const executeTool = (tool) => {
   })
 }
 
-onMounted(fetchServiceDetail)
+onMounted(() => {
+  heartbeatTimer = setInterval(() => {
+    now.value = Date.now()
+  }, 1000)
+  fetchServiceDetail()
+})
+
+onUnmounted(() => {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer)
+    heartbeatTimer = null
+  }
+})
 </script>
 
 <style lang="scss" scoped>
@@ -521,6 +638,50 @@ onMounted(fetchServiceDetail)
   
   &.healthy, &.active { background: #dcfce7; color: #166534; }
   &.error { background: #fee2e2; color: #991b1b; }
+}
+
+.status-badge.unknown {
+  border: 1px solid var(--border-color);
+}
+
+.hint-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.health-card {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: var(--bg-surface);
+
+  .label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+  }
+
+  .value {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+
+    &.mono { font-family: var(--font-mono); }
+    &.is-warn { color: var(--color-warning); }
+    &.is-danger { color: var(--color-danger); }
+  }
+
+  .hint {
+    margin-top: 4px;
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
 }
 
 .info-row {
