@@ -28,6 +28,12 @@ export const useServicesStore = defineStore('services', () => {
   // 服务统计
   const stats = ref({
     total: 0,
+    healthy: 0,
+    ready: 0,
+    degraded: 0,
+    half_open: 0,
+    circuit_open: 0,
+    disconnected: 0,
     running: 0,
     stopped: 0,
     error: 0,
@@ -60,7 +66,7 @@ export const useServicesStore = defineStore('services', () => {
   })
   
   const runningServices = computed(() => {
-    return services.value.filter(s => s.status === 'healthy' || s.status === 'running')
+    return services.value.filter(s => s.status === 'healthy' || s.status === 'ready')
   })
   
   const localServices = computed(() => {
@@ -76,12 +82,12 @@ export const useServicesStore = defineStore('services', () => {
   })
   
   const unhealthyServices = computed(() => {
-    return services.value.filter(s => s.status !== 'healthy')
+    return services.value.filter(s => !['healthy', 'ready'].includes(s.status))
   })
 
   // 新增计算属性
   const failedServices = computed(() => {
-    return services.value.filter(s => s.status === 'error' || s.status === 'unhealthy')
+    return services.value.filter(s => ['circuit_open', 'half_open', 'disconnected', 'degraded'].includes(s.status))
   })
 
   const unknownServices = computed(() => {
@@ -351,6 +357,16 @@ export const useServicesStore = defineStore('services', () => {
           if (service) {
             service.status = healthInfo.status
             service.last_heartbeat = healthInfo.last_heartbeat
+            service.window_error_rate = healthInfo.window_error_rate ?? service.window_error_rate
+            service.latency_p95 = healthInfo.latency_p95 ?? service.latency_p95
+            service.latency_p99 = healthInfo.latency_p99 ?? service.latency_p99
+            service.sample_size = healthInfo.sample_size ?? service.sample_size
+            service.retry_in = healthInfo.retry_in ?? service.retry_in
+            service.hard_timeout_in = healthInfo.hard_timeout_in ?? service.hard_timeout_in
+            service.lease_remaining = healthInfo.lease_remaining ?? service.lease_remaining
+            service.next_retry_time = healthInfo.next_retry_time ?? service.next_retry_time
+            service.hard_deadline = healthInfo.hard_deadline ?? service.hard_deadline
+            service.lease_deadline = healthInfo.lease_deadline ?? service.lease_deadline
 
             // 更新健康状态
             updateServiceHealth(healthInfo.name, {
@@ -446,10 +462,22 @@ export const useServicesStore = defineStore('services', () => {
       return
     }
 
+    const counts = services.value.reduce((acc, service) => {
+      const key = service.status || 'unknown'
+      acc[key] = (acc[key] || 0) + 1
+      return acc
+    }, {})
+
     stats.value.total = services.value.length
-    stats.value.running = services.value.filter(s => s.status === 'healthy' || s.status === 'running').length
-    stats.value.stopped = services.value.filter(s => s.status === 'stopped').length
-    stats.value.error = services.value.filter(s => s.status === 'error' || s.status === 'unhealthy').length
+    stats.value.healthy = counts.healthy || 0
+    stats.value.ready = counts.ready || 0
+    stats.value.degraded = counts.degraded || 0
+    stats.value.half_open = counts.half_open || 0
+    stats.value.circuit_open = counts.circuit_open || 0
+    stats.value.disconnected = counts.disconnected || 0
+    stats.value.running = stats.value.healthy + stats.value.ready
+    stats.value.stopped = counts.stopped || 0
+    stats.value.error = counts.error || 0
     stats.value.local = services.value.filter(s => s.command).length
     stats.value.remote = services.value.filter(s => s.url).length
   }
@@ -467,6 +495,12 @@ export const useServicesStore = defineStore('services', () => {
     currentService.value = null
     stats.value = {
       total: 0,
+      healthy: 0,
+      ready: 0,
+      degraded: 0,
+      half_open: 0,
+      circuit_open: 0,
+      disconnected: 0,
       running: 0,
       stopped: 0,
       error: 0,

@@ -22,6 +22,20 @@
       <a-col :span="3">
         <a-card
           size="small"
+          class="status-card ready"
+        >
+          <div class="status-number">
+            {{ stats.ready }}
+          </div>
+          <div class="status-label">
+            已就绪
+          </div>
+        </a-card>
+      </a-col>
+      
+      <a-col :span="3">
+        <a-card
+          size="small"
           class="status-card healthy"
         >
           <div class="status-number">
@@ -36,13 +50,13 @@
       <a-col :span="3">
         <a-card
           size="small"
-          class="status-card warning"
+          class="status-card degraded"
         >
           <div class="status-number">
-            {{ stats.warning }}
+            {{ stats.degraded }}
           </div>
           <div class="status-label">
-            警告
+            性能下降
           </div>
         </a-card>
       </a-col>
@@ -50,13 +64,13 @@
       <a-col :span="3">
         <a-card
           size="small"
-          class="status-card reconnecting"
+          class="status-card half-open"
         >
           <div class="status-number">
-            {{ stats.reconnecting }}
+            {{ stats.half_open }}
           </div>
           <div class="status-label">
-            重连中
+            半开试探
           </div>
         </a-card>
       </a-col>
@@ -64,27 +78,13 @@
       <a-col :span="3">
         <a-card
           size="small"
-          class="status-card unreachable"
+          class="status-card circuit-open"
         >
           <div class="status-number">
-            {{ stats.unreachable }}
+            {{ stats.circuit_open }}
           </div>
           <div class="status-label">
-            无法访问
-          </div>
-        </a-card>
-      </a-col>
-      
-      <a-col :span="3">
-        <a-card
-          size="small"
-          class="status-card initializing"
-        >
-          <div class="status-number">
-            {{ stats.initializing }}
-          </div>
-          <div class="status-label">
-            初始化中
+            已熔断
           </div>
         </a-card>
       </a-col>
@@ -95,7 +95,7 @@
           class="status-card disconnected"
         >
           <div class="status-number">
-            {{ stats.disconnected + stats.disconnecting }}
+            {{ stats.disconnected }}
           </div>
           <div class="status-label">
             已断连
@@ -165,20 +165,18 @@ import { api } from '@/api'
 const generateServiceStateStats = (services) => {
   const stats = {
     total: 0,
-    active: 0,
-    inactive: 0,
-    error: 0
+    ready: 0,
+    healthy: 0,
+    degraded: 0,
+    half_open: 0,
+    circuit_open: 0,
+    disconnected: 0
   }
 
   Object.values(services).forEach(service => {
     stats.total++
-    if (service.status === 'active') {
-      stats.active++
-    } else if (service.status === 'error') {
-      stats.error++
-    } else {
-      stats.inactive++
-    }
+    const status = service.status || 'unknown'
+    if (status in stats) stats[status]++
   })
 
   return stats
@@ -216,22 +214,22 @@ export default {
     
     warningPercentage() {
       if (this.stats.total === 0) return 0
-      return Math.round(((this.stats.warning + this.stats.reconnecting) / this.stats.total) * 100)
+      return Math.round(((this.stats.degraded + this.stats.half_open) / this.stats.total) * 100)
     },
     
     errorPercentage() {
       if (this.stats.total === 0) return 0
-      return Math.round(((this.stats.unreachable + this.stats.disconnected + this.stats.disconnecting) / this.stats.total) * 100)
+      return Math.round(((this.stats.circuit_open + this.stats.disconnected) / this.stats.total) * 100)
     },
     
     healthScore() {
       if (this.stats.total === 0) return 100
       const healthyWeight = this.stats.healthy * 1.0
-      const warningWeight = this.stats.warning * 0.7
-      const reconnectingWeight = this.stats.reconnecting * 0.5
-      const initializingWeight = this.stats.initializing * 0.8
+      const readyWeight = this.stats.ready * 0.85
+      const degradedWeight = this.stats.degraded * 0.6
+      const halfOpenWeight = this.stats.half_open * 0.45
       
-      const totalWeight = healthyWeight + warningWeight + reconnectingWeight + initializingWeight
+      const totalWeight = healthyWeight + readyWeight + degradedWeight + halfOpenWeight
       return Math.round((totalWeight / this.stats.total) * 100)
     },
     
@@ -321,11 +319,11 @@ export default {
 
 /* 状态卡片颜色 */
 .status-card.total .status-number { color: #1890ff; }
+.status-card.ready .status-number { color: #0ea5e9; }
 .status-card.healthy .status-number { color: #52c41a; }
-.status-card.warning .status-number { color: #faad14; }
-.status-card.reconnecting .status-number { color: #722ed1; }
-.status-card.unreachable .status-number { color: #f5222d; }
-.status-card.initializing .status-number { color: #1890ff; }
+.status-card.degraded .status-number { color: #faad14; }
+.status-card.half-open .status-number { color: #f97316; }
+.status-card.circuit-open .status-number { color: #f5222d; }
 .status-card.disconnected .status-number { color: #8c8c8c; }
 
 .health-indicator {
