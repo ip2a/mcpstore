@@ -27,14 +27,16 @@ def _get_config_defaults():
             HealthCheckConfigDefaults,
             ContentUpdateConfigDefaults,
             MonitoringConfigDefaults,
-            CacheConfigDefaults,
+            CacheMemoryConfigDefaults,
+            CacheRedisConfigDefaults,
             StandaloneConfigDefaults,
         )
         return {
             'HealthCheckConfigDefaults': HealthCheckConfigDefaults,
             'ContentUpdateConfigDefaults': ContentUpdateConfigDefaults,
             'MonitoringConfigDefaults': MonitoringConfigDefaults,
-            'CacheConfigDefaults': CacheConfigDefaults,
+            'CacheMemoryConfigDefaults': CacheMemoryConfigDefaults,
+            'CacheRedisConfigDefaults': CacheRedisConfigDefaults,
             'StandaloneConfigDefaults': StandaloneConfigDefaults,
         }
     except ImportError:

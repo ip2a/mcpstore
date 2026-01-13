@@ -10,9 +10,11 @@ Responsibilities:
 
 import asyncio
 import logging
+import time
 from datetime import datetime
 
 from mcpstore.core.events.event_bus import EventBus
+from mcpstore.config.config_defaults import HealthCheckConfigDefaults
 from mcpstore.core.events.service_events import (
     ServiceCached,
     ServiceInitialized,
@@ -59,8 +61,19 @@ class LifecycleManager:
             # 从 MCPStoreConfig 获取配置（有默认回退）
             from mcpstore.config.toml_config import get_lifecycle_config_with_defaults
             lifecycle_config = get_lifecycle_config_with_defaults()
-            logger.info(f"LifecycleManager using config from {'MCPStoreConfig' if hasattr(lifecycle_config, 'warning_failure_threshold') else 'defaults'}")
+            logger.info("LifecycleManager using lifecycle config defaults or loaded config")
         self._config = lifecycle_config
+        defaults = HealthCheckConfigDefaults()
+        self._warning_failure_threshold = getattr(
+            lifecycle_config,
+            "liveness_failure_threshold",
+            getattr(lifecycle_config, "warning_failure_threshold", defaults.liveness_failure_threshold),
+        )
+        self._reconnecting_failure_threshold = getattr(
+            lifecycle_config,
+            "reconnecting_failure_threshold",
+            getattr(lifecycle_config, "liveness_failure_threshold", defaults.liveness_failure_threshold + 1),
+        )
 
         # Subscribe to events
         self._event_bus.subscribe(ServiceCached, self._on_service_cached, priority=90)
@@ -532,7 +545,7 @@ class LifecycleManager:
             should_enter_reconnecting = False
             if current_state in (ServiceConnectionState.STARTUP, None):
                 should_enter_reconnecting = True
-            elif metadata and metadata.consecutive_failures >= self._config.reconnecting_failure_threshold:
+            elif metadata and metadata.consecutive_failures >= self._reconnecting_failure_threshold:
                 should_enter_reconnecting = current_state not in (
                     ServiceConnectionState.CIRCUIT_OPEN,
                     ServiceConnectionState.DISCONNECTED,
@@ -585,6 +598,39 @@ class LifecycleManager:
                 # 更新健康检查信息（纯函数操作）
                 metadata.last_health_check = datetime.now()
                 metadata.last_response_time = event.response_time
+                if hasattr(metadata, "window_error_rate"):
+                    metadata.window_error_rate = event.window_error_rate
+                if hasattr(metadata, "latency_p95"):
+                    metadata.latency_p95 = event.latency_p95
+                if hasattr(metadata, "latency_p99"):
+                    metadata.latency_p99 = event.latency_p99
+                if hasattr(metadata, "sample_size"):
+                    metadata.sample_size = event.sample_size
+                # 退避/硬超时/租约时间戳写入
+                if hasattr(metadata, "next_retry_time"):
+                    if getattr(event, "next_retry_time", None) is not None:
+                        try:
+                            metadata.next_retry_time = datetime.fromtimestamp(event.next_retry_time)
+                        except Exception:
+                            metadata.next_retry_time = None
+                    elif event.retry_in is not None:
+                        metadata.next_retry_time = datetime.fromtimestamp(time.time() + event.retry_in)
+                if hasattr(metadata, "hard_deadline"):
+                    if getattr(event, "hard_deadline", None) is not None:
+                        try:
+                            metadata.hard_deadline = datetime.fromtimestamp(event.hard_deadline)
+                        except Exception:
+                            metadata.hard_deadline = None
+                    elif event.hard_timeout_in is not None:
+                        metadata.hard_deadline = datetime.fromtimestamp(time.time() + event.hard_timeout_in)
+                if hasattr(metadata, "lease_deadline"):
+                    if getattr(event, "lease_deadline", None) is not None:
+                        try:
+                            metadata.lease_deadline = datetime.fromtimestamp(event.lease_deadline)
+                        except Exception:
+                            metadata.lease_deadline = None
+                    elif event.lease_remaining is not None:
+                        metadata.lease_deadline = datetime.fromtimestamp(time.time() + event.lease_remaining)
 
                 if event.success:
                     metadata.consecutive_failures = 0
@@ -603,11 +649,17 @@ class LifecycleManager:
             if metadata:
                 failures = metadata.consecutive_failures
 
-            # Success: return from STARTUP/DEGRADED to HEALTHY; HEALTHY stays
+            # Success: 收敛到 HEALTHY/READY 或从 HALF_OPEN 恢复
             if event.success:
-                # 健康成功但工具为空时触发受控的重连以拉取工具，避免“健康但无工具”
                 await self._maybe_trigger_tool_resync(event.agent_id, event.service_name)
-                if current_state in (ServiceConnectionState.STARTUP, ServiceConnectionState.DEGRADED):
+                suggested_state = event.suggested_state
+                if isinstance(suggested_state, str):
+                    try:
+                        suggested_state = ServiceConnectionState(suggested_state)
+                    except ValueError:
+                        suggested_state = None
+                target_state = suggested_state or ServiceConnectionState.HEALTHY
+                if target_state == ServiceConnectionState.HEALTHY and current_state != ServiceConnectionState.HEALTHY:
                     await self._transition_state(
                         agent_id=event.agent_id,
                         service_name=event.service_name,
@@ -615,31 +667,82 @@ class LifecycleManager:
                         reason="health_check_success",
                         source="HealthMonitor"
                     )
-                return
-
-            # Failure: advance to DEGRADED/CIRCUIT_OPEN based on thresholds
-            warn_th = self._config.warning_failure_threshold
-            rec_th = self._config.reconnecting_failure_threshold
-
-            # Reached reconnection threshold: enter CIRCUIT_OPEN
-            if failures >= rec_th:
-                if current_state != ServiceConnectionState.CIRCUIT_OPEN:
+                elif target_state == ServiceConnectionState.READY and current_state != ServiceConnectionState.READY:
+                    # 就绪门槛：工具或依赖加载完成后才允许进入 READY
+                    gate_passed = await self._ready_gate_passed(event.agent_id, event.service_name, metadata)
+                    if not gate_passed:
+                        logger.info(
+                            f"[LIFECYCLE] Ready gate not satisfied, stay in STARTUP: {event.service_name} "
+                            f"(tools_confirmed_empty={getattr(metadata, 'tools_confirmed_empty', None)}, "
+                            f"last_tool_sync={getattr(metadata, 'last_tool_sync', None)})"
+                        )
+                        return
                     await self._transition_state(
                         agent_id=event.agent_id,
                         service_name=event.service_name,
-                        new_state=ServiceConnectionState.CIRCUIT_OPEN,
-                        reason="health_check_consecutive_failures",
+                        new_state=ServiceConnectionState.READY,
+                        reason="readiness_success",
+                        source="HealthMonitor"
+                    )
+                elif current_state == ServiceConnectionState.HALF_OPEN:
+                    # 半开试探成功，恢复健康
+                    await self._transition_state(
+                        agent_id=event.agent_id,
+                        service_name=event.service_name,
+                        new_state=ServiceConnectionState.HEALTHY,
+                        reason="half_open_success",
                         source="HealthMonitor"
                     )
                 return
 
-            # Enter DEGRADED from HEALTHY (first failure)
-            if current_state == ServiceConnectionState.HEALTHY and failures >= warn_th:
+            # Failure: 根据建议状态迁移
+            suggested = event.suggested_state
+            if isinstance(suggested, str):
+                try:
+                    suggested = ServiceConnectionState(suggested)
+                except ValueError:
+                    suggested = None
+            if suggested == ServiceConnectionState.CIRCUIT_OPEN and current_state != ServiceConnectionState.CIRCUIT_OPEN:
+                # 半开失败或运行期熔断，写入退避计数与下一次重试
+                if metadata:
+                    if hasattr(metadata, "reconnect_attempts"):
+                        metadata.reconnect_attempts += 1
+                    if hasattr(metadata, "next_retry_time") and event.retry_in is not None:
+                        metadata.next_retry_time = datetime.fromtimestamp(time.time() + event.retry_in)
+                    await self._set_service_metadata_async(event.agent_id, event.service_name, metadata)
+                await self._transition_state(
+                    agent_id=event.agent_id,
+                    service_name=event.service_name,
+                    new_state=ServiceConnectionState.CIRCUIT_OPEN,
+                    reason="health_check_suggest_circuit_open",
+                    source="HealthMonitor"
+                )
+                return
+            if suggested == ServiceConnectionState.DEGRADED and current_state == ServiceConnectionState.HEALTHY:
                 await self._transition_state(
                     agent_id=event.agent_id,
                     service_name=event.service_name,
                     new_state=ServiceConnectionState.DEGRADED,
-                    reason="health_check_first_failure",
+                    reason="health_check_suggest_degraded",
+                    source="HealthMonitor"
+                )
+                return
+            if suggested == ServiceConnectionState.DISCONNECTED:
+                await self._transition_state(
+                    agent_id=event.agent_id,
+                    service_name=event.service_name,
+                    new_state=ServiceConnectionState.DISCONNECTED,
+                    reason="health_check_hard_timeout",
+                    source="HealthMonitor"
+                )
+                return
+            # 若无建议但连续失败存在，可降级
+            if suggested is None and current_state == ServiceConnectionState.HEALTHY and failures > 0:
+                await self._transition_state(
+                    agent_id=event.agent_id,
+                    service_name=event.service_name,
+                    new_state=ServiceConnectionState.DEGRADED,
+                    reason="health_check_failures",
                     source="HealthMonitor"
                 )
                 return
@@ -661,6 +764,14 @@ class LifecycleManager:
             metadata = await self._registry.get_service_metadata_async(event.agent_id, event.service_name)
             if metadata:
                 metadata.error_message = f"Timeout: {event.timeout_type} ({event.elapsed_time:.1f}s)"
+                if hasattr(metadata, "hard_deadline"):
+                    try:
+                        # 标记为当前时间的硬超时，用于外部观测
+                        metadata.hard_deadline = datetime.now()
+                    except Exception:
+                        pass
+                if hasattr(metadata, "next_retry_time"):
+                    metadata.next_retry_time = None
                 await self._set_service_metadata_async(event.agent_id, event.service_name, metadata)
 
             # Transition to DISCONNECTED state
@@ -674,6 +785,44 @@ class LifecycleManager:
 
         except Exception as e:
             logger.error(f"[LIFECYCLE] Failed to handle timeout for {event.service_name}: {e}", exc_info=True)
+
+    async def _ready_gate_passed(
+        self,
+        agent_id: str,
+        service_name: str,
+        metadata: 'ServiceStateMetadata | None'
+    ) -> bool:
+        """
+        就绪门槛：避免在工具/依赖未加载完毕时进入 READY
+        """
+        try:
+            # 配置允许跳过时直接放行
+            service_config = getattr(metadata, "service_config", {}) if metadata else {}
+            if service_config.get("skip_ready_gate"):
+                return True
+
+            # 如果明确标记“工具为空且确认”，视为无需等待
+            if metadata and getattr(metadata, "tools_confirmed_empty", False):
+                return True
+
+            # 检查工具同步完成时间，存在即认为已跑过同步
+            if metadata and getattr(metadata, "last_tool_sync", None):
+                return True
+
+            # 读取状态层判断是否已有工具
+            cache_state_manager = getattr(self._registry, "_cache_state_manager", None)
+            if cache_state_manager:
+                from mcpstore.core.cache.naming_service import NamingService
+                global_name = NamingService.generate_service_global_name(service_name, agent_id)
+                status = await cache_state_manager.get_service_status(global_name)
+                if status and status.tools:
+                    return True
+
+            # 未满足任何条件，继续等待
+            return False
+        except Exception as e:
+            logger.warning(f"[LIFECYCLE] Ready gate check failed, allow transition by default: {e}")
+            return True
 
     async def _on_reconnection_requested(self, event: 'ReconnectionRequested'):
         """
@@ -1027,11 +1176,11 @@ class LifecycleManager:
                     new_state = ServiceConnectionState.CIRCUIT_OPEN
                     reason = "initial_connection_failed"
                     logger.info(f"[LIFECYCLE] Will transition {service_name} from STARTUP to CIRCUIT_OPEN (first failure)")
-                elif failure_count >= self._config.reconnecting_failure_threshold:
+                elif failure_count >= self._reconnecting_failure_threshold:
                     # High failure count -> DISCONNECTED
                     new_state = ServiceConnectionState.DISCONNECTED
                     reason = "connection_unreachable"
-                elif failure_count >= self._config.warning_failure_threshold:
+                elif failure_count >= self._warning_failure_threshold:
                     # Medium failure count -> DEGRADED
                     new_state = ServiceConnectionState.DEGRADED
                     reason = "connection_warning"

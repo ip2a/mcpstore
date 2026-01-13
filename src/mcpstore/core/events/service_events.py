@@ -222,6 +222,17 @@ class HealthCheckCompleted(DomainEvent):
     response_time: float = 0.0
     error_message: Optional[str] = None
     suggested_state: Optional[str] = None  # HEALTHY, DEGRADED, CIRCUIT_OPEN, DISCONNECTED
+    # 窗口与退避元数据
+    window_error_rate: Optional[float] = None
+    latency_p95: Optional[float] = None
+    latency_p99: Optional[float] = None
+    sample_size: Optional[int] = None
+    retry_in: Optional[float] = None           # 秒
+    hard_timeout_in: Optional[float] = None    # 秒
+    lease_remaining: Optional[float] = None    # 秒
+    next_retry_time: Optional[float] = None    # 时间戳（秒）
+    hard_deadline: Optional[float] = None      # 时间戳（秒）
+    lease_deadline: Optional[float] = None     # 时间戳（秒）
 
 
 @dataclass(frozen=True)

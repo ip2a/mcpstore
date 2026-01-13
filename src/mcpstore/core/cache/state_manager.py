@@ -40,7 +40,14 @@ class StateManager:
         tools_status: List[Dict[str, Any]],
         connection_attempts: int = 0,
         max_connection_attempts: int = 3,
-        current_error: Optional[str] = None
+        current_error: Optional[str] = None,
+        window_error_rate: Optional[float] = None,
+        latency_p95: Optional[float] = None,
+        latency_p99: Optional[float] = None,
+        sample_size: Optional[int] = None,
+        next_retry_time: Optional[float] = None,
+        hard_deadline: Optional[float] = None,
+        lease_deadline: Optional[float] = None,
     ) -> None:
         """
         更新服务状态
@@ -87,7 +94,14 @@ class StateManager:
             connection_attempts=connection_attempts,
             max_connection_attempts=max_connection_attempts,
             current_error=current_error,
-            tools=tools
+            tools=tools,
+            window_error_rate=window_error_rate,
+            latency_p95=latency_p95,
+            latency_p99=latency_p99,
+            sample_size=sample_size,
+            next_retry_time=next_retry_time,
+            hard_deadline=hard_deadline,
+            lease_deadline=lease_deadline,
         )
 
         # 存储到状态层

@@ -40,86 +40,70 @@ class ServiceOperationHelper:
             agent_id: Agent ID（仅在 context_type 为 "agent" 时需要）
         """
         try:
-            # 获取上下文
+            # 统一使用 pykv 作为唯一数据源
             if context_type == "store":
-                context = store.for_store()
+                target_agent_id = store.orchestrator.client_manager.global_agent_store_id
             elif context_type == "agent":
                 if not agent_id:
                     raise ValueError("agent_id is required for agent context")
-                context = store.for_agent(agent_id)
+                target_agent_id = agent_id
             else:
                 raise ValueError(f"Invalid context_type: {context_type}")
-            
-            # 获取服务配置
-            service_config = None
-            for service in context.services:
-                if service.name == service_name:
-                    service_config = service
-                    break
-            
-            if not service_config:
+
+            complete_info = await store.registry.get_complete_service_info_async(target_agent_id, service_name)
+            if not complete_info:
                 raise MCPStoreException(
                     message=f"Service '{service_name}' not found",
                     error_code=ErrorCode.SERVICE_NOT_FOUND,
                     details={"service_name": service_name, "context_type": context_type}
                 )
-            
-            # 获取工具列表
-            tools_info = []
-            if hasattr(context, '_tools') and context._tools:
-                for tool_name, tool_def in context._tools.items():
-                    if tool_def.get('service') == service_name:
-                        tools_info.append({
-                            "name": tool_name,
-                            "description": tool_def.get("description", ""),
-                            "input_schema": tool_def.get("inputSchema", {})
-                        })
-            
-            # 构建服务详情
-            service_details = {
-                "name": service_config.name,
-                "status": "active" if hasattr(service_config, 'client') and service_config.client else "inactive",
-                "transport": service_config.config.get("transport", "unknown"),
-                "client_id": getattr(service_config, 'client_id', None),
-                "url": service_config.config.get("url"),
-                "command": service_config.config.get("command"),
-                "args": service_config.config.get("args"),
-                "env": service_config.config.get("env"),
-                "tool_count": len(tools_info),
-                "is_active": hasattr(service_config, 'client') and service_config.client is not None,
-                "config": service_config.config,
-                "tools": tools_info
-            }
-            
-            # 添加生命周期信息 - 从 pykv 异步获取元数据
-            if hasattr(store, 'orchestrator') and store.orchestrator:
-                lifecycle_manager = store.orchestrator.lifecycle_manager
-                # Store 视角使用 global_agent_store；Agent 视角必须显式传入 agent_id
-                if context_type == "store":
-                    target_agent_id = store.orchestrator.client_manager.global_agent_store_id
-                else:
-                    # 上方已校验 agent_id 必填，这里直接使用
-                    target_agent_id = agent_id
 
-                state = lifecycle_manager.get_service_state(target_agent_id, service_name)
-                # 从 pykv 异步获取元数据
-                metadata = await context.bridge_execute(
-                    store.registry._service_state_service.get_service_metadata_async(
-                        target_agent_id,
-                        service_name
-                    )
-                )
-                
-                if state:
-                    service_details["lifecycle"] = {
-                        "consecutive_successes": metadata.consecutive_successes if metadata else 0,
-                        "consecutive_failures": metadata.consecutive_failures if metadata else 0,
-                        "last_ping_time": metadata.last_success_time.isoformat() if metadata and metadata.last_success_time else None,
-                        "error_message": metadata.error_message if metadata else None,
-                        "reconnect_attempts": metadata.reconnect_attempts if metadata else 0,
-                        "state_entered_time": metadata.state_entered_time.isoformat() if metadata and metadata.state_entered_time else None
-                    }
-            
+            config = complete_info.get("config", {}) or {}
+            state = complete_info.get("state")
+            status_str = state.value if hasattr(state, "value") else (str(state) if state else "unknown")
+
+            raw_tools = complete_info.get("tools") or []
+            tools_info = []
+            for tool in raw_tools:
+                if hasattr(tool, "model_dump"):
+                    tools_info.append(tool.model_dump())
+                elif hasattr(tool, "dict"):
+                    tools_info.append(tool.dict())
+                elif isinstance(tool, dict):
+                    tools_info.append(tool)
+                else:
+                    tools_info.append({"name": str(tool)})
+
+            service_details = {
+                "name": complete_info.get("service_original_name") or service_name,
+                "status": status_str,
+                "transport": config.get("transport", "unknown"),
+                "client_id": complete_info.get("client_id"),
+                "url": config.get("url"),
+                "command": config.get("command"),
+                "args": config.get("args"),
+                "env": config.get("env"),
+                "tool_count": len(tools_info),
+                "is_active": status_str not in ["disconnected", "circuit_open"],
+                "config": config,
+                "tools": tools_info,
+            }
+
+            metadata = complete_info.get("state_metadata")
+            if metadata:
+                service_details["lifecycle"] = {
+                    "consecutive_successes": getattr(metadata, "consecutive_successes", 0),
+                    "consecutive_failures": getattr(metadata, "consecutive_failures", 0),
+                    "last_ping_time": getattr(metadata, "last_ping_time", None).isoformat()
+                    if getattr(metadata, "last_ping_time", None)
+                    else None,
+                    "error_message": getattr(metadata, "error_message", None),
+                    "reconnect_attempts": getattr(metadata, "reconnect_attempts", 0),
+                    "state_entered_time": getattr(metadata, "state_entered_time", None).isoformat()
+                    if getattr(metadata, "state_entered_time", None)
+                    else None,
+                }
+
             return service_details
             
         except Exception as e:

@@ -314,16 +314,6 @@ class ContentUpdateConfig(BaseModel):
     max_consecutive_failures: Optional[int] = Field(default=None, ge=1, le=10, description="最大连续失败次数，范围1-10")
     failure_backoff_multiplier: Optional[float] = Field(default=None, ge=1.0, le=5.0, description="失败退避倍数，范围1.0-5.0")
 
-    # === 新增：健康状态阈值配置 ===
-    healthy_response_threshold: Optional[float] = Field(default=None, ge=0.1, le=5.0, description="健康状态响应时间阈值（秒），范围0.1-5.0")
-    warning_response_threshold: Optional[float] = Field(default=None, ge=0.5, le=10.0, description="警告状态响应时间阈值（秒），范围0.5-10.0")
-    slow_response_threshold: Optional[float] = Field(default=None, ge=1.0, le=30.0, description="慢响应状态响应时间阈值（秒），范围1.0-30.0")
-
-    # === 新增：智能超时调整配置 ===
-    enable_adaptive_timeout: Optional[bool] = Field(default=None, description="是否启用智能超时调整")
-    adaptive_timeout_multiplier: Optional[float] = Field(default=None, ge=1.5, le=5.0, description="智能超时倍数，范围1.5-5.0")
-    response_time_history_size: Optional[int] = Field(default=None, ge=5, le=100, description="响应时间历史记录大小，范围5-100")
-
 
 # === 🆕 分页/排序/过滤增强模型 ===
 

@@ -414,6 +414,13 @@ class ServiceStatus:
     max_connection_attempts: int
     current_error: Optional[str]
     tools: List[ToolStatusItem] = field(default_factory=list)
+    window_error_rate: Optional[float] = None
+    latency_p95: Optional[float] = None
+    latency_p99: Optional[float] = None
+    sample_size: Optional[int] = None
+    next_retry_time: Optional[float] = None
+    hard_deadline: Optional[float] = None
+    lease_deadline: Optional[float] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
@@ -424,7 +431,14 @@ class ServiceStatus:
             "connection_attempts": self.connection_attempts,
             "max_connection_attempts": self.max_connection_attempts,
             "current_error": self.current_error,
-            "tools": [item.to_dict() for item in self.tools]
+            "tools": [item.to_dict() for item in self.tools],
+            "window_error_rate": self.window_error_rate,
+            "latency_p95": self.latency_p95,
+            "latency_p99": self.latency_p99,
+            "sample_size": self.sample_size,
+            "next_retry_time": self.next_retry_time,
+            "hard_deadline": self.hard_deadline,
+            "lease_deadline": self.lease_deadline,
         }
     
     @classmethod
@@ -472,5 +486,12 @@ class ServiceStatus:
             connection_attempts=data["connection_attempts"],
             max_connection_attempts=data["max_connection_attempts"],
             current_error=data.get("current_error"),
-            tools=tools
+            tools=tools,
+            window_error_rate=data.get("window_error_rate"),
+            latency_p95=data.get("latency_p95"),
+            latency_p99=data.get("latency_p99"),
+            sample_size=data.get("sample_size"),
+            next_retry_time=data.get("next_retry_time"),
+            hard_deadline=data.get("hard_deadline"),
+            lease_deadline=data.get("lease_deadline"),
         )

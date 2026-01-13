@@ -40,7 +40,7 @@ _logging_defaults = LoggingConfigDefaults()
 
 # 尝试导入其他配置类，处理可能的导入失败
 try:
-    from ..core.lifecycle.config import ServiceLifecycleConfig
+    from .config_dataclasses import ServiceLifecycleConfig
 except ImportError as e:
     print(f"Warning: ServiceLifecycleConfig not available: {e}")
     ServiceLifecycleConfig = None
@@ -770,7 +770,7 @@ from dataclasses import dataclass
 
 # Import existing configuration classes for type conversion
 try:
-    from ..core.lifecycle.config import ServiceLifecycleConfig
+    from .config_dataclasses import ServiceLifecycleConfig
 except ImportError as e:
     logger.warning(f"ServiceLifecycleConfig could not be imported: {e}")
     ServiceLifecycleConfig = None
@@ -1477,7 +1477,7 @@ def get_lifecycle_config_with_defaults() -> 'ServiceLifecycleConfig':
         # Config not initialized, return defaults
         logger.warning("MCPStoreConfig not initialized, using default ServiceLifecycleConfig")
         try:
-            from mcpstore.core.lifecycle.config import ServiceLifecycleConfig
+            from mcpstore.config.config_dataclasses import ServiceLifecycleConfig
             return ServiceLifecycleConfig()
         except ImportError:
             logger.error("Cannot import ServiceLifecycleConfig, returning empty dict")
@@ -1489,7 +1489,7 @@ def get_lifecycle_config_with_defaults() -> 'ServiceLifecycleConfig':
         # In async context, cannot use asyncio.run - return defaults
         logger.warning("Cannot load config in async context, using default ServiceLifecycleConfig")
         try:
-            from mcpstore.core.lifecycle.config import ServiceLifecycleConfig
+            from mcpstore.config.config_dataclasses import ServiceLifecycleConfig
             return ServiceLifecycleConfig()
         except ImportError:
             return {}
@@ -1500,7 +1500,7 @@ def get_lifecycle_config_with_defaults() -> 'ServiceLifecycleConfig':
         except Exception as e:
             logger.warning(f"Failed to load lifecycle config: {e}, using defaults")
             try:
-                from mcpstore.core.lifecycle.config import ServiceLifecycleConfig
+                from mcpstore.config.config_dataclasses import ServiceLifecycleConfig
                 return ServiceLifecycleConfig()
             except ImportError:
                 return {}

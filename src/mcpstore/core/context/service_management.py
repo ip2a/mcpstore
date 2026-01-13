@@ -1542,7 +1542,7 @@ class ServiceManagementMixin:
     def wait_service(self, client_id_or_service_name: str,
                     status: Union[str, List[str]] = 'healthy',
                     timeout: float = 10.0,
-                    raise_on_timeout: bool = False) -> bool:
+                    raise_on_timeout: bool = False) -> Dict[str, Any]:
         """
         等待服务达到指定状态（同步版本，使用新架构避免死锁）。
 
@@ -1553,7 +1553,7 @@ class ServiceManagementMixin:
             raise_on_timeout: 超时时是否抛出异常，默认False
 
         Returns:
-            bool: 成功达到目标状态返回True，超时返回False
+            dict: {success, status, retries_remaining, hard_timeout_remaining, last_error, window_metrics}
 
         Raises:
             TimeoutError: 当raise_on_timeout=True且超时时抛出
@@ -1574,22 +1574,22 @@ class ServiceManagementMixin:
 
             # 直接调用同步外壳，避免_sync_helper.run_async的复杂性
             result = self._service_management_sync_shell.wait_service(service_name, timeout)
-
-            if not result and raise_on_timeout:
+            if isinstance(result, bool):
+                result = {"success": bool(result)}
+            if not result.get("success") and raise_on_timeout:
                 raise TimeoutError(f"Service {service_name} did not reach status {status} within {timeout} seconds")
-
             return result
 
         except Exception as e:
             logger.error(f"[NEW_ARCH] wait_service failed: {e}")
             if raise_on_timeout:
                 raise
-            return False
+            return {"success": False, "error": str(e)}
 
     async def wait_service_async(self, client_id_or_service_name: str,
                                status: Union[str, List[str]] = 'healthy',
                                timeout: float = 10.0,
-                               raise_on_timeout: bool = False) -> bool:
+                               raise_on_timeout: bool = False) -> Dict[str, Any]:
         """
         等待服务达到指定状态（异步版本）
 
@@ -1600,7 +1600,7 @@ class ServiceManagementMixin:
             raise_on_timeout: 超时时是否抛出异常，默认False
 
         Returns:
-            bool: 成功达到目标状态返回True，超时返回False
+            dict: {success, status, retries_remaining, hard_timeout_remaining, last_error, window_metrics}
 
         Raises:
             TimeoutError: 当raise_on_timeout=True且超时时抛出
@@ -1640,6 +1640,7 @@ class ServiceManagementMixin:
             poll_interval = 0.2  # 200ms轮询间隔
             prev_status = None
             last_log = start_time
+            last_meta: Dict[str, Any] = {}
 
             while True:
                 # 检查超时
@@ -1652,13 +1653,32 @@ class ServiceManagementMixin:
                     logger.warning(msg)
                     if raise_on_timeout:
                         raise TimeoutError(msg)
-                    return False
+                    return {
+                        "success": False,
+                        "status": prev_status or "unknown",
+                        "hard_timeout_remaining": max(timeout - elapsed, 0.0),
+                        "last_error": msg,
+                    }
 
                 # 获取当前状态（先读一次缓存，随后在必要时读一次新缓存以防止竞态）
                 try:
 
                     status_dict = await self._store.orchestrator.get_service_status_async(service_name, status_agent_key) or {}
                     current_status = status_dict.get("status", "unknown")
+                    try:
+                        meta = await self._store.registry._service_state_service.get_service_metadata_async(status_agent_key, service_name)
+                        if meta:
+                            last_meta = {
+                                "window_error_rate": getattr(meta, "window_error_rate", None),
+                                "latency_p95": getattr(meta, "latency_p95", None),
+                                "latency_p99": getattr(meta, "latency_p99", None),
+                                "sample_size": getattr(meta, "sample_size", None),
+                                "next_retry_time": getattr(meta, "next_retry_time", None),
+                                "hard_deadline": getattr(meta, "hard_deadline", None),
+                                "last_error": getattr(meta, "error_message", None),
+                            }
+                    except Exception as meta_err:
+                        logger.debug(f"[WAIT_SERVICE] metadata_fetch_error service='{service_name}' error={meta_err}")
 
                     # 仅在状态变化或每2秒节流一次打印
                     now = time.time()
@@ -1678,12 +1698,36 @@ class ServiceManagementMixin:
                     if change_mode:
                         if current_status != initial_status:
                             logger.info(f"[WAIT_SERVICE] done mode=change service='{service_name}' from='{initial_status}' to='{current_status}' elapsed={elapsed:.2f}s")
-                            return True
+                            return {
+                                "success": True,
+                                "status": current_status,
+                                "window_metrics": {
+                                    "error_rate": last_meta.get("window_error_rate") if last_meta else None,
+                                    "latency_p95": last_meta.get("latency_p95") if last_meta else None,
+                                    "latency_p99": last_meta.get("latency_p99") if last_meta else None,
+                                    "sample_size": last_meta.get("sample_size") if last_meta else None,
+                                } if last_meta else None,
+                                "retry_in": self._remaining_seconds(last_meta.get("next_retry_time")) if last_meta else None,
+                                "hard_timeout_in": self._remaining_seconds(last_meta.get("hard_deadline")) if last_meta else None,
+                                "last_error": last_meta.get("last_error") if last_meta else None,
+                            }
                     else:
                         # 检查是否达到目标状态
                         if current_status in target_statuses:
                             logger.info(f"[WAIT_SERVICE] done mode=target service='{service_name}' reached='{current_status}' elapsed={elapsed:.2f}s")
-                            return True
+                            return {
+                                "success": True,
+                                "status": current_status,
+                                "window_metrics": {
+                                    "error_rate": last_meta.get("window_error_rate") if last_meta else None,
+                                    "latency_p95": last_meta.get("latency_p95") if last_meta else None,
+                                    "latency_p99": last_meta.get("latency_p99") if last_meta else None,
+                                    "sample_size": last_meta.get("sample_size") if last_meta else None,
+                                } if last_meta else None,
+                                "retry_in": self._remaining_seconds(last_meta.get("next_retry_time")) if last_meta else None,
+                                "hard_timeout_in": self._remaining_seconds(last_meta.get("hard_deadline")) if last_meta else None,
+                                "last_error": last_meta.get("last_error") if last_meta else None,
+                            }
                 except Exception as e:
                     # 降级到 debug，避免无意义刷屏
                     logger.debug(f"[WAIT_SERVICE] status_error service='{service_name}' error={e}")
@@ -1699,7 +1743,22 @@ class ServiceManagementMixin:
             logger.error(f"[WAIT_SERVICE] unexpected_error error={e}")
             if raise_on_timeout:
                 raise
-            return False
+            return {"success": False, "error": str(e)}
+
+    @staticmethod
+    def _remaining_seconds(dt: Any) -> Optional[float]:
+        """计算距离未来时间的剩余秒数"""
+        try:
+            if dt is None:
+                return None
+            import datetime
+            if isinstance(dt, (int, float)):
+                return max(dt - time.time(), 0.0)
+            if isinstance(dt, datetime.datetime):
+                return max((dt - datetime.datetime.now()).total_seconds(), 0.0)
+            return None
+        except Exception:
+            return None
 
     def _normalize_target_statuses(self, status: Union[str, List[str]]) -> List[str]:
         """
