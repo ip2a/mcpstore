@@ -287,12 +287,40 @@ class ToolOperationsMixin:
             service_global_name = entity_dict.get("service_global_name", "")
             service_original_name = entity_dict.get("service_original_name", "")
             client_id = client_id_map.get(service_global_name)
-            
+            tool_global_name = entity_dict.get("tool_global_name", "")
+            tool_original_name = entity_dict.get("tool_original_name", "")
+
+            display_name = tool_global_name
+            display_service_name = service_original_name
+
+            if agent_mode and id:
+                try:
+                    from mcpstore.utils.perspective_resolver import PerspectiveResolver
+
+                    resolver = PerspectiveResolver()
+                    # 规范服务名到本地视角
+                    name_res = resolver.normalize_service_name(
+                        agent_id,
+                        service_global_name,
+                        target="local",
+                        strict=True,
+                    )
+                    local_service_name = name_res.local_name
+
+                    if not tool_original_name:
+                        raise ValueError(f"缺少 tool_original_name: {tool_global_name}")
+
+                    display_name = f"{local_service_name}_{tool_original_name}"
+                    display_service_name = local_service_name
+                except Exception as e:
+                    # 视角映射失败直接抛出，避免悄悄返回全局名
+                    raise
+
             tool_info = ToolInfo(
-                name=entity_dict.get("tool_global_name", ""),
-                tool_original_name=entity_dict.get("tool_original_name", ""),
+                name=display_name,
+                tool_original_name=tool_original_name,
                 description=entity_dict.get("description", ""),
-                service_name=service_original_name,
+                service_name=display_service_name,
                 service_original_name=service_original_name,
                 service_global_name=service_global_name,
                 client_id=client_id,

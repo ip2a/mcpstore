@@ -110,6 +110,16 @@ class PerspectiveResolver:
 
         # 校验 agent
         if parsed_agent and parsed_agent != agent_id:
+            # 特殊：global_agent_store 视角允许看到其他 Agent 的全局名，但不应本地化
+            if agent_id == NamingService.GLOBAL_AGENT_STORE:
+                # 直接保持全局名
+                return ServiceResolution(
+                    agent_id=agent_id,
+                    local_name=name if target == "local" else name,
+                    global_name=name,
+                    resolution_method="global_agent_passthrough",
+                    original_input=name,
+                )
             msg = f"服务归属的 agent_id={parsed_agent} 与目标 agent_id={agent_id} 不一致"
             if strict:
                 raise ValueError(msg)
@@ -169,8 +179,8 @@ class PerspectiveResolver:
             target: "fastmcp" | "global" | "local"（影响输出的工具/服务名称形式）
             strict: 严格模式，agent 不匹配时抛出异常
         """
-        if target not in ("fastmcp", "global", "local"):
-            raise ValueError("target 必须是 fastmcp|global|local 之一")
+        if target != "fastmcp":
+            raise ValueError("resolve_tool 目前仅支持 target='fastmcp'，请勿传入其他值")
         if not available_tools:
             raise ValueError("available_tools 不能为空，需提供用于解析的工具列表")
 
@@ -178,28 +188,38 @@ class PerspectiveResolver:
         fastmcp_name, resolution = resolver.resolve_and_format_for_fastmcp(user_input, available_tools)
 
         service_local = resolution.service_name
-        service_res = self.normalize_service_name(agent_id, service_local, target="global", strict=strict)
-        service_global = service_res.global_name
+        resolution_method = getattr(resolution, "resolution_method", "resolved")
 
-        # 生成工具名的两种视角
-        global_tool_name = NamingService.generate_tool_global_name(service_global, fastmcp_name)
-        local_tool_name = f"{service_res.local_name}_{fastmcp_name}"
+        # 尝试从 available_tools 补全全局信息；若缺失则回退构造
+        matched = next(
+            (
+                t for t in available_tools
+                if t.get("service_name") == service_local
+                and (t.get("original_name") or t.get("name") == fastmcp_name)
+            ),
+            None,
+        )
 
-        resolution_method = resolution.resolution_method if hasattr(resolution, "resolution_method") else "resolved"
+        service_global = None
+        global_tool_name = None
+        if matched:
+            service_global = matched.get("global_service_name")
+            global_tool_name = matched.get("global_tool_name")
 
-        if target == "fastmcp":
-            # 仅关心 fastmcp 名称，其余附带
-            pass
-        elif target == "global":
-            # 输出全局工具名
-            fastmcp_name = fastmcp_name  # 保留原始
-        elif target == "local":
-            # 输出本地前缀的工具名
-            pass
+        # 若未补全到全局信息，按规则构造；严格模式下缺关键字段抛错
+        if not service_global:
+            if strict:
+                raise ValueError(f"匹配工具缺少全局服务名: service={service_local}, tool={fastmcp_name}")
+            service_global = service_local  # 回退：使用本地名充当全局名
+
+        if not global_tool_name:
+            global_tool_name = NamingService.generate_tool_global_name(service_global, fastmcp_name)
+
+        local_tool_name = f"{service_local}_{fastmcp_name}"
 
         return ToolResolution(
             agent_id=agent_id,
-            local_service_name=service_res.local_name,
+            local_service_name=service_local,
             global_service_name=service_global,
             local_tool_name=local_tool_name,
             global_tool_name=global_tool_name,
@@ -221,7 +241,10 @@ class PerspectiveResolver:
         """
         if not global_tool_name or "_" not in global_tool_name:
             raise ValueError("global_tool_name 格式不正确")
-        # 拆分出服务全局名与工具原始名
-        service_global, tool_original = global_tool_name.split("_", 1)
+        # 拆分出服务全局名与工具原始名（从右侧拆分，兼容服务名内含下划线）
+        parts = global_tool_name.rsplit("_", 1)
+        if len(parts) != 2:
+            raise ValueError("global_tool_name 解析失败")
+        service_global, tool_original = parts
         service_res = self.normalize_service_name(agent_id, service_global, target="local", strict=strict)
         return f"{service_res.local_name}_{tool_original}"

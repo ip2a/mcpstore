@@ -13,8 +13,8 @@ import logging
 import time
 from datetime import datetime
 
-from mcpstore.core.events.event_bus import EventBus
 from mcpstore.config.config_defaults import HealthCheckConfigDefaults
+from mcpstore.core.events.event_bus import EventBus
 from mcpstore.core.events.service_events import (
     ServiceCached,
     ServiceInitialized,

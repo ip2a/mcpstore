@@ -20,8 +20,6 @@ from .service_events import (
     DomainEvent,
     ServiceOperationFailed,
     ServiceInitialized,
-    ServiceConnectionRequested,
-    ServiceConnected,
     HealthCheckRequested,
     ServiceAddRequested,
 )

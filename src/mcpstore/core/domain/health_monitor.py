@@ -12,6 +12,7 @@ import time
 from collections import deque
 from typing import Dict, Tuple, Optional, Deque, Any
 
+from mcpstore.config.config_dataclasses import ServiceLifecycleConfig
 from mcpstore.core.events.event_bus import EventBus
 from mcpstore.core.events.service_events import (
     ServiceConnected,
@@ -20,7 +21,6 @@ from mcpstore.core.events.service_events import (
     ServiceStateChanged,
     ServiceTimeout,
 )
-from mcpstore.config.config_dataclasses import ServiceLifecycleConfig
 from mcpstore.core.models.service import ServiceConnectionState
 from mcpstore.core.utils.mcp_client_helpers import temp_client_for_service
 

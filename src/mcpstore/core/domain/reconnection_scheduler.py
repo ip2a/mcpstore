@@ -14,12 +14,12 @@ import time
 from datetime import datetime, timedelta
 from typing import Dict, Optional, List
 
+from mcpstore.config.config_dataclasses import ServiceLifecycleConfig
 from mcpstore.core.events.event_bus import EventBus
 from mcpstore.core.events.service_events import (
     ServiceStateChanged, ReconnectionRequested, ReconnectionScheduled,
     ServiceConnectionFailed
 )
-from mcpstore.config.config_dataclasses import ServiceLifecycleConfig
 from mcpstore.core.models.service import ServiceConnectionState
 
 logger = logging.getLogger(__name__)

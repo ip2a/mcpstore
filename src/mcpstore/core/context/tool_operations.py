@@ -9,8 +9,8 @@ Implementation of tool-related operations
 - pykv 是唯一真相数据源，不使用内存快照
 """
 
-import logging
 import asyncio
+import logging
 from typing import Dict, List, Optional, Any, Union, Literal
 
 from mcp import types as mcp_types
@@ -182,6 +182,8 @@ class ToolOperationsMixin:
             agent_id = self._agent_id
         else:
             agent_id = self._store.orchestrator.client_manager.global_agent_store_id
+        global_agent_store_id = self._store.orchestrator.client_manager.global_agent_store_id
+        is_global_agent_view = (self._context_type == ContextType.AGENT and agent_id == global_agent_store_id)
         
         # ==================== 从 pykv 读取数据 ====================
         
@@ -190,8 +192,20 @@ class ToolOperationsMixin:
         tool_entity_manager = self._store.registry._cache_tool_manager
         state_manager = self._store.registry._cache_state_manager
         
-        # Step 1: 从关系层获取 Agent 的服务列表
-        agent_services = await relation_manager.get_agent_services(agent_id)
+        # Step 1: 确定当前视角允许的服务集合（与 list_services 保持一致）
+        # - Store 视角：读取 global_agent_store 命名空间所有服务（全局名）
+        # - Agent 视角：仅该 agent 的映射服务；global_agent_store 仅本身服务
+        if self._context_type == ContextType.AGENT and not is_global_agent_view:
+            agent_services = await relation_manager.get_agent_services(agent_id)
+        elif self._context_type == ContextType.AGENT and is_global_agent_view:
+            # global_agent_store 只保留自身服务（无 _byagent_）
+            agent_services = await relation_manager.get_agent_services(agent_id)
+            agent_services = [
+                svc for svc in agent_services
+                if isinstance(svc, dict) and "_byagent_" not in (svc.get("service_global_name") or "")
+            ]
+        else:
+            agent_services = await relation_manager.get_agent_services(agent_id)
         logger.debug(f"[LIST_TOOLS] agent_services count={len(agent_services)}")
         
         if not agent_services:
@@ -258,12 +272,33 @@ class ToolOperationsMixin:
             service_global_name = entity_dict.get("service_global_name", "")
             service_original_name = entity_dict.get("service_original_name", "")
             client_id = client_id_map.get(service_global_name)
+            tool_global_name = entity_dict.get("tool_global_name", "")
+            tool_original_name = entity_dict.get("tool_original_name", "")
             
+            if not tool_original_name:
+                raise ValueError(f"[LIST_TOOLS] tool_original_name missing: {tool_global_name}")
+
+            display_name = tool_global_name
+            display_service_name = service_global_name
+
+            if self._context_type == ContextType.AGENT:
+                from mcpstore.utils.perspective_resolver import PerspectiveResolver
+                resolver = PerspectiveResolver()
+                name_res = resolver.normalize_service_name(
+                    self._agent_id,
+                    service_global_name,
+                    target="local",
+                    strict=True,
+                )
+                local_service_name = name_res.local_name
+                display_service_name = local_service_name
+                display_name = f"{local_service_name}_{tool_original_name}"
+
             tool_info = ToolInfo(
-                name=entity_dict.get("tool_global_name", ""),
-                tool_original_name=entity_dict.get("tool_original_name", ""),
+                name=display_name,
+                tool_original_name=tool_original_name,
                 description=entity_dict.get("description", ""),
-                service_name=service_original_name,
+                service_name=display_service_name,
                 service_original_name=service_original_name,
                 service_global_name=service_global_name,
                 client_id=client_id,
@@ -677,51 +712,36 @@ class ToolOperationsMixin:
         except Exception as e:
             logger.warning(f"Failed to get available tools for resolution: {e}")
 
-        # [NEW] Use new intelligent user-friendly resolver
-        from mcpstore.core.registry.tool_resolver import ToolNameResolver
+        # 统一使用 PerspectiveResolver 解析工具名与服务名
+        from mcpstore.utils.perspective_resolver import PerspectiveResolver
 
-        # 检测是否为多服务场景（从已获取的工具列表推导，避免同步→异步桥导致的30s超时）
-        derived_services = sorted({
-            t.get("service_name") for t in available_tools
-            if isinstance(t, dict) and t.get("service_name")
-        })
-
-        is_multi_server = len(derived_services) > 1
-
-        resolver = ToolNameResolver(
-            available_services=derived_services,
-            is_multi_server=is_multi_server
-        )
-
+        resolver = PerspectiveResolver()
         try:
-            # One-stop resolution: user input -> FastMCP standard format
-            fastmcp_tool_name, resolution = resolver.resolve_and_format_for_fastmcp(tool_name, available_tools)
-
-            logger.info(f"[SMART_RESOLVE] input='{tool_name}' fastmcp='{fastmcp_tool_name}' service='{resolution.service_name}' method='{resolution.resolution_method}'")
-
-        except ValueError as e:
-            # LLM-readable error: tool name resolution failed, return structured error for model understanding
+            tool_res = resolver.resolve_tool(
+                self._agent_id or self._store.client_manager.global_agent_store_id,
+                tool_name,
+                available_tools=available_tools,
+                target="fastmcp",
+                strict=False,  # 不因元数据缺失直接中断，错误由可用性校验兜底
+            )
+            fastmcp_tool_name = tool_res.fastmcp_tool_name
+            service_global_name = tool_res.global_service_name
+            service_local_name = tool_res.local_service_name
+            logger.info(
+                f"[SMART_RESOLVE] input='{tool_name}' fastmcp='{fastmcp_tool_name}' "
+                f"service_local='{service_local_name}' service_global='{service_global_name}' method='{tool_res.resolution_method}'"
+            )
+        except Exception as e:
             return self._build_call_tool_error_result(
                 f"[LLM Hint] Tool name resolution failed: {str(e)}. Please check the tool name or add service prefix, e.g. service_tool."
             )
-
-        # 工具可用性拦截：Store 和 Agent 模式都检查工具是否可用
-        # 获取服务的全局名称
-        if self._context_type == ContextType.AGENT and self._agent_id:
-            # Agent 模式：需要将本地服务名映射到全局服务名
-            service_global_name = await self._map_agent_tool_to_global_service(
-                resolution.service_name, fastmcp_tool_name
-            )
-        else:
-            # Store 模式：服务名就是全局名称
-            service_global_name = resolution.service_name
         
         # 检查工具是否可用
         is_available = await self._is_tool_available_async(
             service_global_name,
             fastmcp_tool_name,
             tool_original_name=fastmcp_tool_name,
-            service_original_name=resolution.service_name,
+            service_original_name=service_local_name,
         )
         
         if not is_available:
@@ -751,21 +771,18 @@ class ToolOperationsMixin:
         from mcpstore.core.models.tool import ToolExecutionRequest
 
         if self._context_type == ContextType.STORE:
-            logger.info(f"[STORE] call tool='{tool_name}' fastmcp='{fastmcp_tool_name}' service='{resolution.service_name}'")
+            logger.info(f"[STORE] call tool='{tool_name}' fastmcp='{fastmcp_tool_name}' service='{service_global_name}'")
             request = ToolExecutionRequest(
                 tool_name=fastmcp_tool_name,  # [FASTMCP] Use FastMCP standard format
-                service_name=resolution.service_name,
+                service_name=service_global_name,
                 args=args,
                 **kwargs
             )
         else:
-            # Agent mode: Transparent proxy - map local service name to global service name
-            global_service_name = await self._map_agent_tool_to_global_service(resolution.service_name, fastmcp_tool_name)
-
-            logger.info(f"[AGENT:{self._agent_id}] call tool='{tool_name}' fastmcp='{fastmcp_tool_name}' service_local='{resolution.service_name}' service_global='{global_service_name}'")
+            logger.info(f"[AGENT:{self._agent_id}] call tool='{tool_name}' fastmcp='{fastmcp_tool_name}' service_local='{service_local_name}' service_global='{service_global_name}'")
             request = ToolExecutionRequest(
                 tool_name=fastmcp_tool_name,  # [FASTMCP] Use FastMCP standard format
-                service_name=global_service_name,  # Use global service name
+                service_name=service_global_name,  # Use global service name
                 args=args,
                 # Agent 场景使用真实 agent_id，确保关系层查询服务映射正确
                 agent_id=self._agent_id,
@@ -804,48 +821,6 @@ class ToolOperationsMixin:
         推荐使用 call_tool_async 方法，与 FastMCP 命名保持一致。
         """
         return await self.call_tool_async(tool_name, args, **kwargs)
-
-    # ===  新增：Agent 工具调用透明代理方法 ===
-
-    async def _map_agent_tool_to_global_service(self, local_service_name: str, tool_name: str) -> str:
-        """
-        将 Agent 的本地服务名映射到全局服务名（异步版本）
-
-        使用新架构：通过 RelationshipManager 从 pykv 缓存源读取映射关系
-        遵循 pykv 数据唯一源原则和完全异步调用链
-
-        Args:
-            local_service_name: Agent 中的本地服务名
-            tool_name: 工具名称
-
-        Returns:
-            str: 全局服务名
-        """
-        try:
-            # 1. 检查是否为 Agent 服务
-            if self._agent_id and local_service_name:
-                # 使用异步接口从缓存源获取全局名称
-                global_name = await self._store.registry.get_global_name_from_agent_service_async(
-                    self._agent_id, local_service_name
-                )
-                if global_name:
-                    logger.debug(f"[TOOL_PROXY] map local='{local_service_name}' -> global='{global_name}'")
-                    return global_name
-
-            # 2. 如果映射失败，检查是否已经是全局名称
-            from .agent_service_mapper import AgentServiceMapper
-            if AgentServiceMapper.is_any_agent_service(local_service_name):
-                logger.debug(f"[TOOL_PROXY] already_global name='{local_service_name}'")
-                return local_service_name
-
-            # 3. 如果都不是，可能是 Store 原生服务，直接返回
-            logger.debug(f"[TOOL_PROXY] store_native name='{local_service_name}'")
-            return local_service_name
-
-        except Exception as e:
-            logger.error(f"[TOOL_PROXY] map_error error={e}")
-            # 出错时返回原始名称
-            return local_service_name
 
     async def _get_agent_tools_view(self) -> List[ToolInfo]:
         """

@@ -4,7 +4,7 @@
 :author: Mickaël Schoentgen <contact@tiger-222.fr>
 :platforms: macOS and BSD with kqueue(2).
 
-.. WARNING:: kqueue is a very heavyweight way to monitor file systems.
+.. DEGRADED:: kqueue is a very heavyweight way to monitor file systems.
              Each kqueue-detected directory modification triggers
              a full directory scan. Traversing the entire directory tree
              and opening file descriptors for all files will create

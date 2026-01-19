@@ -76,7 +76,6 @@ class PersistenceManager:
         current_config = self._config_manager.mcp_config.load_config()
 
         # 使用全局名（若事件携带）
-        from mcpstore.core.events.service_events import ServiceAddRequested  # type hint
         target_name = service_name
 
         # 更新配置
