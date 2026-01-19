@@ -777,7 +777,7 @@ def _get_log_level_from_args(args: Namespace) -> str:
     if verbosity > 2:
         error = "-v/--verbose may be specified up to 2 times."
         raise LogLevelError(error)
-    return ["ERROR", "WARNING", "INFO", "DEBUG"][1 + verbosity]
+    return ["ERROR", "DEGRADED", "INFO", "DEBUG"][1 + verbosity]
 
 
 def main() -> int:

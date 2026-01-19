@@ -99,13 +99,10 @@ async def store_add_service(
     # 提取服务名用于响应
     service_names: List[str] = []
     if isinstance(payload, dict):
-        # 优先检查 service_name 字段
-        if "service_name" in payload:
-            service_names = [str(payload.get("service_name"))]
-        # 其次检查 name 字段
-        elif "name" in payload:
+        # 检查 name 字段
+        if "name" in payload:
             service_names = [str(payload.get("name"))]
-        # 最后检查 mcpServers
+        # 检查 mcpServers
         else:
             mcp_servers = payload.get("mcpServers") if isinstance(payload, dict) else None
             if isinstance(mcp_servers, dict):
@@ -940,21 +937,22 @@ async def store_get_service_info_detailed(service_name: str):
         context.service_info_async(service_name)
     )
 
-    if not info or not getattr(info, "service", None):
+    # info 是字典，不是对象
+    if not info or not info.get("service"):
         return ResponseBuilder.error(
             code=ErrorCode.SERVICE_NOT_FOUND,
             message=f"Service '{service_name}' not found",
             field="service_name"
         )
 
-    service = info.service
+    service = info.get("service")
     service_info = {
-        "name": getattr(service, "name", ""),
-        "status": getattr(service, "status", "unknown"),
-        "type": getattr(service, "transport_type", "unknown"),
-        "client_id": getattr(service, "client_id", ""),
-        "url": getattr(service, "url", ""),
-        "tools_count": getattr(service, "tool_count", 0),
+        "name": service.get("name", ""),
+        "status": service.get("status", "unknown"),
+        "type": service.get("transport_type", "unknown"),
+        "client_id": service.get("client_id", ""),
+        "url": service.get("url", ""),
+        "tools_count": service.get("tool_count", 0),
     }
 
     # 如果 status/transport 是枚举，转换为字符串

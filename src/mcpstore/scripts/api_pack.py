@@ -8,18 +8,15 @@ API 入口打包（便捷导出）
 
 # 主路由（聚合 store/agent/cache）
 from .api import router as api_main_router
-
-# 子路由
-from .api_store import store_router as api_store_router
 from .api_agent import agent_router as api_agent_router
+# 应用工厂
+from .api_app import create_app as api_create_app
 from .api_cache import router as api_cache_router
-
 # 依赖注入
 from .api_dependencies import get_store as api_get_store
 from .api_dependencies import set_request_store as api_set_store
-
-# 应用工厂
-from .api_app import create_app as api_create_app
+# 子路由
+from .api_store import store_router as api_store_router
 
 __all__ = [
     "api_main_router",   # 总路由

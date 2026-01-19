@@ -78,36 +78,7 @@ class LangChainAdapter:
         """
         (Frontend Defense) Enhance tool description, clearly guide LLM to use correct parameters in Prompt.
         """
-        base_description = tool_info.description
-        schema_properties = tool_info.inputSchema.get("properties", {})
-
-        if not schema_properties:
-            return base_description
-
-        param_descriptions = []
-        for param_name, param_info in schema_properties.items():
-            param_type = param_info.get("type", "string")
-            param_desc = param_info.get("description", "")
-            line = f"- {param_name} ({param_type}): {param_desc}"
-            # If array of objects, describe nested shape to help the LLM
-            try:
-                if (param_type == "array" or (isinstance(param_type, list) and "array" in param_type)) and isinstance(param_info.get("items"), dict):
-                    items = param_info["items"]
-                    if items.get("type") == "object" and "properties" in items:
-                        nested = []
-                        for nkey, nprop in items["properties"].items():
-                            ntype = nprop.get("type", "string")
-                            ndesc = nprop.get("description", "")
-                            nested.append(f"    - {param_name}[].{nkey} ({ntype}) {ndesc}")
-                        if nested:
-                            line += "\n" + "\n".join(nested)
-            except Exception:
-                pass
-            param_descriptions.append(line)
-
-        # Append parameter descriptions to main description
-        enhanced_desc = base_description + "\n\nParameter descriptions:\n" + "\n".join(param_descriptions)
-        return enhanced_desc
+        return tool_info.description or ""
 
     def _create_args_schema(self, tool_info: 'ToolInfo') -> Type[BaseModel]:
         """(Data Conversion) Create Pydantic model from ToolInfo, avoiding BaseModel attribute name collisions (e.g., 'schema')."""
@@ -126,33 +97,16 @@ class LangChainAdapter:
             "schema_json", "__fields__", "__root__", "Config", "model_config",
         }
 
-        def sanitize_name(original: str) -> str:
-            """
-            Convert any parameter name to a valid Python identifier.
-            - Replace non-alphanumeric/underscore characters with underscores
-            - Add prefix if starts with digit
-            - Add suffix if Python keyword or reserved name
-            """
-            # 1. Replace all invalid characters with underscores
-            safe = re.sub(r'[^a-zA-Z0-9_]', '_', original)
+        def is_valid_field_name(name: str) -> bool:
+            return bool(name) and name.isidentifier() and not keyword.iskeyword(name) and name not in reserved_names and not name.startswith("_")
 
-            # 2. If starts with digit, add prefix
-            if safe and safe[0].isdigit():
-                safe = f"param_{safe}"
-
-            # 3. If Python keyword or reserved name, add suffix
-            if keyword.iskeyword(safe) or safe in reserved_names or safe.startswith("_"):
-                safe = f"{safe}_"
-
-            # 4. Ensure not empty and is valid identifier
-            if not safe or not safe.isidentifier():
-                safe = "param_"
-
-            return safe
-
-        # Intelligently build field definitions with alias mapping
+        # 只做结构化转换：不清洗、不重命名
         fields = {}
+        has_invalid_field = False
         for original_name, prop in schema_properties.items():
+            if not is_valid_field_name(original_name):
+                has_invalid_field = True
+                break
             field_type = type_mapping.get(prop.get("type", "string"), str)
 
             # Detect JSON Schema nullability/Optional
@@ -176,16 +130,9 @@ class LangChainAdapter:
             is_nullable = _is_nullable(prop)
             is_required = original_name in required_fields
 
-            # Make non-required fields truly optional by defaulting to None (sentinel)
             default_value = prop.get("default", ...)
-            if not is_required and default_value == ...:
-                default_value = None
 
-            safe_name = sanitize_name(original_name)
             field_kwargs = {"description": prop.get("description", "")}
-            if safe_name != original_name:
-                field_kwargs["validation_alias"] = original_name
-                field_kwargs["serialization_alias"] = original_name
 
             # Apply Optional typing if nullable
             try:
@@ -219,9 +166,9 @@ class LangChainAdapter:
 
             # Build field definition
             if default_value != ...:
-                fields[safe_name] = (field_type, Field(default=default_value, **field_kwargs))
+                fields[original_name] = (field_type, Field(default=default_value, **field_kwargs))
             else:
-                fields[safe_name] = (field_type, Field(**field_kwargs))
+                fields[original_name] = (field_type, Field(**field_kwargs))
 
         # [FIX] Allow empty model, don't force adding fields
         # For truly no-parameter tools, create empty BaseModel
@@ -231,12 +178,14 @@ class LangChainAdapter:
         allow_extra = bool(additional_properties)
 
         with warnings.catch_warnings():
-            # Ignore pydantic warnings about field name conflicts (handled via sanitize_name)
             warnings.filterwarnings(
                 "ignore",
                 category=UserWarning,
                 module="pydantic",
             )
+            if has_invalid_field:
+                base = type("OpenArgsBase", (BaseModel,), {"model_config": ConfigDict(extra="allow")})
+                return create_model(f'{tool_info.name.capitalize().replace("_", "")}Input', __base__=base)
             base = BaseModel
             if allow_extra:
                 base = type("OpenArgsBase", (BaseModel,), {"model_config": ConfigDict(extra="allow")})
@@ -258,57 +207,36 @@ class LangChainAdapter:
                 schema_fields = schema_info.get('properties', {})
                 field_names = list(schema_fields.keys())
 
-                # [FIX] Handle no-parameter tools
+                allow_extra = bool(schema_info.get("additionalProperties", False))
+
+                # [FIX] Handle no-parameter tools / open schema tools
                 if not field_names:
-                    # Truly no-parameter tools, ignore all input parameters
-                    tool_input = {}
+                    if allow_extra:
+                        if kwargs:
+                            tool_input = kwargs
+                        elif args and len(args) == 1 and isinstance(args[0], dict):
+                            tool_input = args[0]
+                        else:
+                            tool_input = {}
+                    else:
+                        tool_input = {}
                 else:
-                    # Intelligent parameter processing for tools with parameters
+                    # Parameter processing for tools with declared fields
                     if kwargs:
-                        # Keyword argument method (recommended)
                         tool_input = kwargs
                     elif args:
                         if len(args) == 1:
-                            # Single parameter processing
                             if isinstance(args[0], dict):
-                                # Dictionary parameter
                                 tool_input = args[0]
                             else:
-                                # Single value parameter, map to first field
-                                if field_names:
-                                    tool_input = {field_names[0]: args[0]}
+                                tool_input = {field_names[0]: args[0]}
                         else:
-                            # Multiple positional parameters, map to fields in order
                             for i, arg_value in enumerate(args):
                                 if i < len(field_names):
                                     tool_input[field_names[i]] = arg_value
 
-                    # Intelligently fill missing required parameters
-                    for field_name, field_info in schema_fields.items():
-                        if field_name not in tool_input and 'default' in field_info:
-                            tool_input[field_name] = field_info['default']
-
-                # Use Pydantic model to validate parameters
-                try:
-                    validated_args = args_schema(**tool_input)
-                except Exception as validation_error:
-                    # If validation fails, try more lenient processing
-                    filtered_input = {}
-                    for field_name in field_names:
-                        if field_name in tool_input:
-                            filtered_input[field_name] = tool_input[field_name]
-                    validated_args = args_schema(**filtered_input)
-
                 # Call mcpstore's core method
-                result = self._context.call_tool(
-                    tool_name,
-                    validated_args.model_dump(
-                        by_alias=True,          # Use original parameter names
-                        exclude_unset=True,     # Don't send unset parameters
-                        exclude_none=False,     # Preserve explicit None values
-                        exclude_defaults=False  # Preserve default values (service may require them)
-                    )
-                )
+                result = self._context.call_tool(tool_name, tool_input)
 
                 view = call_tool_response_helper(result)
 
@@ -348,12 +276,21 @@ class LangChainAdapter:
                 schema_fields = schema_info.get('properties', {})
                 field_names = list(schema_fields.keys())
 
-                # [FIX] Handle no-parameter tools (same logic as sync version)
+                allow_extra = bool(schema_info.get("additionalProperties", False))
+
+                # [FIX] Handle no-parameter tools / open schema tools
                 if not field_names:
-                    # Truly no-parameter tools, ignore all input parameters
-                    tool_input = {}
+                    if allow_extra:
+                        if kwargs:
+                            tool_input = kwargs
+                        elif args and len(args) == 1 and isinstance(args[0], dict):
+                            tool_input = args[0]
+                        else:
+                            tool_input = {}
+                    else:
+                        tool_input = {}
                 else:
-                    # Intelligent parameter processing
+                    # Parameter processing
                     if kwargs:
                         tool_input = kwargs
                     elif args:
@@ -361,38 +298,14 @@ class LangChainAdapter:
                             if isinstance(args[0], dict):
                                 tool_input = args[0]
                             else:
-                                if field_names:
-                                    tool_input = {field_names[0]: args[0]}
+                                tool_input = {field_names[0]: args[0]}
                         else:
                             for i, arg_value in enumerate(args):
                                 if i < len(field_names):
                                     tool_input[field_names[i]] = arg_value
 
-                    # Intelligently fill missing required parameters
-                    for field_name, field_info in schema_fields.items():
-                        if field_name not in tool_input and 'default' in field_info:
-                            tool_input[field_name] = field_info['default']
-
-                # Use Pydantic model to validate parameters
-                try:
-                    validated_args = args_schema(**tool_input)
-                except Exception as validation_error:
-                    filtered_input = {}
-                    for field_name in field_names:
-                        if field_name in tool_input:
-                            filtered_input[field_name] = tool_input[field_name]
-                    validated_args = args_schema(**filtered_input)
-
                 # Call mcpstore core method (async version)
-                result = await self._context.call_tool_async(
-                    tool_name,
-                    validated_args.model_dump(
-                        by_alias=True,          # Use original parameter names
-                        exclude_unset=True,     # Don't send unset parameters
-                        exclude_none=False,     # Preserve explicit None values
-                        exclude_defaults=False  # Preserve default values (service may require them)
-                    )
-                )
+                result = await self._context.call_tool_async(tool_name, tool_input)
 
                 view = call_tool_response_helper(result)
 
@@ -551,12 +464,21 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                 schema_fields = schema_info.get('properties', {})
                 field_names = list(schema_fields.keys())
 
-                # [FIX] Handle no-parameter tools (same logic as parent class)
+                allow_extra = bool(schema_info.get("additionalProperties", False))
+
+                # [FIX] Handle no-parameter tools / open schema tools
                 if not field_names:
-                    # Truly no-parameter tools, ignore all input parameters
-                    tool_input = {}
+                    if allow_extra:
+                        if kwargs:
+                            tool_input = kwargs
+                        elif args and len(args) == 1 and isinstance(args[0], dict):
+                            tool_input = args[0]
+                        else:
+                            tool_input = {}
+                    else:
+                        tool_input = {}
                 else:
-                    # Intelligent parameter processing (same as parent)
+                    # Parameter processing (same as parent)
                     if kwargs:
                         tool_input = kwargs
                     elif args:
@@ -564,39 +486,15 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                             if isinstance(args[0], dict):
                                 tool_input = args[0]
                             else:
-                                if field_names:
-                                    tool_input = {field_names[0]: args[0]}
+                                tool_input = {field_names[0]: args[0]}
                         else:
                             for i, arg_value in enumerate(args):
                                 if i < len(field_names):
                                     tool_input[field_names[i]] = arg_value
 
-                    # Intelligently fill missing required parameters (same as parent)
-                    for field_name, field_info in schema_fields.items():
-                        if field_name not in tool_input and 'default' in field_info:
-                            tool_input[field_name] = field_info['default']
-
-                # Validate parameters (same as parent)
-                try:
-                    validated_args = args_schema(**tool_input)
-                except Exception as validation_error:
-                    filtered_input = {}
-                    for field_name in field_names:
-                        if field_name in tool_input:
-                            filtered_input[field_name] = tool_input[field_name]
-                    validated_args = args_schema(**filtered_input)
-
                 # [KEY] Use session-bound execution instead of context.call_tool
                 logger.debug(f"[SESSION_LANGCHAIN] Executing tool '{tool_name}' via session '{self._session.session_id}'")
-                result = self._session.use_tool(
-                    tool_name,
-                    validated_args.model_dump(
-                        by_alias=True,          # Use original parameter names
-                        exclude_unset=True,     # Don't send unset parameters
-                        exclude_none=False,     # Preserve explicit None values
-                        exclude_defaults=False  # Preserve default values (service may require them)
-                    )
-                )
+                result = self._session.use_tool(tool_name, tool_input)
 
                 view = call_tool_response_helper(result)
 
@@ -634,10 +532,19 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                 schema_fields = schema_info.get('properties', {})
                 field_names = list(schema_fields.keys())
 
-                # [FIX] Handle no-parameter tools (same logic as sync version)
+                allow_extra = bool(schema_info.get("additionalProperties", False))
+
+                # [FIX] Handle no-parameter tools / open schema tools
                 if not field_names:
-                    # Truly no-parameter tools, ignore all input parameters
-                    tool_input = {}
+                    if allow_extra:
+                        if kwargs:
+                            tool_input = kwargs
+                        elif args and len(args) == 1 and isinstance(args[0], dict):
+                            tool_input = args[0]
+                        else:
+                            tool_input = {}
+                    else:
+                        tool_input = {}
                 else:
                     if kwargs:
                         tool_input = kwargs
@@ -646,37 +553,15 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
                             if isinstance(args[0], dict):
                                 tool_input = args[0]
                             else:
-                                if field_names:
-                                    tool_input = {field_names[0]: args[0]}
+                                tool_input = {field_names[0]: args[0]}
                         else:
                             for i, arg_value in enumerate(args):
                                 if i < len(field_names):
                                     tool_input[field_names[i]] = arg_value
 
-                    for field_name, field_info in schema_fields.items():
-                        if field_name not in tool_input and 'default' in field_info:
-                            tool_input[field_name] = field_info['default']
-
-                try:
-                    validated_args = args_schema(**tool_input)
-                except Exception as validation_error:
-                    filtered_input = {}
-                    for field_name in field_names:
-                        if field_name in tool_input:
-                            filtered_input[field_name] = tool_input[field_name]
-                    validated_args = args_schema(**filtered_input)
-
                 # [KEY] Use session-bound async execution
                 logger.debug(f"[SESSION_LANGCHAIN] Executing tool '{tool_name}' via session '{self._session.session_id}' (async)")
-                result = await self._session.use_tool_async(
-                    tool_name,
-                    validated_args.model_dump(
-                        by_alias=True,          # Use original parameter names
-                        exclude_unset=True,     # Don't send unset parameters
-                        exclude_none=False,     # Preserve explicit None values
-                        exclude_defaults=False  # Preserve default values (service may require them)
-                    )
-                )
+                result = await self._session.use_tool_async(tool_name, tool_input)
 
                 view = call_tool_response_helper(result)
 

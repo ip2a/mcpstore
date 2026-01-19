@@ -458,7 +458,7 @@ class ToolProxy:
     def _load_tool_info(self):
         """延迟加载工具信息"""
         try:
-            # 获取所有工具信息
+            # 获取所有工具信息（已带视角转换）
             tools = self._context._run_async_via_bridge(
                 self._context.list_tools_async(),
                 op_name="tool_proxy.load_tool_info.list_tools"
@@ -471,12 +471,12 @@ class ToolProxy:
                         if tool.service_name != self._service_name:
                             continue
                     
-                    # 构建工具信息
+                    # 构建工具信息（展示名/服务名已是当前视角）
                     info: Dict[str, Any] = {
                         'name': tool.name,
                         'description': tool.description,
                         'inputSchema': tool.inputSchema,
-                        'service_name': tool.service_name,
+                        'service_name': tool.service_name,  # 视角已转换：store=全局名，agent=本地名
                         'client_id': tool.client_id,
                         'tags': [],
                         'meta': {},

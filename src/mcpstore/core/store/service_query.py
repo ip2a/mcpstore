@@ -89,9 +89,23 @@ class ServiceQueryMixin:
                     actual_data = service_data
                     logger.debug(f"[QUERY] Using data directly: {actual_data}")
 
-                # 获取服务名称
-                service_name = actual_data.get('service_original_name', service_global_name)
-                logger.debug(f"[QUERY] Service name: {service_name}")
+                # 使用 PerspectiveResolver 统一展示名：Store 视角一律使用全局名
+                try:
+                    from mcpstore.utils.perspective_resolver import PerspectiveResolver
+
+                    resolver = PerspectiveResolver()
+                    res = resolver.normalize_service_name(
+                        agent_id,
+                        service_global_name,
+                        target="global",
+                    )
+                    service_name = res.global_name
+                    logger.debug(
+                        f"[QUERY] Service name normalized via PerspectiveResolver: input={service_global_name}, global={service_name}"
+                    )
+                except Exception as e:
+                    service_name = actual_data.get('service_original_name', service_global_name)
+                    logger.error(f"[QUERY] PerspectiveResolver fallback to original name: {e}")
 
                 # 从缓存获取完整信息 - 在异步上下文中调用异步版本
                 logger.info(f"[QUERY] Getting complete service info: service_global_name={service_global_name}, service_name={service_name}")
@@ -214,9 +228,24 @@ class ServiceQueryMixin:
 
                     # 构建以本地名展示的 ServiceInfo（数据来源于全局）
                     cfg = complete_info.get("config", {})
+                    # 统一使用 PerspectiveResolver：Agent 视角一律使用本地名
+                    try:
+                        from mcpstore.utils.perspective_resolver import PerspectiveResolver
+
+                        resolver = PerspectiveResolver()
+                        name_res = resolver.normalize_service_name(
+                            agent_id,
+                            global_name,
+                            target="local",
+                        )
+                        display_name = name_res.local_name
+                    except Exception as e:
+                        display_name = local_name or global_name
+                        logger.error(f"[STORE.LIST_SERVICES] PerspectiveResolver fallback to parsed name: {e}")
+
                     service_info = ServiceInfo(
                         url=cfg.get("url", ""),
-                        name=local_name or global_name,
+                        name=display_name,
                         transport_type=self._infer_transport_type(cfg),
                         status=state,
                         tool_count=complete_info.get("tool_count", 0),
