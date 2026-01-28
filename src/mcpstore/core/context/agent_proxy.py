@@ -115,7 +115,7 @@ class AgentProxy:
         
         # 验证服务归属
         try:
-            verified, global_name = self._verify_service_ownership(name)
+            verified, global_name, local_name = self._verify_service_ownership(name)
             if not verified:
                 raise ServiceBindingError(
                     service_name=name,
@@ -126,7 +126,7 @@ class AgentProxy:
             # 创建 ServiceProxy 时传入 agent_id 和 global_name
             return ServiceProxy(
                 ctx,
-                name,
+                local_name,
                 agent_id=self._agent_id,
                 global_name=global_name
             )
@@ -138,7 +138,7 @@ class AgentProxy:
             logger.error(f"[AGENT_PROXY] Failed to find service '{name}': {e}")
             raise ServiceNotFoundException(service_name=name, agent_id=self._agent_id)
     
-    def _verify_service_ownership(self, service_name: str) -> tuple[bool, str]:
+    def _verify_service_ownership(self, service_name: str) -> tuple[bool, str, str]:
         """
         验证服务归属于当前 Agent
         
@@ -146,7 +146,7 @@ class AgentProxy:
             service_name: 服务名称（本地名称）
         
         Returns:
-            tuple[bool, str]: (是否验证通过, 全局服务名称)
+            tuple[bool, str, str]: (是否验证通过, 全局服务名称, 本地服务名称)
         
         Raises:
             ServiceNotFoundException: 服务不存在
@@ -154,30 +154,95 @@ class AgentProxy:
         Validates: Requirements 6.6, 6.7 (服务归属验证)
         """
         from mcpstore.core.exceptions import ServiceNotFoundException
+        from mcpstore.core.exceptions import ServiceBindingError
+        from mcpstore.utils.perspective_resolver import PerspectiveResolver
         
         ctx = self._agent_ctx or self._context
         
         # 通过 Registry 验证服务映射
         try:
-            # 使用 Registry 获取服务的全局名称
-            global_name = ctx._store.registry.get_global_name_from_agent_service(
+            resolver = PerspectiveResolver()
+            parsed_agent, _ = resolver.parse_agent_scoped(service_name)
+            if parsed_agent and parsed_agent != self._agent_id:
+                raise ServiceBindingError(
+                    service_name=service_name,
+                    agent_id=self._agent_id,
+                    reason="输入的服务标识归属不同的 agent"
+                )
+
+            service_res = resolver.normalize_service_name(
                 self._agent_id,
-                service_name
+                service_name,
+                target="global",
+                strict=True,
             )
-            
-            if not global_name:
+
+            global_name = service_res.global_name
+            local_name = service_res.local_name
+
+            # Registry 存在性校验，确保只读唯一真源
+            if not ctx._store.registry.has_service(self._agent_id, global_name):
                 raise ServiceNotFoundException(
                     service_name=service_name,
                     agent_id=self._agent_id
                 )
-            
+
             logger.debug(f"[AGENT_PROXY] Verified ownership of service '{service_name}' for agent '{self._agent_id}'")
-            return True, global_name
+            return True, global_name, local_name
             
         except ServiceNotFoundException:
             raise
+        except ServiceBindingError:
+            raise
         except Exception as e:
             logger.error(f"[AGENT_PROXY] Failed to verify service ownership: {e}")
+            raise ServiceNotFoundException(
+                service_name=service_name,
+                agent_id=self._agent_id
+            )
+
+    async def _verify_service_ownership_async(self, service_name: str) -> tuple[bool, str, str]:
+        """
+        验证服务归属于当前 Agent（异步版）
+        """
+        from mcpstore.core.exceptions import ServiceNotFoundException
+        from mcpstore.core.exceptions import ServiceBindingError
+        from mcpstore.utils.perspective_resolver import PerspectiveResolver
+
+        ctx = self._agent_ctx or self._context
+
+        try:
+            resolver = PerspectiveResolver()
+            parsed_agent, _ = resolver.parse_agent_scoped(service_name)
+            if parsed_agent and parsed_agent != self._agent_id:
+                raise ServiceBindingError(
+                    service_name=service_name,
+                    agent_id=self._agent_id,
+                    reason="输入的服务标识归属不同的 agent"
+                )
+
+            service_res = resolver.normalize_service_name(
+                self._agent_id,
+                service_name,
+                target="global",
+                strict=True,
+            )
+
+            if not await ctx._store.registry.has_service_async(self._agent_id, service_res.global_name):
+                raise ServiceNotFoundException(
+                    service_name=service_name,
+                    agent_id=self._agent_id
+                )
+
+            logger.debug(f"[AGENT_PROXY][ASYNC] Verified ownership of service '{service_name}' for agent '{self._agent_id}'")
+            return True, service_res.global_name, service_res.local_name
+
+        except ServiceNotFoundException:
+            raise
+        except ServiceBindingError:
+            raise
+        except Exception as e:
+            logger.error(f"[AGENT_PROXY][ASYNC] Failed to verify service ownership: {e}")
             raise ServiceNotFoundException(
                 service_name=service_name,
                 agent_id=self._agent_id
@@ -247,10 +312,46 @@ class AgentProxy:
         return False
 
     def update_service(self, name: str, patch: Dict[str, Any]) -> bool:
-        raise RuntimeError("[AGENT_PROXY] Synchronous update_service is disabled, please use update_service_async.")
+        """
+        同步更新服务（仅限无事件循环的同步环境）。
+
+        逻辑与 Store 同步包装一致：落到统一的 AOB 事件循环，避免多 loop 冲突。
+        若当前线程已有事件循环，提示使用异步接口。
+        """
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                raise RuntimeError("[AGENT_PROXY] Current thread already has an event loop, please use update_service_async.")
+        except RuntimeError:
+            return self._context._run_async_via_bridge(
+                self.update_service_async(name, patch),
+                op_name="agent_proxy.update_service",
+            )
+
+        return False
 
     def delete_service(self, name: str) -> bool:
-        raise RuntimeError("[AGENT_PROXY] Synchronous delete_service is disabled, please use delete_service_async.")
+        """
+        同步删除服务（仅限无事件循环的同步环境）。
+
+        委托到异步实现并通过 AOB 运行，保持事件化与租约流程一致。
+        若检测到已有事件循环，提示改用 delete_service_async。
+        """
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                raise RuntimeError("[AGENT_PROXY] Current thread already has an event loop, please use delete_service_async.")
+        except RuntimeError:
+            return self._context._run_async_via_bridge(
+                self.delete_service_async(name),
+                op_name="agent_proxy.delete_service",
+            )
+
+        return False
 
     # Async counterparts (explicit wrappers)
     async def add_service_async(self, *args, **kwargs):
@@ -283,32 +384,46 @@ class AgentProxy:
 
     # ---- Service info/status & extended ops ----
     def get_service_info(self, name: str) -> Dict[str, Any]:
+        """
+        获取服务详情，视角转换失败或不存在时返回错误字典而非直接抛出未捕获异常。
+        """
+        from mcpstore.core.exceptions import ServiceNotFoundException, ServiceBindingError
+
         ctx = self._agent_ctx or self._context
-        info = ctx.get_service_info(name)
         try:
-            if hasattr(info, "model_dump"):
-                return info.model_dump()
-            if hasattr(info, "dict"):
-                return info.dict()
-            if isinstance(info, dict):
-                return info
-            return {"result": str(info)}
-        except Exception:
-            return {"result": str(info)}
+            _, global_name, local_name = self._verify_service_ownership(name)
+            info = ctx.get_service_info(global_name)
+            info_dict = self._to_plain_dict(info)
+            info_dict["name"] = local_name
+            info_dict["agent_id"] = self._agent_id
+            return info_dict
+        except (ServiceNotFoundException, ServiceBindingError) as e:
+            logger.warning(f"[AGENT_PROXY] service info resolve error agent={self._agent_id} input='{name}': {e}")
+            return {"error": str(e), "agent_id": self._agent_id, "service_name": name}
+        except Exception as e:
+            logger.error(f"[AGENT_PROXY] Failed to get service info '{name}' for agent '{self._agent_id}': {e}", exc_info=True)
+            return {"error": str(e), "agent_id": self._agent_id, "service_name": name}
 
     def get_service_status(self, name: str) -> Dict[str, Any]:
+        """
+        获取服务状态，失败时返回结构化错误而非直接冒泡导致调用方中断。
+        """
+        from mcpstore.core.exceptions import ServiceNotFoundException, ServiceBindingError
+
         ctx = self._agent_ctx or self._context
-        status = ctx.get_service_status(name)
         try:
-            if hasattr(status, "model_dump"):
-                return status.model_dump()
-            if hasattr(status, "dict"):
-                return status.dict()
-            if isinstance(status, dict):
-                return status
-            return {"result": str(status)}
-        except Exception:
-            return {"result": str(status)}
+            _, global_name, local_name = self._verify_service_ownership(name)
+            status = ctx.get_service_status(global_name)
+            status_dict = self._to_plain_dict(status)
+            status_dict["service_name"] = local_name
+            status_dict["agent_id"] = self._agent_id
+            return status_dict
+        except (ServiceNotFoundException, ServiceBindingError) as e:
+            logger.warning(f"[AGENT_PROXY] service status resolve error agent={self._agent_id} input='{name}': {e}")
+            return {"error": str(e), "agent_id": self._agent_id, "service_name": name}
+        except Exception as e:
+            logger.error(f"[AGENT_PROXY] Failed to get service status '{name}' for agent '{self._agent_id}': {e}", exc_info=True)
+            return {"error": str(e), "agent_id": self._agent_id, "service_name": name}
 
     # 别名：符合命名规范
     def service_info(self, name: str) -> Dict[str, Any]:
@@ -351,48 +466,74 @@ class AgentProxy:
         return await ctx.check_services_async()
 
     async def get_service_info_async(self, name: str) -> Dict[str, Any]:
+        from mcpstore.core.exceptions import ServiceNotFoundException, ServiceBindingError
+
         ctx = self._agent_ctx or self._context
-        info = await ctx.get_service_info_async(name)
         try:
-            if hasattr(info, "model_dump"):
-                return info.model_dump()
-            if hasattr(info, "dict"):
-                return info.dict()
-            if isinstance(info, dict):
-                return info
-            return {"result": str(info)}
-        except Exception:
-            return {"result": str(info)}
+            _, global_name, local_name = await self._verify_service_ownership_async(name)
+            info = await ctx.get_service_info_async(global_name)
+            info_dict = self._to_plain_dict(info)
+            info_dict["name"] = local_name
+            info_dict["agent_id"] = self._agent_id
+            return info_dict
+        except (ServiceNotFoundException, ServiceBindingError) as e:
+            logger.warning(f"[AGENT_PROXY][ASYNC] service info resolve error agent={self._agent_id} input='{name}': {e}")
+            return {"error": str(e), "agent_id": self._agent_id, "service_name": name}
+        except Exception as e:
+            logger.error(f"[AGENT_PROXY] Failed to get service info async '{name}' for agent '{self._agent_id}': {e}", exc_info=True)
+            return {"error": str(e), "agent_id": self._agent_id, "service_name": name}
 
     async def get_service_status_async(self, name: str) -> Dict[str, Any]:
+        from mcpstore.core.exceptions import ServiceNotFoundException, ServiceBindingError
+
         ctx = self._agent_ctx or self._context
-        status = await ctx.get_service_status_async(name)
         try:
-            if hasattr(status, "model_dump"):
-                return status.model_dump()
-            if hasattr(status, "dict"):
-                return status.dict()
-            if isinstance(status, dict):
-                return status
-            return {"result": str(status)}
-        except Exception:
-            return {"result": str(status)}
+            _, global_name, local_name = await self._verify_service_ownership_async(name)
+            status = await ctx.get_service_status_async(global_name)
+            status_dict = self._to_plain_dict(status)
+            status_dict["service_name"] = local_name
+            status_dict["agent_id"] = self._agent_id
+            return status_dict
+        except (ServiceNotFoundException, ServiceBindingError) as e:
+            logger.warning(f"[AGENT_PROXY][ASYNC] service status resolve error agent={self._agent_id} input='{name}': {e}")
+            return {"error": str(e), "agent_id": self._agent_id, "service_name": name}
+        except Exception as e:
+            logger.error(f"[AGENT_PROXY] Failed to get service status async '{name}' for agent '{self._agent_id}': {e}", exc_info=True)
+            return {"error": str(e), "agent_id": self._agent_id, "service_name": name}
 
     # ---- Name mapping ----
     def map_local(self, name: str) -> str:
-        from .agent_service_mapper import AgentServiceMapper
-        # If global name, try rsplit to extract local
-        if AgentServiceMapper.is_any_agent_service(name):
-            try:
-                parts = name.rsplit("_byagent_", 1)
-                return parts[0] if len(parts) == 2 else name
-            except Exception:
-                return name
-        return name
+        from mcpstore.utils.perspective_resolver import PerspectiveResolver
+
+        resolver = PerspectiveResolver()
+        res = resolver.normalize_service_name(
+            self._agent_id,
+            name,
+            target="local",
+            strict=True,
+        )
+        return res.local_name
 
     def map_global(self, name: str) -> str:
-        from .agent_service_mapper import AgentServiceMapper
-        return AgentServiceMapper(self._agent_id).to_global_name(name)
+        from mcpstore.utils.perspective_resolver import PerspectiveResolver
+
+        resolver = PerspectiveResolver()
+        res = resolver.normalize_service_name(
+            self._agent_id,
+            name,
+            target="global",
+            strict=True,
+        )
+        return res.global_name
+
+    def _to_plain_dict(self, obj: Any) -> Dict[str, Any]:
+        if hasattr(obj, "model_dump"):
+            return obj.model_dump()
+        if hasattr(obj, "dict"):
+            return obj.dict()
+        if isinstance(obj, dict):
+            return dict(obj)
+        return {"result": str(obj)}
 
     # ---- Adapters (delegations) ----
     def for_langchain(self, response_format: str = "text"):

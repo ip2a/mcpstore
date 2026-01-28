@@ -4,7 +4,6 @@ from __future__ import annotations
 import inspect
 import json
 import keyword
-import re
 import warnings
 from typing import TYPE_CHECKING, Callable, Any, Type, List, Dict, Optional
 

@@ -777,7 +777,7 @@ class ServiceRegistry:
             }
             await self._cache_layer_manager.put_state("service_metadata", service_global_name, metadata_state)
         except Exception as meta_error:
-            logger.warning(f"[SERVICE_METADATA] init metadata failed for {service_global_name}: {meta_error}")
+            self._logger.warning(f"[SERVICE_METADATA] init metadata failed for {service_global_name}: {meta_error}")
 
         self._cache_state_snapshot(agent_id, name, state)
 
@@ -805,6 +805,7 @@ class ServiceRegistry:
         global_name = await self._resolve_global_name_async(agent_id, name)
         if not global_name:
             return None
+        self._logger.info(f"[REGISTRY_REMOVE] agent={agent_id} service={name} global={global_name} start")
 
         tool_relations = await self._relation_manager.get_service_tools(global_name)
 
@@ -823,6 +824,9 @@ class ServiceRegistry:
 
         self._cache_state_snapshot(agent_id, name, None)
         self._cache_metadata_snapshot(agent_id, name, None)
+
+        remaining = await self._cache_layer_manager.get_entity("services", global_name)
+        self._logger.info(f"[REGISTRY_REMOVE] agent={agent_id} global={global_name} removed entity_exists={remaining is not None}")
 
         return None
 
@@ -1347,13 +1351,13 @@ class ServiceRegistry:
             candidate = self._naming.generate_service_global_name(service_name, agent_id)
             exists = await self._cache_service_manager.get_service(candidate)
             if exists:
-                logger.debug(
+                self._logger.debug(
                     "[NAMING] Fallback global name resolved without relation: agent=%s, local=%s -> %s",
                     agent_id, service_name, candidate
                 )
                 return candidate
         except Exception as resolve_error:
-            logger.debug(
+            self._logger.debug(
                 "[NAMING] Failed to resolve fallback global name: agent=%s, local=%s, error=%s",
                 agent_id, service_name, resolve_error
             )

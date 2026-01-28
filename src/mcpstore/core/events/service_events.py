@@ -244,6 +244,24 @@ class ServiceTimeout(DomainEvent):
     elapsed_time: float = 0.0
 
 
+# === 控制平面请求事件 ===
+
+@dataclass(frozen=True)
+class ServiceRestartRequested(DomainEvent):
+    """服务重启请求事件（仅声明意图，控制平面执行）"""
+    agent_id: str = ""
+    service_name: str = ""
+    source: str = "user"
+
+
+@dataclass(frozen=True)
+class ServiceResetRequested(DomainEvent):
+    """服务重置请求事件（仅声明意图，控制平面执行）"""
+    agent_id: str = ""
+    service_name: str = ""
+    source: str = "user"
+
+
 # === 重连相关事件 ===
 
 @dataclass(frozen=True)

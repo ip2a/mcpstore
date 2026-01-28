@@ -8,11 +8,14 @@
 
 import asyncio
 import logging
+import os
+import socket
 import time
 from collections import deque
 from typing import Dict, Tuple, Optional, Deque, Any
 
 from mcpstore.config.config_dataclasses import ServiceLifecycleConfig
+from mcpstore.core.eventlog.event_models import domain_event_to_record
 from mcpstore.core.events.event_bus import EventBus
 from mcpstore.core.events.service_events import (
     ServiceConnected,
@@ -42,11 +45,27 @@ class HealthMonitor:
         registry: "CoreRegistry",
         lifecycle_config: ServiceLifecycleConfig,
         global_agent_store_id: str = "global_agent_store",
+        *,
+        event_store=None,
+        enable_event_log: bool = True,
+        is_only_db: bool = False,
+        lease_ttl: float = 30.0,
+        lease_enabled: bool = True,
+        lease_owner: Optional[str] = None,
     ):
         self._event_bus = event_bus
         self._registry = registry
         self._config = lifecycle_config
         self._global_agent_store_id = global_agent_store_id
+        self._event_store = event_store
+        self._enable_event_log = bool(event_store is not None and enable_event_log)
+        self._is_only_db = is_only_db
+        self._lease_enabled = bool(lease_enabled)
+        self._lease_ttl = lease_ttl
+        self._lease_owner = lease_owner or self._default_owner("health_monitor")
+        self._lease_key = "lease:health_monitor"
+        self._lease_task: Optional[asyncio.Task] = None
+        self._lease_acquired = False
 
         # 周期与超时
         self._liveness_interval = lifecycle_config.liveness_interval
@@ -105,10 +124,37 @@ class HealthMonitor:
             self._warning_ping_timeout,
         )
 
+    @staticmethod
+    def _default_owner(role: str) -> str:
+        try:
+            host = socket.gethostname()
+        except Exception:
+            host = "host"
+        try:
+            pid = os.getpid()
+        except Exception:
+            pid = 0
+        return f"{role}:{host}:{pid}"
+
     async def start(self):
         if self._is_running:
             logger.warning("HealthMonitor is already running")
             return
+        if self._lease_enabled and self._event_store:
+            try:
+                acquired = await self._event_store.acquire_lease(
+                    self._lease_owner,
+                    self._lease_ttl,
+                    lease_key=self._lease_key,
+                )
+            except Exception as lease_err:
+                logger.error(f"[HEALTH] Acquire lease failed, skip start: {lease_err}")
+                return
+            if not acquired:
+                logger.warning("[HEALTH] Lease is held by another node, skip starting HealthMonitor")
+                return
+            self._lease_acquired = True
+            self._lease_task = asyncio.create_task(self._renew_lease_loop())
         self._is_running = True
         logger.info("HealthMonitor started")
 
@@ -120,7 +166,75 @@ class HealthMonitor:
         if self._health_check_tasks:
             await asyncio.gather(*self._health_check_tasks.values(), return_exceptions=True)
         self._health_check_tasks.clear()
+        if self._lease_task and not self._lease_task.done():
+            self._lease_task.cancel()
+            try:
+                await self._lease_task
+            except Exception:
+                pass
+        if self._lease_enabled and self._event_store and self._lease_acquired:
+            try:
+                await self._event_store.release_lease(
+                    self._lease_owner,
+                    lease_key=self._lease_key,
+                )
+            except Exception:
+                pass
+            self._lease_acquired = False
         logger.info("HealthMonitor stopped")
+
+    async def _renew_lease_loop(self):
+        try:
+            while self._is_running and self._lease_enabled and self._event_store:
+                await asyncio.sleep(max(self._lease_ttl / 2, 1.0))
+                try:
+                    ok = await self._event_store.renew_lease(
+                        self._lease_owner,
+                        self._lease_ttl,
+                        lease_key=self._lease_key,
+                    )
+                except Exception as lease_err:
+                    logger.error(f"[HEALTH] Lease renew failed, stop monitor: {lease_err}")
+                    ok = False
+                if not ok:
+                    logger.warning("[HEALTH] Lease lost, stopping HealthMonitor")
+                    self._is_running = False
+                    break
+        finally:
+            if self._lease_enabled and self._event_store and self._lease_acquired:
+                try:
+                    await self._event_store.release_lease(
+                        self._lease_owner,
+                        lease_key=self._lease_key,
+                    )
+                except Exception:
+                    pass
+                self._lease_acquired = False
+
+    async def _emit_event(self, event, *, wait: bool = False, dedup_key: Optional[str] = None) -> None:
+        """
+        将健康事件写入事件队列；失败时退回本地事件总线。
+        """
+        logged = False
+        if self._enable_event_log and self._event_store:
+            try:
+                record = domain_event_to_record(
+                    event,
+                    source="health_monitor",
+                    dedup_key=dedup_key,
+                )
+                record = await self._event_store.append_event(record)
+                logged = True
+                logger.debug(f"[HEALTH] Event logged to queue type={record.type} id={record.id} dedup={dedup_key}")
+            except Exception as log_error:
+                logger.error(f"[HEALTH] Append event failed, fallback to bus: {log_error}")
+
+        if logged:
+            return
+        try:
+            await self._event_bus.publish(event, wait=wait)
+        except Exception as pub_error:
+            logger.error(f"[HEALTH] Publish event failed: {pub_error}", exc_info=True)
 
     async def _on_service_connected(self, event: ServiceConnected):
         logger.info(f"[HEALTH] Service connected, scheduling initial check: {event.service_name}")
@@ -177,7 +291,7 @@ class HealthMonitor:
             hard_deadline = cooldown.get("hard_deadline")
             if hard_deadline and now >= hard_deadline:
                 logger.info(f"[HEALTH] Hard timeout reached for {service_name}, emit timeout and skip")
-                await self._event_bus.publish(
+                await self._emit_event(
                     ServiceTimeout(
                         agent_id=agent_id,
                         service_name=service_name,
@@ -185,6 +299,7 @@ class HealthMonitor:
                         elapsed_time=hard_deadline,
                     ),
                     wait=False,
+                    dedup_key=f"health_timeout:{agent_id}:{service_name}:hard",
                 )
                 self._hard_timeouts[key] = hard_deadline
                 return False
@@ -192,7 +307,7 @@ class HealthMonitor:
         lease_remaining = self._lease_remaining(key)
         if lease_remaining is not None and lease_remaining <= 0:
             try:
-                await self._event_bus.publish(
+                await self._emit_event(
                     ServiceTimeout(
                         agent_id=agent_id,
                         service_name=service_name,
@@ -200,6 +315,7 @@ class HealthMonitor:
                         elapsed_time=self._lease_ttl,
                     ),
                     wait=False,
+                    dedup_key=f"health_timeout:{agent_id}:{service_name}:lease",
                 )
             except Exception as e:
                 logger.debug(f"[HEALTH] publish lease expired failed: {e}")
@@ -319,7 +435,7 @@ class HealthMonitor:
             hard_deadline=self._hard_deadline((agent_id, service_name)),
             lease_deadline=self._lease_deadline((agent_id, service_name)),
         )
-        await self._event_bus.publish(event, wait=wait)
+        await self._emit_event(event, wait=wait)
 
     async def _publish_health_check_failed(
         self,
@@ -349,7 +465,7 @@ class HealthMonitor:
             hard_deadline=self._hard_deadline((agent_id, service_name)),
             lease_deadline=self._lease_deadline((agent_id, service_name)),
         )
-        await self._event_bus.publish(event, wait=wait)
+        await self._emit_event(event, wait=wait)
 
     async def _to_global_name_async(self, agent_id: str, service_name: str) -> str:
         try:

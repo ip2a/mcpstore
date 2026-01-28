@@ -158,6 +158,7 @@ class AgentLocks:
             if self._stats.get(agent_id):
                 self._stats[agent_id].waiting_count = len(self._waiting[agent_id])
         
+        acquired = False
         try:
             # 获取锁（支持超时）
             async def _acquire():
@@ -180,6 +181,7 @@ class AgentLocks:
                 )
             else:
                 await _acquire()
+            acquired = True
             
             # 记录诊断信息
             wait_time_ms = (time.monotonic() - start_time) * 1000
@@ -214,9 +216,21 @@ class AgentLocks:
             yield
             
         finally:
-            # 释放锁
+            # 清理等待列表（无论是否获取到锁）
+            if self._enable_diagnostics:
+                self._waiting.get(agent_id, set()).discard(operation_id)
+
+            if not acquired:
+                logger.debug(
+                    "[AgentLocks] Skip release (lock not acquired): agent_id=%s, operation=%s",
+                    agent_id, operation,
+                )
+                return
+
+            # 释放锁（仅在已获取时）
             async def _release():
-                lock.release()
+                if lock.locked():
+                    lock.release()
 
             try:
                 running_loop = asyncio.get_running_loop()

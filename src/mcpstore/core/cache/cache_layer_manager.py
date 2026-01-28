@@ -49,6 +49,7 @@ class CacheLayerManager:
         self._last_empty_log: Dict[str, float] = {}
         self._last_scan_log: Dict[str, float] = {}
         self._last_state_snapshot: Dict[str, Any] = {}
+        self._event_types: set[str] = set()
         logger.debug(f"[CACHE] [INIT] Initializing CacheLayerManager, namespace: {namespace}")
 
     async def _await_in_bridge(self, coro, op_name: str):
@@ -118,6 +119,16 @@ class CacheLayerManager:
             Collection 名称
         """
         return f"{self._namespace}:state:{state_type}"
+
+    def _get_event_collection(self, event_type: str) -> str:
+        """
+        生成事件层 Collection 名称
+
+        格式: {namespace}:event:{event_type}
+        """
+        if event_type:
+            self._event_types.add(event_type)
+        return f"{self._namespace}:event:{event_type}"
 
     def _log_empty_collection(self, collection: str):
         """限制空集合调试日志的打印频率，避免刷屏"""
@@ -479,6 +490,125 @@ class CacheLayerManager:
             )
             raise RuntimeError(
                 f"存储关系失败: collection={collection}, key={key}, error={e}"
+            ) from e
+
+    # ==================== 事件层操作 ====================
+
+    async def put_event(
+        self,
+        event_type: str,
+        key: str,
+        value: Dict[str, Any]
+    ) -> None:
+        """存储事件到事件层"""
+        if not isinstance(value, dict):
+            raise ValueError(
+                f"事件值必须是字典类型，实际类型: {type(value).__name__}. "
+                f"event_type={event_type}, key={key}"
+            )
+
+        collection = self._get_event_collection(event_type)
+        logger.debug(
+            f"[CACHE] put_event: collection={collection}, key={key}, "
+            f"event_type={event_type}"
+        )
+
+        try:
+            await self._await_in_bridge(
+                self._kv_store.put(key, value, collection=collection),
+                f"cache.put_event.{event_type}"
+            )
+        except Exception as e:
+            logger.error(
+                f"[CACHE] [ERROR] Failed to store event: collection={collection}, key={key}, "
+                f"error={e}"
+            )
+            raise RuntimeError(
+                f"存储事件失败: collection={collection}, key={key}, error={e}"
+            ) from e
+
+    async def get_event(
+        self,
+        event_type: str,
+        key: str
+    ) -> Optional[Dict[str, Any]]:
+        """从事件层获取单个事件"""
+        collection = self._get_event_collection(event_type)
+        logger.debug(
+            f"[CACHE] get_event: collection={collection}, key={key}, "
+            f"event_type={event_type}"
+        )
+
+        try:
+            return await self._await_in_bridge(
+                self._kv_store.get(key, collection=collection),
+                f"cache.get_event.{event_type}"
+            )
+        except Exception as e:
+            logger.error(
+                f"[CACHE] [ERROR] Failed to get event: collection={collection}, key={key}, "
+                f"error={e}"
+            )
+            raise RuntimeError(
+                f"获取事件失败: collection={collection}, key={key}, error={e}"
+            ) from e
+
+    async def get_all_events_async(self, event_type: str) -> Dict[str, Dict[str, Any]]:
+        """异步获取指定类型的所有事件"""
+        log_key = f"event_scan:{event_type}"
+        log_scan = self._should_log_scan(log_key)
+        if log_scan:
+            logger.debug(f"[CACHE] get_all_events_async: event_type={event_type}")
+
+        async def _read():
+            collection = self._get_event_collection(event_type)
+            if log_scan:
+                logger.debug(f"[CACHE] get_all_events_async: collection={collection}, event_type={event_type}")
+
+            event_keys = await self._kv_store.keys(collection=collection)
+
+            if log_scan:
+                logger.debug(f"[CACHE] [GET] Retrieved {len(event_keys)} keys from collection={collection}")
+
+            if not event_keys:
+                self._log_empty_collection(collection)
+                return {}
+
+            results = await self._kv_store.get_many(event_keys, collection=collection)
+            events: Dict[str, Dict[str, Any]] = {}
+            for i, key in enumerate(event_keys):
+                if i < len(results) and results[i] is not None:
+                    events[key] = results[i]
+
+            if log_scan:
+                logger.debug(f"[CACHE] [GET] get_all_events_async completed: found {len(events)} events")
+            return events
+
+        try:
+            return await self._await_in_bridge(_read(), f"cache.get_all_events_async.{event_type}")
+        except Exception as e:
+            logger.error(f"[CACHE] [ERROR] Failed to get all events asynchronously: event_type={event_type}, error={e}")
+            raise RuntimeError(f"Failed to get all events asynchronously: event_type={event_type}, error={e}") from e
+
+    async def delete_event(self, event_type: str, key: str) -> None:
+        """删除事件"""
+        collection = self._get_event_collection(event_type)
+        logger.debug(
+            f"[CACHE] delete_event: collection={collection}, key={key}, "
+            f"event_type={event_type}"
+        )
+        try:
+            await self._await_in_bridge(
+                self._kv_store.delete(key, collection=collection),
+                f"cache.delete_event.{event_type}"
+            )
+        except Exception as e:
+            logger.error(
+                f"[CACHE] [ERROR] Failed to delete event: collection={collection}, key={key}, "
+                f"error={e}"
+            )
+            raise RuntimeError(
+                f"删除事件失败: collection={collection}, key={key}, error={e}"
             ) from e
     
     async def get_relation(

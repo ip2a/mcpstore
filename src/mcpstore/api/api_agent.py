@@ -692,31 +692,24 @@ async def agent_get_service_info_detailed(agent_id: str, service_name: str):
     store = get_store()
     context = store.for_agent(agent_id)
 
-    info = await context.bridge_execute(context.service_info_async(service_name))
-
-    if not info or info.get("error"):
+    # Use SDK to get service information（使用 async 版本）
+    info = await context.bridge_execute(
+        context.service_info_async(service_name)
+    )
+    if not info or not getattr(info, 'success', False):
         return ResponseBuilder.error(
             code=ErrorCode.SERVICE_NOT_FOUND,
-            message=info.get("error", f"Service '{service_name}' not found for agent '{agent_id}'"),
-            field="service_name",
-            details={"service_name": service_name, "agent_id": agent_id}
+            message=getattr(info, 'message', f"Service '{service_name}' not found for agent '{agent_id}'"),
+            field="service_name"
         )
 
-    status_val = info.get("state") or info.get("status") or "unknown"
-    if hasattr(status_val, "value"):
-        status_val = status_val.value
-
-    transport_type = info.get("transport_type") or info.get("type") or "unknown"
-    if hasattr(transport_type, "value"):
-        transport_type = transport_type.value
-
+    # Simplify response structure
+    service = getattr(info, 'service', None)
     service_info = {
-        "name": info.get("name", service_name),
-        "status": status_val,
-        "type": transport_type,
-        "tools_count": info.get("tool_count", 0),
-        "client_id": info.get("client_id"),
-        "agent_id": agent_id,
+        "name": service.name,
+        "status": service.status.value if hasattr(service.status, 'value') else str(service.status),
+        "type": service.transport_type.value if service.transport_type else 'unknown',
+        "tools_count": getattr(service, 'tool_count', 0)
     }
     
     return ResponseBuilder.success(
@@ -735,14 +728,6 @@ async def agent_get_service_status(agent_id: str, service_name: str):
     status = await context.bridge_execute(
         context.service_status_async(service_name)
     )
-
-    if status.get("error"):
-        return ResponseBuilder.error(
-            code=ErrorCode.SERVICE_NOT_FOUND,
-            message=status.get("error"),
-            field="service_name",
-            details={"service_name": service_name, "agent_id": agent_id}
-        )
 
     # 如果状态为 unknown 且没有 client_id，视为服务不存在或已移除
     if status.get("status") == "unknown" and not status.get("client_id"):

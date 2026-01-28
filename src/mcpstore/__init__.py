@@ -3,7 +3,7 @@ MCPStore - Model Context Protocol Service Management SDK
 A composable, ready-to-use MCP toolkit for AI Agents and rapid integration.
 """
  
-__version__ = "1.5.13"
+__version__ = "1.5.17"
 
 
 # ===== Lazy loading implementation =====

@@ -953,32 +953,29 @@ async def store_get_service_info_detailed(service_name: str):
         context.service_info_async(service_name)
     )
 
-    # 统一使用字典返回；不存在或错误时直接返回标准错误
-    if not info or info.get("error"):
+    # info 是字典，不是对象
+    if not info or not info.get("service"):
         return ResponseBuilder.error(
             code=ErrorCode.SERVICE_NOT_FOUND,
-            message=info.get("error", f"Service '{service_name}' not found"),
-            field="service_name",
-            details={"service_name": service_name}
+            message=f"Service '{service_name}' not found",
+            field="service_name"
         )
 
-    status_val = info.get("state") or info.get("status") or "unknown"
-    if hasattr(status_val, "value"):
-        status_val = status_val.value
-
-    transport_type = info.get("transport_type") or info.get("type") or "unknown"
-    if hasattr(transport_type, "value"):
-        transport_type = transport_type.value
-
+    service = info.get("service")
     service_info = {
-        "name": info.get("name", service_name),
-        "status": status_val,
-        "type": transport_type,
-        "client_id": info.get("client_id", ""),
-        "url": info.get("config", {}).get("url", "") if isinstance(info.get("config"), dict) else "",
-        "tools_count": info.get("tool_count", 0),
-        "agent_id": info.get("agent_id", store.client_manager.global_agent_store_id),
+        "name": service.get("name", ""),
+        "status": service.get("status", "unknown"),
+        "type": service.get("transport_type", "unknown"),
+        "client_id": service.get("client_id", ""),
+        "url": service.get("url", ""),
+        "tools_count": service.get("tool_count", 0),
     }
+
+    # 如果 status/transport 是枚举，转换为字符串
+    if hasattr(service_info["status"], "value"):
+        service_info["status"] = service_info["status"].value
+    if hasattr(service_info["type"], "value"):
+        service_info["type"] = service_info["type"].value
 
     return ResponseBuilder.success(
         message=f"Service info retrieved for '{service_name}'",
@@ -1008,14 +1005,6 @@ async def store_get_service_status(service_name: str):
     status = await context.bridge_execute(
         context.service_status_async(service_name)
     )
-
-    if status.get("error"):
-        return ResponseBuilder.error(
-            code=ErrorCode.SERVICE_NOT_FOUND,
-            message=status.get("error"),
-            field="service_name",
-            details={"service_name": service_name}
-        )
 
     status_info = {
         "name": service_name,

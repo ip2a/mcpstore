@@ -116,7 +116,7 @@ class APIServerMixin:
 
             # Create app instance and pass current store and URL prefix
             # Note: 延迟导入避免 core 层在模块加载时就依赖 scripts 层
-            from mcpstore.scripts.api_app import create_app
+            from mcpstore.api.api_app import create_app
             app = create_app(store=self, url_prefix=url_prefix)
 
             # 启动 API 服务器

@@ -23,7 +23,7 @@ class OpenAIAdapter:
 
     def list_tools(self) -> List[Dict[str, Any]]:
         """Get all available MCPStore tools and convert them to OpenAI function format (synchronous version)."""
-        return self._context._sync_helper.run_async(self.list_tools_async())
+        return self._context._run_async_via_bridge(self.list_tools_async(), op_name="openai_adapter.list_tools")
 
     async def list_tools_async(self) -> List[Dict[str, Any]]:
         """Get all available MCPStore tools and convert them to OpenAI function format (asynchronous version)."""
@@ -165,7 +165,7 @@ class OpenAIAdapter:
         Get tools with callable functions for direct execution.
         Returns a list of dicts with 'tool' (OpenAI format) and 'callable' (execution function).
         """
-        return self._context._sync_helper.run_async(self.get_callable_tools_async())
+        return self._context._run_async_via_bridge(self.get_callable_tools_async(), op_name="openai_adapter.get_callable_tools")
 
     async def get_callable_tools_async(self) -> List[Dict[str, Any]]:
         """
@@ -200,7 +200,7 @@ class OpenAIAdapter:
         Create a tool registry for easy tool execution by name.
         Returns a dict mapping tool names to their executors and metadata.
         """
-        return self._context._sync_helper.run_async(self.create_tool_registry_async())
+        return self._context._run_async_via_bridge(self.create_tool_registry_async(), op_name="openai_adapter.create_tool_registry")
 
     async def create_tool_registry_async(self) -> Dict[str, Any]:
         """
@@ -230,7 +230,7 @@ class OpenAIAdapter:
         Returns:
             str: Tool execution result
         """
-        return self._context._sync_helper.run_async(self.execute_tool_call_async(tool_call))
+        return self._context._run_async_via_bridge(self.execute_tool_call_async(tool_call), op_name="openai_adapter.execute_tool_call")
 
     async def execute_tool_call_async(self, tool_call: Dict[str, Any]) -> str:
         """
@@ -248,7 +248,7 @@ class OpenAIAdapter:
                 try:
                     arguments = json.loads(arguments)
                 except json.JSONDecodeError:
-                    arguments = {}
+                    raise ValueError("Tool arguments JSON parse failed")
 
             # Call tool
             result = await self._context.call_tool_async(tool_name, arguments)
@@ -280,7 +280,7 @@ class OpenAIAdapter:
         Returns:
             List[str]: List of tool execution results
         """
-        return self._context._sync_helper.run_async(self.batch_execute_tool_calls_async(tool_calls))
+        return self._context._run_async_via_bridge(self.batch_execute_tool_calls_async(tool_calls), op_name="openai_adapter.batch_execute_tool_calls")
 
     async def batch_execute_tool_calls_async(self, tool_calls: List[Dict[str, Any]]) -> List[str]:
         """

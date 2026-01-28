@@ -1032,16 +1032,8 @@ class ServiceOperationsMixin:
                 await self._store.registry.set_service_client_mapping_async(agent_id, local_name, client_id)
                 await self._store.registry.set_service_client_mapping_async(global_agent_id, global_name, client_id)
 
-                # 6. 收集写入 mcp.json 的全局配置
-                global_services_for_file[global_name] = service_config
-
-            # 7. 同步到 mcp.json（全局名）
-            if global_services_for_file:
-                success = self._store._unified_config.batch_add_services(global_services_for_file)
-                if success:
-                    logger.info(f"[AGENT_SYNC] [SUCCESS] mcp.json update successful: added {len(global_services_for_file)} services")
-                else:
-                    logger.error(f"[AGENT_SYNC] [ERROR] mcp.json update failed")
+                # 6. 单源模式：不再写 mcp.json，只保留事件/KV 路径
+                logger.debug("[AGENT_PROXY] Skip file sync (single-source KV)")
 
             logger.info(f"[AGENT_PROXY] [COMPLETE] Agent transparent proxy addition completed, processed {len(services_to_add)} services")
 
@@ -1050,34 +1042,9 @@ class ServiceOperationsMixin:
             raise
 
     async def _sync_agent_services_to_files(self, agent_id: str, services_to_add: Dict[str, Any]):
-        """同步 Agent 服务到持久化文件（优化：使用 UnifiedConfigManager）"""
-        try:
-            logger.info(f"[AGENT_SYNC] [START] Starting to sync Agent services to file: {agent_id}")
-
-            # 构建带后缀的服务配置字典
-            from .agent_service_mapper import AgentServiceMapper
-            mapper = AgentServiceMapper(agent_id)
-            
-            global_services = {}
-            for local_name, service_config in services_to_add.items():
-                global_name = mapper.to_global_name(local_name)
-                global_services[global_name] = service_config
-                logger.debug(f"[AGENT_SYNC] [PREPARE] Preparing to add to mcp.json: {global_name}")
-
-            # 使用 UnifiedConfigManager 批量添加服务（一次性保存 + 自动刷新缓存）
-            success = self._store._unified_config.batch_add_services(global_services)
-            
-            if success:
-                logger.info(f"[AGENT_SYNC] [SUCCESS] mcp.json update successful: added {len(global_services)} services, cache synchronized")
-            else:
-                logger.error(f"[AGENT_SYNC] [ERROR] mcp.json update failed")
-
-            # 单源模式：不再写分片文件，仅维护 mcp.json
-            logger.info(f"[AGENT_SYNC] [INFO] Single-source mode: shard file writing disabled (agent_clients/client_services)")
-
-        except Exception as e:
-            logger.error(f"[AGENT_SYNC] [ERROR] Failed to sync Agent services to file: {e}")
-            raise
+        """兼容旧接口占位：单源模式下不再写 mcp.json，保留日志提示。"""
+        logger.info(f"[AGENT_SYNC] [SKIP] Single-source mode: skip file sync for agent {agent_id}")
+        return True
 
     async def _get_agent_service_view(self) -> List[ServiceInfo]:
         """

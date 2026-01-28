@@ -44,7 +44,14 @@ class ServiceContainer:
         config_processor: 'ConfigProcessor',
         local_service_manager: 'LocalServiceManagerAdapter',
         global_agent_store_id: str,
-        enable_event_history: bool = False
+        enable_event_history: bool = False,
+        event_store=None,
+        event_syncer=None,
+        health_enabled: bool = True,
+        reconnection_enabled: bool = True,
+        enable_event_log: bool = True,
+        is_only_db: bool = False,
+        event_lease_ttl: float = 30.0,
     ):
         self._registry = registry
         self._agent_locks = agent_locks
@@ -52,6 +59,13 @@ class ServiceContainer:
         self._config_processor = config_processor
         self._local_service_manager = local_service_manager
         self._global_agent_store_id = global_agent_store_id
+        self._event_store = event_store
+        self._event_syncer = event_syncer
+        self._health_enabled = health_enabled
+        self._reconnection_enabled = reconnection_enabled
+        self._enable_event_log = enable_event_log
+        self._is_only_db = is_only_db
+        self._event_lease_ttl = event_lease_ttl
         
         # 创建事件总线（核心）
         # 事件总线：启用可选的 handler 超时（安全兜底）
@@ -90,14 +104,19 @@ class ServiceContainer:
 
         self._persistence_manager = PersistenceManager(
             event_bus=self._event_bus,
-            config_manager=self._config_manager
+            config_manager=self._config_manager,
+            enable_file_persistence=False,
         )
 
         self._health_monitor = HealthMonitor(
             event_bus=self._event_bus,
             registry=self._registry,
             lifecycle_config=lifecycle_config,
-            global_agent_store_id=self._global_agent_store_id
+            global_agent_store_id=self._global_agent_store_id,
+            event_store=self._event_store,
+            enable_event_log=self._enable_event_log,
+            is_only_db=self._is_only_db,
+            lease_ttl=self._event_lease_ttl,
         )
 
         # 创建重连调度器（使用相同的生命周期配置）
@@ -106,6 +125,10 @@ class ServiceContainer:
             registry=self._registry,
             lifecycle_config=lifecycle_config,
             scan_interval=1.0,  # 扫描间隔固定1秒
+            event_store=self._event_store,
+            enable_event_log=self._enable_event_log,
+            is_only_db=self._is_only_db,
+            lease_ttl=self._event_lease_ttl,
         )
 
         # 创建应用服务
@@ -113,8 +136,42 @@ class ServiceContainer:
             event_bus=self._event_bus,
             registry=self._registry,
             lifecycle_manager=self._lifecycle_manager,
-            global_agent_store_id=self._global_agent_store_id
+            global_agent_store_id=self._global_agent_store_id,
+            event_store=self._event_store,
+            enable_event_log=self._enable_event_log,
+            is_only_db=self._is_only_db,
         )
+
+        # 事件请求监听（控制平面执行）
+        from mcpstore.core.events.service_events import ServiceRestartRequested, ServiceResetRequested
+
+        async def _on_restart_requested(event):
+            try:
+                await self._service_app_service.restart_service(
+                    service_name=event.service_name,
+                    agent_id=event.agent_id,
+                    wait_timeout=0.0,
+                    from_event=True,
+                    source=event.source,
+                )
+            except Exception as e:
+                logger.error(f"[EVENT] ServiceRestartRequested handling failed: {e}", exc_info=True)
+
+        self._event_bus.subscribe(ServiceRestartRequested, _on_restart_requested, priority=90)
+
+        async def _on_reset_requested(event):
+            try:
+                await self._service_app_service.reset_service(
+                    agent_id=event.agent_id,
+                    service_name=event.service_name,
+                    wait_timeout=0.0,
+                    from_event=True,
+                    source=event.source,
+                )
+            except Exception as e:
+                logger.error(f"[EVENT] ServiceResetRequested handling failed: {e}", exc_info=True)
+
+        self._event_bus.subscribe(ServiceResetRequested, _on_reset_requested, priority=90)
 
         # 事件诊断订阅：记录就绪/持久化阶段，便于调试与监控
         async def _on_service_persisting(event):
@@ -144,13 +201,12 @@ class ServiceContainer:
 
         from mcpstore.core.events.service_events import (
             ServicePersisting,
-            ServicePersisted,
             ServiceReady,
             ToolSyncStarted,
             ToolSyncCompleted,
         )
         self._event_bus.subscribe(ServicePersisting, _on_service_persisting, priority=1)
-        self._event_bus.subscribe(ServicePersisted, _on_service_persisted, priority=1)
+        # ServicePersisted 已停用文件持久化，不再订阅
         self._event_bus.subscribe(ServiceReady, _on_service_ready, priority=1)
         self._event_bus.subscribe(ToolSyncStarted, _on_tool_sync, priority=1)
         self._event_bus.subscribe(ToolSyncCompleted, _on_tool_sync, priority=1)
@@ -201,11 +257,24 @@ class ServiceContainer:
         """启动所有需要后台运行的组件"""
         logger.info("Starting ServiceContainer components...")
 
+        if self._event_syncer:
+            try:
+                await self._event_syncer.start()
+                logger.info("EventSyncer started")
+            except Exception as sync_err:
+                logger.error(f"EventSyncer start failed: {sync_err}", exc_info=True)
+
         # 启动健康监控
-        await self._health_monitor.start()
+        if self._health_enabled:
+            await self._health_monitor.start()
+        else:
+            logger.info("HealthMonitor disabled (mode=only_db)")
 
         # 启动重连调度器
-        await self._reconnection_scheduler.start()
+        if self._reconnection_enabled:
+            await self._reconnection_scheduler.start()
+        else:
+            logger.info("ReconnectionScheduler disabled (mode=only_db)")
 
         logger.info("ServiceContainer components started")
 
@@ -213,10 +282,27 @@ class ServiceContainer:
         """停止所有组件"""
         logger.info("Stopping ServiceContainer components...")
 
+        if self._event_syncer:
+            try:
+                await self._event_syncer.stop()
+            except Exception:
+                pass
+
         # 停止健康监控
-        await self._health_monitor.stop()
+        if self._health_enabled:
+            await self._health_monitor.stop()
 
         # 停止重连调度器
-        await self._reconnection_scheduler.stop()
+        if self._reconnection_enabled:
+            await self._reconnection_scheduler.stop()
 
         logger.info("ServiceContainer components stopped")
+
+    def attach_event_syncer(self, event_syncer):
+        """在容器创建后注入事件同步器。"""
+        self._event_syncer = event_syncer
+        try:
+            # 将 event_syncer 透传给应用服务，用于写后同步消费
+            self._service_app_service._event_syncer = event_syncer
+        except Exception:
+            pass

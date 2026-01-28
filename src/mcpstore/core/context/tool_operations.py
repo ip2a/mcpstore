@@ -330,6 +330,7 @@ class ToolOperationsMixin:
 
         # 使用纯逻辑核心过滤工具
         filtered_tools: List[ToolInfo] = []
+        unavailable_reasons: List[str] = []
         for tool in all_tools:
             tool_service_global_name = getattr(tool, "service_global_name", None)
             if not tool_service_global_name:
@@ -350,13 +351,22 @@ class ToolOperationsMixin:
                 if is_available:
                     filtered_tools.append(tool)
             except RuntimeError as e:
-                # 状态/工具不存在，抛出错误
-                raise
+                # 状态/工具不存在时仅记录并跳过，避免因部分数据缺失导致整个进程中断
+                msg = (
+                    f"[LIST_TOOLS] skip tool due to state_error "
+                    f"service_global_name={tool_service_global_name} tool={tool.name} error={e}"
+                )
+                unavailable_reasons.append(msg)
+                logger.warning(msg)
         
         logger.info(
             f"[LIST_TOOLS] filter=available agent_id={agent_id} "
             f"total={len(all_tools)} available={len(filtered_tools)}"
         )
+        if unavailable_reasons:
+            logger.debug(
+                "[LIST_TOOLS] unavailable details: " + " | ".join(unavailable_reasons)
+            )
         return filtered_tools
 
     def get_tools_with_stats(self) -> Dict[str, Any]:
@@ -748,7 +758,7 @@ class ToolOperationsMixin:
             # 工具不可用，抛出异常
             from mcpstore.core.exceptions import ToolNotAvailableError
             
-            original_tool_name = self._extract_original_tool_name(fastmcp_tool_name, resolution.service_name)
+            original_tool_name = self._extract_original_tool_name(fastmcp_tool_name, tool_res.local_service_name)
             agent_id = self._agent_id if self._context_type == ContextType.AGENT else "global_agent_store"
             
             logger.warning(
@@ -758,7 +768,7 @@ class ToolOperationsMixin:
             
             raise ToolNotAvailableError(
                 tool_name=original_tool_name,
-                service_name=resolution.service_name,
+                service_name=tool_res.local_service_name,
                 agent_id=agent_id
             )
         
