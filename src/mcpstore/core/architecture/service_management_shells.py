@@ -322,6 +322,13 @@ class ServiceManagementAsyncShell:
                     window_metrics = None
                     retry_in = None
                     hard_timeout_in = None
+                    lease_remaining = None
+                    next_retry_time = None
+                    hard_deadline = None
+                    lease_deadline = None
+                    response_time = None
+                    consecutive_failures = None
+                    last_state_change = None
                     if state_data:
                         if hasattr(state_data, 'health_status'):
                             health_status = state_data.health_status
@@ -331,9 +338,18 @@ class ServiceManagementAsyncShell:
                                 "latency_p99": getattr(state_data, "latency_p99", None),
                                 "sample_size": getattr(state_data, "sample_size", None),
                             }
-                            retry_in = self._remaining_seconds_timestamp(getattr(state_data, "next_retry_time", None))
-                            hard_timeout_in = self._remaining_seconds_timestamp(getattr(state_data, "hard_deadline", None))
-                            lease_remaining = self._remaining_seconds_timestamp(getattr(state_data, "lease_deadline", None))
+                            next_retry_time = getattr(state_data, "next_retry_time", None)
+                            hard_deadline = getattr(state_data, "hard_deadline", None)
+                            lease_deadline = getattr(state_data, "lease_deadline", None)
+                            retry_in = self._remaining_seconds_timestamp(next_retry_time)
+                            hard_timeout_in = self._remaining_seconds_timestamp(hard_deadline)
+                            lease_remaining = self._remaining_seconds_timestamp(lease_deadline)
+                            response_time = getattr(state_data, "response_time", None)
+                            consecutive_failures = getattr(state_data, "consecutive_failures", None)
+                            try:
+                                last_state_change = state_data.last_health_check.isoformat() if getattr(state_data, "last_health_check", None) else None
+                            except Exception:
+                                last_state_change = None
                         elif hasattr(state_data, 'get'):
                             health_status = state_data.get("health_status", "unknown")
                             window_metrics = {
@@ -342,9 +358,15 @@ class ServiceManagementAsyncShell:
                                 "latency_p99": state_data.get("latency_p99"),
                                 "sample_size": state_data.get("sample_size"),
                             }
-                            retry_in = self._remaining_seconds_timestamp(state_data.get("next_retry_time"))
-                            hard_timeout_in = self._remaining_seconds_timestamp(state_data.get("hard_deadline"))
-                            lease_remaining = self._remaining_seconds_timestamp(state_data.get("lease_deadline"))
+                            next_retry_time = state_data.get("next_retry_time")
+                            hard_deadline = state_data.get("hard_deadline")
+                            lease_deadline = state_data.get("lease_deadline")
+                            retry_in = self._remaining_seconds_timestamp(next_retry_time)
+                            hard_timeout_in = self._remaining_seconds_timestamp(hard_deadline)
+                            lease_remaining = self._remaining_seconds_timestamp(lease_deadline)
+                            response_time = state_data.get("response_time")
+                            consecutive_failures = state_data.get("consecutive_failures")
+                            last_state_change = state_data.get("last_health_check")
                         elif hasattr(state_data, 'value'):
                             health_status = state_data.value
                             lease_remaining = None
@@ -362,6 +384,12 @@ class ServiceManagementAsyncShell:
                                 "retry_in": retry_in,
                                 "hard_timeout_in": hard_timeout_in,
                                 "lease_remaining": lease_remaining,
+                                "next_retry_time": next_retry_time,
+                                "hard_deadline": hard_deadline,
+                                "lease_deadline": lease_deadline,
+                                "response_time": response_time,
+                                "consecutive_failures": consecutive_failures,
+                                "last_state_change": last_state_change,
                             }
 
                 except Exception as e:
@@ -377,7 +405,13 @@ class ServiceManagementAsyncShell:
                         "retry_in": retry_in,
                         "hard_timeout_in": hard_timeout_in,
                         "hard_timeout_remaining": max(wait_plan.timeout - elapsed, 0.0),
-                        "lease_remaining": lease_remaining if 'lease_remaining' in locals() else None,
+                        "lease_remaining": lease_remaining,
+                        "next_retry_time": next_retry_time,
+                        "hard_deadline": hard_deadline,
+                        "lease_deadline": lease_deadline,
+                        "response_time": response_time,
+                        "consecutive_failures": consecutive_failures,
+                        "last_state_change": last_state_change,
                     }
 
                 await asyncio.sleep(wait_plan.check_interval)

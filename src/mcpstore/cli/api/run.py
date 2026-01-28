@@ -35,7 +35,7 @@ def register_api_commands(app: typer.Typer) -> None:
                     raise typer.Exit(1)
                 # 重载模式需使用字符串引用
                 uvicorn.run(
-                    "mcpstore.scripts.api_app:create_app",
+                    "mcpstore.api.api_app:create_app",
                     host=host,
                     port=port,
                     reload=reload,
@@ -81,7 +81,7 @@ def register_api_commands(app: typer.Typer) -> None:
 
 def _create_api_app(prefix: str):
     """创建 FastAPI 应用，应用 URL 前缀"""
-    from mcpstore.scripts.api_app import create_app
+    from mcpstore.api.api_app import create_app
 
-    # 传入 prefix，避免 mcpstore.scripts.app 中的固定空前缀
+    # 传入 prefix，避免旧路径中的固定空前缀
     return create_app(store=None, url_prefix=prefix or "")

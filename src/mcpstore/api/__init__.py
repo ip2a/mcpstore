@@ -1,8 +1,6 @@
 """
-对外稳定接口层：集中导出核心能力，方便后续内部目录调整时保持兼容。
-当前仅简单导出 orchestrator，后续可逐步补充配置加载、CLI 包装等入口。
+对外稳定接口层：预留未来扩展的导出入口。
+当前不做默认导出，避免在包导入阶段引入 orchestrator 循环依赖。
 """
 
-from mcpstore.core.orchestrator import MCPOrchestrator
-
-__all__ = ["MCPOrchestrator"]
+__all__: list[str] = []

@@ -22,7 +22,6 @@ from mcpstore.core.events.service_events import (
     ServiceCached,
     ServiceConnected,
     ServicePersisting,
-    ServicePersisted,
     ToolSyncStarted,
     ToolSyncCompleted,
     ServiceOperationFailed,
@@ -403,20 +402,7 @@ class CacheManager:
                 )
 
                 # 缓存落盘完成事件（工具与状态已写入）
-                try:
-                    if self._event_bus.get_subscriber_count(ServicePersisted) > 0:
-                        await self._event_bus.publish(
-                            ServicePersisted(
-                                agent_id=event.agent_id,
-                                service_name=event.service_name,
-                                stage="cache",
-                                tool_count=tool_count,
-                                details={"health_status": "healthy"}
-                            ),
-                            wait=False
-                        )
-                except Exception as persist_evt_err:
-                    logger.debug(f"[CACHE] Failed to publish ServicePersisted(cache): {persist_evt_err}")
+                # ServicePersisted 依赖文件持久化已停用，此处无需发布
             
             logger.info(f"[CACHE] Cache updated for {event.service_name} with {len(event.tools)} tools")
 

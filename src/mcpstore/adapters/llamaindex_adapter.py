@@ -21,7 +21,7 @@ class LlamaIndexAdapter:
         self._context = context
 
     def list_tools(self) -> List[object]:
-        return self._context._sync_helper.run_async(self.list_tools_async())
+        return self._context._run_async_via_bridge(self.list_tools_async(), op_name="llamaindex_adapter.list_tools")
 
     async def list_tools_async(self) -> List[object]:
         try:
@@ -39,4 +39,3 @@ class LlamaIndexAdapter:
             li_tool = FunctionTool.from_defaults(fn=sync_fn, name=t.name, description=desc)
             tools.append(li_tool)
         return tools
-

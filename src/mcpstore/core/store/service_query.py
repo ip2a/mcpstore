@@ -382,16 +382,6 @@ class ServiceQueryMixin:
                         return max((dt - datetime.datetime.now()).total_seconds(), 0.0)
                     return None
 
-                def _remaining_seconds(dt):
-                    import datetime
-                    if dt is None:
-                        return None
-                    if isinstance(dt, (int, float)):
-                        return max(dt - time.time(), 0.0)
-                    if isinstance(dt, datetime.datetime):
-                        return max((dt - datetime.datetime.now()).total_seconds(), 0.0)
-                    return None
-
                 service_status = {
                     "name": name,
                     "url": config.get("url", ""),
@@ -413,6 +403,8 @@ class ServiceQueryMixin:
                     "retry_in": _remaining_seconds(getattr(state_metadata, "next_retry_time", None)) if state_metadata else None,
                     "hard_timeout_in": _remaining_seconds(getattr(state_metadata, "hard_deadline", None)) if state_metadata else None,
                     "lease_remaining": _remaining_seconds(getattr(state_metadata, "lease_deadline", None)) if state_metadata else None,
+                    "lease_deadline": (state_metadata.lease_deadline.isoformat() if state_metadata and getattr(state_metadata, "lease_deadline", None) else None),
+                    "hard_deadline": (state_metadata.hard_deadline.isoformat() if state_metadata and getattr(state_metadata, "hard_deadline", None) else None),
                 }
                 services.append(service_status)
             return {
@@ -459,6 +451,8 @@ class ServiceQueryMixin:
                     "retry_in": _remaining_seconds(getattr(state_metadata, "next_retry_time", None)) if state_metadata else None,
                     "hard_timeout_in": _remaining_seconds(getattr(state_metadata, "hard_deadline", None)) if state_metadata else None,
                     "lease_remaining": _remaining_seconds(getattr(state_metadata, "lease_deadline", None)) if state_metadata else None,
+                    "lease_deadline": (state_metadata.lease_deadline.isoformat() if state_metadata and getattr(state_metadata, "lease_deadline", None) else None),
+                    "hard_deadline": (state_metadata.hard_deadline.isoformat() if state_metadata and getattr(state_metadata, "hard_deadline", None) else None),
                 }
                 services.append(service_status)
             return {
@@ -482,25 +476,31 @@ class ServiceQueryMixin:
                     mapped_client = await self.registry._agent_client_service.get_service_client_id_async(agent_ns, name)
                     if mapped_client not in (client_ids or []):
                         continue
+
                     service_status = {
                         "name": name,
                         "url": config.get("url", ""),
                         "transport_type": config.get("transport", ""),
-                    "status": service_state.value if hasattr(service_state, "value") else str(service_state),
-                    "command": config.get("command"),
-                    "args": config.get("args"),
-                    "package_name": config.get("package_name"),
-                    "client_id": mapped_client,
-                    "response_time": getattr(state_metadata, "response_time", None) if state_metadata else None,
-                    "consecutive_failures": getattr(state_metadata, "consecutive_failures", 0) if state_metadata else 0,
-                    "last_state_change": (state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None),
-                    "window_error_rate": getattr(state_metadata, "window_error_rate", None) if state_metadata else None,
-                    "latency_p95": getattr(state_metadata, "latency_p95", None) if state_metadata else None,
-                    "latency_p99": getattr(state_metadata, "latency_p99", None) if state_metadata else None,
-                    "sample_size": getattr(state_metadata, "sample_size", None) if state_metadata else None,
-                    "next_retry_time": (state_metadata.next_retry_time.isoformat() if state_metadata and state_metadata.next_retry_time else None),
-                }
-                services.append(service_status)
+                        "status": service_state.value if hasattr(service_state, "value") else str(service_state),
+                        "command": config.get("command"),
+                        "args": config.get("args"),
+                        "package_name": config.get("package_name"),
+                        "client_id": mapped_client,
+                        "response_time": getattr(state_metadata, "response_time", None) if state_metadata else None,
+                        "consecutive_failures": getattr(state_metadata, "consecutive_failures", 0) if state_metadata else 0,
+                        "last_state_change": (state_metadata.state_entered_time.isoformat() if state_metadata and state_metadata.state_entered_time else None),
+                        "window_error_rate": getattr(state_metadata, "window_error_rate", None) if state_metadata else None,
+                        "latency_p95": getattr(state_metadata, "latency_p95", None) if state_metadata else None,
+                        "latency_p99": getattr(state_metadata, "latency_p99", None) if state_metadata else None,
+                        "sample_size": getattr(state_metadata, "sample_size", None) if state_metadata else None,
+                        "next_retry_time": (state_metadata.next_retry_time.isoformat() if state_metadata and state_metadata.next_retry_time else None),
+                        "retry_in": _remaining_seconds(getattr(state_metadata, "next_retry_time", None)) if state_metadata else None,
+                        "hard_timeout_in": _remaining_seconds(getattr(state_metadata, "hard_deadline", None)) if state_metadata else None,
+                        "lease_remaining": _remaining_seconds(getattr(state_metadata, "lease_deadline", None)) if state_metadata else None,
+                        "lease_deadline": (state_metadata.lease_deadline.isoformat() if state_metadata and getattr(state_metadata, "lease_deadline", None) else None),
+                        "hard_deadline": (state_metadata.hard_deadline.isoformat() if state_metadata and getattr(state_metadata, "hard_deadline", None) else None),
+                    }
+                    services.append(service_status)
                 return {
                     "orchestrator_status": "running",
                     "active_services": len(services),

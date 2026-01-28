@@ -16,11 +16,13 @@ import asyncio
 import logging
 import os
 import time
+import inspect
 from typing import Dict, Any
 
-from mcpstore.utils.watchdog.events import FileSystemEventHandler
-# 强制使用内置 watchdog（不再可选）
-from mcpstore.utils.watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
+
+from mcpstore.core.bridge import get_async_bridge
 
 logger = logging.getLogger(__name__)
 
@@ -39,21 +41,13 @@ class MCPFileHandler(FileSystemEventHandler):
 
         # Only monitor target mcp.json file
         if os.path.basename(event.src_path) == self.mcp_filename:
-            logger.debug(f"MCP config file modified: {event.src_path}")
-            # Safely execute async method in correct event loop
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # If event loop is running, use call_soon_threadsafe
-                    loop.call_soon_threadsafe(
-                        lambda: asyncio.create_task(self.sync_manager.on_file_changed())
-                    )
-                else:
-                    # 如果事件循环未运行，直接创建任务
-                    asyncio.create_task(self.sync_manager.on_file_changed())
-            except RuntimeError:
-                # 如果没有事件循环，记录警告
-                logger.warning("No event loop available for file change notification")
+            logger.info(f"MCP config file modified: {event.src_path}")
+            bridge_loop = getattr(self.sync_manager, "bridge_loop", None)
+            if not bridge_loop or not bridge_loop.is_running():
+                logger.error("[FILE_WATCH] Bridge loop unavailable or not running; abort scheduling")
+                return
+            asyncio.run_coroutine_threadsafe(self.sync_manager.on_file_changed(), bridge_loop)
+            logger.info("[FILE_WATCH] Scheduled on bridge loop")
 
 
 class UnifiedMCPSyncManager:
@@ -77,7 +71,11 @@ class UnifiedMCPSyncManager:
         self.last_change_time = None
         self.last_sync_time = None  #  新增：记录上次同步时间
         self.min_sync_interval = 5.0  #  新增：最小同步间隔（秒）
+        self._pending_resync = False  # 记录同步期间的新增变更，避免取消正在执行的同步
         self.is_running = False
+        # 记录 orchestrator bridge loop，用于跨线程调度（必须可用）
+        self._bridge = get_async_bridge()
+        self.bridge_loop = self._bridge._ensure_loop()
         
         logger.info(f"UnifiedMCPSyncManager initialized for: {self.mcp_json_path}")
         
@@ -93,9 +91,9 @@ class UnifiedMCPSyncManager:
             # 启动文件监听
             await self._start_file_watcher()
 
-            #  执行启动时同步（始终启用）
-            logger.info("Executing initial sync from mcp.json")
-            await self.sync_global_agent_store_from_mcp_json()
+            #  执行启动时同步（重放：覆盖同名，不删除其他缓存）
+            logger.info("Executing initial replay from mcp.json (upsert only, no delete)")
+            await self.sync_global_agent_store_from_mcp_json(delete_missing=False)
 
             self.is_running = True
             logger.info("Unified MCP sync manager started successfully")
@@ -158,15 +156,39 @@ class UnifiedMCPSyncManager:
         try:
             self.last_change_time = time.time()
             
-            # 取消之前的同步任务
             if self.sync_task and not self.sync_task.done():
-                self.sync_task.cancel()
-                
+                # 同步进行中不取消，记录待重放请求
+                self._pending_resync = True
+                logger.info("[FILE_WATCH] Sync in progress; mark pending change for replay after current run")
+                return
+
             # 启动防抖同步
-            self.sync_task = asyncio.create_task(self._debounced_sync())
+            self._pending_resync = False
+            self._schedule_sync_task()
             
         except Exception as e:
             logger.error(f"Error handling file change: {e}")
+
+    def _schedule_sync_task(self):
+        """统一调度同步任务并附加完成回调"""
+        self.sync_task = asyncio.create_task(self._debounced_sync())
+        self.sync_task.add_done_callback(self._on_sync_task_done)
+
+    def _on_sync_task_done(self, task: asyncio.Task):
+        """同步任务完成后的收尾与重放"""
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            logger.debug("Debounced sync task cancelled")
+            return
+        except Exception as exc:
+            logger.error(f"Debounced sync task failed: {exc}", exc_info=True)
+
+        # 如果同步期间有新增变更，自动重放一次
+        if self._pending_resync and self.is_running:
+            logger.info("[FILE_WATCH] Pending change detected during sync; scheduling replay")
+            self._pending_resync = False
+            self._schedule_sync_task()
             
     async def _debounced_sync(self):
         """防抖同步"""
@@ -184,7 +206,7 @@ class UnifiedMCPSyncManager:
         except Exception as e:
             logger.error(f"Error in debounced sync: {e}")
             
-    async def sync_global_agent_store_from_mcp_json(self):
+    async def sync_global_agent_store_from_mcp_json(self, *, delete_missing: bool = True):
         """从mcp.json同步global_agent_store（核心方法）"""
         async with self.sync_lock:
             try:
@@ -210,7 +232,7 @@ class UnifiedMCPSyncManager:
                 logger.debug(f"Found {len(services)} services in mcp.json")
 
                 # 执行同步
-                results = await self._sync_global_agent_store_services(services)
+                results = await self._sync_global_agent_store_services(services, delete_missing=delete_missing)
 
                 #  新增：记录同步时间
                 self.last_sync_time = current_time
@@ -222,7 +244,7 @@ class UnifiedMCPSyncManager:
                 logger.error(f"Global agent store sync failed: {e}")
                 raise
                 
-    async def _sync_global_agent_store_services(self, target_services: Dict[str, Any]) -> Dict[str, Any]:
+    async def _sync_global_agent_store_services(self, target_services: Dict[str, Any], *, delete_missing: bool) -> Dict[str, Any]:
         """同步global_agent_store的服务"""
         try:
             global_agent_store_id = self.orchestrator.client_manager.global_agent_store_id
@@ -235,10 +257,11 @@ class UnifiedMCPSyncManager:
             target_names = set(target_services.keys())
             
             to_add = target_names - current_names
-            to_remove = current_names - target_names
+            to_remove = current_names - target_names if delete_missing else set()
             to_update = target_names & current_names
             
             logger.debug(f"Sync plan: +{len(to_add)} -{len(to_remove)} ~{len(to_update)}")
+            logger.info(f"[SYNC_PLAN] add={list(to_add)} remove={list(to_remove)} update={list(to_update)}")
             
             # 执行同步
             results = {
@@ -251,6 +274,7 @@ class UnifiedMCPSyncManager:
             # 1. 移除不再需要的服务
             for service_name in to_remove:
                 try:
+                    logger.info(f"[SYNC_REMOVE] removing service: {service_name}")
                     success = await self._remove_service_from_global_agent_store(service_name)
                     if success:
                         results["removed"].append(service_name)
@@ -287,25 +311,32 @@ class UnifiedMCPSyncManager:
             # 处理更新服务（只有配置真正变化时才更新）
             for service_name in to_update:
                 try:
-                    # 检查配置是否真的有变化
                     current_config = current_services.get(service_name, {})
                     target_config = target_services[service_name]
 
-                    if self._service_config_changed(current_config, target_config):
-                        success = await self._add_service_to_cache_mapping(
-                            agent_id=global_agent_store_id,
-                            service_name=service_name,
-                            service_config=target_config
-                        )
-
-                        if success:
-                            services_to_register[service_name] = target_config
-                            results["updated"].append(service_name)
-                            logger.debug(f"Updated service in cache: {service_name}")
-                        else:
-                            results["failed"].append(f"update:{service_name}")
-                    else:
+                    if not self._service_config_changed(current_config, target_config):
                         logger.debug(f"Service {service_name} config unchanged, skipping update")
+                        continue
+
+                    success = await self._add_service_to_cache_mapping(
+                        agent_id=global_agent_store_id,
+                        service_name=service_name,
+                        service_config=target_config
+                    )
+
+                    if success:
+                        try:
+                            await self.orchestrator.registry.update_service_config_async(service_name, target_config)
+                        except Exception as upd_err:
+                            logger.error(f"Failed to update service entity config for {service_name}: {upd_err}")
+                            results["failed"].append(f"update:{service_name}:config_write")
+                            continue
+
+                        services_to_register[service_name] = target_config
+                        results["updated"].append(service_name)
+                        logger.debug(f"Updated service in cache: {service_name}")
+                    else:
+                        results["failed"].append(f"update:{service_name}")
 
                 except Exception as e:
                     logger.error(f"Failed to update service {service_name}: {e}")
@@ -329,34 +360,26 @@ class UnifiedMCPSyncManager:
             raise
 
     async def _get_current_global_agent_store_services(self) -> Dict[str, Any]:
-        """获取当前global_agent_store的服务配置"""
+        """获取当前 global_agent_store 的服务配置（以 KV/Registry 为真源）"""
         try:
-            # single-source: derive current services from registry cache layer
             agent_id = self.orchestrator.client_manager.global_agent_store_id
-            current_services = {}
-            try:
-                # 使用 _cache_layer_manager（CacheLayerManager）获取所有服务实体
-                # 不再使用 _cache_layer，因为它在 Redis 模式下是 RedisStore，没有 get_all_entities_async 方法
-                service_entities = await self.orchestrator.registry._cache_layer_manager.get_all_entities_async("services")
+            current_services: Dict[str, Any] = {}
 
-                for entity_key, entity_data in service_entities.items():
-                    if hasattr(entity_data, 'value'):
-                        data = entity_data.value
-                    elif isinstance(entity_data, dict):
-                        data = entity_data
-                    else:
-                        continue
+            service_entities = await self.orchestrator.registry._cache_layer_manager.get_all_entities_async("services")
+            for entity_key, entity_data in service_entities.items():
+                if hasattr(entity_data, 'value'):
+                    data = entity_data.value
+                elif isinstance(entity_data, dict):
+                    data = entity_data
+                else:
+                    continue
 
-                    # 只处理指定agent_id的服务
-                    if data.get('source_agent') == agent_id:
-                        service_name = data.get('service_original_name', entity_key)
-                        config = self.orchestrator.mcp_config.get_service_config(service_name) or {}
-                        if config:
-                            current_services[service_name] = config
+                if data.get('source_agent') != agent_id:
+                    continue
 
-            except Exception as e:
-                logger.error(f"Failed to get current service: {e}")
-                current_services = {}
+                service_name = data.get('service_original_name', entity_key)
+                config = data.get('config') or {}
+                current_services[service_name] = config
 
             return current_services
 
@@ -369,21 +392,50 @@ class UnifiedMCPSyncManager:
         try:
             global_agent_store_id = self.orchestrator.client_manager.global_agent_store_id
 
-            # 查找包含该服务的client_ids
-            matching_clients = self.orchestrator.client_manager.find_clients_with_service(
-                global_agent_store_id, service_name
-            )
+            # 查找包含该服务的client_ids（通过 registry 公共接口获取 agent 的 clients 再筛选）
+            matching_clients = []
+            try:
+                client_ids = await self.orchestrator.registry.get_agent_clients_async(global_agent_store_id)
+                logger.info(f"[SYNC_REMOVE] clients of {global_agent_store_id}: {client_ids}")
+                for cid in client_ids:
+                    client_entity = await self.orchestrator.registry.get_client_config_from_cache_async(cid)
+                    services = (client_entity.get("services") if isinstance(client_entity, dict) else None) or []
+                    if service_name in services:
+                        matching_clients.append(cid)
+            except Exception as e:
+                logger.error(f"Failed to enumerate clients for removal: {e}")
 
-            # 移除包含该服务的clients
-            for client_id in matching_clients:
-                self.orchestrator.client_manager._remove_client_and_mapping(global_agent_store_id, client_id)
-                logger.debug(f"Removed client {client_id} containing service {service_name}")
+            # 记录客户端映射（不阻断删除，交由 remove_service_async 清理关系）
+            if matching_clients:
+                logger.info(f"[SYNC_REMOVE] will remove service {service_name} with client mappings {matching_clients}")
 
             # 从Registry移除（使用异步版本）
             if hasattr(self.orchestrator.registry, 'remove_service_async'):
-                await self.orchestrator.registry.remove_service_async(global_agent_store_id, service_name)
+                logger.info(f"[SYNC_REMOVE] calling registry.remove_service_async agent={global_agent_store_id} service={service_name}")
+                registry_obj = self.orchestrator.registry
+                remove_attr = getattr(registry_obj, 'remove_service_async', None)
+                logger.info(
+                    "[SYNC_REMOVE][DIAG] registry=%s remove_service_async=%s is_coro_fn=%s module=%s",
+                    type(registry_obj),
+                    remove_attr,
+                    inspect.iscoroutinefunction(remove_attr),
+                    inspect.getmodule(remove_attr).__name__ if remove_attr else None
+                )
+                try:
+                    result = remove_attr(global_agent_store_id, service_name) if remove_attr else None
+                    if inspect.iscoroutine(result):
+                        await result
+                    else:
+                        logger.warning(
+                            "[SYNC_REMOVE][DIAG] remove_service_async returned non-coroutine: %s (%s)",
+                            result, type(result)
+                        )
+                    logger.info(f"[SYNC_REMOVE] registry.remove_service_async completed agent={global_agent_store_id} service={service_name}")
+                except Exception as rm_err:
+                    logger.error(f"[SYNC_REMOVE] registry.remove_service_async failed agent={global_agent_store_id} service={service_name}: {rm_err}", exc_info=True)
+                    return False
 
-            return len(matching_clients) > 0
+            return True
 
         except Exception as e:
             logger.error(f"Error removing service {service_name} from main client: {e}")

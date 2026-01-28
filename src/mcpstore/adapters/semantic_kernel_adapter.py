@@ -21,7 +21,7 @@ class SemanticKernelAdapter:
         self._context = context
 
     def list_tools(self) -> List[Callable[..., Any]]:
-        return self._context._sync_helper.run_async(self.list_tools_async())
+        return self._context._run_async_via_bridge(self.list_tools_async(), op_name="semantic_kernel_adapter.list_tools")
 
     async def list_tools_async(self) -> List[Callable[..., Any]]:
         tools: List[Callable[..., Any]] = []
@@ -31,4 +31,3 @@ class SemanticKernelAdapter:
             fn = build_sync_executor(self._context, t.name, args_schema)
             tools.append(fn)
         return tools
-

@@ -170,14 +170,6 @@ class BidirectionalSyncManager:
                     new_config
                 )
             
-            # 2. 更新 mcp.json（使用 UnifiedConfigManager 自动刷新缓存）
-            success = self.store._unified_config.add_service_config(global_name, new_config)
-            
-            if success:
-                logger.debug(f"[BIDIRECTIONAL_SYNC] [SUCCESS] Store configuration update successful: {global_name}, cache synchronized")
-            else:
-                logger.error(f"[BIDIRECTIONAL_SYNC] [ERROR] Store configuration update failed: {global_name}")
-            
         except Exception as e:
             logger.error(f"[BIDIRECTIONAL_SYNC] [ERROR] Failed to update Store service configuration {global_name}: {e}")
             raise
@@ -203,14 +195,6 @@ class BidirectionalSyncManager:
                 self.store.client_manager.global_agent_store_id, 
                 global_name
             )
-            
-            # 2. 从 mcp.json 中删除（使用 UnifiedConfigManager 自动刷新缓存）
-            success = self.store._unified_config.remove_service_config(global_name)
-            
-            if success:
-                logger.debug(f"[BIDIRECTIONAL_SYNC] [SUCCESS] Store service deletion successful: {global_name}, cache synchronized")
-            else:
-                logger.error(f"[BIDIRECTIONAL_SYNC] [ERROR] Store service deletion failed: {global_name}")
             
         except Exception as e:
             logger.error(f"[BIDIRECTIONAL_SYNC] [ERROR] Failed to delete Store service {global_name}: {e}")

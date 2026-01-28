@@ -43,6 +43,9 @@ class CacheProxy:
     def read_state(self, state_type: Optional[Any] = None, key: Optional[str] = None) -> List[Dict[str, Any]]:
         return self._run_async(self.read_state_async(state_type, key), "cache_proxy.read_state")
 
+    def read_event(self, event_type: Optional[Any] = None, key: Optional[str] = None) -> List[Dict[str, Any]]:
+        return self._run_async(self.read_event_async(event_type, key), "cache_proxy.read_event")
+
     def dump_all(self) -> Dict[str, Any]:
         return self._run_async(self.dump_all_async(), "cache_proxy.dump_all")
 
@@ -62,16 +65,22 @@ class CacheProxy:
         types = self._resolve_types(state_type, default=["service_status", "service_metadata"])
         return await self._read_layer(types, key, layer="state")
 
+    async def read_event_async(self, event_type: Optional[Any] = None, key: Optional[str] = None) -> List[Dict[str, Any]]:
+        types = self._resolve_types(event_type, default=["events"])
+        return await self._read_layer(types, key, layer="event")
+
     async def dump_all_async(self) -> Dict[str, Any]:
-        entities, relations, states = await asyncio.gather(
+        entities, relations, states, events = await asyncio.gather(
             self.read_entity_async(),
             self.read_relation_async(),
             self.read_state_async(),
+            self.read_event_async(),
         )
         return {
             "entities": entities,
             "relations": relations,
             "states": states,
+            "events": events,
             "metadata": {
                 "namespace": getattr(self._cache_layer, "_namespace", None),
                 "backend": self.get_backend_type(),
@@ -84,6 +93,7 @@ class CacheProxy:
         entities = await self.read_entity_async()
         relations = await self.read_relation_async()
         states = await self.read_state_async()
+        events = await self.read_event_async()
 
         def _count_by_type(items: List[Dict[str, Any]]) -> Dict[str, int]:
             counts: Dict[str, int] = {}
@@ -100,11 +110,13 @@ class CacheProxy:
                 "entities": _count_by_type(entities),
                 "relations": _count_by_type(relations),
                 "states": _count_by_type(states),
+                "events": _count_by_type(events),
             },
-            "collections": sorted({item.get("_collection") for item in (entities + relations + states) if item.get("_collection")}),
+            "collections": sorted({item.get("_collection") for item in (entities + relations + states + events) if item.get("_collection")}),
             "entities": entities,
             "relations": relations,
             "states": states,
+            "events": events,
         }
 
     # === 辅助方法 ===
@@ -216,6 +228,16 @@ class CacheProxy:
                             results.append(self._wrap_result(t, key, data, collection))
                     else:
                         all_data = await self._await_safe(self._cache_layer.get_all_states_async(t), f"cache.read_states.{t}")
+                        for k, v in all_data.items():
+                            results.append(self._wrap_result(t, k, v, collection))
+                elif layer == "event":
+                    collection = self._cache_layer._get_event_collection(t)
+                    if key:
+                        data = await self._await_safe(self._cache_layer.get_event(t, key), f"cache.read_event.{t}")
+                        if data is not None:
+                            results.append(self._wrap_result(t, key, data, collection))
+                    else:
+                        all_data = await self._await_safe(self._cache_layer.get_all_events_async(t), f"cache.read_events.{t}")
                         for k, v in all_data.items():
                             results.append(self._wrap_result(t, k, v, collection))
             except Exception as e:

@@ -175,6 +175,19 @@ class StoreSetupManager:
             cache = MemoryConfig()
             logger.debug("Using default MemoryConfig for cache")
 
+        # 事件日志配置（默认开启）
+        event_features = {}
+        if isinstance(stat, dict):
+            event_features = stat.get("features", {}).get("event_log", {}) or {}
+        # 事件层默认开启，统一走事件队列
+        event_log_enabled = True
+        event_max_queue_length = int(event_features.get("max_queue_length", 1_000_000))
+        event_dedup_ttl = float(event_features.get("dedup_ttl_seconds", 86400.0))
+        event_batch_size = int(event_features.get("batch_size", 100))
+        event_poll_interval = float(event_features.get("poll_interval", 1.0))
+        event_lease_ttl = float(event_features.get("lease_ttl", 30.0))
+        event_consumer_id = event_features.get("consumer_id")
+
         # Detect data source strategy based on cache type and explicit only_db toggle
         strategy = detect_strategy(cache, resolved_mcp_path, only_db=only_db)
         logger.info(f"Cache initialization: type={cache.cache_type.value}, strategy={strategy.value}")
@@ -223,6 +236,21 @@ class StoreSetupManager:
             # For MemoryStore, async entry also needs to avoid blocking current event loop
             kv_store = await StoreSetupManager._create_memory_store(cache, create_kv_store)
             logger.info(f"Created KV store: {type(kv_store).__name__}")
+        
+        from mcpstore.core.eventlog.event_store import EventStore
+        event_store = None
+        if event_log_enabled:
+            try:
+                event_store = EventStore(
+                    kv_store=kv_store,
+                    namespace=namespace,
+                    max_queue_length=event_max_queue_length,
+                    dedup_ttl_seconds=event_dedup_ttl,
+                )
+                logger.info(f"EventStore initialized: namespace={namespace}")
+            except Exception as e:
+                logger.error(f"Failed to initialize EventStore: {e}", exc_info=True)
+                event_store = None
         
         # Use factory pattern for zero delegation
         # Pass unified namespace to registry
@@ -326,9 +354,38 @@ class StoreSetupManager:
 
         # 6) Instantiate Store (fixed composition class)
         from mcpstore.core.store.composed_store import MCPStore as _MCPStore
-        store = _MCPStore(orchestrator, config)
+        store = _MCPStore(
+            orchestrator,
+            config,
+            event_store=event_store,
+            event_syncer=None,
+            health_enabled=not only_db,
+            reconnection_enabled=not only_db,
+            enable_event_log=True,
+            is_only_db=only_db,
+            event_lease_ttl=event_lease_ttl,
+        )
         # Always set data space manager since we always create it now
         store._data_space_manager = dsm
+
+        # 6.1) Attach event syncer（仅控制平面）
+        if event_log_enabled and not only_db and event_store is not None:
+            try:
+                from mcpstore.core.eventlog.event_syncer import EventSyncer
+                event_syncer = EventSyncer(
+                    event_store=event_store,
+                    event_bus=store.container.event_bus,
+                    consumer_id=event_consumer_id,
+                    batch_size=event_batch_size,
+                    poll_interval=event_poll_interval,
+                    lease_ttl=event_lease_ttl,
+                    enable_lease=True,
+                    dedup_enabled=True,
+                )
+                store.container.attach_event_syncer(event_syncer)
+                logger.info("EventSyncer attached to container")
+            except Exception as sync_err:
+                logger.error(f"Failed to initialize EventSyncer: {sync_err}", exc_info=True)
 
         # 7) Synchronously initialize orchestrator
         # Critical: For Redis backend, must use AOB to ensure execution in same event loop

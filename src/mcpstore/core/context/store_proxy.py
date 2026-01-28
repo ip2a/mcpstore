@@ -4,6 +4,7 @@ Lightweight, stateless handle that delegates to the underlying context.
 All data is retrieved on demand from registry/cache to ensure freshness.
 """
 
+import asyncio
 from typing import Any, Dict, List, TYPE_CHECKING
 
 from mcpstore.core.models.tool import ToolInfo
@@ -56,10 +57,26 @@ class StoreProxy:
         return ServiceProxy(self._context, name)
 
     def list_agents(self) -> List[Dict[str, Any]]:
-        # 同步方法，使用异步桥在统一事件循环中执行
-        return self._context._run_async_via_bridge(
-            self.list_agents_async(),
-            op_name="store_proxy.list_agents"
+        """
+        列出所有 Agent（同步接口）
+
+        标准处理：
+        - 同步环境：通过 AOB 执行异步协程。
+        - 已有事件循环：明确报错，要求调用方改用 list_agents_async。
+        """
+        coro = self.list_agents_async()
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # 同步环境，走标准 AOB 路径
+            return self._context._run_async_via_bridge(
+                coro,
+                op_name="store_proxy.list_agents"
+            )
+
+        # 已存在事件循环，快速失败并给出正确用法
+        raise RuntimeError(
+            "检测到正在运行的事件循环：请使用 await store.for_store().list_agents_async()"
         )
 
     async def list_agents_async(self) -> List[Dict[str, Any]]:

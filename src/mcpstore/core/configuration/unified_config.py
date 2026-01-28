@@ -41,13 +41,17 @@ class UnifiedConfigManager:
     """
 
     def __init__(self,
-                 mcp_config: Optional[MCPConfig] = None):
+                 mcp_config: Optional[MCPConfig] = None,
+                 *,
+                 file_write_enabled: bool = True):
         """Initialize unified configuration manager
 
         Args:
             mcp_config: MCPConfig instance (if None, creates default instance)
+            file_write_enabled: whether to persist changes to mcp.json
         """
         self.logger = logger
+        self._file_write_enabled = file_write_enabled
 
         # 初始化各个配置组件
         # standalone_config: 来自 config.toml + MCPStoreConfig 的全局非敏感配置
@@ -88,6 +92,10 @@ class UnifiedConfigManager:
         """刷新指定类型的配置缓存"""
         try:
             if config_type == ConfigType.MCP_SERVICES:
+                # 当禁用文件写入时，避免反复覆盖内存缓存；仅在初始化或显式需要时加载一次
+                if (not self._file_write_enabled) and config_type in self._config_cache:
+                    self._cache_valid[config_type] = True
+                    return
                 self._config_cache[config_type] = self.mcp_config.load_config()
                 self._cache_valid[config_type] = True
             elif config_type in (ConfigType.CLIENT_SERVICES, ConfigType.AGENT_CLIENTS):
@@ -112,6 +120,10 @@ class UnifiedConfigManager:
         Returns:
             配置字典
         """
+        # 禁用文件写入时，避免因为强制刷新而用旧文件覆盖内存最新状态
+        if config_type == ConfigType.MCP_SERVICES and not self._file_write_enabled:
+            force_reload = False
+
         if force_reload or not self._cache_valid.get(config_type, False):
             if config_type == ConfigType.STANDALONE:
                 self.standalone_config = load_app_config()
@@ -174,6 +186,13 @@ class UnifiedConfigManager:
             更新是否成功
         """
         try:
+            if not self._file_write_enabled:
+                # 仅更新内存缓存，跳过磁盘持久化
+                self._config_cache[ConfigType.MCP_SERVICES] = config
+                self._cache_valid[ConfigType.MCP_SERVICES] = True
+                self.logger.debug("MCP config updated in-memory (file write disabled)")
+                return True
+
             result = self.mcp_config.save_config(config)
             if result:
                 self._refresh_cache(ConfigType.MCP_SERVICES)
@@ -329,7 +348,7 @@ class UnifiedConfigManager:
         """
         try:
             # 强制从磁盘拉取最新配置，避免缓存滞后导致覆盖
-            current_config = self.get_config(ConfigType.MCP_SERVICES, force_reload=True)
+            current_config = self.get_config(ConfigType.MCP_SERVICES, force_reload=self._file_write_enabled)
             
             # 确保 mcpServers 存在
             if "mcpServers" not in current_config:
@@ -361,7 +380,7 @@ class UnifiedConfigManager:
         """
         try:
             # 删除前强制刷新，避免使用过期缓存
-            current_config = self.get_config(ConfigType.MCP_SERVICES, force_reload=True)
+            current_config = self.get_config(ConfigType.MCP_SERVICES, force_reload=self._file_write_enabled)
             
             # 如果服务存在，则删除
             if service_name in current_config.get("mcpServers", {}):
@@ -466,6 +485,12 @@ class UnifiedConfigManager:
         """
         async with self._config_lock:
             try:
+                if not self._file_write_enabled:
+                    self._config_cache[ConfigType.MCP_SERVICES] = config
+                    self._cache_valid[ConfigType.MCP_SERVICES] = True
+                    logger.debug(" MCP config updated in-memory (async), file write disabled")
+                    return True
+
                 result = self.mcp_config.save_config(config)
                 if result:
                     self._refresh_cache(ConfigType.MCP_SERVICES)

@@ -4,6 +4,7 @@ MCPStore Service Management Module
 """
 
 import asyncio
+import datetime
 import logging
 import time
 from typing import Dict, List, Optional, Any, Union, Tuple
@@ -686,12 +687,11 @@ class ServiceManagementMixin:
             logger.debug(f"[RESET_CONFIG] [CLEAN] Cleaning Agent: {agent_id}")
             await self._store.registry.clear_async(agent_id)
         
-        # 3. 重置 mcp.json 文件
-        default_config = {"mcpServers": {}}
-        mcp_success = self._store._unified_config.update_mcp_config(default_config)
+        # 3. 单源模式：不再重置 mcp.json，重置以 KV 为准
+        logger.info("[RESET_CONFIG] [STORE] Single-source KV: skip mcp.json reset")
         
         logger.info("[RESET_CONFIG] [STORE] Store level: configuration reset completed")
-        return mcp_success
+        return True
 
     async def _reset_agent_config(self) -> bool:
         """Agent级别重置配置的内部实现"""
@@ -1071,26 +1071,21 @@ class ServiceManagementMixin:
             if not self._store.registry.get_session(global_agent_store_id, service_name):
                 logger.warning(f"Service {service_name} not found in registry, but continuing with cleanup")
 
-            # 事务性删除：先删除文件配置，再删除缓存
-            # 1. 从mcp.json中删除服务配置（使用 UnifiedConfigManager 自动刷新缓存）
-            success = self._store._unified_config.remove_service_config(service_name)
-            if success:
-                logger.info(f"[DELETE_CONFIG] [SUCCESS] Service removed from mcp.json: {service_name}, cache synchronized")
-
-            # 2. 从缓存中删除服务（包括工具和会话）- 使用异步版本
+            # 事务性删除：直接删除缓存/映射，不触碰文件
+            # 1. 从缓存中删除服务（包括工具和会话）- 使用异步版本
             await self._store.registry.remove_service_async(global_agent_store_id, service_name)
 
-            # 3. 删除Service-Client映射
+            # 2. 删除Service-Client映射
             self._store.registry.remove_service_client_mapping(global_agent_store_id, service_name)
 
-            # 4. 删除Client配置
+            # 3. 删除Client配置
             self._store.registry.remove_client_config(client_id)
 
-            # 5. 删除Agent-Client映射
+            # 4. 删除Agent-Client映射
             self._store.registry.remove_agent_client_mapping(global_agent_store_id, client_id)
 
-            # 6. 单源模式：不再同步到分片文件
-            logger.info("Single-source mode: skip shard mapping files sync")
+            # 5. 单源模式：不再同步到分片文件或 mcp.json
+            logger.info("Single-source mode: skip file/shard sync")
 
             logger.info(f"[DELETE_CONFIG] [STORE] Store level: configuration deletion completed {service_name}")
 
@@ -1266,15 +1261,10 @@ class ServiceManagementMixin:
                 metadata.state_entered_time = datetime.now()
                 self._store.registry.set_service_metadata(global_agent_store_id, service_name, metadata)
 
-            # 4. 更新mcp.json文件（使用 UnifiedConfigManager 自动刷新缓存）
-            success = self._store._unified_config.add_service_config(service_name, normalized_config)
-            if not success:
-                raise Exception(f"Failed to update service config for {service_name}")
+            # 4. 单源模式：不再同步到 mcp.json 或分片文件
+            logger.info("Single-source mode: skip file/shard sync")
 
-            # 5. 单源模式：不再同步到分片文件
-            logger.info("Single-source mode: skip shard mapping files sync")
-
-            # 6. 触发生命周期管理器重新初始化服务
+            # 5. 触发生命周期管理器重新初始化服务
             await self._store.orchestrator.lifecycle_manager.initialize_service(
                 global_agent_store_id, service_name, normalized_config
             )
@@ -1543,13 +1533,8 @@ class ServiceManagementMixin:
                 service_name
             )
 
-            # 2. 从 mcp.json 中删除（使用 UnifiedConfigManager 自动刷新缓存）
-            success = self._store._unified_config.remove_service_config(service_name)
-            
-            if success:
-                    logger.info(f"[SERVICE_DELETE] [STORE] Store service deletion successful: {service_name}, cache synchronized")
-            else:
-                logger.error(f" [SERVICE_DELETE] Store service deletion failed: {service_name}")
+            # 2. 单源模式：不再同步到 mcp.json
+            logger.info("[SERVICE_DELETE] [STORE] Skip file sync (single-source KV)")
 
             # 3. 触发双向同步（如果是 Agent 服务）
             if hasattr(self._store, 'bidirectional_sync_manager'):
@@ -1601,13 +1586,8 @@ class ServiceManagementMixin:
             # 4. 移除映射关系（仅映射表，不触发关系/状态删除）
             await self._store.registry.remove_agent_service_mapping_async(self._agent_id, local_name)
 
-            # 5. 从 mcp.json 中删除（使用 UnifiedConfigManager 自动刷新缓存）
-            success = success and self._store._unified_config.remove_service_config(global_name)
-            
-            if success:
-                logger.info(f"[SERVICE_DELETE] [AGENT] Agent service deletion successful: {local_name} -> {global_name}, cache synchronized")
-            else:
-                logger.error(f" [SERVICE_DELETE] Agent service deletion failed: {local_name} -> {global_name}")
+            # 5. 单源模式：不再同步到 mcp.json
+            logger.info("[SERVICE_DELETE] [AGENT] Skip file sync (single-source KV)")
 
             # 6. 清理服务状态数据
             try:
@@ -1689,7 +1669,9 @@ class ServiceManagementMixin:
             raise_on_timeout: 超时时是否抛出异常，默认False
 
         Returns:
-            dict: {success, status, retries_remaining, hard_timeout_remaining, last_error, window_metrics}
+            dict: {success, status, window_metrics, retry_in, hard_timeout_in, lease_remaining,
+                   next_retry_time, hard_deadline, lease_deadline, response_time,
+                   consecutive_failures, last_state_change, hard_timeout_remaining, last_error}
 
         Raises:
             TimeoutError: 当raise_on_timeout=True且超时时抛出
@@ -1711,7 +1693,8 @@ class ServiceManagementMixin:
             # 直接调用同步外壳，避免_sync_helper.run_async的复杂性
             result = self._service_management_sync_shell.wait_service(service_name, timeout)
             if isinstance(result, bool):
-                result = {"success": bool(result)}
+                result = {"success": bool(result), "status": None}
+            result = self._enrich_wait_result(result)
             if not result.get("success") and raise_on_timeout:
                 raise TimeoutError(f"Service {service_name} did not reach status {status} within {timeout} seconds")
             return result
@@ -1736,7 +1719,9 @@ class ServiceManagementMixin:
             raise_on_timeout: 超时时是否抛出异常，默认False
 
         Returns:
-            dict: {success, status, retries_remaining, hard_timeout_remaining, last_error, window_metrics}
+            dict: {success, status, window_metrics, retry_in, hard_timeout_in, lease_remaining,
+                   next_retry_time, hard_deadline, lease_deadline, response_time,
+                   consecutive_failures, last_state_change, hard_timeout_remaining, last_error}
 
         Raises:
             TimeoutError: 当raise_on_timeout=True且超时时抛出
@@ -1789,12 +1774,12 @@ class ServiceManagementMixin:
                     logger.warning(msg)
                     if raise_on_timeout:
                         raise TimeoutError(msg)
-                    return {
+                    return self._enrich_wait_result({
                         "success": False,
                         "status": prev_status or "unknown",
                         "hard_timeout_remaining": max(timeout - elapsed, 0.0),
                         "last_error": msg,
-                    }
+                    }, meta=last_meta)
 
                 # 获取当前状态（先读一次缓存，随后在必要时读一次新缓存以防止竞态）
                 try:
@@ -1811,6 +1796,10 @@ class ServiceManagementMixin:
                                 "sample_size": getattr(meta, "sample_size", None),
                                 "next_retry_time": getattr(meta, "next_retry_time", None),
                                 "hard_deadline": getattr(meta, "hard_deadline", None),
+                                "lease_deadline": getattr(meta, "lease_deadline", None),
+                                "response_time": getattr(meta, "response_time", None),
+                                "consecutive_failures": getattr(meta, "consecutive_failures", None),
+                                "last_state_change": getattr(meta, "state_entered_time", None) or getattr(meta, "last_health_check", None),
                                 "last_error": getattr(meta, "error_message", None),
                             }
                     except Exception as meta_err:
@@ -1834,36 +1823,20 @@ class ServiceManagementMixin:
                     if change_mode:
                         if current_status != initial_status:
                             logger.info(f"[WAIT_SERVICE] done mode=change service='{service_name}' from='{initial_status}' to='{current_status}' elapsed={elapsed:.2f}s")
-                            return {
+                            return self._enrich_wait_result({
                                 "success": True,
                                 "status": current_status,
-                                "window_metrics": {
-                                    "error_rate": last_meta.get("window_error_rate") if last_meta else None,
-                                    "latency_p95": last_meta.get("latency_p95") if last_meta else None,
-                                    "latency_p99": last_meta.get("latency_p99") if last_meta else None,
-                                    "sample_size": last_meta.get("sample_size") if last_meta else None,
-                                } if last_meta else None,
-                                "retry_in": self._remaining_seconds(last_meta.get("next_retry_time")) if last_meta else None,
-                                "hard_timeout_in": self._remaining_seconds(last_meta.get("hard_deadline")) if last_meta else None,
                                 "last_error": last_meta.get("last_error") if last_meta else None,
-                            }
+                            }, meta=last_meta)
                     else:
                         # 检查是否达到目标状态
                         if current_status in target_statuses:
                             logger.info(f"[WAIT_SERVICE] done mode=target service='{service_name}' reached='{current_status}' elapsed={elapsed:.2f}s")
-                            return {
+                            return self._enrich_wait_result({
                                 "success": True,
                                 "status": current_status,
-                                "window_metrics": {
-                                    "error_rate": last_meta.get("window_error_rate") if last_meta else None,
-                                    "latency_p95": last_meta.get("latency_p95") if last_meta else None,
-                                    "latency_p99": last_meta.get("latency_p99") if last_meta else None,
-                                    "sample_size": last_meta.get("sample_size") if last_meta else None,
-                                } if last_meta else None,
-                                "retry_in": self._remaining_seconds(last_meta.get("next_retry_time")) if last_meta else None,
-                                "hard_timeout_in": self._remaining_seconds(last_meta.get("hard_deadline")) if last_meta else None,
                                 "last_error": last_meta.get("last_error") if last_meta else None,
-                            }
+                            }, meta=last_meta)
                 except Exception as e:
                     # 降级到 debug，避免无意义刷屏
                     logger.debug(f"[WAIT_SERVICE] status_error service='{service_name}' error={e}")
@@ -1895,6 +1868,72 @@ class ServiceManagementMixin:
             return None
         except Exception:
             return None
+
+    @staticmethod
+    def _serialize_time(dt: Any) -> Any:
+        """统一序列化时间字段为 ISO 字符串或原值"""
+        try:
+            if isinstance(dt, datetime.datetime):
+                return dt.isoformat()
+            return dt
+        except Exception:
+            return dt
+
+    def _enrich_wait_result(self, result: Dict[str, Any], meta: Any = None) -> Dict[str, Any]:
+        """
+        将 wait_service 返回结构补齐到与健康状态对齐：
+        - window_metrics（错误率/延迟分位/样本数）
+        - retry_in/hard_timeout_in/lease_remaining
+        - next_retry_time/hard_deadline/lease_deadline（ISO 字符串）
+        - response_time/consecutive_failures/last_state_change
+        """
+        enriched = dict(result or {})
+
+        def _read_meta(key: str) -> Any:
+            if meta is None:
+                return None
+            if hasattr(meta, key):
+                return getattr(meta, key)
+            if isinstance(meta, dict):
+                return meta.get(key)
+            return None
+
+        def _set_default(key: str, value: Any):
+            if key not in enriched or enriched.get(key) is None:
+                enriched[key] = value
+
+        window_metrics = None
+        error_rate = _read_meta("window_error_rate")
+        latency_p95 = _read_meta("latency_p95")
+        latency_p99 = _read_meta("latency_p99")
+        sample_size = _read_meta("sample_size")
+        if any(v is not None for v in (error_rate, latency_p95, latency_p99, sample_size)):
+            window_metrics = {
+                "error_rate": error_rate,
+                "latency_p95": latency_p95,
+                "latency_p99": latency_p99,
+                "sample_size": sample_size,
+            }
+
+        next_retry_time = _read_meta("next_retry_time")
+        hard_deadline = _read_meta("hard_deadline")
+        lease_deadline = _read_meta("lease_deadline")
+        response_time = _read_meta("response_time") or _read_meta("last_response_time")
+        consecutive_failures = _read_meta("consecutive_failures")
+        last_state_change = _read_meta("last_state_change") or _read_meta("state_entered_time") or _read_meta("last_health_check")
+
+        _set_default("status", enriched.get("status", "unknown"))
+        _set_default("window_metrics", window_metrics)
+        _set_default("retry_in", self._remaining_seconds(next_retry_time))
+        _set_default("hard_timeout_in", self._remaining_seconds(hard_deadline))
+        _set_default("lease_remaining", self._remaining_seconds(lease_deadline))
+        _set_default("next_retry_time", self._serialize_time(next_retry_time))
+        _set_default("hard_deadline", self._serialize_time(hard_deadline))
+        _set_default("lease_deadline", self._serialize_time(lease_deadline))
+        _set_default("response_time", response_time)
+        _set_default("consecutive_failures", consecutive_failures)
+        _set_default("last_state_change", self._serialize_time(last_state_change))
+        return enriched
 
     def _normalize_target_statuses(self, status: Union[str, List[str]]) -> List[str]:
         """

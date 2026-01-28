@@ -3,7 +3,6 @@
 import json
 import keyword
 import logging
-import re
 import warnings
 from dataclasses import asdict, is_dataclass
 from typing import Type, List, TYPE_CHECKING
