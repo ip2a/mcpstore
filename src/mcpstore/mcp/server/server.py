@@ -42,7 +42,7 @@ from starlette.routing import BaseRoute
 from typing_extensions import Self
 
 import mcpstore.mcp as mcpstore_mcp
-import mcpstore.mcp.server as mcpstore_server
+from mcpstore.mcp import settings
 from mcpstore.mcp.exceptions import (
     AuthorizationError,
     MCPStoreError,
@@ -52,7 +52,6 @@ from mcpstore.mcp.exceptions import (
     ToolError,
     ValidationError,
 )
-from mcpstore.mcp import settings
 from mcpstore.mcp.mcp_config import MCPConfig
 from mcpstore.mcp.prompts import Prompt
 from mcpstore.mcp.prompts.function_prompt import FunctionPrompt

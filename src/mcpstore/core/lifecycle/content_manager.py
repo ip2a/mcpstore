@@ -9,10 +9,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, Set, Optional, List, Any, Tuple
 
-from mcpstore.mcp import Client
-
 from mcpstore.config.config_dataclasses import ContentUpdateConfig
 from mcpstore.core.configuration.config_processor import ConfigProcessor
+from mcpstore.mcp import Client
 
 logger = logging.getLogger(__name__)
 

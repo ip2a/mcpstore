@@ -21,7 +21,6 @@ import mcp.types
 from mcp.shared.exceptions import McpError
 from mcp.types import ErrorData, Icon, ToolAnnotations, ToolExecution
 
-import mcpstore.mcp as mcpstore_mcp
 from mcpstore.mcp.decorators import resolve_task_config
 from mcpstore.mcp.server.dependencies import without_injected_parameters
 from mcpstore.mcp.server.tasks.config import TaskConfig

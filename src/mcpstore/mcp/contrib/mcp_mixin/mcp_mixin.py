@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any
 
 from mcp.types import Annotations, ToolAnnotations
 
-import mcpstore.mcp as mcpstore_mcp
 from mcpstore.mcp.prompts.prompt import Prompt
 from mcpstore.mcp.resources.resource import Resource
 from mcpstore.mcp.tools.tool import Tool

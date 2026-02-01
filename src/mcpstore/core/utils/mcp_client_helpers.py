@@ -8,9 +8,8 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Dict
 
-from mcpstore.mcp import Client
-
 from mcpstore.core.configuration.config_processor import ConfigProcessor
+from mcpstore.mcp import Client
 
 
 @asynccontextmanager

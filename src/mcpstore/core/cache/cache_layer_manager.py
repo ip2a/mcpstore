@@ -884,8 +884,7 @@ class CacheLayerManager:
             ValueError: 如果 value 不是字典类型
             RuntimeError: 如果 pykv 操作失败
         """
-        import asyncio
-        
+
         if not isinstance(value, dict):
             raise ValueError(
                 f"State value must be a dict type, actual type: {type(value).__name__}. "
@@ -939,8 +938,7 @@ class CacheLayerManager:
         Raises:
             RuntimeError: 如果 pykv 操作失败
         """
-        import asyncio
-        
+
         collection = self._get_state_collection(state_type)
         logger.debug(
             f"[CACHE] get_state_sync: collection={collection}, key={key}, "

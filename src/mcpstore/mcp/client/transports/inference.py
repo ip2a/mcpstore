@@ -1,7 +1,6 @@
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast, overload
 
-from mcpstore.mcp.server.server import MCPStore as MCPStore1Server
 from pydantic import AnyUrl
 
 from mcpstore.mcp.client.transports.base import ClientTransport, ClientTransportT
@@ -12,6 +11,7 @@ from mcpstore.mcp.client.transports.sse import SSETransport
 from mcpstore.mcp.client.transports.stdio import NodeStdioTransport, PythonStdioTransport
 from mcpstore.mcp.mcp_config import MCPConfig, infer_transport_type_from_url
 from mcpstore.mcp.server.server import MCPStore
+from mcpstore.mcp.server.server import MCPStore as MCPStore1Server
 from mcpstore.mcp.utilities.logging import get_logger
 
 if TYPE_CHECKING:

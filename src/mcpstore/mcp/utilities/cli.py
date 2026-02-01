@@ -13,7 +13,6 @@ from rich.table import Table
 from rich.text import Text
 
 import mcpstore.mcp as mcpstore_mcp
-from mcpstore.mcp import settings
 from mcpstore.mcp.utilities.logging import get_logger
 from mcpstore.mcp.utilities.mcp_server_config import MCPServerConfig
 from mcpstore.mcp.utilities.mcp_server_config.v1.sources.filesystem import FileSystemSource

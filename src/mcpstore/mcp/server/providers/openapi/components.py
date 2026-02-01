@@ -12,7 +12,6 @@ import httpx
 from mcp.types import ToolAnnotations
 from pydantic.networks import AnyUrl
 
-import mcpstore.mcp as mcpstore_mcp
 from mcpstore.mcp.resources import (
     Resource,
     ResourceContent,

@@ -1,5 +1,4 @@
 # Re-export all public APIs for backward compatibility
-from mcpstore.mcp.server.server import MCPStore as MCPStore1Server
 
 from mcpstore.mcp.client.transports.base import (
     ClientTransport,
@@ -9,8 +8,8 @@ from mcpstore.mcp.client.transports.base import (
 from mcpstore.mcp.client.transports.config import MCPConfigTransport
 from mcpstore.mcp.client.transports.http import StreamableHttpTransport
 from mcpstore.mcp.client.transports.inference import infer_transport
-from mcpstore.mcp.client.transports.sse import SSETransport
 from mcpstore.mcp.client.transports.memory import MCPStoreTransport
+from mcpstore.mcp.client.transports.sse import SSETransport
 from mcpstore.mcp.client.transports.stdio import (
     MCPStoreStdioTransport,
     NodeStdioTransport,
@@ -20,7 +19,6 @@ from mcpstore.mcp.client.transports.stdio import (
     UvStdioTransport,
     UvxStdioTransport,
 )
-from mcpstore.mcp.server.server import MCPStore
 
 __all__ = [
     "ClientTransport",

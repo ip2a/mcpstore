@@ -6,7 +6,6 @@ import mcp.types
 from exceptiongroup import BaseExceptionGroup
 from mcp import McpError
 
-import mcpstore.mcp as mcpstore_mcp
 from mcpstore.mcp import settings
 
 

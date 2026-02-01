@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import abc
 import inspect
-from contextlib import AsyncExitStack
-from contextvars import ContextVar
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, AbstractContextManager
+from contextlib import AsyncExitStack
+from contextvars import ContextVar
 from typing import (
     Any,
     Generic,

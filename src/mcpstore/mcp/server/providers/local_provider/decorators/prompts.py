@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any, overload
 import mcp.types
 from mcp.types import AnyFunction
 
-import mcpstore.mcp as mcpstore_mcp
 from mcpstore.mcp.prompts.function_prompt import FunctionPrompt
 from mcpstore.mcp.prompts.prompt import Prompt
 from mcpstore.mcp.server.tasks.config import TaskConfig

@@ -28,7 +28,6 @@ def check_distributed_backend() -> None:
     Raises:
         SystemExit: If using memory:// URL
     """
-    import mcpstore.mcp as mcpstore_mcp
 
     docket_url = settings.docket.url
 
@@ -76,7 +75,6 @@ def worker(
         mcpstore tasks worker server.py
         mcpstore tasks worker examples/tasks/server.py
     """
-    import mcpstore.mcp as mcpstore_mcp
 
     check_distributed_backend()
 

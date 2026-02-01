@@ -10,11 +10,7 @@ from re import Pattern
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from mcpstore.mcp.server.providers.openapi.components import (
-        OpenAPIResource,
-        OpenAPIResourceTemplate,
-        OpenAPITool,
-    )
+    pass
 
 from mcpstore.mcp.utilities.logging import get_logger
 from mcpstore.mcp.utilities.openapi import HttpMethod, HTTPRoute

@@ -2,6 +2,7 @@
 
 import warnings
 from importlib.metadata import version as _version
+
 from mcpstore.mcp.settings import Settings
 
 settings = Settings()

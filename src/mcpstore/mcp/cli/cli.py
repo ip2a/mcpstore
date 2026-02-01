@@ -17,7 +17,6 @@ from cyclopts import Parameter
 from rich.console import Console
 from rich.table import Table
 
-import mcpstore.mcp as mcpstore_mcp
 from mcpstore.mcp.cli import run as run_module
 from mcpstore.mcp.cli.install import install_app
 from mcpstore.mcp.cli.tasks import tasks_app

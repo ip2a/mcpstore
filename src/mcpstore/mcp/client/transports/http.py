@@ -14,7 +14,6 @@ from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from pydantic import AnyUrl
 from typing_extensions import Unpack
 
-import mcpstore.mcp as mcpstore_mcp
 from mcpstore.mcp.client.auth.bearer import BearerAuth
 from mcpstore.mcp.client.auth.oauth import OAuth
 from mcpstore.mcp.client.transports.base import ClientTransport, SessionKwargs

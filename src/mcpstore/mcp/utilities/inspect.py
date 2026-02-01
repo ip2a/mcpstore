@@ -10,7 +10,6 @@ from typing import Any, Literal, cast
 import pydantic_core
 from mcp.server.mcpstore import MCPStore as MCPStore1x
 
-import mcpstore.mcp as mcpstore_mcp
 from mcpstore.mcp import Client
 from mcpstore.mcp.server.server import MCPStore
 

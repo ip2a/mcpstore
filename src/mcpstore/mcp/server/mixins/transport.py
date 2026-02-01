@@ -15,7 +15,6 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
-import mcpstore.mcp as mcpstore_mcp
 from mcpstore.mcp import settings
 from mcpstore.mcp.server.event_store import EventStore
 from mcpstore.mcp.server.http import (

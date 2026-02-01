@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar, runtime_check
 from mcp.types import Annotations, Icon
 from pydantic import AnyUrl
 
-import mcpstore.mcp as mcpstore_mcp
 from mcpstore.mcp.decorators import resolve_task_config
 from mcpstore.mcp.resources.resource import Resource, ResourceResult
 from mcpstore.mcp.server.apps import resolve_ui_mime_type
