@@ -1,5 +1,5 @@
 """
-MCPStore Service Query Module
+MCP Service Query Module
 服务查询相关功能实现，提供服务列表、详情查询、健康检查等核心功能
 支持 Store 和 Agent 两种上下文模式，实现严格的服务隔离和透明代理
 """

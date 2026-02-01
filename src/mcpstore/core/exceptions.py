@@ -1,5 +1,5 @@
 """
-MCPStore Unified Exception System
+MCP Unified Exception System
 Provides a comprehensive exception hierarchy for both SDK and API usage
 """
 
@@ -106,7 +106,7 @@ class MCPStoreException(Exception):
         cause: Optional[Exception] = None,
         field: Optional[str] = None,
     ):
-        """Initialize MCPStore exception
+        """Initialize MCP exception
         
         Args:
             message: Human-readable error message
