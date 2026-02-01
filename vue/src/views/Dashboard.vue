@@ -56,199 +56,202 @@
     </div>
 
     <!-- Main Content Grid -->
-    <div class="main-layout">
-      <!-- Left Column: Lists -->
-      <div class="content-column left-col">
-        <!-- Services List -->
-        <section class="panel-section">
-          <div class="panel-header">
-            <h3 class="panel-title">
-              Services
-            </h3>
-            <div class="panel-controls">
-              <input 
-                v-model="serviceSearch" 
-                class="atom-input search-input" 
-                placeholder="Search services..."
-              >
-              <select
-                v-model="statusFilter"
-                class="atom-input filter-select"
-              >
-                <option value="all">
-                  All
-                </option>
-                <option value="healthy">
-                  Healthy
-                </option>
-                <option value="unhealthy">
-                  Issues
-                </option>
-              </select>
-            </div>
-          </div>
-          
-          <div class="panel-body table-container">
-            <el-table
-              :data="filteredServices"
-              class="atom-table"
-              :show-header="true"
-              size="small"
+    <div class="content-grid">
+      <!-- Services 列表：主列 -->
+      <section class="panel-section services-panel">
+        <div class="panel-header">
+          <h3 class="panel-title">
+            Services
+          </h3>
+          <div class="panel-controls">
+            <input 
+              v-model="serviceSearch" 
+              class="atom-input search-input" 
+              placeholder="Search services..."
             >
-              <el-table-column
-                prop="name"
-                label="SERVICE"
-                min-width="160"
-              >
-                <template #default="{ row }">
-                  <div class="service-name-cell">
-                    <div
-                      class="status-indicator"
-                      :class="row.status === 'healthy' ? 'is-healthy' : 'is-issue'"
-                    />
-                    <div class="name-wrapper">
-                      <span class="primary-text">{{ row.name }}</span>
-                      <span class="secondary-text">{{ row.type || 'remote' }}</span>
-                    </div>
+            <select
+              v-model="statusFilter"
+              class="atom-input filter-select"
+            >
+              <option value="all">
+                All
+              </option>
+              <option value="healthy">
+                Healthy
+              </option>
+              <option value="unhealthy">
+                Issues
+              </option>
+            </select>
+          </div>
+        </div>
+        
+        <div class="panel-body table-container">
+          <el-table
+            :data="pagedServices"
+            class="atom-table"
+            :show-header="true"
+            size="small"
+            height="240"
+          >
+            <el-table-column
+              prop="name"
+              label="SERVICE"
+              min-width="160"
+            >
+              <template #default="{ row }">
+                <div class="service-name-cell">
+                  <div
+                    class="status-indicator"
+                    :class="row.status === 'healthy' ? 'is-healthy' : 'is-issue'"
+                  />
+                  <div class="name-wrapper">
+                    <span class="primary-text">{{ row.name }}</span>
+                    <span class="secondary-text">{{ row.type || 'remote' }}</span>
                   </div>
-                </template>
-              </el-table-column>
-              
-              <el-table-column
-                label="STATUS"
-                width="100"
-              >
-                <template #default="{ row }">
-                  <span
-                    class="status-text"
-                    :class="row.status === 'healthy' ? 'text-regular' : 'text-danger'"
-                  >
-                    {{ row.status }}
-                  </span>
-                </template>
-              </el-table-column>
-
-              <el-table-column
-                prop="tools_count"
-                label="TOOLS"
-                width="80"
-                align="right"
-              >
-                <template #default="{ row }">
-                  <span class="mono-number">{{ row.tools_count || 0 }}</span>
-                </template>
-              </el-table-column>
-              
-              <el-table-column
-                label="ACTIVE"
-                width="120"
-                align="right"
-              >
-                <template #default="{ row }">
-                  <span class="timestamp-text">{{ formatLastChange(row.name) }}</span>
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
-        </section>
-
-        <!-- Top Tools List -->
-        <section class="panel-section">
-          <div class="panel-header">
-            <h3 class="panel-title">
-              Top Tools
-            </h3>
-          </div>
-          <div class="panel-body table-container">
-            <el-table
-              :data="toolsStore.tools.slice(0, 5)"
-              class="atom-table"
-              :show-header="true"
-              size="small"
+                </div>
+              </template>
+            </el-table-column>
+            
+            <el-table-column
+              label="STATUS"
+              width="100"
             >
-              <el-table-column
-                prop="name"
-                label="TOOL NAME"
-                min-width="180"
-              >
-                <template #default="{ row }">
-                  <span class="primary-text">{{ row.name }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column
-                prop="service"
-                label="SERVICE"
-                width="140"
-              >
-                <template #default="{ row }">
-                  <span class="secondary-text">{{ row.service || '-' }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column
-                prop="description"
-                label="DESCRIPTION"
-                min-width="200"
-              >
-                <template #default="{ row }">
-                  <span class="secondary-text truncate">{{ row.description }}</span>
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
-          <div class="panel-footer">
-            <span class="link-text">View all {{ toolsStore.tools.length }} tools &rarr;</span>
-          </div>
-        </section>
-      </div>
+              <template #default="{ row }">
+                <span
+                  class="status-text"
+                  :class="row.status === 'healthy' ? 'text-regular' : 'text-danger'"
+                >
+                  {{ row.status }}
+                </span>
+              </template>
+            </el-table-column>
 
-      <!-- Right Column: Charts & Info -->
-      <div class="content-column right-col">
-        <!-- Health Chart -->
-        <section class="panel-section">
-          <div class="panel-header">
-            <h3 class="panel-title">
-              System Health
-            </h3>
-          </div>
-          <div class="panel-body chart-wrapper">
-            <div
-              ref="healthPieRef"
-              class="chart-canvas"
-            />
-          </div>
-          <div class="info-list">
-            <div class="info-item">
-              <span>Environment</span>
-              <span class="mono-val">Production</span>
-            </div>
-            <div class="info-item">
-              <span>API Version</span>
-              <span class="mono-val">v0.6.0</span>
-            </div>
-          </div>
-        </section>
+            <el-table-column
+              prop="tools_count"
+              label="TOOLS"
+              width="80"
+              align="right"
+            >
+              <template #default="{ row }">
+                <span class="mono-number">{{ row.tools_count || 0 }}</span>
+              </template>
+            </el-table-column>
+            
+            <el-table-column
+              label="ACTIVE"
+              width="120"
+              align="right"
+            >
+              <template #default="{ row }">
+                <span class="timestamp-text">{{ formatLastChange(row.name) }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+        <div class="panel-footer footer-inline">
+          <el-pagination
+            small
+            layout="prev, pager, next"
+            :current-page="servicesPage"
+            :page-size="servicesPageSize"
+            :total="filteredServices.length"
+            @current-change="(p) => { servicesPage.value = p }"
+          />
+        </div>
+      </section>
 
-        <!-- Distribution Chart -->
-        <section class="panel-section">
-          <div class="panel-header">
-            <h3 class="panel-title">
-              Tool Distribution
-            </h3>
-          </div>
-          <div class="panel-body chart-wrapper">
-            <div
-              ref="toolsBarRef"
-              class="chart-canvas"
-            />
-          </div>
-        </section>
-      </div>
+      <!-- 系统健康：右侧侧栏 -->
+      <section class="panel-section health-panel">
+        <div class="panel-header">
+          <h3 class="panel-title">
+            System Health
+          </h3>
+        </div>
+        <div class="panel-body chart-wrapper">
+          <div
+            ref="healthPieRef"
+            class="chart-canvas"
+          />
+        </div>
+      </section>
+
+      <!-- Top Tools：主列第二行 -->
+      <section class="panel-section tools-panel">
+        <div class="panel-header">
+          <h3 class="panel-title">
+            Top Tools
+          </h3>
+        </div>
+        <div class="panel-body table-container">
+          <el-table
+            :data="pagedTools"
+            class="atom-table"
+            :show-header="true"
+            size="small"
+            height="215"
+          >
+            <el-table-column
+              prop="name"
+              label="TOOL NAME"
+              min-width="180"
+            >
+              <template #default="{ row }">
+                <span class="primary-text">{{ row.name }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column
+              prop="service"
+              label="SERVICE"
+              width="140"
+            >
+              <template #default="{ row }">
+                <span class="secondary-text">{{ row.service || '-' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column
+              prop="description"
+              label="DESCRIPTION"
+              min-width="200"
+            >
+              <template #default="{ row }">
+                <span class="secondary-text truncate">{{ row.description }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+        <div class="panel-footer footer-inline">
+          <el-pagination
+            small
+            layout="prev, pager, next"
+            :current-page="toolsPage"
+            :page-size="toolsPageSize"
+            :total="toolsStore.tools.length"
+            @current-change="(p) => { toolsPage.value = p }"
+          />
+        </div>
+      </section>
+
+      <!-- 工具分布：侧栏第二行 -->
+      <section class="panel-section distribution-panel">
+        <div class="panel-header">
+          <h3 class="panel-title">
+            Tool Distribution
+          </h3>
+        </div>
+        <div class="panel-body chart-wrapper">
+          <div
+            ref="toolsBarRef"
+            class="chart-canvas"
+          />
+        </div>
+      </section>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, onActivated } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onActivated, watch, nextTick } from 'vue'
 import { useSystemStore } from '@/stores/system'
 import { useServicesStore } from '@/stores/services'
 import { useToolsStore } from '@/stores/tools'
@@ -265,6 +268,10 @@ const serviceSearch = ref('')
 const statusFilter = ref('all')
 const uptimeLabel = ref('4d 12h')
 const todayToolCalls = ref(124)
+const servicesPage = ref(1)
+const servicesPageSize = ref(7)
+const toolsPage = ref(1)
+const toolsPageSize = ref(5)
 
 // Metrics
 const totalServices = computed(() => servicesStore.services.length)
@@ -283,6 +290,14 @@ const filteredServices = computed(() => {
 })
 
 const formatLastChange = () => '2m ago'
+const pagedServices = computed(() => {
+  const start = (servicesPage.value - 1) * servicesPageSize.value
+  return filteredServices.value.slice(start, start + servicesPageSize.value)
+})
+const pagedTools = computed(() => {
+  const start = (toolsPage.value - 1) * toolsPageSize.value
+  return toolsStore.tools.slice(start, start + toolsPageSize.value)
+})
 
 // Charts
 const healthPieRef = ref(null)
@@ -295,49 +310,51 @@ const chartTheme = {
 }
 
 function renderCharts() {
-  if (healthPieRef.value) {
-    if (!healthPie) healthPie = echarts.init(healthPieRef.value)
-    healthPie.setOption({
-      ...chartTheme,
-      tooltip: { trigger: 'item' },
-      series: [{
-        type: 'pie',
-        radius: ['60%', '80%'],
-        center: ['50%', '50%'],
-        avoidLabelOverlap: false,
-        label: { show: false },
-        data: [
-          { value: healthyServices.value, name: 'Healthy', itemStyle: { color: '#10B981' } },
-          { value: Math.max(0, totalServices.value - healthyServices.value), name: 'Issues', itemStyle: { color: '#EF4444' } }
-        ]
-      }]
-    })
-  }
-
-  if (toolsBarRef.value) {
-    if (!toolsBar) toolsBar = echarts.init(toolsBarRef.value)
-    const topServices = [...servicesStore.services].sort((a,b) => b.tools_count - a.tools_count).slice(0, 5)
-    toolsBar.setOption({
-      ...chartTheme,
-      grid: { left: 0, right: 0, top: 10, bottom: 20, containLabel: true },
-      xAxis: { show: false },
-      yAxis: { 
-        type: 'category', 
-        data: topServices.map(s => s.name),
-        axisLine: { show: false },
-        axisTick: { show: false },
-        axisLabel: { color: '#6B7280', fontSize: 11 }
-      },
-      series: [{
-        type: 'bar',
-        data: topServices.map(s => s.tools_count),
-        barWidth: 8,
-        itemStyle: { borderRadius: 4, color: '#111827' },
-        showBackground: true,
-        backgroundStyle: { color: '#F3F4F6', borderRadius: 4 }
-      }]
-    })
-  }
+  nextTick(() => {
+    if (healthPieRef.value) {
+      if (!healthPie) healthPie = echarts.init(healthPieRef.value)
+      healthPie.setOption({
+        ...chartTheme,
+        tooltip: { trigger: 'item' },
+        series: [{
+          type: 'pie',
+          radius: ['60%', '80%'],
+          center: ['50%', '50%'],
+          avoidLabelOverlap: false,
+          label: { show: false },
+          data: [
+            { value: healthyServices.value, name: 'Healthy', itemStyle: { color: '#10B981' } },
+            { value: Math.max(0, totalServices.value - healthyServices.value), name: 'Issues', itemStyle: { color: '#EF4444' } }
+          ]
+        }]
+      })
+    }
+  
+    if (toolsBarRef.value) {
+      if (!toolsBar) toolsBar = echarts.init(toolsBarRef.value)
+      const topServices = [...servicesStore.services].sort((a,b) => b.tools_count - a.tools_count).slice(0, 5)
+      toolsBar.setOption({
+        ...chartTheme,
+        grid: { left: 0, right: 0, top: 10, bottom: 20, containLabel: true },
+        xAxis: { show: false },
+        yAxis: { 
+          type: 'category', 
+          data: topServices.map(s => s.name),
+          axisLine: { show: false },
+          axisTick: { show: false },
+          axisLabel: { color: '#6B7280', fontSize: 11 }
+        },
+        series: [{
+          type: 'bar',
+          data: topServices.map(s => s.tools_count),
+          barWidth: 8,
+          itemStyle: { borderRadius: 4, color: '#111827' },
+          showBackground: true,
+          backgroundStyle: { color: '#F3F4F6', borderRadius: 4 }
+        }]
+      })
+    }
+  })
 }
 
 onMounted(async () => {
@@ -345,14 +362,28 @@ onMounted(async () => {
   renderCharts()
   window.addEventListener('resize', () => { healthPie?.resize(); toolsBar?.resize() })
 })
+
+watch(filteredServices, () => {
+  servicesPage.value = 1
+})
+
+watch(() => toolsStore.tools, () => {
+  toolsPage.value = 1
+})
 </script>
 
 <style lang="scss" scoped>
 .dashboard-container {
-  max-width: 1440px;
+  max-width: 1480px;
   margin: 0 auto;
-  padding: 20px; // Reduced from 32px
+  padding: 20px 36px; // 增大左右留白，整体更紧凑以减少垂直溢出
   width: 100%;
+  overflow-x: hidden;
+  box-sizing: border-box;
+  height: calc(100vh - 120px); // 适配头部/标签区域，减少页面滚动
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 // Header
@@ -392,7 +423,7 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px; // Reduced from 24px
-  margin-bottom: 20px; // Reduced from 32px
+  margin-bottom: 12px; // 再收一点垂直空间
 
   @media (max-width: 1200px) { grid-template-columns: repeat(2, 1fr); }
   @media (max-width: 640px) { grid-template-columns: 1fr; }
@@ -407,20 +438,41 @@ onMounted(async () => {
 }
 
 // Main Layout
-.main-layout {
+.content-grid {
   display: grid;
-  grid-template-columns: 2.5fr 1fr;
-  gap: 20px; // Reduced from 32px
+  grid-template-columns: 2fr 1fr;
+  grid-template-rows: minmax(320px, 1fr) minmax(280px, 1fr);
+  grid-template-areas:
+    "services health"
+    "tools distribution";
+  gap: 16px; // 再收窄，减少总高度
+  flex: 1;
+  min-height: 0;
 
-  @media (max-width: 1024px) {
+  @media (max-width: 1200px) {
     grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    grid-template-areas:
+      "services"
+      "health"
+      "tools"
+      "distribution";
   }
 }
 
-.content-column {
-  display: flex;
-  flex-direction: column;
-  gap: 20px; // Reduced from 32px
+.services-panel { grid-area: services; }
+.health-panel { grid-area: health; }
+.tools-panel { grid-area: tools; }
+.distribution-panel { grid-area: distribution; }
+
+.services-panel,
+.health-panel {
+  height: 100%;
+}
+
+.tools-panel,
+.distribution-panel {
+  height: 100%;
 }
 
 // Panel Sections
@@ -428,6 +480,8 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px; // Reduced from 16px
+  height: 100%;
+  min-height: 0;
 }
 
 .panel-header {
@@ -455,11 +509,22 @@ onMounted(async () => {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   overflow: hidden;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .panel-footer {
   padding-top: 6px; // Reduced
   text-align: center;
+}
+
+.footer-inline {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding-bottom: 2px;
 }
 
 .link-text {
@@ -488,8 +553,8 @@ onMounted(async () => {
 
 // Table Customization
 .table-container {
-  max-height: 400px; // Reduced max height
-  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 :deep(.atom-table) {
@@ -574,7 +639,7 @@ onMounted(async () => {
 // Charts
 .chart-wrapper {
   padding: 12px; // Reduced
-  height: 200px; // Reduced height
+  height: 220px; // Slightly higher to保证图表可见
   display: flex;
   align-items: center;
   justify-content: center;
@@ -586,27 +651,4 @@ onMounted(async () => {
 }
 
 // Info List
-.info-list {
-  margin-top: 12px; // Reduced
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  background: var(--bg-surface);
-  padding: 0 12px; // Reduced
-}
-
-.info-item {
-  display: flex;
-  justify-content: space-between;
-  padding: 10px 0; // Reduced
-  font-size: 12px; // Smaller
-  border-bottom: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  
-  &:last-child { border-bottom: none; }
-}
-
-.mono-val {
-  font-family: var(--font-mono);
-  color: var(--text-primary);
-}
 </style>
