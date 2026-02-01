@@ -9,18 +9,18 @@ from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# Check MCPStore availability
+# Check MCP client availability (canonical SDK)
 try:
     import mcp.types
-    MCPSTORE_AVAILABLE = True
-    logger.debug("MCPStore is available for notification handling")
+    MCP_CLIENT_AVAILABLE = True
+    logger.debug("MCP client is available for notification handling")
 except ImportError:
-    logger.warning("MCPStore not available, notification features will be disabled")
-    MCPSTORE_AVAILABLE = False
+    logger.warning("MCP client not available, notification features will be disabled")
+    MCP_CLIENT_AVAILABLE = False
 
 
 class MCPStoreMessageHandler:
-    """MCPStore-specific MCPStore message handler"""
+    """MCPStore-specific MCP message handler"""
 
     def __init__(self, tools_monitor):
         """
@@ -29,8 +29,8 @@ class MCPStoreMessageHandler:
         Args:
             tools_monitor: ToolsUpdateMonitor instance
         """
-        if not MCPSTORE_AVAILABLE:
-            logger.warning("MCPStore not available, notification features disabled")
+        if not MCP_CLIENT_AVAILABLE:
+            logger.warning("MCP client not available, notification features disabled")
             return
 
         self.tools_monitor = tools_monitor
@@ -39,7 +39,7 @@ class MCPStoreMessageHandler:
 
     async def on_tool_list_changed(self, notification: 'mcp.types.ToolListChangedNotification') -> None:
         """Handle tool list change notifications"""
-        if not MCPSTORE_AVAILABLE:
+        if not MCP_CLIENT_AVAILABLE:
             return
 
         logger.info("Received tools/list_changed notification from MCPStore server")
@@ -55,7 +55,7 @@ class MCPStoreMessageHandler:
 
     async def on_resource_list_changed(self, notification: 'mcp.types.ResourceListChangedNotification') -> None:
         """处理资源列表变更通知"""
-        if not MCPSTORE_AVAILABLE:
+        if not MCP_CLIENT_AVAILABLE:
             return
 
         logger.info("Received resources/list_changed notification from MCPStore server")
@@ -73,7 +73,7 @@ class MCPStoreMessageHandler:
 
     async def on_prompt_list_changed(self, notification: 'mcp.types.PromptListChangedNotification') -> None:
         """处理提示词列表变更通知"""
-        if not MCPSTORE_AVAILABLE:
+        if not MCP_CLIENT_AVAILABLE:
             return
 
         logger.info("Received prompts/list_changed notification from MCPStore server")

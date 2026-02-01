@@ -358,7 +358,7 @@ class ServiceProxy:
 
     # === Hub 暴露能力 ===
 
-    def hub_http(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/mcp", *, block: bool = False, show_banner: bool = False, **mcpstore_kwargs):
+    def hub_http(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/mcp", *, block: bool = False, show_banner: bool = False, **mcp_kwargs):
         """将当前服务对象暴露为 HTTP MCP 端点。"""
         from mcpstore.core.hub.server import HubMCPServer
 
@@ -368,12 +368,12 @@ class ServiceProxy:
             port=port,
             host=host,
             path=path,
-            **mcpstore_kwargs,
+            **mcp_kwargs,
         )
         hub.start(block=block, show_banner=show_banner)
         return hub
 
-    def hub_sse(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/sse", *, block: bool = False, show_banner: bool = False, **mcpstore_kwargs):
+    def hub_sse(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/sse", *, block: bool = False, show_banner: bool = False, **mcp_kwargs):
         """将当前服务对象暴露为 SSE MCP 端点。"""
         from mcpstore.core.hub.server import HubMCPServer
 
@@ -383,19 +383,19 @@ class ServiceProxy:
             port=port,
             host=host,
             path=path,
-            **mcpstore_kwargs,
+            **mcp_kwargs,
         )
         hub.start(block=block, show_banner=show_banner)
         return hub
 
-    def hub_stdio(self, *, block: bool = False, show_banner: bool = False, **mcpstore_kwargs):
+    def hub_stdio(self, *, block: bool = False, show_banner: bool = False, **mcp_kwargs):
         """将当前服务对象暴露为 stdio MCP 端点。"""
         from mcpstore.core.hub.server import HubMCPServer
 
         hub = HubMCPServer(
             exposed_object=self,
             transport="stdio",
-            **mcpstore_kwargs,
+            **mcp_kwargs,
         )
         hub.start(block=block, show_banner=show_banner)
         return hub

@@ -400,7 +400,7 @@ class StoreProxy:
         return await self._context.reset_mcp_json_file_async(scope)
 
     # ---- Hub MCP helpers ----
-    def hub_http(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/mcp", *, block: bool = False, show_banner: bool = False, **mcpstore_kwargs):
+    def hub_http(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/mcp", *, block: bool = False, show_banner: bool = False, **mcp_kwargs):
         """
         将当前 Store 暴露为 HTTP MCP 端点。
 
@@ -409,8 +409,8 @@ class StoreProxy:
             host: 监听地址
             path: HTTP 路径
             background: 是否在后台线程运行（默认阻塞当前调用）
-            show_banner: 是否显示 MCPStore 启动横幅
-            **mcpstore_kwargs: 透传给 MCPStore 的参数（如 auth）
+            show_banner: 是否显示 MCP 服务器启动横幅
+            **mcp_kwargs: 透传给底层 MCP 服务器（当前由 MCPStore 实现）的参数（如 auth）
         Returns:
             HubMCPServer: Hub 服务器实例，可用于 stop()/restart()
         """
@@ -422,12 +422,12 @@ class StoreProxy:
             port=port,
             host=host,
             path=path,
-            **mcpstore_kwargs,
+            **mcp_kwargs,
         )
         hub.start(block=block, show_banner=show_banner)
         return hub
 
-    def hub_sse(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/sse", *, block: bool = False, show_banner: bool = False, **mcpstore_kwargs):
+    def hub_sse(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/sse", *, block: bool = False, show_banner: bool = False, **mcp_kwargs):
         """将当前 Store 暴露为 SSE MCP 端点。"""
         from mcpstore.core.hub.server import HubMCPServer
 
@@ -437,19 +437,19 @@ class StoreProxy:
             port=port,
             host=host,
             path=path,
-            **mcpstore_kwargs,
+            **mcp_kwargs,
         )
         hub.start(block=block, show_banner=show_banner)
         return hub
 
-    def hub_stdio(self, *, block: bool = False, show_banner: bool = False, **mcpstore_kwargs):
+    def hub_stdio(self, *, block: bool = False, show_banner: bool = False, **mcp_kwargs):
         """将当前 Store 暴露为 stdio MCP 端点。"""
         from mcpstore.core.hub.server import HubMCPServer
 
         hub = HubMCPServer(
             exposed_object=self._context,
             transport="stdio",
-            **mcpstore_kwargs,
+            **mcp_kwargs,
         )
         hub.start(block=block, show_banner=show_banner)
         return hub

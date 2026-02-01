@@ -50,7 +50,7 @@ class HubMCPServer:
         port: Optional[int] = None,
         host: str = "0.0.0.0",
         path: str = "/mcp",
-        **mcpstore_kwargs
+        **mcp_kwargs
     ):
         """
         初始化 Hub MCP 服务器
@@ -61,7 +61,7 @@ class HubMCPServer:
             port: 端口号（仅 http/sse），None 为自动分配
             host: 监听地址（仅 http/sse），默认 "0.0.0.0"
             path: 端点路径（仅 http），默认 "/mcp"
-            **mcpstore_kwargs: 传递给 MCPStore 的其他参数（如 auth）
+            **mcp_kwargs: 传递给底层 MCP 服务器（当前由 MCPStore 提供）的其他参数（如 auth）
             
         Example:
             # 暴露 Store 对象
@@ -85,7 +85,7 @@ class HubMCPServer:
             port=port,
             host=host,
             path=path,
-            mcpstore_kwargs=mcpstore_kwargs
+            mcp_kwargs=mcp_kwargs
         )
         
         # 初始化状态
@@ -169,7 +169,7 @@ class HubMCPServer:
             # 创建 MCPStore 实例
             self._mcpstore = MCPStore(
                 name=server_name,
-                **self._config.mcpstore_kwargs
+                **self._config.mcp_kwargs
             )
             
             logger.info(f"[HubMCPServer] [SUCCESS] MCPStore server created successfully: {server_name}")
