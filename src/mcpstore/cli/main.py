@@ -34,10 +34,10 @@ def version():
     try:
         from mcpstore import __version__
     except Exception as e:
-        typer.echo(f" 获取版本号失败: {e}")
+        typer.echo(f" Failed to get version: {e}")
         raise typer.Exit(1)
 
-    typer.echo(f"MCPStore 版本: {__version__}")
+    typer.echo(f"MCPStore version: {__version__}")
 
 def _register_commands():
     """拆分后的命令注册"""
@@ -56,10 +56,10 @@ def main():
         _register_commands()
         app()
     except KeyboardInterrupt:
-        typer.echo("\n[INFO] 已退出")
+        typer.echo("\n[INFO] Exited")
         sys.exit(0)
     except Exception as e:
-        typer.echo(f" CLI 异常: {e}")
+        typer.echo(f" CLI exception: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

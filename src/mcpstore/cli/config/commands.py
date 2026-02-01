@@ -22,5 +22,5 @@ def register_config_commands(app: typer.Typer) -> None:
         try:
             handle_config(action=action, path=path, force=force, with_examples=with_examples)
         except Exception as e:
-            typer.echo(f"[错误] 配置操作失败: {e}")
+            typer.echo(f"[Error] Config operation failed: {e}")
             raise typer.Exit(1)

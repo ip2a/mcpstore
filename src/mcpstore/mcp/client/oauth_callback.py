@@ -214,14 +214,14 @@ if __name__ == "__main__":
     import uvicorn
 
     port = find_available_port()
-    print("🎭 OAuth Callback Test Server")
-    print("📍 Test URLs:")
+    print("OAuth Callback Test Server")
+    print("Test URLs:")
     print(f"  Success: http://localhost:{port}/callback?code=test123&state=xyz")
     print(
         f"  Error:   http://localhost:{port}/callback?error=access_denied&error_description=User%20denied"
     )
     print(f"  Missing: http://localhost:{port}/callback")
-    print("🛑 Press Ctrl+C to stop")
+    print("Press Ctrl+C to stop")
     print()
 
     # Create test server without future (just for testing HTML responses)

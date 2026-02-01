@@ -216,7 +216,7 @@ class HubMCPServer:
                         "client_id": getattr(tool_info, "client_id", None),
                     }
 
-                    description = tool_info.description or f"工具: {tool_info.name}"
+                    description = tool_info.description or f"Tool: {tool_info.name}"
                     decorator_kwargs = {
                         "name": tool_info.name,
                         "description": description,
@@ -303,7 +303,7 @@ class HubMCPServer:
 
         proxy_tool = namespace["handler"]
         proxy_tool.__name__ = tool_info.name
-        proxy_tool.__doc__ = (tool_info.description or f"工具: {tool_info.name}")
+        proxy_tool.__doc__ = (tool_info.description or f"Tool: {tool_info.name}")
 
         return proxy_tool
 
@@ -400,7 +400,7 @@ class HubMCPServer:
         except OSError as exc:
             self._status = HubMCPStatus.ERROR
             raise PortBindingError(
-                f"无法绑定端口 {self._config.port}: {exc}"
+                f"Failed to bind port {self._config.port}: {exc}"
             ) from exc
         except Exception as exc:  # noqa: BLE001
             self._status = HubMCPStatus.ERROR

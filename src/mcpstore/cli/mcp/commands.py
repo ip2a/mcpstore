@@ -60,9 +60,9 @@ def register_mcp_commands(app: typer.Typer) -> None:
 
             ctx.add_service(config)
             scope = f"agent:{for_agent}" if for_agent else "store"
-            typer.echo(f"[成功] 已添加服务: {resolved_name} 作用域={scope} 传输={resolved_transport}")
+            typer.echo(f"[Success] Service added: {resolved_name} scope={scope} transport={resolved_transport}")
         except Exception as e:
-            typer.echo(f"[错误] 添加服务失败: {e}")
+            typer.echo(f"[Error] Failed to add service: {e}")
             raise typer.Exit(1)
 
     @app.command("list")
@@ -78,10 +78,10 @@ def register_mcp_commands(app: typer.Typer) -> None:
             services = ctx.list_services() or []
 
             scope = f"agent:{for_agent}" if for_agent else "store"
-            typer.echo(f"[列表] 作用域={scope} 服务数={len(services)}")
+            typer.echo(f"[List] scope={scope} service_count={len(services)}")
 
             if not services:
-                typer.echo("  暂无服务")
+                typer.echo("  No services available")
                 return
 
             for svc in services:
@@ -99,7 +99,7 @@ def register_mcp_commands(app: typer.Typer) -> None:
                     f"- {name}  transport={transport}  status={status}  client_id={client_id}"
                 )
         except Exception as e:
-            typer.echo(f"[错误] 列出服务失败: {e}")
+            typer.echo(f"[Error] Failed to list services: {e}")
             raise typer.Exit(1)
 
     @app.command("get")
@@ -124,7 +124,7 @@ def register_mcp_commands(app: typer.Typer) -> None:
             }
             typer.echo(json.dumps(data, ensure_ascii=False, indent=2))
         except Exception as e:
-            typer.echo(f"[错误] 获取服务详情失败: {e}")
+            typer.echo(f"[Error] Failed to get service details: {e}")
             raise typer.Exit(1)
 
     @app.command("remove")
@@ -141,11 +141,11 @@ def register_mcp_commands(app: typer.Typer) -> None:
             proxy = ctx.find_service(name)
             ok = proxy.delete_service()
             if not ok:
-                raise RuntimeError("删除返回失败")
+                raise RuntimeError("Delete operation returned failure")
             scope = f"agent:{for_agent}" if for_agent else "store"
-            typer.echo(f"[成功] 已删除服务: {name} 作用域={scope}")
+            typer.echo(f"[Success] Service deleted: {name} scope={scope}")
         except Exception as e:
-            typer.echo(f"[错误] 删除服务失败: {e}")
+            typer.echo(f"[Error] Failed to delete service: {e}")
             raise typer.Exit(1)
 
 
@@ -158,11 +158,11 @@ def _parse_env(env: Optional[List[str]]) -> Dict[str, str]:
         return env_map
     for item in env:
         if "=" not in item or item.startswith("="):
-            raise ValueError(f"环境变量格式错误: {item}")
+            raise ValueError(f"Environment variable format error: {item}")
         key, val = item.split("=", 1)
         key = key.strip()
         if not key:
-            raise ValueError(f"环境变量键不能为空: {item}")
+            raise ValueError(f"Environment variable key cannot be empty: {item}")
         env_map[key] = val
     return env_map
 
@@ -212,7 +212,7 @@ def _infer_transport(
     if command_or_url and command_or_url.startswith(("http://", "https://")):
         return "streamable-http"
 
-    raise ValueError("无法推断 transport，请使用 --transport 明确指定（stdio/http/sse）")
+    raise ValueError("Cannot infer transport, please use --transport to explicitly specify (stdio/http/sse)")
 
 
 def _build_config_from_inputs(
@@ -230,7 +230,7 @@ def _build_config_from_inputs(
         cfg = _load_json(name)
         resolved_name = cfg.get("name") or ""
         if not resolved_name:
-            raise ValueError("JSON 中缺少 name 字段")
+            raise ValueError("JSON is missing 'name' field")
         resolved_transport = _infer_transport(transport, cfg, command_or_url, args)
         return _merge_env_into_config(cfg, env_map, resolved_transport), resolved_name, resolved_transport
 
@@ -238,7 +238,7 @@ def _build_config_from_inputs(
         cfg = _load_json(command_or_url)
         resolved_name = name or cfg.get("name") or ""
         if not resolved_name:
-            raise ValueError("JSON 中缺少 name 字段，且未提供名称参数")
+            raise ValueError("JSON is missing 'name' field and no name parameter provided")
         if "name" not in cfg:
             cfg["name"] = resolved_name
         resolved_transport = _infer_transport(transport, cfg, command_or_url, args)
@@ -246,9 +246,9 @@ def _build_config_from_inputs(
 
     # 2) 非 JSON：按位置参数推断
     if not name:
-        raise ValueError("必须提供服务名称")
+        raise ValueError("Service name must be provided")
     if not command_or_url:
-        raise ValueError("必须提供 URL 或命令")
+        raise ValueError("URL or command must be provided")
 
     base_config: Dict[str, Any] = {"name": name}
     resolved_transport = _infer_transport(transport, base_config, command_or_url, args)
@@ -277,10 +277,10 @@ def _load_json(text: str) -> Dict[str, Any]:
     try:
         cfg = json.loads(text)
         if not isinstance(cfg, dict):
-            raise ValueError("JSON 必须是对象类型")
+            raise ValueError("JSON must be an object type")
         return cfg
     except Exception as e:
-        raise ValueError(f"JSON 解析失败: {e}")
+        raise ValueError(f"JSON parsing failed: {e}")
 
 
 def _merge_env_into_config(

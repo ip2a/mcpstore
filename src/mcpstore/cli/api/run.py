@@ -19,19 +19,19 @@ def register_api_commands(app: typer.Typer) -> None:
     ):
         """启动 MCPStore API 服务"""
         if service != "api":
-            typer.echo("仅支持 service=api")
+            typer.echo("Only service=api is supported")
             raise typer.Exit(1)
 
         try:
-            typer.echo("[START] 启动 MCPStore API Server")
+            typer.echo("[START] Starting MCPStore API Server")
             typer.echo(f"   Host: {host}:{port}")
             if prefix:
                 typer.echo(f"   URL Prefix: {prefix}")
-            typer.echo("   按 Ctrl+C 停止")
+            typer.echo("   Press Ctrl+C to stop")
 
             if reload:
                 if prefix:
-                    typer.echo(" reload 模式暂不支持 prefix，请去掉 --prefix 或关闭 --reload")
+                    typer.echo(" Reload mode does not support prefix, please remove --prefix or disable --reload")
                     raise typer.Exit(1)
                 # 重载模式需使用字符串引用
                 uvicorn.run(
@@ -55,9 +55,9 @@ def register_api_commands(app: typer.Typer) -> None:
                     log_level=log_level,
                 )
         except KeyboardInterrupt:
-            typer.echo("\n[停止] 用户中断")
+            typer.echo("\n[Stopped] User interrupted")
         except Exception as e:
-            typer.echo(f" 启动失败: {e}")
+            typer.echo(f" Startup failed: {e}")
             raise typer.Exit(1)
 
     @app.command("serve")

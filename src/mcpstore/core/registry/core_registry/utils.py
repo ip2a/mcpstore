@@ -30,7 +30,7 @@ class JSONSchemaUtils:
             描述字符串
         """
         if not isinstance(prop_info, dict):
-            return "参数"
+            return "parameter"
 
         # 优先使用 description 字段
         description = prop_info.get('description')
@@ -42,7 +42,7 @@ class JSONSchemaUtils:
             type_desc = prop_info['type']
             if isinstance(type_desc, list):
                 type_desc = " 或 ".join(type_desc)
-            return f"{type_desc} 类型参数"
+            return f"{type_desc} type parameter"
 
         # 检查 enum 值
         if 'enum' in prop_info:
@@ -51,9 +51,9 @@ class JSONSchemaUtils:
                 values_str = ", ".join(str(v) for v in enum_values[:3])
                 if len(enum_values) > 3:
                     values_str += "..."
-                return f"可选值: {values_str}"
+                return f"Optional values: {values_str}"
 
-        return "参数"
+        return "parameter"
 
     @staticmethod
     def extract_type_from_schema(prop_info: Dict[str, Any]) -> str:
@@ -201,13 +201,13 @@ class ConfigUtils:
         # 检查基本结构
         if not isinstance(config, dict):
             result['valid'] = False
-            result['errors'].append("配置必须是一个字典")
+            result['errors'].append("Config must be a dict")
             return result
 
         # 检查是否为空配置
         if not config:
             result['valid'] = False
-            result['errors'].append("配置不能为空")
+            result['errors'].append("Config cannot be empty")
             return result
 
         # 检查必要的连接信息
@@ -216,36 +216,36 @@ class ConfigUtils:
 
         if not (has_command or has_url):
             result['valid'] = False
-            result['errors'].append("必须包含 'command' 或 'url' 字段")
+            result['errors'].append("Must include 'command' or 'url' field")
 
         # 验证命令配置
         if has_command:
             command = config.get('command')
             if not isinstance(command, str) or not command.strip():
                 result['valid'] = False
-                result['errors'].append("'command' 必须是非空字符串")
+                result['errors'].append("'command' must be a non-empty string")
 
             # 验证参数
             args = config.get('args', [])
             if args is not None and not isinstance(args, list):
-                result['errors'].append("'args' 必须是数组类型")
-                result['warnings'].append("将 'args' 重置为空数组")
+                result['errors'].append("'args' must be an array type")
+                result['warnings'].append("Resetting 'args' to empty array")
 
         # 验证URL配置
         if has_url:
             url = config.get('url')
             if not isinstance(url, str) or not url.strip():
                 result['valid'] = False
-                result['errors'].append("'url' 必须是非空字符串")
+                result['errors'].append("'url' must be a non-empty string")
             elif not (url.startswith('http://') or url.startswith('https://')):
-                result['warnings'].append("URL 建议以 http:// 或 https:// 开头")
+                result['warnings'].append("URL should start with http:// or https://")
 
         # 验证环境变量
         if 'env' in config:
             env = config['env']
             if env is not None and not isinstance(env, dict):
-                result['errors'].append("'env' 必须是字典类型")
-                result['warnings'].append("将 'env' 重置为空字典")
+                result['errors'].append("'env' must be a dict type")
+                result['warnings'].append("Resetting 'env' to empty dict")
 
         return result
 

@@ -386,9 +386,9 @@ class ServiceRegistry:
         """
         if kv_store is None:
             raise RuntimeError(
-                f"{ERROR_PREFIX} kv_store 参数不能为 None。"
-                "ServiceRegistry 必须传入有效的 AsyncKeyValue 实例。"
-                "请使用 MemoryStore 或 RedisStore 初始化。"
+                f"{ERROR_PREFIX} kv_store parameter cannot be None. "
+                "ServiceRegistry must be initialized with a valid AsyncKeyValue instance. "
+                "Please use MemoryStore or RedisStore for initialization."
             )
         return kv_store
 
@@ -983,9 +983,9 @@ class ServiceRegistry:
         - 通过 CacheLayerManager 读取实体层配置，保持单一数据源
         """
         if not agent_id:
-            raise ValueError("agent_id 不能为空")
+            raise ValueError("agent_id cannot be empty")
         if not service_name:
-            raise ValueError("service_name 不能为空")
+            raise ValueError("service_name cannot be empty")
 
         info = await self.get_complete_service_info_async(agent_id, service_name)
         if not info:
@@ -996,7 +996,7 @@ class ServiceRegistry:
             return None
         if not isinstance(config, dict):
             raise RuntimeError(
-                f"服务配置格式无效，期望 dict，实际类型 {type(config).__name__} "
+                f"Service config format is invalid, expected dict, actual type {type(config).__name__} "
                 f"(agent_id={agent_id}, service_name={service_name})"
             )
 

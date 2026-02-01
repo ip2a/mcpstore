@@ -120,7 +120,7 @@ class AgentProxy:
                 raise ServiceBindingError(
                     service_name=name,
                     agent_id=self._agent_id,
-                    reason="服务不属于当前 Agent"
+                    reason="Service does not belong to current Agent"
                 )
             
             # 创建 ServiceProxy 时传入 agent_id 和 global_name
@@ -167,7 +167,7 @@ class AgentProxy:
                 raise ServiceBindingError(
                     service_name=service_name,
                     agent_id=self._agent_id,
-                    reason="输入的服务标识归属不同的 agent"
+                    reason="Input service identifier belongs to a different agent"
                 )
 
             service_res = resolver.normalize_service_name(
@@ -218,7 +218,7 @@ class AgentProxy:
                 raise ServiceBindingError(
                     service_name=service_name,
                     agent_id=self._agent_id,
-                    reason="输入的服务标识归属不同的 agent"
+                    reason="Input service identifier belongs to a different agent"
                 )
 
             service_res = resolver.normalize_service_name(
@@ -279,9 +279,14 @@ class AgentProxy:
             if loop.is_running():
                 raise RuntimeError("[AGENT_PROXY] Current thread already has an event loop, please use call_tool_async.")
         except RuntimeError:
-            pass  # 无运行中的 loop，可安全使用 asyncio.run
+            # 无运行中的 loop，使用持久 AOB 避免 asyncio.run 关闭 loop 时取消后台任务
+            return self._context._run_async_via_bridge(
+                self.call_tool_async(tool_name, args),
+                op_name="agent_proxy.call_tool",
+            )
 
-        return asyncio.run(self.call_tool_async(tool_name, args))
+        # 理论上不会走到这里
+        return {}
 
     # ---- Mutations ----
     def add_service(self, config: Dict[str, Any]) -> bool:
