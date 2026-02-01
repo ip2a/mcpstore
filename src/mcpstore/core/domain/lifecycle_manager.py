@@ -381,7 +381,14 @@ class LifecycleManager:
         2. 状态转换和元数据更新分离
         3. 错误处理和事件发布
         """
-        logger.info(f"[LIFECYCLE] Service connected: {event.service_name}")
+        current_task = asyncio.current_task()
+        logger.info(
+            "[LIFECYCLE] Service connected: %s (agent=%s, task=%s, tools=%s)",
+            event.service_name,
+            event.agent_id,
+            current_task.get_name() if current_task else None,
+            getattr(event, "tools", None),
+        )
 
         try:
             # 方案 A：使用 AgentLocks 保证与 CacheManager 的操作顺序一致
@@ -400,6 +407,15 @@ class LifecycleManager:
                 )
                 await self._handle_service_connected_internal(event)
 
+        except asyncio.CancelledError:
+            logger.error(
+                "[LIFECYCLE] Cancelled while processing ServiceConnected: service=%s agent=%s task=%s",
+                event.service_name,
+                event.agent_id,
+                current_task.get_name() if current_task else None,
+                exc_info=True,
+            )
+            raise
         except Exception as e:
             logger.error(f"[LIFECYCLE] Failed to transition state for {event.service_name}: {e}", exc_info=True)
             # 发布错误事件

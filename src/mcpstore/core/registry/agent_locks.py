@@ -174,14 +174,30 @@ class AgentLocks:
                 running_loop = None
 
             if self._bridge_loop and running_loop is not self._bridge_loop:
-                await asyncio.to_thread(
-                    self._bridge.run,
-                    asyncio.shield(_acquire()),
-                    op_name=f"agent_locks.acquire.{agent_id}"
-                )
+                try:
+                    await asyncio.to_thread(
+                        self._bridge.run,
+                        asyncio.shield(_acquire()),
+                        op_name=f"agent_locks.acquire.{agent_id}"
+                    )
+                except asyncio.CancelledError:
+                    logger.warning(
+                        "[AgentLocks] Acquire cancelled before entering context: agent_id=%s, operation=%s, task=%s",
+                        agent_id, operation, getattr(asyncio.current_task(), "get_name", lambda: None)(),
+                        exc_info=True,
+                    )
+                    raise
             else:
-                # 防止外部取消导致生成器未 yield（shield 保护获取锁过程）
-                await asyncio.shield(_acquire())
+                try:
+                    # 防止外部取消导致生成器未 yield（shield 保护获取锁过程）
+                    await asyncio.shield(_acquire())
+                except asyncio.CancelledError:
+                    logger.warning(
+                        "[AgentLocks] Acquire cancelled before entering context: agent_id=%s, operation=%s, task=%s",
+                        agent_id, operation, getattr(asyncio.current_task(), "get_name", lambda: None)(),
+                        exc_info=True,
+                    )
+                    raise
             acquired = True
             
             # 记录诊断信息

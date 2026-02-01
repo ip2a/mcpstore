@@ -305,8 +305,11 @@ class AgentProxy:
             if loop.is_running():
                 raise RuntimeError("[AGENT_PROXY] Current thread already has an event loop, please use add_service_async.")
         except RuntimeError:
-            # 没有运行中的事件循环，安全使用 asyncio.run
-            return asyncio.run(self.add_service_async(*args, **kwargs))
+            # 没有运行中的事件循环，使用持久 AOB 运行，避免 asyncio.run 退出时取消后台事件处理任务
+            return self._context._run_async_via_bridge(
+                self.add_service_async(*args, **kwargs),
+                op_name="agent_proxy.add_service",
+            )
 
         # 理论上不会走到这里
         return False

@@ -187,7 +187,22 @@ class ConnectionManager:
         async with asyncio.timeout(timeout):
             async with client:
                 tools_list = await client.list_tools()
+                try:
+                    logger.info(
+                        "[CONNECTION] Local list_tools returned %d tools for %s: %s",
+                        len(tools_list),
+                        service_name,
+                        [getattr(t, 'name', None) for t in tools_list],
+                    )
+                except Exception:
+                    logger.info("[CONNECTION] Local list_tools logging failed for %s", service_name, exc_info=True)
                 processed_tools = self._process_tools(service_name, tools_list)
+                logger.info(
+                    "[CONNECTION] Local processed tools for %s: %d items -> names=%s",
+                    service_name,
+                    len(processed_tools),
+                    [name for name, _ in processed_tools],
+                )
                 return client, processed_tools
 
     async def _connect_remote_service(
@@ -210,7 +225,22 @@ class ConnectionManager:
         async with asyncio.timeout(timeout):
             async with client:
                 tools_list = await client.list_tools()
+                try:
+                    logger.info(
+                        "[CONNECTION] Remote list_tools returned %d tools for %s: %s",
+                        len(tools_list),
+                        service_name,
+                        [getattr(t, 'name', None) for t in tools_list],
+                    )
+                except Exception:
+                    logger.info("[CONNECTION] Remote list_tools logging failed for %s", service_name, exc_info=True)
                 processed_tools = self._process_tools(service_name, tools_list)
+                logger.info(
+                    "[CONNECTION] Remote processed tools for %s: %d items -> names=%s",
+                    service_name,
+                    len(processed_tools),
+                    [name for name, _ in processed_tools],
+                )
                 return client, processed_tools
 
     def _process_tools(
