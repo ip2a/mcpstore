@@ -48,7 +48,7 @@ class ToolOperationsMixin:
         
         Args:
             service_global_name: 服务全局名称
-            tool_name: 工具名称
+            tool_name: 工具名称（MCP 规范名）
         
         Returns:
             True 如果工具可用，否则 False
@@ -665,7 +665,7 @@ class ToolOperationsMixin:
             **kwargs: 额外参数（timeout, progress_handler等）
 
         Returns:
-            Any: 工具执行结果（MCPStore 标准格式）
+            Any: 工具执行结果（MCP 规范格式，canonical 名称）
         """
         args = args or {}
 
@@ -739,7 +739,7 @@ class ToolOperationsMixin:
         except Exception as e:
             logger.warning(f"Failed to get available tools for resolution: {e}")
 
-        # 统一使用 PerspectiveResolver 解析工具名与服务名
+        # 统一使用 PerspectiveResolver 解析工具名与服务名（返回 MCP 规范命名）
         from mcpstore.utils.perspective_resolver import PerspectiveResolver
 
         resolver = PerspectiveResolver()
@@ -748,14 +748,14 @@ class ToolOperationsMixin:
                 self._agent_id or self._store.client_manager.global_agent_store_id,
                 tool_name,
                 available_tools=available_tools,
-                target="mcpstore",
+                target="canonical",
                 strict=False,  # 不因元数据缺失直接中断，错误由可用性校验兜底
             )
-            mcpstore_tool_name = tool_res.mcpstore_tool_name
+            canonical_tool_name = tool_res.canonical_tool_name
             service_global_name = tool_res.global_service_name
             service_local_name = tool_res.local_service_name
             logger.info(
-                f"[SMART_RESOLVE] input='{tool_name}' mcpstore='{mcpstore_tool_name}' "
+                f"[SMART_RESOLVE] input='{tool_name}' canonical='{canonical_tool_name}' "
                 f"service_local='{service_local_name}' service_global='{service_global_name}' method='{tool_res.resolution_method}'"
             )
         except Exception as e:
@@ -766,8 +766,8 @@ class ToolOperationsMixin:
         # 检查工具是否可用
         is_available = await self._is_tool_available_async(
             service_global_name,
-            mcpstore_tool_name,
-            tool_original_name=mcpstore_tool_name,
+            canonical_tool_name,
+            tool_original_name=canonical_tool_name,
             service_original_name=service_local_name,
         )
         
@@ -775,7 +775,7 @@ class ToolOperationsMixin:
             # 工具不可用，抛出异常
             from mcpstore.core.exceptions import ToolNotAvailableError
             
-            original_tool_name = self._extract_original_tool_name(mcpstore_tool_name, tool_res.local_service_name)
+            original_tool_name = self._extract_original_tool_name(canonical_tool_name, tool_res.local_service_name)
             agent_id = self._agent_id if self._context_type == ContextType.AGENT else "global_agent_store"
             
             logger.warning(
@@ -791,24 +791,24 @@ class ToolOperationsMixin:
         
         logger.debug(
             f"[TOOL_INTERCEPT] Tool availability check passed: "
-            f"service_global_name={service_global_name}, tool={mcpstore_tool_name}"
+            f"service_global_name={service_global_name}, tool={canonical_tool_name}"
         )
         
         # 构造标准化的工具执行请求
         from mcpstore.core.models.tool import ToolExecutionRequest
 
         if self._context_type == ContextType.STORE:
-            logger.info(f"[STORE] call tool='{tool_name}' mcpstore='{mcpstore_tool_name}' service='{service_global_name}'")
+            logger.info(f"[STORE] call tool='{tool_name}' canonical='{canonical_tool_name}' service='{service_global_name}'")
             request = ToolExecutionRequest(
-                tool_name=mcpstore_tool_name,  # [MCPSTORE] Use MCPStore standard format
+                tool_name=canonical_tool_name,  # 使用 MCP 规范名称（无前缀）
                 service_name=service_global_name,
                 args=args,
                 **kwargs
             )
         else:
-            logger.info(f"[AGENT:{self._agent_id}] call tool='{tool_name}' mcpstore='{mcpstore_tool_name}' service_local='{service_local_name}' service_global='{service_global_name}'")
+            logger.info(f"[AGENT:{self._agent_id}] call tool='{tool_name}' canonical='{canonical_tool_name}' service_local='{service_local_name}' service_global='{service_global_name}'")
             request = ToolExecutionRequest(
-                tool_name=mcpstore_tool_name,  # [MCPSTORE] Use MCPStore standard format
+                tool_name=canonical_tool_name,  # 使用 MCP 规范名称（无前缀）
                 service_name=service_global_name,  # Use global service name
                 args=args,
                 # Agent 场景使用真实 agent_id，确保关系层查询服务映射正确

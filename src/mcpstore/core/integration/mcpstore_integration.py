@@ -1,6 +1,6 @@
 """
-MCPStore Integration Layer
-Provides a clean interface between MCPStore and MCPStore, handling configuration normalization.
+MCP Integration Layer
+Provides a clean interface between project code and the MCP client implementation (currently MCPStore), handling configuration normalization.
 """
 
 import logging
@@ -14,15 +14,15 @@ logger = logging.getLogger(__name__)
 
 class MCPStoreServiceManager:
     """
-    MCPStore Service Manager
+    MCP client Service Manager（当前使用 MCPStore 实现）
 
-    Responsible for converting MCPStore's relaxed configuration to MCPStore standard configuration, and managing MCPStore clients.
-    This is the bridge between MCPStore and MCPStore.
+    Responsible for converting user-relaxed configuration to MCP canonical configuration, and managing MCP clients.
+    This is the bridge between project code 和底层 MCP 客户端实现。
     """
     
     def __init__(self, base_work_dir: Optional[Path] = None):
         """
-        Initialize MCPStore service manager
+        Initialize MCP client service manager
 
         Args:
             base_work_dir: Base working directory for local services
@@ -48,7 +48,7 @@ class MCPStoreServiceManager:
         try:
             logger.info(f"Starting local service {name} with MCPStore")
             
-            # 1. Configuration normalization: Convert user configuration to MCPStore standard format
+            # 1. Configuration normalization: Convert user configuration to MCP canonical format
             mcpstore_config = self._normalize_local_service_config(name, config)
             
             # 2. Create MCPStore client
@@ -69,12 +69,12 @@ class MCPStoreServiceManager:
                     self.service_configs[name] = config
                     self.service_start_times[name] = time.time()
                     
-                    logger.info(f"Local service {name} started successfully via MCPStore")
-                    return True, f"Service started successfully via MCPStore"
+                    logger.info(f"Local service {name} started successfully via MCP client")
+                    return True, f"Service started successfully via MCP client"
                     
             except Exception as e:
-                logger.error(f"MCPStore failed to start service {name}: {e}")
-                return False, f"MCPStore connection failed: {str(e)}"
+                logger.error(f"MCP client failed to start service {name}: {e}")
+                return False, f"MCP client connection failed: {str(e)}"
                 
         except Exception as e:
             logger.error(f"Failed to start local service {name}: {e}")
@@ -94,7 +94,7 @@ class MCPStoreServiceManager:
             if name not in self.clients:
                 return False, f"Service {name} not found"
             
-            # MCPStore client will automatically handle process cleanup
+            # MCP client will automatically handle process cleanup
             client = self.clients[name]
             
             # Clean up records
@@ -166,7 +166,7 @@ class MCPStoreServiceManager:
     
     def _normalize_local_service_config(self, name: str, config: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Configuration normalization: Convert MCPStore's relaxed configuration to MCPStore standard configuration
+        Configuration normalization: Convert user-relaxed configuration to MCP canonical configuration
         
         This is the core value of MCPStore: Allow users to input relaxed format and convert to standard format
         
@@ -175,9 +175,9 @@ class MCPStoreServiceManager:
             config: User configuration (relaxed format)
             
         Returns:
-            Dict[str, Any]: MCPStore standard configuration
+            Dict[str, Any]: MCP canonical configuration
         """
-        # MCPStore standard configuration format
+        # MCP canonical configuration format
         mcpstore_config = {
             "mcpServers": {
                 name: {}
@@ -243,4 +243,3 @@ def get_mcpstore_service_manager(base_work_dir: Optional[Path] = None) -> MCPSto
         # If working directory is different, create new instance
         _mcpstore_service_manager = MCPStoreServiceManager(base_work_dir)
     return _mcpstore_service_manager
-

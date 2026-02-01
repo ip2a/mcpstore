@@ -18,7 +18,7 @@ class ToolExecutionMixin:
     """Tool execution mixin class"""
 
     async def ensure_persistent_client(self, session, service_name: str):
-        """Public API: ensure a persistent MCPStore client is created and cached.
+        """Public API: ensure a persistent MCP client is created and cached.
 
         This is a non-breaking wrapper exposing the previously private
         `_create_persistent_client` method, allowing callers (e.g., context/session)
@@ -38,12 +38,12 @@ class ToolExecutionMixin:
         session_id: Optional[str] = None
     ) -> Any:
         """
-        Execute tool (MCPStore standard)
-        Strictly execute tool calls according to MCPStore official standards
+        Execute tool (MCP canonical standard)
+        Strictly execute tool calls according to MCP protocol expectations
 
         Args:
             service_name: Service name
-            tool_name: Tool name (MCPStore original name)
+            tool_name: Tool name (MCP canonical/original name)
             arguments: Tool parameters
             agent_id: Agent ID (optional)
             timeout: Timeout in seconds
@@ -52,14 +52,14 @@ class ToolExecutionMixin:
             session_id: Session ID (optional, for session-aware execution)
 
         Returns:
-            MCPStore CallToolResult or extracted data
+            MCP CallToolResult or extracted data
         """
         from mcpstore.core.registry.tool_resolver import MCPStoreToolExecutor
 
         arguments = arguments or {}
         executor = MCPStoreToolExecutor(default_timeout=timeout or 30.0)
 
-        # [SESSION MODE] Use cached MCPStore Client
+        # [SESSION MODE] Use cached MCP Client
         if session_id:
             logger.info(f"[SESSION_EXECUTION] Using session mode for tool '{tool_name}' in service '{service_name}'")
             return await self._execute_tool_with_session(
@@ -151,7 +151,7 @@ class ToolExecutionMixin:
                     else:
                         raise Exception(f"Tool {tool_name} not found in service {service_name}. Available: {available}")
 
-                # 使用 MCPStore 标准执行器执行工具
+                # 使用 MCP 规范执行器执行工具（标准 canonical 名称）
                 result = await executor.execute_tool(
                     client=client,
                     tool_name=effective_tool_name,
@@ -306,7 +306,7 @@ class ToolExecutionMixin:
                     f"Try one of: {suggestions} or use bare method name without any prefixes."
                 )
 
-            # 使用 MCPStore 标准执行器执行工具（不进入 async with，保持连接）
+            # 使用 MCP 规范执行器执行工具（不进入 async with，保持连接）
             t_exec0 = _t.perf_counter()
             result = await executor.execute_tool(
                 client=client,

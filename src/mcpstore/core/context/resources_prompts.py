@@ -1,6 +1,6 @@
 """
-MCPStore Resources and Prompts Module
-Implementation of Resources and Prompts functionality
+MCP Resources and Prompts Module
+实现资源与提示词相关能力，基于 MCP 通知/轮询机制（与具体实现解耦）
 """
 
 import logging
@@ -21,7 +21,7 @@ class ResourcesPromptsMixin:
         """
         Tool change detection and processing method (synchronous version)
 
-        Supports hybrid tool change detection with MCPStore notification mechanism + polling backup strategy
+        Supports hybrid tool change detection with MCP server notification mechanism + polling backup strategy
 
         Args:
             service_name: Specific service name (optional, None means check all services)

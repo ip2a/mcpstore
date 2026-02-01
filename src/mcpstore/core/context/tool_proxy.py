@@ -1,11 +1,12 @@
 """
-MCPStore Tool Proxy Module
-工具代理对象，提供具体工具的操作方法
+MCP Tool Proxy Module
+工具代理对象，提供具体工具的操作方法（基于 MCP 协议规范，而非产品名绑定）
 """
 
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
+from .tool_proxy_annotations import CallToolResultProtocol
 
 from .types import ContextType
 
@@ -18,19 +19,19 @@ logger = logging.getLogger(__name__)
 class ToolCallResult:
     """
     工具调用结果封装
-    基于 MCPStore CallToolResult 提供友好接口
+    基于 MCP 协议的 CallToolResult 提供友好接口
     """
     
-    def __init__(self, mcpstore_result, tool_name: str, arguments: Dict[str, Any]):
+    def __init__(self, mcp_result: CallToolResultProtocol, tool_name: str, arguments: Dict[str, Any]):
         """
         初始化工具调用结果
         
         Args:
-            mcpstore_result: MCPStore 的 CallToolResult 对象
+            mcp_result: MCP CallToolResult 对象
             tool_name: 工具名称
             arguments: 调用参数
         """
-        self._result = mcpstore_result
+        self._result = mcp_result
         self._tool_name = tool_name
         self._arguments = arguments
         self._called_at = datetime.now()
@@ -40,7 +41,7 @@ class ToolCallResult:
     @property
     def data(self):
         """
-        MCPStore 的完全水合对象（核心特色）
+        MCP 返回的水合对象（协议规范）
         
         Returns:
             Any: 完全重构的 Python 对象，包括复杂类型如 datetime、UUID 等
