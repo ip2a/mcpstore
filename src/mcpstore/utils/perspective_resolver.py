@@ -35,7 +35,7 @@ class ToolResolution:
     global_service_name: str
     local_tool_name: str
     global_tool_name: str
-    fastmcp_tool_name: str
+    canonical_tool_name: str  # SDK 标准格式（原 fastmcp 命名）
     resolution_method: str
     original_input: str
 
@@ -166,7 +166,7 @@ class PerspectiveResolver:
         user_input: str,
         *,
         available_tools: List[Dict[str, Any]],
-        target: str = "fastmcp",
+        target: str = "canonical",
         strict: bool = False,
     ) -> ToolResolution:
         """
@@ -176,16 +176,16 @@ class PerspectiveResolver:
             agent_id: 目标 agent_id
             user_input: 用户输入的工具名（可带服务前缀等）
             available_tools: 可用工具列表（需包含 service_name）
-            target: "fastmcp" | "global" | "local"（影响输出的工具/服务名称形式）
+        target: "canonical" | "global" | "local"（影响输出的工具/服务名称形式）
             strict: 严格模式，agent 不匹配时抛出异常
         """
-        if target != "fastmcp":
-            raise ValueError("resolve_tool 目前仅支持 target='fastmcp'，请勿传入其他值")
+        if target != "canonical":
+            raise ValueError("resolve_tool 目前仅支持 target='canonical'，请勿传入其他值")
         if not available_tools:
             raise ValueError("available_tools 不能为空，需提供用于解析的工具列表")
 
         resolver = ToolNameResolver()
-        fastmcp_name, resolution = resolver.resolve_and_format_for_fastmcp(user_input, available_tools)
+        canonical_name, resolution = resolver.resolve_and_format_for_fastmcp(user_input, available_tools)
 
         service_local = resolution.service_name
         resolution_method = getattr(resolution, "resolution_method", "resolved")
@@ -195,7 +195,7 @@ class PerspectiveResolver:
             (
                 t for t in available_tools
                 if t.get("service_name") == service_local
-                and (t.get("original_name") or t.get("name") == fastmcp_name)
+                and (t.get("original_name") or t.get("name") == canonical_name)
             ),
             None,
         )
@@ -209,13 +209,13 @@ class PerspectiveResolver:
         # 若未补全到全局信息，按规则构造；严格模式下缺关键字段抛错
         if not service_global:
             if strict:
-                raise ValueError(f"匹配工具缺少全局服务名: service={service_local}, tool={fastmcp_name}")
+                raise ValueError(f"匹配工具缺少全局服务名: service={service_local}, tool={canonical_name}")
             service_global = service_local  # 回退：使用本地名充当全局名
 
         if not global_tool_name:
-            global_tool_name = NamingService.generate_tool_global_name(service_global, fastmcp_name)
+            global_tool_name = NamingService.generate_tool_global_name(service_global, canonical_name)
 
-        local_tool_name = f"{service_local}_{fastmcp_name}"
+        local_tool_name = f"{service_local}_{canonical_name}"
 
         return ToolResolution(
             agent_id=agent_id,
@@ -223,7 +223,7 @@ class PerspectiveResolver:
             global_service_name=service_global,
             local_tool_name=local_tool_name,
             global_tool_name=global_tool_name,
-            fastmcp_tool_name=fastmcp_name,
+            canonical_tool_name=canonical_name,
             resolution_method=resolution_method,
             original_input=user_input,
         )
