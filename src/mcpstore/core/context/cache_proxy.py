@@ -251,8 +251,15 @@ class CacheProxy:
         return filtered
 
     def _run_async(self, coro, op_name: str):
-        if self._bridge:
-            return self._bridge.run(coro, op_name=op_name)
+        bridge = self._bridge
+        if bridge is None:
+            try:
+                from mcpstore.core.bridge import get_async_bridge
+                bridge = get_async_bridge()
+            except Exception:
+                bridge = None
+        if bridge:
+            return bridge.run(coro, op_name=op_name)
         return asyncio.run(coro)
 
 

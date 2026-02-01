@@ -181,7 +181,7 @@ class CacheLayerManager:
         """
         if not isinstance(value, dict):
             raise ValueError(
-                f"实体值必须是字典类型，实际类型: {type(value).__name__}. "
+                f"Entity value must be a dict type, actual type: {type(value).__name__}. "
                 f"entity_type={entity_type}, key={key}"
             )
         
@@ -468,7 +468,7 @@ class CacheLayerManager:
         """
         if not isinstance(value, dict):
             raise ValueError(
-                f"关系值必须是字典类型，实际类型: {type(value).__name__}. "
+                f"Relation value must be a dict type, actual type: {type(value).__name__}. "
                 f"relation_type={relation_type}, key={key}"
             )
         
@@ -489,7 +489,7 @@ class CacheLayerManager:
                 f"error={e}"
             )
             raise RuntimeError(
-                f"存储关系失败: collection={collection}, key={key}, error={e}"
+                f"Failed to store relation: collection={collection}, key={key}, error={e}"
             ) from e
 
     # ==================== 事件层操作 ====================
@@ -503,7 +503,7 @@ class CacheLayerManager:
         """存储事件到事件层"""
         if not isinstance(value, dict):
             raise ValueError(
-                f"事件值必须是字典类型，实际类型: {type(value).__name__}. "
+                f"Event value must be a dict type, actual type: {type(value).__name__}. "
                 f"event_type={event_type}, key={key}"
             )
 
@@ -524,7 +524,7 @@ class CacheLayerManager:
                 f"error={e}"
             )
             raise RuntimeError(
-                f"存储事件失败: collection={collection}, key={key}, error={e}"
+                f"Failed to store event: collection={collection}, key={key}, error={e}"
             ) from e
 
     async def get_event(
@@ -550,7 +550,7 @@ class CacheLayerManager:
                 f"error={e}"
             )
             raise RuntimeError(
-                f"获取事件失败: collection={collection}, key={key}, error={e}"
+                f"Failed to get event: collection={collection}, key={key}, error={e}"
             ) from e
 
     async def get_all_events_async(self, event_type: str) -> Dict[str, Dict[str, Any]]:
@@ -608,7 +608,7 @@ class CacheLayerManager:
                 f"error={e}"
             )
             raise RuntimeError(
-                f"删除事件失败: collection={collection}, key={key}, error={e}"
+                f"Failed to delete event: collection={collection}, key={key}, error={e}"
             ) from e
     
     async def get_relation(
@@ -647,7 +647,7 @@ class CacheLayerManager:
                 f"error={e}"
             )
             raise RuntimeError(
-                f"获取关系失败: collection={collection}, key={key}, error={e}"
+                f"Failed to get relation: collection={collection}, key={key}, error={e}"
             ) from e
     
     async def delete_relation(self, relation_type: str, key: str) -> None:
@@ -678,7 +678,7 @@ class CacheLayerManager:
                 f"error={e}"
             )
             raise RuntimeError(
-                f"删除关系失败: collection={collection}, key={key}, error={e}"
+                f"Failed to delete relation: collection={collection}, key={key}, error={e}"
             ) from e
 
     async def get_all_relations_async(self, relation_type: str) -> Dict[str, Dict[str, Any]]:
@@ -733,7 +733,7 @@ class CacheLayerManager:
         """
         if not isinstance(value, dict):
             raise ValueError(
-                f"状态值必须是字典类型，实际类型: {type(value).__name__}. "
+                f"State value must be a dict type, actual type: {type(value).__name__}. "
                 f"state_type={state_type}, key={key}"
             )
         
@@ -755,7 +755,7 @@ class CacheLayerManager:
                 f"error={e}"
             )
             raise RuntimeError(
-                f"存储状态失败: collection={collection}, key={key}, error={e}"
+                f"Failed to store state: collection={collection}, key={key}, error={e}"
             ) from e
     
     async def get_state(
@@ -800,7 +800,7 @@ class CacheLayerManager:
                 f"error={e}"
             )
             raise RuntimeError(
-                f"获取状态失败: collection={collection}, key={key}, error={e}"
+                f"Failed to get state: collection={collection}, key={key}, error={e}"
             ) from e
 
     async def get_all_states_async(self, state_type: str) -> Dict[str, Dict[str, Any]]:
@@ -861,7 +861,7 @@ class CacheLayerManager:
                 f"error={e}"
             )
             raise RuntimeError(
-                f"删除状态失败: collection={collection}, key={key}, error={e}"
+                f"Failed to delete state: collection={collection}, key={key}, error={e}"
             ) from e
 
     def put_state_sync(
@@ -888,7 +888,7 @@ class CacheLayerManager:
         
         if not isinstance(value, dict):
             raise ValueError(
-                f"状态值必须是字典类型，实际类型: {type(value).__name__}. "
+                f"State value must be a dict type, actual type: {type(value).__name__}. "
                 f"state_type={state_type}, key={key}"
             )
         
@@ -903,10 +903,11 @@ class CacheLayerManager:
             await self._kv_store.put(key, value, collection=collection)
 
         try:
-            if self._bridge:
-                self._bridge.run(_put_state_async(), op_name=f"cache.put_state_sync.{state_type}")
-            else:
-                asyncio.run(_put_state_async())
+            bridge = self._bridge
+            if bridge is None:
+                from mcpstore.core.bridge import get_async_bridge
+                bridge = get_async_bridge()
+            bridge.run(_put_state_async(), op_name=f"cache.put_state_sync.{state_type}")
             
             logger.info(f"[CACHE] [STATE] Synchronous state storage successful: collection={collection}, key={key}")
         except Exception as e:
@@ -915,7 +916,7 @@ class CacheLayerManager:
                 f"error={e}"
             )
             raise RuntimeError(
-                f"同步存储状态失败: collection={collection}, key={key}, error={e}"
+                f"Failed to store state synchronously: collection={collection}, key={key}, error={e}"
             ) from e
 
     def get_state_sync(
@@ -951,10 +952,11 @@ class CacheLayerManager:
             return await self._kv_store.get(key, collection=collection)
 
         try:
-            if self._bridge:
-                result = self._bridge.run(_get_state_async(), op_name=f"cache.get_state_sync.{state_type}")
-            else:
-                result = asyncio.run(_get_state_async())
+            bridge = self._bridge
+            if bridge is None:
+                from mcpstore.core.bridge import get_async_bridge
+                bridge = get_async_bridge()
+            result = bridge.run(_get_state_async(), op_name=f"cache.get_state_sync.{state_type}")
             
             logger.debug(f"[CACHE] [GET] Synchronous state retrieval successful: collection={collection}, key={key}")
             return result
@@ -964,7 +966,7 @@ class CacheLayerManager:
                 f"error={e}"
             )
             raise RuntimeError(
-                f"同步获取状态失败: collection={collection}, key={key}, error={e}"
+                f"Failed to get state synchronously: collection={collection}, key={key}, error={e}"
             ) from e
     
     # ==================== Agent 实体操作 ====================
@@ -1091,7 +1093,7 @@ class CacheLayerManager:
         """
         if not isinstance(config, dict):
             raise ValueError(
-                f"Store 配置必须是字典类型，实际类型: {type(config).__name__}"
+                f"Store config must be a dict type, actual type: {type(config).__name__}"
             )
         
         from .models import StoreConfig

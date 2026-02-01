@@ -356,8 +356,8 @@ class ConfigExportService:
         """格式化差异为表格"""
         lines = []
         lines.append("=" * 100)
-        lines.append(f"配置差异报告 - {diff['timestamp']}")
-        lines.append(f"基线文件: {diff['baseline_file']}")
+        lines.append(f"Config diff report - {diff['timestamp']}")
+        lines.append(f"Baseline file: {diff['baseline_file']}")
         lines.append("=" * 100)
 
         # 新增配置

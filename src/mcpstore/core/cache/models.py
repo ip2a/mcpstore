@@ -389,8 +389,8 @@ class ToolStatusItem:
         valid_statuses = ["available", "unavailable"]
         if data["status"] not in valid_statuses:
             raise ValueError(
-                f"无效的工具状态: {data['status']}. "
-                f"有效值: {valid_statuses}"
+                f"Invalid tool status: {data['status']}. "
+                f"Valid values: {valid_statuses}"
             )
         
         return cls(
@@ -466,8 +466,8 @@ class ServiceStatus:
         ]
         if data["health_status"] not in valid_health_statuses:
             raise ValueError(
-                f"无效的健康状态: {data['health_status']}. "
-                f"有效值: {valid_health_statuses}"
+                f"Invalid health status: {data['health_status']}. "
+                f"Valid values: {valid_health_statuses}"
             )
         
         tools_data = data.get("tools", [])

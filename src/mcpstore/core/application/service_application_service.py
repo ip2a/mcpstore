@@ -280,7 +280,7 @@ class ServiceApplicationService:
                 dedup_key=f"{event.__class__.__name__}:{service_name}",
             )
             if not queued:
-                raise RuntimeError(f"队列写入失败：{event.__class__.__name__} {service_name}")
+                raise RuntimeError(f"Queue write failed: {event.__class__.__name__} {service_name}")
             return True
 
         try:
@@ -398,7 +398,7 @@ class ServiceApplicationService:
                 dedup_key=f"{event.__class__.__name__}:{service_name}",
             )
             if not queued:
-                raise RuntimeError(f"队列写入失败：{event.__class__.__name__} {service_name}")
+                raise RuntimeError(f"Queue write failed: {event.__class__.__name__} {service_name}")
             return True
 
         try:

@@ -269,7 +269,7 @@ class OAuth(OAuthClientProvider):
         async with anyio.create_task_group() as tg:
             tg.start_soon(server.serve)
             logger.info(
-                f"🎧 OAuth callback server started on http://localhost:{self.redirect_port}"
+                f"OAuth callback server started on http://localhost:{self.redirect_port}"
             )
 
             TIMEOUT = 300.0  # 5 minute timeout

@@ -218,8 +218,8 @@ def log_server_banner(server: MCPStore[Any]) -> None:
     info_table.add_column(style="cyan", justify="left")  # Label column
     info_table.add_column(style="dim", justify="left")  # Value column
 
-    info_table.add_row("🖥", "Server:", Text(server.name, style="dim"))
-    info_table.add_row("🚀", "Deploy free:", "https://mcpstore.mcp.cloud")
+    info_table.add_row("[Server]", "Server:", Text(server.name, style="dim"))
+    info_table.add_row("[Deploy]", "Deploy free:", "https://mcpstore.mcp.cloud")
 
     # Create panel with logo, title, and information using Group
     docs_url = Text("https://gomcpstore.mcp.com", style="dim")
@@ -250,7 +250,7 @@ def log_server_banner(server: MCPStore[Any]) -> None:
     # Add update notice if a newer version is available (shown last for visibility)
     if newer_version:
         update_line1 = Text.assemble(
-            ("🎉 Update available: ", "bold"),
+            ("[Update] Update available: ", "bold"),
             (newer_version, "bold green"),
         )
         update_line2 = Text("Run: pip install --upgrade mcpstore", style="dim")

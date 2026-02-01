@@ -308,7 +308,7 @@ class ToolOperationsMixin:
                     local_service_name = name_res.local_name
 
                     if not tool_original_name:
-                        raise ValueError(f"缺少 tool_original_name: {tool_global_name}")
+                        raise ValueError(f"Missing tool_original_name: {tool_global_name}")
 
                     display_name = f"{local_service_name}_{tool_original_name}"
                     display_service_name = local_service_name

@@ -66,7 +66,7 @@ class PerspectiveResolver:
         - 普通本地名：返回 (None, name)
         """
         if not name:
-            raise ValueError("服务名称不能为空")
+            raise ValueError("Service name cannot be empty")
 
         # 全局名格式
         if AgentServiceMapper.is_any_agent_service(name):
@@ -100,11 +100,11 @@ class PerspectiveResolver:
             strict: 严格模式，agent 不匹配时抛出异常
         """
         if target not in ("global", "local"):
-            raise ValueError("target 必须是 'global' 或 'local'")
+            raise ValueError("target must be 'global' or 'local'")
         if not agent_id:
-            raise ValueError("agent_id 不能为空")
+            raise ValueError("agent_id cannot be empty")
         if not name:
-            raise ValueError("服务名称不能为空")
+            raise ValueError("Service name cannot be empty")
 
         parsed_agent, parsed_local = self.parse_agent_scoped(name)
 
@@ -120,10 +120,10 @@ class PerspectiveResolver:
                     resolution_method="global_agent_passthrough",
                     original_input=name,
                 )
-            msg = f"服务归属的 agent_id={parsed_agent} 与目标 agent_id={agent_id} 不一致"
+            msg = f"Service belongs to agent_id={parsed_agent} which differs from target agent_id={agent_id}"
             if strict:
                 raise ValueError(msg)
-            logger.warning(f"[PERSPECTIVE] {msg}，按目标 agent_id 继续转换")
+            logger.warning(f"[PERSPECTIVE] {msg}, continuing conversion with target agent_id")
 
         mapper = AgentServiceMapper(agent_id)
 
@@ -180,9 +180,9 @@ class PerspectiveResolver:
             strict: 严格模式，agent 不匹配时抛出异常
         """
         if target != "canonical":
-            raise ValueError("resolve_tool 目前仅支持 target='canonical'，请勿传入其他值")
+            raise ValueError("resolve_tool currently only supports target='canonical', please do not pass other values")
         if not available_tools:
-            raise ValueError("available_tools 不能为空，需提供用于解析的工具列表")
+            raise ValueError("available_tools cannot be empty, must provide tool list for resolution")
 
         resolver = ToolNameResolver()
         # 使用当前注册器提供的标准格式解析（上游原始格式，统一称 canonical）
@@ -210,7 +210,7 @@ class PerspectiveResolver:
         # 若未补全到全局信息，按规则构造；严格模式下缺关键字段抛错
         if not service_global:
             if strict:
-                raise ValueError(f"匹配工具缺少全局服务名: service={service_local}, tool={canonical_name}")
+                raise ValueError(f"Matched tool missing global service name: service={service_local}, tool={canonical_name}")
             service_global = service_local  # 回退：使用本地名充当全局名
 
         if not global_tool_name:
@@ -241,11 +241,11 @@ class PerspectiveResolver:
         将全局工具名转换为本地工具名（本地服务名前缀 + 原始工具名）。
         """
         if not global_tool_name or "_" not in global_tool_name:
-            raise ValueError("global_tool_name 格式不正确")
-        # 拆分出服务全局名与工具原始名（从右侧拆分，兼容服务名内含下划线）
+            raise ValueError("global_tool_name format is incorrect")
+        # Split global service name and tool original name (split from right, compatible with service names containing underscores)
         parts = global_tool_name.rsplit("_", 1)
         if len(parts) != 2:
-            raise ValueError("global_tool_name 解析失败")
+            raise ValueError("global_tool_name parsing failed")
         service_global, tool_original = parts
         service_res = self.normalize_service_name(agent_id, service_global, target="local", strict=strict)
         return f"{service_res.local_name}_{tool_original}"

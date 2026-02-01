@@ -1572,7 +1572,7 @@ class ServiceManagementMixin:
             )
             global_name = global_res.global_name
             if not global_name:
-                raise ValueError(f"未找到服务映射: {self._agent_id}:{local_name}")
+                raise ValueError(f"Service mapping not found: {self._agent_id}:{local_name}")
 
             # 2. 从 Agent 缓存中删除（使用异步版本）
             await self._store.registry.remove_service_async(self._agent_id, local_name)

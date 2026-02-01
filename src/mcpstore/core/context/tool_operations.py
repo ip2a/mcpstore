@@ -351,7 +351,7 @@ class ToolOperationsMixin:
                 if is_available:
                     filtered_tools.append(tool)
             except RuntimeError as e:
-                # 状态/工具不存在时仅记录并跳过，避免因部分数据缺失导致整个进程中断
+                # Skip tool when state/tool does not exist, only log to avoid process interruption due to partial data loss
                 msg = (
                     f"[LIST_TOOLS] skip tool due to state_error "
                     f"service_global_name={tool_service_global_name} tool={tool.name} error={e}"
@@ -391,20 +391,20 @@ class ToolOperationsMixin:
         try:
             tools = await self.list_tools_async()
             
-            #  修复：返回完整的工具信息，包括Vue前端需要的所有字段
+            # Fix: Return complete tool information, including all fields required by Vue frontend
             tools_data = [
                 {
                     "name": tool.name,
                     "description": tool.description,
                     "service_name": tool.service_name,
                     "client_id": tool.client_id,
-                    "inputSchema": tool.inputSchema,  # 完整的参数schema
-                    "has_schema": tool.inputSchema is not None  # 保持向后兼容
+                    "inputSchema": tool.inputSchema,  # Complete parameter schema
+                    "has_schema": tool.inputSchema is not None  # Maintain backward compatibility
                 }
                 for tool in tools
             ]
 
-            # 按服务分组统计
+            # Group statistics by service
             tools_by_service = {}
             for tool in tools:
                 service_name = tool.service_name
@@ -412,7 +412,7 @@ class ToolOperationsMixin:
                     tools_by_service[service_name] = 0
                 tools_by_service[service_name] += 1
 
-            #  修复：返回API期望的格式
+            # Fix: Return API expected format
             return {
                 "tools": tools_data,
                 "metadata": {
@@ -424,7 +424,7 @@ class ToolOperationsMixin:
             
         except Exception as e:
             logger.error(f"Failed to get tools with stats: {e}")
-            #  修复：错误情况下也返回API期望的格式
+            # Fix: Also return API expected format in error cases
             return {
                 "tools": [],
                 "metadata": {
@@ -504,7 +504,7 @@ class ToolOperationsMixin:
                     tool_relations,
                 )
                 raise RuntimeError(
-                    f"服务已添加但工具尚未完成同步，请稍后重试。"
+                    f"Service has been added but tools have not completed synchronization, please retry later. "
                     f"service={service_original_name}, agent_id={agent_id}, "
                     f"state={getattr(status, 'health_status', 'unknown')}, "
                     f"tools_confirmed_empty={tools_confirmed_empty}"
@@ -749,7 +749,7 @@ class ToolOperationsMixin:
                 tool_name,
                 available_tools=available_tools,
                 target="canonical",
-                strict=False,  # 不因元数据缺失直接中断，错误由可用性校验兜底
+                strict=False,  # Do not interrupt directly due to missing metadata, errors are handled by availability check
             )
             canonical_tool_name = tool_res.canonical_tool_name
             service_global_name = tool_res.global_service_name
@@ -772,7 +772,7 @@ class ToolOperationsMixin:
         )
         
         if not is_available:
-            # 工具不可用，抛出异常
+            # Tool not available, raise exception
             from mcpstore.core.exceptions import ToolNotAvailableError
             
             original_tool_name = self._extract_original_tool_name(canonical_tool_name, tool_res.local_service_name)
@@ -1029,7 +1029,7 @@ class ToolOperationsMixin:
                         current_agent_id=current_agent_id,
                         service_agent_id=service_agent_id,
                         service_name=service.name,
-                        operation="工具集管理"
+                        operation="Tool set management"
                     )
                 
                 logger.debug(f"[TOOL_OPERATIONS] Verified ServiceProxy ownership for '{service.name}'")
@@ -1540,7 +1540,7 @@ class ToolOperationsMixin:
         
         if not service_global_name:
             raise RuntimeError(
-                f"无法获取服务全局名称: agent_id={self._agent_id}, "
+                f"Failed to get service global name: agent_id={self._agent_id}, "
                 f"service_name={service_name}"
             )
         
@@ -1552,7 +1552,7 @@ class ToolOperationsMixin:
         
         if not service_status:
             raise RuntimeError(
-                f"服务状态不存在: service_global_name={service_global_name}"
+                f"Service status does not exist: service_global_name={service_global_name}"
             )
         
         # 计算统计信息

@@ -126,7 +126,7 @@ def version(
         if newer_version := check_for_newer_version():
             console.print()
             console.print(
-                f"[bold]🎉 MCPStore update available:[/bold] [green]{newer_version}[/green]"
+                f"[bold][Update] MCPStore update available:[/bold] [green]{newer_version}[/green]"
             )
             console.print("[dim]Run: pip install --upgrade mcpstore[/dim]")
 

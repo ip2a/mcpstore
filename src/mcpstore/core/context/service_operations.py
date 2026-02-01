@@ -694,7 +694,7 @@ class ServiceOperationsMixin:
             )
             if not service_global_name:
                 raise RuntimeError(
-                    f"无法获取服务全局名称: agent_id={agent_id}, "
+                    f"Failed to get service global name: agent_id={agent_id}, "
                     f"service_name={service_name}"
                 )
         else:
@@ -728,7 +728,7 @@ class ServiceOperationsMixin:
             
             if not tool_global_name or not tool_original_name:
                 raise RuntimeError(
-                    f"工具关系数据不完整: tool_rel={tool_rel}"
+                    f"Incomplete tool relationship data: tool_rel={tool_rel}"
                 )
             
             tools_status.append({
@@ -753,17 +753,17 @@ class ServiceOperationsMixin:
     async def _connect_and_update_cache(self, agent_id: str, service_name: str, service_config: Dict[str, Any]):
         """异步连接服务并更新缓存状态"""
         try:
-            # 🔗 新增：连接开始日志
+            # New: Connection start log
             logger.debug(f"Connecting to service: {service_name}")
             logger.debug(f"Agent ID: {agent_id}")
             logger.info(f"[CONNECT_SERVICE] [CALL] Calling orchestrator.connect_service")
 
-            #  修复：使用connect_service方法（现已修复ConfigProcessor问题）
+            # Fix: Use connect_service method (ConfigProcessor issue has been fixed)
             try:
                 logger.info(f"[CONNECT_SERVICE] [CALL] Preparing to call connect_service, parameters: name={service_name}, agent_id={agent_id}")
                 logger.info(f"[CONNECT_SERVICE] service_config: {service_config}")
 
-                # 使用修复后的connect_service方法（现在会使用ConfigProcessor）
+                # Use the fixed connect_service method (now uses ConfigProcessor)
                 success, message = await self._store.orchestrator.connect_service(
                     service_name, service_config=service_config, agent_id=agent_id
                 )
@@ -776,7 +776,7 @@ class ServiceOperationsMixin:
                 logger.error(f"[CONNECT_SERVICE] [ERROR] Exception stack: {traceback.format_exc()}")
                 success, message = False, f"Connection call failed: {connect_error}"
 
-            # 🔗 新增：连接结果日志
+            # New: Connection result log
             logger.info(f"[CONNECT_SERVICE] [RESULT] Connection result: success={success}, message={message}")
 
             if success:
