@@ -35,7 +35,7 @@ class ToolResolution:
     global_service_name: str
     local_tool_name: str
     global_tool_name: str
-    canonical_tool_name: str  # SDK 标准格式（原 fastmcp 命名）
+    canonical_tool_name: str  # SDK 标准格式（上游原始命名）
     resolution_method: str
     original_input: str
 
@@ -185,7 +185,8 @@ class PerspectiveResolver:
             raise ValueError("available_tools 不能为空，需提供用于解析的工具列表")
 
         resolver = ToolNameResolver()
-        canonical_name, resolution = resolver.resolve_and_format_for_fastmcp(user_input, available_tools)
+        # 使用当前注册器提供的标准格式解析（上游原始格式，统一称 canonical）
+        canonical_name, resolution = resolver.resolve_and_format_for_mcpstore(user_input, available_tools)
 
         service_local = resolution.service_name
         resolution_method = getattr(resolution, "resolution_method", "resolved")
