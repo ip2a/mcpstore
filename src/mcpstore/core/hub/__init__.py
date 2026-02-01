@@ -2,7 +2,7 @@
 Hub MCP 服务暴露模块
 
 将 MCPStore 对象（Store/Agent/ServiceProxy）暴露为标准 MCP 服务。
-基于 FastMCP 框架，提供薄包装层。
+基于 MCPStore 框架，提供薄包装层。
 """
 
 from .exceptions import (

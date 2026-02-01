@@ -19,7 +19,7 @@ class ToolOperationsMixin:
 
     async def process_tool_request(self, request: ToolExecutionRequest) -> ExecutionResponse:
         """
-        Process tool execution request (FastMCP standard)
+        Process tool execution request (MCPStore standard)
 
         Args:
             request: Tool execution request
@@ -63,8 +63,8 @@ class ToolOperationsMixin:
                     f"Service '{request.service_name}' is in state {service_state.value}, will still attempt execution"
                 )
 
-            # Execute tool (using FastMCP standard)
-            result = await self.orchestrator.execute_tool_fastmcp(
+            # Execute tool (using MCPStore standard)
+            result = await self.orchestrator.execute_tool_mcpstore(
                 service_name=request.service_name,
                 tool_name=request.tool_name,
                 arguments=request.args,
@@ -185,7 +185,7 @@ class ToolOperationsMixin:
         Use tool (generic interface) - backward compatibility alias
 
         Note: This method is an alias for call_tool, maintaining backward compatibility.
-        It is recommended to use the call_tool method to remain consistent with FastMCP naming.
+        It is recommended to use the call_tool method to remain consistent with MCPStore naming.
         """
         return await self.call_tool(tool_name, args)
 

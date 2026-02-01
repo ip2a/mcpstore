@@ -20,10 +20,10 @@ logger = logging.getLogger(__name__)
 class ToolInfo:
     """工具信息（纯数据结构）"""
     name: str  # 工具全局名（L3）
-    tool_original_name: str  # FastMCP 标准格式（L2）
+    tool_original_name: str  # MCPStore 标准格式（L2）
     description: str
     service_name: str  # 服务原始名（L0，保持与 service_original_name 一致）
-    service_original_name: str  # 服务原始名（L0/FastMCP 视角）
+    service_original_name: str  # 服务原始名（L0/MCPStore 视角）
     service_global_name: str  # 服务全局名（L3）
     client_id: Optional[str]
     inputSchema: Dict[str, Any]

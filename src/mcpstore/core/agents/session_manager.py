@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 
-from fastmcp import Client
+from mcpstore.mcp import Client
 
 logger = logging.getLogger(__name__)
 

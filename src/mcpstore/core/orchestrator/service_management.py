@@ -6,7 +6,7 @@ Service management module - contains service registration, management and inform
 import logging
 from typing import Dict, List, Any, Optional
 
-from fastmcp import Client
+from mcpstore.mcp import Client
 
 from mcpstore.core.models.service import ServiceConnectionState
 

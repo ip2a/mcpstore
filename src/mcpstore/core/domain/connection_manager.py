@@ -174,14 +174,14 @@ class ConnectionManager:
         timeout: float
     ) -> Tuple[Any, List[Tuple[str, Dict[str, Any]]]]:
         """Connect to local service"""
-        from fastmcp import Client
+        from mcpstore.mcp import Client
 
         # 1. Process configuration
-        processed_config = self._config_processor.process_user_config_for_fastmcp({
+        processed_config = self._config_processor.process_user_config_for_mcpstore({
             "mcpServers": {service_name: service_config}
         })
 
-        # 2. Create client and connect（FastMCP Client 会在 async with 中自动启动本地进程）
+        # 2. Create client and connect（MCPStore Client 会在 async with 中自动启动本地进程）
         client = Client(processed_config)
 
         async with asyncio.timeout(timeout):
@@ -197,10 +197,10 @@ class ConnectionManager:
         timeout: float
     ) -> Tuple[Any, List[Tuple[str, Dict[str, Any]]]]:
         """Connect to remote service"""
-        from fastmcp import Client
+        from mcpstore.mcp import Client
 
         # 1. Process configuration
-        processed_config = self._config_processor.process_user_config_for_fastmcp({
+        processed_config = self._config_processor.process_user_config_for_mcpstore({
             "mcpServers": {service_name: service_config}
         })
 

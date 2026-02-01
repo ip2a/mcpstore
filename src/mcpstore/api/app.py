@@ -5,14 +5,15 @@ MCPStore API 服务 - 改进版
 
 import logging
 
+from mcpstore.config.config import LoggingConfig
+
 # 导入应用工厂
 from .api_app import create_app
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# 统一日志配置：仅在尚未初始化时进行
+if not LoggingConfig._configured:  # type: ignore[attr-defined]
+    LoggingConfig.setup_logging(debug="INFO")
+
 logger = logging.getLogger(__name__)
 
 # 🆕 URL 前缀配置（不再使用环境变量）

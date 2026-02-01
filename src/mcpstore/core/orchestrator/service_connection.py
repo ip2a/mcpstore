@@ -12,7 +12,7 @@ MCPOrchestrator Service Connection Module
 import logging
 from typing import Dict, Any, Optional, Tuple
 
-from fastmcp import Client
+from mcpstore.mcp import Client
 
 from mcpstore.core.models.service import ServiceConnectionState
 

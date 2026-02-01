@@ -395,7 +395,7 @@ async def agent_call_tool(agent_id: str, request: SimpleToolExecutionRequest):
     result = await context.bridge_execute(
         context.call_tool_async(request.tool_name, request.args)
     )
-    # 将 FastMCP CallToolResult 标准化为可序列化的视图
+    # 将 MCPStore CallToolResult 标准化为可序列化的视图
     try:
         from mcpstore.adapters.common import call_tool_response_helper
         result_view = call_tool_response_helper(result).model_dump()

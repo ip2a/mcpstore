@@ -6,9 +6,9 @@ from pydantic import BaseModel, Field
 class ToolInfo(BaseModel):
     # 工具全局名称（L3，用于内部索引/调用）
     name: str
-    # FastMCP 标准格式名称（L2，用于调用 FastMCP）
+    # MCPStore 标准格式名称（L2，用于调用 MCPStore）
     tool_original_name: str
-    # 服务原始名称（L0/FastMCP 视角）
+    # 服务原始名称（L0/MCPStore 视角）
     service_original_name: str
     # 服务全局名称（L3，用于内部索引）
     service_global_name: str
@@ -26,14 +26,14 @@ class ToolsResponse(BaseModel):
     message: Optional[str] = Field(None, description="Response message")
 
 class ToolExecutionRequest(BaseModel):
-    tool_name: str = Field(..., description="Tool name (FastMCP original name)")
+    tool_name: str = Field(..., description="Tool name (MCPStore original name)")
     service_name: str = Field(..., description="Service name")
     args: Dict[str, Any] = Field(default_factory=dict, description="Tool parameters")
     agent_id: Optional[str] = Field(None, description="Agent ID")
     client_id: Optional[str] = Field(None, description="Client ID")
     session_id: Optional[str] = Field(None, description="Session ID (for session-aware execution)")
 
-    # FastMCP standard parameters
+    # MCPStore standard parameters
     timeout: Optional[float] = Field(None, description="Timeout (seconds)")
     progress_handler: Optional[Any] = Field(None, description="Progress handler")
     raise_on_error: bool = Field(True, description="Whether to raise exception on error")

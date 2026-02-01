@@ -663,7 +663,7 @@ async def store_call_tool(request: SimpleToolExecutionRequest):
     # 规范化 CallToolResult 或其它返回值为可序列化结构
     def _normalize_result(res):
         try:
-            # FastMCP CallToolResult: 有 content/is_error 字段
+            # MCPStore CallToolResult: 有 content/is_error 字段
             if hasattr(res, 'content'):
                 items = []
                 for c in getattr(res, 'content', []) or []:

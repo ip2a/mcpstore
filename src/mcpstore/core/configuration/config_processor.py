@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Configuration Processor - handles conversion between user configuration and FastMCP configuration
-Lenient to users, strict to FastMCP
+Configuration Processor - handles conversion between user configuration and MCPStore configuration
+Lenient to users, strict to MCPStore
 """
 
 import logging
@@ -10,74 +10,78 @@ from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
+
 class ConfigProcessor:
     """
-    Configuration Processor: handles conversion between user configuration and FastMCP configuration
+    Configuration Processor: handles conversion between user configuration and MCPStore configuration
 
     Design philosophy:
     1. Lenient to users: allow extra fields, transport optional
-    2. Strict to FastMCP: ensure format fully complies with requirements
+    2. Strict to MCPStore: ensure format fully complies with requirements
     3. Intelligent inference: automatically handle transport field
     """
-    
-    # Standard fields supported by FastMCP
-    FASTMCP_REMOTE_FIELDS = {
+
+    # Standard fields supported by MCPStore
+    MCPSTORE_REMOTE_FIELDS = {
         "url", "transport", "headers", "timeout", "keep_alive"
     }
-    
-    FASTMCP_LOCAL_FIELDS = {
+
+    MCPSTORE_LOCAL_FIELDS = {
         "command", "args", "env", "working_dir", "timeout"
     }
-    
+
     # Supported transport types
     VALID_TRANSPORTS = {
         "streamable-http", "sse", "stdio"
     }
-    
+
     @classmethod
-    def process_user_config_for_fastmcp(cls, user_config: Dict[str, Any]) -> Dict[str, Any]:
+    def process_user_config_for_mcpstore(cls, user_config: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Convert user configuration to FastMCP-compatible configuration
+        Convert user configuration to MCPStore-compatible configuration
 
         Args:
             user_config: User's original configuration
 
         Returns:
-            FastMCP-compatible configuration
+            MCPStore-compatible configuration
         """
         if not isinstance(user_config, dict) or "mcpServers" not in user_config:
             logger.warning("Invalid config format, returning as-is")
             return user_config
 
         # Deep copy to avoid modifying original configuration
-        fastmcp_config = deepcopy(user_config)
+        mcpstore_config = deepcopy(user_config)
 
         # Process each service
         services_to_remove = []
-        for service_name, service_config in fastmcp_config["mcpServers"].items():
+        for service_name, service_config in mcpstore_config["mcpServers"].items():
             try:
                 processed_config = cls._process_single_service(service_config)
-                fastmcp_config["mcpServers"][service_name] = processed_config
-                logger.debug(f"Successfully processed service '{service_name}' for FastMCP")
+                mcpstore_config["mcpServers"][service_name] = processed_config
+                logger.debug(f"Successfully processed service '{service_name}' for MCPStore")
             except Exception as e:
                 logger.error(f"Failed to process service '{service_name}': {e}")
                 # Provide more detailed error information
                 if "missing" in str(e).lower():
-                    logger.warning(f"Service '{service_name}' has missing required fields - removing from FastMCP config")
+                    logger.warning(
+                        f"Service '{service_name}' has missing required fields - removing from MCPStore config")
                 elif "url" in str(e).lower() and "command" in str(e).lower():
-                    logger.warning(f"Service '{service_name}' has conflicting url/command fields - removing from FastMCP config")
+                    logger.warning(
+                        f"Service '{service_name}' has conflicting url/command fields - removing from MCPStore config")
                 else:
-                    logger.warning(f"Service '{service_name}' has configuration errors - removing from FastMCP config: {e}")
+                    logger.warning(
+                        f"Service '{service_name}' has configuration errors - removing from MCPStore config: {e}")
 
                 services_to_remove.append(service_name)
                 continue
 
         # Remove problematic services
         for service_name in services_to_remove:
-            del fastmcp_config["mcpServers"][service_name]
+            del mcpstore_config["mcpServers"][service_name]
 
-        return fastmcp_config
-    
+        return mcpstore_config
+
     @classmethod
     def _process_single_service(cls, service_config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -91,10 +95,10 @@ class ConfigProcessor:
         """
         if not isinstance(service_config, dict):
             return service_config
-        
+
         # Deep copy to avoid modifying original configuration
         processed = deepcopy(service_config)
-        
+
         # Determine service type
         if "url" in processed:
             # Remote service
@@ -104,9 +108,9 @@ class ConfigProcessor:
             processed = cls._process_local_service(processed)
         else:
             logger.warning("Service config missing both 'url' and 'command', keeping as-is")
-        
+
         return processed
-    
+
     @classmethod
     def _process_remote_service(cls, config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -121,23 +125,23 @@ class ConfigProcessor:
         # 1. Intelligently infer transport field
         config = cls._infer_transport(config)
 
-        # 2. Clean non-FastMCP fields (keep user-defined fields in logs)
-        user_fields = set(config.keys()) - cls.FASTMCP_REMOTE_FIELDS
+        # 2. Clean non-MCPStore fields (keep user-defined fields in logs)
+        user_fields = set(config.keys()) - cls.MCPSTORE_REMOTE_FIELDS
         if user_fields:
-            logger.debug(f"Removing user-defined fields for FastMCP: {user_fields}")
+            logger.debug(f"Removing user-defined fields for MCPStore: {user_fields}")
 
-        # 3. Keep only FastMCP supported fields
-        fastmcp_config = {
+        # 3. Keep only MCPStore supported fields
+        mcpstore_config = {
             key: value for key, value in config.items()
-            if key in cls.FASTMCP_REMOTE_FIELDS
+            if key in cls.MCPSTORE_REMOTE_FIELDS
         }
 
         # 4. Ensure required fields exist
-        if "url" not in fastmcp_config:
+        if "url" not in mcpstore_config:
             raise ValueError("Remote service missing required 'url' field")
-        
-        return fastmcp_config
-    
+
+        return mcpstore_config
+
     @classmethod
     def _process_local_service(cls, config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -155,37 +159,37 @@ class ConfigProcessor:
             config = deepcopy(config)
             del config["transport"]
 
-        # 2. Clean non-FastMCP fields
-        user_fields = set(config.keys()) - cls.FASTMCP_LOCAL_FIELDS
+        # 2. Clean non-MCPStore fields
+        user_fields = set(config.keys()) - cls.MCPSTORE_LOCAL_FIELDS
         if user_fields:
-            logger.debug(f"Removing user-defined fields for FastMCP: {user_fields}")
+            logger.debug(f"Removing user-defined fields for MCPStore: {user_fields}")
 
-        # 3. Keep only FastMCP supported fields
-        fastmcp_config = {
+        # 3. Keep only MCPStore supported fields
+        mcpstore_config = {
             key: value for key, value in config.items()
-            if key in cls.FASTMCP_LOCAL_FIELDS
+            if key in cls.MCPSTORE_LOCAL_FIELDS
         }
 
         # 4. Ensure required fields exist
-        if "command" not in fastmcp_config:
+        if "command" not in mcpstore_config:
             raise ValueError("Local service missing required 'command' field")
-        
-        return fastmcp_config
-    
+
+        return mcpstore_config
+
     @classmethod
     def _infer_transport(cls, config: Dict[str, Any]) -> Dict[str, Any]:
         """
         智能推断transport字段
-        
+
         Args:
             config: 服务配置
-            
+
         Returns:
             包含正确transport字段的配置
         """
         config = deepcopy(config)
         url = config.get("url", "")
-        
+
         # 如果用户已经指定了transport，验证并保留
         if "transport" in config:
             transport = config["transport"]
@@ -195,7 +199,7 @@ class ConfigProcessor:
             else:
                 logger.warning(f"Invalid transport '{transport}', will auto-infer")
                 del config["transport"]
-        
+
         # 自动推断transport
         if "/sse" in url.lower():
             # URL包含/sse，使用SSE传输
@@ -205,17 +209,17 @@ class ConfigProcessor:
             # 默认使用streamable-http
             config["transport"] = "streamable-http"
             logger.debug(f"Auto-inferred transport 'streamable-http' for URL: {url}")
-        
+
         return config
-    
+
     @classmethod
     def validate_user_config(cls, config: Dict[str, Any]) -> tuple[bool, str]:
         """
         验证用户配置的基本有效性（宽松验证）
-        
+
         Args:
             config: 用户配置
-            
+
         Returns:
             (是否有效, 错误信息)
         """
@@ -223,55 +227,55 @@ class ConfigProcessor:
             # 1. 检查基本结构
             if not isinstance(config, dict):
                 return False, "Config must be a dictionary"
-            
+
             if "mcpServers" not in config:
                 return False, "Config missing 'mcpServers' field"
-            
+
             if not isinstance(config["mcpServers"], dict):
                 return False, "'mcpServers' must be a dictionary"
-            
+
             # 2. 检查每个服务
             for service_name, service_config in config["mcpServers"].items():
                 if not isinstance(service_config, dict):
                     return False, f"Service '{service_name}' config must be a dictionary"
-                
+
                 # 检查必要字段
                 has_url = "url" in service_config
                 has_command = "command" in service_config
-                
+
                 if not has_url and not has_command:
                     return False, f"Service '{service_name}' missing both 'url' and 'command' fields"
-                
+
                 if has_url and has_command:
                     return False, f"Service '{service_name}' cannot have both 'url' and 'command' fields"
-            
+
             return True, "Config is valid"
-            
+
         except Exception as e:
             return False, f"Config validation error: {e}"
-    
+
     @classmethod
-    def get_user_friendly_error(cls, fastmcp_error: str) -> str:
+    def get_user_friendly_error(cls, mcpstore_error: str) -> str:
         """
-        将FastMCP错误转换为用户友好的错误信息
+        将MCPStore错误转换为用户友好的错误信息
 
         Args:
-            fastmcp_error: FastMCP的原始错误信息
+            mcpstore_error: MCPStore的原始错误信息
 
         Returns:
             用户友好的错误信息
         """
-        error_lower = fastmcp_error.lower()
+        error_lower = mcpstore_error.lower()
 
         # 配置验证错误
         if "validation errors" in error_lower:
-            return "Service configuration has validation errors. This may be due to user-defined fields that are not supported by FastMCP."
+            return "Service configuration has validation errors. This may be due to user-defined fields that are not supported by MCPStore."
 
         if "field required" in error_lower:
             return "Missing required field. Please ensure your service has either 'url' or 'command' field."
 
         if "extra inputs are not permitted" in error_lower:
-            return "Configuration contains unsupported fields. MCPStore will automatically filter these for FastMCP compatibility."
+            return "Configuration contains unsupported fields. MCPStore will automatically filter these for MCPStore compatibility."
 
         if "input should be" in error_lower:
             return "Invalid field value. Please check your service configuration format."
@@ -294,11 +298,11 @@ class ConfigProcessor:
 
         # SSL/TLS 证书相关错误（英文提示）
         if (
-            "certificate verify failed" in error_lower
-            or "ssl: certificate_verify_failed" in error_lower
-            or "certificate has expired" in error_lower
-            or ("ssl" in error_lower and "certificate" in error_lower)
-            or "sslerror" in error_lower
+                "certificate verify failed" in error_lower
+                or "ssl: certificate_verify_failed" in error_lower
+                or "certificate has expired" in error_lower
+                or ("ssl" in error_lower and "certificate" in error_lower)
+                or "sslerror" in error_lower
         ):
             return (
                 "SSL certificate verification failed: the certificate is expired or untrusted. "
@@ -314,7 +318,8 @@ class ConfigProcessor:
             )
 
         # Node/undici fetch 错误（服务启动时上游拉取失败）
-        if "fetch failed" in error_lower and ("undici" in error_lower or "node" in error_lower or "typeerror" in error_lower):
+        if "fetch failed" in error_lower and (
+                "undici" in error_lower or "node" in error_lower or "typeerror" in error_lower):
             return (
                 "Service failed to fetch upstream data during startup (Node/undici). "
                 "Check network connectivity, the upstream URL, and HTTPS/TLS requirements."
@@ -328,5 +333,5 @@ class ConfigProcessor:
             return "Permission denied. Please check file permissions and execution rights."
 
         # 返回原始错误（已经足够友好的情况）
-        return fastmcp_error
+        return mcpstore_error
 

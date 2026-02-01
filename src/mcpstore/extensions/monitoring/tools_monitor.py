@@ -1,6 +1,6 @@
 """
 Tool Update Monitor
-Supports FastMCP notification mechanism + polling backup strategy
+Supports MCPStore notification mechanism + polling backup strategy
 """
 
 import asyncio
@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Dict, Optional, Any
 
 from mcpstore.core.utils.mcp_client_helpers import temp_client_for_service
-from .message_handler import MCPStoreMessageHandler, FASTMCP_AVAILABLE
+from .message_handler import MCPStoreMessageHandler, MCPSTORE_AVAILABLE
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class ToolsUpdateMonitor:
     """
     Hybrid tool list update monitor
-    Supports FastMCP notification mechanism + polling backup strategy
+    Supports MCPStore notification mechanism + polling backup strategy
     """
 
     def __init__(self, orchestrator):

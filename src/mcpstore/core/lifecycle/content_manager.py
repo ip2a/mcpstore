@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, Set, Optional, List, Any, Tuple
 
-from fastmcp import Client
+from mcpstore.mcp import Client
 
 from mcpstore.config.config_dataclasses import ContentUpdateConfig
 from mcpstore.core.configuration.config_processor import ConfigProcessor
@@ -286,13 +286,13 @@ class ServiceContentManager:
 
             # 创建临时客户端
             user_config = {"mcpServers": {service_name: service_config}}
-            fastmcp_config = ConfigProcessor.process_user_config_for_fastmcp(user_config)
+            mcpstore_config = ConfigProcessor.process_user_config_for_mcpstore(user_config)
 
-            if service_name not in fastmcp_config.get("mcpServers", {}):
+            if service_name not in mcpstore_config.get("mcpServers", {}):
                 logger.warning(f"Service {service_name} not found in processed config")
                 return False
 
-            client = Client(fastmcp_config)
+            client = Client(mcpstore_config)
 
             async with asyncio.timeout(self.config.update_timeout):
                 async with client:
@@ -348,7 +348,7 @@ class ServiceContentManager:
                 name = tool.get('name', '')
                 description = tool.get('description', '')
             else:
-                # 对象格式（如FastMCP的Tool对象）
+                # 对象格式（如MCPStore的Tool对象）
                 name = getattr(tool, 'name', '')
                 description = getattr(tool, 'description', '')
 
