@@ -176,11 +176,12 @@ class AgentLocks:
             if self._bridge_loop and running_loop is not self._bridge_loop:
                 await asyncio.to_thread(
                     self._bridge.run,
-                    _acquire(),
+                    asyncio.shield(_acquire()),
                     op_name=f"agent_locks.acquire.{agent_id}"
                 )
             else:
-                await _acquire()
+                # 防止外部取消导致生成器未 yield（shield 保护获取锁过程）
+                await asyncio.shield(_acquire())
             acquired = True
             
             # 记录诊断信息

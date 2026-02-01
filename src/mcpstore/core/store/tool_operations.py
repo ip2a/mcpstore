@@ -1,6 +1,6 @@
 """
 Tool Operations Module
-Handles MCPStore tool-related functionality
+Handles MCP tool-related functionality
 """
 
 import logging

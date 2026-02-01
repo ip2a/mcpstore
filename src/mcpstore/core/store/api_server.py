@@ -1,6 +1,6 @@
 """
 API 服务器模块
-负责处理 MCPStore 的 API 服务器启动功能
+负责处理 MCP client 的 API 服务器启动功能
 """
 
 import logging
@@ -24,7 +24,7 @@ class APIServerMixin:
         """
         启动 API 服务器（改进版）
 
-        这个方法会启动一个 HTTP API 服务器，提供 RESTful 接口来访问当前 MCPStore 实例的功能。
+        这个方法会启动一个 HTTP API 服务器，提供 RESTful 接口来访问当前 MCP client 实例的功能。
         服务器会自动使用当前 store 的配置和数据空间。
 
         Args:
@@ -44,7 +44,7 @@ class APIServerMixin:
 
         Example:
             # 基本使用（无前缀）
-            store = MCPStore.setup_store()
+            store = MCP client.setup_store()
             store.start_api_server()
             # 访问: http://localhost:18200/for_store/list_services
 
@@ -71,7 +71,7 @@ class APIServerMixin:
             logger.info(f"Starting API server for store: data_space={self.is_using_data_space()}")
 
             if show_startup_info:
-                print("[START] Starting MCPStore API Server...")
+                print("[START] Starting MCP client API Server...")
                 print(f"   Host: {host}:{port}")
 
                 if url_prefix:

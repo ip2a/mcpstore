@@ -783,12 +783,6 @@ except ImportError as e:
     RedisConfig = None
 
 try:
-    from ..extensions.monitoring.config import MonitoringConfigProcessor
-except ImportError as e:
-    logger.warning(f"MonitoringConfigProcessor could not be imported: {e}")
-    MonitoringConfigProcessor = None
-
-try:
     from ..core.configuration.standalone_config import StandaloneConfig
 except ImportError as e:
     logger.warning(f"StandaloneConfig could not be imported: {e}")
