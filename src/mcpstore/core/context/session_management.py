@@ -1,5 +1,5 @@
 """
-MCPStore Session Management Module
+MCP Session Management Module
 Session management functionality for MCPStoreContext
 """
 

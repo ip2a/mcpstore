@@ -9,6 +9,9 @@ from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
+# MCPStore 自身可用标记（用于控制通知处理逻辑）
+MCPSTORE_AVAILABLE = True
+
 # Check MCP client availability (canonical SDK)
 try:
     import mcp.types

@@ -1,6 +1,6 @@
 """
 Local Service Adapter
-Provides backward compatibility while transitioning from LocalServiceManager to MCPStore.
+Provides backward compatibility while transitioning from LocalServiceManager to MCP client implementation（当前为 MCPStore）。
 """
 
 import logging
@@ -15,8 +15,8 @@ class LocalServiceManagerAdapter:
     """
     LocalServiceManager Adapter
 
-    Provides the same interface as the original LocalServiceManager, but internally uses MCPStore implementation.
-    This ensures backward compatibility while gradually migrating to MCPStore.
+    Provides the same interface as the original LocalServiceManager, but internally uses MCP client implementation（当前为 MCPStore）。
+    This ensures backward compatibility while gradually migrating to MCP canonical 客户端。
     """
     
     def __init__(self, base_work_dir: str = None):
@@ -28,7 +28,7 @@ class LocalServiceManagerAdapter:
         """
         self.base_work_dir = Path(base_work_dir or Path.cwd())
         
-        # Use MCPStore service manager as underlying implementation
+        # Use MCP client service manager as underlying implementation（当前使用 MCPStore）
         self.mcpstore_manager = MCPStoreServiceManager(self.base_work_dir)
         
         # Health check configuration
@@ -40,7 +40,7 @@ class LocalServiceManagerAdapter:
         self._health_check_task = None
         self._monitor_started = False
         
-        logger.info(f"LocalServiceManagerAdapter initialized (using MCPStore backend)")
+        logger.info(f"LocalServiceManagerAdapter initialized (using MCP client backend)")
     
     async def start_local_service(self, name: str, config: Dict[str, Any]) -> Tuple[bool, str]:
         """
@@ -53,9 +53,9 @@ class LocalServiceManagerAdapter:
         Returns:
             Tuple[bool, str]: (Success, message)
         """
-        logger.info(f"[Adapter] Starting local service {name} via MCPStore")
+        logger.info(f"[Adapter] Starting local service {name} via MCP client")
         
-        # Delegate to MCPStore manager
+        # Delegate to MCP client manager
         return await self.mcpstore_manager.start_local_service(name, config)
     
     async def stop_local_service(self, name: str) -> Tuple[bool, str]:
@@ -68,9 +68,9 @@ class LocalServiceManagerAdapter:
         Returns:
             Tuple[bool, str]: (Success, message)
         """
-        logger.info(f"[Adapter] Stopping local service {name} via MCPStore")
+        logger.info(f"[Adapter] Stopping local service {name} via MCP client")
         
-        # Delegate to MCPStore manager
+        # Delegate to MCP client manager
         return await self.mcpstore_manager.stop_local_service(name)
     
     def get_service_status(self, name: str) -> Dict[str, Any]:
@@ -83,7 +83,7 @@ class LocalServiceManagerAdapter:
         Returns:
             Dict[str, Any]: Service status information
         """
-        # Delegate to MCPStore manager
+        # Delegate to MCP client manager
         status = self.mcpstore_manager.get_service_status(name)
         
         # Convert to original LocalServiceManager status format
@@ -94,11 +94,11 @@ class LocalServiceManagerAdapter:
         else:
             return {
                 "status": "running",
-                "pid": 0,  # Process managed by MCPStore, PID not exposed
+                "pid": 0,  # Process managed by MCP client impl, PID not exposed
                 "start_time": status.get("start_time", 0),
-                "restart_count": 0,  # MCPStore handles restarts automatically
+                "restart_count": 0,  # MCP client impl handles restarts automatically
                 "uptime": status.get("uptime", 0),
-                "managed_by": "mcpstore"
+                "managed_by": "mcp"
             }
     
     def list_services(self) -> Dict[str, Dict[str, Any]]:
@@ -108,7 +108,7 @@ class LocalServiceManagerAdapter:
         Returns:
             Dict[str, Dict[str, Any]]: Status information of all services
         """
-        # Delegate to MCPStore manager and convert format
+        # Delegate to MCP client manager and convert format
         mcpstore_services = self.mcpstore_manager.list_services()
         
         # Convert to original LocalServiceManager format
@@ -122,24 +122,24 @@ class LocalServiceManagerAdapter:
         """
         Clean up all services (compatible with LocalServiceManager interface)
         """
-        logger.info("[Adapter] Cleaning up services via MCPStore")
+        logger.info("[Adapter] Cleaning up services via MCP client")
         
         # Stop health monitoring (compatibility)
         if self._health_check_task:
             self._health_check_task.cancel()
         
-        # Delegate to MCPStore manager
+        # Delegate to MCP client manager
         await self.mcpstore_manager.cleanup()
     
-    # Health monitoring, process checking, service restart and other features are now fully handled by MCPStore automatically
+    # Health monitoring, process checking, service restart and other features are now fully handled by MCP client automatically
 
     async def start_health_monitoring(self):
-        """Start health monitoring (MCPStore handles automatically)"""
-        logger.info("[Adapter] Health monitoring delegated to MCPStore")
+        """Start health monitoring (handled by MCP client)"""
+        logger.info("[Adapter] Health monitoring delegated to MCP client")
         self._monitor_started = True
     
     # _prepare_environment and _resolve_working_dir methods have been removed
-    # Environment variable and working directory handling are now fully handled by MCPStore configuration normalization
+    # Environment variable and working directory handling are now fully handled by MCP configuration normalization
 
 # Global instance (maintains same interface as original LocalServiceManager)
 _local_service_manager_adapter: Optional[LocalServiceManagerAdapter] = None
@@ -150,7 +150,7 @@ def get_local_service_manager() -> LocalServiceManagerAdapter:
     Get global local service manager instance (adapter version)
 
     This function replaces the original get_local_service_manager but returns an adapter instance.
-    The adapter provides the same interface but uses MCPStore implementation internally.
+    The adapter provides the same interface but uses MCP client implementation internally.
 
     Returns:
         LocalServiceManagerAdapter: Global adapter instance
@@ -190,4 +190,3 @@ class LocalServiceProcess:
     status: str = "running"
     restart_count: int = 0
     last_health_check: float = 0
-

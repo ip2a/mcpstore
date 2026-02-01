@@ -181,7 +181,7 @@ class ConnectionManager:
             "mcpServers": {service_name: service_config}
         })
 
-        # 2. Create client and connect（MCPStore Client 会在 async with 中自动启动本地进程）
+        # 2. Create client and connect（MCP client 会在 async with 中自动启动本地进程）
         client = Client(processed_config)
 
         async with asyncio.timeout(timeout):
