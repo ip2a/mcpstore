@@ -1,5 +1,5 @@
 """
-Integration layer modules for external systems (MCPStore, HTTP transport, OpenAPI, etc.).
+Integration layer modules for external systems (MCP client, HTTP transport, OpenAPI, etc.).
 
 This package consolidates previously scattered integration files under a single namespace
 without changing any public APIs. Original modules under mcpstore.core keep thin proxy
@@ -12,4 +12,3 @@ __all__ = [
     "MCPStoreServiceManager",
     "get_mcpstore_service_manager",
 ]
-

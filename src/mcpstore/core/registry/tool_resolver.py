@@ -504,9 +504,9 @@ class ToolNameResolver:
         Convert to MCP canonical tool name
 
          Important discovery:
-        - MCPStore internal: tool names with prefix "mcpstore-demo-weather_get_current_weather"
-        - MCPStore native: tool names without prefix "get_current_weather"
-        - We need to return the format expected by MCPStore native!
+        - Internal (prefixed) names: e.g., service_tool
+        - Canonical names: tool names without service prefix
+        - We need to return the canonical name expected by MCP client/server
 
         Args:
             resolution: Tool resolution result
@@ -515,8 +515,8 @@ class ToolNameResolver:
         Returns:
             Tool name expected by MCP native/canonical layer（original name without service prefix）
         """
-        # Key correction: MCPStore execution needs original tool name, not MCPStore internal prefixed name
-        logger.debug(f"[MCPSTORE] native_tool_name={resolution.original_tool_name}")
+        # Key correction: MCP execution needs the canonical tool name, not internal prefixed name
+        logger.debug(f"[MCP] canonical_tool_name={resolution.original_tool_name}")
         return resolution.original_tool_name
 
     def resolve_and_format_for_mcpstore(self, user_input: str, available_tools: List[Dict[str, Any]] = None) -> tuple[str, ToolResolution]:
@@ -538,7 +538,10 @@ class ToolNameResolver:
         # 2. Convert为 MCP canonical 名称（用于实际调用）
         canonical_name = self.to_mcpstore_format(resolution, available_tools)
 
-        logger.info(f\"[RESOLVE_SUCCESS] input='{user_input}' canonical='{canonical_name}' service='{resolution.service_name}' method='{resolution.resolution_method}'\")
+        logger.info(
+            f"[RESOLVE_SUCCESS] input='{user_input}' canonical='{canonical_name}' "
+            f"service='{resolution.service_name}' method='{resolution.resolution_method}'"
+        )
 
         return canonical_name, resolution
 
@@ -567,14 +570,13 @@ class MCPStoreToolExecutor:
         raise_on_error: bool = True
     ) -> 'CallToolResult':
         """
-        Execute tool (strictly according to MCPStore official website standards)
+        Execute tool (MCP canonical path)
 
-        Only use MCPStore official client's call_tool return object, without any custom "equivalent object" wrapping,
-        no longer fallback to call_tool_mcp for field mapping, ensuring result format matches official standards.
+        Use MCP client call_tool; no custom wrapping/fallback, expect canonical CallToolResult.
 
         Args:
-            client: MCPStore client instance (must implement call_tool)
-            tool_name: Tool name (MCPStore original name)
+            client: MCP client instance (must implement call_tool)
+            tool_name: Tool name (MCP canonical/original name)
             arguments: Tool parameters
             timeout: Timeout time (seconds)
             progress_handler: Progress handler
@@ -588,9 +590,9 @@ class MCPStoreToolExecutor:
 
         try:
             if not hasattr(client, 'call_tool'):
-                raise RuntimeError("MCPStore client does not support call_tool; please use a compatible MCPStore client")
+                raise RuntimeError("MCP client does not support call_tool; please use a compatible MCP client")
 
-            logger.debug("Using client.call_tool (MCPStore official) for result")
+            logger.debug("Using client.call_tool (MCP canonical) for result")
             result = await client.call_tool(
                 name=tool_name,
                 arguments=arguments,
@@ -609,15 +611,14 @@ class MCPStoreToolExecutor:
     
     def extract_result_data(self, result: 'CallToolResult') -> Any:
         """
-        Extract result data (strictly according to MCPStore official website standards)
+        Extract result data (MCP canonical priority):
 
-        Priority order according to official documentation:
-        1. .data - MCPStore unique fully hydrated Python object
+        1. .data - fully hydrated Python object（若客户端提供）
         2. .structured_content - Standard MCP structured JSON data
         3. .content - Standard MCP content blocks
 
         Args:
-            result: MCPStore call result
+            result: MCP call result
 
         Returns:
             Extracted data
@@ -630,9 +631,9 @@ class MCPStoreToolExecutor:
             logger.warning(f"Tool execution failed, extracting error content")
             # Even for errors, try to extract content
 
-        # 1. Prioritize .data property (MCPStore unique feature)
+        # 1. Prioritize .data property (if MCP client provides)
         if hasattr(result, 'data') and result.data is not None:
-            logger.debug(f"Using MCPStore .data property: {type(result.data)}")
+            logger.debug(f"Using MCP client .data property: {type(result.data)}")
             return result.data
 
         # 2. Fallback to .structured_content (standard MCP structured data)

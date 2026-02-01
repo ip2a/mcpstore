@@ -49,10 +49,10 @@ class MCPStoreServiceManager:
             logger.info(f"Starting local service {name} with MCPStore")
             
             # 1. Configuration normalization: Convert user configuration to MCP canonical format
-            mcpstore_config = self._normalize_local_service_config(name, config)
+            mcp_config = self._normalize_local_service_config(name, config)
             
             # 2. Create MCPStore client
-            client = Client(mcpstore_config)
+            client = Client(mcp_config)
             
             # 3. Test connection (MCPStore will automatically start process)
             try:
@@ -125,7 +125,7 @@ class MCPStoreServiceManager:
             return {"status": "not_found"}
         
         try:
-            # Use MCPStore client to check connection status
+            # Use MCP client to check connection status
             client = self.clients[name]
             
             # Simple status check
@@ -133,10 +133,10 @@ class MCPStoreServiceManager:
             uptime = time.time() - start_time if start_time > 0 else 0
             
             return {
-                "status": "running",  # MCPStore managed services assumed to be in running state
+                "status": "running",  # MCP client managed services assumed to be in running state
                 "uptime": uptime,
                 "start_time": start_time,
-                "managed_by": "mcpstore"
+                "managed_by": "mcp"
             }
             
         except Exception as e:
@@ -156,13 +156,13 @@ class MCPStoreServiceManager:
         """
         Clean up all services (replaces LocalServiceManager.cleanup)
         """
-        logger.info("Cleaning up MCPStore services...")
+        logger.info("Cleaning up MCP client services...")
         
         # Stop all services
         for name in list(self.clients.keys()):
             await self.stop_local_service(name)
         
-        logger.info("MCPStore service cleanup completed")
+        logger.info("MCP client service cleanup completed")
     
     def _normalize_local_service_config(self, name: str, config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -178,13 +178,13 @@ class MCPStoreServiceManager:
             Dict[str, Any]: MCP canonical configuration
         """
         # MCP canonical configuration format
-        mcpstore_config = {
+        mcp_config = {
             "mcpServers": {
                 name: {}
             }
         }
         
-        service_config = mcpstore_config["mcpServers"][name]
+        service_config = mcp_config["mcpServers"][name]
         
         # 1. Handle required fields
         if "command" not in config:
@@ -220,8 +220,8 @@ class MCPStoreServiceManager:
         else:
             service_config["cwd"] = str(self.base_work_dir)
         
-        logger.debug(f"Normalized config for {name}: {mcpstore_config}")
-        return mcpstore_config
+        logger.debug(f"Normalized config for {name}: {mcp_config}")
+        return mcp_config
 
 # Global instance (maintain same interface as LocalServiceManager)
 _mcpstore_service_manager: Optional[MCPStoreServiceManager] = None

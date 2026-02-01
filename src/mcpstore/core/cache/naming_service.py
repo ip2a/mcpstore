@@ -98,10 +98,10 @@ class NamingService:
             "context7_resolve-library-id"
             
             >>> NamingService.generate_tool_global_name(
-            ...     "mcpstore",
-            ...     "mcpstore_get_current_weather"
+            ...     "weather_service",
+            ...     "weather_service_get_current_weather"
             ... )
-            "mcpstore_get_current_weather"  # 已包含服务前缀，不重复添加
+            "weather_service_get_current_weather"  # 已包含服务前缀，不重复添加
         """
         if not service_global_name:
             raise ValueError("Service global name cannot be empty")

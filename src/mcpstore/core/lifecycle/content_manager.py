@@ -46,14 +46,14 @@ class ServiceContentManager:
         self.registry = orchestrator.registry
         self.lifecycle_manager = orchestrator.lifecycle_manager
 
-        # 使用 MCPStoreConfig 获取内容更新配置 - 延迟导入避免循环依赖
+        # 使用 MCP 配置获取内容更新配置 - 延迟导入避免循环依赖
         try:
             from mcpstore.config.toml_config import get_content_update_config_with_defaults
             self.config = get_content_update_config_with_defaults()
         except Exception as e:
             logger.warning(f"Failed to get content update config, using defaults: {e}")
             self.config = ContentUpdateConfig()
-        logger.debug(f"ContentManager initialized with config from MCPStoreConfig: tools_update_interval={self.config.tools_update_interval}s")
+        logger.debug(f"ContentManager initialized with config: tools_update_interval={self.config.tools_update_interval}s")
 
         # 事件总线（可选）
         self.event_bus = None
@@ -348,7 +348,7 @@ class ServiceContentManager:
                 name = tool.get('name', '')
                 description = tool.get('description', '')
             else:
-                # 对象格式（如MCPStore的Tool对象）
+                # 对象格式（如 MCP Tool 对象）
                 name = getattr(tool, 'name', '')
                 description = getattr(tool, 'description', '')
 

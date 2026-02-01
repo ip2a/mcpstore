@@ -541,7 +541,7 @@ class CacheManager:
         for tool_name, tool_def in tools:
             # 提取工具原始名称（去除服务前缀）
             # 注意：MCP 服务返回的工具名称可能已经带有服务前缀
-            # 例如：mcpstore_get_current_weather -> get_current_weather
+            # 例如：weather_service_get_current_weather -> get_current_weather
             from mcpstore.core.logic.tool_logic import ToolLogicCore
             original_tool_name = ToolLogicCore.extract_original_tool_name(
                 tool_name,
