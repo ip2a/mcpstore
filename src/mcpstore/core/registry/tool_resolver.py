@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Unified Tool Name Resolver - Based on MCPStore Official Standards
-Provides user-friendly tool name input, internally converts to MCPStore standard format
+Unified Tool Name Resolver - Based on MCP canonical standard
+Provides user-friendly tool name input, internally converts to MCP canonical format
 """
 
 import logging
@@ -17,23 +17,23 @@ logger = logging.getLogger(__name__)
 class ToolResolution:
     """Tool resolution result"""
     service_name: str           # Service name
-    original_tool_name: str     # MCPStore standard original tool name
+    original_tool_name: str     # MCP canonical tool name
     user_input: str            # User input tool name
     resolution_method: str     # Resolution method (exact_match, prefix_match, fuzzy_match)
 
 class ToolNameResolver:
     """
-    Intelligent user-friendly tool name resolver - MCPStore 2.0 standard
+    Intelligent user-friendly tool name resolver - MCP canonical standard
 
     [FEATURES] Core features:
     1. Extremely loose user input: supports any reasonable format
-    2. Strict MCPStore standard: fully compliant with official specifications internally
+    2. Strict MCP canonical standard: fully compliant with protocol expectations internally
     3. Intelligent unambiguous recognition: automatically handles single/multi-service scenarios
     4. Perfect backward compatibility: maintains existing functionality unchanged
 
     [SUPPORTED] Input formats:
     - Original tool name: get_current_weather
-    - With prefix: mcpstore-demo-weather_get_current_weather
+    - With prefix: weather_get_current_weather（或 service_get_current_weather）
     - Partial match: current_weather, weather
     - Fuzzy match: getcurrentweather, get-current-weather
     """
@@ -63,7 +63,7 @@ class ToolNameResolver:
         """
         [SMART] Intelligent user-friendly tool name resolution (new version)
 
-        Supports extremely loose user input, automatically converts to MCPStore standard format:
+        Supports extremely loose user input, automatically converts to MCP canonical format:
 
         Input examples:
         - "get_current_weather" → Auto-detect service and add prefix (multi-service)
@@ -76,7 +76,7 @@ class ToolNameResolver:
             available_tools: List of available tools
 
         Returns:
-            ToolResolution: Resolution result containing MCPStore standard format
+            ToolResolution: Resolution result containing MCP canonical format
         """
         if not user_input or not isinstance(user_input, str):
             raise ValueError("Tool name cannot be empty")
@@ -501,7 +501,7 @@ class ToolNameResolver:
 
     def to_mcpstore_format(self, resolution: ToolResolution, available_tools: List[Dict[str, Any]] = None) -> str:
         """
-        Convert to MCPStore standard format tool name
+        Convert to MCP canonical tool name
 
          Important discovery:
         - MCPStore internal: tool names with prefix "mcpstore-demo-weather_get_current_weather"
@@ -513,7 +513,7 @@ class ToolNameResolver:
             available_tools: Available tools list (for finding original names)
 
         Returns:
-            Tool name expected by MCPStore native (original name without prefix)
+            Tool name expected by MCP native/canonical layer（original name without service prefix）
         """
         # Key correction: MCPStore execution needs original tool name, not MCPStore internal prefixed name
         logger.debug(f"[MCPSTORE] native_tool_name={resolution.original_tool_name}")
@@ -521,31 +521,31 @@ class ToolNameResolver:
 
     def resolve_and_format_for_mcpstore(self, user_input: str, available_tools: List[Dict[str, Any]] = None) -> tuple[str, ToolResolution]:
         """
-        One-stop resolution: user input → MCPStore standard format
+        One-stop resolution: user input → MCP canonical format
 
-        This is the main external interface, completing the full conversion from user-friendly input to MCPStore standard format
+        This is the main external interface, completing the full conversion from user-friendly input to MCP canonical format
 
         Args:
             user_input: User-input tool name (any format)
             available_tools: Available tools list
 
         Returns:
-            tuple: (mcpstore_format_name, resolution_details)
+            tuple: (canonical_tool_name, resolution_details)
         """
         # 1. Smart resolution of user input
         resolution = self.resolve_tool_name_smart(user_input, available_tools)
 
-        # 2. Convert to MCPStore standard format (pass available_tools for finding actual names)
-        mcpstore_name = self.to_mcpstore_format(resolution, available_tools)
+        # 2. Convert为 MCP canonical 名称（用于实际调用）
+        canonical_name = self.to_mcpstore_format(resolution, available_tools)
 
-        logger.info(f"[RESOLVE_SUCCESS] input='{user_input}' mcpstore='{mcpstore_name}' service='{resolution.service_name}' method='{resolution.resolution_method}'")
+        logger.info(f\"[RESOLVE_SUCCESS] input='{user_input}' canonical='{canonical_name}' service='{resolution.service_name}' method='{resolution.resolution_method}'\")
 
-        return mcpstore_name, resolution
+        return canonical_name, resolution
 
 class MCPStoreToolExecutor:
     """
-    MCPStore standard tool executor
-    Strictly executes tool calls according to official website standards
+    MCP canonical tool executor
+    Strictly executes tool calls according to protocol expectations
     """
 
     def __init__(self, default_timeout: float = 30.0):
@@ -581,7 +581,7 @@ class MCPStoreToolExecutor:
             raise_on_error: Whether to raise exception on error
 
         Returns:
-            CallToolResult: MCPStore standard result object
+            CallToolResult: MCP canonical result object
         """
         arguments = arguments or {}
         timeout = timeout or self.default_timeout

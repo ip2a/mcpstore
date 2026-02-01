@@ -467,7 +467,7 @@ class CacheManager:
         
         # 遍历工具列表，创建实体和关系
         for tool_name, tool_def in tools:
-            # 提取工具原始名称（去除服务前缀），保证用于全局名的基准是 MCPStore 标准格式
+            # 提取工具原始名称（去除服务前缀），保证用于全局名的基准是 MCP 规范格式（canonical）
             from mcpstore.core.logic.tool_logic import ToolLogicCore
             original_tool_name = ToolLogicCore.extract_original_tool_name(
                 tool_name,

@@ -1,6 +1,6 @@
 """
-MCPStore Service Proxy Module
-服务代理对象，提供具体服务的操作方法
+MCP Service Proxy Module
+服务代理对象，提供具体服务的操作方法，基于 MCP 协议语义
 """
 
 import logging

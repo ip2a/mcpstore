@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Configuration Processor - handles conversion between user configuration and MCPStore configuration
-Lenient to users, strict to MCPStore
+Configuration Processor - handles conversion between user configuration and MCP canonical configuration
+Lenient to users, strict to MCP spec
 """
 
 import logging
@@ -13,20 +13,20 @@ logger = logging.getLogger(__name__)
 
 class ConfigProcessor:
     """
-    Configuration Processor: handles conversion between user configuration and MCPStore configuration
+    Configuration Processor: handles conversion between user configuration and MCP canonical configuration
 
     Design philosophy:
     1. Lenient to users: allow extra fields, transport optional
-    2. Strict to MCPStore: ensure format fully complies with requirements
+    2. Strict to MCP: ensure format fully complies with requirements
     3. Intelligent inference: automatically handle transport field
     """
 
-    # Standard fields supported by MCPStore
-    MCPSTORE_REMOTE_FIELDS = {
+    # Standard fields supported by MCP client/server
+    MCP_REMOTE_FIELDS = {
         "url", "transport", "headers", "timeout", "keep_alive"
     }
 
-    MCPSTORE_LOCAL_FIELDS = {
+    MCP_LOCAL_FIELDS = {
         "command", "args", "env", "working_dir", "timeout"
     }
 
@@ -38,13 +38,13 @@ class ConfigProcessor:
     @classmethod
     def process_user_config_for_mcpstore(cls, user_config: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Convert user configuration to MCPStore-compatible configuration
+        Convert user configuration to MCP-compatible configuration
 
         Args:
             user_config: User's original configuration
 
         Returns:
-            MCPStore-compatible configuration
+            MCP-compatible configuration
         """
         if not isinstance(user_config, dict) or "mcpServers" not in user_config:
             logger.warning("Invalid config format, returning as-is")
@@ -125,22 +125,22 @@ class ConfigProcessor:
         # 1. Intelligently infer transport field
         config = cls._infer_transport(config)
 
-        # 2. Clean non-MCPStore fields (keep user-defined fields in logs)
-        user_fields = set(config.keys()) - cls.MCPSTORE_REMOTE_FIELDS
+        # 2. Clean non-MCP fields (keep user-defined fields in logs)
+        user_fields = set(config.keys()) - cls.MCP_REMOTE_FIELDS
         if user_fields:
-            logger.debug(f"Removing user-defined fields for MCPStore: {user_fields}")
+            logger.debug(f"Removing user-defined fields for MCP: {user_fields}")
 
-        # 3. Keep only MCPStore supported fields
-        mcpstore_config = {
+        # 3. Keep only MCP supported fields
+        mcp_config = {
             key: value for key, value in config.items()
-            if key in cls.MCPSTORE_REMOTE_FIELDS
+            if key in cls.MCP_REMOTE_FIELDS
         }
 
         # 4. Ensure required fields exist
-        if "url" not in mcpstore_config:
+        if "url" not in mcp_config:
             raise ValueError("Remote service missing required 'url' field")
 
-        return mcpstore_config
+        return mcp_config
 
     @classmethod
     def _process_local_service(cls, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -159,22 +159,22 @@ class ConfigProcessor:
             config = deepcopy(config)
             del config["transport"]
 
-        # 2. Clean non-MCPStore fields
-        user_fields = set(config.keys()) - cls.MCPSTORE_LOCAL_FIELDS
+        # 2. Clean non-MCP fields
+        user_fields = set(config.keys()) - cls.MCP_LOCAL_FIELDS
         if user_fields:
-            logger.debug(f"Removing user-defined fields for MCPStore: {user_fields}")
+            logger.debug(f"Removing user-defined fields for MCP: {user_fields}")
 
-        # 3. Keep only MCPStore supported fields
-        mcpstore_config = {
+        # 3. Keep only MCP supported fields
+        mcp_config = {
             key: value for key, value in config.items()
-            if key in cls.MCPSTORE_LOCAL_FIELDS
+            if key in cls.MCP_LOCAL_FIELDS
         }
 
         # 4. Ensure required fields exist
-        if "command" not in mcpstore_config:
+        if "command" not in mcp_config:
             raise ValueError("Local service missing required 'command' field")
 
-        return mcpstore_config
+        return mcp_config
 
     @classmethod
     def _infer_transport(cls, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -334,4 +334,3 @@ class ConfigProcessor:
 
         # 返回原始错误（已经足够友好的情况）
         return mcpstore_error
-

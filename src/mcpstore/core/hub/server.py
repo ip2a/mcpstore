@@ -1,6 +1,6 @@
 """
 Hub MCP Server Module
-Hub MCP 服务器模块 - 将 MCPStore 对象暴露为 MCP 服务
+Hub MCP 服务器模块 - 将 store/agent/service 对象暴露为标准 MCP 服务
 """
 
 import asyncio
@@ -29,12 +29,12 @@ class HubMCPServer:
     """
     Hub MCP 服务器
     
-    将 MCPStore 对象暴露为标准 MCP 服务。
-    基于 MCPStore 框架，提供薄包装层。
+    将 store/agent/service 对象暴露为标准 MCP 服务。
+    基于 MCP 框架的薄包装层（当前实现由 MCPStore 提供）。
     
     核心理念：
-    - 薄包装：直接使用 MCPStore 的能力
-    - 工具转换：将 MCPStore 工具转换为 MCPStore 工具
+    - 薄包装：直接使用 MCP 服务器能力
+    - 工具转换：将底层工具转换为 MCP 规范工具
     - 透传调用：工具调用直接转发到原始对象
     
     支持的对象类型：
@@ -90,7 +90,7 @@ class HubMCPServer:
         
         # 初始化状态
         self._status = HubMCPStatus.STARTUP
-        self._mcpstore: Optional[Any] = None  # MCPStore 实例
+        self._mcpstore: Optional[Any] = None  # 底层 MCP 服务器实例（当前默认使用 MCPStore）
         self._server_task: Optional[asyncio.Task] = None  # 服务器任务
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._background_thread: Optional[threading.Thread] = None
@@ -102,8 +102,8 @@ class HubMCPServer:
             f"port={port or 'auto-assign'}"
         )
         
-        # 创建 MCPStore 服务器
-        self._create_mcpstore_server()
+        # 创建底层 MCP 服务器
+        self._create_mcp_server()
 
         # 注册工具
         self._register_tools()
@@ -122,9 +122,9 @@ class HubMCPServer:
         生成服务器名称
         
         根据暴露对象的类型生成合适的服务器名称：
-        - Agent 对象 → "MCPStore-Agent-{agent_id}"
-        - ServiceProxy 对象 → "MCPStore-Service-{service_name}"
-        - Store 对象 → "MCPStore-Store"
+        - Agent 对象 → "MCP-Agent-{agent_id}"
+        - ServiceProxy 对象 → "MCP-Service-{service_name}"
+        - Store 对象 → "MCP-Store"
         
         Returns:
             str: 生成的服务器名称
@@ -133,62 +133,62 @@ class HubMCPServer:
             # 检查是否是 Agent 对象（有 _agent_id 属性且不为 None）
             if hasattr(self._exposed_object, '_agent_id') and self._exposed_object._agent_id:
                 agent_id = self._exposed_object._agent_id
-                server_name = f"MCPStore-Agent-{agent_id}"
+                server_name = f"MCP-Agent-{agent_id}"
                 logger.debug(f"[HubMCPServer] [NAME] Generated Agent server name: {server_name}")
                 return server_name
             
             # 检查是否是 ServiceProxy 对象（有 service_name 属性）
             if hasattr(self._exposed_object, 'service_name'):
                 service_name = self._exposed_object.service_name
-                server_name = f"MCPStore-Service-{service_name}"
+                server_name = f"MCP-Service-{service_name}"
                 logger.debug(f"[HubMCPServer] [NAME] Generated ServiceProxy server name: {server_name}")
                 return server_name
             
             # 默认为 Store 对象
-            server_name = "MCPStore-Store"
+            server_name = "MCP-Store"
             logger.debug(f"[HubMCPServer] [NAME] Generated Store server name: {server_name}")
             return server_name
             
         except Exception as e:
             logger.warning(f"[HubMCPServer] [WARN] Failed to generate server name: {e}, using default name")
-            return "MCPStore-Hub"
+            return "MCP-Hub"
     
-    def _create_mcpstore_server(self) -> None:
+    def _create_mcp_server(self) -> None:
         """
-        创建 MCPStore 服务器实例
+        创建底层 MCP 服务器实例
         
-        使用生成的服务器名称和配置参数创建 MCPStore 实例。
+        使用生成的服务器名称和配置参数创建 MCP 实例（当前实现为 MCPStore）。
         """
         try:
-            # 导入 MCPStore
+            # 导入 MCP 服务器实现（当前使用 MCPStore）
             from mcpstore.mcp import MCPStore
             
             # 生成服务器名称
             server_name = self._generate_server_name()
             
-            # 创建 MCPStore 实例
+            # 创建实例
             self._mcpstore = MCPStore(
                 name=server_name,
                 **self._config.mcp_kwargs
             )
             
-            logger.info(f"[HubMCPServer] [SUCCESS] MCPStore server created successfully: {server_name}")
+            logger.info(f"[HubMCPServer] [SUCCESS] MCP server created successfully: {server_name}")
             
         except ImportError as e:
-            logger.error(f"[HubMCPServer] [ERROR] Unable to import MCPStore: {e}")
+            logger.error(f"[HubMCPServer] [ERROR] Unable to import MCP server implementation: {e}")
             raise ImportError(
-                "MCPStore is not installed. Please run: uv add mcpstore"
+                "MCP server implementation is not installed. Please run: uv add mcpstore"
             ) from e
         except Exception as e:
-            logger.error(f"[HubMCPServer] [ERROR] Failed to create MCPStore server: {e}")
+            logger.error(f"[HubMCPServer] [ERROR] Failed to create MCP server: {e}")
             raise
     
     def _register_tools(self) -> None:
         """
-        注册所有工具到 MCPStore
+        注册所有工具到 MCP 服务器
         
         从暴露对象获取工具列表，为每个工具创建代理函数，
-        然后使用 MCPStore 的 @tool 装饰器注册。
+        然后使用底层实现的 @tool 装饰器注册。
         """
         try:
             # 获取工具列表
@@ -260,7 +260,7 @@ class HubMCPServer:
             tool_info: 工具信息对象
             
         Returns:
-            Callable: 代理函数，可以被 MCPStore 注册
+            Callable: 代理函数，可以被 MCP 服务器注册
         """
         schema = getattr(tool_info, "inputSchema", {}) or {}
         properties = schema.get("properties") or {}
@@ -368,7 +368,7 @@ class HubMCPServer:
     # ---- Lifecycle helpers -------------------------------------------------
 
     def _get_transport_kwargs(self) -> dict[str, Any]:
-        """根据传输协议构造 MCPStore 运行参数。"""
+        """根据传输协议构造 MCP 运行参数。"""
         transport = self._config.transport
         if transport in {"http", "sse", "streamable-http"}:
             kwargs: dict[str, Any] = {}
@@ -382,7 +382,7 @@ class HubMCPServer:
         return {}
 
     async def _run_server(self, show_banner: bool) -> None:
-        """启动 MCPStore 服务器的核心协程。"""
+        """启动 MCP 服务器的核心协程。"""
         if self.is_running:
             raise ServerAlreadyRunningError("Hub MCP server is already running")
 

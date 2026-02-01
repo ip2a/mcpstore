@@ -1,5 +1,5 @@
 """
-MCPStore Session Module
+MCP Session Module
 User-friendly Session class that wraps AgentSession with rich functionality
 """
 
@@ -78,8 +78,8 @@ class Session:
         """
         Bind service to session
         
-        This method creates a MCPStore Client for the service and caches it
-        in the session for reuse. The Client connection will be maintained
+        This method creates an MCP client for the service and caches it
+        in the session for reuse. The client connection will be maintained
         until the session is closed.
         
         Args:
@@ -149,7 +149,7 @@ class Session:
         """
         Use tool within this session
 
-        This method executes tools using the cached MCPStore Client connections,
+        This method executes tools using the cached MCP client connections,
         ensuring that stateful services (like browser) maintain their state
         across multiple tool calls.
 
@@ -198,7 +198,7 @@ class Session:
         Use tool within this session (async version)
         
         This method routes tool execution through the session-aware execution path,
-        which will reuse cached MCPStore Client connections.
+        which will reuse cached MCP client connections.
         """
         arguments = arguments or {}
         
@@ -222,7 +222,7 @@ class Session:
         return result
     
     async def _close_client_async(self, client: Any, service_name: str) -> None:
-        """异步关闭底层 MCPStore client。"""
+        """异步关闭底层 MCP client。"""
         close_candidates = [
             ("close", ()),
             ("_disconnect", ()),

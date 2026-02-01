@@ -19,7 +19,7 @@ class ToolOperationsMixin:
 
     async def process_tool_request(self, request: ToolExecutionRequest) -> ExecutionResponse:
         """
-        Process tool execution request (MCPStore standard)
+        Process tool execution request (MCP canonical standard)
 
         Args:
             request: Tool execution request
@@ -63,7 +63,7 @@ class ToolOperationsMixin:
                     f"Service '{request.service_name}' is in state {service_state.value}, will still attempt execution"
                 )
 
-            # Execute tool (using MCPStore standard)
+            # Execute tool (using MCP canonical standard)
             result = await self.orchestrator.execute_tool_mcpstore(
                 service_name=request.service_name,
                 tool_name=request.tool_name,
