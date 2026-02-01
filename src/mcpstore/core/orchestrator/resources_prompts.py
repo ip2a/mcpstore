@@ -1,6 +1,6 @@
 """
 MCPOrchestrator Resources and Prompts Module
-Resources/Prompts模块 - 包含MCPStore的Resources和Prompts功能支持
+Resources/Prompts模块 - 包含 MCP 的 Resources 和 Prompts 功能支持
 """
 
 import asyncio
