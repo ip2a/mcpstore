@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any
 import mcp.types
 from mcp.types import Annotations, AnyFunction
 
-import mcpstore.mcp as mcpstore_mcp
 from mcpstore.mcp.resources.function_resource import resource as standalone_resource
 from mcpstore.mcp.resources.resource import Resource
 from mcpstore.mcp.resources.template import ResourceTemplate

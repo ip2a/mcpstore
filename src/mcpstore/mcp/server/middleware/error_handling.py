@@ -11,7 +11,6 @@ from mcp import McpError
 from mcp.types import ErrorData
 
 from mcpstore.mcp.exceptions import NotFoundError
-
 from .middleware import CallNext, Middleware, MiddlewareContext
 
 

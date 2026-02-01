@@ -19,7 +19,6 @@ from mcp import ClientSession, McpError
 from mcp.types import GetTaskResult, TaskStatusNotification
 from pydantic import AnyUrl
 
-import mcpstore.mcp as mcpstore_mcp
 from mcpstore.mcp import settings
 from mcpstore.mcp.client.elicitation import ElicitationHandler, create_elicitation_callback
 from mcpstore.mcp.client.logging import (
@@ -58,7 +57,6 @@ from mcpstore.mcp.utilities.timeout import (
     normalize_timeout_to_seconds,
     normalize_timeout_to_timedelta,
 )
-
 from .transports import (
     ClientTransport,
     ClientTransportT,

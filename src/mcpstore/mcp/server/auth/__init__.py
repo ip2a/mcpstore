@@ -13,11 +13,10 @@ from .authorization import (
     restrict_tag,
     run_auth_checks,
 )
-from .providers.debug import DebugTokenVerifier
-from .providers.jwt import JWTVerifier, StaticTokenVerifier
 from .oauth_proxy import OAuthProxy
 from .oidc_proxy import OIDCProxy
-
+from .providers.debug import DebugTokenVerifier
+from .providers.jwt import JWTVerifier, StaticTokenVerifier
 
 __all__ = [
     "AccessToken",

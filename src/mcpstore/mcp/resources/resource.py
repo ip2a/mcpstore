@@ -449,8 +449,6 @@ def __getattr__(name: str) -> Any:
     if name in deprecated_exports:
         import warnings
 
-        import mcpstore.mcp as mcpstore_mcp
-
         if settings.deprecation_warnings:
             warnings.warn(
                 f"Importing {name} from mcpstore.mcp.resources.resource is deprecated. "

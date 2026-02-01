@@ -8,7 +8,6 @@ from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from typing import TYPE_CHECKING, Any
 
-import mcpstore.mcp as mcpstore_mcp
 from mcpstore.mcp.utilities.logging import get_logger
 
 if TYPE_CHECKING:

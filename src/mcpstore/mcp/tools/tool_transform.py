@@ -14,7 +14,6 @@ from pydantic import ConfigDict
 from pydantic.fields import Field
 from pydantic.functional_validators import BeforeValidator
 
-import mcpstore.mcp as mcpstore_mcp
 from mcpstore.mcp.tools.function_parsing import ParsedFunction
 from mcpstore.mcp.tools.tool import Tool, ToolResult, _convert_to_content
 from mcpstore.mcp.utilities.components import _convert_set_default_none

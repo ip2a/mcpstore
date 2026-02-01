@@ -6,8 +6,8 @@ MCP Tool Proxy Module
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
-from .tool_proxy_annotations import CallToolResultProtocol
 
+from .tool_proxy_annotations import CallToolResultProtocol
 from .types import ContextType
 
 if TYPE_CHECKING:

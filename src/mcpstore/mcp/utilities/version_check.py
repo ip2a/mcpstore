@@ -21,7 +21,6 @@ REQUEST_TIMEOUT_SECONDS = 2.0
 
 def _get_cache_path(include_prereleases: bool = False) -> Path:
     """Get the path to the version cache file."""
-    import mcpstore.mcp as mcpstore_mcp
 
     suffix = "_prerelease" if include_prereleases else ""
     return settings.home / f"version_cache{suffix}.json"

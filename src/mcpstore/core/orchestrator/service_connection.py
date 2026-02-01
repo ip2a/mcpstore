@@ -12,9 +12,8 @@ MCPOrchestrator Service Connection Module
 import logging
 from typing import Dict, Any, Optional, Tuple
 
-from mcpstore.mcp import Client
-
 from mcpstore.core.models.service import ServiceConnectionState
+from mcpstore.mcp import Client
 
 logger = logging.getLogger(__name__)
 

@@ -39,7 +39,6 @@ from mcpstore.mcp.server.providers.skills.vendor_providers import (
     VSCodeSkillsProvider,
 )
 
-
 # Backwards compatibility alias
 SkillsProvider = SkillsDirectoryProvider
 

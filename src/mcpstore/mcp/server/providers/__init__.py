@@ -29,9 +29,9 @@ from typing import TYPE_CHECKING
 
 from mcpstore.mcp.server.providers.aggregate import AggregateProvider
 from mcpstore.mcp.server.providers.base import Provider
-from mcpstore.mcp.server.providers.mcpstore_provider import MCPStoreProvider
 from mcpstore.mcp.server.providers.filesystem import FileSystemProvider
 from mcpstore.mcp.server.providers.local_provider import LocalProvider
+from mcpstore.mcp.server.providers.mcpstore_provider import MCPStoreProvider
 from mcpstore.mcp.server.providers.skills import (
     ClaudeSkillsProvider,
     SkillProvider,

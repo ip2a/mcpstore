@@ -19,7 +19,6 @@ from mcp.server.lowlevel.server import (
 )
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.server.stdio import stdio_server as stdio_server
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from pydantic import AnyUrl

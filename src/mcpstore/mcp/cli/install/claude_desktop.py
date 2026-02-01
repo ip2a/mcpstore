@@ -11,7 +11,6 @@ from rich import print
 from mcpstore.mcp.mcp_config import StdioMCPServer, update_config_file
 from mcpstore.mcp.utilities.logging import get_logger
 from mcpstore.mcp.utilities.mcp_server_config.v1.environments.uv import UVEnvironment
-
 from .shared import process_common_args
 
 logger = get_logger(__name__)

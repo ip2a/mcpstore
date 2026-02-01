@@ -3,12 +3,12 @@ from collections.abc import AsyncIterator
 
 import anyio
 from mcp import ClientSession
-from mcpstore.mcp.server.server import MCPStore as MCPStore1Server
 from mcp.shared.memory import create_client_server_memory_streams
 from typing_extensions import Unpack
 
 from mcpstore.mcp.client.transports.base import ClientTransport, SessionKwargs
 from mcpstore.mcp.server.server import MCPStore
+from mcpstore.mcp.server.server import MCPStore as MCPStore1Server
 
 
 class MCPStoreTransport(ClientTransport):

@@ -20,7 +20,6 @@ from typing import (
 import pydantic_core
 from mcp.types import Icon
 
-import mcpstore.mcp as mcpstore_mcp
 from mcpstore.mcp.decorators import resolve_task_config
 from mcpstore.mcp.exceptions import PromptError
 from mcpstore.mcp.prompts.prompt import Prompt, PromptArgument, PromptResult

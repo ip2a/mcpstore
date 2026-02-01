@@ -6,9 +6,8 @@ Service management module - contains service registration, management and inform
 import logging
 from typing import Dict, List, Any, Optional
 
-from mcpstore.mcp import Client
-
 from mcpstore.core.models.service import ServiceConnectionState
+from mcpstore.mcp import Client
 
 logger = logging.getLogger(__name__)
 
