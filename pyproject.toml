@@ -4,21 +4,33 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcpstore"
-version = "1.5.13"
+version = "1.5.17"
 description = "A composable, ready-to-use MCP toolkit for agents and rapid integration."
 readme = "README.md"
 requires-python = ">=3.10"
 
 dependencies = [
-    "fastapi>=0.115.12",
-    "fastmcp>=2.7.1",
-    "httpx>=0.28.1",        
-    "pydantic>=2.11.5",
-    "uvicorn>=0.30.0",
-    "typer>=0.9.0",
-    "py-key-value-aio>=0.1.0",
+    "python-dotenv>=1.1.0",
+    "exceptiongroup>=1.2.2",
+    "httpx>=0.28.1",
+    "mcp>=1.24.0,<2.0",
+    "openapi-pydantic>=0.5.1",
+    "platformdirs>=4.0.0",
+    "pydocket>=0.16.3",
+    "rich>=13.9.4",
+    "cyclopts>=4.0.0",
+    "authlib>=1.6.5",
+    "pydantic[email]>=2.11.7",
+    "pyperclip>=1.9.0",
+    "packaging>=23.0",
+    "py-key-value-aio[disk,keyring,memory]>=0.3.0,<0.4.0",
+    "uvicorn>=0.35",
+    "websockets>=15.0.1",
+    "jsonschema-path>=0.3.4",
+    "jsonref>=1.1.0",
     "toml>=0.10.2",
-    "fsevents>=0.3.0; platform_system == \"Darwin\"",
+    "langchain>=1.2.7",
+    "watchdog>=6.0.0",
 ]
 
 authors = [
@@ -41,11 +53,6 @@ classifiers = [
 [project.scripts]
 mcpstore = "mcpstore.cli.main:main"
 
-[[tool.uv.index]]
-url = "https://mirrors.aliyun.com/pypi/simple"
-default = true
-
-
 
 [tool.setuptools]
 include-package-data = true
@@ -55,6 +62,6 @@ where = ["src"]
 exclude = ["tests*", "*test*", "web*", "mcpservice*"]
 
 
-
-[tool.uv]
-index-url = "https://mirrors.aliyun.com/pypi/simple"
+[[tool.uv.index]]
+url = "https://mirrors.aliyun.com/pypi/simple"
+default = true
