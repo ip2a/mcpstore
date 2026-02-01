@@ -17,7 +17,6 @@ theme:
   language: zh
 
   # Logo and favicon
-  logo: assets/logo_w.svg
   favicon: assets/favicon.ico
 
   # 字体配置
@@ -159,31 +158,22 @@ markdown_extensions:
 
 # Navigation
 nav:
-  - 首页:
-      - 文档导览: index.md
+  - 快速开始:
       - 快速开始: quickstart.md
+      - 构建Store: store/overview.md
+      - Store 代理对象: services/service-proxy.md
+      - 缓存空间: architecture/cache-architecture.md
 
-  - 理解 Store 与数据源:
-      - Store 角色与边界: store/overview.md
-      - Agent 与 Store 的关系: store/list-agents.md
-      - 数据源与服务代理: services/service-proxy.md
-      - 缓存/数据源架构: architecture/cache-architecture.md
-
-  - 构建与配置:
-      - Store 初始化流程: quickstart.md
-      - 配置项说明: api/cache-config.md
-      - 配置参考手册: api/cache-config-reference.md
-
-  - 服务治理:
+  - 服务管理:
       - 服务概览: services/overview.md
       - 添加服务: services/add-service.md
-      - Hub 服务管理: hub/services.md
-      - 服务列表与发现: services/list-services.md
-      - 状态与健康: services/check-health.md
-      - 配置读写: services/show-config.md
-      - 更新与补丁: services/update-service.md
-      - 重载与等待: services/restart-service.md
-      - 清理与删除: services/delete-service.md
+      - 聚合服务: hub/services.md
+      - 服务列表: services/list-services.md
+      - 健康检查: services/check-health.md
+      - 配置显示: services/show-config.md
+      - 更新服务: services/update-service.md
+      - 重启服务: services/restart-service.md
+      - 删除服务: services/delete-service.md
 
   - 三大原语:
       - Prompt:
@@ -201,19 +191,18 @@ nav:
           - 路由策略: tools/tool-tags.md
           - 代理与重定向: tools/tool-proxy.md
 
-  - 创建 Agent 与上下文:
-      - Agent 创建与接入: integrations/overview.md
-      - Agent 信息与连接详情: store/get-info.md
-      - 会话与上下文: session/sessions.md
+  - Agent 管理:
+      - 构建 Agent: integrations/overview.md
+      - 状态信息: store/get-info.md
+      - Agent 代理对象: services/service-proxy.md
 
   - API 参考:
-      - API 总览: api/overview.md
-      - 认证与配置: api/auth.md
-      - 服务端点参考: api/reference.md
-      - 错误与健康检查: api/errors.md
+      - 响应结构: api/response.md
+      - API 文档: api/apis.md
+      - 项目结合: api/integration.md
 
   - CLI 使用:
       - CLI 命令: cli/commands.md
 
-  - 示例:
-      - 缓存配置示例: examples/cache-config-examples.md
+  - SDK示例:
+      - 标准链路: examples/cache-config-examples.md
