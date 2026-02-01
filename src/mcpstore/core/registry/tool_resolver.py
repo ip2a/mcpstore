@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Unified Tool Name Resolver - Based on FastMCP Official Standards
-Provides user-friendly tool name input, internally converts to FastMCP standard format
+Unified Tool Name Resolver - Based on MCPStore Official Standards
+Provides user-friendly tool name input, internally converts to MCPStore standard format
 """
 
 import logging
@@ -17,17 +17,17 @@ logger = logging.getLogger(__name__)
 class ToolResolution:
     """Tool resolution result"""
     service_name: str           # Service name
-    original_tool_name: str     # FastMCP standard original tool name
+    original_tool_name: str     # MCPStore standard original tool name
     user_input: str            # User input tool name
     resolution_method: str     # Resolution method (exact_match, prefix_match, fuzzy_match)
 
 class ToolNameResolver:
     """
-    Intelligent user-friendly tool name resolver - FastMCP 2.0 standard
+    Intelligent user-friendly tool name resolver - MCPStore 2.0 standard
 
     [FEATURES] Core features:
     1. Extremely loose user input: supports any reasonable format
-    2. Strict FastMCP standard: fully compliant with official specifications internally
+    2. Strict MCPStore standard: fully compliant with official specifications internally
     3. Intelligent unambiguous recognition: automatically handles single/multi-service scenarios
     4. Perfect backward compatibility: maintains existing functionality unchanged
 
@@ -63,7 +63,7 @@ class ToolNameResolver:
         """
         [SMART] Intelligent user-friendly tool name resolution (new version)
 
-        Supports extremely loose user input, automatically converts to FastMCP standard format:
+        Supports extremely loose user input, automatically converts to MCPStore standard format:
 
         Input examples:
         - "get_current_weather" → Auto-detect service and add prefix (multi-service)
@@ -76,7 +76,7 @@ class ToolNameResolver:
             available_tools: List of available tools
 
         Returns:
-            ToolResolution: Resolution result containing FastMCP standard format
+            ToolResolution: Resolution result containing MCPStore standard format
         """
         if not user_input or not isinstance(user_input, str):
             raise ValueError("Tool name cannot be empty")
@@ -499,52 +499,52 @@ class ToolNameResolver:
 
         return max_score
 
-    def to_fastmcp_format(self, resolution: ToolResolution, available_tools: List[Dict[str, Any]] = None) -> str:
+    def to_mcpstore_format(self, resolution: ToolResolution, available_tools: List[Dict[str, Any]] = None) -> str:
         """
-        Convert to FastMCP standard format tool name
+        Convert to MCPStore standard format tool name
 
          Important discovery:
         - MCPStore internal: tool names with prefix "mcpstore-demo-weather_get_current_weather"
-        - FastMCP native: tool names without prefix "get_current_weather"
-        - We need to return the format expected by FastMCP native!
+        - MCPStore native: tool names without prefix "get_current_weather"
+        - We need to return the format expected by MCPStore native!
 
         Args:
             resolution: Tool resolution result
             available_tools: Available tools list (for finding original names)
 
         Returns:
-            Tool name expected by FastMCP native (original name without prefix)
+            Tool name expected by MCPStore native (original name without prefix)
         """
-        # Key correction: FastMCP execution needs original tool name, not MCPStore internal prefixed name
-        logger.debug(f"[FASTMCP] native_tool_name={resolution.original_tool_name}")
+        # Key correction: MCPStore execution needs original tool name, not MCPStore internal prefixed name
+        logger.debug(f"[MCPSTORE] native_tool_name={resolution.original_tool_name}")
         return resolution.original_tool_name
 
-    def resolve_and_format_for_fastmcp(self, user_input: str, available_tools: List[Dict[str, Any]] = None) -> tuple[str, ToolResolution]:
+    def resolve_and_format_for_mcpstore(self, user_input: str, available_tools: List[Dict[str, Any]] = None) -> tuple[str, ToolResolution]:
         """
-        One-stop resolution: user input → FastMCP standard format
+        One-stop resolution: user input → MCPStore standard format
 
-        This is the main external interface, completing the full conversion from user-friendly input to FastMCP standard format
+        This is the main external interface, completing the full conversion from user-friendly input to MCPStore standard format
 
         Args:
             user_input: User-input tool name (any format)
             available_tools: Available tools list
 
         Returns:
-            tuple: (fastmcp_format_name, resolution_details)
+            tuple: (mcpstore_format_name, resolution_details)
         """
         # 1. Smart resolution of user input
         resolution = self.resolve_tool_name_smart(user_input, available_tools)
 
-        # 2. Convert to FastMCP standard format (pass available_tools for finding actual names)
-        fastmcp_name = self.to_fastmcp_format(resolution, available_tools)
+        # 2. Convert to MCPStore standard format (pass available_tools for finding actual names)
+        mcpstore_name = self.to_mcpstore_format(resolution, available_tools)
 
-        logger.info(f"[RESOLVE_SUCCESS] input='{user_input}' fastmcp='{fastmcp_name}' service='{resolution.service_name}' method='{resolution.resolution_method}'")
+        logger.info(f"[RESOLVE_SUCCESS] input='{user_input}' mcpstore='{mcpstore_name}' service='{resolution.service_name}' method='{resolution.resolution_method}'")
 
-        return fastmcp_name, resolution
+        return mcpstore_name, resolution
 
-class FastMCPToolExecutor:
+class MCPStoreToolExecutor:
     """
-    FastMCP standard tool executor
+    MCPStore standard tool executor
     Strictly executes tool calls according to official website standards
     """
 
@@ -567,30 +567,30 @@ class FastMCPToolExecutor:
         raise_on_error: bool = True
     ) -> 'CallToolResult':
         """
-        Execute tool (strictly according to FastMCP official website standards)
+        Execute tool (strictly according to MCPStore official website standards)
 
-        Only use FastMCP official client's call_tool return object, without any custom "equivalent object" wrapping,
+        Only use MCPStore official client's call_tool return object, without any custom "equivalent object" wrapping,
         no longer fallback to call_tool_mcp for field mapping, ensuring result format matches official standards.
 
         Args:
-            client: FastMCP client instance (must implement call_tool)
-            tool_name: Tool name (FastMCP original name)
+            client: MCPStore client instance (must implement call_tool)
+            tool_name: Tool name (MCPStore original name)
             arguments: Tool parameters
             timeout: Timeout time (seconds)
             progress_handler: Progress handler
             raise_on_error: Whether to raise exception on error
 
         Returns:
-            CallToolResult: FastMCP standard result object
+            CallToolResult: MCPStore standard result object
         """
         arguments = arguments or {}
         timeout = timeout or self.default_timeout
 
         try:
             if not hasattr(client, 'call_tool'):
-                raise RuntimeError("FastMCP client does not support call_tool; please use a compatible FastMCP client")
+                raise RuntimeError("MCPStore client does not support call_tool; please use a compatible MCPStore client")
 
-            logger.debug("Using client.call_tool (FastMCP official) for result")
+            logger.debug("Using client.call_tool (MCPStore official) for result")
             result = await client.call_tool(
                 name=tool_name,
                 arguments=arguments,
@@ -609,15 +609,15 @@ class FastMCPToolExecutor:
     
     def extract_result_data(self, result: 'CallToolResult') -> Any:
         """
-        Extract result data (strictly according to FastMCP official website standards)
+        Extract result data (strictly according to MCPStore official website standards)
 
         Priority order according to official documentation:
-        1. .data - FastMCP unique fully hydrated Python object
+        1. .data - MCPStore unique fully hydrated Python object
         2. .structured_content - Standard MCP structured JSON data
         3. .content - Standard MCP content blocks
 
         Args:
-            result: FastMCP call result
+            result: MCPStore call result
 
         Returns:
             Extracted data
@@ -630,9 +630,9 @@ class FastMCPToolExecutor:
             logger.warning(f"Tool execution failed, extracting error content")
             # Even for errors, try to extract content
 
-        # 1. Prioritize .data property (FastMCP unique feature)
+        # 1. Prioritize .data property (MCPStore unique feature)
         if hasattr(result, 'data') and result.data is not None:
-            logger.debug(f"Using FastMCP .data property: {type(result.data)}")
+            logger.debug(f"Using MCPStore .data property: {type(result.data)}")
             return result.data
 
         # 2. Fallback to .structured_content (standard MCP structured data)

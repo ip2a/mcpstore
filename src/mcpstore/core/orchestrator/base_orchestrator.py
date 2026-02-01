@@ -7,7 +7,7 @@ import logging
 import time
 from typing import Dict, Any, Optional
 
-from fastmcp import Client
+from mcpstore.mcp import Client
 
 from mcpstore.config.json_config import MCPConfig
 from mcpstore.core.agents.session_manager import SessionManager

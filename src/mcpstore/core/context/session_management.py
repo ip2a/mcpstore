@@ -810,7 +810,7 @@ class SessionManagementMixin:
 
         logger.debug(f"[SESSION_MANAGEMENT] Routing tool '{tool_name}' to auto session (async)")
 
-        # 使用 Session 的 use_tool_async 方法，它会直接使用缓存的 FastMCP Client
+        # 使用 Session 的 use_tool_async 方法，它会直接使用缓存的 MCPStore Client
         # Avoid duplicate session_id when delegating to Session API
         kwargs.pop('session_id', None)
         return await self._auto_session.use_tool_async(tool_name, args, **kwargs)

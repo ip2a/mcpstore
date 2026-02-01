@@ -1,6 +1,6 @@
 """
-FastMCP Message Handler
-Handles notification messages from FastMCP servers
+MCPStore Message Handler
+Handles notification messages from MCPStore servers
 """
 
 import logging
@@ -9,18 +9,18 @@ from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# Check FastMCP availability
+# Check MCPStore availability
 try:
     import mcp.types
-    FASTMCP_AVAILABLE = True
-    logger.debug("FastMCP is available for notification handling")
+    MCPSTORE_AVAILABLE = True
+    logger.debug("MCPStore is available for notification handling")
 except ImportError:
-    logger.warning("FastMCP not available, notification features will be disabled")
-    FASTMCP_AVAILABLE = False
+    logger.warning("MCPStore not available, notification features will be disabled")
+    MCPSTORE_AVAILABLE = False
 
 
 class MCPStoreMessageHandler:
-    """MCPStore-specific FastMCP message handler"""
+    """MCPStore-specific MCPStore message handler"""
 
     def __init__(self, tools_monitor):
         """
@@ -29,8 +29,8 @@ class MCPStoreMessageHandler:
         Args:
             tools_monitor: ToolsUpdateMonitor instance
         """
-        if not FASTMCP_AVAILABLE:
-            logger.warning("FastMCP not available, notification features disabled")
+        if not MCPSTORE_AVAILABLE:
+            logger.warning("MCPStore not available, notification features disabled")
             return
 
         self.tools_monitor = tools_monitor
@@ -39,10 +39,10 @@ class MCPStoreMessageHandler:
 
     async def on_tool_list_changed(self, notification: 'mcp.types.ToolListChangedNotification') -> None:
         """Handle tool list change notifications"""
-        if not FASTMCP_AVAILABLE:
+        if not MCPSTORE_AVAILABLE:
             return
 
-        logger.info("Received tools/list_changed notification from FastMCP server")
+        logger.info("Received tools/list_changed notification from MCPStore server")
 
         # Record notification history
         self._record_notification("tools_changed", notification)
@@ -55,10 +55,10 @@ class MCPStoreMessageHandler:
 
     async def on_resource_list_changed(self, notification: 'mcp.types.ResourceListChangedNotification') -> None:
         """处理资源列表变更通知"""
-        if not FASTMCP_AVAILABLE:
+        if not MCPSTORE_AVAILABLE:
             return
 
-        logger.info("Received resources/list_changed notification from FastMCP server")
+        logger.info("Received resources/list_changed notification from MCPStore server")
 
         # 记录通知历史
         self._record_notification("resources_changed", notification)
@@ -73,10 +73,10 @@ class MCPStoreMessageHandler:
 
     async def on_prompt_list_changed(self, notification: 'mcp.types.PromptListChangedNotification') -> None:
         """处理提示词列表变更通知"""
-        if not FASTMCP_AVAILABLE:
+        if not MCPSTORE_AVAILABLE:
             return
 
-        logger.info("Received prompts/list_changed notification from FastMCP server")
+        logger.info("Received prompts/list_changed notification from MCPStore server")
 
         # 记录通知历史
         self._record_notification("prompts_changed", notification)
@@ -91,7 +91,7 @@ class MCPStoreMessageHandler:
 
     def _record_notification(self, notification_type: str, notification: Any):
         """记录通知历史"""
-        if not FASTMCP_AVAILABLE:
+        if not MCPSTORE_AVAILABLE:
             return
 
         record = {
@@ -119,7 +119,7 @@ class MCPStoreMessageHandler:
         Returns:
             List[Dict]: 通知历史记录
         """
-        if not FASTMCP_AVAILABLE:
+        if not MCPSTORE_AVAILABLE:
             return []
 
         history = self.notification_history
@@ -139,7 +139,7 @@ class MCPStoreMessageHandler:
         Args:
             notification_type: 要清理的通知类型，None表示清理所有
         """
-        if not FASTMCP_AVAILABLE:
+        if not MCPSTORE_AVAILABLE:
             return
 
         if notification_type:
@@ -159,11 +159,11 @@ class MCPStoreMessageHandler:
         Returns:
             Dict: 统计信息
         """
-        if not FASTMCP_AVAILABLE:
-            return {"fastmcp_available": False}
+        if not MCPSTORE_AVAILABLE:
+            return {"mcpstore_available": False}
 
         stats = {
-            "fastmcp_available": True,
+            "mcpstore_available": True,
             "total_notifications": len(self.notification_history),
             "by_type": {},
             "recent_activity": []

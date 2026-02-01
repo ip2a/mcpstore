@@ -21,7 +21,7 @@ class ResourcesPromptsMixin:
         """
         Tool change detection and processing method (synchronous version)
 
-        Supports hybrid tool change detection with FastMCP notification mechanism + polling backup strategy
+        Supports hybrid tool change detection with MCPStore notification mechanism + polling backup strategy
 
         Args:
             service_name: Specific service name (optional, None means check all services)

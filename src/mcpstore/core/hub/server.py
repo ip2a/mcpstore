@@ -30,11 +30,11 @@ class HubMCPServer:
     Hub MCP 服务器
     
     将 MCPStore 对象暴露为标准 MCP 服务。
-    基于 FastMCP 框架，提供薄包装层。
+    基于 MCPStore 框架，提供薄包装层。
     
     核心理念：
-    - 薄包装：直接使用 FastMCP 的能力
-    - 工具转换：将 MCPStore 工具转换为 FastMCP 工具
+    - 薄包装：直接使用 MCPStore 的能力
+    - 工具转换：将 MCPStore 工具转换为 MCPStore 工具
     - 透传调用：工具调用直接转发到原始对象
     
     支持的对象类型：
@@ -50,7 +50,7 @@ class HubMCPServer:
         port: Optional[int] = None,
         host: str = "0.0.0.0",
         path: str = "/mcp",
-        **fastmcp_kwargs
+        **mcpstore_kwargs
     ):
         """
         初始化 Hub MCP 服务器
@@ -61,7 +61,7 @@ class HubMCPServer:
             port: 端口号（仅 http/sse），None 为自动分配
             host: 监听地址（仅 http/sse），默认 "0.0.0.0"
             path: 端点路径（仅 http），默认 "/mcp"
-            **fastmcp_kwargs: 传递给 FastMCP 的其他参数（如 auth）
+            **mcpstore_kwargs: 传递给 MCPStore 的其他参数（如 auth）
             
         Example:
             # 暴露 Store 对象
@@ -85,12 +85,12 @@ class HubMCPServer:
             port=port,
             host=host,
             path=path,
-            fastmcp_kwargs=fastmcp_kwargs
+            mcpstore_kwargs=mcpstore_kwargs
         )
         
         # 初始化状态
         self._status = HubMCPStatus.STARTUP
-        self._fastmcp: Optional[Any] = None  # FastMCP 实例
+        self._mcpstore: Optional[Any] = None  # MCPStore 实例
         self._server_task: Optional[asyncio.Task] = None  # 服务器任务
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._background_thread: Optional[threading.Thread] = None
@@ -102,8 +102,8 @@ class HubMCPServer:
             f"port={port or 'auto-assign'}"
         )
         
-        # 创建 FastMCP 服务器
-        self._create_fastmcp_server()
+        # 创建 MCPStore 服务器
+        self._create_mcpstore_server()
 
         # 注册工具
         self._register_tools()
@@ -153,42 +153,42 @@ class HubMCPServer:
             logger.warning(f"[HubMCPServer] [WARN] Failed to generate server name: {e}, using default name")
             return "MCPStore-Hub"
     
-    def _create_fastmcp_server(self) -> None:
+    def _create_mcpstore_server(self) -> None:
         """
-        创建 FastMCP 服务器实例
+        创建 MCPStore 服务器实例
         
-        使用生成的服务器名称和配置参数创建 FastMCP 实例。
+        使用生成的服务器名称和配置参数创建 MCPStore 实例。
         """
         try:
-            # 导入 FastMCP
-            from fastmcp import FastMCP
+            # 导入 MCPStore
+            from mcpstore.mcp import MCPStore
             
             # 生成服务器名称
             server_name = self._generate_server_name()
             
-            # 创建 FastMCP 实例
-            self._fastmcp = FastMCP(
+            # 创建 MCPStore 实例
+            self._mcpstore = MCPStore(
                 name=server_name,
-                **self._config.fastmcp_kwargs
+                **self._config.mcpstore_kwargs
             )
             
-            logger.info(f"[HubMCPServer] [SUCCESS] FastMCP server created successfully: {server_name}")
+            logger.info(f"[HubMCPServer] [SUCCESS] MCPStore server created successfully: {server_name}")
             
         except ImportError as e:
-            logger.error(f"[HubMCPServer] [ERROR] Unable to import FastMCP: {e}")
+            logger.error(f"[HubMCPServer] [ERROR] Unable to import MCPStore: {e}")
             raise ImportError(
-                "FastMCP is not installed. Please run: uv add fastmcp"
+                "MCPStore is not installed. Please run: uv add mcpstore"
             ) from e
         except Exception as e:
-            logger.error(f"[HubMCPServer] [ERROR] Failed to create FastMCP server: {e}")
+            logger.error(f"[HubMCPServer] [ERROR] Failed to create MCPStore server: {e}")
             raise
     
     def _register_tools(self) -> None:
         """
-        注册所有工具到 FastMCP
+        注册所有工具到 MCPStore
         
         从暴露对象获取工具列表，为每个工具创建代理函数，
-        然后使用 FastMCP 的 @tool 装饰器注册。
+        然后使用 MCPStore 的 @tool 装饰器注册。
         """
         try:
             # 获取工具列表
@@ -225,7 +225,7 @@ class HubMCPServer:
                     if annotations:
                         decorator_kwargs["annotations"] = annotations
 
-                    decorator = self._fastmcp.tool(**decorator_kwargs)
+                    decorator = self._mcpstore.mcp.tool(**decorator_kwargs)
                     decorator(proxy_tool)
 
                     registered_count += 1
@@ -260,7 +260,7 @@ class HubMCPServer:
             tool_info: 工具信息对象
             
         Returns:
-            Callable: 代理函数，可以被 FastMCP 注册
+            Callable: 代理函数，可以被 MCPStore 注册
         """
         schema = getattr(tool_info, "inputSchema", {}) or {}
         properties = schema.get("properties") or {}
@@ -368,7 +368,7 @@ class HubMCPServer:
     # ---- Lifecycle helpers -------------------------------------------------
 
     def _get_transport_kwargs(self) -> dict[str, Any]:
-        """根据传输协议构造 FastMCP 运行参数。"""
+        """根据传输协议构造 MCPStore 运行参数。"""
         transport = self._config.transport
         if transport in {"http", "sse", "streamable-http"}:
             kwargs: dict[str, Any] = {}
@@ -382,13 +382,13 @@ class HubMCPServer:
         return {}
 
     async def _run_server(self, show_banner: bool) -> None:
-        """启动 FastMCP 服务器的核心协程。"""
+        """启动 MCPStore 服务器的核心协程。"""
         if self.is_running:
             raise ServerAlreadyRunningError("Hub MCP server is already running")
 
         self._status = HubMCPStatus.RUNNING
         try:
-            await self._fastmcp.run_async(
+            await self._mcpstore.mcp.run_async(
                 transport=self._config.transport,
                 show_banner=show_banner,
                 **self._get_transport_kwargs(),

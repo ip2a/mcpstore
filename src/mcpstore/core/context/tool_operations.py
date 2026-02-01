@@ -454,7 +454,7 @@ class ToolOperationsMixin:
         service_original_name: str,
         relation_manager,
         state_manager,
-        timeout: float = 2.0,
+        timeout: float = 6.0,
         interval: float = 0.2
     ) -> List[dict]:
         """
@@ -477,6 +477,15 @@ class ToolOperationsMixin:
 
             tools_confirmed_empty = bool(getattr(metadata, "tools_confirmed_empty", False))
 
+            logger.debug(
+                "[TOOLS_WAIT] agent=%s service=%s status=%s tools=%s meta_empty=%s",
+                agent_id,
+                service_original_name,
+                getattr(status, "health_status", getattr(status, "status", "unknown")),
+                len(tool_relations) if tool_relations else 0,
+                tools_confirmed_empty,
+            )
+
             # 已有工具，或明确确认为空
             if tool_relations or tools_confirmed_empty:
                 return tool_relations
@@ -486,6 +495,14 @@ class ToolOperationsMixin:
                 return tool_relations
 
             if asyncio.get_event_loop().time() >= deadline:
+                logger.warning(
+                    "[TOOLS_WAIT_TIMEOUT] agent=%s service=%s status=%s meta=%s relations=%s",
+                    agent_id,
+                    service_original_name,
+                    getattr(status, "health_status", getattr(status, "status", "unknown")),
+                    getattr(metadata, "dict", lambda: str(metadata))(),
+                    tool_relations,
+                )
                 raise RuntimeError(
                     f"服务已添加但工具尚未完成同步，请稍后重试。"
                     f"service={service_original_name}, agent_id={agent_id}, "
@@ -634,7 +651,7 @@ class ToolOperationsMixin:
         使用工具（同步版本）- 向后兼容别名
 
         注意：此方法是 call_tool 的别名，保持向后兼容性。
-        推荐使用 call_tool 方法，与 FastMCP 命名保持一致。
+        推荐使用 call_tool 方法，与 MCPStore 命名保持一致。
         """
         return self.call_tool(tool_name, args, return_extracted=return_extracted, **kwargs)
 
@@ -648,7 +665,7 @@ class ToolOperationsMixin:
             **kwargs: 额外参数（timeout, progress_handler等）
 
         Returns:
-            Any: 工具执行结果（FastMCP 标准格式）
+            Any: 工具执行结果（MCPStore 标准格式）
         """
         args = args or {}
 
@@ -731,14 +748,14 @@ class ToolOperationsMixin:
                 self._agent_id or self._store.client_manager.global_agent_store_id,
                 tool_name,
                 available_tools=available_tools,
-                target="fastmcp",
+                target="mcpstore",
                 strict=False,  # 不因元数据缺失直接中断，错误由可用性校验兜底
             )
-            fastmcp_tool_name = tool_res.fastmcp_tool_name
+            mcpstore_tool_name = tool_res.mcpstore_tool_name
             service_global_name = tool_res.global_service_name
             service_local_name = tool_res.local_service_name
             logger.info(
-                f"[SMART_RESOLVE] input='{tool_name}' fastmcp='{fastmcp_tool_name}' "
+                f"[SMART_RESOLVE] input='{tool_name}' mcpstore='{mcpstore_tool_name}' "
                 f"service_local='{service_local_name}' service_global='{service_global_name}' method='{tool_res.resolution_method}'"
             )
         except Exception as e:
@@ -749,8 +766,8 @@ class ToolOperationsMixin:
         # 检查工具是否可用
         is_available = await self._is_tool_available_async(
             service_global_name,
-            fastmcp_tool_name,
-            tool_original_name=fastmcp_tool_name,
+            mcpstore_tool_name,
+            tool_original_name=mcpstore_tool_name,
             service_original_name=service_local_name,
         )
         
@@ -758,7 +775,7 @@ class ToolOperationsMixin:
             # 工具不可用，抛出异常
             from mcpstore.core.exceptions import ToolNotAvailableError
             
-            original_tool_name = self._extract_original_tool_name(fastmcp_tool_name, tool_res.local_service_name)
+            original_tool_name = self._extract_original_tool_name(mcpstore_tool_name, tool_res.local_service_name)
             agent_id = self._agent_id if self._context_type == ContextType.AGENT else "global_agent_store"
             
             logger.warning(
@@ -774,24 +791,24 @@ class ToolOperationsMixin:
         
         logger.debug(
             f"[TOOL_INTERCEPT] Tool availability check passed: "
-            f"service_global_name={service_global_name}, tool={fastmcp_tool_name}"
+            f"service_global_name={service_global_name}, tool={mcpstore_tool_name}"
         )
         
         # 构造标准化的工具执行请求
         from mcpstore.core.models.tool import ToolExecutionRequest
 
         if self._context_type == ContextType.STORE:
-            logger.info(f"[STORE] call tool='{tool_name}' fastmcp='{fastmcp_tool_name}' service='{service_global_name}'")
+            logger.info(f"[STORE] call tool='{tool_name}' mcpstore='{mcpstore_tool_name}' service='{service_global_name}'")
             request = ToolExecutionRequest(
-                tool_name=fastmcp_tool_name,  # [FASTMCP] Use FastMCP standard format
+                tool_name=mcpstore_tool_name,  # [MCPSTORE] Use MCPStore standard format
                 service_name=service_global_name,
                 args=args,
                 **kwargs
             )
         else:
-            logger.info(f"[AGENT:{self._agent_id}] call tool='{tool_name}' fastmcp='{fastmcp_tool_name}' service_local='{service_local_name}' service_global='{service_global_name}'")
+            logger.info(f"[AGENT:{self._agent_id}] call tool='{tool_name}' mcpstore='{mcpstore_tool_name}' service_local='{service_local_name}' service_global='{service_global_name}'")
             request = ToolExecutionRequest(
-                tool_name=fastmcp_tool_name,  # [FASTMCP] Use FastMCP standard format
+                tool_name=mcpstore_tool_name,  # [MCPSTORE] Use MCPStore standard format
                 service_name=service_global_name,  # Use global service name
                 args=args,
                 # Agent 场景使用真实 agent_id，确保关系层查询服务映射正确
@@ -813,14 +830,14 @@ class ToolOperationsMixin:
 
         if return_extracted:
             try:
-                from mcpstore.core.registry.tool_resolver import FastMCPToolExecutor
-                executor = FastMCPToolExecutor()
+                from mcpstore.core.registry.tool_resolver import MCPStoreToolExecutor
+                executor = MCPStoreToolExecutor()
                 return executor.extract_result_data(response.result)
             except Exception:
                 # 兜底：无法提取则直接返回原结果
                 return getattr(response, 'result', None)
         else:
-            # 默认返回 FastMCP 的 CallToolResult（或等价对象）
+            # 默认返回 MCPStore 的 CallToolResult（或等价对象）
             return getattr(response, 'result', None)
 
     async def use_tool_async(self, tool_name: str, args: Dict[str, Any] = None, **kwargs) -> Any:
@@ -828,7 +845,7 @@ class ToolOperationsMixin:
         使用工具（异步版本）- 向后兼容别名
 
         注意：此方法是 call_tool_async 的别名，保持向后兼容性。
-        推荐使用 call_tool_async 方法，与 FastMCP 命名保持一致。
+        推荐使用 call_tool_async 方法，与 MCPStore 命名保持一致。
         """
         return await self.call_tool_async(tool_name, args, **kwargs)
 
@@ -1667,7 +1684,7 @@ class ToolOperationsMixin:
             raise
     def _build_call_tool_error_result(self, message: str):
         """
-        构造与 FastMCP CallToolResult 接口兼容的错误对象。
+        构造与 MCPStore CallToolResult 接口兼容的错误对象。
         """
         text_block = mcp_types.TextContent(type="text", text=message)
         failure = mcp_types.CallToolResult(

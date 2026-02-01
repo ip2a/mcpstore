@@ -86,7 +86,7 @@ async def mcpstore_exception_handler(request: Request, exc: MCPStoreException):
     response = format_error_response(exc, include_stack_trace=False)
     return JSONResponse(
         status_code=exc.status_code,
-        content=response.dict(exclude_none=True)
+        content=response.model_dump(exclude_none=True)
     )
 
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -118,7 +118,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     
     return JSONResponse(
         status_code=422,
-        content=response.dict(exclude_none=True)
+        content=response.model_dump(exclude_none=True)
     )
 
 async def http_exception_handler(request: Request, exc: HTTPException):
@@ -150,7 +150,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     
     return JSONResponse(
         status_code=exc.status_code,
-        content=response.dict(exclude_none=True)
+        content=response.model_dump(exclude_none=True)
     )
 
 async def general_exception_handler(request: Request, exc: Exception):
@@ -178,7 +178,7 @@ async def general_exception_handler(request: Request, exc: Exception):
     
     return JSONResponse(
         status_code=500,
-        content=response.dict(exclude_none=True)
+        content=response.model_dump(exclude_none=True)
     )
 
 # === Exception Handling Decorators ===

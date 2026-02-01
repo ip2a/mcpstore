@@ -35,14 +35,14 @@ class HubMCPConfig:
         port: 端口号（仅 http/sse），None 为自动分配
         host: 监听地址（仅 http/sse），默认 "0.0.0.0"
         path: 端点路径（仅 http），默认 "/mcp"
-        fastmcp_kwargs: 传递给 FastMCP 的其他参数
+        mcpstore_kwargs: 传递给 MCPStore 的其他参数
     """
     
     transport: Literal["http", "sse", "stdio"] = "http"
     port: Optional[int] = None
     host: str = "0.0.0.0"
     path: str = "/mcp"
-    fastmcp_kwargs: Dict[str, Any] = field(default_factory=dict)
+    mcpstore_kwargs: Dict[str, Any] = field(default_factory=dict)
     
     def __post_init__(self):
         """

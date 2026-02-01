@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 
 class MCPServerModel(BaseModel):
     """
-    Tolerant MCP service configuration model, supports all configuration formats of FastMCP Client
-    Reference: https://docs.fastmcp.com/clients/transports
+    Tolerant MCP service configuration model, supports all configuration formats of MCPStore Client
+    Reference: https://docs.mcpstore.mcp.com/clients/transports
     """
     # Remote service configuration
     url: Optional[str] = None
@@ -64,7 +64,7 @@ class MCPServerModel(BaseModel):
 
 class MCPConfigModel(BaseModel):
     """
-    Tolerant MCP configuration model, supports FastMCP's configuration format
+    Tolerant MCP configuration model, supports MCPStore's configuration format
     """
     mcpServers: Dict[str, Dict[str, Any]]  # Use Dict instead of strict MCPServerModel
 
@@ -150,7 +150,7 @@ class MCPConfig:
             if "mcpServers" in data and not isinstance(data["mcpServers"], dict):
                 raise ConfigValidationError("mcpServers must be a dictionary")
 
-            # No longer perform strict Pydantic validation, let FastMCP Client handle it
+            # No longer perform strict Pydantic validation, let MCPStore Client handle it
             return data
 
         except json.JSONDecodeError as e:
@@ -178,7 +178,7 @@ class MCPConfig:
         if "mcpServers" in config and not isinstance(config["mcpServers"], dict):
             raise ConfigValidationError("mcpServers must be a dictionary")
 
-        # No longer perform strict Pydantic validation, let FastMCP Client handle it
+        # No longer perform strict Pydantic validation, let MCPStore Client handle it
 
         self._backup()
         tmp_path = f"{self._json_path}.tmp"
@@ -246,7 +246,7 @@ class MCPConfig:
                 f"Tip: For incremental updates, use patch_service() instead of update_service()."
             )
 
-        # No longer perform strict Pydantic validation, let FastMCP Client handle it
+        # No longer perform strict Pydantic validation, let MCPStore Client handle it
             
         current_config = self.load_config()
         current_config["mcpServers"][name] = config

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 class ToolCallView(BaseModel):
-    """标准化 FastMCP CallToolResult 的辅助视图。"""
+    """标准化 MCPStore CallToolResult 的辅助视图。"""
 
     text: str = ""
     artifacts: List[Dict[str, Any]] = Field(default_factory=list)
@@ -52,7 +52,7 @@ def _extract_artifacts(contents: list) -> List[Dict[str, Any]]:
 
 def call_tool_response_helper(result: Any) -> ToolCallView:
     """
-    将 FastMCP CallToolResult 统一转换为 ToolCallView，供适配器复用。
+    将 MCPStore CallToolResult 统一转换为 ToolCallView，供适配器复用。
     """
     contents = getattr(result, "content", []) or []
     text_blocks = _extract_text_blocks(contents)
