@@ -1,5 +1,5 @@
 <template>
-  <div class="dashboard-container">
+  <div class="page-shell dashboard-container">
     <!-- Header -->
     <header class="dashboard-header">
       <div class="header-content">
@@ -26,7 +26,7 @@
         :description="systemStatus.running ? 'System operational' : 'System halted'"
         :class="['kpi-card', systemStatus.running ? 'status-active' : 'status-stopped']"
       />
-      
+
       <StatCard
         title="Services Health"
         :value="healthyServices"
@@ -35,16 +35,16 @@
         :description="`${totalServices} total services`"
         class="kpi-card"
       />
-      
+
       <StatCard
         title="Tools Available"
         :value="totalTools"
         unit="fns"
         :icon="Tools"
-        :trend="5" 
+        :trend="5"
         class="kpi-card"
       />
-      
+
       <StatCard
         title="Daily Invocations"
         :value="todayToolCalls"
@@ -63,36 +63,15 @@
           <h3 class="panel-title">
             Services
           </h3>
-          <div class="panel-controls">
-            <input 
-              v-model="serviceSearch" 
-              class="atom-input search-input" 
-              placeholder="Search services..."
-            >
-            <select
-              v-model="statusFilter"
-              class="atom-input filter-select"
-            >
-              <option value="all">
-                All
-              </option>
-              <option value="healthy">
-                Healthy
-              </option>
-              <option value="unhealthy">
-                Issues
-              </option>
-            </select>
-          </div>
         </div>
-        
+
         <div class="panel-body table-container">
           <el-table
             :data="pagedServices"
             class="atom-table"
             :show-header="true"
             size="small"
-            height="240"
+            height="100%"
           >
             <el-table-column
               prop="name"
@@ -112,7 +91,7 @@
                 </div>
               </template>
             </el-table-column>
-            
+
             <el-table-column
               label="STATUS"
               width="100"
@@ -137,7 +116,7 @@
                 <span class="mono-number">{{ row.tools_count || 0 }}</span>
               </template>
             </el-table-column>
-            
+
             <el-table-column
               label="ACTIVE"
               width="120"
@@ -168,7 +147,7 @@
             System Health
           </h3>
         </div>
-        <div class="panel-body chart-wrapper">
+        <div class="panel-body chart-body">
           <div
             ref="healthPieRef"
             class="chart-canvas"
@@ -189,7 +168,7 @@
             class="atom-table"
             :show-header="true"
             size="small"
-            height="215"
+            height="100%"
           >
             <el-table-column
               prop="name"
@@ -239,7 +218,7 @@
             Tool Distribution
           </h3>
         </div>
-        <div class="panel-body chart-wrapper">
+        <div class="panel-body chart-body">
           <div
             ref="toolsBarRef"
             class="chart-canvas"
@@ -251,7 +230,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, onActivated, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useSystemStore } from '@/stores/system'
 import { useServicesStore } from '@/stores/services'
 import { useToolsStore } from '@/stores/tools'
@@ -264,8 +243,6 @@ const servicesStore = useServicesStore()
 const toolsStore = useToolsStore()
 
 // Config
-const serviceSearch = ref('')
-const statusFilter = ref('all')
 const uptimeLabel = ref('4d 12h')
 const todayToolCalls = ref(124)
 const servicesPage = ref(1)
@@ -280,13 +257,7 @@ const totalTools = computed(() => toolsStore.tools.length)
 const systemStatus = computed(() => systemStore.systemStatus)
 
 const filteredServices = computed(() => {
-  const q = serviceSearch.value.trim().toLowerCase()
-  const filter = statusFilter.value
-  return servicesStore.services.filter(s => {
-    const okText = !q || s.name?.toLowerCase().includes(q)
-    const okStatus = filter === 'all' || (filter === 'healthy' ? s.status === 'healthy' : s.status !== 'healthy')
-    return okText && okStatus
-  })
+  return servicesStore.services
 })
 
 const formatLastChange = () => '2m ago'
@@ -328,8 +299,9 @@ function renderCharts() {
           ]
         }]
       })
+      healthPie.resize()
     }
-  
+
     if (toolsBarRef.value) {
       if (!toolsBar) toolsBar = echarts.init(toolsBarRef.value)
       const topServices = [...servicesStore.services].sort((a,b) => b.tools_count - a.tools_count).slice(0, 5)
@@ -337,8 +309,8 @@ function renderCharts() {
         ...chartTheme,
         grid: { left: 0, right: 0, top: 10, bottom: 20, containLabel: true },
         xAxis: { show: false },
-        yAxis: { 
-          type: 'category', 
+        yAxis: {
+          type: 'category',
           data: topServices.map(s => s.name),
           axisLine: { show: false },
           axisTick: { show: false },
@@ -353,6 +325,7 @@ function renderCharts() {
           backgroundStyle: { color: '#F3F4F6', borderRadius: 4 }
         }]
       })
+      toolsBar.resize()
     }
   })
 }
@@ -374,9 +347,6 @@ watch(() => toolsStore.tools, () => {
 
 <style lang="scss" scoped>
 .dashboard-container {
-  max-width: 1480px;
-  margin: 0 auto;
-  padding: 20px 36px; // 增大左右留白，整体更紧凑以减少垂直溢出
   width: 100%;
   overflow-x: hidden;
   box-sizing: border-box;
@@ -432,7 +402,7 @@ watch(() => toolsStore.tools, () => {
 .kpi-card {
   height: 100%;
   min-height: 100px; // Reduced from 120px
-  
+
   &.status-active { border-left: 3px solid var(--color-success) !important; }
   &.status-stopped { border-left: 3px solid var(--color-danger) !important; }
 }
@@ -440,12 +410,12 @@ watch(() => toolsStore.tools, () => {
 // Main Layout
 .content-grid {
   display: grid;
-  grid-template-columns: 2fr 1fr;
-  grid-template-rows: minmax(320px, 1fr) minmax(280px, 1fr);
+  grid-template-columns: 2.2fr 1fr; // 左列稍宽
+  grid-template-rows: 320px 280px; // 固定行高，确保左右、上下对齐
   grid-template-areas:
     "services health"
     "tools distribution";
-  gap: 16px; // 再收窄，减少总高度
+  gap: 16px;
   flex: 1;
   min-height: 0;
 
@@ -482,6 +452,7 @@ watch(() => toolsStore.tools, () => {
   gap: 12px; // Reduced from 16px
   height: 100%;
   min-height: 0;
+  padding: 4px 0; // 减少内部撑高，方便对齐
 }
 
 .panel-header {
@@ -499,11 +470,6 @@ watch(() => toolsStore.tools, () => {
   color: var(--text-secondary);
 }
 
-.panel-controls {
-  display: flex;
-  gap: 8px;
-}
-
 .panel-body {
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
@@ -513,6 +479,12 @@ watch(() => toolsStore.tools, () => {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  padding: 4px; // 保持统一内边距
+}
+
+.chart-body {
+  padding: 8px;
+  display: flex;
 }
 
 .panel-footer {
@@ -532,29 +504,20 @@ watch(() => toolsStore.tools, () => {
   color: var(--text-secondary);
   cursor: pointer;
   transition: color 0.2s;
-  
+
   &:hover { color: var(--text-primary); }
 }
-
-// Inputs
-.atom-input {
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  padding: 4px 10px; // More compact
-  border-radius: 6px;
-  font-size: 13px;
-  color: var(--text-primary);
-  
-  &:focus { outline: none; border-color: var(--text-secondary); }
-}
-
-.search-input { width: 180px; } // Slightly narrower
-.filter-select { width: 90px; }
 
 // Table Customization
 .table-container {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+:deep(.atom-table) {
+  height: 100%;
 }
 
 :deep(.atom-table) {
@@ -577,7 +540,7 @@ watch(() => toolsStore.tools, () => {
     border-bottom: 1px solid var(--border-color) !important;
     padding: 8px 12px; // Reduced padding
   }
-  
+
   .el-table__inner-wrapper::before { display: none; }
 }
 
@@ -593,7 +556,7 @@ watch(() => toolsStore.tools, () => {
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
-  
+
   &.is-healthy { background-color: var(--color-success); }
   &.is-issue { background-color: var(--color-danger); }
 }
@@ -638,8 +601,8 @@ watch(() => toolsStore.tools, () => {
 
 // Charts
 .chart-wrapper {
-  padding: 12px; // Reduced
-  height: 220px; // Slightly higher to保证图表可见
+  flex: 1;
+  min-height: 200px;
   display: flex;
   align-items: center;
   justify-content: center;

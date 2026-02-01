@@ -1,5 +1,5 @@
 <template>
-  <div class="service-add-container">
+  <div class="page-shell service-add-container">
     <!-- Header -->
     <header class="page-header">
       <div class="header-content">
@@ -523,9 +523,6 @@ const submitForm = async () => {
 
 <style lang="scss" scoped>
 .service-add-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px;
   width: 100%;
 }
 

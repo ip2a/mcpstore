@@ -1,5 +1,5 @@
 <template>
-  <div class="service-detail-container">
+  <div class="page-shell service-detail-container">
     <!-- Header -->
     <header class="page-header">
       <div class="header-content">
@@ -536,9 +536,6 @@ onUnmounted(() => {
 
 <style lang="scss" scoped>
 .service-detail-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px;
   width: 100%;
 }
 

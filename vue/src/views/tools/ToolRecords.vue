@@ -1,5 +1,5 @@
 <template>
-  <div class="tool-records-container">
+  <div class="page-shell tool-records-container">
     <!-- Header -->
     <header class="page-header">
       <div class="header-content">
@@ -289,9 +289,6 @@ onMounted(() => reload())
 
 <style lang="scss" scoped>
 .tool-records-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px;
   width: 100%;
 }
 
