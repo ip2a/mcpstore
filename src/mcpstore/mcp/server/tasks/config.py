@@ -58,10 +58,10 @@ class TaskConfig:
 
     Example:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.tasks import TaskConfig
 
-        mcp = MCPStore("MyServer")
+        mcp = MCPKit("MyServer")
 
         # Background execution required
         @mcp.tool(task=TaskConfig(mode="required"))

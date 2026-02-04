@@ -1,6 +1,6 @@
-"""MCPStoreProvider for wrapping MCPStore servers as providers.
+"""MCPStoreProvider for wrapping MCPKit servers as providers.
 
-This module provides the `MCPStoreProvider` class that wraps a MCPStore server
+This module provides the `MCPStoreProvider` class that wraps a MCPKit server
 and exposes its components through the Provider interface.
 
 It also provides MCPStoreProvider* component classes that delegate execution to
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from docket import Docket
     from docket.execution import Execution
 
-    from mcpstore.mcp.server.server import MCPStore
+    from mcpstore.mcp.server.server import MCPKit
 
 
 def _expand_uri_template(template: str, params: dict[str, Any]) -> str:
@@ -59,7 +59,7 @@ class MCPStoreProviderTool(Tool):
     chain is executed.
     """
 
-    _server: Any = None  # MCPStore, but Any to avoid circular import
+    _server: Any = None  # MCPKit，但用 Any 避免循环依赖
     _original_name: str | None = None
 
     def __init__(
@@ -156,7 +156,7 @@ class MCPStoreProviderResource(Resource):
     `read_resource()` method, ensuring the server's middleware chain is executed.
     """
 
-    _server: Any = None  # MCPStore, but Any to avoid circular import
+    _server: Any = None  # MCPKit，但用 Any 避免循环依赖
     _original_uri: str | None = None
 
     def __init__(
@@ -224,7 +224,7 @@ class MCPStoreProviderPrompt(Prompt):
     `render_prompt()` method, ensuring the server's middleware chain is executed.
     """
 
-    _server: Any = None  # MCPStore, but Any to avoid circular import
+    _server: Any = None  # MCPKit，但用 Any 避免循环依赖
     _original_name: str | None = None
 
     def __init__(
@@ -320,7 +320,7 @@ class MCPStoreProviderResourceTemplate(ResourceTemplate):
     when read.
     """
 
-    _server: Any = None  # MCPStore, but Any to avoid circular import
+    _server: Any = None  # MCPKit，但用 Any 避免循环依赖
     _original_uri_template: str | None = None
 
     def __init__(
@@ -458,9 +458,9 @@ class MCPStoreProviderResourceTemplate(ResourceTemplate):
 
 
 class MCPStoreProvider(Provider):
-    """Provider that wraps a MCPStore server.
+    """Provider that wraps a MCPKit server.
 
-    This provider enables mounting one MCPStore server onto another, exposing
+    This provider enables mounting one MCPKit server onto another, exposing
     the mounted server's tools, resources, and prompts through the parent
     server.
 
@@ -470,11 +470,11 @@ class MCPStoreProvider(Provider):
 
     Example:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.providers import MCPStoreProvider
 
-        main = MCPStore("Main")
-        sub = MCPStore("Sub")
+        main = MCPKit("Main")
+        sub = MCPKit("Sub")
 
         @sub.tool
         def greet(name: str) -> str:
@@ -491,15 +491,15 @@ class MCPStoreProvider(Provider):
         ```
 
     Note:
-        Normally you would use `MCPStore.mount()` which handles proxy conversion
+        Normally you would use `MCPKit.mount()` which handles proxy conversion
         and creates the provider with namespace automatically.
     """
 
-    def __init__(self, server: MCPStore[Any]):
+    def __init__(self, server: MCPKit[Any]):
         """Initialize a MCPStoreProvider.
 
         Args:
-            server: The MCPStore server to wrap.
+            server: The MCPKit server to wrap.
         """
         super().__init__()
         self.server = server

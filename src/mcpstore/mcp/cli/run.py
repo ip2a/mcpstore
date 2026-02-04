@@ -1,4 +1,4 @@
-"""MCPStore run command implementation with enhanced type hints."""
+"""mcpstore.mcp CLI: run 命令实现。"""
 
 import asyncio
 import contextlib
@@ -9,10 +9,9 @@ import sys
 from pathlib import Path
 from typing import Any, Literal
 
-from mcp.server.mcpstore import MCPStore as MCPStore1x
 from watchfiles import Change, awatch
 
-from mcpstore.mcp.server.server import MCPStore, create_proxy
+from mcpstore.mcp.server.server import MCPKit, create_proxy
 from mcpstore.mcp.utilities.logging import get_logger
 from mcpstore.mcp.utilities.mcp_server_config import (
     MCPServerConfig,
@@ -24,6 +23,17 @@ logger = get_logger("cli.run")
 # Type aliases for better type safety
 TransportType = Literal["stdio", "http", "sse", "streamable-http"]
 LogLevelType = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+
+def _is_legacy_async_server(server: Any) -> bool:
+    """判断是否为“旧版 wrapper server”（通过鸭子类型检测，而非硬编码 import）。"""
+    required_attrs = (
+        "settings",
+        "run_stdio_async",
+        "run_streamable_http_async",
+        "run_sse_async",
+    )
+    return all(hasattr(server, attr) for attr in required_attrs)
 
 # File extensions to watch for reload
 WATCHED_EXTENSIONS: set[str] = {
@@ -225,8 +235,8 @@ async def run_command(
 
     # Run the server
 
-    # handle v1 servers
-    if isinstance(server, MCPStore1x):
+    # 兼容旧版 wrapper server（例如旧 MCP SDK 的高层封装）
+    if _is_legacy_async_server(server):
         await run_v1_server_async(server, host=host, port=port, transport=transport)
         return
 
@@ -255,19 +265,21 @@ async def run_command(
 
 
 async def run_v1_server_async(
-    server: MCPStore1x,
+    server: Any,
     host: str | None = None,
     port: int | None = None,
     transport: TransportType | None = None,
 ) -> None:
-    """Run a MCPStore 1.x server using async methods.
+    """运行旧版 wrapper server（异步）。
 
     Args:
-        server: MCPStore 1.x server instance
+        server: 旧版 wrapper server 实例（需要具备 run_*_async 与 settings）
         host: Host to bind to
         port: Port to bind to
         transport: Transport protocol to use
     """
+    if not hasattr(server, "settings"):
+        raise TypeError("Legacy server missing required attribute: settings")
     if host:
         server.settings.host = host
     if port:

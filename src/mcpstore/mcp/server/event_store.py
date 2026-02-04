@@ -46,7 +46,7 @@ class EventStore(SDKEventStore):
 
     Example:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.event_store import EventStore
 
         # Default in-memory storage
@@ -57,7 +57,7 @@ class EventStore(SDKEventStore):
         redis_backend = RedisStore(url="redis://localhost")
         event_store = EventStore(storage=redis_backend)
 
-        mcp = MCPStore("MyServer")
+        mcp = MCPKit("MyServer")
         app = mcp.http_app(event_store=event_store, retry_interval=2000)
         ```
 

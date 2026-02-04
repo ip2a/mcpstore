@@ -1,4 +1,4 @@
-"""MCPStore - A more ergonomic interface for MCP servers."""
+"""MCPKit - 对标 fastmcp 的高层 MCP Server Wrapper。"""
 
 from __future__ import annotations
 
@@ -93,7 +93,6 @@ from mcpstore.mcp.utilities.versions import (
 
 if TYPE_CHECKING:
     from mcpstore.mcp.client import Client
-    from mcpstore.mcp.client.client import MCPStore1Server
     from mcpstore.mcp.client.sampling import SamplingHandler
     from mcpstore.mcp.client.transports import ClientTransport, ClientTransportT
     from mcpstore.mcp.server.providers.openapi import ComponentFn as OpenAPIComponentFn
@@ -150,7 +149,7 @@ URI_PATTERN = re.compile(r"^([^:]+://)(.*?)$")
 
 
 LifespanCallable = Callable[
-    ["MCPStore[LifespanResultT]"], AbstractAsyncContextManager[LifespanResultT]
+    ["MCPKit[LifespanResultT]"], AbstractAsyncContextManager[LifespanResultT]
 ]
 
 
@@ -172,7 +171,7 @@ def _get_auth_context() -> tuple[bool, Any]:
 
 
 @asynccontextmanager
-async def default_lifespan(server: MCPStore[LifespanResultT]) -> AsyncIterator[Any]:
+async def default_lifespan(server: MCPKit[LifespanResultT]) -> AsyncIterator[Any]:
     """Default lifespan context manager that does nothing.
 
     Args:
@@ -185,7 +184,7 @@ async def default_lifespan(server: MCPStore[LifespanResultT]) -> AsyncIterator[A
 
 
 def _lifespan_proxy(
-    mcpstore_server: MCPStore[LifespanResultT],
+    mcpstore_server: MCPKit[LifespanResultT],
 ) -> Callable[
     [LowLevelServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]
 ]:
@@ -199,7 +198,7 @@ def _lifespan_proxy(
 
         if not mcpstore_server._lifespan_result_set:
             raise RuntimeError(
-                "MCPStore server has a lifespan defined but no lifespan result is set, which means the server's context manager was not entered. "
+                "MCPKit server has a lifespan defined but no lifespan result is set, which means the server's context manager was not entered. "
                 + " Are you running the server in a way that supports lifespans? If so, please file an issue at https://github.com/jlowin/mcpstore/issues."
             )
 
@@ -214,7 +213,7 @@ class StateValue(MCPStoreBaseModel):
     value: Any
 
 
-class MCPStore(
+class MCPKit(
     AggregateProvider,
     LifespanMixin,
     MCPOperationsMixin,
@@ -2074,8 +2073,7 @@ class MCPStore(
         backend: (
             Client[ClientTransportT]
             | ClientTransport
-            | MCPStore[Any]
-            | MCPStore1Server
+            | MCPKit[Any]
             | AnyUrl
             | Path
             | MCPConfig
@@ -2084,7 +2082,7 @@ class MCPStore(
         ),
         **settings: Any,
     ) -> MCPStoreProxy:
-        """Create a MCPStore proxy server for the given backend.
+        """Create a MCPKit proxy server for the given backend.
 
         .. deprecated::
             Use :func:`mcpstore.mcp.server.create_proxy` instead.
@@ -2097,7 +2095,7 @@ class MCPStore(
         """
         if settings.deprecation_warnings:
             warnings.warn(
-                "MCPStore.as_proxy() is deprecated. Use create_proxy() from "
+                "MCPKit.as_proxy() is deprecated. Use create_proxy() from "
                 "mcpstore.mcp.server instead: `from mcpstore.mcp.server import create_proxy`",
                 DeprecationWarning,
                 stacklevel=2,
@@ -2124,8 +2122,7 @@ def create_proxy(
     target: (
         Client[ClientTransportT]
         | ClientTransport
-        | MCPStore[Any]
-        | MCPStore1Server
+        | MCPKit[Any]
         | AnyUrl
         | Path
         | MCPConfig
@@ -2134,7 +2131,7 @@ def create_proxy(
     ),
     **settings: Any,
 ) -> MCPStoreProxy:
-    """Create a MCPStore proxy server for the given target.
+    """Create a MCPKit proxy server for the given target.
 
     This is the recommended way to create a proxy server. For lower-level control,
     use `MCPStoreProxy` or `ProxyProvider` directly from `mcpstore.mcp.server.providers.proxy`.
@@ -2143,7 +2140,7 @@ def create_proxy(
         target: The backend to proxy to. Can be:
             - A Client instance (connected or disconnected)
             - A ClientTransport
-            - A MCPStore server instance
+            - A MCPKit server instance
             - A URL string or AnyUrl
             - A Path to a server script
             - An MCPConfig or dict
@@ -2159,7 +2156,7 @@ def create_proxy(
         # Create a proxy to a remote server
         proxy = create_proxy("http://remote-server/mcp")
 
-        # Create a proxy to another MCPStore server
+        # Create a proxy to another MCPKit server
         proxy = create_proxy(other_server)
         ```
     """
@@ -2173,3 +2170,8 @@ def create_proxy(
         client_factory=client_factory,
         **settings,
     )
+
+
+# 兼容别名：历史代码可能仍通过 `mcpstore.mcp.server.server.MCPStore` 引用该 wrapper。
+# 内部实现以 MCPKit 为准，后续可视迁移进度逐步移除该别名。
+MCPStore = MCPKit

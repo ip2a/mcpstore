@@ -1,14 +1,14 @@
 """MCPStoreOpenAPI - backwards compatibility wrapper.
 
-This class is deprecated. Use MCPStore with OpenAPIProvider instead:
+This class is deprecated. Use MCPKit with OpenAPIProvider instead:
 
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
     from mcpstore.mcp.server.providers.openapi import OpenAPIProvider
     import httpx
 
     client = httpx.AsyncClient(base_url="https://api.example.com")
     provider = OpenAPIProvider(openapi_spec=spec, client=client)
-    mcp = MCPStore("My API Server", providers=[provider])
+    mcp = MCPKit("My API Server", providers=[provider])
 """
 
 from __future__ import annotations
@@ -24,14 +24,14 @@ from mcpstore.mcp.server.providers.openapi import (
     RouteMap,
     RouteMapFn,
 )
-from mcpstore.mcp.server.server import MCPStore
+from mcpstore.mcp.server.server import MCPKit
 
 
-class MCPStoreOpenAPI(MCPStore):
-    """MCPStore server implementation that creates components from an OpenAPI schema.
+class MCPStoreOpenAPI(MCPKit):
+    """MCPKit server implementation that creates components from an OpenAPI schema.
 
     .. deprecated::
-        Use MCPStore with OpenAPIProvider instead. This class will be
+        Use MCPKit with OpenAPIProvider instead. This class will be
         removed in a future version.
 
     Example (deprecated):
@@ -47,13 +47,13 @@ class MCPStoreOpenAPI(MCPStore):
 
     New approach:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.providers.openapi import OpenAPIProvider
         import httpx
 
         client = httpx.AsyncClient(base_url="https://api.example.com")
         provider = OpenAPIProvider(openapi_spec=spec, client=client)
-        mcp = MCPStore("API Server", providers=[provider])
+        mcp = MCPKit("API Server", providers=[provider])
         ```
     """
 
@@ -70,10 +70,10 @@ class MCPStoreOpenAPI(MCPStore):
         timeout: float | None = None,
         **settings: Any,
     ):
-        """Initialize a MCPStore server from an OpenAPI schema.
+        """Initialize a MCPKit server from an OpenAPI schema.
 
         .. deprecated::
-            Use MCPStore with OpenAPIProvider instead.
+            Use MCPKit with OpenAPIProvider instead.
 
         Args:
             openapi_spec: OpenAPI schema as a dictionary
@@ -85,17 +85,17 @@ class MCPStoreOpenAPI(MCPStore):
             mcp_names: Optional dictionary mapping operationId to component names
             tags: Optional set of tags to add to all components
             timeout: Optional timeout (in seconds) for all requests
-            **settings: Additional settings for MCPStore
+            **settings: Additional settings for MCPKit
         """
         warnings.warn(
-            "MCPStoreOpenAPI is deprecated. Use MCPStore with OpenAPIProvider instead:\n"
+            "MCPStoreOpenAPI is deprecated. Use MCPKit with OpenAPIProvider instead:\n"
             "    provider = OpenAPIProvider(openapi_spec=spec, client=client)\n"
-            "    mcp = MCPStore('name', providers=[provider])",
+            "    mcp = MCPKit('name', providers=[provider])",
             DeprecationWarning,
             stacklevel=2,
         )
 
-        super().__init__(name=name or "OpenAPI MCPStore", **settings)
+        super().__init__(name=name or "OpenAPI MCPKit", **settings)
 
         # Store references for backwards compatibility
         self._client = client

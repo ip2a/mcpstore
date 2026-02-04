@@ -36,10 +36,10 @@ class SkillsDirectoryProvider(AggregateProvider):
     Example:
         ```python
         from pathlib import Path
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.providers.skills import SkillsDirectoryProvider
 
-        mcp = MCPStore("Skills")
+        mcp = MCPKit("Skills")
         # Single directory
         mcp.add_provider(SkillsDirectoryProvider(
             roots=Path.home() / ".claude" / "skills",

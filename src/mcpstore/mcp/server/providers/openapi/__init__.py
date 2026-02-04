@@ -1,16 +1,16 @@
-"""OpenAPI provider for MCPStore.
+"""OpenAPI provider for MCPKit.
 
-This module provides OpenAPI integration for MCPStore through the Provider pattern.
+This module provides OpenAPI integration for MCPKit through the Provider pattern.
 
 Example:
     ```python
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
     from mcpstore.mcp.server.providers.openapi import OpenAPIProvider
     import httpx
 
     client = httpx.AsyncClient(base_url="https://api.example.com")
     provider = OpenAPIProvider(openapi_spec=spec, client=client)
-    mcp = MCPStore("API Server", providers=[provider])
+    mcp = MCPKit("API Server", providers=[provider])
     ```
 """
 

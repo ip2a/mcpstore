@@ -116,9 +116,7 @@ class FileSystemSource(Source):
             The server object (or result of calling a factory function)
         """
         # Avoid circular import by importing here
-        from mcp.server.mcpstore import MCPStore as MCPStore1x
-
-        from mcpstore.mcp.server.server import MCPStore
+        from mcpstore.mcp.server.server import MCPKit
 
         # If entrypoint is specified, use it
         if self.entrypoint:
@@ -153,7 +151,7 @@ class FileSystemSource(Source):
         for name in ["mcp", "server", "app"]:
             if hasattr(module, name):
                 obj = getattr(module, name)
-                if isinstance(obj, MCPStore | MCPStore1x):
+                if isinstance(obj, MCPKit):
                     return await self._resolve_factory(obj, file_path, name)
 
         # No server found
@@ -177,9 +175,7 @@ class FileSystemSource(Source):
             A server instance
         """
         # Avoid circular import by importing here
-        from mcp.server.mcpstore import MCPStore as MCPStore1x
-
-        from mcpstore.mcp.server.server import MCPStore
+        from mcpstore.mcp.server.server import MCPKit
 
         # Check if it's a function or coroutine function
         if inspect.isfunction(obj) or inspect.iscoroutinefunction(obj):
@@ -194,9 +190,9 @@ class FileSystemSource(Source):
                     server = obj()
 
                 # Validate the result is a MCPStore server
-                if not isinstance(server, MCPStore | MCPStore1x):
+                if not isinstance(server, MCPKit):
                     logger.error(
-                        f"Factory function '{name}' must return a MCPStore server instance, "
+                        f"Factory function '{name}' must return a MCPKit server instance, "
                         f"got {type(server).__name__}",
                         extra={"file": str(file_path)},
                     )

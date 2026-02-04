@@ -1,21 +1,21 @@
-"""Authorization middleware for MCPStore.
+"""Authorization middleware for MCPKit.
 
 This module provides middleware-based authorization using callable auth checks.
 AuthMiddleware applies auth checks globally to all components on the server.
 
 Example:
     ```python
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
     from mcpstore.mcp.server.auth import require_auth, require_scopes, restrict_tag
     from mcpstore.mcp.server.middleware import AuthMiddleware
 
     # Require auth for all components
-    mcp = MCPStore(middleware=[
+    mcp = MCPKit(middleware=[
         AuthMiddleware(auth=require_auth)
     ])
 
     # Tag-based: components tagged "admin" require "admin" scope
-    mcp = MCPStore(middleware=[
+    mcp = MCPKit(middleware=[
         AuthMiddleware(auth=restrict_tag("admin", scopes=["admin"]))
     ])
     ```
@@ -66,17 +66,17 @@ class AuthMiddleware(Middleware):
 
     Example:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.auth import require_auth, require_scopes
 
         # Require any authentication for all components
-        mcp = MCPStore(middleware=[AuthMiddleware(auth=require_auth)])
+        mcp = MCPKit(middleware=[AuthMiddleware(auth=require_auth)])
 
         # Require specific scope for all components
-        mcp = MCPStore(middleware=[AuthMiddleware(auth=require_scopes("api"))])
+        mcp = MCPKit(middleware=[AuthMiddleware(auth=require_scopes("api"))])
 
         # Combined checks (AND logic)
-        mcp = MCPStore(middleware=[
+        mcp = MCPKit(middleware=[
             AuthMiddleware(auth=[require_auth, require_scopes("api")])
         ])
         ```

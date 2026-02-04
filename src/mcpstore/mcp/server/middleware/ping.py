@@ -16,10 +16,10 @@ class PingMiddleware(Middleware):
 
     Example:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.middleware import PingMiddleware
 
-        mcp = MCPStore("MyServer")
+        mcp = MCPKit("MyServer")
         mcp.add_middleware(PingMiddleware(interval_ms=5000))
         ```
     """

@@ -20,7 +20,7 @@ from mcpstore.mcp.utilities.types import get_cached_typeadapter
 from mcpstore.mcp.utilities.version_check import check_for_newer_version
 
 if TYPE_CHECKING:
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
 
 logger = get_logger("cli.config")
 

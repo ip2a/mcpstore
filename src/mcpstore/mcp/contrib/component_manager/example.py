@@ -1,4 +1,4 @@
-from mcpstore.mcp import MCPStore
+from mcpstore.mcp import MCPKit
 from mcpstore.mcp.contrib.component_manager import set_up_component_manager
 from mcpstore.mcp.server.auth.providers.jwt import JWTVerifier, RSAKeyPair
 
@@ -18,7 +18,7 @@ mcp_token = key_pair.create_token(
     audience="my-dev-server",
     scopes=["mcp:write", "mcp:read"],
 )
-mcp = MCPStore(
+mcp = MCPKit(
     name="Component Manager",
     instructions="This is a test server with component manager.",
     auth=auth,
@@ -34,7 +34,7 @@ mounted_token = key_pair.create_token(
     audience="my-dev-server",
     scopes=["mounted:write", "mcp:read"],
 )
-mounted = MCPStore(
+mounted = MCPKit(
     name="Component Manager",
     instructions="This is a test server with component manager.",
     auth=auth,
@@ -50,7 +50,7 @@ mcp.mount(server=mounted, namespace="mo")
 @mcp.resource("resource://greeting")
 def get_greeting() -> str:
     """Provides a simple greeting message."""
-    return "Hello from MCPStore Resources!"
+    return "Hello from MCPKit Resources!"
 
 
 @mounted.tool("greeting")

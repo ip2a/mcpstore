@@ -6,7 +6,7 @@ standard verification isn't possible (like opaque tokens without introspection).
 
 Example:
     ```python
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
     from mcpstore.mcp.server.auth.providers.debug import DebugTokenVerifier
 
     # Accept all tokens (default - useful for testing)
@@ -21,7 +21,7 @@ Example:
 
     auth = DebugTokenVerifier(validate=check_cache)
 
-    mcp = MCPStore("My Server", auth=auth)
+    mcp = MCPKit("My Server", auth=auth)
     ```
 """
 

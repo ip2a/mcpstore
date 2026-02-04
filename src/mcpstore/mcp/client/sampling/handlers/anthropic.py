@@ -1,4 +1,4 @@
-"""Anthropic sampling handler for MCPStore."""
+"""Anthropic sampling handler for MCPKit."""
 
 from collections.abc import Iterator, Sequence
 from typing import Any
@@ -50,7 +50,7 @@ class AnthropicSamplingHandler:
     Example:
         ```python
         from anthropic import AsyncAnthropic
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.client.sampling.handlers.anthropic import AnthropicSamplingHandler
 
         handler = AnthropicSamplingHandler(
@@ -58,7 +58,7 @@ class AnthropicSamplingHandler:
             client=AsyncAnthropic(),
         )
 
-        server = MCPStore(sampling_handler=handler)
+        server = MCPKit(sampling_handler=handler)
         ```
     """
 

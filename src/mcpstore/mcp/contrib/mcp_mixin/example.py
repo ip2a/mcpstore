@@ -1,8 +1,8 @@
-"""Sample code for MCPStore using MCPMixin."""
+"""Sample code for MCPKit using MCPMixin."""
 
 import asyncio
 
-from mcpstore.mcp import MCPStore
+from mcpstore.mcp import MCPKit
 from mcpstore.mcp.contrib.mcp_mixin import (
     MCPMixin,
     mcp_prompt,
@@ -10,7 +10,7 @@ from mcpstore.mcp.contrib.mcp_mixin import (
     mcp_tool,
 )
 
-mcp = MCPStore()
+mcp = MCPKit()
 
 
 class Sample(MCPMixin):

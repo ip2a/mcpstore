@@ -14,22 +14,22 @@ def combine_lifespans(
 ) -> Callable[[AppT], AbstractAsyncContextManager[dict[str, Any]]]:
     """Combine multiple lifespans into a single lifespan.
 
-    Useful when mounting MCPStore into FastAPI and you need to run
+    Useful when mounting MCPKit into FastAPI and you need to run
     both your app's lifespan and the MCP server's lifespan.
 
-    Works with both FastAPI-style lifespans (yield None) and MCPStore-style
+    Works with both FastAPI-style lifespans (yield None) and MCPKit-style
     lifespans (yield dict). Results are merged; later lifespans override
     earlier ones on key conflicts.
 
     Lifespans are entered in order and exited in reverse order (LIFO).
 
-    Example:
+        Example:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.utilities.lifespan import combine_lifespans
         from fastapi import FastAPI
 
-        mcp = MCPStore("Tools")
+        mcp = MCPKit("Tools")
         mcp_app = mcp.http_app()
 
         app = FastAPI(lifespan=combine_lifespans(app_lifespan, mcp_app.lifespan))

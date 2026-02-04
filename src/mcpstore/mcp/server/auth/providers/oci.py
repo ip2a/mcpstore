@@ -1,4 +1,4 @@
-"""OCI OIDC provider for MCPStore.
+"""OCI OIDC provider for MCPKit.
 
 The pull request for the provider is submitted to mcpstore.mcp.
 
@@ -12,7 +12,7 @@ You can use the signer object to create OCI service object.
 
 Example:
     ```python
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
     from mcpstore.mcp.server.auth.providers.oci import OCIProvider
     from mcpstore.mcp.server.dependencies import get_access_token
     from mcpstore.mcp.utilities.logging import get_logger
@@ -73,7 +73,7 @@ Example:
 
         return signer
 
-    mcp = MCPStore("My Protected Server", auth=auth)
+    mcp = MCPKit("My Protected Server", auth=auth)
     ```
 """
 
@@ -88,14 +88,14 @@ logger = get_logger(__name__)
 
 
 class OCIProvider(OIDCProxy):
-    """An OCI IAM Domain provider implementation for MCPStore.
+    """An OCI IAM Domain provider implementation for MCPKit.
 
     This provider is a complete OCI integration that's ready to use with
     just the configuration URL, client ID, client secret, and base URL.
 
     Example:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.auth.providers.oci import OCIProvider
 
         import os
@@ -110,7 +110,7 @@ class OCIProvider(OIDCProxy):
             redirect_path="/auth/callback",
         )
 
-        mcp = MCPStore("My Protected Server", auth=auth)
+        mcp = MCPKit("My Protected Server", auth=auth)
         ```
     """
 

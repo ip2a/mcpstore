@@ -1,11 +1,11 @@
-"""Composable lifespans for MCPStore servers.
+"""Composable lifespans for MCPKit servers.
 
 This module provides a `@lifespan` decorator for creating composable server lifespans
 that can be combined using the `|` operator.
 
 Example:
     ```python
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
     from mcpstore.mcp.server.lifespan import lifespan
 
     @lifespan
@@ -20,7 +20,7 @@ Example:
         yield {"cache": cache}
         await cache.close()
 
-    mcp = MCPStore("server", lifespan=db_lifespan | cache_lifespan)
+    mcp = MCPKit("server", lifespan=db_lifespan | cache_lifespan)
     ```
 
 To compose with existing `@asynccontextmanager` lifespans, wrap them explicitly:
@@ -49,12 +49,12 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from mcpstore.mcp.server.server import MCPStore
+    from mcpstore.mcp.server.server import MCPKit
 
 
-LifespanFn = Callable[["MCPStore[Any]"], AsyncIterator[dict[str, Any] | None]]
+LifespanFn = Callable[["MCPKit[Any]"], AsyncIterator[dict[str, Any] | None]]
 LifespanContextManagerFn = Callable[
-    ["MCPStore[Any]"], AbstractAsyncContextManager[dict[str, Any] | None]
+    ["MCPKit[Any]"], AbstractAsyncContextManager[dict[str, Any] | None]
 ]
 
 
@@ -69,17 +69,17 @@ class Lifespan:
         """Initialize a Lifespan wrapper.
 
         Args:
-            fn: An async generator function that takes a MCPStore server and yields
+            fn: An async generator function that takes a MCPKit server and yields
                 a dict for the lifespan context.
         """
         self._fn = fn
 
     @asynccontextmanager
-    async def __call__(self, server: MCPStore[Any]) -> AsyncIterator[dict[str, Any]]:
+    async def __call__(self, server: MCPKit[Any]) -> AsyncIterator[dict[str, Any]]:
         """Execute the lifespan as an async context manager.
 
         Args:
-            server: The MCPStore server instance.
+            server: The MCPKit server instance.
 
         Yields:
             The lifespan context dict.

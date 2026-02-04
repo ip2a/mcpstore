@@ -183,10 +183,10 @@ class SkillProvider(Provider):
     Example:
         ```python
         from pathlib import Path
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.providers.skills import SkillProvider
 
-        mcp = MCPStore("My Skill")
+        mcp = MCPKit("My Skill")
         mcp.add_provider(SkillProvider(
             Path.home() / ".claude/skills/pdf-processing"
         ))

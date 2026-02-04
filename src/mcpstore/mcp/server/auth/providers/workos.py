@@ -1,4 +1,4 @@
-"""WorkOS authentication providers for MCPStore.
+"""WorkOS authentication providers for MCPKit.
 
 This module provides two WorkOS authentication strategies:
 
@@ -98,7 +98,7 @@ class WorkOSTokenVerifier(TokenVerifier):
 
 
 class WorkOSProvider(OAuthProxy):
-    """Complete WorkOS OAuth provider for MCPStore.
+    """Complete WorkOS OAuth provider for MCPKit.
 
     This provider implements WorkOS AuthKit OAuth using the OAuth Proxy pattern.
     It provides OAuth2 authentication for users through WorkOS Connect applications.
@@ -117,7 +117,7 @@ class WorkOSProvider(OAuthProxy):
 
     Example:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.auth.providers.workos import WorkOSProvider
 
         auth = WorkOSProvider(
@@ -127,7 +127,7 @@ class WorkOSProvider(OAuthProxy):
             base_url="http://localhost:8000"
         )
 
-        mcp = MCPStore("My App", auth=auth)
+        mcp = MCPKit("My App", auth=auth)
         ```
     """
 

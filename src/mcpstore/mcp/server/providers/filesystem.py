@@ -18,10 +18,10 @@ Example:
     # In main.py
     from pathlib import Path
 
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
     from mcpstore.mcp.server.providers import FileSystemProvider
 
-    mcp = MCPStore("MyServer", providers=[FileSystemProvider(Path(__file__).parent / "mcp")])
+    mcp = MCPKit("MyServer", providers=[FileSystemProvider(Path(__file__).parent / "mcp")])
     ```
 """
 
@@ -71,14 +71,14 @@ class FileSystemProvider(LocalProvider):
         # In main.py
         from pathlib import Path
 
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.providers import FileSystemProvider
 
         # Path relative to this file
-        mcp = MCPStore("MyServer", providers=[FileSystemProvider(Path(__file__).parent / "mcp")])
+        mcp = MCPKit("MyServer", providers=[FileSystemProvider(Path(__file__).parent / "mcp")])
 
         # Dev mode - re-scan on every request
-        mcp = MCPStore("MyServer", providers=[FileSystemProvider(Path(__file__).parent / "mcp", reload=True)])
+        mcp = MCPKit("MyServer", providers=[FileSystemProvider(Path(__file__).parent / "mcp", reload=True)])
         ```
     """
 

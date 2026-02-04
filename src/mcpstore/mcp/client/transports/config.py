@@ -16,7 +16,7 @@ from mcpstore.mcp.mcp_config import (
     TransformingRemoteMCPServer,
     TransformingStdioMCPServer,
 )
-from mcpstore.mcp.server.server import MCPStore, create_proxy
+from mcpstore.mcp.server.server import MCPStore as MCPKit, create_proxy
 
 
 class MCPConfigTransport(ClientTransport):
@@ -27,7 +27,7 @@ class MCPConfigTransport(ClientTransport):
 
     1. If the MCPConfig contains exactly one server, it creates a direct transport to that server.
     2. If the MCPConfig contains multiple servers, it creates a composite client by mounting
-       all servers on a single MCPStore instance, with each server's name, by default, used as its mounting prefix.
+       all servers on a single MCPKit instance, with each server's name, by default, used as its mounting prefix.
 
     In the multi-server case, tools are accessible with the prefix pattern `{server_name}_{tool_name}`
     and resources with the pattern `protocol://{server_name}/path/to/resource`.
@@ -97,7 +97,7 @@ class MCPConfigTransport(ClientTransport):
             await t.close()
         self._transports = []
         timeout = session_kwargs.get("read_timeout_seconds")
-        composite = MCPStore[Any](name="MCPRouter")
+        composite = MCPKit[Any](name="MCPRouter")
 
         try:
             for name, server_config in self.config.mcpServers.items():
@@ -121,7 +121,7 @@ class MCPConfigTransport(ClientTransport):
         name: str,
         config: MCPServerTypes,
         timeout: datetime.timedelta | None,
-    ) -> tuple[ClientTransport, MCPStore[Any]]:
+    ) -> tuple[ClientTransport, MCPKit[Any]]:
         """Create underlying transport and proxy server for a single backend."""
         # Import here to avoid circular dependency
         from mcpstore.mcp.server.providers.proxy import ProxyClient

@@ -50,7 +50,7 @@ from mcpstore.mcp.client.tasks import (
     ToolTask,
 )
 from mcpstore.mcp.mcp_config import MCPConfig
-from mcpstore.mcp.server import MCPStore
+from mcpstore.mcp.server import MCPKit
 from mcpstore.mcp.utilities.exceptions import get_catch_handlers
 from mcpstore.mcp.utilities.logging import get_logger
 from mcpstore.mcp.utilities.timeout import (
@@ -60,7 +60,6 @@ from mcpstore.mcp.utilities.timeout import (
 from .transports import (
     ClientTransport,
     ClientTransportT,
-    MCPStore1Server,
     MCPStoreTransport,
     MCPConfigTransport,
     NodeStdioTransport,
@@ -155,7 +154,7 @@ class Client(
             Connection source specification, which can be:
 
                 - ClientTransport: Direct transport instance
-                - MCPStore: In-process MCPStore server
+                - MCPKit: In-process MCP server wrapper (mcpstore.mcp)
                 - AnyUrl or str: URL to connect to
                 - Path: File path for local socket
                 - MCPConfig: MCP server configuration
@@ -168,11 +167,11 @@ class Client(
         progress_handler: Optional handler for progress notifications
         timeout: Optional timeout for requests (seconds or timedelta)
         init_timeout: Optional timeout for initial connection (seconds or timedelta).
-            Set to 0 to disable. If None, uses the value in the MCPStore global settings.
+            Set to 0 to disable. If None, uses the value in the global settings.
 
     Examples:
         ```python
-        # Connect to MCPStore server
+        # Connect to MCP server
         client = Client("http://localhost:8080")
 
         async with client:
@@ -198,7 +197,7 @@ class Client(
     @overload
     def __init__(
         self: Client[MCPStoreTransport],
-        transport: MCPStore | MCPStore1Server,
+        transport: MCPKit,
         *args: Any,
         **kwargs: Any,
     ) -> None: ...
@@ -236,8 +235,7 @@ class Client(
         self,
         transport: (
             ClientTransportT
-            | MCPStore
-            | MCPStore1Server
+            | MCPKit
             | AnyUrl
             | Path
             | MCPConfig

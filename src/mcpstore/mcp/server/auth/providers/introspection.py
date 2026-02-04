@@ -1,4 +1,4 @@
-"""OAuth 2.0 Token Introspection (RFC 7662) provider for MCPStore.
+"""OAuth 2.0 Token Introspection (RFC 7662) provider for MCPKit.
 
 This module provides token verification for opaque tokens using the OAuth 2.0
 Token Introspection protocol defined in RFC 7662. It allows MCPStore servers to
@@ -6,7 +6,7 @@ validate tokens issued by authorization servers that don't use JWT format.
 
 Example:
     ```python
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
     from mcpstore.mcp.server.auth.providers.introspection import IntrospectionTokenVerifier
 
     # Verify opaque tokens via RFC 7662 introspection
@@ -17,7 +17,7 @@ Example:
         required_scopes=["read", "write"]
     )
 
-    mcp = MCPStore("My Protected Server", auth=verifier)
+    mcp = MCPKit("My Protected Server", auth=verifier)
     ```
 """
 

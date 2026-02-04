@@ -1,11 +1,11 @@
-"""Auth0 OAuth provider for MCPStore.
+"""Auth0 OAuth provider for MCPKit.
 
 This module provides a complete Auth0 integration that's ready to use with
 just the configuration URL, client ID, client secret, audience, and base URL.
 
 Example:
     ```python
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
     from mcpstore.mcp.server.auth.providers.auth0 import Auth0Provider
 
     # Simple Auth0 OAuth protection
@@ -17,7 +17,7 @@ Example:
         base_url="http://localhost:8000",
     )
 
-    mcp = MCPStore("My Protected Server", auth=auth)
+    mcp = MCPKit("My Protected Server", auth=auth)
     ```
 """
 
@@ -32,14 +32,14 @@ logger = get_logger(__name__)
 
 
 class Auth0Provider(OIDCProxy):
-    """An Auth0 provider implementation for MCPStore.
+    """An Auth0 provider implementation for MCPKit.
 
     This provider is a complete Auth0 integration that's ready to use with
     just the configuration URL, client ID, client secret, audience, and base URL.
 
     Example:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.auth.providers.auth0 import Auth0Provider
 
         # Simple Auth0 OAuth protection
@@ -51,7 +51,7 @@ class Auth0Provider(OIDCProxy):
             base_url="http://localhost:8000",
         )
 
-        mcp = MCPStore("My Protected Server", auth=auth)
+        mcp = MCPKit("My Protected Server", auth=auth)
         ```
     """
 

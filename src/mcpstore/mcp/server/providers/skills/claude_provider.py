@@ -21,10 +21,10 @@ class ClaudeSkillsProvider(SkillsDirectoryProvider):
 
     Example:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.providers.skills import ClaudeSkillsProvider
 
-        mcp = MCPStore("Claude Skills")
+        mcp = MCPKit("Claude Skills")
         mcp.add_provider(ClaudeSkillsProvider())  # Uses default location
         ```
     """

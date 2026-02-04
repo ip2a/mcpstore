@@ -1,9 +1,9 @@
-"""Sample code for MCPStore using MCPMixin."""
+"""Sample code for MCPKit using MCPMixin."""
 
-from mcpstore.mcp import MCPStore
+from mcpstore.mcp import MCPKit
 from mcpstore.mcp.contrib.bulk_tool_caller import BulkToolCaller
 
-mcp = MCPStore()
+mcp = MCPKit()
 
 
 @mcp.tool

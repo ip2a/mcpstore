@@ -53,14 +53,14 @@ class OpenAPIProvider(Provider):
 
     Example:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.providers.openapi import OpenAPIProvider
         import httpx
 
         client = httpx.AsyncClient(base_url="https://api.example.com")
         provider = OpenAPIProvider(openapi_spec=spec, client=client)
 
-        mcp = MCPStore("API Server")
+        mcp = MCPKit("API Server")
         mcp.add_provider(provider)
         ```
     """

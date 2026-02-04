@@ -1,4 +1,4 @@
-"""Base classes for MCPStore prompts."""
+"""Base classes for MCPKit prompts."""
 
 from __future__ import annotations as _annotations
 
@@ -116,10 +116,10 @@ class PromptResult(pydantic.BaseModel):
 
     Example:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.prompts import PromptResult, Message
 
-        mcp = MCPStore()
+        mcp = MCPKit()
 
         # Simple string content
         @mcp.prompt
