@@ -10,8 +10,7 @@ from mcpstore.mcp.client.transports.memory import MCPStoreTransport
 from mcpstore.mcp.client.transports.sse import SSETransport
 from mcpstore.mcp.client.transports.stdio import NodeStdioTransport, PythonStdioTransport
 from mcpstore.mcp.mcp_config import MCPConfig, infer_transport_type_from_url
-from mcpstore.mcp.server.server import MCPStore
-from mcpstore.mcp.server.server import MCPStore as MCPStore1Server
+from mcpstore.mcp.server.server import MCPStore as MCPKit
 from mcpstore.mcp.utilities.logging import get_logger
 
 if TYPE_CHECKING:
@@ -25,11 +24,7 @@ def infer_transport(transport: ClientTransportT) -> ClientTransportT: ...
 
 
 @overload
-def infer_transport(transport: MCPStore) -> MCPStoreTransport: ...
-
-
-@overload
-def infer_transport(transport: MCPStore1Server) -> MCPStoreTransport: ...
+def infer_transport(transport: MCPKit) -> MCPStoreTransport: ...
 
 
 @overload
@@ -60,8 +55,7 @@ def infer_transport(transport: Path) -> PythonStdioTransport | NodeStdioTranspor
 
 def infer_transport(
     transport: ClientTransport
-    | MCPStore
-    | MCPStore1Server
+    | MCPKit
     | AnyUrl
     | Path
     | MCPConfig
@@ -77,7 +71,7 @@ def infer_transport(
 
     The function supports these input types:
     - ClientTransport: Used directly without modification
-    - MCPStore or MCPStore1Server: Creates an in-memory MCPStoreTransport
+    - MCPKit: Creates an in-memory MCPStoreTransport
     - Path or str (file path): Creates PythonStdioTransport (.py) or NodeStdioTransport (.js)
     - AnyUrl or str (URL): Creates StreamableHttpTransport (default) or SSETransport (for /sse endpoints)
     - MCPConfig or dict: Creates MCPConfigTransport, potentially connecting to multiple servers
@@ -113,10 +107,10 @@ def infer_transport(
     if isinstance(transport, ClientTransport):
         return transport
 
-    # the transport is a MCPStore server (2.x or 1.0)
-    elif isinstance(transport, MCPStore | MCPStore1Server):
+    # the transport is a MCPKit server (in-process)
+    elif isinstance(transport, MCPKit):
         inferred_transport = MCPStoreTransport(
-            mcp=cast(MCPStore[Any] | MCPStore1Server, transport)
+            mcp=cast(MCPKit, transport)
         )
 
     # the transport is a path to a script

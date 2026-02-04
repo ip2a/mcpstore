@@ -7,25 +7,20 @@ from mcp.shared.memory import create_client_server_memory_streams
 from typing_extensions import Unpack
 
 from mcpstore.mcp.client.transports.base import ClientTransport, SessionKwargs
-from mcpstore.mcp.server.server import MCPStore
-from mcpstore.mcp.server.server import MCPStore as MCPStore1Server
+from mcpstore.mcp.server.server import MCPStore as MCPKit
 
 
 class MCPStoreTransport(ClientTransport):
-    """In-memory transport for MCPStore servers.
+    """In-memory transport for MCPKit servers.
 
-    This transport connects directly to a MCPStore server instance in the same
-    Python process. It works with both MCPStore 2.x servers and MCPStore 1.0
-    servers from the low-level MCP SDK. This is particularly useful for unit
-    tests or scenarios where client and server run in the same runtime.
+    This transport connects directly to a MCPKit server instance in the same
+    Python process. This is particularly useful for unit tests or scenarios
+    where client and server run in the same runtime.
     """
 
-    def __init__(self, mcp: MCPStore | MCPStore1Server, raise_exceptions: bool = False):
-        """Initialize a MCPStoreTransport from a MCPStore server instance."""
+    def __init__(self, mcp: MCPKit, raise_exceptions: bool = False):
+        """Initialize a MCPStoreTransport from a MCPKit server instance."""
 
-        # Accept both MCPStore 2.x and MCPStore 1.0 servers. Both expose a
-        # ``_mcp_server`` attribute pointing to the underlying MCP server
-        # implementation, so we can treat them identically.
         self.server = mcp
         self.raise_exceptions = raise_exceptions
 
@@ -80,11 +75,8 @@ class MCPStoreTransport(ClientTransport):
 
 @contextlib.asynccontextmanager
 async def _enter_server_lifespan(
-    server: MCPStore | MCPStore1Server,
+    server: MCPKit,
 ) -> AsyncIterator[None]:
-    """Enters the server's lifespan context for MCPStore servers and does nothing for MCPStore 1 servers."""
-    if isinstance(server, MCPStore):
-        async with server._lifespan_manager():
-            yield
-    else:
+    """进入 MCPKit 的 lifespan 上下文。"""
+    async with server._lifespan_manager():
         yield

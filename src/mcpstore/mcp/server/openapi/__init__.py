@@ -1,18 +1,18 @@
-"""OpenAPI server implementation for MCPStore.
+"""OpenAPI server implementation for MCPKit.
 
 .. deprecated::
     This module is deprecated. Import from mcpstore.mcp.server.providers.openapi instead.
 
-The recommended approach is to use OpenAPIProvider with MCPStore:
+The recommended approach is to use OpenAPIProvider with MCPKit:
 
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
     from mcpstore.mcp.server.providers.openapi import OpenAPIProvider
     import httpx
 
     client = httpx.AsyncClient(base_url="https://api.example.com")
     provider = OpenAPIProvider(openapi_spec=spec, client=client)
 
-    mcp = MCPStore("My API Server")
+    mcp = MCPKit("My API Server")
     mcp.add_provider(provider)
 
 MCPStoreOpenAPI is still available but deprecated.

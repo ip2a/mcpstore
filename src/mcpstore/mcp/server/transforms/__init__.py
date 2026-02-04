@@ -9,10 +9,10 @@ system for task registration, tag filtering, and component introspection.
 
 Example:
     ```python
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
     from mcpstore.mcp.server.transforms import Namespace
 
-    server = MCPStore("Server")
+    server = MCPKit("Server")
     mount = server.mount(other_server)
     mount.add_transform(Namespace("api"))  # Tools become api_toolname
     ```

@@ -30,7 +30,7 @@ class HubMCPServer:
     Hub MCP 服务器
     
     将 store/agent/service 对象暴露为标准 MCP 服务。
-    基于 MCP 框架的薄包装层（当前实现由 MCPStore 提供）。
+    基于 MCP 框架的薄包装层（当前实现由 MCPKit 提供）。
     
     核心理念：
     - 薄包装：直接使用 MCP 服务器能力
@@ -61,7 +61,7 @@ class HubMCPServer:
             port: 端口号（仅 http/sse），None 为自动分配
             host: 监听地址（仅 http/sse），默认 "0.0.0.0"
             path: 端点路径（仅 http），默认 "/mcp"
-            **mcp_kwargs: 传递给底层 MCP 服务器（当前由 MCPStore 提供）的其他参数（如 auth）
+            **mcp_kwargs: 传递给底层 MCP 服务器（当前由 MCPKit 提供）的其他参数（如 auth）
             
         Example:
             # 暴露 Store 对象
@@ -90,7 +90,7 @@ class HubMCPServer:
         
         # 初始化状态
         self._status = HubMCPStatus.STARTUP
-        self._mcpstore: Optional[Any] = None  # 底层 MCP 服务器实例（当前默认使用 MCPStore）
+        self._mcpkit: Optional[Any] = None  # 底层 MCP 服务器实例（当前默认使用 MCPKit）
         self._server_task: Optional[asyncio.Task] = None  # 服务器任务
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._background_thread: Optional[threading.Thread] = None
@@ -157,17 +157,17 @@ class HubMCPServer:
         """
         创建底层 MCP 服务器实例
         
-        使用生成的服务器名称和配置参数创建 MCP 实例（当前实现为 MCPStore）。
+        使用生成的服务器名称和配置参数创建 MCP 实例（当前实现为 MCPKit）。
         """
         try:
-            # 导入 MCP 服务器实现（当前使用 MCPStore）
-            from mcpstore.mcp import MCPStore
+            # 导入 MCP 服务器实现（当前使用 MCPKit）
+            from mcpstore.mcp import MCPKit
             
             # 生成服务器名称
             server_name = self._generate_server_name()
             
             # 创建实例
-            self._mcpstore = MCPStore(
+            self._mcpkit = MCPKit(
                 name=server_name,
                 **self._config.mcp_kwargs
             )
@@ -176,9 +176,7 @@ class HubMCPServer:
             
         except ImportError as e:
             logger.error(f"[HubMCPServer] [ERROR] Unable to import MCP server implementation: {e}")
-            raise ImportError(
-                "MCP server implementation is not installed. Please run: uv add mcpstore"
-            ) from e
+            raise ImportError("MCP server implementation is not installed.") from e
         except Exception as e:
             logger.error(f"[HubMCPServer] [ERROR] Failed to create MCP server: {e}")
             raise
@@ -225,7 +223,7 @@ class HubMCPServer:
                     if annotations:
                         decorator_kwargs["annotations"] = annotations
 
-                    decorator = self._mcpstore.mcp.tool(**decorator_kwargs)
+                    decorator = self._mcpkit.mcp.tool(**decorator_kwargs)
                     decorator(proxy_tool)
 
                     registered_count += 1
@@ -388,7 +386,7 @@ class HubMCPServer:
 
         self._status = HubMCPStatus.RUNNING
         try:
-            await self._mcpstore.mcp.run_async(
+            await self._mcpkit.mcp.run_async(
                 transport=self._config.transport,
                 show_banner=show_banner,
                 **self._get_transport_kwargs(),

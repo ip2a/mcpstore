@@ -5,10 +5,10 @@ clients that only support tools to access prompt functionality.
 
 Example:
     ```python
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
     from mcpstore.mcp.server.transforms import PromptsAsTools
 
-    mcp = MCPStore("Server")
+    mcp = MCPKit("Server")
     mcp.add_transform(PromptsAsTools(mcp))
     # Now has list_prompts and get_prompt tools
     ```
@@ -40,12 +40,12 @@ class PromptsAsTools(Transform):
     - `get_prompt`: Gets a specific prompt with optional arguments
 
     The transform captures a provider reference at construction and queries it
-    for prompts when the generated tools are called. When used with MCPStore,
+    for prompts when the generated tools are called. When used with MCPKit,
     the provider's auth and visibility filtering is automatically applied.
 
     Example:
         ```python
-        mcp = MCPStore("Server")
+        mcp = MCPKit("Server")
         mcp.add_transform(PromptsAsTools(mcp))
         # Now has list_prompts and get_prompt tools
         ```

@@ -16,9 +16,9 @@ def greet(name: str) -> str:
     return f"Hello, {name}!"
 
 # Attach to any server
-from mcpstore.mcp import MCPStore
-server1 = MCPStore("Server1", providers=[provider])
-server2 = MCPStore("Server2", providers=[provider])
+from mcpstore.mcp import MCPKit
+server1 = MCPKit("Server1", providers=[provider])
+server2 = MCPKit("Server2", providers=[provider])
 ```
 """
 
@@ -60,7 +60,7 @@ class LocalProvider(
     `@provider.prompt`) and direct object registration methods.
 
     When used standalone, LocalProvider uses default settings. When attached
-    to a MCPStore server via the server's decorators, server-level settings
+    to a MCPKit server via the server's decorators, server-level settings
     like `_tool_serializer` and `_support_tasks_by_default` are injected.
 
     Example:
@@ -83,8 +83,8 @@ class LocalProvider(
             return [{"role": "user", "content": f"Analyze: {topic}"}]
 
         # Attach to server(s)
-        from mcpstore.mcp import MCPStore
-        server = MCPStore("MyServer", providers=[provider])
+        from mcpstore.mcp import MCPKit
+        server = MCPKit("MyServer", providers=[provider])
         ```
     """
 

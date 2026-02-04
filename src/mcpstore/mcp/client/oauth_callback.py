@@ -205,38 +205,3 @@ def create_oauth_callback_server(
             ws="websockets-sansio",
         )
     )
-
-
-if __name__ == "__main__":
-    """Run a test server when executed directly."""
-    import webbrowser
-
-    import uvicorn
-
-    port = find_available_port()
-    print("OAuth Callback Test Server")
-    print("Test URLs:")
-    print(f"  Success: http://localhost:{port}/callback?code=test123&state=xyz")
-    print(
-        f"  Error:   http://localhost:{port}/callback?error=access_denied&error_description=User%20denied"
-    )
-    print(f"  Missing: http://localhost:{port}/callback")
-    print("Press Ctrl+C to stop")
-    print()
-
-    # Create test server without future (just for testing HTML responses)
-    server = create_oauth_callback_server(
-        port=port, server_url="https://mcpstore-test-server.example.com"
-    )
-
-    # Open browser to success example
-    webbrowser.open(f"http://localhost:{port}/callback?code=test123&state=xyz")
-
-    # Run with uvicorn directly
-    uvicorn.run(
-        server.config.app,
-        host="127.0.0.1",
-        port=port,
-        log_level="warning",
-        access_log=False,
-    )

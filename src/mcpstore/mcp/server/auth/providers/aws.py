@@ -1,4 +1,4 @@
-"""AWS Cognito OAuth provider for MCPStore.
+"""AWS Cognito OAuth provider for MCPKit.
 
 This module provides a complete AWS Cognito OAuth integration that's ready to use
 with a user pool ID, domain prefix, client ID and client secret. It handles all
@@ -6,7 +6,7 @@ the complexity of AWS Cognito's OAuth flow, token validation, and user managemen
 
 Example:
     ```python
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
     from mcpstore.mcp.server.auth.providers.aws_cognito import AWSCognitoProvider
 
     # Simple AWS Cognito OAuth protection
@@ -17,7 +17,7 @@ Example:
         client_secret="your-cognito-client-secret"
     )
 
-    mcp = MCPStore("My Protected Server", auth=auth)
+    mcp = MCPKit("My Protected Server", auth=auth)
     ```
 """
 
@@ -64,10 +64,10 @@ class AWSCognitoTokenVerifier(JWTVerifier):
 
 
 class AWSCognitoProvider(OIDCProxy):
-    """Complete AWS Cognito OAuth provider for MCPStore.
+    """Complete AWS Cognito OAuth provider for MCPKit.
 
     This provider makes it trivial to add AWS Cognito OAuth protection to any
-    MCPStore server using OIDC Discovery. Just provide your Cognito User Pool details,
+    MCPKit server using OIDC Discovery. Just provide your Cognito User Pool details,
     client credentials, and a base URL, and you're ready to go.
 
     Features:
@@ -78,7 +78,7 @@ class AWSCognitoProvider(OIDCProxy):
 
     Example:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.auth.providers.aws_cognito import AWSCognitoProvider
 
         auth = AWSCognitoProvider(
@@ -90,7 +90,7 @@ class AWSCognitoProvider(OIDCProxy):
             redirect_path="/custom/callback",
         )
 
-        mcp = MCPStore("My App", auth=auth)
+        mcp = MCPKit("My App", auth=auth)
         ```
     """
 

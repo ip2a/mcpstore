@@ -23,6 +23,7 @@ from mcpstore.core.events.service_events import (
     ServiceInitialized,
     HealthCheckRequested,
     ServiceRestartRequested,
+    ServiceResetRequested,
 )
 from mcpstore.core.models.service import ServiceConnectionState
 from mcpstore.core.utils.id_generator import ClientIDGenerator

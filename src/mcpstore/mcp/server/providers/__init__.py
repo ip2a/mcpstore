@@ -5,7 +5,7 @@ resources, and prompts dynamically at runtime.
 
 Example:
     ```python
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
     from mcpstore.mcp.server.providers import Provider
     from mcpstore.mcp.tools import Tool
 
@@ -21,7 +21,7 @@ Example:
             row = await self.db.fetchone("SELECT * FROM tools WHERE name = ?", name)
             return self._make_tool(row) if row else None
 
-    mcp = MCPStore("Server", providers=[DatabaseProvider(db_url)])
+    mcp = MCPKit("Server", providers=[DatabaseProvider(db_url)])
     ```
 """
 

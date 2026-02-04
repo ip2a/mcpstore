@@ -10,10 +10,10 @@ This module provides a two-layer architecture for skill discovery:
 Example:
     ```python
     from pathlib import Path
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
     from mcpstore.mcp.server.providers.skills import ClaudeSkillsProvider, SkillProvider
 
-    mcp = MCPStore("Skills Server")
+    mcp = MCPKit("Skills Server")
 
     # Load a single skill
     mcp.add_provider(SkillProvider(Path.home() / ".claude/skills/pdf-processing"))

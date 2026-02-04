@@ -1,4 +1,4 @@
-"""Google OAuth provider for MCPStore.
+"""Google OAuth provider for MCPKit.
 
 This module provides a complete Google OAuth integration that's ready to use
 with just a client ID and client secret. It handles all the complexity of
@@ -6,7 +6,7 @@ Google's OAuth flow, token validation, and user management.
 
 Example:
     ```python
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
     from mcpstore.mcp.server.auth.providers.google import GoogleProvider
 
     # Simple Google OAuth protection
@@ -15,7 +15,7 @@ Example:
         client_secret="your-google-client-secret"
     )
 
-    mcp = MCPStore("My Protected Server", auth=auth)
+    mcp = MCPKit("My Protected Server", auth=auth)
     ```
 """
 
@@ -156,10 +156,10 @@ class GoogleTokenVerifier(TokenVerifier):
 
 
 class GoogleProvider(OAuthProxy):
-    """Complete Google OAuth provider for MCPStore.
+    """Complete Google OAuth provider for MCPKit.
 
     This provider makes it trivial to add Google OAuth protection to any
-    MCPStore server. Just provide your Google OAuth app credentials and
+    MCPKit server. Just provide your Google OAuth app credentials and
     a base URL, and you're ready to go.
 
     Features:
@@ -170,7 +170,7 @@ class GoogleProvider(OAuthProxy):
 
     Example:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.auth.providers.google import GoogleProvider
 
         auth = GoogleProvider(
@@ -179,7 +179,7 @@ class GoogleProvider(OAuthProxy):
             base_url="https://my-server.com"
         )
 
-        mcp = MCPStore("My App", auth=auth)
+        mcp = MCPKit("My App", auth=auth)
         ```
     """
 

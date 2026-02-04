@@ -177,7 +177,7 @@ class OIDCProxy(OAuthProxy):
 
     Example:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.auth.oidc_proxy import OIDCProxy
 
         # Simple OIDC based protection
@@ -188,7 +188,7 @@ class OIDCProxy(OAuthProxy):
             base_url="https://your.server.url",
         )
 
-        mcp = MCPStore("My Protected Server", auth=auth)
+        mcp = MCPKit("My Protected Server", auth=auth)
         ```
     """
 

@@ -1,4 +1,4 @@
-"""OpenTelemetry instrumentation for MCPStore.
+"""OpenTelemetry instrumentation for MCPKit.
 
 This module provides native OpenTelemetry integration for MCPStore servers and clients.
 It uses only the opentelemetry-api package, so telemetry is a no-op unless the user
@@ -15,9 +15,9 @@ Example usage with SDK:
     provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
     trace.set_tracer_provider(provider)
 
-    # Now MCPStore will emit traces
-    from mcpstore.mcp import MCPStore
-    mcp = MCPStore("my-server")
+    # Now MCPKit will emit traces
+    from mcpstore.mcp import MCPKit
+    mcp = MCPKit("my-server")
     ```
 """
 
@@ -36,7 +36,7 @@ TRACE_STATE_KEY = "mcpstore.mcp.tracestate"
 
 
 def get_tracer(version: str | None = None) -> Tracer:
-    """Get the MCPStore tracer for creating spans.
+    """Get the MCPKit tracer for creating spans.
 
     Args:
         version: Optional version string for the instrumentation

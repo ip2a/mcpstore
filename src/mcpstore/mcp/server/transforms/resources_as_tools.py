@@ -5,10 +5,10 @@ clients that only support tools to access resource functionality.
 
 Example:
     ```python
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
     from mcpstore.mcp.server.transforms import ResourcesAsTools
 
-    mcp = MCPStore("Server")
+    mcp = MCPKit("Server")
     mcp.add_transform(ResourcesAsTools(mcp))
     # Now has list_resources and read_resource tools
     ```
@@ -37,12 +37,12 @@ class ResourcesAsTools(Transform):
     - `read_resource`: Reads a resource by URI
 
     The transform captures a provider reference at construction and queries it
-    for resources when the generated tools are called. When used with MCPStore,
+    for resources when the generated tools are called. When used with MCPKit,
     the provider's auth and visibility filtering is automatically applied.
 
     Example:
         ```python
-        mcp = MCPStore("Server")
+        mcp = MCPKit("Server")
         mcp.add_transform(ResourcesAsTools(mcp))
         # Now has list_resources and read_resource tools
         ```
@@ -136,10 +136,10 @@ class ResourcesAsTools(Transform):
             Returns the resource content as a string. Binary content is
             base64-encoded.
             """
-            from mcpstore.mcp import MCPStore
+            from mcpstore.mcp import MCPKit
 
-            # Use MCPStore.read_resource() if available - runs middleware chain
-            if isinstance(provider, MCPStore):
+            # Use MCPKit.read_resource() if available - runs middleware chain
+            if isinstance(provider, MCPKit):
                 result = await provider.read_resource(uri)
                 return _format_result(result)
 

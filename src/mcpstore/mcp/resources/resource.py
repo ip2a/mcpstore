@@ -1,4 +1,4 @@
-"""Base classes and interfaces for MCPStore resources."""
+"""Base classes and interfaces for MCPKit resources."""
 
 from __future__ import annotations
 
@@ -128,10 +128,10 @@ class ResourceResult(pydantic.BaseModel):
 
     Example:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.resources import ResourceResult, ResourceContent
 
-        mcp = MCPStore()
+        mcp = MCPKit()
 
         # Simple string content
         @mcp.resource("data://simple")

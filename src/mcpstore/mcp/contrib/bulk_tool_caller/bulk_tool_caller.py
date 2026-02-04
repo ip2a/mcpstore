@@ -3,7 +3,7 @@ from typing import Any
 from mcp.types import CallToolResult
 from pydantic import BaseModel, Field
 
-from mcpstore.mcp import MCPStore
+from mcpstore.mcp import MCPKit
 from mcpstore.mcp.client import Client
 from mcpstore.mcp.client.transports import MCPStoreTransport
 from mcpstore.mcp.contrib.mcp_mixin.mcp_mixin import (
@@ -50,12 +50,12 @@ class CallToolRequestResult(CallToolResult):
 
 class BulkToolCaller(MCPMixin):
     """
-    A class to provide a "bulk tool call" tool for a MCPStore server
+    A class to provide a "bulk tool call" tool for a MCPKit server
     """
 
     def register_tools(
         self,
-        mcp_server: "MCPStore",
+        mcp_server: "MCPKit",
         prefix: str | None = None,
         separator: str = _DEFAULT_SEPARATOR_TOOL,
     ) -> None:

@@ -26,7 +26,7 @@ from mcp.types import (
 )
 from pydantic.networks import AnyUrl
 
-from mcpstore.mcp.client.client import Client, MCPStore1Server
+from mcpstore.mcp.client.client import Client
 from mcpstore.mcp.client.elicitation import ElicitResult
 from mcpstore.mcp.client.logging import LogMessage
 from mcpstore.mcp.client.roots import RootsList
@@ -41,7 +41,7 @@ from mcpstore.mcp.resources.resource import ResourceContent, ResourceResult
 from mcpstore.mcp.server.context import Context
 from mcpstore.mcp.server.dependencies import get_context
 from mcpstore.mcp.server.providers.base import Provider
-from mcpstore.mcp.server.server import MCPStore
+from mcpstore.mcp.server.server import MCPStore as MCPKit
 from mcpstore.mcp.server.tasks.config import TaskConfig
 from mcpstore.mcp.tools.tool import Tool, ToolResult
 from mcpstore.mcp.utilities.components import MCPStoreComponent, get_mcpstore_metadata
@@ -478,13 +478,13 @@ class ProxyProvider(Provider):
 
     Example:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.providers.proxy import ProxyProvider, ProxyClient
 
         # Create a proxy provider for a remote server
         proxy = ProxyProvider(lambda: ProxyClient("http://localhost:8000/mcp"))
 
-        mcp = MCPStore("Proxy Server")
+        mcp = MCPKit("Proxy Server")
         mcp.add_provider(proxy)
 
         # Can also add with namespace
@@ -614,8 +614,7 @@ def _create_client_factory(
     target: (
         Client[ClientTransportT]
         | ClientTransport
-        | MCPStore[Any]
-        | MCPStore1Server
+        | MCPKit[Any]
         | AnyUrl
         | Path
         | MCPConfig
@@ -663,11 +662,11 @@ def _create_client_factory(
 # -----------------------------------------------------------------------------
 
 
-class MCPStoreProxy(MCPStore):
-    """A MCPStore server that acts as a proxy to a remote MCP-compliant server.
+class MCPStoreProxy(MCPKit):
+    """A MCPKit server that acts as a proxy to a remote MCP-compliant server.
 
-    This is a convenience wrapper that creates a MCPStore server with a
-    ProxyProvider. For more control, use MCPStore with add_provider(ProxyProvider(...)).
+    This is a convenience wrapper that creates a MCPKit server with a
+    ProxyProvider. For more control, use MCPKit with add_provider(ProxyProvider(...)).
 
     Example:
         ```python
@@ -697,7 +696,7 @@ class MCPStoreProxy(MCPStore):
             client_factory: A callable that returns a Client instance when called.
                            This gives you full control over session creation and reuse.
                            Can be either a synchronous or asynchronous function.
-            **kwargs: Additional settings for the MCPStore server.
+            **kwargs: Additional settings for the MCPKit server.
         """
         super().__init__(**kwargs)
         self.client_factory = client_factory
@@ -794,8 +793,7 @@ class ProxyClient(Client[ClientTransportT]):
     def __init__(
         self,
         transport: ClientTransportT
-        | MCPStore[Any]
-        | MCPStore1Server
+        | MCPKit[Any]
         | AnyUrl
         | Path
         | MCPConfig

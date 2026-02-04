@@ -1,4 +1,4 @@
-"""Azure (Microsoft Entra) OAuth provider for MCPStore.
+"""Azure (Microsoft Entra) OAuth provider for MCPKit.
 
 This provider implements Azure/Microsoft Entra ID OAuth authentication
 using the OAuth Proxy pattern for non-DCR OAuth flows.
@@ -28,7 +28,7 @@ OIDC_SCOPES = frozenset({"openid", "profile", "email", "offline_access"})
 
 
 class AzureProvider(OAuthProxy):
-    """Azure (Microsoft Entra) OAuth provider for MCPStore.
+    """Azure (Microsoft Entra) OAuth provider for MCPKit.
 
     This provider implements Azure/Microsoft Entra ID authentication using the
     OAuth Proxy pattern. It supports both organizational accounts and personal
@@ -59,7 +59,7 @@ class AzureProvider(OAuthProxy):
 
     Example:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.auth.providers.azure import AzureProvider
 
         # Standard Azure (Public Cloud)
@@ -83,7 +83,7 @@ class AzureProvider(OAuthProxy):
             base_url="http://localhost:8000",
         )
 
-        mcp = MCPStore("My App", auth=auth)
+        mcp = MCPKit("My App", auth=auth)
         ```
     """
 

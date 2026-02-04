@@ -35,7 +35,7 @@ class HubMCPConfig:
         port: 端口号（仅 http/sse），None 为自动分配
         host: 监听地址（仅 http/sse），默认 "0.0.0.0"
         path: 端点路径（仅 http），默认 "/mcp"
-        mcp_kwargs: 透传给底层 MCP 服务器（当前由 MCPStore 实现）的其他参数
+        mcp_kwargs: 透传给底层 MCP 服务器（当前由 MCPKit 实现）的其他参数
     """
     
     transport: Literal["http", "sse", "stdio"] = "http"

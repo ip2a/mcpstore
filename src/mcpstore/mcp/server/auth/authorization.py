@@ -1,4 +1,4 @@
-"""Authorization checks for MCPStore components.
+"""Authorization checks for MCPKit components.
 
 This module provides callable-based authorization for tools, resources, and prompts.
 Auth checks are functions that receive an AuthContext and return True to allow access
@@ -10,10 +10,10 @@ Auth checks can also raise exceptions:
 
 Example:
     ```python
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
     from mcpstore.mcp.server.auth import require_auth, require_scopes
 
-    mcp = MCPStore()
+    mcp = MCPKit()
 
     @mcp.tool(auth=require_auth)
     def protected_tool(): ...

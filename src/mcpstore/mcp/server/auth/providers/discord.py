@@ -1,4 +1,4 @@
-"""Discord OAuth provider for MCPStore.
+"""Discord OAuth provider for MCPKit.
 
 This module provides a complete Discord OAuth integration that's ready to use
 with just a client ID and client secret. It handles all the complexity of
@@ -6,7 +6,7 @@ Discord's OAuth flow, token validation, and user management.
 
 Example:
     ```python
-    from mcpstore.mcp import MCPStore
+    from mcpstore.mcp import MCPKit
     from mcpstore.mcp.server.auth.providers.discord import DiscordProvider
 
     # Simple Discord OAuth protection
@@ -15,7 +15,7 @@ Example:
         client_secret="your-discord-client-secret"
     )
 
-    mcp = MCPStore("My Protected Server", auth=auth)
+    mcp = MCPKit("My Protected Server", auth=auth)
     ```
 """
 
@@ -142,10 +142,10 @@ class DiscordTokenVerifier(TokenVerifier):
 
 
 class DiscordProvider(OAuthProxy):
-    """Complete Discord OAuth provider for MCPStore.
+    """Complete Discord OAuth provider for MCPKit.
 
     This provider makes it trivial to add Discord OAuth protection to any
-    MCPStore server. Just provide your Discord OAuth app credentials and
+    MCPKit server. Just provide your Discord OAuth app credentials and
     a base URL, and you're ready to go.
 
     Features:
@@ -156,7 +156,7 @@ class DiscordProvider(OAuthProxy):
 
     Example:
         ```python
-        from mcpstore.mcp import MCPStore
+        from mcpstore.mcp import MCPKit
         from mcpstore.mcp.server.auth.providers.discord import DiscordProvider
 
         auth = DiscordProvider(
@@ -165,7 +165,7 @@ class DiscordProvider(OAuthProxy):
             base_url="https://my-server.com"
         )
 
-        mcp = MCPStore("My App", auth=auth)
+        mcp = MCPKit("My App", auth=auth)
         ```
     """
 

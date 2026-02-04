@@ -17,13 +17,13 @@ from mcpstore.mcp.client.auth.oauth import OAuth
 from mcpstore.mcp.utilities.http import find_available_port
 
 if TYPE_CHECKING:
-    from mcpstore.mcp.server.server import MCPStore
+    from mcpstore.mcp.server.server import MCPKit
 
 
 @contextmanager
 def temporary_settings(**kwargs: Any):
     """
-    Temporarily override MCPStore setting values.
+    Temporarily override MCPKit setting values.
 
     Args:
         **kwargs: The settings to override, including nested settings.
@@ -53,7 +53,7 @@ def temporary_settings(**kwargs: Any):
             settings.set_setting(attr, old_settings.get_setting(attr))
 
 
-def _run_server(mcp_server: MCPStore, transport: Literal["sse"], port: int) -> None:
+def _run_server(mcp_server: MCPKit, transport: Literal["sse"], port: int) -> None:
     # Some Starlette apps are not pickleable, so we need to create them here based on the indicated transport
     if transport == "sse":
         app = mcp_server.http_app(transport="sse")
@@ -81,11 +81,11 @@ def run_server_in_process(
     **kwargs: Any,
 ) -> Generator[str, None, None]:
     """
-    Context manager that runs a MCPStore server in a separate process and
+    Context manager that runs a MCPKit server in a separate process and
     returns the server URL. When the context manager is exited, the server process is killed.
 
     Args:
-        server_fn: The function that runs a MCPStore server. MCPStore servers are
+        server_fn: The function that runs a MCPKit server. MCPKit servers are
             not pickleable, so we need a function that creates and runs one.
         *args: Arguments to pass to the server function.
         provide_host_and_port: Whether to provide the host and port to the server function as kwargs.
@@ -141,21 +141,21 @@ def run_server_in_process(
 
 @asynccontextmanager
 async def run_server_async(
-    server: MCPStore,
+    server: MCPKit,
     port: int | None = None,
     transport: Literal["http", "streamable-http", "sse"] = "http",
     path: str = "/mcp",
     host: str = "127.0.0.1",
 ) -> AsyncGenerator[str, None]:
     """
-    Start a MCPStore server as an asyncio task for in-process async testing.
+    Start a MCPKit server as an asyncio task for in-process async testing.
 
-    This is the recommended way to test MCPStore servers. It runs the server
+    This is the recommended way to test MCPKit servers. It runs the server
     as an async task in the same process, eliminating subprocess coordination,
     sleeps, and cleanup issues.
 
     Args:
-        server: MCPStore server instance
+        server: MCPKit server instance
         port: Port to bind to (default: find available port)
         transport: Transport type ("http", "streamable-http", or "sse")
         path: URL path for the server (default: "/mcp")
@@ -164,16 +164,16 @@ async def run_server_async(
     Yields:
         Server URL string
 
-    Example:
+        Example:
         ```python
         import pytest
-        from mcpstore.mcp import MCPStore, Client
+        from mcpstore.mcp import MCPKit, Client
         from mcpstore.mcp.client.transports import StreamableHttpTransport
         from mcpstore.mcp.utilities.tests import run_server_async
 
         @pytest.fixture
         async def server():
-            mcp = MCPStore("test")
+            mcp = MCPKit("test")
 
             @mcp.tool()
             def greet(name: str) -> str:
