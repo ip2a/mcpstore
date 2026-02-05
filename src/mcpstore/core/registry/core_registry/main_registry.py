@@ -566,7 +566,10 @@ class ServiceRegistry:
         client_ids: Set[str] = set()
         seen: Set[str] = set()
         for svc in services:
-            service_name = svc.get("service_original_name") or svc.get("service_global_name")
+            # 这里统一使用 service_global_name 作为清理用的标识：
+            # - 对 global_agent_store：service_global_name 即“全局视角”ID，避免误用本地名导致关系不匹配
+            # - 对普通 agent：remove_service_async(agent_id, global_name) 也能通过关系表验证并安全删除
+            service_name = svc.get("service_global_name") or svc.get("service_original_name")
             cid = svc.get("client_id")
             if cid:
                 client_ids.add(cid)

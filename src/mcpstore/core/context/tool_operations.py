@@ -222,13 +222,23 @@ class ToolOperationsMixin:
                 continue
             service_original_name = svc.get("service_original_name") or service_global_name
 
-            tool_relations = await self._wait_service_tools_ready(
-                agent_id=agent_id,
-                service_global_name=service_global_name,
-                service_original_name=service_original_name,
-                relation_manager=relation_manager,
-                state_manager=state_manager
-            )
+            try:
+                tool_relations = await self._wait_service_tools_ready(
+                    agent_id=agent_id,
+                    service_global_name=service_global_name,
+                    service_original_name=service_original_name,
+                    relation_manager=relation_manager,
+                    state_manager=state_manager
+                )
+            except RuntimeError as err:
+                logger.warning(
+                    "[LIST_TOOLS] Tool sync not finished, skip service: agent=%s service=%s error=%s",
+                    agent_id,
+                    service_original_name,
+                    err,
+                )
+                # 跳过当前服务，避免异常导致调用方直接退出
+                continue
             tool_names = [
                 tr.get("tool_global_name")
                 for tr in tool_relations
