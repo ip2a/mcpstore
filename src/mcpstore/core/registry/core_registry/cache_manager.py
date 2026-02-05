@@ -267,7 +267,8 @@ class SimpleMemoryBackend:
             "deletes": 0
         }
         self._max_size = config.get("max_size", 10000)
-        self._logger = logging.getLogger(self.__class__.__name__)
+        # 使用模块路径作为 logger 名称，统一日志前缀风格
+        self._logger = logging.getLogger(self.__module__)
 
     def get(self, key: str) -> Optional[str]:
         """获取缓存值"""

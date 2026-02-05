@@ -126,7 +126,8 @@ class ShowConfigAsyncShell:
             # Step 1: 从 pykv 检查 Agent 是否存在
             agent_exists = await self._check_agent_exists_async(agent_id)
             if not agent_exists:
-                logger.warning(f"[SHOW_CONFIG_SHELL] [WARN] Agent {agent_id} does not exist, returning empty configuration")
+                # 降级为 DEBUG：Agent 尚未在 pykv 中创建时属于正常时序，不应干扰用户视角
+                logger.debug(f"[SHOW_CONFIG_SHELL] [WARN] Agent {agent_id} does not exist, returning empty configuration")
                 return {"mcpServers": {}}
             
             # Step 2: 从 pykv 读取该 Agent 的服务数据

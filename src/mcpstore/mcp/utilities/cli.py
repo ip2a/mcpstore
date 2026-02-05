@@ -26,7 +26,7 @@ logger = get_logger("cli.config")
 
 
 def is_already_in_uv_subprocess() -> bool:
-    """Check if we're already running in a MCPStore uv subprocess."""
+    """Check if we're already running in a MCPKit uv subprocess."""
     return bool(os.environ.get("MCPSTORE_UV_SPAWNED"))
 
 
@@ -198,7 +198,7 @@ LOGO_ASCII_4 = (
 )
 
 
-def log_server_banner(server: MCPStore[Any]) -> None:
+def log_server_banner(server: MCPKit) -> None:
     """Creates and logs a formatted banner with server information and logo."""
 
     # Check for updates (non-blocking, fails silently)
@@ -209,7 +209,7 @@ def log_server_banner(server: MCPStore[Any]) -> None:
     logo_text = Text.from_ansi(LOGO_ASCII_4, no_wrap=True)
 
     # Create the main title
-    title_text = Text(f"MCPStore {mcpstore_mcp.__version__}", style="bold blue")
+    title_text = Text(f"MCPKit {mcpstore_mcp.__version__}", style="bold blue")
 
     # Create the information table
     info_table = Table.grid(padding=(0, 1))
