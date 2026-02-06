@@ -62,10 +62,10 @@ class ClientIDGenerator:
 
         except Exception as e:
             logger.error(f" [ID_GEN] Failed to generate client_id for {agent_id}:{service_name}: {e}")
-            # Fallback to simple format
-            fallback_id = f"client_{agent_id}_{service_name}_fallback"
-            logger.warning(f"[ID_GEN] [WARN] Using fallback client_id: {fallback_id}")
-            return fallback_id
+            # KISS + fail-fast：生成失败直接抛出，避免使用不可预期的回退 ID
+            raise RuntimeError(
+                f"Failed to generate deterministic client_id for agent={agent_id}, service={service_name}"
+            ) from e
 
     @staticmethod
     def parse_client_id(client_id: str) -> Dict[str, str]:
@@ -173,4 +173,3 @@ def generate_uuid() -> str:
         str: UUID字符串
     """
     return str(uuid.uuid4())
-

@@ -25,10 +25,19 @@ html, body {
 }
 
 // --- Atomic Layout Utilities ---
-.page-container {
-  max-width: 1200px;
+// 统一页面骨架容器（以 /for_store/call_tool 为标准：max-width 1400, padding 20）
+.page-shell {
+  max-width: 1400px;
   margin: 0 auto;
-  padding: var(--space-6) var(--space-4);
+  padding: 20px;
+  width: 100%;
+}
+
+// 兼容旧类名，逐步替换
+.page-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px;
   width: 100%;
 }
 

@@ -22,8 +22,21 @@ class BaseMCPStore:
     Base class containing core initialization and properties
     """
     
-    def __init__(self, orchestrator: MCPOrchestrator, config: MCPConfig,
-                 tool_record_max_file_size: int = 30, tool_record_retention_days: int = 7):
+    def __init__(
+        self,
+        orchestrator: MCPOrchestrator,
+        config: MCPConfig,
+        tool_record_max_file_size: int = 30,
+        tool_record_retention_days: int = 7,
+        *,
+        event_store=None,
+        event_syncer=None,
+        health_enabled: bool = True,
+        reconnection_enabled: bool = True,
+        enable_event_log: bool = True,
+        is_only_db: bool = False,
+        event_lease_ttl: float = 30.0,
+    ):
         self.orchestrator = orchestrator
         self.config = config
         self.registry = orchestrator.registry
@@ -39,7 +52,7 @@ class BaseMCPStore:
         self.tool_record_retention_days = tool_record_retention_days
 
         # Unified configuration manager (pass instance reference)
-        self._unified_config = UnifiedConfigManager(mcp_config=config)
+        self._unified_config = UnifiedConfigManager(mcp_config=config, file_write_enabled=False)
 
 
         # Set unified config to registry for JSON persistence
@@ -72,6 +85,7 @@ class BaseMCPStore:
         # 事件驱动架构: 初始化 ServiceContainer
         from mcpstore.core.infrastructure.container import ServiceContainer
         from mcpstore.core.configuration.config_processor import ConfigProcessor
+        event_store_for_container = event_store if enable_event_log else None
 
         self.container = ServiceContainer(
             registry=self.registry,
@@ -80,7 +94,14 @@ class BaseMCPStore:
             config_processor=ConfigProcessor,
             local_service_manager=self.local_service_manager,
             global_agent_store_id=self.client_manager.global_agent_store_id,
-            enable_event_history=False  # Disable event history in production
+            enable_event_history=False,  # Disable event history in production
+            event_store=event_store_for_container,
+            event_syncer=event_syncer,
+            health_enabled=health_enabled,
+            reconnection_enabled=reconnection_enabled,
+            enable_event_log=enable_event_log,
+            is_only_db=is_only_db,
+            event_lease_ttl=event_lease_ttl,
         )
 
         # ToolSetManager 已废弃，工具可用性统一使用 StateManager

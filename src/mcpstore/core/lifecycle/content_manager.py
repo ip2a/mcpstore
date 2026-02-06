@@ -9,10 +9,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, Set, Optional, List, Any, Tuple
 
-from fastmcp import Client
-
 from mcpstore.config.config_dataclasses import ContentUpdateConfig
 from mcpstore.core.configuration.config_processor import ConfigProcessor
+from mcpstore.mcp import Client
 
 logger = logging.getLogger(__name__)
 
@@ -46,14 +45,14 @@ class ServiceContentManager:
         self.registry = orchestrator.registry
         self.lifecycle_manager = orchestrator.lifecycle_manager
 
-        # 使用 MCPStoreConfig 获取内容更新配置 - 延迟导入避免循环依赖
+        # 使用 MCP 配置获取内容更新配置 - 延迟导入避免循环依赖
         try:
             from mcpstore.config.toml_config import get_content_update_config_with_defaults
             self.config = get_content_update_config_with_defaults()
         except Exception as e:
             logger.warning(f"Failed to get content update config, using defaults: {e}")
             self.config = ContentUpdateConfig()
-        logger.debug(f"ContentManager initialized with config from MCPStoreConfig: tools_update_interval={self.config.tools_update_interval}s")
+        logger.debug(f"ContentManager initialized with config: tools_update_interval={self.config.tools_update_interval}s")
 
         # 事件总线（可选）
         self.event_bus = None
@@ -75,16 +74,16 @@ class ServiceContentManager:
         # 事件驱动处理任务
         self._process_task: Optional[asyncio.Task] = None
 
-        # 订阅事件：仅在 HEALTHY/WARNING 触发更新
+        # 订阅事件：仅在 HEALTHY/DEGRADED 触发更新
         try:
             if self.event_bus is not None:
                 from mcpstore.core.events.service_events import ServiceStateChanged
                 async def _on_state_changed(event: 'ServiceStateChanged'):
                     try:
-                        if event.new_state in ("healthy", "warning"):
+                        if event.new_state in ("healthy", "degraded"):
                             self.update_queue.add((event.agent_id, event.service_name))
                             self._schedule_queue_processing()
-                        elif event.new_state in ("disconnected", "disconnecting", "unreachable"):
+                        elif event.new_state in ("disconnected", "disconnected", "disconnected"):
                             # 终止/不可达时清理队列，避免无效更新
                             self.update_queue.discard((event.agent_id, event.service_name))
                             self.updating_services.discard((event.agent_id, event.service_name))
@@ -286,13 +285,13 @@ class ServiceContentManager:
 
             # 创建临时客户端
             user_config = {"mcpServers": {service_name: service_config}}
-            fastmcp_config = ConfigProcessor.process_user_config_for_fastmcp(user_config)
+            mcpstore_config = ConfigProcessor.process_user_config_for_mcpstore(user_config)
 
-            if service_name not in fastmcp_config.get("mcpServers", {}):
+            if service_name not in mcpstore_config.get("mcpServers", {}):
                 logger.warning(f"Service {service_name} not found in processed config")
                 return False
 
-            client = Client(fastmcp_config)
+            client = Client(mcpstore_config)
 
             async with asyncio.timeout(self.config.update_timeout):
                 async with client:
@@ -348,7 +347,7 @@ class ServiceContentManager:
                 name = tool.get('name', '')
                 description = tool.get('description', '')
             else:
-                # 对象格式（如FastMCP的Tool对象）
+                # 对象格式（如 MCP Tool 对象）
                 name = getattr(tool, 'name', '')
                 description = getattr(tool, 'description', '')
 

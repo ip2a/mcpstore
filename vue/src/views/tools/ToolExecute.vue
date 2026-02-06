@@ -1,5 +1,5 @@
 <template>
-  <div class="tool-execute-container">
+  <div class="page-shell tool-execute-container">
     <!-- Header -->
     <header class="page-header">
       <div class="header-content">
@@ -612,9 +612,6 @@ onMounted(async () => {
 
 <style lang="scss" scoped>
 .tool-execute-container {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 20px;
   width: 100%;
 }
 

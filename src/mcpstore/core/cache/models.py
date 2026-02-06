@@ -389,8 +389,8 @@ class ToolStatusItem:
         valid_statuses = ["available", "unavailable"]
         if data["status"] not in valid_statuses:
             raise ValueError(
-                f"无效的工具状态: {data['status']}. "
-                f"有效值: {valid_statuses}"
+                f"Invalid tool status: {data['status']}. "
+                f"Valid values: {valid_statuses}"
             )
         
         return cls(
@@ -414,6 +414,13 @@ class ServiceStatus:
     max_connection_attempts: int
     current_error: Optional[str]
     tools: List[ToolStatusItem] = field(default_factory=list)
+    window_error_rate: Optional[float] = None
+    latency_p95: Optional[float] = None
+    latency_p99: Optional[float] = None
+    sample_size: Optional[int] = None
+    next_retry_time: Optional[float] = None
+    hard_deadline: Optional[float] = None
+    lease_deadline: Optional[float] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
@@ -424,7 +431,14 @@ class ServiceStatus:
             "connection_attempts": self.connection_attempts,
             "max_connection_attempts": self.max_connection_attempts,
             "current_error": self.current_error,
-            "tools": [item.to_dict() for item in self.tools]
+            "tools": [item.to_dict() for item in self.tools],
+            "window_error_rate": self.window_error_rate,
+            "latency_p95": self.latency_p95,
+            "latency_p99": self.latency_p99,
+            "sample_size": self.sample_size,
+            "next_retry_time": self.next_retry_time,
+            "hard_deadline": self.hard_deadline,
+            "lease_deadline": self.lease_deadline,
         }
     
     @classmethod
@@ -446,11 +460,14 @@ class ServiceStatus:
                 raise ValueError(f"Missing required field: {field_name}")
         
         # 验证健康状态值
-        valid_health_statuses = ["healthy", "unhealthy", "unknown", "initializing", "warning", "disconnected", "reconnecting"]
+        valid_health_statuses = [
+            "init", "startup", "ready", "healthy",
+            "degraded", "circuit_open", "half_open", "disconnected"
+        ]
         if data["health_status"] not in valid_health_statuses:
             raise ValueError(
-                f"无效的健康状态: {data['health_status']}. "
-                f"有效值: {valid_health_statuses}"
+                f"Invalid health status: {data['health_status']}. "
+                f"Valid values: {valid_health_statuses}"
             )
         
         tools_data = data.get("tools", [])
@@ -469,5 +486,12 @@ class ServiceStatus:
             connection_attempts=data["connection_attempts"],
             max_connection_attempts=data["max_connection_attempts"],
             current_error=data.get("current_error"),
-            tools=tools
+            tools=tools,
+            window_error_rate=data.get("window_error_rate"),
+            latency_p95=data.get("latency_p95"),
+            latency_p99=data.get("latency_p99"),
+            sample_size=data.get("sample_size"),
+            next_retry_time=data.get("next_retry_time"),
+            hard_deadline=data.get("hard_deadline"),
+            lease_deadline=data.get("lease_deadline"),
         )

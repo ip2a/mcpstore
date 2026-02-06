@@ -37,8 +37,8 @@ class MappingManager:
 
         # 全局名称反向映射
         self._global_name_mapping = {}  # global_name -> (agent_id, local_name)
-
-        self._logger = logging.getLogger(self.__class__.__name__)
+        # 统一使用模块级 logger，名称为模块路径
+        self._logger = logger
         self._logger.info(f"[MAPPING_MANAGER] [INIT] Initializing MappingManager, namespace: {namespace}")
 
     def initialize(self) -> None:

@@ -386,9 +386,9 @@ class ServiceRegistry:
         """
         if kv_store is None:
             raise RuntimeError(
-                f"{ERROR_PREFIX} kv_store 参数不能为 None。"
-                "ServiceRegistry 必须传入有效的 AsyncKeyValue 实例。"
-                "请使用 MemoryStore 或 RedisStore 初始化。"
+                f"{ERROR_PREFIX} kv_store parameter cannot be None. "
+                "ServiceRegistry must be initialized with a valid AsyncKeyValue instance. "
+                "Please use MemoryStore or RedisStore for initialization."
             )
         return kv_store
 
@@ -566,7 +566,10 @@ class ServiceRegistry:
         client_ids: Set[str] = set()
         seen: Set[str] = set()
         for svc in services:
-            service_name = svc.get("service_original_name") or svc.get("service_global_name")
+            # 这里统一使用 service_global_name 作为清理用的标识：
+            # - 对 global_agent_store：service_global_name 即“全局视角”ID，避免误用本地名导致关系不匹配
+            # - 对普通 agent：remove_service_async(agent_id, global_name) 也能通过关系表验证并安全删除
+            service_name = svc.get("service_global_name") or svc.get("service_original_name")
             cid = svc.get("client_id")
             if cid:
                 client_ids.add(cid)
@@ -757,7 +760,7 @@ class ServiceRegistry:
 
         if state is None:
             from mcpstore.core.models.service import ServiceConnectionState
-            state = ServiceConnectionState.INITIALIZING
+            state = ServiceConnectionState.STARTUP
 
         health_status = state.value if hasattr(state, "value") else str(state)
         await self._cache_state_manager.update_service_status(
@@ -777,7 +780,7 @@ class ServiceRegistry:
             }
             await self._cache_layer_manager.put_state("service_metadata", service_global_name, metadata_state)
         except Exception as meta_error:
-            logger.warning(f"[SERVICE_METADATA] init metadata failed for {service_global_name}: {meta_error}")
+            self._logger.warning(f"[SERVICE_METADATA] init metadata failed for {service_global_name}: {meta_error}")
 
         self._cache_state_snapshot(agent_id, name, state)
 
@@ -805,6 +808,7 @@ class ServiceRegistry:
         global_name = await self._resolve_global_name_async(agent_id, name)
         if not global_name:
             return None
+        self._logger.info(f"[REGISTRY_REMOVE] agent={agent_id} service={name} global={global_name} start")
 
         tool_relations = await self._relation_manager.get_service_tools(global_name)
 
@@ -823,6 +827,9 @@ class ServiceRegistry:
 
         self._cache_state_snapshot(agent_id, name, None)
         self._cache_metadata_snapshot(agent_id, name, None)
+
+        remaining = await self._cache_layer_manager.get_entity("services", global_name)
+        self._logger.info(f"[REGISTRY_REMOVE] agent={agent_id} global={global_name} removed entity_exists={remaining is not None}")
 
         return None
 
@@ -979,9 +986,9 @@ class ServiceRegistry:
         - 通过 CacheLayerManager 读取实体层配置，保持单一数据源
         """
         if not agent_id:
-            raise ValueError("agent_id 不能为空")
+            raise ValueError("agent_id cannot be empty")
         if not service_name:
-            raise ValueError("service_name 不能为空")
+            raise ValueError("service_name cannot be empty")
 
         info = await self.get_complete_service_info_async(agent_id, service_name)
         if not info:
@@ -992,7 +999,7 @@ class ServiceRegistry:
             return None
         if not isinstance(config, dict):
             raise RuntimeError(
-                f"服务配置格式无效，期望 dict，实际类型 {type(config).__name__} "
+                f"Service config format is invalid, expected dict, actual type {type(config).__name__} "
                 f"(agent_id={agent_id}, service_name={service_name})"
             )
 
@@ -1347,13 +1354,13 @@ class ServiceRegistry:
             candidate = self._naming.generate_service_global_name(service_name, agent_id)
             exists = await self._cache_service_manager.get_service(candidate)
             if exists:
-                logger.debug(
+                self._logger.debug(
                     "[NAMING] Fallback global name resolved without relation: agent=%s, local=%s -> %s",
                     agent_id, service_name, candidate
                 )
                 return candidate
         except Exception as resolve_error:
-            logger.debug(
+            self._logger.debug(
                 "[NAMING] Failed to resolve fallback global name: agent=%s, local=%s, error=%s",
                 agent_id, service_name, resolve_error
             )

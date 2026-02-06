@@ -1,12 +1,13 @@
 """
-MCPStore Tool Proxy Module
-工具代理对象，提供具体工具的操作方法
+MCP Tool Proxy Module
+工具代理对象，提供具体工具的操作方法（基于 MCP 协议规范，而非产品名绑定）
 """
 
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
 
+from .tool_proxy_annotations import CallToolResultProtocol
 from .types import ContextType
 
 if TYPE_CHECKING:
@@ -18,19 +19,19 @@ logger = logging.getLogger(__name__)
 class ToolCallResult:
     """
     工具调用结果封装
-    基于 FastMCP CallToolResult 提供友好接口
+    基于 MCP 协议的 CallToolResult 提供友好接口
     """
     
-    def __init__(self, fastmcp_result, tool_name: str, arguments: Dict[str, Any]):
+    def __init__(self, mcp_result: CallToolResultProtocol, tool_name: str, arguments: Dict[str, Any]):
         """
         初始化工具调用结果
         
         Args:
-            fastmcp_result: FastMCP 的 CallToolResult 对象
+            mcp_result: MCP CallToolResult 对象
             tool_name: 工具名称
             arguments: 调用参数
         """
-        self._result = fastmcp_result
+        self._result = mcp_result
         self._tool_name = tool_name
         self._arguments = arguments
         self._called_at = datetime.now()
@@ -40,7 +41,7 @@ class ToolCallResult:
     @property
     def data(self):
         """
-        FastMCP 的完全水合对象（核心特色）
+        MCP 返回的水合对象（协议规范）
         
         Returns:
             Any: 完全重构的 Python 对象，包括复杂类型如 datetime、UUID 等
@@ -193,10 +194,10 @@ class ToolProxy:
 
     def tool_info(self) -> Dict[str, Any]:
         """
-        获取工具详细信息（包括 FastMCP 的 meta 和 tags）
+        获取工具详细信息（包括 MCPStore 的 meta 和 tags）
         
         Returns:
-            Dict: 工具的完整信息，包括 FastMCP 特有的 meta 数据
+            Dict: 工具的完整信息，包括 MCPStore 特有的 meta 数据
         """
         if not self._tool_info:
             self._load_tool_info()
@@ -215,7 +216,7 @@ class ToolProxy:
 
     def tool_tags(self) -> List[str]:
         """
-        获取工具标签（基于 FastMCP meta._fastmcp.tags）
+        获取工具标签（基于 MCPStore meta._mcpstore.mcp.tags）
         
         Returns:
             List[str]: 工具标签列表
@@ -233,17 +234,17 @@ class ToolProxy:
         info = self.tool_info()
         return info.get('meta', {})
 
-    # === FastMCP 视图 ===
+    # === MCPStore 视图 ===
 
     def mcp_type2tool(self):
         """
-        将当前工具转换为 FastMCP 官方的 Tool 对象
+        将当前工具转换为 MCPStore 官方的 Tool 对象
         """
         from mcp import types as mcp_types
 
         tool = self._get_tool_info_object()
         if not tool:
-            # TODO: 工具命中机制待评估，避免模糊匹配导致返回错误的 FastMCP Tool。
+            # TODO: 工具命中机制待评估，避免模糊匹配导致返回错误的 MCPStore Tool。
             raise ValueError(f"Tool '{self._tool_name}' not found; cannot build mcp.types.Tool")
 
         meta = {
@@ -328,14 +329,14 @@ class ToolProxy:
     def call_tool(self, arguments: Dict[str, Any] = None, return_extracted: bool = False, **kwargs) -> Any:
         """
         调用工具（同步版本）
-        利用 FastMCP 的 call_tool() 和 CallToolResult
+        利用 MCPStore 的 call_tool() 和 CallToolResult
         
         Args:
             arguments: 工具参数字典
             **kwargs: 额外的调用选项 (timeout, progress_handler 等)
         
         Returns:
-            Any: FastMCP CallToolResult（或当 return_extracted=True 时返回已提取的数据）
+            Any: MCPStore CallToolResult（或当 return_extracted=True 时返回已提取的数据）
         """
         return self._context._run_async_via_bridge(
             self.call_tool_async(arguments, return_extracted=return_extracted, **kwargs),
@@ -351,7 +352,7 @@ class ToolProxy:
             **kwargs: 额外的调用选项 (timeout, progress_handler 等)
         
         Returns:
-            Any: FastMCP CallToolResult（或当 return_extracted=True 时返回已提取的数据）
+            Any: MCPStore CallToolResult（或当 return_extracted=True 时返回已提取的数据）
         """
         arguments = arguments or {}
         logger.info(f"[TOOL_PROXY] Calling tool '{self._tool_name}' with args: {arguments}")
@@ -365,7 +366,7 @@ class ToolProxy:
             arguments: 测试参数
             
         Returns:
-            Any: FastMCP CallToolResult（或当 return_extracted=True 时返回已提取的数据）
+            Any: MCPStore CallToolResult（或当 return_extracted=True 时返回已提取的数据）
         """
         # 首先验证工具是否存在
         info = self.tool_info()
@@ -404,7 +405,7 @@ class ToolProxy:
                     "recent_calls": len([r for r in tool_records[-10:]]),  # 最近10次
                     "success_rate": self._calculate_success_rate(tool_records),
                     "average_duration": self._calculate_average_duration(tool_records),
-                    **({"warning": warning_msg} if warning_msg else {})
+                    **({"degraded": warning_msg} if warning_msg else {})
                 }
             else:
                 return {
@@ -443,7 +444,7 @@ class ToolProxy:
                     if record.get('tool_name') == self._tool_name
                 ]
                 if records.get('warning'):
-                    tool_records.append({"warning": records.get('warning')})
+                    tool_records.append({"degraded": records.get('warning')})
                 
                 # 返回最近的记录
                 return tool_records[:limit]
@@ -458,7 +459,7 @@ class ToolProxy:
     def _load_tool_info(self):
         """延迟加载工具信息"""
         try:
-            # 获取所有工具信息
+            # 获取所有工具信息（已带视角转换）
             tools = self._context._run_async_via_bridge(
                 self._context.list_tools_async(),
                 op_name="tool_proxy.load_tool_info.list_tools"
@@ -471,12 +472,12 @@ class ToolProxy:
                         if tool.service_name != self._service_name:
                             continue
                     
-                    # 构建工具信息
+                    # 构建工具信息（展示名/服务名已是当前视角）
                     info: Dict[str, Any] = {
                         'name': tool.name,
                         'description': tool.description,
                         'inputSchema': tool.inputSchema,
-                        'service_name': tool.service_name,
+                        'service_name': tool.service_name,  # 视角已转换：store=全局名，agent=本地名
                         'client_id': tool.client_id,
                         'tags': [],
                         'meta': {},
@@ -518,21 +519,21 @@ class ToolProxy:
                     except Exception as e:
                         logger.debug(f"[TOOL_PROXY] transformation tags enrichment failed: {e}")
 
-                    # 3) 将 tags 写入 meta._fastmcp.tags，以兼容“FastMCP meta._fastmcp.tags”读取预期
+                    # 3) 将 tags 写入 meta._mcpstore.mcp.tags，以兼容“MCPStore meta._mcpstore.mcp.tags”读取预期
                     try:
                         tags = info.get('tags') or []
                         meta = info.get('meta') or {}
                         if not isinstance(meta, dict):
                             meta = {}
-                        fm = meta.get('_fastmcp') or {}
+                        fm = meta.get('_mcpstore') or {}
                         if not isinstance(fm, dict):
                             fm = {}
                         if isinstance(tags, list):
                             fm['tags'] = tags
-                        meta['_fastmcp'] = fm
+                        meta['_mcpstore'] = fm
                         info['meta'] = meta
                     except Exception as e:
-                        logger.debug(f"[TOOL_PROXY] meta/_fastmcp tags merge failed: {e}")
+                        logger.debug(f"[TOOL_PROXY] meta/_mcpstore tags merge failed: {e}")
 
                     self._tool_info = info
                     
@@ -546,7 +547,7 @@ class ToolProxy:
 
     def _get_tool_info_object(self) -> Optional['ToolInfo']:
         """
-        获取完整的 ToolInfo 对象，用于构造 FastMCP Tool
+        获取完整的 ToolInfo 对象，用于构造 MCPStore Tool
         """
         if self._tool_info_obj is not None:
             return self._tool_info_obj

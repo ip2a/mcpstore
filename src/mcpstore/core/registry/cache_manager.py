@@ -42,12 +42,12 @@ class ServiceCacheManager:
                 session=None,
                 tools=[],
                 service_config=service_config,
-                state=ServiceConnectionState.INITIALIZING
+                state=ServiceConnectionState.STARTUP
             )
             
             return {
                 "success": True,
-                "state": "initializing",
+                "state": "startup",
                 "tools_added": 0,
                 "message": "Service added to cache, connecting in background"
             }

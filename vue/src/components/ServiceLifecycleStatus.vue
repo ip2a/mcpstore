@@ -102,40 +102,29 @@
 
 <script>
 import { api } from '@/api'
+import { getStatusMeta, isServiceAvailable, SERVICE_STATUS } from '@/utils/serviceStatus'
 
-// 简化的状态处理函数
-const getServiceStateText = (state) => {
-  const stateMap = {
-    'active': '运行中',
-    'inactive': '未激活',
-    'error': '错误',
-    'loading': '加载中'
-  }
-  return stateMap[state] || '未知'
-}
+// 状态处理函数（对齐 8 态）
+const getServiceStateText = (state) => getStatusMeta(state).text
 
 const getServiceStateColor = (state) => {
-  const colorMap = {
-    'active': '#52c41a',
-    'inactive': '#d9d9d9',
-    'error': '#ff4d4f',
-    'loading': '#1890ff'
-  }
-  return colorMap[state] || '#d9d9d9'
+  const tone = getStatusMeta(state).tone
+  if (tone === 'success') return '#52c41a'
+  if (tone === 'ready') return '#0ea5e9'
+  if (tone === 'warning') return '#faad14'
+  if (tone === 'danger') return '#ff4d4f'
+  if (tone === 'muted') return '#8c8c8c'
+  return '#1890ff'
 }
 
 const getServiceStateIcon = (state) => {
-  const iconMap = {
-    'active': 'check-circle',
-    'inactive': 'pause-circle',
-    'error': 'close-circle',
-    'loading': 'loading'
-  }
-  return iconMap[state] || 'question-circle'
-}
-
-const isServiceAvailable = (state) => {
-  return state === 'active'
+  const tone = getStatusMeta(state).tone
+  if (tone === 'success') return 'check-circle'
+  if (tone === 'ready') return 'api'
+  if (tone === 'warning') return 'alert'
+  if (tone === 'danger') return 'close-circle'
+  if (tone === 'muted') return 'disconnect'
+  return 'loading'
 }
 
 const formatResponseTime = (time) => {
@@ -164,7 +153,7 @@ export default {
     status: {
       type: String,
       required: true,
-      validator: (value) => Object.values(SERVICE_LIFECYCLE_STATE).includes(value)
+      validator: (value) => Object.values(SERVICE_STATUS).includes(value)
     },
     agentId: {
       type: String,

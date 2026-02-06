@@ -1,5 +1,5 @@
 <template>
-  <div class="service-list-container">
+  <div class="page-shell service-list-container">
     <!-- Header -->
     <header class="page-header">
       <div class="header-content">
@@ -145,14 +145,20 @@
             <option value="">
               All Status
             </option>
+            <option value="ready">
+              Ready
+            </option>
             <option value="healthy">
               Healthy
             </option>
-            <option value="initializing">
-              Initializing
+            <option value="degraded">
+              Degraded
             </option>
-            <option value="warning">
-              Warning
+            <option value="half_open">
+              Half Open
+            </option>
+            <option value="circuit_open">
+              Circuit Open
             </option>
             <option value="disconnected">
               Disconnected
@@ -254,8 +260,40 @@
                 class="status-text"
                 :class="getStatusClass(row.status)"
               >
-                {{ row.status }}
+                {{ getStatusLabel(row.status) }}
               </span>
+            </template>
+          </el-table-column>
+
+          <el-table-column
+            label="HEALTH"
+            min-width="230"
+          >
+            <template #default="{ row }">
+              <div class="metric-line">
+                <span class="metric-label">错误率</span>
+                <span
+                  :class="['metric-value', metricTone(row.window_error_rate)]"
+                >{{ formatErrorRate(row.window_error_rate) }}</span>
+              </div>
+              <div class="metric-line">
+                <span class="metric-label">P95 / P99</span>
+                <span class="metric-value">
+                  {{ formatLatency(row.latency_p95) }} / {{ formatLatency(row.latency_p99) }}
+                </span>
+              </div>
+              <div class="metric-line">
+                <span class="metric-label">样本</span>
+                <span class="metric-value">
+                  {{ formatSampleSize(row.sample_size) }}
+                </span>
+              </div>
+              <div class="metric-line timing">
+                <span class="metric-label">重试</span>
+                <span class="metric-value">
+                  {{ formatRemainingLabel(row.retry_in, row.next_retry_time) }}
+                </span>
+              </div>
             </template>
           </el-table-column>
 
@@ -436,7 +474,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useSystemStore } from '@/stores/system'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -446,6 +484,8 @@ import StatCard from '@/components/common/StatCard.vue'
 import { 
   Plus, Refresh, Search, Tools, Connection, Warning, Check 
 } from '@element-plus/icons-vue'
+import { getStatusMeta } from '@/utils/serviceStatus'
+import { formatErrorRate, formatLatency, formatSampleSize, errorRateLevel, formatRemaining } from '@/utils/healthMetrics'
 
 const router = useRouter()
 const route = useRoute()
@@ -459,6 +499,7 @@ const statusFilter = ref('')
 const typeFilter = ref('')
 const servicesData = ref(null)
 const selectedServices = ref([])
+const now = ref(Date.now())
 
 // Edit State
 const editDialogVisible = ref(false)
@@ -471,6 +512,7 @@ const editFormArgsString = ref('')
 const editFormEnvString = ref('')
 const batchUpdateDialogVisible = ref(false)
 const batchOperationsRef = ref(null)
+let heartbeatTimer = null
 
 // Computed
 const isRemoteService = computed(() => editForm.value.url && !editForm.value.command)
@@ -498,15 +540,43 @@ const healthyServicesCount = computed(() => {
   return systemStore.services.filter(s => s.status === 'healthy').length
 })
 
-// Methods
-const getStatusClass = (status) => {
-  switch (status) {
-    case 'healthy': return 'is-healthy'
-    case 'initializing': return 'is-init'
-    case 'warning': return 'is-warn'
-    case 'disconnected': return 'is-dead'
-    default: return 'is-dead'
-  }
+// 状态与指标辅助
+const getStatusClass = (status) => getStatusMeta(status).className || 'is-unknown'
+const getStatusLabel = (status) => getStatusMeta(status).text
+const metricTone = (rate) => {
+  const level = errorRateLevel(rate)
+  if (level === 'danger') return 'is-danger'
+  if (level === 'warn') return 'is-warn'
+  return ''
+}
+const formatRemainingLabel = (value, deadline) => formatRemaining(value, deadline, now.value)
+const mergeHealthMetrics = (services, healthList) => {
+  const map = {}
+  const list = Array.isArray(healthList?.services) ? healthList.services : Array.isArray(healthList) ? healthList : []
+  list.forEach(info => {
+    const key = info?.name || info?.service_name
+    if (key) map[key] = info
+  })
+
+  return (services || []).map(service => {
+    const key = service.name || service.service_name
+    const health = map[key]
+    if (!health) return service
+    return {
+      ...service,
+      status: health.status || service.status,
+      window_error_rate: health.window_error_rate ?? service.window_error_rate,
+      latency_p95: health.latency_p95 ?? service.latency_p95,
+      latency_p99: health.latency_p99 ?? service.latency_p99,
+      sample_size: health.sample_size ?? service.sample_size,
+      retry_in: health.retry_in ?? service.retry_in,
+      hard_timeout_in: health.hard_timeout_in ?? service.hard_timeout_in,
+      lease_remaining: health.lease_remaining ?? service.lease_remaining,
+      next_retry_time: health.next_retry_time ?? service.next_retry_time,
+      hard_deadline: health.hard_deadline ?? service.hard_deadline,
+      lease_deadline: health.lease_deadline ?? service.lease_deadline
+    }
+  })
 }
 
 const refreshServices = async () => {
@@ -514,8 +584,17 @@ const refreshServices = async () => {
   try {
     const { api } = await import('@/api')
     const servicesArr = await api.store.listServices()
-    servicesData.value = { services: servicesArr, total_services: servicesArr.length }
-    await systemStore.fetchServices(true)
+    let healthData = []
+    try {
+      healthData = await api.store.checkServices()
+    } catch (err) {
+      // 健康检查失败不阻塞列表刷新，保持静默退化
+      console.warn('健康状态获取失败:', err?.message || err)
+    }
+    const mergedServices = mergeHealthMetrics(servicesArr, healthData)
+    servicesData.value = { services: mergedServices, total_services: mergedServices.length }
+    systemStore.services = mergedServices
+    systemStore.updateStats()
     ElMessage.success('Refreshed')
   } catch (error) {
     ElMessage.error('Failed to refresh')
@@ -675,19 +754,26 @@ const handleBatchSelectionChange = (s) => selectedServices.value = s
 const handleBatchEdit = () => {} // Handled via ref
 
 onMounted(async () => {
+  heartbeatTimer = setInterval(() => {
+    now.value = Date.now()
+  }, 1000)
   await refreshServices()
   // Ensure tools are loaded for count stats
   if (systemStore.tools.length === 0) {
     systemStore.fetchTools()
   }
 })
+
+onUnmounted(() => {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer)
+    heartbeatTimer = null
+  }
+})
 </script>
 
 <style lang="scss" scoped>
 .service-list-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px;
   width: 100%;
 }
 
@@ -881,10 +967,15 @@ onMounted(async () => {
   border-radius: 50%;
   flex-shrink: 0;
   
+  &.is-ready { background-color: #0ea5e9; box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.15); }
   &.is-healthy { background-color: var(--color-success); box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1); }
-  &.is-init { background-color: var(--color-accent); }
-  &.is-warn { background-color: var(--color-warning); }
-  &.is-dead { background-color: var(--color-danger); }
+  &.is-init,
+  &.is-startup { background-color: var(--color-accent); }
+  &.is-degraded { background-color: var(--color-warning); }
+  &.is-half-open { background-color: #f97316; box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.12); }
+  &.is-circuit-open { background-color: var(--color-danger); box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15); }
+  &.is-disconnected { background-color: #6b7280; }
+  &.is-unknown { background-color: var(--text-placeholder); }
 }
 
 .name-col {
@@ -930,12 +1021,39 @@ onMounted(async () => {
 
 .status-text {
   font-size: 12px;
-  text-transform: capitalize;
+  text-transform: none;
   
+  &.is-ready { color: #0284c7; }
   &.is-healthy { color: var(--color-success); }
+  &.is-degraded { color: var(--color-warning); }
+  &.is-half-open { color: #c2410c; }
+  &.is-circuit-open { color: var(--color-danger); }
+  &.is-init,
+  &.is-startup { color: var(--color-accent); }
+  &.is-disconnected,
+  &.is-unknown { color: var(--text-secondary); }
+}
+
+.metric-line {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+
+  & + .metric-line { margin-top: 4px; }
+}
+
+.metric-label {
+  color: var(--text-secondary);
+}
+
+.metric-value {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+
   &.is-warn { color: var(--color-warning); }
-  &.is-dead { color: var(--color-danger); }
-  &.is-init { color: var(--color-accent); }
+  &.is-danger { color: var(--color-danger); }
 }
 
 // Actions

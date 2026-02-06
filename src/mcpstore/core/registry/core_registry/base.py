@@ -18,7 +18,10 @@ class BaseManager(ABC):
         self._cache_layer = cache_layer
         self._naming = naming_service
         self._namespace = namespace
-        self._logger = logging.getLogger(self.__class__.__name__)
+        # 统一使用模块路径作为 logger 名称，保证日志前缀与其他模块一致
+        # 例如：mcpstore.core.registry.core_registry.session_manager - INFO - ...
+        # 而不是：SessionManager - INFO - ...
+        self._logger = logging.getLogger(self.__module__)
 
     @abstractmethod
     def initialize(self) -> None:

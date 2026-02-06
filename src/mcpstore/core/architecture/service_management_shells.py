@@ -6,7 +6,7 @@ Service Management Shells - 双路外壳实现
 
 import asyncio
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from .service_management_core import ServiceManagementCore
 from ..bridge import get_async_bridge
@@ -36,6 +36,14 @@ class ServiceManagementAsyncShell:
         self.core = core
         self.registry = registry
         self.orchestrator = orchestrator
+        try:
+            # 优先复用当前事件循环
+            self._loop = asyncio.get_event_loop()
+        except RuntimeError:
+            # 主线程未创建事件循环时主动创建并设置，避免 RuntimeError
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+            logger.debug("[ASYNC_SHELL] [INIT] Created new event loop for main thread")
         logger.debug("[ASYNC_SHELL] [INIT] Initializing ServiceManagementAsyncShell")
 
     async def add_service_async(self, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -115,7 +123,7 @@ class ServiceManagementAsyncShell:
                             )
                         await state_manager.update_service_status(
                             service_global_name=operation.data["key"],
-                            health_status=operation.data.get("health_status", "initializing"),
+                            health_status=operation.data.get("health_status", "startup"),
                             tools_status=operation.data.get("tools_status", [])
                         )
                         logger.debug(f"[ASYNC_SHELL] [SUCCESS] update_state successful, key={operation.data['key']}")
@@ -249,7 +257,7 @@ class ServiceManagementAsyncShell:
                 "successful_operations": 0
             }
 
-    async def wait_service_async(self, service_name: str, timeout: float | None = None) -> bool:
+    async def wait_service_async(self, service_name: str, timeout: float | None = None):
         """
         异步外壳：等待服务就绪
 
@@ -304,48 +312,125 @@ class ServiceManagementAsyncShell:
                 )
 
             # 3. 纯异步等待检查
-            start_time = asyncio.get_event_loop().time()
+            start_time = self._loop.time()
 
             while True:
                 try:
-                    # 使用 cache/state_manager.py: get_service_status(service_global_name)
-                    # 注意：方法签名是 (service_global_name)，不是 (agent_id, service_name)
                     state_data = await state_manager.get_service_status(wait_plan.global_name)
 
-                    # 处理 ServiceStatus 对象
+                    health_status = "unknown"
+                    window_metrics = None
+                    retry_in = None
+                    hard_timeout_in = None
+                    lease_remaining = None
+                    next_retry_time = None
+                    hard_deadline = None
+                    lease_deadline = None
+                    response_time = None
+                    consecutive_failures = None
+                    last_state_change = None
                     if state_data:
                         if hasattr(state_data, 'health_status'):
-                            # ServiceStatus 对象
                             health_status = state_data.health_status
+                            window_metrics = {
+                                "error_rate": getattr(state_data, "window_error_rate", None),
+                                "latency_p95": getattr(state_data, "latency_p95", None),
+                                "latency_p99": getattr(state_data, "latency_p99", None),
+                                "sample_size": getattr(state_data, "sample_size", None),
+                            }
+                            next_retry_time = getattr(state_data, "next_retry_time", None)
+                            hard_deadline = getattr(state_data, "hard_deadline", None)
+                            lease_deadline = getattr(state_data, "lease_deadline", None)
+                            retry_in = self._remaining_seconds_timestamp(next_retry_time)
+                            hard_timeout_in = self._remaining_seconds_timestamp(hard_deadline)
+                            lease_remaining = self._remaining_seconds_timestamp(lease_deadline)
+                            response_time = getattr(state_data, "response_time", None)
+                            consecutive_failures = getattr(state_data, "consecutive_failures", None)
+                            try:
+                                last_state_change = state_data.last_health_check.isoformat() if getattr(state_data, "last_health_check", None) else None
+                            except Exception:
+                                last_state_change = None
                         elif hasattr(state_data, 'get'):
-                            # 字典对象
-                            health_status = state_data.get("health_status")
+                            health_status = state_data.get("health_status", "unknown")
+                            window_metrics = {
+                                "error_rate": state_data.get("window_error_rate"),
+                                "latency_p95": state_data.get("latency_p95"),
+                                "latency_p99": state_data.get("latency_p99"),
+                                "sample_size": state_data.get("sample_size"),
+                            }
+                            next_retry_time = state_data.get("next_retry_time")
+                            hard_deadline = state_data.get("hard_deadline")
+                            lease_deadline = state_data.get("lease_deadline")
+                            retry_in = self._remaining_seconds_timestamp(next_retry_time)
+                            hard_timeout_in = self._remaining_seconds_timestamp(hard_deadline)
+                            lease_remaining = self._remaining_seconds_timestamp(lease_deadline)
+                            response_time = state_data.get("response_time")
+                            consecutive_failures = state_data.get("consecutive_failures")
+                            last_state_change = state_data.get("last_health_check")
                         elif hasattr(state_data, 'value'):
-                            # ServiceConnectionState 枚举
                             health_status = state_data.value
+                            lease_remaining = None
                         else:
-                            # 其他类型，转换为字符串
                             health_status = str(state_data)
+                            lease_remaining = None
 
                         if health_status == wait_plan.target_status:
+                            elapsed = self._loop.time() - start_time
                             logger.debug(f"[ASYNC_SHELL] [READY] Service {service_name} is ready")
-                            return True
+                            return {
+                                "success": True,
+                                "status": health_status,
+                                "window_metrics": window_metrics,
+                                "retry_in": retry_in,
+                                "hard_timeout_in": hard_timeout_in,
+                                "lease_remaining": lease_remaining,
+                                "next_retry_time": next_retry_time,
+                                "hard_deadline": hard_deadline,
+                                "lease_deadline": lease_deadline,
+                                "response_time": response_time,
+                                "consecutive_failures": consecutive_failures,
+                                "last_state_change": last_state_change,
+                            }
 
                 except Exception as e:
                     logger.debug(f"[ASYNC_SHELL] [ERROR] Status check failed: {e}")
 
-                # 检查超时
-                elapsed = asyncio.get_event_loop().time() - start_time
+                elapsed = self._loop.time() - start_time
                 if elapsed > wait_plan.timeout:
                     logger.warning(f"[ASYNC_SHELL] [TIMEOUT] Waiting for service {service_name} timed out ({elapsed:.1f}s)")
-                    return False
+                    return {
+                        "success": False,
+                        "status": health_status,
+                        "window_metrics": window_metrics,
+                        "retry_in": retry_in,
+                        "hard_timeout_in": hard_timeout_in,
+                        "hard_timeout_remaining": max(wait_plan.timeout - elapsed, 0.0),
+                        "lease_remaining": lease_remaining,
+                        "next_retry_time": next_retry_time,
+                        "hard_deadline": hard_deadline,
+                        "lease_deadline": lease_deadline,
+                        "response_time": response_time,
+                        "consecutive_failures": consecutive_failures,
+                        "last_state_change": last_state_change,
+                    }
 
-                # 异步等待
                 await asyncio.sleep(wait_plan.check_interval)
 
         except Exception as e:
             logger.error(f"[ASYNC_SHELL] [ERROR] wait_service_async failed: {e}")
-            return False
+            return {"success": False, "error": str(e)}
+
+    @staticmethod
+    def _remaining_seconds_timestamp(ts: Optional[float]) -> Optional[float]:
+        """从时间戳计算剩余秒数"""
+        try:
+            if ts is None:
+                return None
+            loop = asyncio.get_event_loop()
+            now = loop.time()
+            return max(ts - now, 0.0)
+        except Exception:
+            return None
 
     async def _start_services_async(self, service_names: list) -> None:
         """
@@ -457,6 +542,7 @@ class ServiceManagementSyncShell:
         """
         self.async_shell = async_shell
         self._bridge = get_async_bridge()
+        self._loop = asyncio.get_event_loop()
         logger.debug("[SYNC_SHELL] [INIT] Initializing ServiceManagementSyncShell")
 
     def add_service(self, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -487,7 +573,7 @@ class ServiceManagementSyncShell:
                 "successful_operations": 0,
             }
 
-    def wait_service(self, service_name: str, timeout: float | None = None) -> bool:
+    def wait_service(self, service_name: str, timeout: float | None = None):
         """
         同步外壳：等待服务就绪
 
@@ -506,7 +592,7 @@ class ServiceManagementSyncShell:
 
         except Exception as e:
             logger.error(f"[SYNC_SHELL] [ERROR] Synchronous service wait failed: {e}")
-            return False
+            return {"success": False, "error": str(e)}
 
 
 class ServiceManagementFactory:

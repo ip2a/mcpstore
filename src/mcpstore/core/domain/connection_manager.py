@@ -88,8 +88,8 @@ class ConnectionManager:
             service_config=service_config,
             timeout=timeout
         )
-        # Use synchronous dispatch to avoid event-loop race during restart/initialization
-        await self._event_bus.publish(connection_request, wait=True)
+        # 异步派发，避免 add_service 阻塞；调用方如需等待可使用 wait_service 等工具
+        await self._event_bus.publish(connection_request, wait=False)
 
     async def _on_connection_requested(self, event: ServiceConnectionRequested):
         """
@@ -127,7 +127,8 @@ class ConnectionManager:
                 tools=tools,
                 connection_time=connection_time
             )
-            await self._event_bus.publish(connected_event)
+            # 按调用方指定异步派发；如需一致性由上层等待 Ready/工具事件
+            await self._event_bus.publish(connected_event, wait=False)
 
         except asyncio.TimeoutError:
             elapsed = asyncio.get_event_loop().time() - start_time
@@ -140,7 +141,7 @@ class ConnectionManager:
             )
 
         except Exception as e:
-            # Demote expected network/connectivity errors to WARNING and show friendly message
+            # Demote expected network/connectivity errors to DEGRADED and show friendly message
             network_error = False
             try:
                 import httpx  # type: ignore
@@ -173,20 +174,35 @@ class ConnectionManager:
         timeout: float
     ) -> Tuple[Any, List[Tuple[str, Dict[str, Any]]]]:
         """Connect to local service"""
-        from fastmcp import Client
+        from mcpstore.mcp import Client
 
         # 1. Process configuration
-        processed_config = self._config_processor.process_user_config_for_fastmcp({
+        processed_config = self._config_processor.process_user_config_for_mcpstore({
             "mcpServers": {service_name: service_config}
         })
 
-        # 2. Create client and connect（FastMCP Client 会在 async with 中自动启动本地进程）
+        # 2. Create client and connect（MCP client 会在 async with 中自动启动本地进程）
         client = Client(processed_config)
 
         async with asyncio.timeout(timeout):
             async with client:
                 tools_list = await client.list_tools()
+                try:
+                    logger.info(
+                        "[CONNECTION] Local list_tools returned %d tools for %s: %s",
+                        len(tools_list),
+                        service_name,
+                        [getattr(t, 'name', None) for t in tools_list],
+                    )
+                except Exception:
+                    logger.info("[CONNECTION] Local list_tools logging failed for %s", service_name, exc_info=True)
                 processed_tools = self._process_tools(service_name, tools_list)
+                logger.info(
+                    "[CONNECTION] Local processed tools for %s: %d items -> names=%s",
+                    service_name,
+                    len(processed_tools),
+                    [name for name, _ in processed_tools],
+                )
                 return client, processed_tools
 
     async def _connect_remote_service(
@@ -196,10 +212,10 @@ class ConnectionManager:
         timeout: float
     ) -> Tuple[Any, List[Tuple[str, Dict[str, Any]]]]:
         """Connect to remote service"""
-        from fastmcp import Client
+        from mcpstore.mcp import Client
 
         # 1. Process configuration
-        processed_config = self._config_processor.process_user_config_for_fastmcp({
+        processed_config = self._config_processor.process_user_config_for_mcpstore({
             "mcpServers": {service_name: service_config}
         })
 
@@ -209,7 +225,22 @@ class ConnectionManager:
         async with asyncio.timeout(timeout):
             async with client:
                 tools_list = await client.list_tools()
+                try:
+                    logger.info(
+                        "[CONNECTION] Remote list_tools returned %d tools for %s: %s",
+                        len(tools_list),
+                        service_name,
+                        [getattr(t, 'name', None) for t in tools_list],
+                    )
+                except Exception:
+                    logger.info("[CONNECTION] Remote list_tools logging failed for %s", service_name, exc_info=True)
                 processed_tools = self._process_tools(service_name, tools_list)
+                logger.info(
+                    "[CONNECTION] Remote processed tools for %s: %d items -> names=%s",
+                    service_name,
+                    len(processed_tools),
+                    [name for name, _ in processed_tools],
+                )
                 return client, processed_tools
 
     def _process_tools(

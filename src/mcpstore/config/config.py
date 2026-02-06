@@ -11,6 +11,10 @@ from .toml_config import get_standalone_config_with_defaults
 # Remove sys.path.append() operations to improve import performance
 # If you need to import other modules, please use relative imports or correct package structure
 
+# Define custom DEGRADED log level (between INFO and WARNING)
+DEGRADED = 25  # INFO=20, WARNING=30
+logging.addLevelName(DEGRADED, "DEGRADED")
+
 logger = logging.getLogger(__name__)
 
 _standalone_defaults = StandaloneConfigDefaults()
@@ -20,19 +24,30 @@ class LoggingConfig:
 
     _debug_enabled = False
     _configured = False
-    _current_level: int = logging.WARNING
+    _current_level: int = DEGRADED
+    _use_rich: bool = False
+    _rich_traceback: bool = False
 
     @classmethod
-    def setup_logging(cls, debug: Union[bool, str, int] = False, force_reconfigure: bool = False):
+    def setup_logging(
+        cls,
+        debug: Union[bool, str, int] = False,
+        *,
+        use_rich: bool = False,
+        rich_traceback: bool = False,
+        force_reconfigure: bool = False,
+    ):
         """
         Setup logging configuration.
 
         Args:
             debug: Backward-compatible log control. Supports:
                    - True  -> DEBUG
-                   - False -> WARNING (was ERROR before; now more practical)
-                   - "DEBUG"/"INFO"/"WARNING"/"ERROR"/"CRITICAL" -> exact level
+                   - False -> DEGRADED (was ERROR before; now more practical)
+                   - "DEBUG"/"INFO"/"DEGRADED"/"ERROR"/"CRITICAL" -> exact level
                    - int   -> logging level constant
+            use_rich: Whether to enable rich formatted logging globally
+            rich_traceback: Whether to show rich tracebacks when using rich logging
             force_reconfigure: Whether to force reconfiguration
         """
         def _to_level(v: Union[bool, str, int]) -> int:
@@ -46,36 +61,52 @@ class LoggingConfig:
                 return {
                     "DEBUG": logging.DEBUG,
                     "INFO": logging.INFO,
-                    "WARNING": logging.WARNING,
+                    "DEGRADED": DEGRADED,
                     "ERROR": logging.ERROR,
                     "CRITICAL": logging.CRITICAL,
-                }.get(m, logging.WARNING)
-            return logging.WARNING
+                }.get(m, DEGRADED)
+            return DEGRADED
 
         level = _to_level(debug)
 
         if cls._configured and not force_reconfigure:
-            # Only update levels if changed
+            # 若仅调整等级则快速返回；格式变更需重新配置
+            if level == cls._current_level and use_rich == cls._use_rich and rich_traceback == cls._rich_traceback:
+                return
             if level != cls._current_level:
                 cls._set_log_level(level)
-            return
+            if use_rich != cls._use_rich or rich_traceback != cls._rich_traceback:
+                force_reconfigure = True
+            if not force_reconfigure:
+                return
 
-        # Configure log format
-        if level <= logging.DEBUG:
-            log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        # Configure log format/handler
+        if use_rich:
+            from rich.console import Console
+            from rich.logging import RichHandler
+
+            console = Console(stderr=True, width=180, soft_wrap=True, overflow="ignore")
+            handler = RichHandler(
+                console=console,
+                show_path=False,
+                rich_tracebacks=rich_traceback,
+            )
+            formatter = logging.Formatter("%(message)s")
         else:
-            log_format = '%(levelname)s - %(message)s'
+            if level <= logging.DEBUG:
+                log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            else:
+                log_format = '%(levelname)s - %(message)s'
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter(log_format)
 
         # Get root logger
         root_logger = logging.getLogger()
 
         # Clear existing handlers
-        for handler in root_logger.handlers[:]:
-            root_logger.removeHandler(handler)
+        for h in root_logger.handlers[:]:
+            root_logger.removeHandler(h)
 
-        # Create new handler
-        handler = logging.StreamHandler()
-        formatter = logging.Formatter(log_format)
         handler.setFormatter(formatter)
 
         # Set log level
@@ -86,10 +117,12 @@ class LoggingConfig:
         root_logger.addHandler(handler)
 
         # Set specific module log levels
-        cls._configure_module_loggers(level)
+        cls._configure_module_loggers(level, propagate=True)
 
         cls._debug_enabled = (level <= logging.DEBUG)
         cls._current_level = level
+        cls._use_rich = use_rich
+        cls._rich_traceback = rich_traceback
         cls._configured = True
 
     @classmethod
@@ -106,10 +139,10 @@ class LoggingConfig:
             level = {
                 "DEBUG": logging.DEBUG,
                 "INFO": logging.INFO,
-                "WARNING": logging.WARNING,
+                "DEGRADED": DEGRADED,
                 "ERROR": logging.ERROR,
                 "CRITICAL": logging.CRITICAL,
-            }.get(m, logging.WARNING)
+            }.get(m, DEGRADED)
 
         # Update root logger level
         root_logger = logging.getLogger()
@@ -120,14 +153,14 @@ class LoggingConfig:
             handler.setLevel(level)
 
         # Update specific module log levels
-        cls._configure_module_loggers(level)
+        cls._configure_module_loggers(level, propagate=True)
 
         cls._debug_enabled = (level <= logging.DEBUG)
         cls._current_level = level
 
     @classmethod
-    def _configure_module_loggers(cls, level: int):
-        """Configure specific module loggers with a unified level."""
+    def _configure_module_loggers(cls, level: int, propagate: bool = False):
+        """Configure specific module loggers with a unified level and propagation."""
         mcpstore_loggers = [
             'mcpstore',
             'mcpstore.core',
@@ -139,11 +172,16 @@ class LoggingConfig:
             'mcpstore.core.agents.session_manager',
             'mcpstore.core.tool_resolver',
             'mcpstore.plugins.json_mcp',
-            'mcpstore.adapters.langchain_adapter'
+            'mcpstore.adapters.langchain_adapter',
+            'mcpstore_mcp',
         ]
         for logger_name in mcpstore_loggers:
             module_logger = logging.getLogger(logger_name)
             module_logger.setLevel(level)
+            module_logger.propagate = propagate
+            # 清空子 logger 自带的 handler，避免重复输出
+            for h in module_logger.handlers[:]:
+                module_logger.removeHandler(h)
 
     @classmethod
     def is_debug_enabled(cls) -> bool:
@@ -158,7 +196,7 @@ class LoggingConfig:
         import logging as _logging
         for _name in ("asyncio", "watchfiles", "uvicorn"):
             try:
-                _logging.getLogger(_name).setLevel(_logging.WARNING)
+                _logging.getLogger(_name).setLevel(DEGRADED)
             except Exception:
                 pass
 
@@ -169,7 +207,7 @@ class LoggingConfig:
         import logging as _logging
         for _name in ("asyncio", "watchfiles", "uvicorn"):
             try:
-                _logging.getLogger(_name).setLevel(_logging.WARNING)
+                _logging.getLogger(_name).setLevel(DEGRADED)
             except Exception:
                 pass
 

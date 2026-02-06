@@ -1,6 +1,6 @@
 """
 API 服务器模块
-负责处理 MCPStore 的 API 服务器启动功能
+负责处理 MCP client 的 API 服务器启动功能
 """
 
 import logging
@@ -24,14 +24,14 @@ class APIServerMixin:
         """
         启动 API 服务器（改进版）
 
-        这个方法会启动一个 HTTP API 服务器，提供 RESTful 接口来访问当前 MCPStore 实例的功能。
+        这个方法会启动一个 HTTP API 服务器，提供 RESTful 接口来访问当前 MCP client 实例的功能。
         服务器会自动使用当前 store 的配置和数据空间。
 
         Args:
             host: 服务器监听地址，默认 "0.0.0.0"（所有网络接口）
             port: 服务器监听端口，默认 18200
             reload: 是否启用自动重载（开发模式），默认 False
-            log_level: 日志级别，可选值: "critical", "error", "warning", "info", "debug", "trace"
+            log_level: 日志级别，可选值: "critical", "error", "degraded", "info", "debug", "trace"
             auto_open_browser: 是否自动打开浏览器，默认 False
             show_startup_info: 是否显示启动信息，默认 True
             url_prefix: URL 前缀，如 "/api/v1"。默认为空（无前缀）
@@ -44,7 +44,7 @@ class APIServerMixin:
 
         Example:
             # 基本使用（无前缀）
-            store = MCPStore.setup_store()
+            store = MCP client.setup_store()
             store.start_api_server()
             # 访问: http://localhost:18200/for_store/list_services
 
@@ -71,7 +71,7 @@ class APIServerMixin:
             logger.info(f"Starting API server for store: data_space={self.is_using_data_space()}")
 
             if show_startup_info:
-                print("[START] Starting MCPStore API Server...")
+                print("[START] Starting MCP client API Server...")
                 print(f"   Host: {host}:{port}")
 
                 if url_prefix:
@@ -110,13 +110,13 @@ class APIServerMixin:
                         webbrowser.open(doc_url)
                     except Exception as e:
                         if show_startup_info:
-                            print(f"[WARNING] Failed to open browser: {e}")
+                            print(f"[DEGRADED] Failed to open browser: {e}")
 
                 threading.Thread(target=open_browser, daemon=True).start()
 
             # Create app instance and pass current store and URL prefix
             # Note: 延迟导入避免 core 层在模块加载时就依赖 scripts 层
-            from mcpstore.scripts.api_app import create_app
+            from mcpstore.api.api_app import create_app
             app = create_app(store=self, url_prefix=url_prefix)
 
             # 启动 API 服务器

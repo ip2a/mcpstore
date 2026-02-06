@@ -32,7 +32,6 @@ class MonitoringConfigProcessor:
             # 将 dataclass 转换为字典格式以保持向后兼容
             if hasattr(config, '__dict__'):
                 return {
-                    "health_check_seconds": getattr(config, 'health_check_seconds', _monitoring_defaults.health_check_seconds),
                     "tools_update_hours": getattr(config, 'tools_update_hours', _monitoring_defaults.tools_update_hours),
                     "reconnection_seconds": getattr(config, 'reconnection_seconds', _monitoring_defaults.reconnection_seconds),
                     "cleanup_hours": getattr(config, 'cleanup_hours', _monitoring_defaults.cleanup_hours),
@@ -42,10 +41,6 @@ class MonitoringConfigProcessor:
                     "detect_tools_changes": getattr(config, 'detect_tools_changes', _monitoring_defaults.detect_tools_changes),
                     "local_service_ping_timeout": getattr(config, 'local_service_ping_timeout', _monitoring_defaults.local_service_ping_timeout),
                     "remote_service_ping_timeout": getattr(config, 'remote_service_ping_timeout', _monitoring_defaults.remote_service_ping_timeout),
-                    "startup_wait_time": getattr(config, 'startup_wait_time', _monitoring_defaults.startup_wait_time),
-                    "healthy_response_threshold": getattr(config, 'healthy_response_threshold', _monitoring_defaults.healthy_response_threshold),
-                    "warning_response_threshold": getattr(config, 'warning_response_threshold', _monitoring_defaults.warning_response_threshold),
-                    "slow_response_threshold": getattr(config, 'slow_response_threshold', _monitoring_defaults.slow_response_threshold),
                     "enable_adaptive_timeout": getattr(config, 'enable_adaptive_timeout', _monitoring_defaults.enable_adaptive_timeout),
                     "adaptive_timeout_multiplier": getattr(config, 'adaptive_timeout_multiplier', _monitoring_defaults.adaptive_timeout_multiplier),
                     "response_time_history_size": getattr(config, 'response_time_history_size', _monitoring_defaults.response_time_history_size),
@@ -63,7 +58,6 @@ class MonitoringConfigProcessor:
     def _get_default_config(cls) -> Dict[str, Any]:
         """获取默认监控配置（回退配置）"""
         return {
-            "health_check_seconds": _monitoring_defaults.health_check_seconds,        # 30秒健康检查
             "tools_update_hours": _monitoring_defaults.tools_update_hours,           # 2小时工具更新检查
             "reconnection_seconds": _monitoring_defaults.reconnection_seconds,        # 1分钟重连间隔
             "cleanup_hours": _monitoring_defaults.cleanup_hours,               # 24小时清理一次
@@ -75,10 +69,6 @@ class MonitoringConfigProcessor:
             # 健康检查相关
             "local_service_ping_timeout": _monitoring_defaults.local_service_ping_timeout,   # 本地服务ping超时
             "remote_service_ping_timeout": _monitoring_defaults.remote_service_ping_timeout,  # 远程服务ping超时
-            "startup_wait_time": _monitoring_defaults.startup_wait_time,            # 启动等待时间
-            "healthy_response_threshold": _monitoring_defaults.healthy_response_threshold, # 健康响应阈值
-            "warning_response_threshold": _monitoring_defaults.warning_response_threshold, # 警告响应阈值
-            "slow_response_threshold": _monitoring_defaults.slow_response_threshold,   # 慢响应阈值
             "enable_adaptive_timeout": _monitoring_defaults.enable_adaptive_timeout,   # 启用智能超时
             "adaptive_timeout_multiplier": _monitoring_defaults.adaptive_timeout_multiplier, # 智能超时倍数
             "response_time_history_size": _monitoring_defaults.response_time_history_size   # 响应时间历史大小
@@ -86,16 +76,11 @@ class MonitoringConfigProcessor:
     
     # 配置验证规则
     VALIDATION_RULES = {
-        "health_check_seconds": {"min": 10, "max": 300},
         "tools_update_hours": {"min": 0.1, "max": 168},  # 6分钟到7天
         "reconnection_seconds": {"min": 10, "max": 600},
         "cleanup_hours": {"min": 1, "max": 168},
         "local_service_ping_timeout": {"min": 1, "max": 30},
         "remote_service_ping_timeout": {"min": 1, "max": 60},
-        "startup_wait_time": {"min": 0, "max": 30},
-        "healthy_response_threshold": {"min": 0.1, "max": 10.0},
-        "warning_response_threshold": {"min": 0.5, "max": 30.0},
-        "slow_response_threshold": {"min": 1.0, "max": 120.0},
         "adaptive_timeout_multiplier": {"min": 1.0, "max": 5.0},
         "response_time_history_size": {"min": 5, "max": 100}
     }
@@ -160,15 +145,6 @@ class MonitoringConfigProcessor:
     @classmethod
     def _ensure_config_consistency(cls, config: Dict[str, Any]) -> Dict[str, Any]:
         """确保配置一致性"""
-        # 确保响应阈值的逻辑顺序
-        if config["warning_response_threshold"] <= config["healthy_response_threshold"]:
-            config["warning_response_threshold"] = config["healthy_response_threshold"] + 1.0
-            logger.warning("Adjusted warning_response_threshold to maintain logical order")
-        
-        if config["slow_response_threshold"] <= config["warning_response_threshold"]:
-            config["slow_response_threshold"] = config["warning_response_threshold"] + 2.0
-            logger.warning("Adjusted slow_response_threshold to maintain logical order")
-        
         # 如果禁用工具更新，相关配置无效
         if not config["enable_tools_update"]:
             config["update_tools_on_reconnection"] = False
@@ -179,8 +155,7 @@ class MonitoringConfigProcessor:
     @classmethod
     def _get_config_summary(cls, config: Dict[str, Any]) -> str:
         """获取配置摘要"""
-        return (f"health_check={config['health_check_seconds']}s, "
-                f"tools_update={config['tools_update_hours']}h, "
+        return (f"tools_update={config['tools_update_hours']}h, "
                 f"reconnection={config['reconnection_seconds']}s, "
                 f"tools_update_enabled={config['enable_tools_update']}")
     
@@ -197,24 +172,15 @@ class MonitoringConfigProcessor:
         """
         return {
             "timing": {
-                # 心跳和重连配置
-                "heartbeat_interval_seconds": monitoring_config["health_check_seconds"],
                 "reconnection_interval_seconds": monitoring_config["reconnection_seconds"],
                 "cleanup_interval_seconds": monitoring_config["cleanup_hours"] * 3600,
-                
-                # 工具更新配置
                 "tools_update_interval_seconds": monitoring_config["tools_update_hours"] * 3600,
                 "enable_tools_update": monitoring_config["enable_tools_update"],
                 "update_tools_on_reconnection": monitoring_config["update_tools_on_reconnection"],
                 "detect_tools_changes": monitoring_config["detect_tools_changes"],
                 
-                # 健康检查配置
                 "local_service_ping_timeout": monitoring_config["local_service_ping_timeout"],
                 "remote_service_ping_timeout": monitoring_config["remote_service_ping_timeout"],
-                "startup_wait_time": monitoring_config["startup_wait_time"],
-                "healthy_response_threshold": monitoring_config["healthy_response_threshold"],
-                "warning_response_threshold": monitoring_config["warning_response_threshold"],
-                "slow_response_threshold": monitoring_config["slow_response_threshold"],
                 "enable_adaptive_timeout": monitoring_config["enable_adaptive_timeout"],
                 "adaptive_timeout_multiplier": monitoring_config["adaptive_timeout_multiplier"],
                 "response_time_history_size": monitoring_config["response_time_history_size"],

@@ -22,25 +22,51 @@ logger = logging.getLogger(__name__)
 
 
 def run_sync(coro, *, timeout: Optional[float] = None, force_background: Optional[bool] = None):
-    """Run an async coroutine from sync code using asyncio.run.
-
-    根据MCPStore核心架构原则，使用最简单的asyncio.run()来桥接同步和异步代码。
+    """Run an async coroutine from sync code using the global AOB bridge.
 
     Args:
         coro: Awaitable to execute
-        timeout: Optional timeout seconds (暂时忽略，因为asyncio.run()不支持超时)
-        force_background: Optional policy to force background loop (忽略，违反核心原则)
+        timeout: Optional timeout seconds
+        force_background: Optional policy to force background loop (保留兼容，无额外语义)
 
     Returns:
         Any: Result of the coroutine
     """
     if force_background:
-        logger.warning("force_background=True parameter violates core architecture principles, will be ignored")
+        logger.warning("force_background=True parameter currently unused; bridge will be used regardless")
 
-    # 简单使用asyncio.run()，符合核心原则
-    if timeout is not None:
-        logger.warning("timeout parameter is not currently supported, will be ignored")
+    try:
+        from mcpstore.core.bridge import get_async_bridge
+        bridge = get_async_bridge()
+    except Exception:
+        bridge = None
 
+    # 优先使用持久 AOB，避免 asyncio.run 结束时取消后台任务
+        if bridge is not None:
+            try:
+                running_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                running_loop = None
+
+        if running_loop:
+            # 平滑处理：在当前事件循环中将 bridge.run 放到线程执行，避免直接抛错中断主逻辑
+            logger.warning(
+                "[sync_api] Detected running event loop; dispatching via to_thread + bridge.run "
+                "for compatibility. Please call the async variant instead.",
+            )
+            try:
+                return asyncio.to_thread(
+                    bridge.run,
+                    coro,
+                    timeout=timeout,
+                    op_name="sync_api.run_sync",
+                )
+            except Exception:
+                logger.error("[sync_api] Failed to dispatch via bridge in to_thread; re-raising", exc_info=True)
+                raise
+        return bridge.run(coro, timeout=timeout, op_name="sync_api.run_sync")
+
+    # 回退：无桥时才使用 asyncio.run
     return asyncio.run(coro)
 
 
@@ -69,5 +95,3 @@ def sync_api(*, timeout: Optional[float] = None, force_background: Optional[bool
         return wrapper
 
     return decorator
-
-

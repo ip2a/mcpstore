@@ -1,5 +1,5 @@
 <template>
-  <div class="tool-list-container">
+  <div class="page-shell tool-list-container">
     <!-- Header -->
     <header class="page-header">
       <div class="header-content">
@@ -334,9 +334,6 @@ onMounted(async () => {
 
 <style lang="scss" scoped>
 .tool-list-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px;
   width: 100%;
 }
 

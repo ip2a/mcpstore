@@ -4,6 +4,7 @@ Lightweight, stateless handle that delegates to the underlying context.
 All data is retrieved on demand from registry/cache to ensure freshness.
 """
 
+import asyncio
 from typing import Any, Dict, List, TYPE_CHECKING
 
 from mcpstore.core.models.tool import ToolInfo
@@ -56,10 +57,26 @@ class StoreProxy:
         return ServiceProxy(self._context, name)
 
     def list_agents(self) -> List[Dict[str, Any]]:
-        # 同步方法，使用异步桥在统一事件循环中执行
-        return self._context._run_async_via_bridge(
-            self.list_agents_async(),
-            op_name="store_proxy.list_agents"
+        """
+        列出所有 Agent（同步接口）
+
+        标准处理：
+        - 同步环境：通过 AOB 执行异步协程。
+        - 已有事件循环：明确报错，要求调用方改用 list_agents_async。
+        """
+        coro = self.list_agents_async()
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # 同步环境，走标准 AOB 路径
+            return self._context._run_async_via_bridge(
+                coro,
+                op_name="store_proxy.list_agents"
+            )
+
+        # 已存在事件循环，快速失败并给出正确用法
+        raise RuntimeError(
+            "检测到正在运行的事件循环：请使用 await store.for_store().list_agents_async()"
         )
 
     async def list_agents_async(self) -> List[Dict[str, Any]]:
@@ -88,7 +105,7 @@ class StoreProxy:
                     gname
                 )
                 state_value = getattr(state, "value", str(state))
-                if state_value in ("healthy", "warning"):
+                if state_value in ("healthy", "degraded"):
                     healthy += 1
                 else:
                     unhealthy += 1
@@ -133,7 +150,7 @@ class StoreProxy:
 
     def call_tool(self, tool_name: str, args: Dict[str, Any]):
         """
-        调用工具（同步版本），直接返回 FastMCP CallToolResult。
+        调用工具（同步版本），直接返回 MCPStore CallToolResult。
 
         需要结构化/文本化视图的调用方，应该自行从结果的 content / structured_content / data 中提取。
         """
@@ -215,6 +232,10 @@ class StoreProxy:
     async def check_services_async(self) -> Dict[str, Any]:
         return await self._context.check_services_async()
 
+    # 别名：符合命名规范
+    async def service_info_async(self, name: str) -> Dict[str, Any]:
+        return await self.get_service_info_async(name)
+
     async def get_service_info_async(self, name: str) -> Dict[str, Any]:
         info = await self._context.get_service_info_async(name)
         try:
@@ -228,6 +249,9 @@ class StoreProxy:
         except Exception:
             return {"result": str(info)}
 
+    async def service_status_async(self, name: str) -> Dict[str, Any]:
+        return await self.get_service_status_async(name)
+
     async def get_service_status_async(self, name: str) -> Dict[str, Any]:
         status = await self._context.get_service_status_async(name)
         try:
@@ -240,6 +264,9 @@ class StoreProxy:
             return {"result": str(status)}
         except Exception:
             return {"result": str(status)}
+
+    async def tool_records_async(self, limit: int = 50) -> Dict[str, Any]:
+        return await self._context.tool_records_async(limit)
 
     # ---- Resources & Prompts ----
     def list_resources(self, service_name: str = None) -> Dict[str, Any]:
@@ -373,7 +400,7 @@ class StoreProxy:
         return await self._context.reset_mcp_json_file_async(scope)
 
     # ---- Hub MCP helpers ----
-    def hub_http(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/mcp", *, block: bool = False, show_banner: bool = False, **fastmcp_kwargs):
+    def hub_http(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/mcp", *, block: bool = False, show_banner: bool = False, **mcp_kwargs):
         """
         将当前 Store 暴露为 HTTP MCP 端点。
 
@@ -382,8 +409,8 @@ class StoreProxy:
             host: 监听地址
             path: HTTP 路径
             background: 是否在后台线程运行（默认阻塞当前调用）
-            show_banner: 是否显示 FastMCP 启动横幅
-            **fastmcp_kwargs: 透传给 FastMCP 的参数（如 auth）
+            show_banner: 是否显示 MCP 服务器启动横幅
+            **mcp_kwargs: 透传给底层 MCP 服务器（当前由 MCPStore 实现）的参数（如 auth）
         Returns:
             HubMCPServer: Hub 服务器实例，可用于 stop()/restart()
         """
@@ -395,12 +422,12 @@ class StoreProxy:
             port=port,
             host=host,
             path=path,
-            **fastmcp_kwargs,
+            **mcp_kwargs,
         )
         hub.start(block=block, show_banner=show_banner)
         return hub
 
-    def hub_sse(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/sse", *, block: bool = False, show_banner: bool = False, **fastmcp_kwargs):
+    def hub_sse(self, port: int = 8000, host: str = "0.0.0.0", path: str = "/sse", *, block: bool = False, show_banner: bool = False, **mcp_kwargs):
         """将当前 Store 暴露为 SSE MCP 端点。"""
         from mcpstore.core.hub.server import HubMCPServer
 
@@ -410,19 +437,19 @@ class StoreProxy:
             port=port,
             host=host,
             path=path,
-            **fastmcp_kwargs,
+            **mcp_kwargs,
         )
         hub.start(block=block, show_banner=show_banner)
         return hub
 
-    def hub_stdio(self, *, block: bool = False, show_banner: bool = False, **fastmcp_kwargs):
+    def hub_stdio(self, *, block: bool = False, show_banner: bool = False, **mcp_kwargs):
         """将当前 Store 暴露为 stdio MCP 端点。"""
         from mcpstore.core.hub.server import HubMCPServer
 
         hub = HubMCPServer(
             exposed_object=self._context,
             transport="stdio",
-            **fastmcp_kwargs,
+            **mcp_kwargs,
         )
         hub.start(block=block, show_banner=show_banner)
         return hub

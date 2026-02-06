@@ -39,7 +39,7 @@ class StandaloneConfig:
     known_services: Dict[str, Dict[str, Any]] = field(default_factory=lambda: {})
     
     # === Environment configuration removed ===
-    # Environment variable handling is now completely handled by FastMCP, no longer need these configurations
+    # Environment variable handling is now completely handled by MCPStore, no longer need these configurations
 
     # === Logging configuration ===
     log_level: str = _standalone_defaults.log_level
@@ -80,7 +80,7 @@ class StandaloneConfigManager:
                 "default_transport": self.config.default_transport
             },
             "environment": {
-                "note": "Environment configuration removed - now handled by FastMCP"
+                "note": "Environment configuration removed - now handled by MCPStore"
             }
         }
 
@@ -136,7 +136,7 @@ class StandaloneConfigManager:
         # 重新初始化配置
         self._initialize_default_configs()
     
-    # get_isolated_environment方法已删除 - 环境变量处理现在完全由FastMCP处理
+    # get_isolated_environment方法已删除 - 环境变量处理现在完全由MCPStore处理
     
     def get_config_paths(self) -> Dict[str, Optional[str]]:
         """获取配置文件路径"""

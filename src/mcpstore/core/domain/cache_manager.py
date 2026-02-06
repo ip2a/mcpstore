@@ -21,6 +21,9 @@ from mcpstore.core.events.service_events import (
     ServiceBootstrapFailed,
     ServiceCached,
     ServiceConnected,
+    ServicePersisting,
+    ToolSyncStarted,
+    ToolSyncCompleted,
     ServiceOperationFailed,
 )
 from mcpstore.core.models.service import ServiceConnectionState
@@ -103,7 +106,7 @@ class CacheManager:
                     session=None,
                     tools=[],
                     service_config=event.service_config,
-                    state=ServiceConnectionState.INITIALIZING
+                    state=ServiceConnectionState.STARTUP
                 )
                 transaction.record(
                     "add_service_global_bootstrap",
@@ -190,14 +193,14 @@ class CacheManager:
                 await self._registry._ensure_agent_entity(origin_agent)
                 await self._registry._ensure_agent_entity(global_agent_id)
 
-                # 1. 添加服务到缓存（全局视角，INITIALIZING 状态）
+                # 1. 添加服务到缓存（全局视角，STARTUP 状态）
                 await self._registry.add_service_async(
                     agent_id=global_agent_id,
                     name=global_name,
                     session=None,  # 暂无连接
                     tools=[],      # 暂无工具
                     service_config=event.service_config,
-                    state=ServiceConnectionState.INITIALIZING
+                    state=ServiceConnectionState.STARTUP
                 )
                 transaction.record(
                     "add_service_global",
@@ -300,6 +303,22 @@ class CacheManager:
         logger.info(f"[CACHE] Updating cache for connected service: {event.service_name}")
         
         try:
+            tool_count = len(event.tools)
+            try:
+                if self._event_bus.get_subscriber_count(ServicePersisting) > 0:
+                    await self._event_bus.publish(
+                        ServicePersisting(
+                            agent_id=event.agent_id,
+                            service_name=event.service_name,
+                            stage="cache",
+                            tool_count=tool_count,
+                            source_event=event
+                        ),
+                        wait=False
+                    )
+            except Exception as persist_evt_err:
+                logger.debug(f"[CACHE] Failed to publish ServicePersisting: {persist_evt_err}")
+
             async with self._agent_locks.write(
                 event.agent_id, 
                 operation="cache_on_service_connected"
@@ -332,6 +351,20 @@ class CacheManager:
                 if existing_session:
                     self._registry.clear_service_tools_only(event.agent_id, event.service_name)
 
+                # 工具同步开始事件（监控）
+                try:
+                    if self._event_bus.get_subscriber_count(ToolSyncStarted) > 0:
+                        await self._event_bus.publish(
+                            ToolSyncStarted(
+                                agent_id=event.agent_id,
+                                service_name=event.service_name,
+                                total_tools=tool_count
+                            ),
+                            wait=False
+                        )
+                except Exception as tool_evt_err:
+                    logger.debug(f"[CACHE] Failed to publish ToolSyncStarted: {tool_evt_err}")
+
                 # 更新会话（不触发新增服务的初始化逻辑）
                 if self._registry._session_manager:
                     self._registry._session_manager.set_session(
@@ -345,6 +378,20 @@ class CacheManager:
                     event.service_name,
                     event.tools
                 )
+
+                # 工具同步完成事件（监控）
+                try:
+                    if self._event_bus.get_subscriber_count(ToolSyncCompleted) > 0:
+                        await self._event_bus.publish(
+                            ToolSyncCompleted(
+                                agent_id=event.agent_id,
+                                service_name=event.service_name,
+                                total_tools=tool_count
+                            ),
+                            wait=False
+                        )
+                except Exception as tool_evt_err:
+                    logger.debug(f"[CACHE] Failed to publish ToolSyncCompleted: {tool_evt_err}")
                 
                 # 更新服务状态（写入状态层）
                 # 关键：这里写入完整的工具状态，LifecycleManager 只更新健康状态
@@ -353,6 +400,9 @@ class CacheManager:
                     event.service_name,
                     event.tools
                 )
+
+                # 缓存落盘完成事件（工具与状态已写入）
+                # ServicePersisted 依赖文件持久化已停用，此处无需发布
             
             logger.info(f"[CACHE] Cache updated for {event.service_name} with {len(event.tools)} tools")
 
@@ -417,7 +467,7 @@ class CacheManager:
         
         # 遍历工具列表，创建实体和关系
         for tool_name, tool_def in tools:
-            # 提取工具原始名称（去除服务前缀），保证用于全局名的基准是 FastMCP 标准格式
+            # 提取工具原始名称（去除服务前缀），保证用于全局名的基准是 MCP 规范格式（canonical）
             from mcpstore.core.logic.tool_logic import ToolLogicCore
             original_tool_name = ToolLogicCore.extract_original_tool_name(
                 tool_name,
@@ -491,7 +541,7 @@ class CacheManager:
         for tool_name, tool_def in tools:
             # 提取工具原始名称（去除服务前缀）
             # 注意：MCP 服务返回的工具名称可能已经带有服务前缀
-            # 例如：mcpstore_get_current_weather -> get_current_weather
+            # 例如：weather_service_get_current_weather -> get_current_weather
             from mcpstore.core.logic.tool_logic import ToolLogicCore
             original_tool_name = ToolLogicCore.extract_original_tool_name(
                 tool_name,

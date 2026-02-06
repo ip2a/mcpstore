@@ -74,8 +74,8 @@ export const useSystemStore = defineStore('system', () => {
   }))
   
   const servicesByStatus = computed(() => {
-    const healthy = services.value.filter(s => s.status === 'healthy')
-    const unhealthy = services.value.filter(s => s.status !== 'healthy')
+    const healthy = services.value.filter(s => ['healthy', 'ready'].includes(s.status))
+    const unhealthy = services.value.filter(s => !['healthy', 'ready'].includes(s.status))
     return { healthy, unhealthy }
   })
   
@@ -132,7 +132,7 @@ export const useSystemStore = defineStore('system', () => {
   })
 
   const criticalServices = computed(() => {
-    return services.value.filter(s => s.status === 'error' || s.status === 'unhealthy')
+    return services.value.filter(s => ['circuit_open', 'half_open', 'disconnected', 'degraded', 'error'].includes(s.status))
   })
 
   const availableTools = computed(() => {
@@ -497,7 +497,7 @@ export const useSystemStore = defineStore('system', () => {
   
   const updateStats = () => {
     const totalServices = services.value.length
-    const healthyServices = services.value.filter(s => s.status === 'healthy').length
+    const healthyServices = services.value.filter(s => ['healthy', 'ready'].includes(s.status)).length
     const unhealthyServices = totalServices - healthyServices
     const totalTools = tools.value.length
     const localServices = services.value.filter(s => s.command).length

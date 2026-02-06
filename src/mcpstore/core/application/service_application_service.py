@@ -15,11 +15,15 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, Any, Optional
 
+from mcpstore.core.eventlog.event_models import domain_event_to_record
+from mcpstore.core.eventlog.event_syncer import EventSyncer
 from mcpstore.core.events.event_bus import EventBus
 from mcpstore.core.events.service_events import (
     ServiceAddRequested,
     ServiceInitialized,
     HealthCheckRequested,
+    ServiceRestartRequested,
+    ServiceResetRequested,
 )
 from mcpstore.core.models.service import ServiceConnectionState
 from mcpstore.core.utils.id_generator import ClientIDGenerator
@@ -55,14 +59,94 @@ class ServiceApplicationService:
         event_bus: EventBus,
         registry: 'CoreRegistry',
         lifecycle_manager: 'LifecycleManager',
-        global_agent_store_id: str
+        global_agent_store_id: str,
+        event_store=None,
+        enable_event_log: bool = True,
+        is_only_db: bool = False,
     ):
         self._event_bus = event_bus
         self._registry = registry
         self._lifecycle_manager = lifecycle_manager
         self._global_agent_store_id = global_agent_store_id
+        self._event_store = event_store
+        self._enable_event_log = bool(event_store is not None and enable_event_log)
+        self._is_only_db = is_only_db
+        # 事件入队重试参数（可按需调整或配置注入）
+        self._event_queue_retry_attempts = 3
+        self._event_queue_retry_initial_delay = 0.2
+        self._event_queue_retry_backoff = 2.0
+        # 同步消费器（可选注入，local_db 模式下由容器 attach）
+        self._event_syncer: EventSyncer | None = None
         
         logger.info("ServiceApplicationService initialized")
+
+    async def _queue_event_with_retry(self, event, dedup_key: str) -> bool:
+        """
+        将事件写入事件队列，带有限重试；不回退本地。
+
+        返回 True 表示已入队；返回 False 表示重试后仍失败（需调用方处理）。
+        """
+        if not (self._enable_event_log and self._event_store):
+            return False
+        last_error: Exception | None = None
+        delay = self._event_queue_retry_initial_delay
+        for attempt in range(1, self._event_queue_retry_attempts + 1):
+            try:
+                record = domain_event_to_record(
+                    event,
+                    source=getattr(event, "source", "user"),
+                    dedup_key=dedup_key,
+                )
+                record = await self._event_store.append_event(record)  # type: ignore[union-attr]
+                logger.info(
+                    "[EVENT_QUEUE] queued id=%s type=%s dedup=%s attempt=%s",
+                    getattr(record, "id", None),
+                    getattr(record, "type", type(event).__name__),
+                    dedup_key,
+                    attempt,
+                )
+                return True
+            except Exception as log_err:
+                last_error = log_err
+                logger.error(
+                    "[EVENT_QUEUE] append failed (attempt %s/%s) type=%s dedup=%s error=%s",
+                    attempt,
+                    self._event_queue_retry_attempts,
+                    type(event).__name__,
+                    dedup_key,
+                    log_err,
+                    exc_info=True,
+                )
+                if attempt < self._event_queue_retry_attempts:
+                    try:
+                        await asyncio.sleep(delay)
+                        delay *= self._event_queue_retry_backoff
+                    except Exception:
+                        pass
+        logger.error(
+            "[EVENT_QUEUE] append abandoned after %s attempts type=%s dedup=%s last_error=%s",
+            self._event_queue_retry_attempts,
+            type(event).__name__,
+            dedup_key,
+            last_error,
+        )
+        return False
+
+    async def _sync_consume_if_available(self, target_id: Optional[str]) -> None:
+        """
+        在 local_db 模式下尝试同步消费一次事件队列，直至 offset 覆盖 target_id 或达到有限次数。
+        - 仅在存在 event_syncer 时执行，不添加硬编码 sleep。
+        """
+        if not self._event_syncer or not target_id:
+            return
+        max_rounds = 3
+        for _ in range(max_rounds):
+            offset = await self._event_syncer.consume_once_now()
+            try:
+                if offset is not None and int(offset) >= int(target_id):
+                    return
+            except Exception:
+                return
     
     async def add_service(
         self,
@@ -115,8 +199,26 @@ class ServiceApplicationService:
                 source=source,
                 wait_timeout=wait_timeout
             )
-            
-            await self._event_bus.publish(event, wait=False)
+
+            published = False
+            if self._enable_event_log:
+                try:
+                    dedup_key = self._build_dedup_key(event)
+                    record = domain_event_to_record(
+                        event,
+                        source=source,
+                        dedup_key=dedup_key,
+                    )
+                    record = await self._event_store.append_event(record)  # type: ignore[union-attr]
+                    published = True
+                    logger.info(f"[ADD_SERVICE] Event logged to queue: id={record.id} dedup={dedup_key}")
+                    # local_db 场景：写后尝试同步消费，提高可见性
+                    await self._sync_consume_if_available(getattr(record, "id", None))
+                except Exception as log_error:
+                    logger.error(f"[ADD_SERVICE] Failed to append event to queue, fallback to local bus: {log_error}", exc_info=True)
+
+            if not published:
+                await self._event_bus.publish(event, wait=False)
             
             # 4. 等待状态收敛（可选）
             final_state = None
@@ -135,7 +237,7 @@ class ServiceApplicationService:
             return AddServiceResult(
                 success=True,
                 service_name=service_name,
-                client_id=client_id,
+                client_id=cid,
                 final_state=final_state,
                 duration_ms=duration_ms
             )
@@ -157,16 +259,30 @@ class ServiceApplicationService:
         service_name: str,
         agent_id: Optional[str] = None,
         wait_timeout: float = 0.0,
+        *,
+        from_event: bool = False,
+        source: str = "user",
     ) -> bool:
         """重启服务（应用层 API）
 
-        - 通过 LifecycleManager 将状态迁移到 INITIALIZING；
+        - 通过 LifecycleManager 将状态迁移到 STARTUP；
         - 重置基础元数据计数器；
         - 发布 ServiceInitialized + HealthCheckRequested 事件；
-        - 可选：等待状态从 INITIALIZING 收敛到其他状态。
+        - 可选：等待状态从 STARTUP 收敛到其他状态。
         """
         start_time = asyncio.get_event_loop().time()
         agent_key = agent_id or self._global_agent_store_id
+
+        # 用户入口（非事件消费）统一走事件层；不回退本地，入队失败抛出异常
+        if self._enable_event_log and not from_event:
+            event = ServiceRestartRequested(agent_id=agent_key, service_name=service_name, source=source)
+            queued = await self._queue_event_with_retry(
+                event,
+                dedup_key=f"{event.__class__.__name__}:{service_name}",
+            )
+            if not queued:
+                raise RuntimeError(f"Queue write failed: {event.__class__.__name__} {service_name}")
+            return True
 
         try:
             # 1. 校验服务是否存在（使用异步 API）
@@ -184,11 +300,27 @@ class ServiceApplicationService:
                 )
                 return False
 
-            # 3. 通过 LifecycleManager 统一入口迁移到 INITIALIZING
+            # 幂等短路：若已在 STARTUP/READY/HEALTHY 状态，可选择直接返回（避免重复重启）
+            try:
+                current_state = await self._registry.get_service_state_async(agent_key, service_name)
+                if current_state in (
+                    ServiceConnectionState.STARTUP,
+                    ServiceConnectionState.READY,
+                    ServiceConnectionState.HEALTHY,
+                ):
+                    logger.info(
+                        f"[RESTART_SERVICE_APP] Skip restart (state={getattr(current_state, 'value', current_state)}) "
+                        f"service='{service_name}' agent={agent_key}"
+                    )
+                    return True
+            except Exception as state_err:
+                logger.debug(f"[RESTART_SERVICE_APP] state check failed: {state_err}")
+
+            # 3. 通过 LifecycleManager 统一入口迁移到 STARTUP
             await self._lifecycle_manager._transition_state(
                 agent_id=agent_key,
                 service_name=service_name,
-                new_state=ServiceConnectionState.INITIALIZING,
+                new_state=ServiceConnectionState.STARTUP,
                 reason="restart_service",
                 source="ServiceApplicationService",
             )
@@ -206,7 +338,7 @@ class ServiceApplicationService:
             initialized_event = ServiceInitialized(
                 agent_id=agent_key,
                 service_name=service_name,
-                initial_state="initializing",
+                initial_state="startup",
             )
             await self._event_bus.publish(initialized_event, wait=True)
 
@@ -253,8 +385,22 @@ class ServiceApplicationService:
         agent_id: str,
         service_name: str,
         wait_timeout: float = 0.0,
+        *,
+        from_event: bool = False,
+        source: str = "user",
     ) -> bool:
         start_time = asyncio.get_event_loop().time()
+
+        # 用户入口（非事件消费）统一走事件层；不回退本地，入队失败抛出异常
+        if self._enable_event_log and not from_event:
+            event = ServiceResetRequested(agent_id=agent_id, service_name=service_name, source=source)
+            queued = await self._queue_event_with_retry(
+                event,
+                dedup_key=f"{event.__class__.__name__}:{service_name}",
+            )
+            if not queued:
+                raise RuntimeError(f"Queue write failed: {event.__class__.__name__} {service_name}")
+            return True
 
         try:
             # 使用异步 API 检查服务是否存在
@@ -263,6 +409,22 @@ class ServiceApplicationService:
                     f"[RESET_SERVICE_APP] Service '{service_name}' not found for agent {agent_id}"
                 )
                 return False
+
+            # 幂等短路：如果已在初始化/健康态且配置存在，可直接视为成功
+            try:
+                current_state = await self._registry.get_service_state_async(agent_id, service_name)
+                if current_state in (
+                    ServiceConnectionState.STARTUP,
+                    ServiceConnectionState.READY,
+                    ServiceConnectionState.HEALTHY,
+                ):
+                    logger.info(
+                        f"[RESET_SERVICE_APP] Skip reset (state={getattr(current_state, 'value', current_state)}) "
+                        f"service='{service_name}' agent={agent_id}"
+                    )
+                    return True
+            except Exception as state_err:
+                logger.debug(f"[RESET_SERVICE_APP] state check failed: {state_err}")
 
             service_config = await self._registry.get_service_config_from_cache_async(agent_id, service_name)
             if not service_config:
@@ -331,7 +493,7 @@ class ServiceApplicationService:
                 status_response["status"] = getattr(state, "value", str(state))
                 status_response["healthy"] = state in [
                     ServiceConnectionState.HEALTHY,
-                    ServiceConnectionState.WARNING,
+                    ServiceConnectionState.DEGRADED,
                 ]
             else:
                 status_response["status"] = "unknown"
@@ -398,7 +560,12 @@ class ServiceApplicationService:
         # 验证必要字段
         if "command" not in service_config and "url" not in service_config:
             raise ValueError("service_config must contain 'command' or 'url'")
-    
+
+    def _build_dedup_key(self, event: ServiceAddRequested) -> str:
+        """构造去重键：事件类型 + 全局服务名。"""
+        global_name = event.global_name or event.service_name
+        return f"{event.__class__.__name__}:{global_name}"
+
     async def _generate_client_id(
         self,
         agent_id: str,
@@ -437,7 +604,7 @@ class ServiceApplicationService:
         """
         等待服务状态收敛
         
-        状态收敛定义: 状态不再是 INITIALIZING
+        状态收敛定义: 状态不再是 STARTUP
         """
         logger.debug(f"[WAIT_STATE] Waiting for {service_name} (timeout={timeout}s)")
         
@@ -453,7 +620,7 @@ class ServiceApplicationService:
             
             # 检查状态
             state = self._registry._service_state_service.get_service_state(agent_id, service_name)
-            if state and state != ServiceConnectionState.INITIALIZING:
+            if state and state != ServiceConnectionState.STARTUP:
                 logger.debug(f"[WAIT_STATE] Converged: {service_name} -> {state.value}")
                 return state.value
             

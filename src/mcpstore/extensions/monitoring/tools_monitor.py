@@ -1,6 +1,6 @@
 """
 Tool Update Monitor
-Supports FastMCP notification mechanism + polling backup strategy
+Supports MCPStore notification mechanism + polling backup strategy
 """
 
 import asyncio
@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Dict, Optional, Any
 
 from mcpstore.core.utils.mcp_client_helpers import temp_client_for_service
-from .message_handler import MCPStoreMessageHandler, FASTMCP_AVAILABLE
+from .message_handler import MCPStoreMessageHandler, MCPSTORE_AVAILABLE
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class ToolsUpdateMonitor:
     """
     Hybrid tool list update monitor
-    Supports FastMCP notification mechanism + polling backup strategy
+    Supports MCPStore notification mechanism + polling backup strategy
     """
 
     def __init__(self, orchestrator):
@@ -34,7 +34,7 @@ class ToolsUpdateMonitor:
 
         # New: notification-related configuration
         notification_config = orchestrator.config.get("notifications", {})
-        self.enable_notifications = notification_config.get("enable_notifications", True) and FASTMCP_AVAILABLE
+        self.enable_notifications = notification_config.get("enable_notifications", True) and MCPSTORE_AVAILABLE
         self.notification_debounce_seconds = notification_config.get("debounce_seconds", 5)
         self.notification_timeout_seconds = notification_config.get("timeout_seconds", 30)
         self.fallback_to_polling = notification_config.get("fallback_to_polling", True)
@@ -45,7 +45,7 @@ class ToolsUpdateMonitor:
         self.update_task: Optional[asyncio.Task] = None
         self.is_running = False
 
-        # FastMCP message handler
+        # MCP 消息处理器
         self.message_handler = None
         if self.enable_notifications:
             self.message_handler = MCPStoreMessageHandler(self)
@@ -416,7 +416,7 @@ class ToolsUpdateMonitor:
             "enabled": self.enable_tools_update,
             "update_interval": self.tools_update_interval,
             "notifications_enabled": self.enable_notifications,
-            "fastmcp_available": FASTMCP_AVAILABLE,
+            "mcp_available": MCPSTORE_AVAILABLE,
             "last_update_times": dict(self.last_update_times),
             "services_count": len(self.last_update_times),
             "config": {
@@ -441,7 +441,7 @@ class ToolsUpdateMonitor:
         if self.message_handler:
             return self.message_handler.get_notification_stats()
         else:
-            return {"fastmcp_available": False, "message_handler": None}
+            return {"mcp_available": False, "message_handler": None}
 
     def update_config(self, new_config: Dict[str, Any]):
         """
@@ -465,7 +465,7 @@ class ToolsUpdateMonitor:
 
         # 更新notification配置
         if "enable_notifications" in notification_config:
-            self.enable_notifications = notification_config["enable_notifications"] and FASTMCP_AVAILABLE
+            self.enable_notifications = notification_config["enable_notifications"] and MCPSTORE_AVAILABLE
         if "debounce_seconds" in notification_config:
             self.notification_debounce_seconds = notification_config["debounce_seconds"]
         if "timeout_seconds" in notification_config:
