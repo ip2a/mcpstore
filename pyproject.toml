@@ -54,7 +54,7 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
-exclude = ["tests*", "*test*", "web*", "mcpservice*"]
+exclude = ["*test*"]
 
 
 [[tool.uv.index]]
