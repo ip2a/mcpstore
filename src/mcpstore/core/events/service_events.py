@@ -113,7 +113,7 @@ class ServiceInitialized(DomainEvent):
     """服务生命周期已初始化事件"""
     agent_id: str = ""
     service_name: str = ""
-    initial_state: str = "INITIALIZING"  # "initializing"
+    initial_state: str = "STARTUP"  # "startup"
 
 
 @dataclass(frozen=True)
@@ -133,6 +133,18 @@ class ServiceConnected(DomainEvent):
     session: Any = None  # MCP Client session
     tools: List[Tuple[str, Dict[str, Any]]] = field(default_factory=list)
     connection_time: float = 0.0
+
+
+@dataclass(frozen=True)
+class ServicePersisting(DomainEvent):
+    """
+    服务持久化开始（缓存/关系/状态写入）
+    """
+    agent_id: str = ""
+    service_name: str = ""
+    stage: str = "cache"  # cache | config | other
+    tool_count: int = 0
+    source_event: Optional[DomainEvent] = None
 
 
 @dataclass(frozen=True)
@@ -158,10 +170,27 @@ class ServiceStateChanged(DomainEvent):
 
 @dataclass(frozen=True)
 class ServicePersisted(DomainEvent):
-    """服务已持久化事件"""
+    """
+    服务已持久化事件
+    - stage 默认 config；缓存落盘完成时可使用 stage="cache" 并填写工具数量等信息
+    """
     agent_id: str = ""
     service_name: str = ""
     file_path: str = ""
+    stage: str = "config"  # config | cache | other
+    tool_count: int = 0
+    details: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ServiceReady(DomainEvent):
+    """
+    服务已就绪事件：工具状态与健康元数据落盘完成，可对外读取
+    """
+    agent_id: str = ""
+    service_name: str = ""
+    tool_count: int = 0
+    health_status: str = ""
 
 
 @dataclass(frozen=True)
@@ -192,7 +221,18 @@ class HealthCheckCompleted(DomainEvent):
     success: bool = False
     response_time: float = 0.0
     error_message: Optional[str] = None
-    suggested_state: Optional[str] = None  # HEALTHY, WARNING, RECONNECTING, UNREACHABLE
+    suggested_state: Optional[str] = None  # HEALTHY, DEGRADED, CIRCUIT_OPEN, DISCONNECTED
+    # 窗口与退避元数据
+    window_error_rate: Optional[float] = None
+    latency_p95: Optional[float] = None
+    latency_p99: Optional[float] = None
+    sample_size: Optional[int] = None
+    retry_in: Optional[float] = None           # 秒
+    hard_timeout_in: Optional[float] = None    # 秒
+    lease_remaining: Optional[float] = None    # 秒
+    next_retry_time: Optional[float] = None    # 时间戳（秒）
+    hard_deadline: Optional[float] = None      # 时间戳（秒）
+    lease_deadline: Optional[float] = None     # 时间戳（秒）
 
 
 @dataclass(frozen=True)
@@ -202,6 +242,24 @@ class ServiceTimeout(DomainEvent):
     service_name: str = ""
     timeout_type: str = ""  # initialization, health_check, disconnection
     elapsed_time: float = 0.0
+
+
+# === 控制平面请求事件 ===
+
+@dataclass(frozen=True)
+class ServiceRestartRequested(DomainEvent):
+    """服务重启请求事件（仅声明意图，控制平面执行）"""
+    agent_id: str = ""
+    service_name: str = ""
+    source: str = "user"
+
+
+@dataclass(frozen=True)
+class ServiceResetRequested(DomainEvent):
+    """服务重置请求事件（仅声明意图，控制平面执行）"""
+    agent_id: str = ""
+    service_name: str = ""
+    source: str = "user"
 
 
 # === 重连相关事件 ===
@@ -222,3 +280,23 @@ class ReconnectionScheduled(DomainEvent):
     service_name: str = ""
     next_retry_time: float = 0.0  # timestamp
     retry_delay: float = 0.0  # seconds
+
+
+# === 工具同步相关事件 ===
+
+@dataclass(frozen=True)
+class ToolSyncStarted(DomainEvent):
+    """工具同步开始事件"""
+    agent_id: str = ""
+    service_name: str = ""
+    total_tools: int = 0
+    source: str = "cache_manager"
+
+
+@dataclass(frozen=True)
+class ToolSyncCompleted(DomainEvent):
+    """工具同步完成事件"""
+    agent_id: str = ""
+    service_name: str = ""
+    total_tools: int = 0
+    source: str = "cache_manager"

@@ -27,14 +27,16 @@ def _get_config_defaults():
             HealthCheckConfigDefaults,
             ContentUpdateConfigDefaults,
             MonitoringConfigDefaults,
-            CacheConfigDefaults,
+            CacheMemoryConfigDefaults,
+            CacheRedisConfigDefaults,
             StandaloneConfigDefaults,
         )
         return {
             'HealthCheckConfigDefaults': HealthCheckConfigDefaults,
             'ContentUpdateConfigDefaults': ContentUpdateConfigDefaults,
             'MonitoringConfigDefaults': MonitoringConfigDefaults,
-            'CacheConfigDefaults': CacheConfigDefaults,
+            'CacheMemoryConfigDefaults': CacheMemoryConfigDefaults,
+            'CacheRedisConfigDefaults': CacheRedisConfigDefaults,
             'StandaloneConfigDefaults': StandaloneConfigDefaults,
         }
     except ImportError:
@@ -216,18 +218,18 @@ class ConfigSnapshotFormatter:
         """格式化为表格"""
         lines = []
         lines.append("=" * max_width)
-        lines.append(f"配置快照 - {snapshot.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append(f"Config snapshot - {snapshot.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
         lines.append("=" * max_width)
-        lines.append(f"总计: {snapshot.total_items} 项配置，{len(snapshot.groups)} 个组")
+        lines.append(f"Total: {snapshot.total_items} config items, {len(snapshot.groups)} groups")
 
-        # 来源统计
+        # Source statistics
         source_lines = [f"  {source.value}: {count}" for source, count in snapshot.source_summary.items()]
-        lines.append("来源分布:\n" + "\n".join(source_lines))
+        lines.append("Source distribution:\n" + "\n".join(source_lines))
         lines.append("")
 
         # 按组显示
         for group_name, group in snapshot.groups.items():
-            lines.append(f"【{group_name}】({group.item_count} 项，{group.get_sensitive_count()} 敏感，{group.get_dynamic_count()} 动态)")
+            lines.append(f"[{group_name}]({group.item_count} items, {group.get_sensitive_count()} sensitive, {group.get_dynamic_count()} dynamic)")
             lines.append("-" * max_width)
 
             for item in group.items:
@@ -244,7 +246,7 @@ class ConfigSnapshotFormatter:
                 if item.description:
                     lines.append(f"    └─ {item.description}")
                 if item.validation_info:
-                    lines.append(f"    └─ 验证: {item.validation_info}")
+                    lines.append(f"    └─ Validation: {item.validation_info}")
 
             lines.append("")
 

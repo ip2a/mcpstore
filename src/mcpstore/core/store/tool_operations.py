@@ -1,6 +1,6 @@
 """
 Tool Operations Module
-Handles MCPStore tool-related functionality
+Handles MCP tool-related functionality
 """
 
 import logging
@@ -19,7 +19,7 @@ class ToolOperationsMixin:
 
     async def process_tool_request(self, request: ToolExecutionRequest) -> ExecutionResponse:
         """
-        Process tool execution request (FastMCP standard)
+        Process tool execution request (MCP canonical standard)
 
         Args:
             request: Tool execution request
@@ -54,9 +54,8 @@ class ToolOperationsMixin:
             # 如果状态不健康，先记录但仍尝试执行，失败时再返回真实错误
             from mcpstore.core.models.service import ServiceConnectionState
             state_warn = service_state in [
-                ServiceConnectionState.RECONNECTING,
-                ServiceConnectionState.UNREACHABLE,
-                ServiceConnectionState.DISCONNECTING,
+                ServiceConnectionState.CIRCUIT_OPEN,
+                ServiceConnectionState.HALF_OPEN,
                 ServiceConnectionState.DISCONNECTED
             ]
             if state_warn:
@@ -64,8 +63,8 @@ class ToolOperationsMixin:
                     f"Service '{request.service_name}' is in state {service_state.value}, will still attempt execution"
                 )
 
-            # Execute tool (using FastMCP standard)
-            result = await self.orchestrator.execute_tool_fastmcp(
+            # Execute tool (using MCP canonical standard)
+            result = await self.orchestrator.execute_tool_mcpstore(
                 service_name=request.service_name,
                 tool_name=request.tool_name,
                 arguments=request.args,
@@ -95,6 +94,19 @@ class ToolOperationsMixin:
                         error=None,
                         response_time=duration_ms
                     )
+                # 被动反馈：写入健康滑窗
+                try:
+                    container = getattr(self, "container", None)
+                    health_monitor = getattr(container, "health_monitor", None) if container else None
+                    if health_monitor:
+                        health_monitor.record_passive_feedback(
+                            agent_id=state_check_agent_id,
+                            service_name=request.service_name,
+                            success=True,
+                            response_time=duration_ms / 1000.0,
+                        )
+                except Exception as hf_err:
+                    logger.debug(f"[MONITORING] passive feedback (success) failed: {hf_err}")
             except Exception as monitor_error:
                 logger.warning(f"Failed to record tool execution: {monitor_error}")
 
@@ -122,6 +134,19 @@ class ToolOperationsMixin:
                         error=str(e),
                         response_time=duration_ms
                     )
+                # 被动反馈：写入健康滑窗
+                try:
+                    container = getattr(self, "container", None)
+                    health_monitor = getattr(container, "health_monitor", None) if container else None
+                    if health_monitor:
+                        health_monitor.record_passive_feedback(
+                            agent_id=state_check_agent_id,
+                            service_name=request.service_name,
+                            success=False,
+                            response_time=duration_ms / 1000.0,
+                        )
+                except Exception as hf_err:
+                    logger.debug(f"[MONITORING] passive feedback (failure) failed: {hf_err}")
             except Exception as monitor_error:
                 logger.warning(f"Failed to record failed tool execution: {monitor_error}")
 
@@ -160,7 +185,7 @@ class ToolOperationsMixin:
         Use tool (generic interface) - backward compatibility alias
 
         Note: This method is an alias for call_tool, maintaining backward compatibility.
-        It is recommended to use the call_tool method to remain consistent with FastMCP naming.
+        It is recommended to use the call_tool method to remain consistent with MCPStore naming.
         """
         return await self.call_tool(tool_name, args)
 
@@ -262,12 +287,40 @@ class ToolOperationsMixin:
             service_global_name = entity_dict.get("service_global_name", "")
             service_original_name = entity_dict.get("service_original_name", "")
             client_id = client_id_map.get(service_global_name)
-            
+            tool_global_name = entity_dict.get("tool_global_name", "")
+            tool_original_name = entity_dict.get("tool_original_name", "")
+
+            display_name = tool_global_name
+            display_service_name = service_original_name
+
+            if agent_mode and id:
+                try:
+                    from mcpstore.utils.perspective_resolver import PerspectiveResolver
+
+                    resolver = PerspectiveResolver()
+                    # 规范服务名到本地视角
+                    name_res = resolver.normalize_service_name(
+                        agent_id,
+                        service_global_name,
+                        target="local",
+                        strict=True,
+                    )
+                    local_service_name = name_res.local_name
+
+                    if not tool_original_name:
+                        raise ValueError(f"Missing tool_original_name: {tool_global_name}")
+
+                    display_name = f"{local_service_name}_{tool_original_name}"
+                    display_service_name = local_service_name
+                except Exception as e:
+                    # 视角映射失败直接抛出，避免悄悄返回全局名
+                    raise
+
             tool_info = ToolInfo(
-                name=entity_dict.get("tool_global_name", ""),
-                tool_original_name=entity_dict.get("tool_original_name", ""),
+                name=display_name,
+                tool_original_name=tool_original_name,
                 description=entity_dict.get("description", ""),
-                service_name=service_original_name,
+                service_name=display_service_name,
                 service_original_name=service_original_name,
                 service_global_name=service_global_name,
                 client_id=client_id,

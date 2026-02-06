@@ -1,5 +1,5 @@
 """
-MCPStore Unified Exception System
+MCP Unified Exception System
 Provides a comprehensive exception hierarchy for both SDK and API usage
 """
 
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class ErrorSeverity(Enum):
     """Error severity levels"""
     INFO = "info"
-    WARNING = "warning"
+    DEGRADED = "degraded"
     ERROR = "error"
     CRITICAL = "critical"
 
@@ -106,7 +106,7 @@ class MCPStoreException(Exception):
         cause: Optional[Exception] = None,
         field: Optional[str] = None,
     ):
-        """Initialize MCPStore exception
+        """Initialize MCP exception
         
         Args:
             message: Human-readable error message
@@ -460,10 +460,10 @@ class ToolNotAvailableError(ToolSetError):
         agent_id: Optional[str] = None,
         **kwargs
     ):
-        message = f"工具 '{tool_name}' 不可用"
+        message = f"Tool '{tool_name}' is not available"
         if service_name:
-            message += f"（服务: {service_name}）"
-        message += "。使用 add_tools() 方法启用该工具。"
+            message += f" (service: {service_name})"
+        message += ". Use add_tools() method to enable this tool."
         
         details = {"tool_name": tool_name}
         if service_name:
@@ -497,10 +497,10 @@ class CrossAgentOperationError(ToolSetError):
         operation: Optional[str] = None,
         **kwargs
     ):
-        message = f"不允许跨 Agent 操作：服务 '{service_name}' 属于 Agent '{service_agent_id}'，"
-        message += f"但当前 Agent 为 '{current_agent_id}'"
+        message = f"Cross-Agent operation not allowed: service '{service_name}' belongs to Agent '{service_agent_id}', "
+        message += f"but current Agent is '{current_agent_id}'"
         if operation:
-            message += f"（操作: {operation}）"
+            message += f" (operation: {operation})"
         
         details = {
             "current_agent_id": current_agent_id,
@@ -534,9 +534,9 @@ class ServiceMappingError(ToolSetError):
         mapping_type: Optional[str] = None,
         **kwargs
     ):
-        message = f"服务映射错误：服务 '{service_name}' 的映射不存在或无效"
+        message = f"Service mapping error: mapping for service '{service_name}' does not exist or is invalid"
         if agent_id:
-            message += f"（Agent: {agent_id}）"
+            message += f" (Agent: {agent_id})"
         
         details = {"service_name": service_name}
         if agent_id:
@@ -569,9 +569,9 @@ class DataSourceNotFoundError(ToolSetError):
         data_type: Optional[str] = None,
         **kwargs
     ):
-        message = f"数据源不存在：Agent '{agent_id}' 的服务 '{service_name}'"
+        message = f"Data source does not exist: service '{service_name}' of Agent '{agent_id}'"
         if data_type:
-            message += f"（数据类型: {data_type}）"
+            message += f" (data type: {data_type})"
         
         details = {
             "agent_id": agent_id,
@@ -604,9 +604,9 @@ class ServiceBindingError(ToolSetError):
         reason: Optional[str] = None,
         **kwargs
     ):
-        message = f"服务绑定错误：服务 '{service_name}' 不属于 Agent '{agent_id}'"
+        message = f"Service binding error: service '{service_name}' does not belong to Agent '{agent_id}'"
         if reason:
-            message += f"。原因: {reason}"
+            message += f". Reason: {reason}"
         
         details = {
             "service_name": service_name,

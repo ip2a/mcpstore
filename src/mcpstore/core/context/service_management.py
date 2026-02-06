@@ -4,6 +4,7 @@ MCPStore Service Management Module
 """
 
 import asyncio
+import datetime
 import logging
 import time
 from typing import Dict, List, Optional, Any, Union, Tuple
@@ -124,6 +125,10 @@ class ServiceManagementMixin:
                 "agent_id": getattr(self, '_agent_id', 'unknown')
             }
 
+    # 别名：符合命名规范
+    def service_info(self, name: str) -> Any:
+        return self.get_service_info(name)
+
     async def get_service_info_async(self, name: str) -> Any:
         """
         获取服务详情（异步版本），支持 store/agent 上下文
@@ -143,6 +148,9 @@ class ServiceManagementMixin:
         else:
             logger.error(f"[get_service_info] Unknown context type: {self._context_type}")
             return {}
+
+    async def service_info_async(self, name: str) -> Any:
+        return await self.get_service_info_async(name)
 
     def update_service(self,
                       name: str,
@@ -226,14 +234,29 @@ class ServiceManagementMixin:
             if self._context_type == ContextType.STORE:
                 # Store级别：使用原子更新，避免读改写竞态
                 from mcpstore.core.configuration.config_write_service import ConfigWriteService
+                try:
+                    from mcpstore.utils.perspective_resolver import PerspectiveResolver
+
+                    resolver = PerspectiveResolver()
+                    name_res = resolver.normalize_service_name(
+                        self._store.client_manager.global_agent_store_id,
+                        name,
+                        target="global",
+                        strict=False,
+                    )
+                    config_key = name_res.global_name
+                except Exception as e:
+                    config_key = name
+                    logger.error(f"[UPDATE_SERVICE][STORE] PerspectiveResolver fallback: {e}")
+
                 cws = ConfigWriteService()
                 def _mutator(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     servers = dict(cfg.get("mcpServers", {}))
-                    if name not in servers:
-                        raise KeyError(f"Service {name} not found in store configuration")
-                    existing = dict(servers.get(name) or {})
+                    if config_key not in servers:
+                        raise KeyError(f"Service {config_key} not found in store configuration")
+                    existing = dict(servers.get(config_key) or {})
                     merged = _deep_merge(existing, config)
-                    servers[name] = merged
+                    servers[config_key] = merged
                     cfg["mcpServers"] = servers
                     return cfg
                 try:
@@ -250,9 +273,26 @@ class ServiceManagementMixin:
                 return success
             else:
                 # Agent级别：与单一数据源模式对齐——直接更新 mcp.json 并触发同步
-                global_name = name
-                if self._service_mapper:
-                    global_name = self._service_mapper.to_global_name(name)
+                try:
+                    from mcpstore.utils.perspective_resolver import PerspectiveResolver
+
+                    resolver = PerspectiveResolver()
+                    name_res = resolver.normalize_service_name(
+                        self._agent_id,
+                        name,
+                        target="global",
+                        strict=False,
+                    )
+                    global_name = name_res.global_name
+                except Exception as e:
+                    # 兼容旧逻辑
+                    global_name = name
+                    if self._service_mapper:
+                        try:
+                            global_name = self._service_mapper.to_global_name(name)
+                        except Exception:
+                            pass
+                    logger.error(f"[UPDATE_SERVICE][AGENT] PerspectiveResolver fallback: {e}")
 
                 from mcpstore.core.configuration.config_write_service import ConfigWriteService
                 cws = ConfigWriteService()
@@ -327,14 +367,29 @@ class ServiceManagementMixin:
             if self._context_type == ContextType.STORE:
                 # Store级别：使用原子增量更新
                 from mcpstore.core.configuration.config_write_service import ConfigWriteService
+                try:
+                    from mcpstore.utils.perspective_resolver import PerspectiveResolver
+
+                    resolver = PerspectiveResolver()
+                    name_res = resolver.normalize_service_name(
+                        self._store.client_manager.global_agent_store_id,
+                        name,
+                        target="global",
+                        strict=False,
+                    )
+                    config_key = name_res.global_name
+                except Exception as e:
+                    config_key = name
+                    logger.error(f"[PATCH_SERVICE][STORE] PerspectiveResolver fallback: {e}")
+
                 cws = ConfigWriteService()
                 def _mutator(cfg: Dict[str, Any]) -> Dict[str, Any]:
                     servers = dict(cfg.get("mcpServers", {}))
-                    if name not in servers:
-                        raise KeyError(f"Service {name} not found in store configuration")
-                    merged = dict(servers[name])
+                    if config_key not in servers:
+                        raise KeyError(f"Service {config_key} not found in store configuration")
+                    merged = dict(servers[config_key])
                     merged.update(updates)
-                    servers[name] = merged
+                    servers[config_key] = merged
                     cfg["mcpServers"] = servers
                     return cfg
                 try:
@@ -351,9 +406,26 @@ class ServiceManagementMixin:
                 return success
             else:
                 # Agent级别：与单一数据源模式对齐——直接增量更新 mcp.json 并触发同步
-                global_name = name
-                if self._service_mapper:
-                    global_name = self._service_mapper.to_global_name(name)
+                try:
+                    from mcpstore.utils.perspective_resolver import PerspectiveResolver
+
+                    resolver = PerspectiveResolver()
+                    name_res = resolver.normalize_service_name(
+                        self._agent_id,
+                        name,
+                        target="global",
+                        strict=False,
+                    )
+                    global_name = name_res.global_name
+                except Exception as e:
+                    global_name = name
+                    if self._service_mapper:
+                        try:
+                            global_name = self._service_mapper.to_global_name(name)
+                        except Exception:
+                            pass
+                    logger.error(f"[PATCH_SERVICE][AGENT] PerspectiveResolver fallback: {e}")
+
                 from mcpstore.core.configuration.config_write_service import ConfigWriteService
                 cws = ConfigWriteService()
                 def _mutator(cfg: Dict[str, Any]) -> Dict[str, Any]:
@@ -380,8 +452,9 @@ class ServiceManagementMixin:
                     global_agent = self._store.client_manager.global_agent_store_id
                     metadata = await self._store.registry._service_state_service.get_service_metadata_async(global_agent, global_name)
                     if metadata:
+                        metadata.service_config = dict(metadata.service_config or {})
                         metadata.service_config.update(updates)
-                        self._store.registry.set_service_metadata(global_agent, global_name, metadata)
+                        await self._store.registry.set_service_metadata_async(global_agent, global_name, metadata)
                 except Exception as e:
                     logger.error(f"Failed to update service metadata: {e}")
                     raise
@@ -423,7 +496,22 @@ class ServiceManagementMixin:
         try:
             if self._context_type == ContextType.STORE:
                 # Store级别：删除服务并触发双向同步
-                await self._delete_store_service_with_sync(name)
+                try:
+                    from mcpstore.utils.perspective_resolver import PerspectiveResolver
+
+                    resolver = PerspectiveResolver()
+                    name_res = resolver.normalize_service_name(
+                        self._store.client_manager.global_agent_store_id,
+                        name,
+                        target="global",
+                        strict=False,
+                    )
+                    target_name = name_res.global_name
+                except Exception as e:
+                    target_name = name
+                    logger.error(f"[SERVICE_DELETE] PerspectiveResolver fallback (store): {e}")
+
+                await self._delete_store_service_with_sync(target_name)
                 return True
             else:
                 # Agent级别：透明代理删除
@@ -447,29 +535,24 @@ class ServiceManagementMixin:
         if not input_name:
             raise ValueError("service name is required")
 
-        from .agent_service_mapper import AgentServiceMapper
+        # 统一委托给 PerspectiveResolver，避免重复实现视角转换
+        try:
+            from mcpstore.utils.perspective_resolver import PerspectiveResolver
 
-        # 全局名格式
-        if AgentServiceMapper.is_any_agent_service(input_name):
-            parsed_agent, local_name = AgentServiceMapper.parse_agent_service_name(input_name)
-            if parsed_agent != self._agent_id:
-                raise ValueError(
-                    f"输入服务归属的 agent_id={parsed_agent} 与当前 agent_id={self._agent_id} 不一致"
-                )
-            return local_name
-
-        # 冒号分隔格式
-        if ":" in input_name:
-            maybe_agent, maybe_local = input_name.split(":", 1)
-            if maybe_local and maybe_agent:
-                if maybe_agent != self._agent_id:
-                    raise ValueError(
-                        f"输入服务归属的 agent_id={maybe_agent} 与当前 agent_id={self._agent_id} 不一致"
-                    )
-                return maybe_local
-
-        # 默认当作本地名
-        return input_name
+            resolver = PerspectiveResolver()
+            res = resolver.normalize_service_name(
+                self._agent_id,
+                input_name,
+                target="local",
+                strict=True,
+            )
+            logger.debug(
+                f"[PERSPECTIVE] normalize input='{input_name}' -> local='{res.local_name}' method='{res.resolution_method}'"
+            )
+            return res.local_name
+        except Exception as e:
+            logger.error(f"[PERSPECTIVE] normalize_agent_local_name failed: {e}")
+            raise
 
     async def delete_service_two_step(self, service_name: str) -> Dict[str, Any]:
         """
@@ -604,12 +687,11 @@ class ServiceManagementMixin:
             logger.debug(f"[RESET_CONFIG] [CLEAN] Cleaning Agent: {agent_id}")
             await self._store.registry.clear_async(agent_id)
         
-        # 3. 重置 mcp.json 文件
-        default_config = {"mcpServers": {}}
-        mcp_success = self._store._unified_config.update_mcp_config(default_config)
+        # 3. 单源模式：不再重置 mcp.json，重置以 KV 为准
+        logger.info("[RESET_CONFIG] [STORE] Single-source KV: skip mcp.json reset")
         
         logger.info("[RESET_CONFIG] [STORE] Store level: configuration reset completed")
-        return mcp_success
+        return True
 
     async def _reset_agent_config(self) -> bool:
         """Agent级别重置配置的内部实现"""
@@ -989,26 +1071,21 @@ class ServiceManagementMixin:
             if not self._store.registry.get_session(global_agent_store_id, service_name):
                 logger.warning(f"Service {service_name} not found in registry, but continuing with cleanup")
 
-            # 事务性删除：先删除文件配置，再删除缓存
-            # 1. 从mcp.json中删除服务配置（使用 UnifiedConfigManager 自动刷新缓存）
-            success = self._store._unified_config.remove_service_config(service_name)
-            if success:
-                logger.info(f"[DELETE_CONFIG] [SUCCESS] Service removed from mcp.json: {service_name}, cache synchronized")
-
-            # 2. 从缓存中删除服务（包括工具和会话）- 使用异步版本
+            # 事务性删除：直接删除缓存/映射，不触碰文件
+            # 1. 从缓存中删除服务（包括工具和会话）- 使用异步版本
             await self._store.registry.remove_service_async(global_agent_store_id, service_name)
 
-            # 3. 删除Service-Client映射
+            # 2. 删除Service-Client映射
             self._store.registry.remove_service_client_mapping(global_agent_store_id, service_name)
 
-            # 4. 删除Client配置
+            # 3. 删除Client配置
             self._store.registry.remove_client_config(client_id)
 
-            # 5. 删除Agent-Client映射
+            # 4. 删除Agent-Client映射
             self._store.registry.remove_agent_client_mapping(global_agent_store_id, client_id)
 
-            # 6. 单源模式：不再同步到分片文件
-            logger.info("Single-source mode: skip shard mapping files sync")
+            # 5. 单源模式：不再同步到分片文件或 mcp.json
+            logger.info("Single-source mode: skip file/shard sync")
 
             logger.info(f"[DELETE_CONFIG] [STORE] Store level: configuration deletion completed {service_name}")
 
@@ -1164,12 +1241,12 @@ class ServiceManagementMixin:
                 "mcpServers": {service_name: normalized_config}
             })
 
-            # 3. 设置服务状态为INITIALIZING并更新元数据
+            # 3. 设置服务状态为STARTUP并更新元数据
             from mcpstore.core.models.service import ServiceConnectionState
             await self._store.orchestrator.lifecycle_manager._transition_state(
                 agent_id=global_agent_store_id,
                 service_name=service_name,
-                new_state=ServiceConnectionState.INITIALIZING,
+                new_state=ServiceConnectionState.STARTUP,
                 reason="config_updated",
                 source="ServiceManagement",
             )
@@ -1184,15 +1261,10 @@ class ServiceManagementMixin:
                 metadata.state_entered_time = datetime.now()
                 self._store.registry.set_service_metadata(global_agent_store_id, service_name, metadata)
 
-            # 4. 更新mcp.json文件（使用 UnifiedConfigManager 自动刷新缓存）
-            success = self._store._unified_config.add_service_config(service_name, normalized_config)
-            if not success:
-                raise Exception(f"Failed to update service config for {service_name}")
+            # 4. 单源模式：不再同步到 mcp.json 或分片文件
+            logger.info("Single-source mode: skip file/shard sync")
 
-            # 5. 单源模式：不再同步到分片文件
-            logger.info("Single-source mode: skip shard mapping files sync")
-
-            # 6. 触发生命周期管理器重新初始化服务
+            # 5. 触发生命周期管理器重新初始化服务
             await self._store.orchestrator.lifecycle_manager.initialize_service(
                 global_agent_store_id, service_name, normalized_config
             )
@@ -1249,12 +1321,12 @@ class ServiceManagementMixin:
                 "mcpServers": {service_name: normalized_config}
             })
 
-            # 3. 设置服务状态为INITIALIZING并更新元数据
+            # 3. 设置服务状态为STARTUP并更新元数据
             from mcpstore.core.models.service import ServiceConnectionState
             await self._store.orchestrator.lifecycle_manager._transition_state(
                 agent_id=self._agent_id,
                 service_name=service_name,
-                new_state=ServiceConnectionState.INITIALIZING,
+                new_state=ServiceConnectionState.STARTUP,
                 reason="agent_config_updated",
                 source="ServiceManagement",
             )
@@ -1314,17 +1386,38 @@ class ServiceManagementMixin:
         """获取单个服务的状态信息"""
         try:
             if self._context_type == ContextType.STORE:
-                return await self._store.orchestrator.get_service_status_async(name)
+                from mcpstore.utils.perspective_resolver import PerspectiveResolver
+
+                resolver = PerspectiveResolver()
+                name_res = resolver.normalize_service_name(
+                    self._store.client_manager.global_agent_store_id,
+                    name,
+                    target="global",
+                    strict=True,
+                )
+                return await self._store.orchestrator.get_service_status_async(name_res.global_name)
             else:
-                # Agent模式：转换服务名称
-                global_name = name
-                if self._service_mapper:
-                    global_name = self._service_mapper.to_global_name(name)
-                # 透明代理：在全局命名空间查询状态
-                return await self._store.orchestrator.get_service_status_async(global_name)
+                # Agent模式：转换服务名称（严格校验）
+                from mcpstore.utils.perspective_resolver import PerspectiveResolver
+
+                resolver = PerspectiveResolver()
+                name_res = resolver.normalize_service_name(
+                    self._agent_id,
+                    name,
+                    target="global",
+                    strict=True,
+                )
+                return await self._store.orchestrator.get_service_status_async(name_res.global_name)
         except Exception as e:
             logger.error(f"Failed to get service status for {name}: {e}")
             return {"status": "error", "error": str(e)}
+
+    # 别名：符合命名规范
+    def service_status(self, name: str) -> dict:
+        return self.get_service_status(name)
+
+    async def service_status_async(self, name: str) -> dict:
+        return await self.get_service_status_async(name)
 
     def restart_service(self, name: str) -> bool:
         raise RuntimeError("[SERVICE_MANAGEMENT] Synchronous restart_service is disabled, please use restart_service_async.")
@@ -1333,7 +1426,22 @@ class ServiceManagementMixin:
         """重启指定服务（透明代理）"""
         try:
             if self._context_type == ContextType.STORE:
-                return await self._store.orchestrator.restart_service(name)
+                try:
+                    from mcpstore.utils.perspective_resolver import PerspectiveResolver
+
+                    resolver = PerspectiveResolver()
+                    name_res = resolver.normalize_service_name(
+                        self._store.client_manager.global_agent_store_id,
+                        name,
+                        target="global",
+                        strict=False,
+                    )
+                    target_name = name_res.global_name
+                except Exception as e:
+                    target_name = name
+                    logger.error(f"[RESTART_SERVICE][STORE] PerspectiveResolver fallback: {e}")
+
+                return await self._store.orchestrator.restart_service(target_name)
             else:
                 # Agent模式：透明代理 - 将本地服务名映射到全局服务名，并在全局命名空间执行重启
                 global_name = await self._map_agent_service_to_global(name)
@@ -1357,7 +1465,20 @@ class ServiceManagementMixin:
         try:
             global_agent_id = self._store.client_manager.global_agent_store_id
             if self._context_type == ContextType.STORE:
-                global_name = name
+                try:
+                    from mcpstore.utils.perspective_resolver import PerspectiveResolver
+
+                    resolver = PerspectiveResolver()
+                    name_res = resolver.normalize_service_name(
+                        self._store.client_manager.global_agent_store_id,
+                        name,
+                        target="global",
+                        strict=False,
+                    )
+                    global_name = name_res.global_name
+                except Exception as e:
+                    global_name = name
+                    logger.error(f"[DISCONNECT_SERVICE][STORE] PerspectiveResolver fallback: {e}")
             else:
                 global_name = await self._map_agent_service_to_global(name)
 
@@ -1388,17 +1509,17 @@ class ServiceManagementMixin:
             str: 全局服务名
         """
         try:
-            if self._agent_id:
-                # 尝试从映射关系中获取全局名称（使用异步版本，避免 AOB 事件循环冲突）
-                global_name = await self._store.registry.get_global_name_from_agent_service_async(self._agent_id, local_name)
-                if global_name:
-                    logger.debug(f" [SERVICE_PROXY] Service name mapping: {local_name} -> {global_name}")
-                    return global_name
+            from mcpstore.utils.perspective_resolver import PerspectiveResolver
 
-            # 如果映射失败，可能是 Store 原生服务，直接返回
-            logger.debug(f" [SERVICE_PROXY] No mapping, using original name: {local_name}")
-            return local_name
-
+            resolver = PerspectiveResolver()
+            res = resolver.normalize_service_name(
+                self._agent_id,
+                local_name,
+                target="global",
+                strict=False,
+            )
+            logger.debug(f" [SERVICE_PROXY] Service name mapping via PerspectiveResolver: {local_name} -> {res.global_name}")
+            return res.global_name
         except Exception as e:
             logger.error(f" [SERVICE_PROXY] Service name mapping failed: {e}")
             return local_name
@@ -1412,13 +1533,8 @@ class ServiceManagementMixin:
                 service_name
             )
 
-            # 2. 从 mcp.json 中删除（使用 UnifiedConfigManager 自动刷新缓存）
-            success = self._store._unified_config.remove_service_config(service_name)
-            
-            if success:
-                    logger.info(f"[SERVICE_DELETE] [STORE] Store service deletion successful: {service_name}, cache synchronized")
-            else:
-                logger.error(f" [SERVICE_DELETE] Store service deletion failed: {service_name}")
+            # 2. 单源模式：不再同步到 mcp.json
+            logger.info("[SERVICE_DELETE] [STORE] Skip file sync (single-source KV)")
 
             # 3. 触发双向同步（如果是 Agent 服务）
             if hasattr(self._store, 'bidirectional_sync_manager'):
@@ -1434,15 +1550,29 @@ class ServiceManagementMixin:
     async def _delete_agent_service_with_sync(self, local_name: str):
         """Agent 服务删除（带双向同步），返回是否成功"""
         try:
-            # 宽容输入：支持本地名、全局名或 "agent:service" 格式
-            local_name = self._normalize_agent_local_name(local_name)
+            # 使用 PerspectiveResolver 统一归一化输入到本地名
+            from mcpstore.utils.perspective_resolver import PerspectiveResolver
+
+            resolver = PerspectiveResolver()
+            local_res = resolver.normalize_service_name(
+                self._agent_id,
+                local_name,
+                target="local",
+                strict=True,
+            )
+            local_name = local_res.local_name
 
             success = True
             # 1. 获取全局名称（使用异步版本，避免 AOB 事件循环冲突）
-            global_name = await self._store.registry.get_global_name_from_agent_service_async(self._agent_id, local_name)
+            global_res = resolver.normalize_service_name(
+                self._agent_id,
+                local_name,
+                target="global",
+                strict=True,
+            )
+            global_name = global_res.global_name
             if not global_name:
-                logger.warning(f" [SERVICE_DELETE] Mapping not found: {self._agent_id}:{local_name}")
-                return False
+                raise ValueError(f"Service mapping not found: {self._agent_id}:{local_name}")
 
             # 2. 从 Agent 缓存中删除（使用异步版本）
             await self._store.registry.remove_service_async(self._agent_id, local_name)
@@ -1456,13 +1586,8 @@ class ServiceManagementMixin:
             # 4. 移除映射关系（仅映射表，不触发关系/状态删除）
             await self._store.registry.remove_agent_service_mapping_async(self._agent_id, local_name)
 
-            # 5. 从 mcp.json 中删除（使用 UnifiedConfigManager 自动刷新缓存）
-            success = success and self._store._unified_config.remove_service_config(global_name)
-            
-            if success:
-                logger.info(f"[SERVICE_DELETE] [AGENT] Agent service deletion successful: {local_name} -> {global_name}, cache synchronized")
-            else:
-                logger.error(f" [SERVICE_DELETE] Agent service deletion failed: {local_name} -> {global_name}")
+            # 5. 单源模式：不再同步到 mcp.json
+            logger.info("[SERVICE_DELETE] [AGENT] Skip file sync (single-source KV)")
 
             # 6. 清理服务状态数据
             try:
@@ -1533,7 +1658,7 @@ class ServiceManagementMixin:
     def wait_service(self, client_id_or_service_name: str,
                     status: Union[str, List[str]] = 'healthy',
                     timeout: float = 10.0,
-                    raise_on_timeout: bool = False) -> bool:
+                    raise_on_timeout: bool = False) -> Dict[str, Any]:
         """
         等待服务达到指定状态（同步版本，使用新架构避免死锁）。
 
@@ -1544,7 +1669,9 @@ class ServiceManagementMixin:
             raise_on_timeout: 超时时是否抛出异常，默认False
 
         Returns:
-            bool: 成功达到目标状态返回True，超时返回False
+            dict: {success, status, window_metrics, retry_in, hard_timeout_in, lease_remaining,
+                   next_retry_time, hard_deadline, lease_deadline, response_time,
+                   consecutive_failures, last_state_change, hard_timeout_remaining, last_error}
 
         Raises:
             TimeoutError: 当raise_on_timeout=True且超时时抛出
@@ -1565,22 +1692,23 @@ class ServiceManagementMixin:
 
             # 直接调用同步外壳，避免_sync_helper.run_async的复杂性
             result = self._service_management_sync_shell.wait_service(service_name, timeout)
-
-            if not result and raise_on_timeout:
+            if isinstance(result, bool):
+                result = {"success": bool(result), "status": None}
+            result = self._enrich_wait_result(result)
+            if not result.get("success") and raise_on_timeout:
                 raise TimeoutError(f"Service {service_name} did not reach status {status} within {timeout} seconds")
-
             return result
 
         except Exception as e:
             logger.error(f"[NEW_ARCH] wait_service failed: {e}")
             if raise_on_timeout:
                 raise
-            return False
+            return {"success": False, "error": str(e)}
 
     async def wait_service_async(self, client_id_or_service_name: str,
                                status: Union[str, List[str]] = 'healthy',
                                timeout: float = 10.0,
-                               raise_on_timeout: bool = False) -> bool:
+                               raise_on_timeout: bool = False) -> Dict[str, Any]:
         """
         等待服务达到指定状态（异步版本）
 
@@ -1591,7 +1719,9 @@ class ServiceManagementMixin:
             raise_on_timeout: 超时时是否抛出异常，默认False
 
         Returns:
-            bool: 成功达到目标状态返回True，超时返回False
+            dict: {success, status, window_metrics, retry_in, hard_timeout_in, lease_remaining,
+                   next_retry_time, hard_deadline, lease_deadline, response_time,
+                   consecutive_failures, last_state_change, hard_timeout_remaining, last_error}
 
         Raises:
             TimeoutError: 当raise_on_timeout=True且超时时抛出
@@ -1631,6 +1761,7 @@ class ServiceManagementMixin:
             poll_interval = 0.2  # 200ms轮询间隔
             prev_status = None
             last_log = start_time
+            last_meta: Dict[str, Any] = {}
 
             while True:
                 # 检查超时
@@ -1643,13 +1774,36 @@ class ServiceManagementMixin:
                     logger.warning(msg)
                     if raise_on_timeout:
                         raise TimeoutError(msg)
-                    return False
+                    return self._enrich_wait_result({
+                        "success": False,
+                        "status": prev_status or "unknown",
+                        "hard_timeout_remaining": max(timeout - elapsed, 0.0),
+                        "last_error": msg,
+                    }, meta=last_meta)
 
                 # 获取当前状态（先读一次缓存，随后在必要时读一次新缓存以防止竞态）
                 try:
 
                     status_dict = await self._store.orchestrator.get_service_status_async(service_name, status_agent_key) or {}
                     current_status = status_dict.get("status", "unknown")
+                    try:
+                        meta = await self._store.registry._service_state_service.get_service_metadata_async(status_agent_key, service_name)
+                        if meta:
+                            last_meta = {
+                                "window_error_rate": getattr(meta, "window_error_rate", None),
+                                "latency_p95": getattr(meta, "latency_p95", None),
+                                "latency_p99": getattr(meta, "latency_p99", None),
+                                "sample_size": getattr(meta, "sample_size", None),
+                                "next_retry_time": getattr(meta, "next_retry_time", None),
+                                "hard_deadline": getattr(meta, "hard_deadline", None),
+                                "lease_deadline": getattr(meta, "lease_deadline", None),
+                                "response_time": getattr(meta, "response_time", None),
+                                "consecutive_failures": getattr(meta, "consecutive_failures", None),
+                                "last_state_change": getattr(meta, "state_entered_time", None) or getattr(meta, "last_health_check", None),
+                                "last_error": getattr(meta, "error_message", None),
+                            }
+                    except Exception as meta_err:
+                        logger.debug(f"[WAIT_SERVICE] metadata_fetch_error service='{service_name}' error={meta_err}")
 
                     # 仅在状态变化或每2秒节流一次打印
                     now = time.time()
@@ -1669,12 +1823,20 @@ class ServiceManagementMixin:
                     if change_mode:
                         if current_status != initial_status:
                             logger.info(f"[WAIT_SERVICE] done mode=change service='{service_name}' from='{initial_status}' to='{current_status}' elapsed={elapsed:.2f}s")
-                            return True
+                            return self._enrich_wait_result({
+                                "success": True,
+                                "status": current_status,
+                                "last_error": last_meta.get("last_error") if last_meta else None,
+                            }, meta=last_meta)
                     else:
                         # 检查是否达到目标状态
                         if current_status in target_statuses:
                             logger.info(f"[WAIT_SERVICE] done mode=target service='{service_name}' reached='{current_status}' elapsed={elapsed:.2f}s")
-                            return True
+                            return self._enrich_wait_result({
+                                "success": True,
+                                "status": current_status,
+                                "last_error": last_meta.get("last_error") if last_meta else None,
+                            }, meta=last_meta)
                 except Exception as e:
                     # 降级到 debug，避免无意义刷屏
                     logger.debug(f"[WAIT_SERVICE] status_error service='{service_name}' error={e}")
@@ -1690,7 +1852,88 @@ class ServiceManagementMixin:
             logger.error(f"[WAIT_SERVICE] unexpected_error error={e}")
             if raise_on_timeout:
                 raise
-            return False
+            return {"success": False, "error": str(e)}
+
+    @staticmethod
+    def _remaining_seconds(dt: Any) -> Optional[float]:
+        """计算距离未来时间的剩余秒数"""
+        try:
+            if dt is None:
+                return None
+            import datetime
+            if isinstance(dt, (int, float)):
+                return max(dt - time.time(), 0.0)
+            if isinstance(dt, datetime.datetime):
+                return max((dt - datetime.datetime.now()).total_seconds(), 0.0)
+            return None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _serialize_time(dt: Any) -> Any:
+        """统一序列化时间字段为 ISO 字符串或原值"""
+        try:
+            if isinstance(dt, datetime.datetime):
+                return dt.isoformat()
+            return dt
+        except Exception:
+            return dt
+
+    def _enrich_wait_result(self, result: Dict[str, Any], meta: Any = None) -> Dict[str, Any]:
+        """
+        将 wait_service 返回结构补齐到与健康状态对齐：
+        - window_metrics（错误率/延迟分位/样本数）
+        - retry_in/hard_timeout_in/lease_remaining
+        - next_retry_time/hard_deadline/lease_deadline（ISO 字符串）
+        - response_time/consecutive_failures/last_state_change
+        """
+        enriched = dict(result or {})
+
+        def _read_meta(key: str) -> Any:
+            if meta is None:
+                return None
+            if hasattr(meta, key):
+                return getattr(meta, key)
+            if isinstance(meta, dict):
+                return meta.get(key)
+            return None
+
+        def _set_default(key: str, value: Any):
+            if key not in enriched or enriched.get(key) is None:
+                enriched[key] = value
+
+        window_metrics = None
+        error_rate = _read_meta("window_error_rate")
+        latency_p95 = _read_meta("latency_p95")
+        latency_p99 = _read_meta("latency_p99")
+        sample_size = _read_meta("sample_size")
+        if any(v is not None for v in (error_rate, latency_p95, latency_p99, sample_size)):
+            window_metrics = {
+                "error_rate": error_rate,
+                "latency_p95": latency_p95,
+                "latency_p99": latency_p99,
+                "sample_size": sample_size,
+            }
+
+        next_retry_time = _read_meta("next_retry_time")
+        hard_deadline = _read_meta("hard_deadline")
+        lease_deadline = _read_meta("lease_deadline")
+        response_time = _read_meta("response_time") or _read_meta("last_response_time")
+        consecutive_failures = _read_meta("consecutive_failures")
+        last_state_change = _read_meta("last_state_change") or _read_meta("state_entered_time") or _read_meta("last_health_check")
+
+        _set_default("status", enriched.get("status", "unknown"))
+        _set_default("window_metrics", window_metrics)
+        _set_default("retry_in", self._remaining_seconds(next_retry_time))
+        _set_default("hard_timeout_in", self._remaining_seconds(hard_deadline))
+        _set_default("lease_remaining", self._remaining_seconds(lease_deadline))
+        _set_default("next_retry_time", self._serialize_time(next_retry_time))
+        _set_default("hard_deadline", self._serialize_time(hard_deadline))
+        _set_default("lease_deadline", self._serialize_time(lease_deadline))
+        _set_default("response_time", response_time)
+        _set_default("consecutive_failures", consecutive_failures)
+        _set_default("last_state_change", self._serialize_time(last_state_change))
+        return enriched
 
     def _normalize_target_statuses(self, status: Union[str, List[str]]) -> List[str]:
         """

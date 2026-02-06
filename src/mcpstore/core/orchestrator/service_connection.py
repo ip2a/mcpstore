@@ -12,9 +12,8 @@ MCPOrchestrator Service Connection Module
 import logging
 from typing import Dict, Any, Optional, Tuple
 
-from fastmcp import Client
-
 from mcpstore.core.models.service import ServiceConnectionState
+from mcpstore.mcp import Client
 
 logger = logging.getLogger(__name__)
 
@@ -207,11 +206,11 @@ class ServiceConnectionMixin:
             client_id: Client ID, if None uses global_agent_store_id
 
         Returns:
-            bool: True if service is HEALTHY/WARNING state
+            bool: True if service is HEALTHY/DEGRADED state
         """
         agent_key = client_id or self.client_manager.global_agent_store_id
         state = await self.registry._service_state_service.get_service_state_async(agent_key, name)
-        return state in (ServiceConnectionState.HEALTHY, ServiceConnectionState.WARNING)
+        return state in (ServiceConnectionState.HEALTHY, ServiceConnectionState.DEGRADED)
 
     def _normalize_service_config(self, service_config: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize service configuration"""

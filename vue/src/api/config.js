@@ -115,12 +115,13 @@ export const API_ENDPOINTS = {
 
 // 服务生命周期状态
 export const SERVICE_LIFECYCLE_STATES = {
-  INITIALIZING: 'initializing',
+  INIT: 'init',
+  STARTUP: 'startup',
+  READY: 'ready',
   HEALTHY: 'healthy',
-  WARNING: 'warning',
-  RECONNECTING: 'reconnecting',
-  UNREACHABLE: 'unreachable',
-  DISCONNECTING: 'disconnecting',
+  DEGRADED: 'degraded',
+  CIRCUIT_OPEN: 'circuit_open',
+  HALF_OPEN: 'half_open',
   DISCONNECTED: 'disconnected'
 }
 

@@ -1,24 +1,29 @@
 """
-健康检查管理器 - 负责服务健康监控
+健康检查管理器（新模型，无兼容层）
 
-职责:
-1. 监听 ServiceConnected 事件，启动定期健康检查
-2. 定期检查服务健康状态
-3. 发布 HealthCheckCompleted 事件
-4. 检测服务超时
+- 分探针：Startup/Readiness/Liveness，调度节流按状态决定
+- 滑窗/退避/半开/硬超时：此版本先提供基础探针与事件发布，滑窗与退避将由后续迭代补充
+- 事件：发布 HealthCheckCompleted，供 LifecycleManager 处理状态迁移
 """
 
 import asyncio
 import logging
+import os
+import socket
 import time
-from typing import Dict, Tuple
+from collections import deque
+from typing import Dict, Tuple, Optional, Deque, Any
 
+from mcpstore.config.config_dataclasses import ServiceLifecycleConfig
+from mcpstore.core.eventlog.event_models import domain_event_to_record
 from mcpstore.core.events.event_bus import EventBus
 from mcpstore.core.events.service_events import (
-    ServiceConnected, HealthCheckRequested, HealthCheckCompleted,
-    ServiceTimeout, ServiceStateChanged
+    ServiceConnected,
+    HealthCheckRequested,
+    HealthCheckCompleted,
+    ServiceStateChanged,
+    ServiceTimeout,
 )
-from mcpstore.core.lifecycle.config import ServiceLifecycleConfig
 from mcpstore.core.models.service import ServiceConnectionState
 from mcpstore.core.utils.mcp_client_helpers import temp_client_for_service
 
@@ -27,44 +32,86 @@ logger = logging.getLogger(__name__)
 
 class HealthMonitor:
     """
-    健康检查管理器
+    健康检查管理器（基础版）
 
-    职责:
-    1. 监听 ServiceConnected 事件，启动定期健康检查
-    2. 定期检查服务健康状态
-    3. 发布 HealthCheckCompleted 事件
-    4. 检测服务超时
+    - 监听 ServiceConnected/HealthCheckRequested/ServiceStateChanged
+    - 根据状态/配置执行探针，发布 HealthCheckCompleted
+    - 采用按状态节流：正常用 liveness_interval，降级/熔断用 warning_ping_timeout
     """
 
     def __init__(
         self,
         event_bus: EventBus,
-        registry: 'CoreRegistry',
-        lifecycle_config: 'ServiceLifecycleConfig',
+        registry: "CoreRegistry",
+        lifecycle_config: ServiceLifecycleConfig,
         global_agent_store_id: str = "global_agent_store",
+        *,
+        event_store=None,
+        enable_event_log: bool = True,
+        is_only_db: bool = False,
+        lease_ttl: float = 30.0,
+        lease_enabled: bool = True,
+        lease_owner: Optional[str] = None,
     ):
         self._event_bus = event_bus
         self._registry = registry
         self._config = lifecycle_config
         self._global_agent_store_id = global_agent_store_id
+        self._event_store = event_store
+        self._enable_event_log = bool(event_store is not None and enable_event_log)
+        self._is_only_db = is_only_db
+        self._lease_enabled = bool(lease_enabled)
+        self._lease_ttl = lease_ttl
+        self._lease_owner = lease_owner or self._default_owner("health_monitor")
+        self._lease_key = "lease:health_monitor"
+        self._lease_task: Optional[asyncio.Task] = None
+        self._lease_acquired = False
 
-        # 从统一生命周期配置中读取参数
-        self._check_interval = lifecycle_config.normal_heartbeat_interval
-        self._warning_interval = lifecycle_config.warning_heartbeat_interval
-        self._timeout_threshold = lifecycle_config.initialization_timeout
-        self._ping_timeout = lifecycle_config.health_check_ping_timeout
-        self._warning_ping_timeout = getattr(lifecycle_config, "warning_ping_timeout", self._ping_timeout * 3)
-        self._transport_ping_timeout = {
-            "http": getattr(lifecycle_config, "ping_timeout_http", self._ping_timeout),
-            "sse": getattr(lifecycle_config, "ping_timeout_sse", self._ping_timeout),
-            "stdio": getattr(lifecycle_config, "ping_timeout_stdio", self._ping_timeout * 4),
-        }
-        # 新的按需检查节流控制
+        # 周期与超时
+        self._liveness_interval = lifecycle_config.liveness_interval
+        self._ping_timeout_http = lifecycle_config.ping_timeout_http
+        self._ping_timeout_sse = lifecycle_config.ping_timeout_sse
+        self._ping_timeout_stdio = lifecycle_config.ping_timeout_stdio
+        self._warning_ping_timeout = lifecycle_config.warning_ping_timeout
+        self._readiness_success_threshold = lifecycle_config.readiness_success_threshold
+        self._readiness_failure_threshold = lifecycle_config.readiness_failure_threshold
+        # 窗口与阈值
+        self._window_size = lifecycle_config.window_size
+        self._window_min_calls = lifecycle_config.window_min_calls
+        self._error_rate_threshold = lifecycle_config.error_rate_threshold
+        self._latency_p95_warn = lifecycle_config.latency_p95_warn
+        self._latency_p99_critical = lifecycle_config.latency_p99_critical
+        # 退避与硬超时
+        self._max_reconnect_attempts = lifecycle_config.max_reconnect_attempts
+        self._backoff_base = lifecycle_config.backoff_base
+        self._backoff_max = lifecycle_config.backoff_max
+        self._backoff_jitter = lifecycle_config.backoff_jitter
+        self._backoff_max_duration = lifecycle_config.backoff_max_duration
+        self._reconnect_hard_timeout = lifecycle_config.reconnect_hard_timeout
+        # 半开试探
+        self._half_open_max_calls = lifecycle_config.half_open_max_calls
+        self._half_open_success_rate_threshold = lifecycle_config.half_open_success_rate_threshold
+        # 租约（预留）
+        self._lease_ttl = lifecycle_config.lease_ttl
+        self._lease_renew_interval = lifecycle_config.lease_renew_interval
+
+        # 任务与节流
         self._last_check_time: Dict[Tuple[str, str], float] = {}
-
-        # 健康检查任务跟踪
-        self._health_check_tasks: Dict[Tuple[str, str], asyncio.Task] = {}  # (agent_id, service_name) -> task
+        self._health_check_tasks: Dict[Tuple[str, str], asyncio.Task] = {}
         self._is_running = False
+        # 滑动窗口：key -> deque[(timestamp, success(bool), response_time(float|None))]
+        self._windows: Dict[Tuple[str, str], Deque[Tuple[float, bool, Optional[float]]]] = {}
+        # 退避/硬超时信息：key -> {"next_retry": ts, "attempts": n, "hard_deadline": ts}
+        self._cooldowns: Dict[Tuple[str, str], Dict[str, float]] = {}
+        # 半开统计：key -> {"attempts": n, "success": n, "failure": n}
+        self._half_open_stats: Dict[Tuple[str, str], Dict[str, int]] = {}
+        # 租约续约时间：key -> deadline_ts
+        self._leases: Dict[Tuple[str, str], float] = {}
+        # 启动/就绪连续成功计数
+        self._readiness_success: Dict[Tuple[str, str], int] = {}
+        self._readiness_failures: Dict[Tuple[str, str], int] = {}
+        # 硬超时标记：key -> deadline_ts
+        self._hard_timeouts: Dict[Tuple[str, str], float] = {}
 
         # 订阅事件
         self._event_bus.subscribe(ServiceConnected, self._on_service_connected, priority=30)
@@ -72,174 +119,292 @@ class HealthMonitor:
         self._event_bus.subscribe(ServiceStateChanged, self._on_state_changed, priority=20)
 
         logger.info(
-            f"HealthMonitor initialized (bus={hex(id(self._event_bus))}, "
-            f"normal_interval={self._check_interval}s, warning_interval={self._warning_interval}s, "
-            f"timeout={self._timeout_threshold}s, ping_timeout={self._ping_timeout}s)"
+            "HealthMonitor initialized (liveness=%.1fs, warn_ping=%.1fs)",
+            self._liveness_interval,
+            self._warning_ping_timeout,
         )
 
+    @staticmethod
+    def _default_owner(role: str) -> str:
+        try:
+            host = socket.gethostname()
+        except Exception:
+            host = "host"
+        try:
+            pid = os.getpid()
+        except Exception:
+            pid = 0
+        return f"{role}:{host}:{pid}"
+
     async def start(self):
-        """启动健康监控"""
         if self._is_running:
             logger.warning("HealthMonitor is already running")
             return
-
+        if self._lease_enabled and self._event_store:
+            try:
+                acquired = await self._event_store.acquire_lease(
+                    self._lease_owner,
+                    self._lease_ttl,
+                    lease_key=self._lease_key,
+                )
+            except Exception as lease_err:
+                logger.error(f"[HEALTH] Acquire lease failed, skip start: {lease_err}")
+                return
+            if not acquired:
+                logger.warning("[HEALTH] Lease is held by another node, skip starting HealthMonitor")
+                return
+            self._lease_acquired = True
+            self._lease_task = asyncio.create_task(self._renew_lease_loop())
         self._is_running = True
         logger.info("HealthMonitor started")
 
     async def stop(self):
-        """停止健康监控"""
         self._is_running = False
-
-        # 取消所有健康检查任务
         for task in self._health_check_tasks.values():
             if not task.done():
                 task.cancel()
-
-        # 等待所有任务完成
         if self._health_check_tasks:
             await asyncio.gather(*self._health_check_tasks.values(), return_exceptions=True)
-
         self._health_check_tasks.clear()
+        if self._lease_task and not self._lease_task.done():
+            self._lease_task.cancel()
+            try:
+                await self._lease_task
+            except Exception:
+                pass
+        if self._lease_enabled and self._event_store and self._lease_acquired:
+            try:
+                await self._event_store.release_lease(
+                    self._lease_owner,
+                    lease_key=self._lease_key,
+                )
+            except Exception:
+                pass
+            self._lease_acquired = False
         logger.info("HealthMonitor stopped")
 
-    async def _on_service_connected(self, event: ServiceConnected):
-        """
-        处理服务连接成功 - 仅调度一次即时健康检查（不启动循环）
-        """
-        logger.info(f"[HEALTH] Starting health check for: {event.service_name}")
+    async def _renew_lease_loop(self):
+        try:
+            while self._is_running and self._lease_enabled and self._event_store:
+                await asyncio.sleep(max(self._lease_ttl / 2, 1.0))
+                try:
+                    ok = await self._event_store.renew_lease(
+                        self._lease_owner,
+                        self._lease_ttl,
+                        lease_key=self._lease_key,
+                    )
+                except Exception as lease_err:
+                    logger.error(f"[HEALTH] Lease renew failed, stop monitor: {lease_err}")
+                    ok = False
+                if not ok:
+                    logger.warning("[HEALTH] Lease lost, stopping HealthMonitor")
+                    self._is_running = False
+                    break
+        finally:
+            if self._lease_enabled and self._event_store and self._lease_acquired:
+                try:
+                    await self._event_store.release_lease(
+                        self._lease_owner,
+                        lease_key=self._lease_key,
+                    )
+                except Exception:
+                    pass
+                self._lease_acquired = False
 
+    async def _emit_event(self, event, *, wait: bool = False, dedup_key: Optional[str] = None) -> None:
+        """
+        将健康事件写入事件队列；失败时退回本地事件总线。
+        """
+        logged = False
+        if self._enable_event_log and self._event_store:
+            try:
+                record = domain_event_to_record(
+                    event,
+                    source="health_monitor",
+                    dedup_key=dedup_key,
+                )
+                record = await self._event_store.append_event(record)
+                logged = True
+                logger.debug(f"[HEALTH] Event logged to queue type={record.type} id={record.id} dedup={dedup_key}")
+            except Exception as log_error:
+                logger.error(f"[HEALTH] Append event failed, fallback to bus: {log_error}")
+
+        if logged:
+            return
+        try:
+            await self._event_bus.publish(event, wait=wait)
+        except Exception as pub_error:
+            logger.error(f"[HEALTH] Publish event failed: {pub_error}", exc_info=True)
+
+    async def _on_service_connected(self, event: ServiceConnected):
+        logger.info(f"[HEALTH] Service connected, scheduling initial check: {event.service_name}")
         await self.maybe_schedule_health_check(event.agent_id, event.service_name, force=True)
 
     async def _on_health_check_requested(self, event: HealthCheckRequested):
-        """
-        处理健康检查请求 - 立即执行健康检查
-        """
-        # 统一使用全局命名空间读取状态（使用异步版本）
-        global_name = await self._to_global_name_async(event.agent_id, event.service_name)
-        current_state = await self._registry.get_service_state_async(self._global_agent_store_id, global_name)
-        logger.info(f"[HEALTH] Manual health check requested: {event.service_name} (state={getattr(current_state,'value',str(current_state))}, bus={hex(id(self._event_bus))})")
-
-        # 执行一次健康检查（关键路径使用同步派发，确保状态及时收敛）
+        logger.info(f"[HEALTH] Manual health check requested: {event.service_name}")
         await self._execute_health_check(event.agent_id, event.service_name, wait=True)
 
     async def _on_state_changed(self, event: ServiceStateChanged):
-        """
-        处理状态变更 - 停止已断开服务的健康检查
-        """
-        # 如果服务进入终止/不可达状态，停止健康检查（使用统一小写枚举值）
-        terminal_states = ["disconnected", "disconnecting", "unreachable"]
+        terminal_states = {ServiceConnectionState.DISCONNECTED.value, ServiceConnectionState.DISCONNECTED}
         if event.new_state in terminal_states:
             task_key = (event.agent_id, event.service_name)
             if task_key in self._health_check_tasks:
-                task = self._health_check_tasks[task_key]
+                task = self._health_check_tasks.pop(task_key)
                 if not task.done():
                     task.cancel()
-                del self._health_check_tasks[task_key]
                 logger.info(f"[HEALTH] Stopped health check for terminated service: {event.service_name}")
+            self._reset_half_open_stats(task_key)
+
+    async def maybe_schedule_health_check(
+        self,
+        agent_id: str,
+        service_name: str,
+        current_state: Optional[ServiceConnectionState | str] = None,
+        force: bool = False,
+    ) -> bool:
+        if not self._is_running:
+            return False
+
+        key = (agent_id, service_name)
+        existing = self._health_check_tasks.get(key)
+        if existing and not existing.done() and not force:
+            return False
+
+        state = current_state
+        if isinstance(state, str):
+            try:
+                state = ServiceConnectionState(state)
+            except ValueError:
+                state = None
+        if state is None:
+            try:
+                global_name = await self._to_global_name_async(agent_id, service_name)
+                state = await self._registry.get_service_state_async(self._global_agent_store_id, global_name)
+            except Exception:
+                state = None
+
+        now = time.time()
+        cooldown = self._cooldowns.get(key)
+        if cooldown and not force:
+            if now < cooldown.get("next_retry", 0):
+                return False
+            hard_deadline = cooldown.get("hard_deadline")
+            if hard_deadline and now >= hard_deadline:
+                logger.info(f"[HEALTH] Hard timeout reached for {service_name}, emit timeout and skip")
+                await self._emit_event(
+                    ServiceTimeout(
+                        agent_id=agent_id,
+                        service_name=service_name,
+                        timeout_type="hard_timeout",
+                        elapsed_time=hard_deadline,
+                    ),
+                    wait=False,
+                    dedup_key=f"health_timeout:{agent_id}:{service_name}:hard",
+                )
+                self._hard_timeouts[key] = hard_deadline
+                return False
+        # 租约过期触发超时事件
+        lease_remaining = self._lease_remaining(key)
+        if lease_remaining is not None and lease_remaining <= 0:
+            try:
+                await self._emit_event(
+                    ServiceTimeout(
+                        agent_id=agent_id,
+                        service_name=service_name,
+                        timeout_type="lease_expired",
+                        elapsed_time=self._lease_ttl,
+                    ),
+                    wait=False,
+                    dedup_key=f"health_timeout:{agent_id}:{service_name}:lease",
+                )
+            except Exception as e:
+                logger.debug(f"[HEALTH] publish lease expired failed: {e}")
+            return False
+        last = self._last_check_time.get(key, 0)
+        interval = self._liveness_interval
+        if state in (ServiceConnectionState.DEGRADED, ServiceConnectionState.CIRCUIT_OPEN, ServiceConnectionState.HALF_OPEN):
+            interval = max(self._liveness_interval, 1.0)
+
+        # 半开试探：冷却结束后从 CIRCUIT_OPEN 进入单次试探
+        if cooldown and state == ServiceConnectionState.CIRCUIT_OPEN:
+            state = ServiceConnectionState.HALF_OPEN
+
+        if not force and (now - last) < interval:
+            return False
+
+        self._last_check_time[key] = now
+        task = asyncio.create_task(self._execute_health_check(agent_id, service_name))
+        self._health_check_tasks[key] = task
+        task.add_done_callback(lambda _: self._health_check_tasks.pop(key, None))
+        return True
 
     async def _execute_health_check(self, agent_id: str, service_name: str, wait: bool = False):
-        """
-        执行单次健康检查
-        """
         start_time = time.time()
-
         try:
-            # 如果服务已不存在，跳过检查，且停止周期任务
             global_name = await self._to_global_name_async(agent_id, service_name)
-            # 使用异步 API 检查服务是否存在，避免在异步上下文中调用同步 API
             if not await self._registry.has_service_async(self._global_agent_store_id, global_name):
                 logger.info(f"[HEALTH] Skip check for removed service: {service_name}")
-                task_key = (agent_id, service_name)
-                if task_key in self._health_check_tasks:
-                    task = self._health_check_tasks.pop(task_key)
-                    if not task.done():
-                        task.cancel()
                 return
 
-            # 获取服务配置（新架构：从服务实体获取）
-            # 从服务实体中获取服务配置，不再从 client_config 中获取
             service_entity = await self._registry._cache_service_manager.get_service(global_name)
             if service_entity is None:
-                raise RuntimeError(
-                    f"Service entity does not exist, cannot execute health check: service_name={service_name}, "
-                    f"agent_id={agent_id}, global_name={global_name}"
-                )
-            
-            service_config = service_entity.config
-            if not service_config:
-                raise RuntimeError(
-                    f"Service configuration is empty, cannot execute health check: service_name={service_name}, "
-                    f"agent_id={agent_id}, global_name={global_name}"
-                )
-            
-            logger.debug(f"[HEALTH] Found service config for {service_name}: {list(service_config.keys())}")
+                raise RuntimeError(f"Service entity missing: {service_name}")
+            service_config = service_entity.config or {}
 
-            # 根据当前状态动态调整健康检查超时（warning/reconnecting 更宽松）
             try:
                 current_state = await self._registry.get_service_state_async(self._global_agent_store_id, global_name)
             except Exception:
                 current_state = None
 
-            # 推断传输类型超时
             effective_timeout = self._infer_transport_timeout(service_config)
-            if current_state in (ServiceConnectionState.WARNING, ServiceConnectionState.RECONNECTING):
-                # 进入警告/重连后延长超时，避免重复误判
-                effective_timeout = max(self._warning_ping_timeout, effective_timeout)
-            else:
-                effective_timeout = max(self._ping_timeout, effective_timeout)
+            if current_state in (
+                ServiceConnectionState.DEGRADED,
+                ServiceConnectionState.CIRCUIT_OPEN,
+                ServiceConnectionState.HALF_OPEN,
+            ):
+                effective_timeout = max(effective_timeout, self._warning_ping_timeout)
 
-            # 执行健康检查（使用临时 client + async with）
             try:
-                # 设置超时并使用临时 client 进行健康检查
-                ping_start = time.time()
                 async with asyncio.timeout(effective_timeout):
                     async with temp_client_for_service(global_name, service_config, timeout=effective_timeout) as client:
                         await client.ping()
-                    response_time = time.time() - start_time
-
-                    # 成功：仅上报成功与响应时间，不直接建议状态
-                    logger.debug(f"[HEALTH] Check passed: {service_name} ({response_time:.2f}s)")
-
-                    # 发布健康检查成功事件（手动检查使用同步派发）
-                    # 注意：事件应该使用原始服务名称（Agent 视角），而非全局名称（Store 视角）
-                    await self._publish_health_check_success(
-                        agent_id, service_name, response_time, wait=wait
-                    )
+                response_time = time.time() - start_time
+                suggested, metrics = self._update_window_and_suggest(agent_id, service_name, True, response_time, current_state)
+                self._reset_cooldown((agent_id, service_name))
+                self._renew_lease((agent_id, service_name))
+                await self._publish_health_check_success(
+                    agent_id,
+                    service_name,
+                    response_time,
+                    suggested_state=suggested,
+                    metrics=metrics,
+                    wait=wait,
+                )
             except asyncio.TimeoutError:
                 response_time = time.time() - start_time
-                logger.warning(f"[HEALTH] Check timeout: {service_name}")
-                # 注意：事件应该使用原始服务名称（Agent 视角），而非全局名称（Store 视角）
+                suggested, metrics = self._update_window_and_suggest(agent_id, service_name, False, response_time, current_state)
+                suggested = self._update_cooldown((agent_id, service_name), suggested)
                 await self._publish_health_check_failed(
-                    agent_id, service_name, response_time, "Health check timeout", wait=wait
+                    agent_id,
+                    service_name,
+                    response_time,
+                    "Health check timeout",
+                    suggested_state=suggested,
+                    metrics=metrics,
+                    wait=wait,
                 )
             except Exception as e:
                 response_time = time.time() - start_time
-                error_message = str(e)
-                logger.error(f"[HEALTH] Check failed: {service_name} - {error_message}")
-                # 分类认证失败，并记录到元数据
-                failure_reason = None
-                try:
-                    status_code = getattr(getattr(e, 'response', None), 'status_code', None)
-                    if status_code in (401, 403):
-                        failure_reason = 'auth_failed'
-                    else:
-                        lower_msg = error_message.lower()
-                        if any(word in lower_msg for word in ['unauthorized', 'forbidden', 'invalid token', 'invalid api key']):
-                            failure_reason = 'auth_failed'
-                except Exception:
-                    pass
-                try:
-                    metadata = await self._registry.get_service_metadata_async(self._global_agent_store_id, global_name)
-                    if metadata:
-                        metadata.failure_reason = failure_reason
-                        metadata.error_message = error_message
-                        await self._registry.set_service_metadata_async(self._global_agent_store_id, global_name, metadata)
-                except Exception as e:
-                    logger.error(f"[HEALTH] Failed to update metadata for {global_name}: {e}")
-                    raise
-                # 注意：事件应该使用原始服务名称（Agent 视角），而非全局名称（Store 视角）
+                suggested, metrics = self._update_window_and_suggest(agent_id, service_name, False, response_time, current_state)
+                suggested = self._update_cooldown((agent_id, service_name), suggested)
                 await self._publish_health_check_failed(
-                    agent_id, service_name, response_time, error_message, wait=wait
+                    agent_id,
+                    service_name,
+                    response_time,
+                    str(e),
+                    suggested_state=suggested,
+                    metrics=metrics,
+                    wait=wait,
                 )
         except Exception as e:
             logger.error(f"[HEALTH] Execute health check error: {service_name} - {e}", exc_info=True)
@@ -249,17 +414,28 @@ class HealthMonitor:
         agent_id: str,
         service_name: str,
         response_time: float,
-        wait: bool = False
+        suggested_state: Optional[ServiceConnectionState],
+        metrics: Dict[str, Any],
+        wait: bool = False,
     ):
-        """发布健康检查成功事件"""
         event = HealthCheckCompleted(
             agent_id=agent_id,
             service_name=service_name,
             success=True,
             response_time=response_time,
-            suggested_state=None
+            suggested_state=suggested_state,
+            window_error_rate=metrics.get("error_rate"),
+            latency_p95=metrics.get("latency_p95"),
+            latency_p99=metrics.get("latency_p99"),
+            sample_size=metrics.get("sample_size"),
+            retry_in=self._get_retry_in((agent_id, service_name)),
+            hard_timeout_in=self._get_hard_timeout_in((agent_id, service_name)),
+            lease_remaining=self._lease_remaining((agent_id, service_name)),
+            next_retry_time=self._next_retry_time((agent_id, service_name)),
+            hard_deadline=self._hard_deadline((agent_id, service_name)),
+            lease_deadline=self._lease_deadline((agent_id, service_name)),
         )
-        await self._event_bus.publish(event, wait=wait)
+        await self._emit_event(event, wait=wait)
 
     async def _publish_health_check_failed(
         self,
@@ -267,21 +443,31 @@ class HealthMonitor:
         service_name: str,
         response_time: float,
         error_message: str,
-        wait: bool = False
+        suggested_state: Optional[ServiceConnectionState],
+        metrics: Dict[str, Any],
+        wait: bool = False,
     ):
-        """发布健康检查失败事件"""
         event = HealthCheckCompleted(
             agent_id=agent_id,
             service_name=service_name,
             success=False,
             response_time=response_time,
             error_message=error_message,
-            suggested_state=None
+            suggested_state=suggested_state,
+            window_error_rate=metrics.get("error_rate"),
+            latency_p95=metrics.get("latency_p95"),
+            latency_p99=metrics.get("latency_p99"),
+            sample_size=metrics.get("sample_size"),
+            retry_in=self._get_retry_in((agent_id, service_name)),
+            hard_timeout_in=self._get_hard_timeout_in((agent_id, service_name)),
+            lease_remaining=self._lease_remaining((agent_id, service_name)),
+            next_retry_time=self._next_retry_time((agent_id, service_name)),
+            hard_deadline=self._hard_deadline((agent_id, service_name)),
+            lease_deadline=self._lease_deadline((agent_id, service_name)),
         )
-        await self._event_bus.publish(event, wait=wait)
+        await self._emit_event(event, wait=wait)
 
     async def _to_global_name_async(self, agent_id: str, service_name: str) -> str:
-        """将本地服务名映射为全局服务名（异步版本，映射失败则返回原名）。"""
         try:
             mapping = await self._registry.get_global_name_from_agent_service_async(agent_id, service_name)
             return mapping or service_name
@@ -289,156 +475,189 @@ class HealthMonitor:
             return service_name
 
     def _infer_transport_timeout(self, service_config: dict) -> float:
-        """根据服务配置推断传输类型并返回对应超时。"""
         transport = str(service_config.get("transport", "")).lower()
         if not transport and service_config.get("url"):
-            # 默认 HTTP/Streamable
             transport = "http"
         if not transport and (service_config.get("command") or service_config.get("args")):
             transport = "stdio"
-
         if "sse" in transport:
-            return self._transport_ping_timeout.get("sse", self._ping_timeout)
+            return self._ping_timeout_sse
         if "stdio" in transport:
-            return self._transport_ping_timeout.get("stdio", self._ping_timeout)
-        return self._transport_ping_timeout.get("http", self._ping_timeout)
+            return self._ping_timeout_stdio
+        return self._ping_timeout_http
 
-    async def maybe_schedule_health_check(
+    # === 内部：滑动窗口与状态建议 ===
+    def _update_window_and_suggest(
         self,
         agent_id: str,
         service_name: str,
-        current_state: ServiceConnectionState | str | None = None,
-        force: bool = False,
-    ) -> bool:
-        """
-        按需调度健康检查：
-        - 读取状态或配置时调用，返回缓存状态后异步检查
-        - 按状态节流，避免高频调度
-        - force=True 时忽略节流，直接调度
-        """
-        if not self._is_running:
-            return False
-
+        success: bool,
+        response_time: Optional[float],
+        current_state: Optional[ServiceConnectionState],
+    ) -> tuple[Optional[ServiceConnectionState], Dict[str, Any]]:
         key = (agent_id, service_name)
-        # 同一服务已有进行中的检查则不重复调度
-        existing = self._health_check_tasks.get(key)
-        if existing and not existing.done() and not force:
-            return False
+        win = self._windows.setdefault(key, deque())
+        win.append((time.time(), success, response_time))
+        # 保持窗口大小
+        while len(win) > self._window_size:
+            win.popleft()
 
-        try:
-            global_name = await self._to_global_name_async(agent_id, service_name)
-        except Exception:
-            global_name = service_name
+        if current_state != ServiceConnectionState.HALF_OPEN:
+            self._reset_half_open_stats(key)
+            # 非启动态重置就绪计数
+            if current_state != ServiceConnectionState.STARTUP:
+                self._readiness_success.pop(key, None)
+                self._readiness_failures.pop(key, None)
 
-        # 获取状态用于节流
-        state = current_state
-        if isinstance(state, str):
-            try:
-                state = ServiceConnectionState(state)
-            except ValueError:
-                state = None
-        if state is None:
-            try:
-                state = await self._registry.get_service_state_async(self._global_agent_store_id, global_name)
-            except Exception:
-                state = None
+        if current_state == ServiceConnectionState.HALF_OPEN:
+            stats = self._half_open_stats.setdefault(key, {"attempts": 0, "success": 0, "failure": 0})
+            stats["attempts"] += 1
+            if success:
+                stats["success"] += 1
+            else:
+                stats["failure"] += 1
+
+            if stats["attempts"] >= self._half_open_max_calls:
+                rate = stats["success"] / stats["attempts"] if stats["attempts"] else 0.0
+                self._reset_half_open_stats(key)
+                if rate >= self._half_open_success_rate_threshold:
+                    return ServiceConnectionState.HEALTHY, self._empty_metrics(win)
+                # 半开失败：回退熔断，并加长退避
+                self._update_cooldown(key, ServiceConnectionState.CIRCUIT_OPEN)
+                return ServiceConnectionState.CIRCUIT_OPEN, self._empty_metrics(win)
+            # 未达到配额，保持半开试探
+            return None, self._empty_metrics(win)
+
+        if len(win) < self._window_min_calls:
+            if success and current_state == ServiceConnectionState.STARTUP:
+                self._readiness_success[key] = self._readiness_success.get(key, 0) + 1
+                self._readiness_failures.pop(key, None)
+                if self._readiness_success[key] >= self._readiness_success_threshold:
+                    return ServiceConnectionState.READY, self._empty_metrics(win)
+            elif current_state == ServiceConnectionState.STARTUP:
+                self._readiness_failures[key] = self._readiness_failures.get(key, 0) + 1
+                self._readiness_success.pop(key, None)
+                if self._readiness_failures[key] >= self._readiness_failure_threshold:
+                    # 启动期多次失败直接熔断
+                    return ServiceConnectionState.CIRCUIT_OPEN, self._empty_metrics(win)
+            return None, self._empty_metrics(win)
+
+        total = len(win)
+        fail_count = sum(1 for _, s, _ in win if not s)
+        error_rate = fail_count / total
+        latencies = [rt for _, s, rt in win if s and rt is not None]
+        latencies.sort()
+        def _percentile(vals: list[float], p: float) -> float:
+            if not vals:
+                return 0.0
+            k = max(0, min(len(vals) - 1, int(len(vals) * p) - 1))
+            return vals[k]
+        p95 = _percentile(latencies, 0.95)
+        p99 = _percentile(latencies, 0.99)
+
+        # 基础建议：高错误率或极端延迟 -> CIRCUIT_OPEN；中等延迟/少量错误 -> DEGRADED
+        metrics = {
+            "error_rate": error_rate,
+            "latency_p95": p95,
+            "latency_p99": p99,
+            "sample_size": total,
+        }
+
+        if error_rate >= self._error_rate_threshold or p99 >= self._latency_p99_critical:
+            return ServiceConnectionState.CIRCUIT_OPEN, metrics
+        if error_rate > 0 or p95 >= self._latency_p95_warn:
+            return ServiceConnectionState.DEGRADED, metrics
+        return ServiceConnectionState.HEALTHY, metrics
+
+    def _reset_cooldown(self, key: Tuple[str, str]) -> None:
+        self._cooldowns.pop(key, None)
+        self._reset_half_open_stats(key)
+        self._readiness_success.pop(key, None)
+        self._readiness_failures.pop(key, None)
+
+    def _update_cooldown(self, key: Tuple[str, str], suggested: Optional[ServiceConnectionState]) -> Optional[ServiceConnectionState]:
+        if suggested != ServiceConnectionState.CIRCUIT_OPEN:
+            self._reset_cooldown(key)
+            return suggested
 
         now = time.time()
-        last = self._last_check_time.get(key, 0)
-        interval = self._warning_interval if state in (ServiceConnectionState.WARNING, ServiceConnectionState.RECONNECTING) else self._check_interval
+        data = self._cooldowns.get(key, {})
+        attempts = int(data.get("attempts", 0)) + 1
+        backoff = min(self._backoff_base * (2 ** (attempts - 1)), self._backoff_max)
+        if self._backoff_jitter > 0:
+            backoff = backoff * (1 + self._backoff_jitter)
+        next_retry = now + min(backoff, self._backoff_max_duration)
+        hard_deadline = data.get("hard_deadline") or (now + self._reconnect_hard_timeout)
+        self._cooldowns[key] = {"next_retry": next_retry, "attempts": attempts, "hard_deadline": hard_deadline}
 
-        if not force and (now - last) < interval:
-            return False
+        if now >= hard_deadline:
+            # 硬超时立即建议断开
+            return ServiceConnectionState.DISCONNECTED
+        return suggested
 
-        self._last_check_time[key] = now
-        task = asyncio.create_task(self._execute_health_check(agent_id, service_name))
-        self._health_check_tasks[key] = task
+    # 被动反馈入口：供调用链将真实调用结果写入窗口
+    def record_passive_feedback(self, agent_id: str, service_name: str, success: bool, response_time: Optional[float]) -> None:
+        self._update_window_and_suggest(agent_id, service_name, success, response_time, None)
 
-        def _cleanup(_):
-            self._health_check_tasks.pop(key, None)
+    def _reset_half_open_stats(self, key: Tuple[str, str]) -> None:
+        self._half_open_stats.pop(key, None)
+        self._leases.pop(key, None)
 
-        task.add_done_callback(_cleanup)
-        return True
+    def _get_retry_in(self, key: Tuple[str, str]) -> Optional[float]:
+        cooldown = self._cooldowns.get(key)
+        if not cooldown:
+            return None
+        next_retry = cooldown.get("next_retry")
+        if not next_retry:
+            return None
+        delta = next_retry - time.time()
+        return max(delta, 0.0)
 
-    async def check_timeouts(self):
-        """
-        检查超时的服务（可由外部定期调用）
-        """
-        current_time = time.time()
+    def _get_hard_timeout_in(self, key: Tuple[str, str]) -> Optional[float]:
+        cooldown = self._cooldowns.get(key)
+        if not cooldown:
+            return None
+        hard_deadline = cooldown.get("hard_deadline")
+        if not hard_deadline:
+            return None
+        delta = hard_deadline - time.time()
+        return max(delta, 0.0)
 
-        try:
-            # 从缓存层获取所有服务并检查超时
-            # 使用 _cache_layer_manager（CacheLayerManager），它有 get_all_entities_async 方法
-            service_entities = await self._registry._cache_layer_manager.get_all_entities_async("services")
+    def _next_retry_time(self, key: Tuple[str, str]) -> Optional[float]:
+        cooldown = self._cooldowns.get(key)
+        if not cooldown:
+            return None
+        return cooldown.get("next_retry")
 
-            for entity_key, entity_data in service_entities.items():
-                if hasattr(entity_data, 'value'):
-                    data = entity_data.value
-                elif isinstance(entity_data, dict):
-                    data = entity_data
-                else:
-                    continue
+    def _hard_deadline(self, key: Tuple[str, str]) -> Optional[float]:
+        cooldown = self._cooldowns.get(key)
+        if cooldown and cooldown.get("hard_deadline"):
+            return cooldown.get("hard_deadline")
+        # 如果已记录硬超时标记，直接返回
+        return self._hard_timeouts.get(key)
 
-                agent_id = data.get('source_agent', 'unknown')
-                service_name = data.get('service_original_name', entity_key)
+    def _renew_lease(self, key: Tuple[str, str]) -> None:
+        if self._lease_ttl <= 0:
+            return
+        self._leases[key] = time.time() + self._lease_ttl
 
-                # 从缓存层获取服务元数据
-                metadata = await self._registry.get_service_metadata_async(agent_id, service_name)
-                if not metadata:
-                    continue
+    def _lease_remaining(self, key: Tuple[str, str]) -> Optional[float]:
+        ttl = self._leases.get(key)
+        if not ttl:
+            return None
+        return max(ttl - time.time(), 0.0)
 
-                # 检查初始化超时
-                state = await self._registry.get_service_state_async(agent_id, service_name)
-                if state == ServiceConnectionState.INITIALIZING:
-                    state_entered_time = await self._get_state_entered_time(metadata)
-                    if state_entered_time:
-                        elapsed = current_time - state_entered_time.timestamp()
-                        if elapsed > self._timeout_threshold:
-                            logger.warning(f"[HEALTH] Initialization timeout: {service_name} ({elapsed:.1f}s)")
-                            await self._publish_timeout_event(
-                                agent_id, service_name, "initialization", elapsed
-                            )
+    def _lease_deadline(self, key: Tuple[str, str]) -> Optional[float]:
+        ttl = self._leases.get(key)
+        if not ttl:
+            return None
+        return ttl
 
-        except Exception as e:
-            logger.error(f"[HEALTH] Health check timeout failed: {e}", exc_info=True)
-
-    async def _publish_timeout_event(
-        self,
-        agent_id: str,
-        service_name: str,
-        timeout_type: str,
-        elapsed_time: float
-    ):
-        """发布超时事件"""
-        event = ServiceTimeout(
-            agent_id=agent_id,
-            service_name=service_name,
-            timeout_type=timeout_type,
-            elapsed_time=elapsed_time
-        )
-        await self._event_bus.publish(event)
-
-    async def _get_state_entered_time(self, metadata):
-        """
-        从元数据中获取状态进入时间
-
-        Args:
-            metadata: 服务元数据
-
-        Returns:
-            状态进入时间的datetime对象，如果不存在则返回None
-        """
-        if hasattr(metadata, 'state_entered_time'):
-            return metadata.state_entered_time
-        elif isinstance(metadata, dict):
-            state_entered_time = metadata.get('state_entered_time')
-            if state_entered_time:
-                if isinstance(state_entered_time, str):
-                    # 尝试解析ISO格式时间字符串
-                    try:
-                        from datetime import datetime
-                        return datetime.fromisoformat(state_entered_time.replace('Z', '+00:00'))
-                    except:
-                        return None
-                return state_entered_time
-        return None
+    @staticmethod
+    def _empty_metrics(win: Deque[Tuple[float, bool, Optional[float]]]) -> Dict[str, Any]:
+        return {
+            "error_rate": None,
+            "latency_p95": None,
+            "latency_p99": None,
+            "sample_size": len(win),
+        }

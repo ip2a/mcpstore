@@ -14,14 +14,15 @@ class TransportType(str, Enum):
 
 
 class ServiceConnectionState(str, Enum):
-    """Service connection lifecycle state enumeration"""
-    INITIALIZING = "initializing"     # Initializing: configuration validated, performing first connection
-    HEALTHY = "healthy"               # Healthy: connection normal, heartbeat successful
-    WARNING = "warning"               # Warning: occasional heartbeat failures, but not reaching reconnection threshold
-    RECONNECTING = "reconnecting"     # Reconnecting: consecutive failures reached threshold, reconnecting
-    UNREACHABLE = "unreachable"       # Unreachable: reconnection failed, entering long-cycle retry
-    DISCONNECTING = "disconnecting"   # Disconnecting: performing graceful shutdown
-    DISCONNECTED = "disconnected"     # Disconnected: service terminated, waiting for manual deletion
+    """Service connection lifecycle state enumeration（全新状态机，无兼容层）"""
+    INIT = "init"                     # 注册但未启动探针
+    STARTUP = "startup"               # 启动探针执行中
+    READY = "ready"                   # 业务就绪，可接流量
+    HEALTHY = "healthy"               # 运行期健康
+    DEGRADED = "degraded"             # 性能退化/警告
+    CIRCUIT_OPEN = "circuit_open"     # 熔断/放逐
+    HALF_OPEN = "half_open"           # 半开试探
+    DISCONNECTED = "disconnected"     # 放弃当前周期，等待重建/手动操作
 
 class ServiceStateMetadata(BaseModel):
     """Service state metadata"""
@@ -49,6 +50,13 @@ class ServiceStateMetadata(BaseModel):
     tool_sync_attempts: int = 0
     tools_confirmed_empty: bool = False
     last_tool_sync: Optional[datetime] = None
+    # 窗口与退避指标
+    window_error_rate: Optional[float] = None
+    latency_p95: Optional[float] = None
+    latency_p99: Optional[float] = None
+    sample_size: Optional[int] = None
+    hard_deadline: Optional[datetime] = None
+    lease_deadline: Optional[datetime] = None
 
 
 class ServiceInfo(BaseModel):

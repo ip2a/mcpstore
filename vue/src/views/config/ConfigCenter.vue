@@ -1,5 +1,5 @@
 <template>
-  <div class="config-center-container">
+  <div class="page-shell config-center-container">
     <!-- Header -->
     <header class="page-header">
       <div class="header-content">
@@ -411,9 +411,6 @@ onMounted(() => {
 
 <style lang="scss" scoped>
 .config-center-container {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 20px;
   width: 100%;
 }
 

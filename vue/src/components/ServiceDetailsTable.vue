@@ -156,6 +156,7 @@
 <script>
 import ServiceLifecycleStatus from './ServiceLifecycleStatus.vue'
 import { api } from '@/api'
+import { isServiceAvailable } from '@/utils/serviceStatus'
 
 // 简化的工具函数
 const formatResponseTime = (time) => {
@@ -177,10 +178,6 @@ const getTimeDifference = (startTime, endTime) => {
   if (!startTime || !endTime) return 'N/A'
   const diff = new Date(endTime) - new Date(startTime)
   return `${Math.round(diff / 1000)}s`
-}
-
-const isServiceAvailable = (state) => {
-  return state === 'active'
 }
 
 export default {

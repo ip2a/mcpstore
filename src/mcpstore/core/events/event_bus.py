@@ -20,7 +20,6 @@ from .service_events import (
     DomainEvent,
     ServiceOperationFailed,
     ServiceInitialized,
-    ServiceConnectionRequested,
     HealthCheckRequested,
     ServiceAddRequested,
 )
@@ -61,7 +60,6 @@ class EventBus:
         # ServiceAddRequested 必须同步执行，确保缓存操作完成后再继续
         self._critical_sync_events = (
             ServiceInitialized,
-            ServiceConnectionRequested,
             HealthCheckRequested,
             ServiceAddRequested,
         )

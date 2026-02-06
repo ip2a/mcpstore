@@ -16,7 +16,7 @@ class HubMCPStatus(Enum):
     定义 Hub MCP 服务器的所有可能状态。
     """
     
-    INITIALIZING = "initializing"  # 初始化中
+    STARTUP = "startup"  # 初始化中
     RUNNING = "running"            # 运行中
     STOPPING = "stopping"          # 停止中
     STOPPED = "stopped"            # 已停止
@@ -35,14 +35,14 @@ class HubMCPConfig:
         port: 端口号（仅 http/sse），None 为自动分配
         host: 监听地址（仅 http/sse），默认 "0.0.0.0"
         path: 端点路径（仅 http），默认 "/mcp"
-        fastmcp_kwargs: 传递给 FastMCP 的其他参数
+        mcp_kwargs: 透传给底层 MCP 服务器（当前由 MCPKit 实现）的其他参数
     """
     
     transport: Literal["http", "sse", "stdio"] = "http"
     port: Optional[int] = None
     host: str = "0.0.0.0"
     path: str = "/mcp"
-    fastmcp_kwargs: Dict[str, Any] = field(default_factory=dict)
+    mcp_kwargs: Dict[str, Any] = field(default_factory=dict)
     
     def __post_init__(self):
         """

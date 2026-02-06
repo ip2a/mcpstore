@@ -1,5 +1,5 @@
 <template>
-  <div class="page-container">
+  <div class="page-shell page-container">
     <!-- Header -->
     <header class="page-header">
       <div class="header-left">
@@ -508,9 +508,6 @@ onMounted(refreshData)
 
 <style lang="scss" scoped>
 .page-container {
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: 20px;
   width: 100%;
 }
 

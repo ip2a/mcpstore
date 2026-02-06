@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Tool Transformation Functionality
-Based on FastMCP 2.8 tool transformation capabilities, providing LLM-friendly tool interfaces
+Based on MCPStore 2.8 tool transformation capabilities, providing LLM-friendly tool interfaces
 """
 
 import logging

@@ -603,11 +603,11 @@ class ServiceOperationsMixin:
                     svc_cfg = {k: v for k, v in config.items() if k != "name"}
                     services_to_add = {svc_name: svc_cfg}
                 else:
-                    # 兜底：视为 {service_name: {url/command...}}
-                    services_to_add = {
-                        name: svc_cfg for name, svc_cfg in config.items()
-                        if isinstance(svc_cfg, dict) and ("url" in svc_cfg or "command" in svc_cfg)
-                    }
+                    raise Exception(
+                        "Invalid service configuration format. "
+                        "Expected: {'name': 'service_name', 'url': '...'} or {'mcpServers': {...}}. "
+                        "See documentation: docs/services/add-service.md"
+                    )
 
                 if not services_to_add:
                     raise Exception("Unable to parse valid service configuration")
@@ -694,7 +694,7 @@ class ServiceOperationsMixin:
             )
             if not service_global_name:
                 raise RuntimeError(
-                    f"无法获取服务全局名称: agent_id={agent_id}, "
+                    f"Failed to get service global name: agent_id={agent_id}, "
                     f"service_name={service_name}"
                 )
         else:
@@ -728,7 +728,7 @@ class ServiceOperationsMixin:
             
             if not tool_global_name or not tool_original_name:
                 raise RuntimeError(
-                    f"工具关系数据不完整: tool_rel={tool_rel}"
+                    f"Incomplete tool relationship data: tool_rel={tool_rel}"
                 )
             
             tools_status.append({
@@ -740,7 +740,7 @@ class ServiceOperationsMixin:
         # 4. 使用 StateManager 更新服务状态
         await state_manager.update_service_status(
             service_global_name=service_global_name,
-            health_status="initializing",
+            health_status="startup",
             tools_status=tools_status
         )
         
@@ -753,17 +753,17 @@ class ServiceOperationsMixin:
     async def _connect_and_update_cache(self, agent_id: str, service_name: str, service_config: Dict[str, Any]):
         """异步连接服务并更新缓存状态"""
         try:
-            # 🔗 新增：连接开始日志
+            # New: Connection start log
             logger.debug(f"Connecting to service: {service_name}")
             logger.debug(f"Agent ID: {agent_id}")
             logger.info(f"[CONNECT_SERVICE] [CALL] Calling orchestrator.connect_service")
 
-            #  修复：使用connect_service方法（现已修复ConfigProcessor问题）
+            # Fix: Use connect_service method (ConfigProcessor issue has been fixed)
             try:
                 logger.info(f"[CONNECT_SERVICE] [CALL] Preparing to call connect_service, parameters: name={service_name}, agent_id={agent_id}")
                 logger.info(f"[CONNECT_SERVICE] service_config: {service_config}")
 
-                # 使用修复后的connect_service方法（现在会使用ConfigProcessor）
+                # Use the fixed connect_service method (now uses ConfigProcessor)
                 success, message = await self._store.orchestrator.connect_service(
                     service_name, service_config=service_config, agent_id=agent_id
                 )
@@ -776,7 +776,7 @@ class ServiceOperationsMixin:
                 logger.error(f"[CONNECT_SERVICE] [ERROR] Exception stack: {traceback.format_exc()}")
                 success, message = False, f"Connection call failed: {connect_error}"
 
-            # 🔗 新增：连接结果日志
+            # New: Connection result log
             logger.info(f"[CONNECT_SERVICE] [RESULT] Connection result: success={success}, message={message}")
 
             if success:
@@ -872,7 +872,7 @@ class ServiceOperationsMixin:
             if not success:
                 raise RuntimeError(f"Failed to initialize service {resolved_service_name}")
 
-            logger.info(f" [INIT_SERVICE] Service {resolved_service_name} initialized to INITIALIZING state")
+            logger.info(f" [INIT_SERVICE] Service {resolved_service_name} initialized to STARTUP state")
             return self
 
         except Exception as e:
@@ -1032,16 +1032,8 @@ class ServiceOperationsMixin:
                 await self._store.registry.set_service_client_mapping_async(agent_id, local_name, client_id)
                 await self._store.registry.set_service_client_mapping_async(global_agent_id, global_name, client_id)
 
-                # 6. 收集写入 mcp.json 的全局配置
-                global_services_for_file[global_name] = service_config
-
-            # 7. 同步到 mcp.json（全局名）
-            if global_services_for_file:
-                success = self._store._unified_config.batch_add_services(global_services_for_file)
-                if success:
-                    logger.info(f"[AGENT_SYNC] [SUCCESS] mcp.json update successful: added {len(global_services_for_file)} services")
-                else:
-                    logger.error(f"[AGENT_SYNC] [ERROR] mcp.json update failed")
+                # 6. 单源模式：不再写 mcp.json，只保留事件/KV 路径
+                logger.debug("[AGENT_PROXY] Skip file sync (single-source KV)")
 
             logger.info(f"[AGENT_PROXY] [COMPLETE] Agent transparent proxy addition completed, processed {len(services_to_add)} services")
 
@@ -1050,34 +1042,9 @@ class ServiceOperationsMixin:
             raise
 
     async def _sync_agent_services_to_files(self, agent_id: str, services_to_add: Dict[str, Any]):
-        """同步 Agent 服务到持久化文件（优化：使用 UnifiedConfigManager）"""
-        try:
-            logger.info(f"[AGENT_SYNC] [START] Starting to sync Agent services to file: {agent_id}")
-
-            # 构建带后缀的服务配置字典
-            from .agent_service_mapper import AgentServiceMapper
-            mapper = AgentServiceMapper(agent_id)
-            
-            global_services = {}
-            for local_name, service_config in services_to_add.items():
-                global_name = mapper.to_global_name(local_name)
-                global_services[global_name] = service_config
-                logger.debug(f"[AGENT_SYNC] [PREPARE] Preparing to add to mcp.json: {global_name}")
-
-            # 使用 UnifiedConfigManager 批量添加服务（一次性保存 + 自动刷新缓存）
-            success = self._store._unified_config.batch_add_services(global_services)
-            
-            if success:
-                logger.info(f"[AGENT_SYNC] [SUCCESS] mcp.json update successful: added {len(global_services)} services, cache synchronized")
-            else:
-                logger.error(f"[AGENT_SYNC] [ERROR] mcp.json update failed")
-
-            # 单源模式：不再写分片文件，仅维护 mcp.json
-            logger.info(f"[AGENT_SYNC] [INFO] Single-source mode: shard file writing disabled (agent_clients/client_services)")
-
-        except Exception as e:
-            logger.error(f"[AGENT_SYNC] [ERROR] Failed to sync Agent services to file: {e}")
-            raise
+        """兼容旧接口占位：单源模式下不再写 mcp.json，保留日志提示。"""
+        logger.info(f"[AGENT_SYNC] [SKIP] Single-source mode: skip file sync for agent {agent_id}")
+        return True
 
     async def _get_agent_service_view(self) -> List[ServiceInfo]:
         """
@@ -1139,8 +1106,22 @@ class ServiceOperationsMixin:
                 tool_count = complete_info.get("tool_count", 0)
 
                 # 透明代理：client_id 使用全局命名空间的 client_id
+                try:
+                    from mcpstore.utils.perspective_resolver import PerspectiveResolver
+
+                    resolver = PerspectiveResolver()
+                    name_res = resolver.normalize_service_name(
+                        agent_id,
+                        global_name,
+                        target="local",
+                    )
+                    display_name = name_res.local_name
+                except Exception as e:
+                    display_name = local_name
+                    logger.error(f"[AGENT_VIEW] PerspectiveResolver fallback to parsed name: {e}")
+
                 service_info = ServiceInfo(
-                    name=local_name,
+                    name=display_name,
                     status=state,
                     transport_type=self._store._infer_transport_type(cfg) if hasattr(self._store, '_infer_transport_type') else None,
                     url=cfg.get("url", "") if isinstance(cfg, dict) else "",

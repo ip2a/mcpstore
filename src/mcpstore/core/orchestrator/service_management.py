@@ -6,9 +6,8 @@ Service management module - contains service registration, management and inform
 import logging
 from typing import Dict, List, Any, Optional
 
-from fastmcp import Client
-
 from mcpstore.core.models.service import ServiceConnectionState
+from mcpstore.mcp import Client
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +57,8 @@ class ServiceManagementMixin:
         # 直接查询健康服务（基于当前生命周期状态）
         processable_states = [
             ServiceConnectionState.HEALTHY,
-            ServiceConnectionState.WARNING,
-            ServiceConnectionState.INITIALIZING,
+            ServiceConnectionState.DEGRADED,
+            ServiceConnectionState.STARTUP,
         ]
         healthy_services: List[str] = []
         agent_id = self.client_manager.global_agent_store_id
@@ -278,15 +277,15 @@ class ServiceManagementMixin:
                 logger.error(f" [RESTART_SERVICE] No metadata found for service '{service_name}'")
                 raise RuntimeError(f"No metadata found for service '{service_name}'")
 
-            # Reset service state to INITIALIZING（通过 LifecycleManager 统一入口）
+            # Reset service state to STARTUP（通过 LifecycleManager 统一入口）
             await self.lifecycle_manager._transition_state(
                 agent_id=agent_key,
                 service_name=service_name,
-                new_state=ServiceConnectionState.INITIALIZING,
+                new_state=ServiceConnectionState.STARTUP,
                 reason="restart_service",
                 source="ServiceManagement",
             )
-            logger.debug(f" [RESTART_SERVICE] Set state to INITIALIZING for '{service_name}'")
+            logger.debug(f" [RESTART_SERVICE] Set state to STARTUP for '{service_name}'")
 
             # Reset metadata
             from datetime import datetime
@@ -330,7 +329,7 @@ class ServiceManagementMixin:
                     initialized_event = ServiceInitialized(
                         agent_id=agent_key,
                         service_name=service_name,
-                        initial_state="initializing"
+                        initial_state="startup"
                     )
                     await bus.publish(initialized_event, wait=True)
                     logger.debug(f" [RESTART_SERVICE] Published ServiceInitialized for '{service_name}' via {bus_source}")
@@ -407,7 +406,7 @@ class ServiceManagementMixin:
             dict: 包含状态信息的字典
             {
                 "service_name": str,
-                "status": str,  # "healthy", "warning", "disconnected", "unknown", etc.
+                "status": str,  # "healthy", "degraded", "disconnected", "unknown", etc.
                 "healthy": bool,
                 "last_check": float,  # timestamp
                 "response_time": float,
@@ -418,26 +417,29 @@ class ServiceManagementMixin:
         try:
             agent_key = client_id or self.client_manager.global_agent_store_id
 
-            # 从 pykv 异步获取服务状态
-            state = await self.registry._service_state_service.get_service_state_async(agent_key, service_name)
-            metadata = await self.registry._service_state_service.get_service_metadata_async(
-                agent_key,
-                service_name,
-            )
+            # 统一从完整信息读取，避免“关系存在但状态缺失”导致的 unknown
+            complete_info = await self.registry.get_complete_service_info_async(agent_key, service_name)
+            state = complete_info.get("state") if complete_info else None
+            metadata = complete_info.get("state_metadata") if complete_info else None
+            client_id_resolved = complete_info.get("client_id") if complete_info else agent_key
 
             # Build status response
             status_response = {
                 "service_name": service_name,
-                "client_id": agent_key
+                "client_id": client_id_resolved
             }
+
+            if isinstance(state, str):
+                try:
+                    state = ServiceConnectionState(state)
+                except ValueError:
+                    state = None
 
             if state:
                 status_response["status"] = state.value
-                # Determine if healthy: both HEALTHY and WARNING are considered healthy
-                from mcpstore.core.models.service import ServiceConnectionState
                 status_response["healthy"] = state in [
                     ServiceConnectionState.HEALTHY,
-                    ServiceConnectionState.WARNING
+                    ServiceConnectionState.DEGRADED,
                 ]
             else:
                 status_response["status"] = "unknown"

@@ -1,5 +1,5 @@
 """
-MCPStore Session Module
+MCP Session Module
 User-friendly Session class that wraps AgentSession with rich functionality
 """
 
@@ -78,8 +78,8 @@ class Session:
         """
         Bind service to session
         
-        This method creates a FastMCP Client for the service and caches it
-        in the session for reuse. The Client connection will be maintained
+        This method creates an MCP client for the service and caches it
+        in the session for reuse. The client connection will be maintained
         until the session is closed.
         
         Args:
@@ -121,7 +121,7 @@ class Session:
         Internal async method to bind service
 
         This method marks the service as bound to the session and eagerly creates
-        a persistent FastMCP client to reduce latency on the first tool call.
+        a persistent MCPStore client to reduce latency on the first tool call.
         """
         # Mark service as bound (placeholder client)
         self._agent_session.add_service(service_name, None)
@@ -149,7 +149,7 @@ class Session:
         """
         Use tool within this session
 
-        This method executes tools using the cached FastMCP Client connections,
+        This method executes tools using the cached MCP client connections,
         ensuring that stateful services (like browser) maintain their state
         across multiple tool calls.
 
@@ -198,7 +198,7 @@ class Session:
         Use tool within this session (async version)
         
         This method routes tool execution through the session-aware execution path,
-        which will reuse cached FastMCP Client connections.
+        which will reuse cached MCP client connections.
         """
         arguments = arguments or {}
         
@@ -222,7 +222,7 @@ class Session:
         return result
     
     async def _close_client_async(self, client: Any, service_name: str) -> None:
-        """异步关闭底层 FastMCP client。"""
+        """异步关闭底层 MCP client。"""
         close_candidates = [
             ("close", ()),
             ("_disconnect", ()),
@@ -392,7 +392,7 @@ class Session:
         """
         Close session and cleanup all resources
         
-        This method closes all FastMCP Client connections and marks the session
+        This method closes all MCPStore Client connections and marks the session
         as inactive. After calling this method, the session cannot be used.
         """
         if not self.is_active:

@@ -130,7 +130,7 @@ class ServiceManager(ServiceManagerInterface):
                 state = ServiceConnectionState.HEALTHY
             elif session is not None:
                 from mcpstore.core.models.service import ServiceConnectionState
-                state = ServiceConnectionState.WARNING
+                state = ServiceConnectionState.DEGRADED
             else:
                 from mcpstore.core.models.service import ServiceConnectionState
                 state = ServiceConnectionState.DISCONNECTED
@@ -241,7 +241,7 @@ class ServiceManager(ServiceManagerInterface):
                 state = ServiceConnectionState.HEALTHY
             elif session is not None:
                 from mcpstore.core.models.service import ServiceConnectionState
-                state = ServiceConnectionState.WARNING
+                state = ServiceConnectionState.DEGRADED
             else:
                 from mcpstore.core.models.service import ServiceConnectionState
                 state = ServiceConnectionState.DISCONNECTED
@@ -1212,7 +1212,7 @@ class ServiceManager(ServiceManagerInterface):
         try:
             from mcpstore.core.models.service import ServiceConnectionState
             return self.get_services_by_state(agent_id, [
-                ServiceConnectionState.FAILED,
+                ServiceConnectionState.CIRCUIT_OPEN,
                 ServiceConnectionState.DISCONNECTED
             ])
 

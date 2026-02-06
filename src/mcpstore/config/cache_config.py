@@ -23,15 +23,13 @@ class DataSourceStrategy(Enum):
     数据源策略枚举
     
     定义了三种数据源策略，决定数据如何存储和同步：
-    - local_memory: JSON + Memory 缓存，标准本地配置
-    - local_db: JSON + Redis 缓存，本地配置 + 远程存储
-    - only_db: 仅 Redis 缓存，无本地 JSON 文件
+    - local_db: JSON + KV 缓存（Memory/Redis 均视为 DB，带本地配置）
+    - only_db: 仅 KV 缓存，无本地 JSON 文件
     
     注意: 所有一致性数据统一通过 add_service() 写入三层缓存架构
     """
-    LOCAL_MEMORY = "local_memory"    # JSON + Memory 缓存 (标准本地配置)
-    LOCAL_DB = "local_db"            # JSON + Redis 缓存 (本地配置 + 远程存储)
-    ONLY_DB = "only_db"              # 仅 Redis 缓存 (无本地 JSON 文件)
+    LOCAL_DB = "local_db"            # JSON + KV 缓存 (本地配置 + 远程/本地 KV)
+    ONLY_DB = "only_db"              # 仅 KV 缓存 (无本地 JSON 文件)
 
 
 
@@ -154,15 +152,14 @@ def detect_strategy(
         DataSourceStrategy 枚举值
     
     策略检测逻辑:
-    - JSON + Memory → LOCAL_MEMORY (标准本地配置)
-    - JSON + Redis → LOCAL_DB (本地配置 + 远程存储)
-    - 无 JSON + 任意 → ONLY_DB (仅远程存储)
+    - 非 only_db → LOCAL_DB（无论 Memory/Redis，均视为带本地配置）
+    - only_db → ONLY_DB（仅远程/共享 KV，无本地 JSON）
     
     注意: 所有一致性数据统一通过 add_service() 写入三层缓存架构
     
     Examples:
         >>> detect_strategy(MemoryConfig(), "mcp.json")
-        DataSourceStrategy.LOCAL_MEMORY
+        DataSourceStrategy.LOCAL_DB
         
         >>> detect_strategy(RedisConfig(url="redis://localhost:6379/0"), "mcp.json")
         DataSourceStrategy.LOCAL_DB
@@ -173,18 +170,8 @@ def detect_strategy(
     if only_db:
         return DataSourceStrategy.ONLY_DB
 
-    has_json = json_path is not None
-    is_memory = isinstance(cache_config, MemoryConfig)
-
-    if not has_json:
-        # 在新语义下，只要未显式启用 only_db，就认为仍需同步本地配置
-        # 此时缺少 json_path 说明调用方未提供，自行降级为默认路径
-        has_json = True
-
-    if is_memory:
-        return DataSourceStrategy.LOCAL_MEMORY
-    else:
-        return DataSourceStrategy.LOCAL_DB
+    # 非 only_db 一律走 LOCAL_DB（包含 Memory/Redis，两者同为 KV 后端）
+    return DataSourceStrategy.LOCAL_DB
 
 
 async def create_kv_store_async(cache_config: Union[MemoryConfig, RedisConfig], test_connection: bool = True):

@@ -2,7 +2,7 @@
 重连调度器 - 负责自动重连管理
 
 职责:
-1. 定期扫描 RECONNECTING 状态的服务
+1. 定期扫描 CIRCUIT_OPEN 状态的服务
 2. 检查是否到达重连时间
 3. 发布 ReconnectionRequested 事件
 4. 管理重连延迟策略（指数退避）
@@ -10,16 +10,19 @@
 
 import asyncio
 import logging
+import os
+import socket
 import time
 from datetime import datetime, timedelta
 from typing import Dict, Optional, List
 
+from mcpstore.config.config_dataclasses import ServiceLifecycleConfig
+from mcpstore.core.eventlog.event_models import domain_event_to_record
 from mcpstore.core.events.event_bus import EventBus
 from mcpstore.core.events.service_events import (
     ServiceStateChanged, ReconnectionRequested, ReconnectionScheduled,
     ServiceConnectionFailed
 )
-from mcpstore.core.lifecycle.config import ServiceLifecycleConfig
 from mcpstore.core.models.service import ServiceConnectionState
 
 logger = logging.getLogger(__name__)
@@ -30,7 +33,7 @@ class ReconnectionScheduler:
     重连调度器
     
     职责:
-    1. 定期扫描 RECONNECTING 状态的服务
+    1. 定期扫描 CIRCUIT_OPEN 状态的服务
     2. 检查是否到达重连时间
     3. 发布 ReconnectionRequested 事件
     4. 管理重连延迟策略（指数退避）
@@ -42,14 +45,30 @@ class ReconnectionScheduler:
         registry: 'CoreRegistry',
         lifecycle_config: 'ServiceLifecycleConfig',
         scan_interval: float = 1.0,  # 默认1秒扫描一次
+        *,
+        event_store=None,
+        enable_event_log: bool = True,
+        is_only_db: bool = False,
+        lease_ttl: float = 30.0,
+        lease_enabled: bool = True,
+        lease_owner: Optional[str] = None,
     ):
         self._event_bus = event_bus
         self._registry = registry
         self._config = lifecycle_config
         self._scan_interval = scan_interval
+        self._event_store = event_store
+        self._enable_event_log = bool(event_store is not None and enable_event_log)
+        self._is_only_db = is_only_db
+        self._lease_enabled = bool(lease_enabled)
+        self._lease_ttl = lease_ttl
+        self._lease_owner = lease_owner or self._default_owner("reconnect_scheduler")
+        self._lease_key = "lease:reconnect_scheduler"
+        self._lease_task: Optional[asyncio.Task] = None
+        self._lease_acquired = False
         # 从统一配置读取重连相关参数
-        self._base_delay = lifecycle_config.base_reconnect_delay
-        self._max_delay = lifecycle_config.max_reconnect_delay
+        self._base_delay = lifecycle_config.backoff_base
+        self._max_delay = lifecycle_config.backoff_max
         self._max_retries = lifecycle_config.max_reconnect_attempts
         self._empty_scan_log_interval = 30.0
         self._last_empty_scan_log = 0.0
@@ -63,18 +82,42 @@ class ReconnectionScheduler:
         self._event_bus.subscribe(ServiceConnectionFailed, self._on_connection_failed, priority=50)
         
         logger.info(f"ReconnectionScheduler initialized (scan_interval={scan_interval}s)")
+
+    @staticmethod
+    def _default_owner(role: str) -> str:
+        try:
+            host = socket.gethostname()
+        except Exception:
+            host = "host"
+        try:
+            pid = os.getpid()
+        except Exception:
+            pid = 0
+        return f"{role}:{host}:{pid}"
     
     async def start(self):
         """启动重连调度器"""
         if self._is_running:
             logger.warning("ReconnectionScheduler is already running")
             return
-        
+        if self._lease_enabled and self._event_store:
+            try:
+                acquired = await self._event_store.acquire_lease(
+                    self._lease_owner,
+                    self._lease_ttl,
+                    lease_key=self._lease_key,
+                )
+            except Exception as lease_err:
+                logger.error(f"[RECONNECT] Acquire lease failed, skip start: {lease_err}")
+                return
+            if not acquired:
+                logger.warning("[RECONNECT] Lease is held by another node, skip starting scheduler")
+                return
+            self._lease_acquired = True
+            self._lease_task = asyncio.create_task(self._renew_lease_loop())
+
         self._is_running = True
-        
-        # 启动调度循环
         self._scheduler_task = asyncio.create_task(self._scheduler_loop())
-        
         logger.info("ReconnectionScheduler started")
     
     async def stop(self):
@@ -88,8 +131,75 @@ class ReconnectionScheduler:
                 await self._scheduler_task
             except asyncio.CancelledError:
                 pass
-        
+        if self._lease_task and not self._lease_task.done():
+            self._lease_task.cancel()
+            try:
+                await self._lease_task
+            except Exception:
+                pass
+        if self._lease_enabled and self._event_store and self._lease_acquired:
+            try:
+                await self._event_store.release_lease(
+                    self._lease_owner,
+                    lease_key=self._lease_key,
+                )
+            except Exception:
+                pass
+            self._lease_acquired = False
         logger.info("ReconnectionScheduler stopped")
+
+    async def _renew_lease_loop(self):
+        try:
+            while self._is_running and self._lease_enabled and self._event_store:
+                await asyncio.sleep(max(self._lease_ttl / 2, 1.0))
+                try:
+                    ok = await self._event_store.renew_lease(
+                        self._lease_owner,
+                        self._lease_ttl,
+                        lease_key=self._lease_key,
+                    )
+                except Exception as lease_err:
+                    logger.error(f"[RECONNECT] Lease renew failed, stop scheduler: {lease_err}")
+                    ok = False
+                if not ok:
+                    logger.warning("[RECONNECT] Lease lost, stopping scheduler")
+                    self._is_running = False
+                    break
+        finally:
+            if self._lease_enabled and self._event_store and self._lease_acquired:
+                try:
+                    await self._event_store.release_lease(
+                        self._lease_owner,
+                        lease_key=self._lease_key,
+                    )
+                except Exception:
+                    pass
+                self._lease_acquired = False
+
+    async def _emit_event(self, event, *, wait: bool = False, dedup_key: Optional[str] = None) -> None:
+        """
+        将重连相关事件写入事件队列，失败则回退到本地事件总线。
+        """
+        logged = False
+        if self._enable_event_log and self._event_store:
+            try:
+                record = domain_event_to_record(
+                    event,
+                    source="reconnection_scheduler",
+                    dedup_key=dedup_key,
+                )
+                record = await self._event_store.append_event(record)
+                logged = True
+                logger.debug(f"[RECONNECT] Event logged type={record.type} id={record.id} dedup={dedup_key}")
+            except Exception as log_error:
+                logger.error(f"[RECONNECT] Append event failed, fallback to bus: {log_error}")
+
+        if logged:
+            return
+        try:
+            await self._event_bus.publish(event, wait=wait)
+        except Exception as pub_error:
+            logger.error(f"[RECONNECT] Publish event failed: {pub_error}", exc_info=True)
     
     async def _scheduler_loop(self):
         """
@@ -112,7 +222,7 @@ class ReconnectionScheduler:
     
     async def _scan_reconnection_services(self):
         """
-        扫描所有 RECONNECTING 状态的服务
+        扫描所有 CIRCUIT_OPEN 状态的服务
 
         严格按照Functional Core, Imperative Shell原则：
         1. 调用纯同步核心生成扫描计划
@@ -183,8 +293,8 @@ class ReconnectionScheduler:
                 # 从缓存层获取服务状态
                 state = await self._get_service_state_from_cache(agent_id, service_name)
 
-                # 只处理 RECONNECTING 状态的服务
-                if state != ServiceConnectionState.RECONNECTING:
+                # 只处理 CIRCUIT_OPEN 状态的服务
+                if state != ServiceConnectionState.CIRCUIT_OPEN:
                     continue
 
                 # 从缓存层获取服务元数据
@@ -201,7 +311,7 @@ class ReconnectionScheduler:
                         logger.warning(
                             f"[RECONNECT] Max retries reached: {service_name} (retries={retry_count})"
                         )
-                        # 转换到 UNREACHABLE 状态
+                        # 转换到 DISCONNECTED 状态
                         await self._transition_to_unreachable(agent_id, service_name)
                         continue
 
@@ -354,7 +464,7 @@ class ReconnectionScheduler:
 
     async def _transition_to_unreachable(self, agent_id: str, service_name: str):
         """
-        将服务转换到UNREACHABLE状态
+        将服务转换到DISCONNECTED状态
 
         Args:
             agent_id: Agent ID
@@ -367,12 +477,15 @@ class ReconnectionScheduler:
             state_event = ServiceStateChanged(
                 agent_id=agent_id,
                 service_name=service_name,
-                old_state="RECONNECTING",
-                new_state="UNREACHABLE",
+                old_state="CIRCUIT_OPEN",
+                new_state="DISCONNECTED",
                 timestamp=datetime.now(),
                 reason="Max retries exceeded"
             )
-            await self._event_bus.publish(state_event)
+            await self._emit_event(
+                state_event,
+                dedup_key=f"state_disconnect:{agent_id}:{service_name}",
+            )
 
         except Exception as e:
             logger.error(f"[RECONNECT] [ERROR] Failed to transition state {agent_id}:{service_name}: {e}")
@@ -394,7 +507,10 @@ class ReconnectionScheduler:
                 max_retries=self._max_retries,
                 timestamp=datetime.now()
             )
-            await self._event_bus.publish(reconnection_event)
+            await self._emit_event(
+                reconnection_event,
+                dedup_key=f"reconnect_request:{agent_id}:{service_name}:{retry_count}",
+            )
 
         except Exception as e:
             logger.error(f"[RECONNECT] [ERROR] Failed to publish reconnection event {agent_id}:{service_name}: {e}")
@@ -413,8 +529,8 @@ class ReconnectionScheduler:
                 await self._registry.set_service_metadata_async(event.agent_id, event.service_name, metadata)
                 logger.info(f"[RECONNECT] Service recovered, resetting retry count: {event.service_name}")
 
-        # 如果服务进入 RECONNECTING 状态，调度重连
-        elif event.new_state == "RECONNECTING":
+        # 如果服务进入 CIRCUIT_OPEN 状态，调度重连
+        elif event.new_state == "CIRCUIT_OPEN":
             await self._schedule_reconnection(event.agent_id, event.service_name)
     
     async def _on_connection_failed(self, event: ServiceConnectionFailed):
@@ -455,7 +571,10 @@ class ReconnectionScheduler:
             next_retry_time=next_retry_time.timestamp(),
             retry_delay=delay
         )
-        await self._event_bus.publish(event)
+        await self._emit_event(
+            event,
+            dedup_key=f"reconnect_scheduled:{agent_id}:{service_name}:{int(next_retry_time.timestamp())}",
+        )
     
     def _calculate_reconnect_delay(self, retry_count: int) -> float:
         """
@@ -466,23 +585,8 @@ class ReconnectionScheduler:
         delay = self._base_delay * (2 ** retry_count)
         return min(delay, self._max_delay)
     
-    async def _publish_reconnection_requested(
-        self,
-        agent_id: str,
-        service_name: str,
-        retry_count: int
-    ):
-        """发布重连请求事件"""
-        event = ReconnectionRequested(
-            agent_id=agent_id,
-            service_name=service_name,
-            retry_count=retry_count,
-            reason="scheduled_retry"
-        )
-        await self._event_bus.publish(event)
-    
     async def _transition_to_unreachable(self, agent_id: str, service_name: str):
-        """通过事件系统请求转换到 UNREACHABLE 状态"""
+        """通过事件系统请求转换到 DISCONNECTED 状态"""
         from mcpstore.core.events.service_events import ServiceTimeout
 
         event = ServiceTimeout(
@@ -491,4 +595,7 @@ class ReconnectionScheduler:
             timeout_type="max_retries",
             elapsed_time=0.0,
         )
-        await self._event_bus.publish(event)
+        await self._emit_event(
+            event,
+            dedup_key=f"health_timeout:{agent_id}:{service_name}:max_retries",
+        )

@@ -20,13 +20,17 @@ from .service_events import (
     ServiceConnected,
     ServiceConnectionFailed,
     ServiceStateChanged,
+    ServicePersisting,
     ServicePersisted,
+    ServiceReady,
     ServiceOperationFailed,
     HealthCheckRequested,
     HealthCheckCompleted,
     ServiceTimeout,
     ReconnectionRequested,
     ReconnectionScheduled,
+    ToolSyncStarted,
+    ToolSyncCompleted,
 )
 
 __all__ = [
@@ -47,7 +51,9 @@ __all__ = [
     "ServiceConnected",
     "ServiceConnectionFailed",
     "ServiceStateChanged",
+    "ServicePersisting",
     "ServicePersisted",
+    "ServiceReady",
     "ServiceOperationFailed",
     # 健康与重连事件
     "HealthCheckRequested",
@@ -55,4 +61,7 @@ __all__ = [
     "ServiceTimeout",
     "ReconnectionRequested",
     "ReconnectionScheduled",
+    # 工具同步事件
+    "ToolSyncStarted",
+    "ToolSyncCompleted",
 ]

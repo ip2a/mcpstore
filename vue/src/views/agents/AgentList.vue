@@ -1,5 +1,5 @@
 <template>
-  <div class="agent-list-container">
+  <div class="page-shell agent-list-container">
     <!-- Header -->
     <header class="page-header">
       <div class="header-content">
@@ -231,9 +231,6 @@ onMounted(() => {
 
 <style lang="scss" scoped>
 .agent-list-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px;
   width: 100%;
 }
 

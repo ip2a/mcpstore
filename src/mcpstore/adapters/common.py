@@ -4,7 +4,6 @@ from __future__ import annotations
 import inspect
 import json
 import keyword
-import re
 import warnings
 from typing import TYPE_CHECKING, Callable, Any, Type, List, Dict, Optional
 
@@ -16,7 +15,7 @@ if TYPE_CHECKING:
 
 
 class ToolCallView(BaseModel):
-    """标准化 FastMCP CallToolResult 的辅助视图。"""
+    """标准化 MCPStore CallToolResult 的辅助视图。"""
 
     text: str = ""
     artifacts: List[Dict[str, Any]] = Field(default_factory=list)
@@ -53,7 +52,7 @@ def _extract_artifacts(contents: list) -> List[Dict[str, Any]]:
 
 def call_tool_response_helper(result: Any) -> ToolCallView:
     """
-    将 FastMCP CallToolResult 统一转换为 ToolCallView，供适配器复用。
+    将 MCPStore CallToolResult 统一转换为 ToolCallView，供适配器复用。
     """
     contents = getattr(result, "content", []) or []
     text_blocks = _extract_text_blocks(contents)
@@ -82,31 +81,7 @@ def call_tool_response_helper(result: Any) -> ToolCallView:
 
 
 def enhance_description(tool_info: 'ToolInfo') -> str:
-    base_description = tool_info.description or ""
-    schema_properties = tool_info.inputSchema.get("properties", {})
-    if not schema_properties:
-        return base_description
-    param_lines = []
-    for name, info in schema_properties.items():
-        param_type = info.get("type", "string")
-        param_desc = info.get("description", "")
-        line = f"- {name} ({param_type}): {param_desc}"
-        # If this is an array of objects, append nested shape hints
-        try:
-            if (param_type == "array" or (isinstance(param_type, list) and "array" in param_type)) and isinstance(info.get("items"), dict):
-                items = info["items"]
-                if items.get("type") == "object" and "properties" in items:
-                    nested = []
-                    for nkey, nprop in items["properties"].items():
-                        ntype = nprop.get("type", "string")
-                        ndesc = nprop.get("description", "")
-                        nested.append(f"    - {name}[].{nkey} ({ntype}) {ndesc}")
-                    if nested:
-                        line += "\n" + "\n".join(nested)
-        except Exception:
-            pass
-        param_lines.append(line)
-    return base_description + ("\n\nParameter descriptions:\n" + "\n".join(param_lines))
+    return tool_info.description or ""
 
 
 def create_args_schema(tool_info: 'ToolInfo') -> Type[BaseModel]:
@@ -124,32 +99,15 @@ def create_args_schema(tool_info: 'ToolInfo') -> Type[BaseModel]:
         "schema_json", "__fields__", "__root__", "Config", "model_config",
     }
 
-    def sanitize_name(original: str) -> str:
-        """
-        Convert any parameter name to a valid Python identifier.
-        - Replace non-alphanumeric/underscore characters with underscores
-        - Add prefix if starts with digit
-        - Add suffix if Python keyword or reserved name
-        """
-        # 1. Replace all invalid characters with underscores
-        safe = re.sub(r'[^a-zA-Z0-9_]', '_', original)
-
-        # 2. If starts with digit, add prefix
-        if safe and safe[0].isdigit():
-            safe = f"param_{safe}"
-
-        # 3. If Python keyword or reserved name, add suffix
-        if keyword.iskeyword(safe) or safe in reserved_names or safe.startswith("_"):
-            safe = f"{safe}_"
-
-        # 4. Ensure not empty and is valid identifier
-        if not safe or not safe.isidentifier():
-            safe = "param_"
-
-        return safe
+    def is_valid_field_name(name: str) -> bool:
+        return bool(name) and name.isidentifier() and not keyword.iskeyword(name) and name not in reserved_names and not name.startswith("_")
 
     fields: dict[str, tuple[type, Any]] = {}
+    has_invalid_field = False
     for original_name, prop in props.items():
+        if not is_valid_field_name(original_name):
+            has_invalid_field = True
+            break
         field_type = type_mapping.get(prop.get("type", "string"), str)
 
         # Detect JSON Schema nullability/Optional
@@ -173,12 +131,8 @@ def create_args_schema(tool_info: 'ToolInfo') -> Type[BaseModel]:
         is_nullable = _is_nullable(prop)
         is_required = original_name in required
 
-        # Handle default values: make non-required fields truly optional
+        # Handle default values without injecting implicit defaults
         default_value = prop.get("default", ...)
-        if not is_required and default_value == ...:
-            # Use None as a sentinel default so Pydantic treats field as optional
-            # Combined with exclude_unset=True, unset optionals won't be sent
-            default_value = None
 
         # Apply Optional typing if nullable
         try:
@@ -188,12 +142,7 @@ def create_args_schema(tool_info: 'ToolInfo') -> Type[BaseModel]:
         except Exception:
             pass
 
-        safe_name = sanitize_name(original_name)
         field_kwargs = {"description": prop.get("description", "")}
-        # If we renamed, keep external alias stable
-        if safe_name != original_name:
-            field_kwargs["validation_alias"] = original_name
-            field_kwargs["serialization_alias"] = original_name
 
         # Preserve nested schema hints for arrays/objects so model_json_schema() retains details
         try:
@@ -218,15 +167,15 @@ def create_args_schema(tool_info: 'ToolInfo') -> Type[BaseModel]:
             pass
 
         if default_value != ...:
-            fields[safe_name] = (field_type, Field(default=default_value, **field_kwargs))
+            fields[original_name] = (field_type, Field(default=default_value, **field_kwargs))
         else:
-            fields[safe_name] = (field_type, Field(**field_kwargs))
+            fields[original_name] = (field_type, Field(**field_kwargs))
 
     # Detect whether schema allows additionalProperties
     additional_properties = tool_info.inputSchema.get("additionalProperties", False)
     allow_extra = bool(additional_properties)  # dict/True both considered as allowed
 
-    if not fields and allow_extra:
+    if (not fields or has_invalid_field) and allow_extra:
         # No declared fields but open object: create permissive model with extra=allow
         base = type("OpenArgsBase", (BaseModel,), {"model_config": ConfigDict(extra="allow")})
         with warnings.catch_warnings():
@@ -239,7 +188,7 @@ def create_args_schema(tool_info: 'ToolInfo') -> Type[BaseModel]:
             return create_model(f"{tool_info.name.capitalize().replace('_', '')}Input", __base__=base)
 
     if not fields:
-        fields["input"] = (str, Field(description="Tool input"))
+        pass
 
     # Suppress specific Pydantic warning about shadowing BaseModel attributes
     with warnings.catch_warnings():
@@ -260,25 +209,8 @@ def build_sync_executor(context: 'MCPStoreContext', tool_name: str, args_schema:
     def _executor(**kwargs):
         tool_input = {}
         try:
-            schema_info = args_schema.model_json_schema()
-            schema_fields = schema_info.get('properties', {})
-            field_names = list(schema_fields.keys())
-            allow_extra = bool(schema_info.get('additionalProperties', False))
-            tool_input = dict(kwargs) if allow_extra else {k: v for k, v in kwargs.items() if k in field_names}
-            try:
-                validated = args_schema(**tool_input)
-            except Exception:
-                filtered = {k: kwargs[k] for k in field_names if k in kwargs}
-                validated = args_schema(**filtered)
-            result = context.call_tool(
-                tool_name,
-                validated.model_dump(
-                    by_alias=True,          # Use original parameter names
-                    exclude_unset=True,     # Don't send unset parameters
-                    exclude_none=False,     # Preserve explicit None values
-                    exclude_defaults=False  # Preserve default values (service may require them)
-                )
-            )
+            tool_input = dict(kwargs)
+            result = context.call_tool(tool_name, tool_input)
             actual = getattr(result, 'result', None)
             if actual is None and getattr(result, 'success', False):
                 actual = getattr(result, 'data', str(result))
@@ -294,16 +226,7 @@ def build_sync_executor(context: 'MCPStoreContext', tool_name: str, args_schema:
 
 def build_async_executor(context: 'MCPStoreContext', tool_name: str, args_schema: Type[BaseModel]) -> Callable[..., Any]:
     async def _executor(**kwargs):
-        validated = args_schema(**kwargs)
-        result = await context.call_tool_async(
-            tool_name,
-            validated.model_dump(
-                by_alias=True,          # Use original parameter names
-                exclude_unset=True,     # Don't send unset parameters
-                exclude_none=False,     # Preserve explicit None values
-                exclude_defaults=False  # Preserve default values (service may require them)
-            )
-        )
+        result = await context.call_tool_async(tool_name, dict(kwargs))
         actual = getattr(result, 'result', None)
         if actual is None and getattr(result, 'success', False):
             actual = getattr(result, 'data', str(result))

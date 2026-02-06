@@ -1,5 +1,5 @@
 <template>
-  <div class="cache-space-container">
+  <div class="page-shell cache-space-container">
     <!-- Header -->
     <header class="page-header">
       <div class="header-content">
@@ -408,9 +408,6 @@ const exportValue = () => {
 
 <style lang="scss" scoped>
 .cache-space-container {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 20px;
   width: 100%;
 }
 

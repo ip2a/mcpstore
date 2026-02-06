@@ -154,7 +154,7 @@ class ServiceManagementCore:
             import time
             state_data = {
                 "service_global_name": global_name,  # 必需字段
-                "health_status": "initializing",  # 初始状态：正在初始化
+                "health_status": "startup",  # 初始状态：正在初始化
                 "last_health_check": int(time.time()),  # 必需字段
                 "connection_attempts": 0,  # 必需字段
                 "max_connection_attempts": 3,  # 必需字段
@@ -170,7 +170,7 @@ class ServiceManagementCore:
                     "value": state_data,  # 缓存层需要的 value
                     # 保留原有数据以备其他用途
                     "global_name": global_name,
-                    "health_status": "initializing",
+                    "health_status": "startup",
                     "tools_status": [],  # 兼容性保留
                     "error_message": None,
                     "last_heartbeat": None

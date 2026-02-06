@@ -113,18 +113,33 @@ class ConfigSnapshotGenerator:
         lifecycle_defaults = HealthCheckConfigDefaults()
         defaults.update({
             "health_check.enabled": lifecycle_defaults.enabled,
-            "health_check.check_interval_seconds": lifecycle_defaults.check_interval_seconds,
-            "health_check.failure_threshold": lifecycle_defaults.failure_threshold,
-            "health_check.warning_failure_threshold": lifecycle_defaults.warning_failure_threshold,
-            "health_check.termination_failure_threshold": lifecycle_defaults.termination_failure_threshold,
-            "health_check.initialization_timeout_seconds": lifecycle_defaults.initialization_timeout_seconds,
-            "health_check.shutdown_timeout_seconds": lifecycle_defaults.shutdown_timeout_seconds,
-            "health_check.restart_delay_seconds": lifecycle_defaults.restart_delay_seconds,
-            "health_check.health_check_timeout_seconds": lifecycle_defaults.health_check_timeout_seconds,
-            "health_check.enableDetailedLogging": lifecycle_defaults.enableDetailedLogging,
-            "health_check.collectStartupMetrics": lifecycle_defaults.collectStartupMetrics,
-            "health_check.collectRuntimeMetrics": lifecycle_defaults.collectRuntimeMetrics,
-            "health_check.collectShutdownMetrics": lifecycle_defaults.collectShutdownMetrics,
+            "health_check.startup_interval": lifecycle_defaults.startup_interval,
+            "health_check.startup_timeout": lifecycle_defaults.startup_timeout,
+            "health_check.startup_hard_timeout": lifecycle_defaults.startup_hard_timeout,
+            "health_check.readiness_interval": lifecycle_defaults.readiness_interval,
+            "health_check.readiness_success_threshold": lifecycle_defaults.readiness_success_threshold,
+            "health_check.readiness_failure_threshold": lifecycle_defaults.readiness_failure_threshold,
+            "health_check.liveness_interval": lifecycle_defaults.liveness_interval,
+            "health_check.liveness_failure_threshold": lifecycle_defaults.liveness_failure_threshold,
+            "health_check.ping_timeout_http": lifecycle_defaults.ping_timeout_http,
+            "health_check.ping_timeout_sse": lifecycle_defaults.ping_timeout_sse,
+            "health_check.ping_timeout_stdio": lifecycle_defaults.ping_timeout_stdio,
+            "health_check.warning_ping_timeout": lifecycle_defaults.warning_ping_timeout,
+            "health_check.window_size": lifecycle_defaults.window_size,
+            "health_check.window_min_calls": lifecycle_defaults.window_min_calls,
+            "health_check.error_rate_threshold": lifecycle_defaults.error_rate_threshold,
+            "health_check.latency_p95_warn": lifecycle_defaults.latency_p95_warn,
+            "health_check.latency_p99_critical": lifecycle_defaults.latency_p99_critical,
+            "health_check.max_reconnect_attempts": lifecycle_defaults.max_reconnect_attempts,
+            "health_check.backoff_base": lifecycle_defaults.backoff_base,
+            "health_check.backoff_max": lifecycle_defaults.backoff_max,
+            "health_check.backoff_jitter": lifecycle_defaults.backoff_jitter,
+            "health_check.backoff_max_duration": lifecycle_defaults.backoff_max_duration,
+            "health_check.half_open_max_calls": lifecycle_defaults.half_open_max_calls,
+            "health_check.half_open_success_rate_threshold": lifecycle_defaults.half_open_success_rate_threshold,
+            "health_check.reconnect_hard_timeout": lifecycle_defaults.reconnect_hard_timeout,
+            "health_check.lease_ttl": lifecycle_defaults.lease_ttl,
+            "health_check.lease_renew_interval": lifecycle_defaults.lease_renew_interval,
         })
 
         # 内容更新默认值
@@ -142,34 +157,38 @@ class ConfigSnapshotGenerator:
         # 监控配置默认值
         monitoring_defaults = MonitoringConfigDefaults()
         defaults.update({
-            "monitoring.enabled": monitoring_defaults.enabled,
-            "monitoring.health_check_seconds": monitoring_defaults.health_check_seconds,
-            "monitoring.metrics_collection_seconds": monitoring_defaults.metrics_collection_seconds,
-            "monitoring.statistics_retention_hours": monitoring_defaults.statistics_retention_hours,
-            "monitoring.max_statistics_memory_mb": monitoring_defaults.max_statistics_memory_mb,
-            "monitoring.enable_performance_monitoring": monitoring_defaults.enable_performance_monitoring,
+            "monitoring.tools_update_hours": monitoring_defaults.tools_update_hours,
+            "monitoring.reconnection_seconds": monitoring_defaults.reconnection_seconds,
+            "monitoring.cleanup_hours": monitoring_defaults.cleanup_hours,
             "monitoring.enable_tools_update": monitoring_defaults.enable_tools_update,
-            "monitoring.slow_query_threshold_seconds": monitoring_defaults.slow_query_threshold_seconds,
-            "monitoring.memory_usage_warning_threshold": monitoring_defaults.memory_usage_warning_threshold,
-            "monitoring.cpu_usage_warning_threshold": monitoring_defaults.cpu_usage_warning_threshold,
-            "monitoring.enable_detailed_logging": monitoring_defaults.enable_detailed_logging,
-            "monitoring.log_slow_operations": monitoring_defaults.log_slow_operations,
-            "monitoring.export_format": monitoring_defaults.export_format,
+            "monitoring.enable_reconnection": monitoring_defaults.enable_reconnection,
+            "monitoring.update_tools_on_reconnection": monitoring_defaults.update_tools_on_reconnection,
+            "monitoring.detect_tools_changes": monitoring_defaults.detect_tools_changes,
+            "monitoring.local_service_ping_timeout": monitoring_defaults.local_service_ping_timeout,
+            "monitoring.remote_service_ping_timeout": monitoring_defaults.remote_service_ping_timeout,
+            "monitoring.enable_adaptive_timeout": monitoring_defaults.enable_adaptive_timeout,
+            "monitoring.adaptive_timeout_multiplier": monitoring_defaults.adaptive_timeout_multiplier,
+            "monitoring.response_time_history_size": monitoring_defaults.response_time_history_size,
         })
 
         # 缓存配置默认值（非敏感部分）
-        cache_defaults = CacheConfigDefaults()
+        cache_memory_defaults = CacheMemoryConfigDefaults()
+        cache_redis_defaults = CacheRedisConfigDefaults()
         defaults.update({
-            "cache.type": "memory",  # 默认内存缓存
-            "cache.memory.max_size": cache_defaults.memory.max_size,
-            "cache.memory.ttl_seconds": cache_defaults.memory.ttl_seconds,
-            "cache.memory.cleanup_interval_seconds": cache_defaults.memory.cleanup_interval_seconds,
-            "cache.redis.max_connections": cache_defaults.redis.max_connections,
-            "cache.redis.socket_timeout_seconds": cache_defaults.redis.socket_timeout_seconds,
-            "cache.redis.socket_connect_timeout_seconds": cache_defaults.redis.socket_connect_timeout_seconds,
-            "cache.redis.health_check_interval_seconds": cache_defaults.redis.health_check_interval_seconds,
-            "cache.redis.max_retries": cache_defaults.redis.max_retries,
-            "cache.redis.retry_delay_seconds": cache_defaults.redis.retry_delay_seconds,
+            "cache.memory.timeout": cache_memory_defaults.timeout,
+            "cache.memory.retry_attempts": cache_memory_defaults.retry_attempts,
+            "cache.memory.health_check": cache_memory_defaults.health_check,
+            "cache.memory.max_size": cache_memory_defaults.max_size,
+            "cache.memory.cleanup_interval": cache_memory_defaults.cleanup_interval,
+            "cache.redis.timeout": cache_redis_defaults.timeout,
+            "cache.redis.retry_attempts": cache_redis_defaults.retry_attempts,
+            "cache.redis.health_check": cache_redis_defaults.health_check,
+            "cache.redis.max_connections": cache_redis_defaults.max_connections,
+            "cache.redis.retry_on_timeout": cache_redis_defaults.retry_on_timeout,
+            "cache.redis.socket_keepalive": cache_redis_defaults.socket_keepalive,
+            "cache.redis.socket_connect_timeout": cache_redis_defaults.socket_connect_timeout,
+            "cache.redis.socket_timeout": cache_redis_defaults.socket_timeout,
+            "cache.redis.health_check_interval": cache_redis_defaults.health_check_interval,
         })
 
         # 独立应用配置默认值
@@ -182,6 +201,7 @@ class ConfigSnapshotGenerator:
             "standalone.streamable_http_endpoint": standalone_defaults.streamable_http_endpoint,
             "standalone.default_transport": standalone_defaults.default_transport,
             "standalone.log_level": standalone_defaults.log_level,
+            "standalone.log_format": standalone_defaults.log_format,
             "standalone.enable_debug": standalone_defaults.enable_debug,
         })
 
