@@ -270,7 +270,7 @@ class MCPOrchestrator(
     def _setup_tools_update_monitor(self):
         """设置工具更新监控器"""
         try:
-            from mcpstore.extensions.monitoring import ToolsUpdateMonitor
+            from mcpstore.extensions.tools_update import ToolsUpdateMonitor
             self.tools_update_monitor = ToolsUpdateMonitor(self)
             logger.info("Tools update monitor initialized")
         except Exception as e:

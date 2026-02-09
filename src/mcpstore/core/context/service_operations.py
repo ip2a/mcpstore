@@ -1106,9 +1106,10 @@ class ServiceOperationsMixin:
                 tool_count = complete_info.get("tool_count", 0)
 
                 # 透明代理：client_id 使用全局命名空间的 client_id
-                try:
-                    from mcpstore.utils.perspective_resolver import PerspectiveResolver
+                from mcpstore.utils.perspective_resolver import PerspectiveResolver
+                from mcpstore.core.exceptions import PerspectiveResolutionError
 
+                try:
                     resolver = PerspectiveResolver()
                     name_res = resolver.normalize_service_name(
                         agent_id,
@@ -1117,8 +1118,7 @@ class ServiceOperationsMixin:
                     )
                     display_name = name_res.local_name
                 except Exception as e:
-                    display_name = local_name
-                    logger.error(f"[AGENT_VIEW] PerspectiveResolver fallback to parsed name: {e}")
+                    raise PerspectiveResolutionError(global_name, str(e)) from e
 
                 service_info = ServiceInfo(
                     name=display_name,
