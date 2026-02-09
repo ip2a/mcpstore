@@ -514,36 +514,6 @@ export const useSystemStore = defineStore('system', () => {
     }
   }
 
-  const fetchToolRecords = async (limit = 50, force = false) => {
-    if (loadingStates.value.resources && !force) return
-
-    try {
-      setLoadingState('resources', true)
-
-      const data = await api.store.getToolRecords(limit)
-      logger.debug('API响应:', data) // 调试日志
-
-      // 期望格式: { executions: [...], summary: {...} }
-      if (data && Array.isArray(data.executions)) {
-        logger.debug(`📊 Loaded ${data.executions.length} tool execution records`)
-        return data
-      } else {
-        logger.warn('API响应格式异常:', data)
-        return { executions: [], summary: { total_executions: 0, by_tool: {}, by_service: {} } }
-      }
-    } catch (error) {
-      console.error('获取工具执行记录失败:', error)
-      addError({
-        message: `获取工具执行记录失败: ${error.message}`,
-        type: 'fetch-error',
-        source: 'fetchToolRecords'
-      })
-      return { executions: [], summary: { total_executions: 0, by_tool: {}, by_service: {} } }
-    } finally {
-      setLoadingState('resources', false)
-    }
-  }
-
   // 获取系统资源信息
   const fetchSystemResources = async () => {
     try {
@@ -597,8 +567,7 @@ export const useSystemStore = defineStore('system', () => {
         fetchServices(true),
         fetchTools(true),
         fetchSystemStatus(),
-        fetchSystemResources(),
-        fetchToolRecords(50, true)
+        fetchSystemResources()
       ])
 
       lastUpdateTime.value = new Date()
@@ -723,7 +692,6 @@ export const useSystemStore = defineStore('system', () => {
     executeToolAction,
     getServiceInfo,
     updateStats,
-    fetchToolRecords,
     refreshAllData,
     searchServices,
     searchTools,

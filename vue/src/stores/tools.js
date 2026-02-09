@@ -23,16 +23,6 @@ export const useToolsStore = defineStore('tools', () => {
     failedExecutions: 0
   })
 
-  // 新增状态
-  const toolRecords = ref({
-    executions: [],
-    summary: {
-      total_executions: 0,
-      by_tool: {},
-      by_service: {}
-    }
-  })
-
   const currentExecutions = ref(new Map()) // 当前正在执行的工具
   const errors = ref([])
   const lastError = ref(null)
@@ -41,7 +31,6 @@ export const useToolsStore = defineStore('tools', () => {
   const loadingStates = ref({
     tools: false,
     executing: false,
-    records: false,
     details: false
   })
 
@@ -105,19 +94,6 @@ export const useToolsStore = defineStore('tools', () => {
 
   const isExecuting = computed(() => {
     return currentExecutions.value.size > 0 || executing.value
-  })
-
-  const executionStats = computed(() => {
-    const total = toolRecords.value.summary.total_executions
-    const successful = executionHistory.value.filter(e => e.success).length
-    const failed = executionHistory.value.filter(e => !e.success).length
-
-    return {
-      total,
-      successful,
-      failed,
-      successRate: total > 0 ? (successful / total * 100).toFixed(1) : 0
-    }
   })
 
   const toolsByCategory = computed(() => {
@@ -350,68 +326,6 @@ export const useToolsStore = defineStore('tools', () => {
     }
   }
   
-  const getToolRecords = async (limit = 50, force = false) => {
-    if (loadingStates.value.records && !force) return toolRecords.value
-
-    try {
-      setLoadingState('records', true)
-
-      const response = await api.store.getToolRecords(limit)
-      // api.store.getToolRecords 使用 extractResponseData 返回 data 段
-      // 兼容两种形式：直接是 data 对象，或 { data: {...} }
-      const raw = response && response.data ? response.data : response
-      const data = raw && (raw.executions || raw.summary) ? raw : { executions: [], summary: { total_executions: 0, by_tool: {}, by_service: {} } }
-
-      // 更新本地状态
-      toolRecords.value = data
-
-      console.log(`📊 Loaded ${data.executions.length} tool execution records`)
-      return data
-    } catch (error) {
-      console.error('获取工具记录失败:', error)
-      addError({
-        message: `获取工具记录失败: ${error.message}`,
-        type: 'fetch-error',
-        source: 'getToolRecords'
-      })
-      throw error
-    } finally {
-      setLoadingState('records', false)
-    }
-  }
-
-  // 获取工具执行统计
-  const fetchToolExecutionStats = async () => {
-    try {
-      const records = await getToolRecords(100, true)
-
-      // 更新执行统计
-      const totalExecutions = records.summary.total_executions
-      const recentExecutions = records.executions.slice(0, 10)
-
-      // 计算成功率
-      const successfulExecutions = records.executions.filter(e => !e.error).length
-      const failedExecutions = records.executions.filter(e => e.error).length
-
-      stats.value.recentExecutions = recentExecutions.length
-      stats.value.successfulExecutions = successfulExecutions
-      stats.value.failedExecutions = failedExecutions
-
-      return {
-        total: totalExecutions,
-        successful: successfulExecutions,
-        failed: failedExecutions,
-        recent: recentExecutions
-      }
-    } catch (error) {
-      addError({
-        message: `获取执行统计失败: ${error.message}`,
-        type: 'stats-error',
-        source: 'fetchToolExecutionStats'
-      })
-      return null
-    }
-  }
 
   // 标记工具为收藏
   const toggleToolFavorite = (toolName) => {
@@ -519,14 +433,6 @@ export const useToolsStore = defineStore('tools', () => {
     lastUpdateTime.value = null
 
     // 重置新增状态
-    toolRecords.value = {
-      executions: [],
-      summary: {
-        total_executions: 0,
-        by_tool: {},
-        by_service: {}
-      }
-    }
     currentExecutions.value.clear()
     errors.value = []
     lastError.value = null
@@ -551,8 +457,6 @@ export const useToolsStore = defineStore('tools', () => {
     lastUpdateTime,
     stats,
 
-    // 新增状态
-    toolRecords,
     currentExecutions,
     errors,
     lastError,
@@ -570,7 +474,6 @@ export const useToolsStore = defineStore('tools', () => {
     hasErrors,
     recentErrors,
     isExecuting,
-    executionStats,
     toolsByCategory,
     availableTools,
     favoriteTools,
@@ -579,7 +482,6 @@ export const useToolsStore = defineStore('tools', () => {
     fetchTools,
     executeTool,
     getToolDetails,
-    getToolRecords,
     updateStats,
     setCurrentTool,
     getToolByName,
@@ -593,7 +495,6 @@ export const useToolsStore = defineStore('tools', () => {
     setLoadingState,
     addError,
     clearErrors,
-    fetchToolExecutionStats,
     toggleToolFavorite,
     loadFavoriteTools
   }

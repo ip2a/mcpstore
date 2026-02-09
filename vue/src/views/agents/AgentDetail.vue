@@ -262,10 +262,6 @@
                <el-icon><Refresh /></el-icon>
                <span>Refresh Context</span>
              </button>
-             <button class="action-card-btn" @click="$router.push('/for_store/tool_records')">
-               <el-icon><notebook /></el-icon>
-               <span>View Logs</span>
-             </button>
           </div>
         </section>
       </div>
@@ -332,7 +328,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { 
   ArrowLeft, Plus, Refresh, Connection, Tools, 
-  VideoPlay, Notebook, FirstAidKit 
+  VideoPlay, FirstAidKit 
 } from '@element-plus/icons-vue'
 import { useAgentsStore } from '@/stores/agents'
 import StatCard from '@/components/common/StatCard.vue'
