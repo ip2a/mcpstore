@@ -630,10 +630,13 @@ class CacheLayerManager:
             RuntimeError: 如果 pykv 操作失败
         """
         collection = self._get_relation_collection(relation_type)
-        logger.debug(
-            f"[CACHE] get_relation: collection={collection}, key={key}, "
-            f"relation_type={relation_type}"
-        )
+        # 使用与扫描相同的时间窗口机制，限制高频关系读取日志的刷屏
+        log_key = f"relation_read:{relation_type}:{key}"
+        if self._should_log_scan(log_key):
+            logger.debug(
+                f"[CACHE] get_relation: collection={collection}, key={key}, "
+                f"relation_type={relation_type}"
+            )
         
         try:
             result = await self._await_in_bridge(
@@ -742,13 +745,18 @@ class CacheLayerManager:
             f"[CACHE] put_state: collection={collection}, key={key}, "
             f"state_type={state_type}"
         )
+        state_key = f"{state_type}:{key}"
+        # 仅当状态内容发生变化时记录 STATE 级别的调试日志，避免持续重复写入时刷屏
+        log_state = self._has_state_changed(state_key, value)
         try:
-            logger.info(f"[CACHE] [STATE] Storing state value: collection={collection}, key={key}, value={value}")
+            if log_state:
+                logger.debug(f"[CACHE] [STATE] Storing state value: collection={collection}, key={key}, value={value}")
             await self._await_in_bridge(
                 self._kv_store.put(key, value, collection=collection),
                 f"cache.put_state.{state_type}"
             )
-            logger.info(f"[CACHE] [STATE] State stored successfully: collection={collection}, key={key}")
+            if log_state:
+                logger.debug(f"[CACHE] [STATE] State stored successfully: collection={collection}, key={key}")
         except Exception as e:
             logger.error(
                 f"[CACHE] [ERROR] Failed to store state: collection={collection}, key={key}, "

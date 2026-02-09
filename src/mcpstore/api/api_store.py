@@ -911,24 +911,6 @@ async def store_setup_config():
         data=setup_snapshot
     )
 
-# === Store 级别统计和监控 ===
-
-@store_router.get("/for_store/tool_records", response_model=APIResponse)
-@timed_response
-async def get_store_tool_records(limit: int = 50):
-    """获取Store级别的工具执行记录"""
-    store = get_store()
-    context = store.for_store()
-    records_data = await context.bridge_execute(
-        context.tool_records_async(limit)
-    )
-    
-    # 简化返回结构
-    return ResponseBuilder.success(
-        message=f"Retrieved {len(records_data.get('executions', []))} tool execution records",
-        data=records_data
-    )
-
 @store_router.get("/for_store/show_mcpjson", response_model=APIResponse)
 @timed_response
 async def store_show_mcpjson():

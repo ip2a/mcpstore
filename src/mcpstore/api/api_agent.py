@@ -610,24 +610,6 @@ async def agent_reset_config(agent_id: str):
         data={"agent_id": agent_id, "reset": True}
     )
 
-# === Agent-level Statistics and Monitoring ===
-
-@agent_router.get("/for_agent/{agent_id}/tool_records", response_model=APIResponse)
-@timed_response
-async def get_agent_tool_records(agent_id: str, limit: int = 50):
-    """Get tool execution records at agent level"""
-    validate_agent_id(agent_id)
-    store = get_store()
-    context = store.for_agent(agent_id)
-    records_data = await context.bridge_execute(
-        context.tool_records_async(limit)
-    )
-    
-    return ResponseBuilder.success(
-        message=f"Retrieved {len(records_data.get('executions', []))} tool execution records for agent '{agent_id}'",
-        data=records_data
-    )
-
 @agent_router.post("/for_agent/{agent_id}/restart_service", response_model=APIResponse)
 @timed_response
 async def agent_restart_service(agent_id: str, request: Request):
@@ -751,4 +733,3 @@ async def agent_get_service_status(agent_id: str, service_name: str):
         message=f"Service status retrieved for '{service_name}' in agent '{agent_id}'",
         data=status_info
     )
-

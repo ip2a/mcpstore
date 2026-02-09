@@ -280,6 +280,39 @@ class ConfigProcessor:
         if "input should be" in error_lower:
             return "Invalid field value. Please check your service configuration format."
 
+        # HTTP 状态码错误（常见于远端服务连接）
+        if "client error" in error_lower and "for url" in error_lower:
+            status_hint = ""
+            if "404" in error_lower:
+                status_hint = "HTTP 404 Not Found"
+            elif "400" in error_lower:
+                status_hint = "HTTP 400 Bad Request"
+            elif "401" in error_lower:
+                status_hint = "HTTP 401 Unauthorized"
+            elif "403" in error_lower:
+                status_hint = "HTTP 403 Forbidden"
+            elif "405" in error_lower:
+                status_hint = "HTTP 405 Method Not Allowed"
+            elif "422" in error_lower:
+                status_hint = "HTTP 422 Unprocessable Entity"
+            elif "429" in error_lower:
+                status_hint = "HTTP 429 Too Many Requests"
+            elif "500" in error_lower:
+                status_hint = "HTTP 500 Internal Server Error"
+            elif "502" in error_lower:
+                status_hint = "HTTP 502 Bad Gateway"
+            elif "503" in error_lower:
+                status_hint = "HTTP 503 Service Unavailable"
+            elif "504" in error_lower:
+                status_hint = "HTTP 504 Gateway Timeout"
+            else:
+                status_hint = "HTTP client error"
+
+            return (
+                f"Remote service returned {status_hint}. "
+                "Please verify the service URL/path/transport or authentication settings."
+            )
+
         # 网络相关错误
         if "getaddrinfo failed" in error_lower:
             return "Cannot resolve the service URL. Please check the URL and network connection."

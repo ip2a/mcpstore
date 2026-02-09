@@ -194,7 +194,7 @@ class LoggingConfig:
         cls.setup_logging(debug=True, force_reconfigure=True)
         # Reduce noise from third-party loggers
         import logging as _logging
-        for _name in ("asyncio", "watchfiles", "uvicorn"):
+        for _name in ("asyncio", "watchfiles", "uvicorn", "httpx", "httpcore"):
             try:
                 _logging.getLogger(_name).setLevel(DEGRADED)
             except Exception:
@@ -205,7 +205,7 @@ class LoggingConfig:
         """Disable debug mode"""
         cls.setup_logging(debug=False, force_reconfigure=True)
         import logging as _logging
-        for _name in ("asyncio", "watchfiles", "uvicorn"):
+        for _name in ("asyncio", "watchfiles", "uvicorn", "httpx", "httpcore"):
             try:
                 _logging.getLogger(_name).setLevel(DEGRADED)
             except Exception:

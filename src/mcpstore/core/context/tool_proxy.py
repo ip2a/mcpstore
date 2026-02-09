@@ -376,84 +376,6 @@ class ToolProxy:
         # 执行实际调用
         return self.call_tool(arguments, return_extracted=return_extracted)
 
-    # === 工具统计方法（两个单词）===
-
-    def usage_stats(self) -> Dict[str, Any]:
-        """
-        获取该工具的使用统计
-        
-        Returns:
-            Dict: 工具使用统计信息
-        """
-        try:
-            # 通过监控系统获取工具统计
-            if hasattr(self._context, '_monitoring') and self._context._monitoring:
-                # 获取工具使用记录
-                records = self._context._monitoring.get_tool_records(limit=100)
-                
-                # 过滤当前工具的记录（新结构键为 executions）
-                executions = records.get('executions', [])
-                tool_records = [
-                    record for record in executions
-                    if record.get('tool_name') == self._tool_name
-                ]
-                warning_msg = records.get('warning')
-                
-                return {
-                    "tool_name": self._tool_name,
-                    "total_calls": len(tool_records),
-                    "recent_calls": len([r for r in tool_records[-10:]]),  # 最近10次
-                    "success_rate": self._calculate_success_rate(tool_records),
-                    "average_duration": self._calculate_average_duration(tool_records),
-                    **({"degraded": warning_msg} if warning_msg else {})
-                }
-            else:
-                return {
-                    "tool_name": self._tool_name,
-                    "total_calls": 0,
-                    "recent_calls": 0,
-                    "success_rate": 0.0,
-                    "average_duration": 0.0,
-                    "note": "Monitoring not available"
-                }
-        except Exception as e:
-            logger.error(f"[TOOL_PROXY] Failed to get usage stats: {e}")
-            return {
-                "tool_name": self._tool_name,
-                "error": str(e)
-            }
-
-    def call_history(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """
-        获取调用历史
-        
-        Args:
-            limit: 返回记录数量限制
-            
-        Returns:
-            List[Dict]: 调用历史记录
-        """
-        try:
-            if hasattr(self._context, '_monitoring') and self._context._monitoring:
-                records = self._context._monitoring.get_tool_records(limit=limit * 2)  # 获取更多记录用于过滤
-                
-                # 过滤当前工具的记录（新结构键为 executions）
-                executions = records.get('executions', [])
-                tool_records = [
-                    record for record in executions
-                    if record.get('tool_name') == self._tool_name
-                ]
-                if records.get('warning'):
-                    tool_records.append({"degraded": records.get('warning')})
-                
-                # 返回最近的记录
-                return tool_records[:limit]
-            else:
-                return []
-        except Exception as e:
-            logger.error(f"[TOOL_PROXY] Failed to get call history: {e}")
-            return []
-
     # === 内部辅助方法 ===
 
     def _load_tool_info(self):
@@ -573,25 +495,6 @@ class ToolProxy:
             logger.error(f"[TOOL_PROXY] Failed to resolve ToolInfo object: {exc}")
 
         return self._tool_info_obj or None
-
-    def _calculate_success_rate(self, records: List[Dict[str, Any]]) -> float:
-        """计算成功率"""
-        if not records:
-            return 0.0
-        
-        success_count = sum(1 for record in records if not record.get('is_error', False))
-        return (success_count / len(records)) * 100.0
-
-    def _calculate_average_duration(self, records: List[Dict[str, Any]]) -> float:
-        """计算平均执行时间"""
-        if not records:
-            return 0.0
-        
-        durations = [record.get('duration', 0.0) for record in records if 'duration' in record]
-        if not durations:
-            return 0.0
-        
-        return sum(durations) / len(durations)
 
     # === 便捷属性方法 ===
 

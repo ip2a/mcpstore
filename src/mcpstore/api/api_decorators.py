@@ -1,19 +1,17 @@
 """
 MCPStore API Decorators and Utility Functions
-Contains common functionality such as exception handling, performance monitoring, validation, etc.
+Contains exception handling, validation helpers, and lightweight wrappers.
+（已移除性能/监控相关逻辑）
 """
 
 import logging
-import time
 from functools import wraps
 from typing import Optional, List
 
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from mcpstore import MCPStore
 from mcpstore.core.models import APIResponse
-from .api_dependencies import get_store as dependency_get_store
 # 导入统一的异常处理系统
 from .api_exceptions import (
     MCPStoreException, ValidationException, ErrorCode,
@@ -75,36 +73,7 @@ def monitor_api_performance(func):
     """API performance monitoring decorator"""
     @wraps(func)
     async def wrapper(*args, **kwargs):
-        start_time = time.time()
-
-        # Get store instance (from dependency injection)
-        store = None
-        for arg in args:
-            if isinstance(arg, MCPStore):
-                store = arg
-                break
-
-        # 如果没有在args中找到，检查kwargs
-        if store is None:
-            store = kwargs.get('store')
-
-        try:
-            # 增加活跃连接数
-            store = dependency_get_store()
-            store.for_store().increment_active_connections()
-
-            result = await func(*args, **kwargs)
-
-            # 记录API调用
-            if store:
-                response_time = (time.time() - start_time) * 1000  # 转换为毫秒
-                store.for_store().record_api_call(response_time)
-
-            return result
-        finally:
-            # 减少活跃连接数
-            if store:
-                store.for_store().decrement_active_connections()
+        return await func(*args, **kwargs)
 
     return wrapper
 

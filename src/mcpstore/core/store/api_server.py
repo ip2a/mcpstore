@@ -4,6 +4,8 @@ API 服务器模块
 """
 
 import logging
+import os
+import warnings
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +71,12 @@ class APIServerMixin:
             from pathlib import Path
 
             logger.info(f"Starting API server for store: data_space={self.is_using_data_space()}")
+
+            # Suppress websockets legacy deprecation noise until uvicorn/websockets migrate to new API.
+            # Keeps startup logs clean without changing functionality.
+            os.environ.setdefault("PYTHONWARNINGS", "ignore::DeprecationWarning:websockets.legacy")
+            warnings.filterwarnings("ignore", category=DeprecationWarning, module="websockets.legacy")
+            warnings.filterwarnings("ignore", category=DeprecationWarning, module="uvicorn.protocols.websockets.websockets_impl")
 
             if show_startup_info:
                 print("[START] Starting MCP client API Server...")

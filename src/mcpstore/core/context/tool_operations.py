@@ -472,9 +472,22 @@ class ToolOperationsMixin:
         - 若工具已确认为空（metadata.tools_confirmed_empty=True）则立即返回空列表
         - 若在超时时间内未同步完成，抛出明确的未就绪异常
         """
-        deadline = asyncio.get_event_loop().time() + timeout
+        loop = asyncio.get_event_loop()
+        start_time = loop.time()
+        deadline = start_time + timeout
         last_status = None
+        attempt = 0
+
+        logger.info(
+            "[TOOLS_WAIT_START] agent=%s service=%s timeout=%.2f interval=%.2f",
+            agent_id,
+            service_original_name,
+            timeout,
+            interval,
+        )
+
         while True:
+            attempt += 1
             tool_relations = await relation_manager.get_service_tools(service_global_name)
             status = await state_manager.get_service_status(service_global_name)
             last_status = status
@@ -487,30 +500,66 @@ class ToolOperationsMixin:
 
             tools_confirmed_empty = bool(getattr(metadata, "tools_confirmed_empty", False))
 
-            logger.debug(
-                "[TOOLS_WAIT] agent=%s service=%s status=%s tools=%s meta_empty=%s",
-                agent_id,
-                service_original_name,
-                getattr(status, "health_status", getattr(status, "status", "unknown")),
-                len(tool_relations) if tool_relations else 0,
-                tools_confirmed_empty,
-            )
+            # 对高频等待日志进行采样：仅首条以及后续每 20 次输出一条 DEBUG，避免循环刷屏
+            if attempt == 1 or attempt % 20 == 0:
+                logger.debug(
+                    "[TOOLS_WAIT] agent=%s service=%s attempt=%s status=%s tools=%s meta_empty=%s",
+                    agent_id,
+                    service_original_name,
+                    attempt,
+                    getattr(status, "health_status", getattr(status, "status", "unknown")),
+                    len(tool_relations) if tool_relations else 0,
+                    tools_confirmed_empty,
+                )
 
             # 已有工具，或明确确认为空
             if tool_relations or tools_confirmed_empty:
+                duration = loop.time() - start_time
+                logger.info(
+                    "[TOOLS_WAIT_DONE] agent=%s service=%s attempts=%s duration=%.3f tools=%s meta_empty=%s",
+                    agent_id,
+                    service_original_name,
+                    attempt,
+                    duration,
+                    len(tool_relations) if tool_relations else 0,
+                    tools_confirmed_empty,
+                )
                 return tool_relations
 
             # 状态中已有工具列表（防御性）
             if status and getattr(status, "tools", None):
-                return tool_relations
-
-            if asyncio.get_event_loop().time() >= deadline:
-                logger.warning(
-                    "[TOOLS_WAIT_TIMEOUT] agent=%s service=%s status=%s meta=%s relations=%s",
+                duration = loop.time() - start_time
+                logger.info(
+                    "[TOOLS_WAIT_DONE] agent=%s service=%s attempts=%s duration=%.3f tools_from_status=%s",
                     agent_id,
                     service_original_name,
+                    attempt,
+                    duration,
+                    len(getattr(status, "tools", []) or []),
+                )
+                return tool_relations
+
+            if loop.time() >= deadline:
+                duration = loop.time() - start_time
+                # 兼容 pydantic v2：优先使用 model_dump，其次 dict，最后 str
+                try:
+                    if hasattr(metadata, "model_dump") and callable(metadata.model_dump):
+                        meta_to_log = metadata.model_dump()
+                    elif hasattr(metadata, "dict") and callable(getattr(metadata, "dict")):
+                        meta_to_log = metadata.dict()
+                    else:
+                        meta_to_log = str(metadata)
+                except Exception:
+                    meta_to_log = str(metadata)
+
+                logger.warning(
+                    "[TOOLS_WAIT_TIMEOUT] agent=%s service=%s attempts=%s duration=%.3f status=%s meta=%s relations=%s",
+                    agent_id,
+                    service_original_name,
+                    attempt,
+                    duration,
                     getattr(status, "health_status", getattr(status, "status", "unknown")),
-                    getattr(metadata, "dict", lambda: str(metadata))(),
+                    meta_to_log,
                     tool_relations,
                 )
                 raise RuntimeError(

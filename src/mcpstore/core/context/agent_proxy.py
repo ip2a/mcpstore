@@ -386,10 +386,6 @@ class AgentProxy:
         ctx = self._agent_ctx or self._context
         return await ctx.reset_config_async()
 
-    async def get_tool_records_async(self, limit: int = 50) -> Dict[str, Any]:
-        ctx = self._agent_ctx or self._context
-        return await ctx.get_tool_records_async(limit)
-
     # ---- Service info/status & extended ops ----
     def get_service_info(self, name: str) -> Dict[str, Any]:
         """
@@ -445,11 +441,6 @@ class AgentProxy:
 
     async def service_status_async(self, name: str) -> Dict[str, Any]:
         return await self.get_service_status_async(name)
-
-    async def tool_records_async(self, limit: int = 50) -> Dict[str, Any]:
-        ctx = self._agent_ctx or self._context
-        return await ctx.tool_records_async(limit)
-
 
     def patch_service(self, name: str, updates: Dict[str, Any]) -> bool:
         ctx = self._agent_ctx or self._context
