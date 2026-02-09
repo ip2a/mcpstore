@@ -6,6 +6,7 @@ Tool execution module - contains tool execution and processing
 import logging
 from typing import Dict, Any, Optional
 
+from mcpstore.core.exceptions import ToolNotFoundException
 from mcpstore.mcp import Client
 
 logger = logging.getLogger(__name__)
@@ -130,31 +131,26 @@ class ToolExecutionMixin:
                 for i, tool in enumerate(tools):
                     logger.debug(f"   {i+1}. {tool.name}")
 
-                # 预设为用户提供的原始名称（应为 MCP 规范方法名）
-                effective_tool_name = tool_name
-
                 if not any(t.name == tool_name for t in tools):
                     available = [t.name for t in tools]
-                    logger.warning(f"[MCP_DEBUG] not_found tool='{tool_name}' in service='{service_name}'")
-                    logger.warning(f"[MCP_DEBUG] available={available}")
-
-                    # 一次性自修复：若传入名称被意外加了前缀，尝试以可用列表为准做最长后缀匹配
-                    fallback = None
-                    for cand in available:
-                        if effective_tool_name.endswith(cand):
-                            fallback = cand
-                            break
-
-                    if fallback and any(t.name == fallback for t in tools):
-                        logger.warning(f"[MCP_DEBUG] self_repair tool_name: '{tool_name}' -> '{fallback}'")
-                        effective_tool_name = fallback
-                    else:
-                        raise Exception(f"Tool {tool_name} not found in service {service_name}. Available: {available}")
+                    suggestions = available[:3]
+                    logger.info(
+                        "[MCP_DEBUG] tool not found: tool='%s' service='%s' available=%s suggestions=%s",
+                        tool_name,
+                        service_name,
+                        available,
+                        suggestions,
+                    )
+                    raise ToolNotFoundException(
+                        tool_name,
+                        service_name,
+                        details={"suggestions": suggestions},
+                    )
 
                 # 使用 MCP 规范执行器执行工具（标准 canonical 名称）
                 result = await executor.execute_tool(
                     client=client,
-                    tool_name=effective_tool_name,
+                    tool_name=tool_name,
                     arguments=arguments,
                     timeout=timeout,
                     progress_handler=progress_handler,
@@ -162,7 +158,7 @@ class ToolExecutionMixin:
                 )
 
                 # 返回 MCP 客户端的 CallToolResult（与官方保持一致）
-                logger.info(f"[MCP] call ok tool='{effective_tool_name}' service='{service_name}'")
+                logger.info(f"[MCP] call ok tool='{tool_name}' service='{service_name}'")
                 return result
 
         except Exception as e:
@@ -262,48 +258,16 @@ class ToolExecutionMixin:
 
             if not any(t.name == tool_name for t in tools):
                 available_tools = [t.name for t in tools]
-                # 
-                #        ()
-                fallback = None
-                for cand in available_tools:
-                    if tool_name.endswith(cand):
-                        fallback = cand
-                        break
-                if fallback and any(t.name == fallback for t in tools):
-                    logger.warning(f"[SESSION_EXECUTION] self_repair tool_name: '{tool_name}' -> '{fallback}'")
-                    #     
-                    result = await executor.execute_tool(
-                        client=client,
-                        tool_name=fallback,
-                        arguments=arguments,
-                        timeout=timeout,
-                        progress_handler=progress_handler,
-                        raise_on_error=raise_on_error
-                    )
-                    logger.info(f"[SESSION_EXECUTION] call ok (repaired) tool='{fallback}' service='{service_name}'")
-                    return result
-
-                logger.warning(f"[SESSION_EXECUTION] Tool '{tool_name}' not found in service '{service_name}', available: {available_tools}")
-                #     
-                #         
-                suggestions = []
-                try:
-                    #        
-                    def score(c: str) -> int:
-                        s = 0
-                        if c in tool_name or tool_name in c:
-                            s += 2
-                        if c.startswith(tool_name) or tool_name.startswith(c):
-                            s += 1
-                        return s
-                    suggestions = sorted(available_tools, key=lambda c: (-score(c), len(c)))[:3]
-                except Exception:
-                    suggestions = available_tools[:3]
-
-                raise Exception(
+                suggestions = available_tools[:3]
+                msg = (
                     f"Tool '{tool_name}' not found in service '{service_name}'. "
-                    f"Available: {available_tools}. "
-                    f"Try one of: {suggestions} or use bare method name without any prefixes."
+                    f"Available: {available_tools}. Suggestions: {suggestions}"
+                )
+                logger.info(msg)
+                raise ToolNotFoundException(
+                    tool_name,
+                    service_name,
+                    details={"suggestions": suggestions},
                 )
 
             # 使用 MCP 规范执行器执行工具（不进入 async with，保持连接）
