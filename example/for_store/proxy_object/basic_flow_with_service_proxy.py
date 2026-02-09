@@ -16,7 +16,7 @@ print("=" * 60)
 # Step 1: Initialize MCPStore
 # ------------------------------------------------------------
 print("\n[Step 1] Initialize MCPStore")
-store = MCPStore.setup_store(debug=False)
+store = MCPStore.setup_store(debug=True)
 print("  └─ ✓ MCPStore instance created successfully")
 
 # ------------------------------------------------------------
@@ -48,7 +48,6 @@ service_config = {
     "mcpServers": {
         service_name: {
             "url": "https://www.mcpstore.wiki/mcp"
-            # "url": "https://mcp.context7.com/mcp"
         }
     }
 }
