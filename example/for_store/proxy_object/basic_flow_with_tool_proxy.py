@@ -4,23 +4,6 @@ setup_example_import()
 from mcpstore import MCPStore
 
 
-# ============================================================
-# ToolProxy Usage Example - Complete Method Demonstration
-#
-# RELATED FEATURE: Unified AgentProxy Caching System
-# This ToolProxy example works seamlessly with the unified AgentProxy system.
-# When accessing AgentProxies, both methods return IDENTICAL objects:
-#
-#   - store.for_agent(agent_id)
-#   - store.for_store().find_agent(agent_id)
-#
-# Benefits for ToolProxy usage:
-# - Consistent agent state across all access patterns
-# - Tool operations are synchronized regardless of agent access method
-# - Performance optimized through agent-level caching
-# - Thread-safe concurrent tool execution
-# ============================================================
-
 print("\n" + "=" * 60)
 print("  ToolProxy Usage Example")
 print("=" * 60)
@@ -87,10 +70,10 @@ print("\n[Step 6] List All Services")
 services = store.for_store().list_services()
 print(f"  ├─ Total Services: {len(services)}")
 for idx, service in enumerate(services, 1):
-    svc_name = service.get('name', 'N/A')
-    svc_status = str(service.get('status', 'N/A')).split('.')[-1].replace("'", "")
-    svc_url = service.get('url', 'N/A')
-    svc_tools = service.get('tool_count', 0)
+    svc_name = getattr(service, "name", "N/A")
+    svc_status = str(getattr(service, "status", "N/A")).split('.')[-1].replace("'", "")
+    svc_url = getattr(service, "url", "N/A")
+    svc_tools = getattr(service, "tool_count", 0)
     print(f"  ├─ [{idx}] {svc_name}")
     print(f"  │   ├─ Status: {svc_status}")
     print(f"  │   ├─ URL: {svc_url}")
@@ -104,9 +87,9 @@ print("\n[Step 7] List All Tools")
 tools = store.for_store().list_tools()
 print(f"  ├─ Total Tools: {len(tools)}")
 for idx, tool in enumerate(tools, 1):
-    tool_name = tool.get('name', 'N/A')
-    tool_desc = tool.get('description', 'N/A')
-    tool_service = tool.get('service_name', 'N/A')
+    tool_name = getattr(tool, "name", getattr(tool, "tool_original_name", "N/A"))
+    tool_desc = getattr(tool, "description", "N/A")
+    tool_service = getattr(tool, "service_name", getattr(tool, "service_original_name", "N/A"))
     print(f"  ├─ [{idx}] {tool_name}")
     print(f"  │   ├─ Service: {tool_service}")
     print(f"  │   └─ Description: {tool_desc}")
@@ -190,7 +173,7 @@ tool_meta = tool_proxy.tool_meta()
 print(f"  ├─ Tags: {tool_tags}")
 print(f"  ├─ Tags Count: {len(tool_tags)}")
 print(f"  ├─ Meta Keys: {list(tool_meta.keys())}")
-print(f"  ├─ FastMCP Meta: {tool_meta.get('_fastmcp', {})}")
+print(f"  ├─ MCPStore Meta: {tool_meta.get('_mcpstore', {})}")
 print("  └─ ✓ Tags and meta retrieved successfully")
 
 # ------------------------------------------------------------

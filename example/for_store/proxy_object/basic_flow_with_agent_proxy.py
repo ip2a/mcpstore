@@ -3,53 +3,10 @@ from example_utils import setup_example_import
 setup_example_import()
 from mcpstore import MCPStore
 
-
-# ============================================================
-# AgentProxy Usage Example - Complete Agent Management Demonstration
-#
-# KEY FEATURE: Unified AgentProxy Caching System
-# Both store.for_agent(agent_id) and find_agent(agent_id) return
-# IDENTICAL objects with perfect synchronization.
-#
-# Benefits:
-# - Object identity: proxy1 is proxy2 returns True
-# - State synchronization: Modifications affect both references
-# - Performance: Cached access reduces overhead
-# - Thread safety: Concurrent access is safe and consistent
-# ============================================================
-
 print("\n" + "=" * 60)
 print("  AgentProxy Usage Example")
 print("=" * 60)
 
-# ============================================================
-# IMPORTANT NOTE: Unified AgentProxy Caching System
-# ============================================================
-"""
-UNIFIED AGENTPROXY ACCESS:
-
-In this MCPStore implementation, both methods return IDENTICAL AgentProxy objects:
-
-• store.for_agent(agent_id)
-• store.for_store().find_agent(agent_id)
-
-KEY PROPERTIES:
-✅ Object Identity: Both return the same instance (proxy1 is proxy2 → True)
-✅ State Synchronization: Modifications through either reference affect both
-✅ Cache Consistency: Multiple calls return the same cached object
-✅ Thread Safety: Concurrent access is safe and consistent
-
-EXAMPLE:
-    proxy1 = store.for_agent("agent_id")
-    proxy2 = store.for_store().find_agent("agent_id")
-
-    assert proxy1 is proxy2  # ✅ True - Same object
-    proxy1.add_service(config)  # Affects both references
-    assert len(proxy2.list_services()) > 0  # ✅ True - Changes reflected
-
-This unified design ensures data consistency and eliminates resource waste
-by maintaining a single AgentProxy instance per agent_id.
-"""
 
 print("\n" + "NOTE: Both for_agent() and find_agent() return IDENTICAL objects")
 print("      Modifications through either reference affect both equally")
@@ -112,10 +69,10 @@ print("\n[Step 6] List Store Services")
 services = store.for_store().list_services()
 print(f"  ├─ Total Services: {len(services)}")
 for idx, service in enumerate(services, 1):
-    svc_name = service.get('name', 'N/A')
-    svc_status = str(service.get('status', 'N/A')).split('.')[-1].replace("'", "")
-    svc_url = service.get('url', 'N/A')
-    svc_tools = service.get('tool_count', 0)
+    svc_name = getattr(service, "name", "N/A")
+    svc_status = str(getattr(service, "status", "N/A")).split('.')[-1].replace("'", "")
+    svc_url = getattr(service, "url", "N/A")
+    svc_tools = getattr(service, "tool_count", 0)
     print(f"  ├─ [{idx}] {svc_name}")
     print(f"  │   ├─ Status: {svc_status}")
     print(f"  │   ├─ URL: {svc_url}")
@@ -181,7 +138,8 @@ print(f"  └─ ✓ Agent information retrieved successfully")
 # Step 11: Agent Statistics Test
 # ------------------------------------------------------------
 print("\n[Step 11] Agent Statistics Test")
-agent_stats = agent_proxy.get_stats()
+import asyncio
+agent_stats = asyncio.run(agent_proxy.get_stats_async())
 print(f"  ├─ Stats Type: {type(agent_stats).__name__}")
 print(f"  ├─ Service Count: {agent_stats.get('service_count', 0)}")
 print(f"  ├─ Tool Count: {agent_stats.get('tool_count', 0)}")
@@ -241,6 +199,7 @@ agent_service_config = {
     "mcpServers": {
         agent_service_name: {
             "url": "https://www.mcpstore.wiki/mcp"
+            # "url": "https://www.mcpstore.wiki/mcp"
         }
     }
 }
@@ -258,10 +217,10 @@ agent_services = agent_proxy.list_services()
 print(f"  ├─ Agent ID: {agent_id}")
 print(f"  ├─ Total Agent Services: {len(agent_services)}")
 for idx, service in enumerate(agent_services, 1):
-    svc_name = service.get('name', 'N/A')
-    svc_status = str(service.get('status', 'N/A')).split('.')[-1].replace("'", "")
-    svc_url = service.get('url', 'N/A')
-    svc_tools = service.get('tool_count', 0)
+    svc_name = getattr(service, "name", getattr(service, "service_name", "N/A"))
+    svc_status = str(getattr(service, "status", "N/A")).split('.')[-1].replace("'", "")
+    svc_url = getattr(service, "url", getattr(service, "config", {}).get("url", "N/A"))
+    svc_tools = getattr(service, "tool_count", 0)
     print(f"  ├─ [{idx}] {svc_name}")
     print(f"  │   ├─ Status: {svc_status}")
     print(f"  │   ├─ URL: {svc_url}")
@@ -273,7 +232,7 @@ print("  └─ ✓ Agent service list retrieved successfully")
 # ------------------------------------------------------------
 print("\n[Step 14] Get ServiceProxy from Agent")
 if agent_services:
-    first_service_name = agent_services[0].get('name', 'N/A')
+    first_service_name = getattr(agent_services[0], "name", getattr(agent_services[0], "service_name", "N/A"))
     service_proxy = agent_proxy.find_service(first_service_name)
     print(f"  ├─ Service Name: {first_service_name}")
     print(f"  ├─ Service Proxy: {service_proxy}")
@@ -290,9 +249,9 @@ agent_tools = agent_proxy.list_tools()
 print(f"  ├─ Agent ID: {agent_id}")
 print(f"  ├─ Total Agent Tools: {len(agent_tools)}")
 for idx, tool in enumerate(agent_tools, 1):
-    tool_name = tool.get('name', 'N/A')
-    tool_desc = tool.get('description', 'N/A')
-    tool_service = tool.get('service_name', 'N/A')
+    tool_name = getattr(tool, "name", getattr(tool, "tool_original_name", "N/A"))
+    tool_desc = getattr(tool, "description", "N/A")
+    tool_service = getattr(tool, "service_name", getattr(tool, "service_original_name", "N/A"))
     print(f"  ├─ [{idx}] {tool_name}")
     print(f"  │   ├─ Service: {tool_service}")
     print(f"  │   └─ Description: {tool_desc}")
@@ -303,7 +262,7 @@ print("  └─ ✓ Agent tool list retrieved successfully")
 # ------------------------------------------------------------
 print("\n[Step 16] Get ToolProxy from Agent")
 if agent_tools:
-    first_tool_name = agent_tools[0].get('name', 'mcpstore_get_mcpstore_docs')
+    first_tool_name = getattr(agent_tools[0], "name", getattr(agent_tools[0], "tool_original_name", "mcpstore_get_mcpstore_docs"))
     tool_proxy = agent_proxy.find_tool(first_tool_name)
     print(f"  ├─ Tool Name: {first_tool_name}")
     print(f"  ├─ Tool Proxy: {tool_proxy}")
