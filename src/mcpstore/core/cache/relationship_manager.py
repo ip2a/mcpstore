@@ -8,7 +8,7 @@
 
 import logging
 import time
-from typing import Any, Dict, List, TYPE_CHECKING
+from typing import Any, Dict, List, TYPE_CHECKING, Set
 
 from .models import (
     AgentServiceRelation,
@@ -40,6 +40,12 @@ class RelationshipManager:
             cache_layer: 缓存层管理器实例
         """
         self._cache_layer = cache_layer
+        # 仅记录一次的调试日志（例如每个服务第一次读取关系）
+        self._service_tools_logged_once: Set[str] = set()
+        # 用于统计某个服务关系缺失的次数，便于做聚合日志
+        self._service_relation_missing_counts: Dict[str, int] = {}
+        # 记录上一次每个服务的工具数量，仅在数量变化时输出调试日志
+        self._last_service_tool_counts: Dict[str, int] = {}
         logger.debug("[RELATIONSHIP] Initializing RelationshipManager")
     
     # ==================== Agent-Service 关系管理 ====================
@@ -482,10 +488,13 @@ class RelationshipManager:
         if not service_global_name:
             raise ValueError("Service global name cannot be empty")
         
-        logger.debug(
-            f"[RELATIONSHIP] Getting service tool relations: "
-            f"service_global_name={service_global_name}"
-        )
+        # 每个服务只在首次读取关系时打印一条调试日志，避免在高频轮询中刷屏
+        if service_global_name not in self._service_tools_logged_once:
+            logger.debug(
+                f"[RELATIONSHIP] Getting service tool relations: "
+                f"service_global_name={service_global_name}"
+            )
+            self._service_tools_logged_once.add(service_global_name)
         
         # 获取关系
         relation_data = await self._cache_layer.get_relation(
@@ -494,10 +503,19 @@ class RelationshipManager:
         )
         
         if relation_data is None:
-            logger.debug(
-                f"[RELATIONSHIP] Service relation does not exist: "
-                f"service_global_name={service_global_name}"
-            )
+            # 首次缺失使用 INFO 提示，之后按次数聚合为 DEBUG，避免刷屏
+            missing_count = self._service_relation_missing_counts.get(service_global_name, 0) + 1
+            self._service_relation_missing_counts[service_global_name] = missing_count
+            if missing_count == 1:
+                logger.info(
+                    f"[RELATIONSHIP] Service relation does not exist: "
+                    f"service_global_name={service_global_name}"
+                )
+            elif missing_count % 50 == 0:
+                logger.debug(
+                    f"[RELATIONSHIP] Service relation still missing: "
+                    f"service_global_name={service_global_name}, missing_count={missing_count}"
+                )
             return []
         
         # 解析关系
@@ -506,10 +524,15 @@ class RelationshipManager:
         # 转换为字典列表
         tools = [tool.to_dict() for tool in relation.tools]
         
-        logger.debug(
-            f"[RELATIONSHIP] Retrieved {len(tools)} tool relations: "
-            f"service_global_name={service_global_name}"
-        )
+        # 仅在工具数量发生变化时输出调试日志，避免重复刷日志
+        current_count = len(tools)
+        previous_count = self._last_service_tool_counts.get(service_global_name)
+        if previous_count != current_count:
+            logger.debug(
+                f"[RELATIONSHIP] Retrieved {current_count} tool relations: "
+                f"service_global_name={service_global_name}"
+            )
+            self._last_service_tool_counts[service_global_name] = current_count
         
         return tools
     

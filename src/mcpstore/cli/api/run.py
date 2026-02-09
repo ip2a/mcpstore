@@ -2,6 +2,8 @@
 API 启动命令
 """
 import typer
+import os
+import warnings
 import uvicorn
 
 
@@ -21,6 +23,13 @@ def register_api_commands(app: typer.Typer) -> None:
         if service != "api":
             typer.echo("Only service=api is supported")
             raise typer.Exit(1)
+
+        # Suppress known websockets legacy deprecation noise until uvicorn/websockets migrate to the new API.
+        # Keeps logs clean without affecting functionality.
+        os.environ.setdefault("PYTHONWARNINGS", "ignore::DeprecationWarning:websockets.legacy")
+        warnings.filterwarnings("ignore", category=DeprecationWarning, module="websockets.legacy")
+        # Suppress uvicorn importing deprecated WebSocketServerProtocol (websockets 14 legacy API).
+        warnings.filterwarnings("ignore", category=DeprecationWarning, module="uvicorn.protocols.websockets.websockets_impl")
 
         try:
             typer.echo("[START] Starting MCPStore API Server")

@@ -6,23 +6,7 @@ Responsible for tool monitoring, performance analysis, metrics collection and mo
 """
 
 from .message_handler import MCPStoreMessageHandler
-# Main exports - maintain backward compatibility
 from .tools_monitor import ToolsUpdateMonitor
-
-try:
-    from .analytics import MonitoringAnalytics, EventCollector, ToolUsageMetrics, ServiceHealthMetrics
-except ImportError:
-    # If analytics module import fails, provide placeholder
-    MonitoringAnalytics = None
-    EventCollector = None
-    ToolUsageMetrics = None
-    ServiceHealthMetrics = None
-
-try:
-    from .base_monitor import MonitoringManager
-except ImportError as e:
-    print(f"Warning: Failed to import from base_monitor: {e}")
-    MonitoringManager = None
 
 try:
     from .config import MonitoringConfig
@@ -32,10 +16,5 @@ except ImportError:
 __all__ = [
     'ToolsUpdateMonitor',
     'MCPStoreMessageHandler',
-    'MonitoringAnalytics',
-    'EventCollector',
-    'ToolUsageMetrics',
-    'ServiceHealthMetrics',
-    'MonitoringManager',
     'MonitoringConfig'
 ]

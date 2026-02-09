@@ -182,9 +182,6 @@ class StoreProxy:
     async def reset_config_async(self) -> bool:
         return await self._context.reset_config_async()
 
-    async def get_tool_records_async(self, limit: int = 50) -> Dict[str, Any]:
-        return await self._context.get_tool_records_async(limit)
-
     # ---- Service info/status & extended ops ----
     def get_service_info(self, name: str) -> Dict[str, Any]:
         info = self._context.get_service_info(name)
@@ -264,9 +261,6 @@ class StoreProxy:
             return {"result": str(status)}
         except Exception:
             return {"result": str(status)}
-
-    async def tool_records_async(self, limit: int = 50) -> Dict[str, Any]:
-        return await self._context.tool_records_async(limit)
 
     # ---- Resources & Prompts ----
     def list_resources(self, service_name: str = None) -> Dict[str, Any]:

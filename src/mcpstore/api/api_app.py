@@ -162,26 +162,12 @@ def create_app(
         """记录请求日志并监控性能"""
         start_time = time.time()
 
-        # 增加活跃连接数
-        try:
-            current_store = get_store()
-            current_store.for_store().increment_active_connections()
-        except:
-            pass  # 忽略监控错误
-
         try:
             response = await call_next(request)
             process_time = (time.time() - start_time) * 1000
 
             # 添加响应头
             response.headers["X-Process-Time"] = f"{process_time:.2f}ms"
-
-            # 记录API调用
-            try:
-                current_store = get_store()
-                current_store.for_store().record_api_call(process_time)
-            except:
-                pass  # 忽略监控错误
 
             # 只记录错误和较慢的请求
             if response.status_code >= 400 or process_time > 1000:
@@ -197,13 +183,6 @@ def create_app(
                 f"Error: {e}, Duration: {process_time:.2f}ms"
             )
             raise
-        finally:
-            # 减少活跃连接数
-            try:
-                current_store = get_store()
-                current_store.for_store().decrement_active_connections()
-            except:
-                pass  # 忽略监控错误
 
     # 添加 API 文档入口（根路径或带前缀）
     @app.get("/doc" if not url_prefix else f"{url_prefix}/doc")

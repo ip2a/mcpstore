@@ -519,6 +519,33 @@ class CrossAgentOperationError(ToolSetError):
         )
 
 
+# === Perspective 解析相关异常 ===
+
+class PerspectiveResolutionError(MCPStoreException):
+    """视角解析失败异常
+
+    当 PerspectiveResolver 无法解析服务名称（本地/全局命名）时抛出。
+    """
+
+    def __init__(self, input_name: str, reason: Optional[str] = None, **kwargs):
+        message = f"Failed to resolve service name '{input_name}'"
+        if reason:
+            message += f": {reason}"
+
+        details = {"input_name": input_name}
+        if reason:
+            details["reason"] = reason
+        details.update(kwargs.get("details", {}))
+
+        super().__init__(
+            message=message,
+            error_code=ErrorCode.INVALID_PARAMETER,
+            field="service_name",
+            details=details,
+            **{k: v for k, v in kwargs.items() if k != "details"}
+        )
+
+
 class ServiceMappingError(ToolSetError):
     """服务映射错误
     
@@ -623,6 +650,5 @@ class ServiceBindingError(ToolSetError):
             details=details,
             **{k: v for k, v in kwargs.items() if k != "details"}
         )
-
 
 

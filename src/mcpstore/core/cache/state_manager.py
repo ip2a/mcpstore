@@ -31,6 +31,9 @@ class StateManager:
             cache_layer: 缓存层管理器
         """
         self._cache_layer = cache_layer
+        # 记录最近一次已记录日志的服务健康状态，避免在高频轮询场景下重复刷日志
+        # key: service_global_name, value: last_logged_health_status
+        self._last_logged_health_status: Dict[str, str] = {}
         logger.debug("[StateManager] State manager initialization completed")
     
     async def update_service_status(
@@ -142,11 +145,15 @@ class StateManager:
         
         status = ServiceStatus.from_dict(status_data)
         
+        # 仅在健康状态发生变化时记录一条 DEBUG 日志，避免在循环轮询中刷屏
         if status.health_status != "healthy":
-            logger.debug(
-                f"[StateManager] Retrieved service status: service={service_global_name}, "
-                f"health={status.health_status}"
-            )
+            last = self._last_logged_health_status.get(service_global_name)
+            if last != status.health_status:
+                logger.debug(
+                    f"[StateManager] Retrieved service status: service={service_global_name}, "
+                    f"health={status.health_status}"
+                )
+                self._last_logged_health_status[service_global_name] = status.health_status
         
         return status
     

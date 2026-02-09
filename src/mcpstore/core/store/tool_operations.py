@@ -75,80 +75,40 @@ class ToolOperationsMixin:
                 session_id=getattr(request, 'session_id', None)  # [NEW] Pass session ID if available
             )
 
-            # [MONITORING] Record successful tool execution
+            # 被动反馈：写入健康滑窗
             try:
-                duration_ms = (time.time() - start_time) * 1000
-
-                # Get corresponding Context to record monitoring data
-                if request.agent_id:
-                    context = self.for_agent(request.agent_id)
-                else:
-                    context = self.for_store()
-
-                if getattr(context, "_monitoring", None):
-                    context._monitoring.record_tool_execution_detailed(
-                        tool_name=request.tool_name,
+                container = getattr(self, "container", None)
+                health_monitor = getattr(container, "health_monitor", None) if container else None
+                if health_monitor:
+                    duration_ms = (time.time() - start_time) * 1000
+                    health_monitor.record_passive_feedback(
+                        agent_id=state_check_agent_id,
                         service_name=request.service_name,
-                        params=request.args,
-                        result=result,
-                        error=None,
-                        response_time=duration_ms
+                        success=True,
+                        response_time=duration_ms / 1000.0,
                     )
-                # 被动反馈：写入健康滑窗
-                try:
-                    container = getattr(self, "container", None)
-                    health_monitor = getattr(container, "health_monitor", None) if container else None
-                    if health_monitor:
-                        health_monitor.record_passive_feedback(
-                            agent_id=state_check_agent_id,
-                            service_name=request.service_name,
-                            success=True,
-                            response_time=duration_ms / 1000.0,
-                        )
-                except Exception as hf_err:
-                    logger.debug(f"[MONITORING] passive feedback (success) failed: {hf_err}")
-            except Exception as monitor_error:
-                logger.warning(f"Failed to record tool execution: {monitor_error}")
+            except Exception as hf_err:
+                logger.debug(f"[MONITORING] passive feedback (success) failed: {hf_err}")
 
             return ExecutionResponse(
                 success=True,
                 result=result
             )
         except Exception as e:
-            # [MONITORING] Record failed tool execution
+            # 被动反馈：写入健康滑窗
             try:
-                duration_ms = (time.time() - start_time) * 1000
-
-                # Get corresponding Context to record monitoring data
-                if request.agent_id:
-                    context = self.for_agent(request.agent_id)
-                else:
-                    context = self.for_store()
-
-                if getattr(context, "_monitoring", None):
-                    context._monitoring.record_tool_execution_detailed(
-                        tool_name=request.tool_name,
+                container = getattr(self, "container", None)
+                health_monitor = getattr(container, "health_monitor", None) if container else None
+                if health_monitor:
+                    duration_ms = (time.time() - start_time) * 1000
+                    health_monitor.record_passive_feedback(
+                        agent_id=state_check_agent_id,
                         service_name=request.service_name,
-                        params=request.args,
-                        result=None,
-                        error=str(e),
-                        response_time=duration_ms
+                        success=False,
+                        response_time=duration_ms / 1000.0,
                     )
-                # 被动反馈：写入健康滑窗
-                try:
-                    container = getattr(self, "container", None)
-                    health_monitor = getattr(container, "health_monitor", None) if container else None
-                    if health_monitor:
-                        health_monitor.record_passive_feedback(
-                            agent_id=state_check_agent_id,
-                            service_name=request.service_name,
-                            success=False,
-                            response_time=duration_ms / 1000.0,
-                        )
-                except Exception as hf_err:
-                    logger.debug(f"[MONITORING] passive feedback (failure) failed: {hf_err}")
-            except Exception as monitor_error:
-                logger.warning(f"Failed to record failed tool execution: {monitor_error}")
+            except Exception as hf_err:
+                logger.debug(f"[MONITORING] passive feedback (failure) failed: {hf_err}")
 
             logger.error(f"Tool execution failed: {e}")
             failure_result = CallToolFailureResult(str(e)).unwrap()

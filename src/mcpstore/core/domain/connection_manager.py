@@ -141,30 +141,73 @@ class ConnectionManager:
             )
 
         except Exception as e:
-            # Demote expected network/connectivity errors to DEGRADED and show friendly message
-            network_error = False
+            # 连接失败通常是用户配置或外部依赖问题，避免误判为系统错误
+            error_type = "connection_error"
+            log_level = "error"
+            text = str(e)
+            friendly = text
+
             try:
                 import httpx  # type: ignore
-                if isinstance(e, getattr(httpx, "ConnectError", tuple())) or isinstance(e, getattr(httpx, "ReadTimeout", tuple())):
-                    network_error = True
+
+                if isinstance(e, httpx.HTTPStatusError):
+                    status_code = e.response.status_code
+                    reason = e.response.reason_phrase
+                    if status_code in {400, 404, 405, 422}:
+                        error_type = "user_config"
+                        log_level = "info"
+                        friendly = (
+                            f"Remote service returned HTTP {status_code} {reason}. "
+                            "Please verify the service URL/path/transport."
+                        )
+                    elif status_code in {401, 403}:
+                        error_type = "auth"
+                        log_level = "info"
+                        friendly = (
+                            f"Authentication failed: HTTP {status_code} {reason}. "
+                            "Please verify auth headers/token."
+                        )
+                    elif status_code == 429:
+                        error_type = "rate_limited"
+                        log_level = "info"
+                        friendly = "Remote service rate limited: HTTP 429. Please retry later."
+                    elif status_code >= 500:
+                        error_type = "remote_error"
+                        log_level = "info"
+                        friendly = f"Remote service error: HTTP {status_code} {reason}."
+                    else:
+                        error_type = "http_error"
+                        log_level = "info"
+                        friendly = f"HTTP error: {status_code} {reason}."
+                elif isinstance(e, (httpx.ConnectError, httpx.ReadTimeout, httpx.TimeoutException)):
+                    error_type = "network"
+                    log_level = "info"
             except Exception:
                 pass
-            text = str(e)
-            if ("all connection attempts failed" in text.lower()) or ("timed out" in text.lower()) or ("certificate" in text.lower()) or ("handshake failure" in text.lower()):
-                network_error = True
 
-            # Convert to user-friendly message
-            try:
-                friendly = ConfigProcessor.get_user_friendly_error(text)
-            except Exception:
-                friendly = text
+            if error_type == "connection_error":
+                lowered = text.lower()
+                if (
+                    "all connection attempts failed" in lowered
+                    or "timed out" in lowered
+                    or "certificate" in lowered
+                    or "handshake failure" in lowered
+                ):
+                    error_type = "network"
+                    log_level = "info"
 
-            if network_error:
-                logger.warning(f"[CONNECTION] Failed: {event.service_name} - {friendly}")
+            if friendly == text:
+                try:
+                    friendly = ConfigProcessor.get_user_friendly_error(text)
+                except Exception:
+                    friendly = text
+
+            if log_level == "info":
+                logger.info(f"[CONNECTION] Failed: {event.service_name} - {friendly}")
             else:
                 logger.error(f"[CONNECTION] Failed: {event.service_name} - {friendly}", exc_info=True)
             await self._publish_connection_failed(
-                event, text, "connection_error", 0
+                event, text, error_type, 0
             )
 
     async def _connect_local_service(

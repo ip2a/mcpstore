@@ -234,9 +234,10 @@ class ServiceManagementMixin:
             if self._context_type == ContextType.STORE:
                 # Store级别：使用原子更新，避免读改写竞态
                 from mcpstore.core.configuration.config_write_service import ConfigWriteService
-                try:
-                    from mcpstore.utils.perspective_resolver import PerspectiveResolver
+                from mcpstore.utils.perspective_resolver import PerspectiveResolver
+                from mcpstore.core.exceptions import PerspectiveResolutionError
 
+                try:
                     resolver = PerspectiveResolver()
                     name_res = resolver.normalize_service_name(
                         self._store.client_manager.global_agent_store_id,
@@ -246,8 +247,7 @@ class ServiceManagementMixin:
                     )
                     config_key = name_res.global_name
                 except Exception as e:
-                    config_key = name
-                    logger.error(f"[UPDATE_SERVICE][STORE] PerspectiveResolver fallback: {e}")
+                    raise PerspectiveResolutionError(name, str(e)) from e
 
                 cws = ConfigWriteService()
                 def _mutator(cfg: Dict[str, Any]) -> Dict[str, Any]:
@@ -273,9 +273,10 @@ class ServiceManagementMixin:
                 return success
             else:
                 # Agent级别：与单一数据源模式对齐——直接更新 mcp.json 并触发同步
-                try:
-                    from mcpstore.utils.perspective_resolver import PerspectiveResolver
+                from mcpstore.utils.perspective_resolver import PerspectiveResolver
+                from mcpstore.core.exceptions import PerspectiveResolutionError
 
+                try:
                     resolver = PerspectiveResolver()
                     name_res = resolver.normalize_service_name(
                         self._agent_id,
@@ -285,14 +286,7 @@ class ServiceManagementMixin:
                     )
                     global_name = name_res.global_name
                 except Exception as e:
-                    # 兼容旧逻辑
-                    global_name = name
-                    if self._service_mapper:
-                        try:
-                            global_name = self._service_mapper.to_global_name(name)
-                        except Exception:
-                            pass
-                    logger.error(f"[UPDATE_SERVICE][AGENT] PerspectiveResolver fallback: {e}")
+                    raise PerspectiveResolutionError(name, str(e)) from e
 
                 from mcpstore.core.configuration.config_write_service import ConfigWriteService
                 cws = ConfigWriteService()
@@ -367,9 +361,10 @@ class ServiceManagementMixin:
             if self._context_type == ContextType.STORE:
                 # Store级别：使用原子增量更新
                 from mcpstore.core.configuration.config_write_service import ConfigWriteService
-                try:
-                    from mcpstore.utils.perspective_resolver import PerspectiveResolver
+                from mcpstore.utils.perspective_resolver import PerspectiveResolver
+                from mcpstore.core.exceptions import PerspectiveResolutionError
 
+                try:
                     resolver = PerspectiveResolver()
                     name_res = resolver.normalize_service_name(
                         self._store.client_manager.global_agent_store_id,
@@ -379,8 +374,7 @@ class ServiceManagementMixin:
                     )
                     config_key = name_res.global_name
                 except Exception as e:
-                    config_key = name
-                    logger.error(f"[PATCH_SERVICE][STORE] PerspectiveResolver fallback: {e}")
+                    raise PerspectiveResolutionError(name, str(e)) from e
 
                 cws = ConfigWriteService()
                 def _mutator(cfg: Dict[str, Any]) -> Dict[str, Any]:
@@ -406,9 +400,10 @@ class ServiceManagementMixin:
                 return success
             else:
                 # Agent级别：与单一数据源模式对齐——直接增量更新 mcp.json 并触发同步
-                try:
-                    from mcpstore.utils.perspective_resolver import PerspectiveResolver
+                from mcpstore.utils.perspective_resolver import PerspectiveResolver
+                from mcpstore.core.exceptions import PerspectiveResolutionError
 
+                try:
                     resolver = PerspectiveResolver()
                     name_res = resolver.normalize_service_name(
                         self._agent_id,
@@ -418,13 +413,7 @@ class ServiceManagementMixin:
                     )
                     global_name = name_res.global_name
                 except Exception as e:
-                    global_name = name
-                    if self._service_mapper:
-                        try:
-                            global_name = self._service_mapper.to_global_name(name)
-                        except Exception:
-                            pass
-                    logger.error(f"[PATCH_SERVICE][AGENT] PerspectiveResolver fallback: {e}")
+                    raise PerspectiveResolutionError(name, str(e)) from e
 
                 from mcpstore.core.configuration.config_write_service import ConfigWriteService
                 cws = ConfigWriteService()
@@ -496,9 +485,10 @@ class ServiceManagementMixin:
         try:
             if self._context_type == ContextType.STORE:
                 # Store级别：删除服务并触发双向同步
-                try:
-                    from mcpstore.utils.perspective_resolver import PerspectiveResolver
+                from mcpstore.utils.perspective_resolver import PerspectiveResolver
+                from mcpstore.core.exceptions import PerspectiveResolutionError
 
+                try:
                     resolver = PerspectiveResolver()
                     name_res = resolver.normalize_service_name(
                         self._store.client_manager.global_agent_store_id,
@@ -508,8 +498,7 @@ class ServiceManagementMixin:
                     )
                     target_name = name_res.global_name
                 except Exception as e:
-                    target_name = name
-                    logger.error(f"[SERVICE_DELETE] PerspectiveResolver fallback (store): {e}")
+                    raise PerspectiveResolutionError(name, str(e)) from e
 
                 await self._delete_store_service_with_sync(target_name)
                 return True
@@ -519,7 +508,7 @@ class ServiceManagementMixin:
                 return True
         except Exception as e:
             logger.error(f"Failed to delete service {name}: {e}")
-            return False
+            raise
 
     def _normalize_agent_local_name(self, input_name: str) -> str:
         """
@@ -1426,9 +1415,10 @@ class ServiceManagementMixin:
         """重启指定服务（透明代理）"""
         try:
             if self._context_type == ContextType.STORE:
-                try:
-                    from mcpstore.utils.perspective_resolver import PerspectiveResolver
+                from mcpstore.utils.perspective_resolver import PerspectiveResolver
+                from mcpstore.core.exceptions import PerspectiveResolutionError
 
+                try:
                     resolver = PerspectiveResolver()
                     name_res = resolver.normalize_service_name(
                         self._store.client_manager.global_agent_store_id,
@@ -1438,8 +1428,7 @@ class ServiceManagementMixin:
                     )
                     target_name = name_res.global_name
                 except Exception as e:
-                    target_name = name
-                    logger.error(f"[RESTART_SERVICE][STORE] PerspectiveResolver fallback: {e}")
+                    raise PerspectiveResolutionError(name, str(e)) from e
 
                 return await self._store.orchestrator.restart_service(target_name)
             else:
@@ -1449,7 +1438,7 @@ class ServiceManagementMixin:
                 return await self._store.orchestrator.restart_service(global_name, global_agent)
         except Exception as e:
             logger.error(f"Failed to restart service {name}: {e}")
-            return False
+            raise
 
     # === Lifecycle-only disconnection (no config/registry deletion) ===
     def disconnect_service(self, name: str, reason: str = "user_requested") -> bool:
@@ -1465,9 +1454,10 @@ class ServiceManagementMixin:
         try:
             global_agent_id = self._store.client_manager.global_agent_store_id
             if self._context_type == ContextType.STORE:
-                try:
-                    from mcpstore.utils.perspective_resolver import PerspectiveResolver
+                from mcpstore.utils.perspective_resolver import PerspectiveResolver
+                from mcpstore.core.exceptions import PerspectiveResolutionError
 
+                try:
                     resolver = PerspectiveResolver()
                     name_res = resolver.normalize_service_name(
                         self._store.client_manager.global_agent_store_id,
@@ -1477,8 +1467,7 @@ class ServiceManagementMixin:
                     )
                     global_name = name_res.global_name
                 except Exception as e:
-                    global_name = name
-                    logger.error(f"[DISCONNECT_SERVICE][STORE] PerspectiveResolver fallback: {e}")
+                    raise PerspectiveResolutionError(name, str(e)) from e
             else:
                 global_name = await self._map_agent_service_to_global(name)
 
@@ -1494,7 +1483,7 @@ class ServiceManagementMixin:
             return True
         except Exception as e:
             logger.error(f"[DISCONNECT_SERVICE] Failed to disconnect '{name}': {e}")
-            return False
+            raise
 
     # ===  新增：Agent 透明代理辅助方法 ===
 

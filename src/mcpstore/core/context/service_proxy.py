@@ -340,7 +340,6 @@ class ServiceProxy:
             # Agent 模式下的服务工具查找
             demo_service = store.for_agent('demo1').find_service('service1')
             demo_tool = demo_service.find_tool('search_tool')
-            demo_tool.usage_stats()         # 使用统计
         """
         from .tool_proxy import ToolProxy
         return ToolProxy(self._context, tool_name, scope='service', service_name=self._service_name)

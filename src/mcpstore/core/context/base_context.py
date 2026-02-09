@@ -6,9 +6,6 @@ Core context classes and basic functionality
 import asyncio
 import logging
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
-
-from mcpstore.extensions.monitoring import MonitoringManager
-from mcpstore.extensions.monitoring.analytics import get_monitoring_manager
 from .agent_service_mapper import AgentServiceMapper
 from .tool_transformation import get_transformation_manager
 from ..bridge import get_async_bridge
@@ -70,27 +67,6 @@ class MCPStoreContext(
         self._transformation_manager = get_transformation_manager()
         self._openapi_manager = get_openapi_manager()
         self._performance_optimizer = get_performance_optimizer()
-        self._monitoring_manager = get_monitoring_manager()
-
-        # Monitoring manager - unified behavior for both branches
-        data_dir = None
-        if hasattr(self._store, '_data_space_manager') and self._store._data_space_manager:
-            data_dir = self._store._data_space_manager.workspace_dir / "monitoring"
-        else:
-            logger.warning("[MONITORING] Data space manager not initialized; monitoring disabled (no fallback path).")
-
-        if data_dir is not None:
-            try:
-                self._monitoring = MonitoringManager(
-                    data_dir,
-                    self._store.tool_record_max_file_size,
-                    self._store.tool_record_retention_days
-                )
-            except Exception as monitor_init_error:
-                logger.warning(f"[MONITORING] Failed to initialize monitoring at data space: {monitor_init_error}")
-                self._monitoring = None
-        else:
-            self._monitoring = None
 
         # Agent service name mapper
         # global_agent_store does not use service mapper as it uses original service names
@@ -275,7 +251,6 @@ class MCPStoreContext(
             weather_tool = store.for_store().find_tool('get_current_weather')
             weather_tool.tool_info()        # Get tool details
             weather_tool.call_tool({...})   # Call tool
-            weather_tool.usage_stats()      # Usage statistics
 
             # Agent-level usage
             demo_tool = store.for_agent('demo1').find_tool('search_tool')
@@ -337,50 +312,6 @@ class MCPStoreContext(
             "debug_level": level_name,
             "static_config": {}
         }
-
-    # === Monitoring and statistics functionality ===
-
-    def record_api_call(self, response_time: float):
-        """Record API call"""
-        if self._monitoring:
-            self._monitoring.record_api_call(response_time)
-
-    def increment_active_connections(self):
-        """Increment active connection count"""
-        if self._monitoring:
-            self._monitoring.increment_active_connections()
-
-    def decrement_active_connections(self):
-        """Decrement active connection count"""
-        if self._monitoring:
-            self._monitoring.decrement_active_connections()
-
-    def get_tool_records(self, limit: int = 50) -> Dict[str, Any]:
-        """Get tool execution records"""
-        if not self._monitoring:
-            return {
-                "executions": [],
-                "summary": {
-                    "total_executions": 0,
-                    "by_tool": {},
-                    "by_service": {}
-                },
-                "degraded": "Monitoring disabled"
-            }
-        return self._monitoring.get_tool_records(limit)
-
-    async def get_tool_records_async(self, limit: int = 50) -> Dict[str, Any]:
-        """Asynchronously get tool execution records"""
-        return self.get_tool_records(limit)
-
-    # 别名：符合“两个单词”命名偏好
-    def tool_records(self, limit: int = 50) -> Dict[str, Any]:
-        """工具执行记录（同步别名）"""
-        return self.get_tool_records(limit)
-
-    async def tool_records_async(self, limit: int = 50) -> Dict[str, Any]:
-        """工具执行记录（异步别名）"""
-        return await self.get_tool_records_async(limit)
 
     # === Internal helper methods ===
 
