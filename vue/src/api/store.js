@@ -124,14 +124,6 @@ export const storeApi = {
       }
     }),
 
-  getToolRecords: (limit = 50) => apiRequest.get(API_ENDPOINTS.STORE.TOOL_RECORDS, { params: { limit }})
-    .then(res => extractResponseData(res.data)),
-
-  // 分页获取工具使用记录（对齐 mgmt_vue 参数：tool_name, service_name, page, page_size）
-  getToolRecordsPaged: (params = { page: 1, page_size: 10 }) =>
-    apiRequest.get(API_ENDPOINTS.STORE.TOOL_RECORDS, { params })
-      .then(res => extractResponseData(res.data)),
-
 
   /**
    * 系统资源

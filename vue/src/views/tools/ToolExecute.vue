@@ -602,11 +602,6 @@ watch(() => [route.query.toolName, route.query.serviceName], ([t, s]) => {
 
 onMounted(async () => {
   await systemStore.fetchTools()
-  // Load history stub
-  try {
-     const hist = await systemStore.fetchToolRecords(10)
-     if(hist?.executions) historyRecords.value = hist.executions
-  } catch (e) { /* ignore history load error */ }
 })
 </script>
 

@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { api } from '@/api'
 import { useAppStore } from './app'
 
 /**
@@ -14,15 +13,6 @@ export const useToolExecutionStore = defineStore('toolExecution', () => {
   
   // 执行历史和记录
   const executionHistory = ref([])
-  const toolRecords = ref({
-    executions: [],
-    summary: {
-      total_executions: 0,
-      by_tool: {},
-      by_service: {}
-    }
-  })
-
   // 当前执行状态
   const currentExecutions = ref(new Map()) // executionId -> execution info
   const executionQueue = ref([]) // 待执行的工具队列
@@ -40,7 +30,6 @@ export const useToolExecutionStore = defineStore('toolExecution', () => {
   // 加载状态
   const loading = ref({
     executing: false,
-    records: false,
     history: false
   })
 
@@ -51,7 +40,6 @@ export const useToolExecutionStore = defineStore('toolExecution', () => {
   // 配置
   const config = ref({
     maxHistorySize: 1000,
-    maxRecordsSize: 500,
     autoSaveHistory: true,
     defaultTimeout: 30000,
     retryAttempts: 3,
@@ -86,13 +74,7 @@ export const useToolExecutionStore = defineStore('toolExecution', () => {
   const popularTools = computed(() => {
     const toolCounts = {}
 
-    // 🔧 修复：确保executions数组存在
-    if (!toolRecords.value.executions || !Array.isArray(toolRecords.value.executions)) {
-      console.warn('⚠️ toolRecords.executions 不是有效数组:', toolRecords.value.executions)
-      return []
-    }
-
-    toolRecords.value.executions.forEach(execution => {
+    executionHistory.value.forEach(execution => {
       const toolName = execution.tool_name
       if (!toolName) return // 跳过无效记录
 
@@ -162,45 +144,12 @@ export const useToolExecutionStore = defineStore('toolExecution', () => {
   const todayStats = computed(() => {
     const today = new Date().toDateString()
 
-    // 🔧 优先使用真实的API数据
-    if (toolRecords.value.executions && Array.isArray(toolRecords.value.executions)) {
-      const todayExecutions = toolRecords.value.executions.filter(exec => {
-        if (!exec.execution_time) return false
-        return new Date(exec.execution_time).toDateString() === today
-      })
-
-      const successful = todayExecutions.filter(exec => !exec.error).length
-      const failed = todayExecutions.filter(exec => exec.error).length
-
-      console.log('🔍 [DEBUG] 今日统计 (基于API数据):', {
-        total: todayExecutions.length,
-        successful,
-        failed,
-        todayDate: today
-      })
-
-      return {
-        total: todayExecutions.length,
-        successful,
-        failed,
-        successRate: todayExecutions.length > 0 ? (successful / todayExecutions.length * 100).toFixed(1) : 0
-      }
-    }
-
-    // 🔧 回退到本地历史数据
     const todayExecutions = executionHistory.value.filter(exec =>
       new Date(exec.timestamp).toDateString() === today
     )
 
     const successful = todayExecutions.filter(exec => exec.success).length
     const failed = todayExecutions.filter(exec => !exec.success).length
-
-    console.log('🔍 [DEBUG] 今日统计 (基于本地数据):', {
-      total: todayExecutions.length,
-      successful,
-      failed,
-      todayDate: today
-    })
 
     return {
       total: todayExecutions.length,
@@ -213,7 +162,7 @@ export const useToolExecutionStore = defineStore('toolExecution', () => {
   // 按服务分组的执行统计
   const executionsByService = computed(() => {
     const serviceStats = {}
-    toolRecords.value.executions.forEach(execution => {
+    executionHistory.value.forEach(execution => {
       const serviceName = execution.service_name || 'unknown'
       if (!serviceStats[serviceName]) {
         serviceStats[serviceName] = {
@@ -359,87 +308,6 @@ export const useToolExecutionStore = defineStore('toolExecution', () => {
     }
   }
 
-  // 获取工具执行记录
-  const fetchToolRecords = async (limit = 50, force = false) => {
-    if (loading.value.records && !force) return toolRecords.value
-
-    try {
-      setLoading('records', true)
-
-      console.log('🔍 [DEBUG] 开始获取工具执行记录...')
-      const response = await api.store.getToolRecords(limit)
-      console.log('🔍 [DEBUG] API响应:', response)
-
-      // 🔧 修复：正确处理API响应格式
-      let data = null
-
-      // 处理不同的响应格式
-      if (response.data && response.data.success && response.data.data) {
-        // 新格式：{ success: true, data: { executions: [...], summary: {...} } }
-        data = response.data.data
-        console.log('✅ [DEBUG] 使用新格式 response.data.data')
-      } else if (response.data && response.data.executions) {
-        // 直接格式：{ executions: [...], summary: {...} }
-        data = response.data
-        console.log('✅ [DEBUG] 使用直接格式 response.data')
-      } else {
-        console.warn('⚠️ [DEBUG] 无法识别的API响应格式')
-        data = { executions: [], summary: { total_executions: 0, by_tool: {}, by_service: {} } }
-      }
-
-      console.log('🔍 [DEBUG] 提取的数据:', data)
-      console.log('🔍 [DEBUG] executions数量:', data.executions?.length || 0)
-
-      // 确保数据结构正确
-      if (data && typeof data === 'object') {
-        // 确保executions字段存在且为数组
-        if (!data.executions || !Array.isArray(data.executions)) {
-          console.warn('⚠️ [DEBUG] executions字段无效，使用空数组')
-          data.executions = []
-        }
-
-        // 确保summary字段存在
-        if (!data.summary || typeof data.summary !== 'object') {
-          console.warn('⚠️ [DEBUG] summary字段无效，使用默认结构')
-          data.summary = { total_executions: 0, by_tool: {}, by_service: {} }
-        }
-
-        toolRecords.value = data
-      } else {
-        // 如果数据格式不正确，使用默认结构
-        console.warn('⚠️ [DEBUG] 数据格式不正确，使用默认结构')
-        toolRecords.value = {
-          executions: [],
-          summary: {
-            total_executions: 0,
-            by_tool: {},
-            by_service: {}
-          }
-        }
-      }
-
-      // 限制记录数量
-      if (toolRecords.value.executions && toolRecords.value.executions.length > config.value.maxRecordsSize) {
-        toolRecords.value.executions = toolRecords.value.executions.slice(0, config.value.maxRecordsSize)
-      }
-
-      console.log(`📊 Loaded ${toolRecords.value.executions?.length || 0} tool execution records`)
-      console.log('🔍 [DEBUG] 最终toolRecords:', toolRecords.value)
-
-      return toolRecords.value
-    } catch (error) {
-      console.error('获取工具记录失败:', error)
-      addError({
-        message: `获取工具记录失败: ${error.message}`,
-        type: 'fetch-error',
-        source: 'fetchToolRecords'
-      })
-      throw error
-    } finally {
-      setLoading('records', false)
-    }
-  }
-
   // 清除执行历史
   const clearExecutionHistory = () => {
     executionHistory.value = []
@@ -453,22 +321,9 @@ export const useToolExecutionStore = defineStore('toolExecution', () => {
     })
   }
 
-  // 清除工具记录
-  const clearToolRecords = () => {
-    toolRecords.value = {
-      executions: [],
-      summary: {
-        total_executions: 0,
-        by_tool: {},
-        by_service: {}
-      }
-    }
-  }
-
   // 重置Store状态
   const resetStore = () => {
     executionHistory.value = []
-    clearToolRecords()
     currentExecutions.value.clear()
     executionQueue.value = []
     statistics.value = {
@@ -495,7 +350,6 @@ export const useToolExecutionStore = defineStore('toolExecution', () => {
   return {
     // 状态
     executionHistory,
-    toolRecords,
     currentExecutions,
     executionQueue,
     statistics,
@@ -524,9 +378,7 @@ export const useToolExecutionStore = defineStore('toolExecution', () => {
     updateStatistics,
     saveHistoryToStorage,
     loadHistoryFromStorage,
-    fetchToolRecords,
     clearExecutionHistory,
-    clearToolRecords,
     resetStore
   }
 })

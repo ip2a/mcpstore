@@ -9,7 +9,6 @@ const ServiceDetail = () => import('@/views/services/ServiceDetail.vue')
 
 const ToolList = () => import('@/views/tools/ToolList.vue')
 const ToolExecute = () => import('@/views/tools/ToolExecute.vue')
-const ToolRecords = () => import('@/views/tools/ToolRecords.vue')
 const AgentList = () => import('@/views/agents/AgentList.vue')
 const AgentDetail = () => import('@/views/agents/AgentDetail.vue')
 const AgentServiceAdd = () => import('@/views/agents/ServiceAdd.vue')
@@ -108,12 +107,6 @@ const routes = [
     component: ToolExecute,
     meta: { title: '工具执行', icon: 'VideoPlay', hidden: true }
   },
-  {
-    path: '/for_store/tool_records',
-    name: 'for_store_tool_records',
-    component: ToolRecords,
-    meta: { title: '工具记录', icon: 'Document', keepAlive: true }
-  },
   // for_store - agents
   {
     path: '/for_store/list_agents',
@@ -155,7 +148,6 @@ const routes = [
   { path: '/services/detail/:serviceName', redirect: '/for_store/service_info/:serviceName', meta: { hidden: true } },
   { path: '/tools', redirect: '/for_store/list_tools', meta: { hidden: true } },
   { path: '/tools/execute', redirect: '/for_store/call_tool', meta: { hidden: true } },
-  { path: '/tools/records', redirect: '/for_store/tool_records', meta: { hidden: true } },
   { path: '/agents', redirect: '/for_store/list_agents', meta: { hidden: true } },
   { path: '/agents/:id/detail', redirect: '/for_store/list_agents', meta: { hidden: true } },
   { path: '/agents/service-add', redirect: '/for_store/add_service', meta: { hidden: true } },

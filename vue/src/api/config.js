@@ -32,7 +32,6 @@ export const API_ENDPOINTS = {
     RESET_CONFIG: '/for_store/reset_config',
     RESET_MCPJSON: '/for_store/reset_mcpjson',
 
-    TOOL_RECORDS: '/for_store/tool_records',
     SYSTEM_RESOURCES: '/for_store/system_resources',
     NETWORK_CHECK: '/for_store/network_check',
     LIST_AGENTS: '/for_store/list_agents',

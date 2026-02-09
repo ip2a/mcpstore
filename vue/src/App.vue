@@ -54,11 +54,6 @@
             <span>Execute Tool</span>
           </el-menu-item>
           
-          <el-menu-item index="/for_store/tool_records">
-            <el-icon><Document /></el-icon>
-            <span>History</span>
-          </el-menu-item>
-
           <!-- 系统组 -->
           <div class="menu-group-label">
             System
@@ -175,7 +170,7 @@ import { useSystemStore } from '@/stores/system'
 import { useServicesStore } from '@/stores/services'
 import { useToolsStore } from '@/stores/tools'
 import {
-  Monitor, Connection, Tools, User, Document, Setting, 
+  Monitor, Connection, Tools, User, Setting, 
   SuccessFilled, WarningFilled, Refresh, Moon, Sunny, Plus, Link, VideoPlay, Reading, Coin
 } from '@element-plus/icons-vue'
 
