@@ -8,7 +8,7 @@ import logging
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
 from .agent_service_mapper import AgentServiceMapper
 from .tool_transformation import get_transformation_manager
-from ..bridge import get_async_bridge
+from ..bridge import get_async_bridge, get_bridge_executor
 from ..integration.openapi_integration import get_openapi_manager
 from ..performance import get_performance_optimizer
 
@@ -54,6 +54,7 @@ class MCPStoreContext(
         self._agent_id = agent_id
         self._context_type = ContextType.STORE if agent_id is None else ContextType.AGENT
         self._bridge = get_async_bridge()
+        self._bridge_executor = get_bridge_executor()
 
   
         # Initialize wait strategy for service operations
@@ -92,7 +93,7 @@ class MCPStoreContext(
     # internal helper for sync methods
     def _run_async_via_bridge(self, coro, op_name: str, timeout: float | None = None):
         """使用 Async Orchestrated Bridge 在同步环境中执行协程。"""
-        return self._bridge.run(coro, op_name=op_name, timeout=timeout)
+        return self._bridge_executor.run_sync(coro, op_name=op_name, timeout=timeout)
 
     async def bridge_execute(self, coro, op_name: str | None = None):
         """
@@ -102,19 +103,7 @@ class MCPStoreContext(
         - 否则通过 asyncio.to_thread 调用同步桥，保证 Redis Future 仍在 AOB loop 上执行。
         """
         op_label = op_name or "context_bridge_execute"
-        bridge_loop = getattr(self._bridge, "_loop", None)
-        try:
-            running_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            running_loop = None
-
-        if bridge_loop and running_loop is bridge_loop:
-            return await coro
-
-        if running_loop is None:
-            return self._bridge.run(coro, op_name=op_label)
-
-        return await asyncio.to_thread(self._bridge.run, coro, op_name=op_label)
+        return await self._bridge_executor.execute(coro, op_name=op_label)
 
     # ---- Objectified entries ----
     def for_store(self) -> 'StoreProxy':

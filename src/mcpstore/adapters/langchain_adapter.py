@@ -11,7 +11,7 @@ from langchain_core.tools import Tool, StructuredTool, ToolException
 from pydantic import BaseModel, create_model, Field, ConfigDict
 
 from .common import call_tool_response_helper
-from ..core.bridge import get_async_bridge
+from ..core.bridge import get_bridge_executor
 
 # Use TYPE_CHECKING and string hints to avoid circular imports
 if TYPE_CHECKING:
@@ -27,8 +27,7 @@ class LangChainAdapter:
     """
     def __init__(self, context: 'MCPStoreContext', response_format: str = "text"):
         self._context = context
-        # Use the unified async bridge to avoid legacy helpers and loop conflicts
-        self._bridge = get_async_bridge()
+        self._bridge_executor = get_bridge_executor()
         # Adapter-only rendering preference for tool outputs
         self._response_format = response_format if response_format in ("text", "content_and_artifact") else "text"
 
@@ -333,7 +332,10 @@ class LangChainAdapter:
 
     def list_tools(self) -> List[Tool]:
         """Get all available mcpstore tools and convert them to LangChain Tool list (synchronous version)."""
-        return self._bridge.run(self.list_tools_async(), op_name="LangChainAdapter.list_tools")
+        return self._bridge_executor.run_sync(
+            self.list_tools_async(),
+            op_name="LangChainAdapter.list_tools",
+        )
 
     async def list_tools_async(self) -> List[Tool]:
         """

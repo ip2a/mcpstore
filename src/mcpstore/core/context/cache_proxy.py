@@ -150,12 +150,8 @@ class CacheProxy:
         """
         在存在 AOB 时使用桥接执行，避免跨事件循环的 Future 绑定错误。
         """
-        try:
-            if hasattr(self._context, "bridge_execute"):
-                return await self._context.bridge_execute(coro, op_name=op_name)
-        except Exception:
-            # fallback to direct await
-            pass
+        if hasattr(self._context, "bridge_execute"):
+            return await self._context.bridge_execute(coro, op_name=op_name)
         return await coro
 
     def _apply_scope_filter(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -251,16 +247,9 @@ class CacheProxy:
         return filtered
 
     def _run_async(self, coro, op_name: str):
-        bridge = self._bridge
-        if bridge is None:
-            try:
-                from mcpstore.core.bridge import get_async_bridge
-                bridge = get_async_bridge()
-            except Exception:
-                bridge = None
-        if bridge:
-            return bridge.run(coro, op_name=op_name)
-        return asyncio.run(coro)
+        if not hasattr(self._context, "_run_async_via_bridge"):
+            raise RuntimeError("CacheProxy context does not support unified bridge execution")
+        return self._context._run_async_via_bridge(coro, op_name=op_name)
 
 
 # 延迟导入用于类型检查

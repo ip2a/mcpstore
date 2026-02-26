@@ -39,29 +39,18 @@ class EventStore:
         self._lease_collection = f"{namespace}:events:lease"
 
         try:
-            from mcpstore.core.bridge import get_async_bridge  # 延迟导入，避免循环
+            from mcpstore.core.bridge import get_async_bridge, get_bridge_executor  # 延迟导入，避免循环
             self._bridge = get_async_bridge()
+            self._bridge_executor = get_bridge_executor()
         except Exception:
             self._bridge = None
+            self._bridge_executor = None
 
     async def _await_in_bridge(self, coro, op_name: str):
         """确保在统一事件循环中执行 KV 协程。"""
-        if self._bridge is None:
+        if self._bridge_executor is None:
             return await coro
-
-        bridge_loop = getattr(self._bridge, "_loop", None)
-        try:
-            running_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            running_loop = None
-
-        if bridge_loop and running_loop is bridge_loop:
-            return await coro
-
-        if running_loop is None:
-            return self._bridge.run(coro, op_name=op_name)
-
-        return await asyncio.to_thread(self._bridge.run, coro, op_name=op_name)
+        return await self._bridge_executor.execute(coro, op_name=op_name)
 
     def _generate_event_id(self) -> str:
         """使用 time_ns 生成递增的字符串 id。"""

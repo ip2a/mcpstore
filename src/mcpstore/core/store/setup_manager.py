@@ -599,27 +599,10 @@ class StoreSetupManager:
 
     @staticmethod
     async def _run_via_bridge_async(bridge, coro, *, op_name: str):
-        """
-        Execute coroutine that needs to be bound to AOB event loop in async context.
-        """
-        bridge_loop = getattr(bridge, "_loop", None)
-        try:
-            running_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            running_loop = None
+        from mcpstore.core.bridge import get_bridge_executor
 
-        if running_loop is None:
-            return bridge.run(coro, op_name=op_name)
-
-        if bridge_loop and running_loop is bridge_loop:
-            return await coro
-
-        if bridge_loop is not None:
-            future = asyncio.run_coroutine_threadsafe(coro, bridge_loop)
-            return await asyncio.wrap_future(future)
-
-        # No bridge loop available, fallback to running sync bridge
-        return await asyncio.to_thread(bridge.run, coro, op_name=op_name)
+        executor = get_bridge_executor()
+        return await executor.execute(coro, op_name=op_name)
 
     @staticmethod
     async def _create_memory_store(cache, create_fn):

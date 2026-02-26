@@ -29,6 +29,13 @@ from .path_utils import get_user_data_dir, get_user_config_path
 
 logger = logging.getLogger(__name__)
 
+# Cache for standalone config to allow reuse in async contexts without blocking
+_STANDALONE_CACHE = None
+# Cache for lifecycle config to avoid blocking load inside async contexts
+_LIFECYCLE_CACHE = None
+# Cache for content update config to avoid blocking load inside async contexts
+_CONTENT_UPDATE_CACHE = None
+
 _server_defaults = ServerConfigDefaults()
 _health_defaults = HealthCheckConfigDefaults()
 _content_defaults = ContentUpdateConfigDefaults()
@@ -1466,6 +1473,7 @@ def get_lifecycle_config_with_defaults() -> 'ServiceLifecycleConfig':
     This helper attempts to load from MCPStoreConfig. If called in an async context
     or if config is not available, returns default ServiceLifecycleConfig.
     """
+    global _LIFECYCLE_CACHE
     config = get_config()
     if config is None:
         # Config not initialized, return defaults
@@ -1479,18 +1487,22 @@ def get_lifecycle_config_with_defaults() -> 'ServiceLifecycleConfig':
 
     import asyncio
     try:
-        loop = asyncio.get_running_loop()
-        # In async context, cannot use asyncio.run - return defaults
-        logger.warning("Cannot load config in async context, using default ServiceLifecycleConfig")
+        asyncio.get_running_loop()
+        # In async context: reuse cached config if available, otherwise return defaults
         try:
             from mcpstore.config.config_dataclasses import ServiceLifecycleConfig
-            return ServiceLifecycleConfig()
         except ImportError:
             return {}
+        if _LIFECYCLE_CACHE is not None:
+            logger.info("Cannot load lifecycle config in async context, reuse cached value")
+            return _LIFECYCLE_CACHE
+        logger.info("Cannot load lifecycle config in async context, using default ServiceLifecycleConfig")
+        return ServiceLifecycleConfig()
     except RuntimeError:
         # No running loop, safe to use asyncio.run
         try:
-            return asyncio.run(config.get_lifecycle_config())
+            _LIFECYCLE_CACHE = asyncio.run(config.get_lifecycle_config())
+            return _LIFECYCLE_CACHE
         except Exception as e:
             logger.warning(f"Failed to load lifecycle config: {e}, using defaults")
             try:
@@ -1506,6 +1518,7 @@ def get_content_update_config_with_defaults() -> ContentUpdateConfig:
     Attempts to load from MCPStoreConfig. Falls back to defaults if in async context
     or if config is unavailable.
     """
+    global _CONTENT_UPDATE_CACHE
     config = get_config()
     if config is None:
         logger.warning("MCPStoreConfig not initialized, using default ContentUpdateConfig")
@@ -1513,14 +1526,18 @@ def get_content_update_config_with_defaults() -> ContentUpdateConfig:
 
     import asyncio
     try:
-        loop = asyncio.get_running_loop()
-        # In async context, return defaults
-        logger.warning("Cannot load config in async context, using default ContentUpdateConfig")
+        asyncio.get_running_loop()
+        # Async context: cannot block; reuse cache if available, else return defaults
+        if _CONTENT_UPDATE_CACHE is not None:
+            logger.info("Cannot load content update config in async context, reuse cached value")
+            return _CONTENT_UPDATE_CACHE
+        logger.info("Cannot load content update config in async context, using defaults")
         return ContentUpdateConfig()
     except RuntimeError:
-        # No running loop, safe to use asyncio.run
+        # 无运行中的 loop，直接 asyncio.run
         try:
-            return asyncio.run(config.get_content_update_config())
+            _CONTENT_UPDATE_CACHE = asyncio.run(config.get_content_update_config())
+            return _CONTENT_UPDATE_CACHE
         except Exception as e:
             logger.warning(f"Failed to load content update config: {e}, using defaults")
             return ContentUpdateConfig()
@@ -1539,9 +1556,17 @@ def get_monitoring_config_with_defaults() -> MonitoringConfig:
 
     import asyncio
     try:
-        loop = asyncio.get_running_loop()
-        logger.warning("Cannot load config in async context, using default MonitoringConfig")
-        return MonitoringConfig()
+        asyncio.get_running_loop()
+        try:
+            from mcpstore.core.bridge import get_bridge_executor
+            executor = get_bridge_executor()
+            return executor.run_sync(
+                config.get_monitoring_config(),
+                op_name="toml_config.get_monitoring_config",
+            )
+        except Exception as e:
+            logger.warning(f"Failed to load monitoring config via bridge: {e}, using defaults")
+            return MonitoringConfig()
     except RuntimeError:
         try:
             return asyncio.run(config.get_monitoring_config())
@@ -1610,6 +1635,9 @@ def get_standalone_config_with_defaults() -> Union[Any, Dict[str, Any]]:
     Returns:
         StandaloneConfig or dict with standalone configuration values
     """
+    # Cached value to avoid repeated blocking loads in async contexts
+    global _STANDALONE_CACHE
+
     config = get_config()
     if config is None:
         logger.warning("MCPStoreConfig not initialized, using empty dict for standalone config")
@@ -1617,14 +1645,18 @@ def get_standalone_config_with_defaults() -> Union[Any, Dict[str, Any]]:
 
     import asyncio
     try:
-        loop = asyncio.get_running_loop()
-        # In async context, return empty dict
-        logger.warning("Cannot load config in async context, using empty dict for standalone config")
+        asyncio.get_running_loop()
+        # Async context: avoid blocking asyncio.run; reuse cached value if available
+        if _STANDALONE_CACHE is not None:
+            logger.info("Cannot load standalone config in async context, reuse cached value")
+            return _STANDALONE_CACHE
+        logger.info("Cannot load standalone config in async context, no cache available, returning empty dict")
         return {}
     except RuntimeError:
         # No running loop, safe to use asyncio.run
         try:
-            return asyncio.run(config.get_standalone_config())
+            _STANDALONE_CACHE = asyncio.run(config.get_standalone_config())
+            return _STANDALONE_CACHE
         except Exception as e:
             logger.warning(f"Failed to load standalone config: {e}, using empty dict")
             return {}
