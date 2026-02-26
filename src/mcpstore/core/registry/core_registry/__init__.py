@@ -1,41 +1,30 @@
 """
-Core Registry Module - 拆分重构后的服务注册管理模块
+Core Registry Module - 服务注册管理模块
 
-本模块将原来的巨大 core_registry.py 文件拆分为多个专门的管理器，
-每个管理器负责特定的职责，同时保持完全的向后兼容性。
+本模块提供服务注册管理的核心功能。
+Legacy 管理器（StateManager, PersistenceManager, CacheManager）已废弃，
+功能已迁移到 core/cache/ 目录。
 
 模块结构：
 - main_registry: ServiceRegistry 主类（门面模式）
 - base: 基础类和接口定义
 - service_manager: 服务生命周期管理
 - tool_manager: 工具信息处理和管理
-- state_manager: 状态同步和元数据管理
 - session_manager: 会话管理
-- cache_manager: 缓存层管理
-- persistence: JSON 持久化相关
+- mapping_manager: 映射管理
 - utils: 工具函数和辅助方法
 """
 
-# 导出各个管理器类，供高级用户使用
 from .base import (
     BaseManager,
     ServiceManagerInterface,
     ToolManagerInterface,
-    StateManagerInterface,
     SessionManagerInterface,
-    PersistenceManagerInterface,
-    CacheManagerInterface,
-    ManagerFactory,
-    ManagerCoordinator
 )
-from .cache_manager import CacheManager
-# 重新导出保持兼容性
 from .main_registry import ServiceRegistry
 from .mapping_manager import MappingManager
-from .persistence import PersistenceManager
 from .service_manager import ServiceManager
 from .session_manager import SessionManager
-from .state_manager import StateManager
 from .tool_manager import ToolManager
 # 导出工具类
 from .utils import (
@@ -49,15 +38,12 @@ from .utils import (
 )
 
 __all__ = [
-    # 主要导出（向后兼容）
+    # 主要导出
     'ServiceRegistry',
 
     # 管理器类
     'SessionManager',
-    'StateManager',
     'ToolManager',
-    'CacheManager',
-    'PersistenceManager',
     'ServiceManager',
     'MappingManager',
 
@@ -65,12 +51,7 @@ __all__ = [
     'BaseManager',
     'ServiceManagerInterface',
     'ToolManagerInterface',
-    'StateManagerInterface',
     'SessionManagerInterface',
-    'PersistenceManagerInterface',
-    'CacheManagerInterface',
-    'ManagerFactory',
-    'ManagerCoordinator',
 
     # 工具类
     'JSONSchemaUtils',
@@ -83,18 +64,15 @@ __all__ = [
 ]
 
 # 模块版本和状态
-__version__ = "2.0.0"
-__status__ = "重构完成 - 已完成所有功能"
+__version__ = "2.1.0"
+__status__ = "已清理 Legacy 代码"
 
 # 模块信息
 __author__ = "Core Registry Refactoring Team"
-__description__ = "拆分重构后的服务注册管理模块"
+__description__ = "服务注册管理模块（已清理 Legacy 代码）"
 __all_managers__ = [
     'SessionManager',
-    'StateManager',
     'ToolManager',
-    'CacheManager',
-    'PersistenceManager',
     'ServiceManager',
     'MappingManager'
 ]
@@ -104,9 +82,8 @@ def get_module_info():
     return {
         "version": __version__,
         "status": __status__,
-        "completed_managers": len(__all_managers__) + 1,  # 包括主类ServiceRegistry
-        "total_managers": 8,
+        "active_managers": len(__all_managers__) + 1,
         "available_managers": __all_managers__ + ["ServiceRegistry"],
-        "compatibility": "complete",  # 完全向后兼容
-        "next_step": "重构已完成，可以安全删除原始文件"
+        "removed_legacy": ["StateManager", "PersistenceManager", "CacheManager", "ManagerFactory", "ManagerCoordinator"],
+        "migration_note": "Legacy 管理器功能已迁移到 core/cache/ 目录"
     }
