@@ -59,11 +59,10 @@ service_name = "mcpstore"
 service_config = {
     "mcpServers": {
         service_name: {
-            "command": "python",
+            "command": "uvx",
             "args": [
-                "/Users/yuuu/work/2025_6/mcpstore/wiki/mcp_service_wiki_studio.py"
-            ],
-            "env": {}
+                "gitodo"
+            ]
         }
     }
 }

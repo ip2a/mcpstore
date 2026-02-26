@@ -45,18 +45,18 @@ print("  └─ ✓ Configuration reset and shown (before/after)")
 # ------------------------------------------------------------
 print("\n[Step 3] Add MCP Service (Studio Mode)")
 agent_name = "demo_agent"
-service_name = "mcpstore"
+service_name = "gitodo"
 service_config = {
     "mcpServers": {
         service_name: {
-            "command": "python",
+            "command": "uvx",
             "args": [
-                "/Users/yuuu/work/2025_6/mcpstore/wiki/mcp_service_wiki_studio.py"
-            ],
-            "env": {}
+                "gitodo"
+            ]
         }
     }
 }
+
 store.for_store().add_service(service_config)
 print(f"  ├─ Service Name: {service_name}")
 print(f"  ├─ Agent Name: {agent_name}")
@@ -141,7 +141,7 @@ print("  └─ ✓ Tool list retrieved successfully")
 # Step 7: Call Tool
 # ------------------------------------------------------------
 print("\n[Step 7] Call Tool")
-tool_name = "mcpstore_byagent_demo_agent_http_get_mcpstore_docs"
+tool_name = "gitodo_init_gitodo_repo"
 tool_params = {}
 tool_result = store.for_store().call_tool(tool_name, tool_params)
 print(f"  ├─ Tool: {tool_name}")
