@@ -162,7 +162,20 @@ class ToolExecutionMixin:
                 return result
 
         except Exception as e:
-            logger.error(f"[MCP] call failed tool='{tool_name}' service='{service_name}' error={e}")
+            # 以 info 级别标记外部 MCP 服务异常，避免误判为 mcpstore 内部崩溃
+            logger.info(
+                "[MCP_SERVICE_ERROR] tool='%s' service='%s' reason=%s",
+                tool_name,
+                service_name,
+                e,
+            )
+            # 保留详细堆栈在 debug 级别，便于排查
+            logger.debug(
+                "[MCP_SERVICE_ERROR] full traceback for tool='%s' service='%s'",
+                tool_name,
+                service_name,
+                exc_info=True,
+            )
             raise Exception(f"Tool execution failed: {str(e)}")
 
     async def _execute_tool_with_session(
@@ -215,7 +228,18 @@ class ToolExecutionMixin:
                         logger.info(f"[SESSION_EXECUTION] Default session not found for agent {effective_agent_id}, creating new session")
                         session = self.session_manager.create_session(effective_agent_id)
             except Exception as e:
-                logger.error(f"[SESSION_EXECUTION] Error getting/creating session: {e}")
+                logger.info(
+                    "[MCP_SERVICE_ERROR] session setup failed tool='%s' service='%s' reason=%s",
+                    tool_name,
+                    service_name,
+                    e,
+                )
+                logger.debug(
+                    "[MCP_SERVICE_ERROR] session setup traceback tool='%s' service='%s'",
+                    tool_name,
+                    service_name,
+                    exc_info=True,
+                )
                 # 最后兜底创建一个默认会话
                 session = self.session_manager.create_session(effective_agent_id)
 

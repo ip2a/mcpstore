@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Dict, AsyncIterator, Optional, Set
 
-from mcpstore.core.bridge import get_async_bridge
+from mcpstore.core.bridge import get_async_bridge, get_bridge_executor
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,7 @@ class AgentLocks:
             enable_diagnostics: 是否启用诊断功能（记录等待时间、持有者等）
         """
         self._bridge = get_async_bridge()
+        self._bridge_executor = get_bridge_executor()
         self._bridge_loop = getattr(self._bridge, "_loop", None)
         # 每个 agent_id 对应一个锁
         self._locks: Dict[str, asyncio.Lock] = {}
@@ -113,7 +114,7 @@ class AgentLocks:
                 elif self._bridge_loop and self._bridge_loop.is_running():
                     async def _create_lock():
                         return asyncio.Lock()
-                    lock = self._bridge.run(_create_lock(), op_name="agent_locks.create_lock")
+                    lock = self._bridge_executor.run_sync(_create_lock(), op_name="agent_locks.create_lock")
                 else:
                     lock = asyncio.Lock()
                 self._locks[agent_id] = lock

@@ -977,9 +977,9 @@ class LifecycleManager:
         同步包装器：在无事件循环的场景使用，内部通过 bridge 执行异步逻辑。
         """
         try:
-            from mcpstore.core.bridge import get_async_bridge
-            bridge = get_async_bridge()
-            return bridge.run(
+            from mcpstore.core.bridge import get_bridge_executor
+            executor = get_bridge_executor()
+            return executor.run_sync(
                 self.initialize_service(agent_id, service_name, service_config),
                 op_name="LifecycleManager.initialize_service"
             )

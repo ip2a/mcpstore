@@ -42,10 +42,12 @@ class CacheLayerManager:
         self._namespace = namespace
         # 所有 pykv 调用统一通过 AOB 所属的事件循环执行，避免跨 loop Future 冲突
         try:
-            from mcpstore.core.bridge import get_async_bridge  # 延迟导入避免循环依赖
+            from mcpstore.core.bridge import get_async_bridge, get_bridge_executor  # 延迟导入避免循环依赖
             self._bridge = get_async_bridge()
+            self._bridge_executor = get_bridge_executor()
         except Exception:
             self._bridge = None
+            self._bridge_executor = None
         self._last_empty_log: Dict[str, float] = {}
         self._last_scan_log: Dict[str, float] = {}
         self._last_state_snapshot: Dict[str, Any] = {}
@@ -56,25 +58,9 @@ class CacheLayerManager:
         """
         确保在 AOB 事件循环中执行 pykv 协程，防止不同事件循环的锁冲突。
         """
-        if self._bridge is None:
+        if self._bridge_executor is None:
             return await coro
-
-        bridge_loop = getattr(self._bridge, "_loop", None)
-        try:
-            running_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            running_loop = None
-
-        # 已在桥接循环内，直接执行
-        if bridge_loop and running_loop is bridge_loop:
-            return await coro
-
-        # 无事件循环（同步调用场景）
-        if running_loop is None:
-            return self._bridge.run(coro, op_name=op_name)
-
-        # 其他事件循环内，切换到 AOB loop
-        return await asyncio.to_thread(self._bridge.run, coro, op_name=op_name)
+        return await self._bridge_executor.execute(coro, op_name=op_name)
     
     # ==================== Collection 命名方法 ====================
     
@@ -240,7 +226,7 @@ class CacheLayerManager:
 
         collection = self._get_entity_collection(entity_type)
         logger.debug(
-            f"[CACHE] get_entity: collection={collection}, key={key}, "
+            f"[CACHE] [ENTITY] [GET] collection={collection}, key={key}, "
             f"entity_type={entity_type}"
         )
         
@@ -313,7 +299,7 @@ class CacheLayerManager:
 
         collection = self._get_entity_collection(entity_type)
         logger.debug(
-            f"[CACHE] get_many_entities: collection={collection}, "
+            f"[CACHE] [ENTITY] [GET_MANY] collection={collection}, "
             f"keys_count={len(keys)}, entity_type={entity_type}"
         )
         
@@ -351,7 +337,7 @@ class CacheLayerManager:
         Raises:
             RuntimeError: 如果 pykv 操作失败
         """
-        logger.debug(f"[CACHE] get_all_entities_sync: entity_type={entity_type}")
+        logger.debug(f"[CACHE] [ENTITY] [SCAN_SYNC] entity_type={entity_type}")
 
         if entity_type == "client_configs":
             raise RuntimeError("entity_type 'client_configs' is deprecated, please use 'clients'")
@@ -360,10 +346,10 @@ class CacheLayerManager:
             """异步内部方法：只使用 await"""
             entities: Dict[str, Dict[str, Any]] = {}
             collection = self._get_entity_collection(entity_type)
-            logger.debug(f"[CACHE] [GET] _get_all_entities_async: collection={collection}")
+            logger.debug(f"[CACHE] [ENTITY] [SCAN_SYNC] collection={collection}, entity_type={entity_type}")
 
             entity_keys = await self._kv_store.keys(collection=collection)
-            logger.debug(f"[CACHE] [GET] Retrieved {len(entity_keys)} keys from collection={collection}")
+            logger.debug(f"[CACHE] [ENTITY] [SCAN_SYNC] Retrieved {len(entity_keys)} keys from collection={collection}")
 
             if not entity_keys:
                 return {}
@@ -374,12 +360,15 @@ class CacheLayerManager:
                 if i < len(results) and results[i] is not None:
                     entities[key] = results[i]
 
-            logger.debug(f"[CACHE] [GET] _get_all_entities_async completed: found {len(entities)} entities")
+            logger.debug(f"[CACHE] [ENTITY] [SCAN_SYNC] Completed: found {len(entities)} entities")
             return entities
 
         try:
-            if self._bridge:
-                return self._bridge.run(_get_all_entities_async(), op_name=f"cache.get_all_entities_sync.{entity_type}")
+            if self._bridge_executor:
+                return self._bridge_executor.run_sync(
+                    _get_all_entities_async(),
+                    op_name=f"cache.get_all_entities_sync.{entity_type}",
+                )
             # 回退：无桥接时使用 asyncio.run（MemoryStore 场景）
             return asyncio.run(_get_all_entities_async())
         except Exception as e:
@@ -411,17 +400,17 @@ class CacheLayerManager:
         log_key = f"entity_scan:{entity_type}"
         log_scan = self._should_log_scan(log_key)
         if log_scan:
-            logger.debug(f"[CACHE] get_all_entities_async: entity_type={entity_type}")
+            logger.debug(f"[CACHE] [ENTITY] [SCAN_ASYNC] entity_type={entity_type}")
 
         async def _read():
             collection = self._get_entity_collection(entity_type)
             if log_scan:
-                logger.debug(f"[CACHE] get_all_entities_async: collection={collection}, entity_type={entity_type}")
+                logger.debug(f"[CACHE] [ENTITY] [SCAN_ASYNC] collection={collection}, entity_type={entity_type}")
 
             entity_keys = await self._kv_store.keys(collection=collection)
 
             if log_scan:
-                logger.debug(f"[CACHE] [GET] Retrieved {len(entity_keys)} keys from collection={collection}")
+                logger.debug(f"[CACHE] [ENTITY] [SCAN_ASYNC] Retrieved {len(entity_keys)} keys from collection={collection}")
 
             if not entity_keys:
                 self._log_empty_collection(collection)
@@ -436,7 +425,7 @@ class CacheLayerManager:
                     entities[key] = results[i]
 
             if log_scan:
-                logger.debug(f"[CACHE] [GET] get_all_entities_async completed: found {len(entities)} entities")
+                logger.debug(f"[CACHE] [ENTITY] [SCAN_ASYNC] Completed: found {len(entities)} entities")
 
             return entities
 
@@ -634,7 +623,7 @@ class CacheLayerManager:
         log_key = f"relation_read:{relation_type}:{key}"
         if self._should_log_scan(log_key):
             logger.debug(
-                f"[CACHE] get_relation: collection={collection}, key={key}, "
+                f"[CACHE] [RELATION] [GET] collection={collection}, key={key}, "
                 f"relation_type={relation_type}"
             )
         
@@ -689,7 +678,7 @@ class CacheLayerManager:
         异步获取指定类型的所有关系
         """
         collection = self._get_relation_collection(relation_type)
-        logger.debug(f"[CACHE] get_all_relations_async: collection={collection}, relation_type={relation_type}")
+        logger.debug(f"[CACHE] [RELATION] [SCAN_ASYNC] collection={collection}, relation_type={relation_type}")
         log_key = f"relation_scan:{relation_type}"
         log_scan = self._should_log_scan(log_key)
         async def _read():
@@ -705,7 +694,7 @@ class CacheLayerManager:
                     relations[key] = results[i]
 
             if log_scan:
-                logger.debug(f"[CACHE] [GET] get_all_relations_async completed: found {len(relations)} relations")
+                logger.debug(f"[CACHE] [RELATION] [SCAN_ASYNC] Completed: found {len(relations)} relations")
             return relations
 
         try:
@@ -742,7 +731,7 @@ class CacheLayerManager:
         
         collection = self._get_state_collection(state_type)
         logger.debug(
-            f"[CACHE] put_state: collection={collection}, key={key}, "
+            f"[CACHE] [STATE] [PUT] collection={collection}, key={key}, "
             f"state_type={state_type}"
         )
         state_key = f"{state_type}:{key}"
@@ -750,13 +739,19 @@ class CacheLayerManager:
         log_state = self._has_state_changed(state_key, value)
         try:
             if log_state:
-                logger.debug(f"[CACHE] [STATE] Storing state value: collection={collection}, key={key}, value={value}")
+                logger.debug(
+                    f"[CACHE] [STATE] [PUT_VALUE] collection={collection}, key={key}, "
+                    f"state_type={state_type}, value={value}"
+                )
             await self._await_in_bridge(
                 self._kv_store.put(key, value, collection=collection),
                 f"cache.put_state.{state_type}"
             )
             if log_state:
-                logger.debug(f"[CACHE] [STATE] State stored successfully: collection={collection}, key={key}")
+                logger.debug(
+                    f"[CACHE] [STATE] [PUT_DONE] collection={collection}, key={key}, "
+                    f"state_type={state_type}"
+                )
         except Exception as e:
             logger.error(
                 f"[CACHE] [ERROR] Failed to store state: collection={collection}, key={key}, "
@@ -790,7 +785,7 @@ class CacheLayerManager:
         log_state = self._should_log_scan(log_key)
         if log_state:
             logger.debug(
-                f"[CACHE] get_state: collection={collection}, key={key}, "
+                f"[CACHE] [STATE] [GET] collection={collection}, key={key}, "
                 f"state_type={state_type}"
             )
 
@@ -800,7 +795,10 @@ class CacheLayerManager:
                 f"cache.get_state.{state_type}"
             )
             if log_state or self._has_state_changed(state_key, result):
-                logger.debug(f"[CACHE] [STATE] Reading state value: collection={collection}, key={key}, result={result}")
+                logger.debug(
+                    f"[CACHE] [STATE] [GET_RESULT] collection={collection}, key={key}, "
+                    f"state_type={state_type}, result={result}"
+                )
             return result
         except Exception as e:
             logger.error(
@@ -910,11 +908,13 @@ class CacheLayerManager:
             await self._kv_store.put(key, value, collection=collection)
 
         try:
-            bridge = self._bridge
-            if bridge is None:
-                from mcpstore.core.bridge import get_async_bridge
-                bridge = get_async_bridge()
-            bridge.run(_put_state_async(), op_name=f"cache.put_state_sync.{state_type}")
+            if self._bridge_executor is not None:
+                self._bridge_executor.run_sync(
+                    _put_state_async(),
+                    op_name=f"cache.put_state_sync.{state_type}",
+                )
+            else:
+                asyncio.run(_put_state_async())
             
             logger.info(f"[CACHE] [STATE] Synchronous state storage successful: collection={collection}, key={key}")
         except Exception as e:
@@ -958,11 +958,13 @@ class CacheLayerManager:
             return await self._kv_store.get(key, collection=collection)
 
         try:
-            bridge = self._bridge
-            if bridge is None:
-                from mcpstore.core.bridge import get_async_bridge
-                bridge = get_async_bridge()
-            result = bridge.run(_get_state_async(), op_name=f"cache.get_state_sync.{state_type}")
+            if self._bridge_executor is not None:
+                result = self._bridge_executor.run_sync(
+                    _get_state_async(),
+                    op_name=f"cache.get_state_sync.{state_type}",
+                )
+            else:
+                result = asyncio.run(_get_state_async())
             
             logger.debug(f"[CACHE] [GET] Synchronous state retrieval successful: collection={collection}, key={key}")
             return result

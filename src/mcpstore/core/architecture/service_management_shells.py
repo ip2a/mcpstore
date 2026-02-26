@@ -9,7 +9,7 @@ import logging
 from typing import Dict, Any, Optional
 
 from .service_management_core import ServiceManagementCore
-from ..bridge import get_async_bridge
+from ..bridge import get_bridge_executor
 
 logger = logging.getLogger(__name__)
 
@@ -541,7 +541,7 @@ class ServiceManagementSyncShell:
             async_shell: 异步外壳实例
         """
         self.async_shell = async_shell
-        self._bridge = get_async_bridge()
+        self._bridge_executor = get_bridge_executor()
         self._loop = asyncio.get_event_loop()
         logger.debug("[SYNC_SHELL] [INIT] Initializing ServiceManagementSyncShell")
 
@@ -554,7 +554,7 @@ class ServiceManagementSyncShell:
         logger.debug("[SYNC_SHELL] [START] Starting synchronous service addition")
 
         try:
-            result = self._bridge.run(
+            result = self._bridge_executor.run_sync(
                 self.async_shell.add_service_async(config),
                 op_name="service_management.add_service",
             )
@@ -582,7 +582,7 @@ class ServiceManagementSyncShell:
         logger.debug(f"[SYNC_SHELL] [START] Starting synchronous service wait: {service_name}")
 
         try:
-            result = self._bridge.run(
+            result = self._bridge_executor.run_sync(
                 self.async_shell.wait_service_async(service_name, timeout),
                 op_name="service_management.wait_service",
             )

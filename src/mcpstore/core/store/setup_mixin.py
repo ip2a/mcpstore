@@ -53,20 +53,13 @@ class SetupMixin:
                 logger.debug(f"[INIT_MCP] [FOUND] Found existing Agent client_id: {service_name} -> {existing_client_id}")
                 return existing_client_id
 
-            # 检查agent_clients中是否有匹配的client_id（统一通过Registry API），使用持久 AOB 避免 asyncio.run 结束时取消任务
-            from mcpstore.core.bridge import get_async_bridge
-            bridge = get_async_bridge()
-            try:
-                loop = asyncio.get_running_loop()
-                if loop.is_running():
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor() as executor:
-                        future = executor.submit(lambda: bridge.run(self.registry.get_agent_clients_async(agent_id), op_name="setup_mixin.get_agent_clients"))
-                        client_ids = future.result(timeout=10.0)
-                else:
-                    client_ids = bridge.run(self.registry.get_agent_clients_async(agent_id), op_name="setup_mixin.get_agent_clients")
-            except RuntimeError:
-                client_ids = bridge.run(self.registry.get_agent_clients_async(agent_id), op_name="setup_mixin.get_agent_clients")
+            from mcpstore.core.bridge import get_bridge_executor
+            executor = get_bridge_executor()
+            client_ids = executor.run_sync(
+                self.registry.get_agent_clients_async(agent_id),
+                timeout=10.0,
+                op_name="setup_mixin.get_agent_clients",
+            )
             for client_id in client_ids:
                 # 优先解析确定性ID
                 try:
@@ -109,20 +102,13 @@ class SetupMixin:
                 logger.debug(f"[INIT_MCP] [FOUND] Found existing Store client_id: {service_name} -> {existing_client_id}")
                 return existing_client_id
 
-            # 其次：检查 agent 的所有 client_ids（通过 Registry API），使用持久 AOB 避免 asyncio.run 结束时取消任务
-            from mcpstore.core.bridge import get_async_bridge
-            bridge = get_async_bridge()
-            try:
-                loop = asyncio.get_running_loop()
-                if loop.is_running():
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor() as executor:
-                        future = executor.submit(lambda: bridge.run(self.registry.get_agent_clients_async(agent_id), op_name="setup_mixin.get_agent_clients"))
-                        client_ids = future.result(timeout=10.0)
-                else:
-                    client_ids = bridge.run(self.registry.get_agent_clients_async(agent_id), op_name="setup_mixin.get_agent_clients")
-            except RuntimeError:
-                client_ids = bridge.run(self.registry.get_agent_clients_async(agent_id), op_name="setup_mixin.get_agent_clients")
+            from mcpstore.core.bridge import get_bridge_executor
+            executor = get_bridge_executor()
+            client_ids = executor.run_sync(
+                self.registry.get_agent_clients_async(agent_id),
+                timeout=10.0,
+                op_name="setup_mixin.get_agent_clients",
+            )
             for client_id in client_ids:
                 # 统一的确定性ID格式匹配：优先尝试解析
                 try:
