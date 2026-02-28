@@ -1,38 +1,48 @@
 # src/mcpstore/adapters/langchain_adapter.py
+"""
+LangChain 适配器模块
+
+将 MCPStore 工具转换为 LangChain 工具格式，支持同步和异步执行。
+"""
 
 import json
-import keyword
 import logging
-import warnings
 from dataclasses import asdict, is_dataclass
 from typing import Type, List, TYPE_CHECKING
 
 from langchain_core.tools import Tool, StructuredTool, ToolException
-from pydantic import BaseModel, create_model, Field, ConfigDict
+from pydantic import BaseModel
 
-from .common import call_tool_response_helper
+# 导入公共函数
+from .common import (
+    call_tool_response_helper,
+    create_args_schema,
+    enhance_description,
+    process_tool_args,
+)
 from ..core.bridge import get_bridge_executor
 
-# Use TYPE_CHECKING and string hints to avoid circular imports
 if TYPE_CHECKING:
     from ..core.context import MCPStoreContext
-    from ..core.models.tool import ToolInfo
 
 logger = logging.getLogger(__name__)
 
+
 class LangChainAdapter:
     """
-    Adapter (bridge) between MCPStore and LangChain.
-    It converts mcpstore's native objects to objects that LangChain can directly use.
+    MCPStore 与 LangChain 之间的适配器。
+    将 mcpstore 的原生对象转换为 LangChain 可直接使用的对象。
     """
+
     def __init__(self, context: 'MCPStoreContext', response_format: str = "text"):
         self._context = context
         self._bridge_executor = get_bridge_executor()
-        # Adapter-only rendering preference for tool outputs
+        # 工具输出格式偏好
         self._response_format = response_format if response_format in ("text", "content_and_artifact") else "text"
 
     @staticmethod
     def _serialize_unknown(obj):
+        """序列化未知类型对象。"""
         if obj is None:
             return None
         if hasattr(obj, "model_dump"):
@@ -58,9 +68,7 @@ class LangChainAdapter:
         return str(obj)
 
     def _normalize_structured_value(self, value):
-        """
-        确保 structured/data 字段始终是 LangChain 能消费的基础类型。
-        """
+        """确保 structured/data 字段始终是 LangChain 能消费的基础类型。"""
         if value is None:
             return None
         if isinstance(value, (str, int, float, bool)):
@@ -72,179 +80,28 @@ class LangChainAdapter:
         except Exception:
             return str(value)
 
-    def _enhance_description(self, tool_info: 'ToolInfo') -> str:
-        """
-        (Frontend Defense) Enhance tool description, clearly guide LLM to use correct parameters in Prompt.
-        """
-        return tool_info.description or ""
-
-    def _create_args_schema(self, tool_info: 'ToolInfo') -> Type[BaseModel]:
-        """(Data Conversion) Create Pydantic model from ToolInfo, avoiding BaseModel attribute name collisions (e.g., 'schema')."""
-        schema_properties = tool_info.inputSchema.get("properties", {})
-        required_fields = tool_info.inputSchema.get("required", [])
-
-        type_mapping = {
-            "string": str, "number": float, "integer": int,
-            "boolean": bool, "array": list, "object": dict
-        }
-
-        # Reserved names that should not be used as field identifiers
-        reserved_names = set(dir(BaseModel)) | {
-            "schema", "model_json_schema", "model_dump", "dict", "json",
-            "copy", "parse_obj", "parse_raw", "construct", "validate",
-            "schema_json", "__fields__", "__root__", "Config", "model_config",
-        }
-
-        def is_valid_field_name(name: str) -> bool:
-            return bool(name) and name.isidentifier() and not keyword.iskeyword(name) and name not in reserved_names and not name.startswith("_")
-
-        # 只做结构化转换：不清洗、不重命名
-        fields = {}
-        has_invalid_field = False
-        for original_name, prop in schema_properties.items():
-            if not is_valid_field_name(original_name):
-                has_invalid_field = True
-                break
-            field_type = type_mapping.get(prop.get("type", "string"), str)
-
-            # Detect JSON Schema nullability/Optional
-            def _is_nullable(p: dict) -> bool:
-                try:
-                    if p.get("nullable") is True:
-                        return True
-                    t = p.get("type")
-                    if isinstance(t, list) and "null" in t:
-                        return True
-                    any_of = p.get("anyOf") or []
-                    if isinstance(any_of, list) and any((isinstance(x, dict) and x.get("type") == "null") for x in any_of):
-                        return True
-                    one_of = p.get("oneOf") or []
-                    if isinstance(one_of, list) and any((isinstance(x, dict) and x.get("type") == "null") for x in one_of):
-                        return True
-                except Exception:
-                    pass
-                return False
-
-            is_nullable = _is_nullable(prop)
-            is_required = original_name in required_fields
-
-            default_value = prop.get("default", ...)
-
-            field_kwargs = {"description": prop.get("description", "")}
-
-            # Apply Optional typing if nullable
-            try:
-                if is_nullable and field_type is not Any:
-                    from typing import Optional as _Optional
-                    field_type = _Optional[field_type]  # type: ignore
-            except Exception:
-                pass
-
-            # Preserve nested schema hints (arrays/objects) so model_json_schema() includes them
-            try:
-                declared_type = prop.get("type")
-                is_array = declared_type == "array" or (isinstance(declared_type, list) and "array" in declared_type)
-                is_object = declared_type == "object" or (isinstance(declared_type, list) and "object" in declared_type)
-                json_extra: dict[str, Any] = {}
-                if is_array and "items" in prop:
-                    json_extra["items"] = prop["items"]
-                    for k in ("minItems", "maxItems", "uniqueItems"):
-                        if k in prop:
-                            json_extra[k] = prop[k]
-                if is_object and "properties" in prop:
-                    json_extra["properties"] = prop["properties"]
-                    if "required" in prop:
-                        json_extra["required"] = prop["required"]
-                    if "additionalProperties" in prop:
-                        json_extra["additionalProperties"] = prop["additionalProperties"]
-                if json_extra:
-                    field_kwargs["json_schema_extra"] = json_extra
-            except Exception:
-                pass
-
-            # Build field definition
-            if default_value != ...:
-                fields[original_name] = (field_type, Field(default=default_value, **field_kwargs))
-            else:
-                fields[original_name] = (field_type, Field(**field_kwargs))
-
-        # [FIX] Allow empty model, don't force adding fields
-        # For truly no-parameter tools, create empty BaseModel
-
-        # Determine open schema (additionalProperties)
-        additional_properties = tool_info.inputSchema.get("additionalProperties", False)
-        allow_extra = bool(additional_properties)
-
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                category=UserWarning,
-                module="pydantic",
-            )
-            if has_invalid_field:
-                base = type("OpenArgsBase", (BaseModel,), {"model_config": ConfigDict(extra="allow")})
-                return create_model(f'{tool_info.name.capitalize().replace("_", "")}Input', __base__=base)
-            base = BaseModel
-            if allow_extra:
-                base = type("OpenArgsBase", (BaseModel,), {"model_config": ConfigDict(extra="allow")})
-            return create_model(
-                f'{tool_info.name.capitalize().replace("_", "")}Input',
-                __base__=base,
-                **fields
-            )
-
     def _create_tool_function(self, tool_name: str, args_schema: Type[BaseModel]):
         """
-        (Backend Guard) Create a robust synchronous execution function, intelligently handle various parameter passing methods.
+        创建健壮的同步执行函数，智能处理各种参数传递方式。
         """
+        adapter_self = self  # 闭包捕获
+
         def _tool_executor(*args, **kwargs):
-            tool_input = {}
             try:
-                # Get model field information
-                schema_info = args_schema.model_json_schema()
-                schema_fields = schema_info.get('properties', {})
-                field_names = list(schema_fields.keys())
+                # 使用公共函数处理参数
+                tool_input = process_tool_args(args_schema, args, kwargs)
 
-                allow_extra = bool(schema_info.get("additionalProperties", False))
-
-                # [FIX] Handle no-parameter tools / open schema tools
-                if not field_names:
-                    if allow_extra:
-                        if kwargs:
-                            tool_input = kwargs
-                        elif args and len(args) == 1 and isinstance(args[0], dict):
-                            tool_input = args[0]
-                        else:
-                            tool_input = {}
-                    else:
-                        tool_input = {}
-                else:
-                    # Parameter processing for tools with declared fields
-                    if kwargs:
-                        tool_input = kwargs
-                    elif args:
-                        if len(args) == 1:
-                            if isinstance(args[0], dict):
-                                tool_input = args[0]
-                            else:
-                                tool_input = {field_names[0]: args[0]}
-                        else:
-                            for i, arg_value in enumerate(args):
-                                if i < len(field_names):
-                                    tool_input[field_names[i]] = arg_value
-
-                # Call mcpstore's core method
-                result = self._context.call_tool(tool_name, tool_input)
-
+                # 调用 mcpstore 核心方法
+                result = adapter_self._context.call_tool(tool_name, tool_input)
                 view = call_tool_response_helper(result)
 
                 if view.is_error:
                     raise ToolException(view.error_message or view.text or "Tool execution failed")
 
-                if getattr(self, "_response_format", "text") == "content_and_artifact":
+                if adapter_self._response_format == "content_and_artifact":
                     response = {"text": view.text, "artifacts": view.artifacts}
-                    structured = self._normalize_structured_value(view.structured)
-                    data = self._normalize_structured_value(view.data)
+                    structured = adapter_self._normalize_structured_value(view.structured)
+                    data = adapter_self._normalize_structured_value(view.data)
                     if structured is not None:
                         response["structured"] = structured
                     if data is not None:
@@ -252,68 +109,41 @@ class LangChainAdapter:
                     return response
 
                 return view.text
+
+            except ToolException:
+                raise
             except Exception as e:
-                # Provide more detailed error information for debugging
                 error_msg = f"Tool '{tool_name}' execution failed: {str(e)}"
                 if args or kwargs:
                     error_msg += f"\nParameter info: args={args}, kwargs={kwargs}"
                 if tool_input:
                     error_msg += f"\nProcessed parameters: {tool_input}"
                 return error_msg
+
         return _tool_executor
 
     async def _create_tool_coroutine(self, tool_name: str, args_schema: Type[BaseModel]):
         """
-        (Backend Guard) Create a robust asynchronous execution function, intelligently handle various parameter passing methods.
+        创建健壮的异步执行函数，智能处理各种参数传递方式。
         """
+        adapter_self = self  # 闭包捕获
+
         async def _tool_executor(*args, **kwargs):
-            tool_input = {}
             try:
-                # Get model field information
-                schema_info = args_schema.model_json_schema()
-                schema_fields = schema_info.get('properties', {})
-                field_names = list(schema_fields.keys())
+                # 使用公共函数处理参数
+                tool_input = process_tool_args(args_schema, args, kwargs)
 
-                allow_extra = bool(schema_info.get("additionalProperties", False))
-
-                # [FIX] Handle no-parameter tools / open schema tools
-                if not field_names:
-                    if allow_extra:
-                        if kwargs:
-                            tool_input = kwargs
-                        elif args and len(args) == 1 and isinstance(args[0], dict):
-                            tool_input = args[0]
-                        else:
-                            tool_input = {}
-                    else:
-                        tool_input = {}
-                else:
-                    # Parameter processing
-                    if kwargs:
-                        tool_input = kwargs
-                    elif args:
-                        if len(args) == 1:
-                            if isinstance(args[0], dict):
-                                tool_input = args[0]
-                            else:
-                                tool_input = {field_names[0]: args[0]}
-                        else:
-                            for i, arg_value in enumerate(args):
-                                if i < len(field_names):
-                                    tool_input[field_names[i]] = arg_value
-
-                # Call mcpstore core method (async version)
-                result = await self._context.call_tool_async(tool_name, tool_input)
-
+                # 调用 mcpstore 核心方法（异步版本）
+                result = await adapter_self._context.call_tool_async(tool_name, tool_input)
                 view = call_tool_response_helper(result)
 
                 if view.is_error:
                     raise ToolException(view.error_message or view.text or "Tool execution failed")
 
-                if getattr(self, "_response_format", "text") == "content_and_artifact":
+                if adapter_self._response_format == "content_and_artifact":
                     response = {"text": view.text, "artifacts": view.artifacts}
-                    structured = self._normalize_structured_value(view.structured)
-                    data = self._normalize_structured_value(view.data)
+                    structured = adapter_self._normalize_structured_value(view.structured)
+                    data = adapter_self._normalize_structured_value(view.data)
                     if structured is not None:
                         response["structured"] = structured
                     if data is not None:
@@ -321,6 +151,9 @@ class LangChainAdapter:
                     return response
 
                 return view.text
+
+            except ToolException:
+                raise
             except Exception as e:
                 error_msg = f"Tool '{tool_name}' execution failed: {str(e)}"
                 if args or kwargs:
@@ -328,10 +161,11 @@ class LangChainAdapter:
                 if tool_input:
                     error_msg += f"\nProcessed parameters: {tool_input}"
                 return error_msg
+
         return _tool_executor
 
     def list_tools(self) -> List[Tool]:
-        """Get all available mcpstore tools and convert them to LangChain Tool list (synchronous version)."""
+        """获取所有可用的 mcpstore 工具并转换为 LangChain Tool 列表（同步版本）。"""
         return self._bridge_executor.run_sync(
             self.list_tools_async(),
             op_name="LangChainAdapter.list_tools",
@@ -339,17 +173,16 @@ class LangChainAdapter:
 
     async def list_tools_async(self) -> List[Tool]:
         """
-        Get all available mcpstore tools and convert them to LangChain Tool list (asynchronous version).
+        获取所有可用的 mcpstore 工具并转换为 LangChain Tool 列表（异步版本）。
 
         Raises:
-            RuntimeError: If no tools available (all services failed to connect)
+            RuntimeError: 如果没有可用工具（所有服务连接失败）
         """
         mcp_tools_info = await self._context.list_tools_async()
 
-        # [CHECK] If tools are empty, provide friendly error message
+        # 检查工具是否为空，提供友好的错误信息
         if not mcp_tools_info:
             logger.warning("[LIST_TOOLS] empty=True")
-            # Check service status, provide more detailed hints
             services = await self._context.list_services_async()
             if not services:
                 raise RuntimeError(
@@ -357,7 +190,6 @@ class LangChainAdapter:
                     "Please add services using add_service() first."
                 )
             else:
-                # Services exist but no tools, indicates services failed to connect
                 failed_services = [s.name for s in services if s.status.value != 'healthy']
                 if failed_services:
                     raise RuntimeError(
@@ -373,139 +205,101 @@ class LangChainAdapter:
 
         langchain_tools = []
         for tool_info in mcp_tools_info:
-            enhanced_description = self._enhance_description(tool_info)
-            args_schema = self._create_args_schema(tool_info)
+            # 使用公共函数
+            enhanced_description = enhance_description(tool_info)
+            args_schema = create_args_schema(tool_info)
 
-            # Create synchronous and asynchronous functions
+            # 创建同步和异步函数
             sync_func = self._create_tool_function(tool_info.name, args_schema)
             async_coroutine = await self._create_tool_coroutine(tool_info.name, args_schema)
 
-            # [FIX] Determine parameter count based on original schema, not converted
+            # 根据原始 schema 确定参数数量
             schema_properties = tool_info.inputSchema.get("properties", {})
             original_param_count = len(schema_properties)
 
-            # Read per-tool overrides (e.g., return_direct) from context
+            # 读取工具覆盖配置（如 return_direct）
             try:
-                return_direct_flag = self._context._get_tool_override(tool_info.service_name, tool_info.name, "return_direct", False)
+                return_direct_flag = self._context._get_tool_override(
+                    tool_info.service_name, tool_info.name, "return_direct", False
+                )
             except Exception:
                 return_direct_flag = False
 
-            # [CRITICAL FIX] For no-parameter tools, also use StructuredTool
-            # Although they have no parameters, StructuredTool's parameter processing is more reliable
-            # Tool type has special handling for empty dict {}, which may cause parameter conversion issues
-            if original_param_count >= 1:
-                # Multi-parameter tools use StructuredTool
-                lc_tool = StructuredTool(
-                    name=tool_info.name,
-                    description=enhanced_description,
-                    func=sync_func,
-                    coroutine=async_coroutine,
-                    args_schema=args_schema,
-                )
-            else:
-                # [FIX] No-parameter tools also use StructuredTool to avoid parameter conversion issues
-                # This ensures {} is correctly handled and not converted to []
-                lc_tool = StructuredTool(
-                    name=tool_info.name,
-                    description=enhanced_description,
-                    func=sync_func,
-                    coroutine=async_coroutine,
-                    args_schema=args_schema,
-                )
+            # 创建 LangChain StructuredTool
+            lc_tool = StructuredTool(
+                name=tool_info.name,
+                description=enhanced_description,
+                func=sync_func,
+                coroutine=async_coroutine,
+                args_schema=args_schema,
+            )
 
-            # Set return_direct if supported
+            # 设置 return_direct
             try:
                 setattr(lc_tool, 'return_direct', bool(return_direct_flag))
             except Exception:
                 pass
+
             langchain_tools.append(lc_tool)
+
         return langchain_tools
 
 
 class SessionAwareLangChainAdapter(LangChainAdapter):
     """
-    Session-aware LangChain adapter
+    会话感知的 LangChain 适配器。
 
-    This enhanced adapter creates LangChain tools that are bound to a specific session,
-    ensuring state persistence across multiple tool calls in LangChain agent workflows.
+    此增强适配器创建绑定到特定会话的 LangChain 工具，
+    确保在 LangChain agent 工作流中的多次工具调用之间保持状态。
 
-    Key features:
-    - Tools automatically use session-bound execution
-    - State preservation across tool calls (e.g., browser stays open)
-    - Seamless integration with existing LangChain workflows
-    - Backward compatible with standard LangChainAdapter
+    主要特性：
+    - 工具自动使用会话绑定执行
+    - 跨工具调用保持状态（如浏览器保持打开）
+    - 与现有 LangChain 工作流无缝集成
+    - 向后兼容标准 LangChainAdapter
     """
 
     def __init__(self, context: 'MCPStoreContext', session: 'Session', response_format: str = "text"):
         """
-        Initialize session-aware adapter
+        初始化会话感知适配器。
 
         Args:
-            context: MCPStoreContext instance (for tool discovery)
-            session: Session object that tools will be bound to
-            response_format: Same as LangChainAdapter ("text" or "content_and_artifact")
+            context: MCPStoreContext 实例（用于工具发现）
+            session: 工具将绑定到的会话对象
+            response_format: 同 LangChainAdapter（"text" 或 "content_and_artifact"）
         """
         super().__init__(context, response_format=response_format)
         self._session = session
-
         logger.debug(f"Initialized session-aware adapter for session '{session.session_id}'")
 
     def _create_tool_function(self, tool_name: str, args_schema: Type[BaseModel]):
         """
-        Create session-bound tool function
+        创建会话绑定的工具函数。
 
-        This overrides the parent method to route tool execution through the session,
-        ensuring state persistence across multiple tool calls.
+        覆盖父类方法，通过会话路由工具执行，确保跨工具调用的状态持久化。
         """
+        adapter_self = self  # 闭包捕获
+
         def _session_tool_executor(*args, **kwargs):
-            tool_input = {}
             try:
-                # [REUSE] Parent's intelligent parameter processing
-                schema_info = args_schema.model_json_schema()
-                schema_fields = schema_info.get('properties', {})
-                field_names = list(schema_fields.keys())
+                # 使用公共函数处理参数
+                tool_input = process_tool_args(args_schema, args, kwargs)
 
-                allow_extra = bool(schema_info.get("additionalProperties", False))
-
-                # [FIX] Handle no-parameter tools / open schema tools
-                if not field_names:
-                    if allow_extra:
-                        if kwargs:
-                            tool_input = kwargs
-                        elif args and len(args) == 1 and isinstance(args[0], dict):
-                            tool_input = args[0]
-                        else:
-                            tool_input = {}
-                    else:
-                        tool_input = {}
-                else:
-                    # Parameter processing (same as parent)
-                    if kwargs:
-                        tool_input = kwargs
-                    elif args:
-                        if len(args) == 1:
-                            if isinstance(args[0], dict):
-                                tool_input = args[0]
-                            else:
-                                tool_input = {field_names[0]: args[0]}
-                        else:
-                            for i, arg_value in enumerate(args):
-                                if i < len(field_names):
-                                    tool_input[field_names[i]] = arg_value
-
-                # [KEY] Use session-bound execution instead of context.call_tool
-                logger.debug(f"[SESSION_LANGCHAIN] Executing tool '{tool_name}' via session '{self._session.session_id}'")
-                result = self._session.use_tool(tool_name, tool_input)
-
+                # [关键] 使用会话绑定执行而不是 context.call_tool
+                logger.debug(
+                    f"[SESSION_LANGCHAIN] Executing tool '{tool_name}' "
+                    f"via session '{adapter_self._session.session_id}'"
+                )
+                result = adapter_self._session.use_tool(tool_name, tool_input)
                 view = call_tool_response_helper(result)
 
                 if view.is_error:
                     raise ToolException(view.error_message or view.text or "Tool execution failed")
 
-                if getattr(self, "_response_format", "text") == "content_and_artifact":
+                if adapter_self._response_format == "content_and_artifact":
                     response = {"text": view.text, "artifacts": view.artifacts}
-                    structured = self._normalize_structured_value(view.structured)
-                    data = self._normalize_structured_value(view.data)
+                    structured = adapter_self._normalize_structured_value(view.structured)
+                    data = adapter_self._normalize_structured_value(view.data)
                     if structured is not None:
                         response["structured"] = structured
                     if data is not None:
@@ -514,6 +308,8 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
 
                 return view.text
 
+            except ToolException:
+                raise
             except Exception as e:
                 error_msg = f"Tool execution failed: {str(e)}"
                 logger.error(f"[SESSION_LANGCHAIN] {error_msg}")
@@ -522,57 +318,29 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
         return _session_tool_executor
 
     def _create_async_tool_function(self, tool_name: str, args_schema: Type[BaseModel]):
-        """
-        Create session-bound async tool function
-        """
+        """创建会话绑定的异步工具函数。"""
+        adapter_self = self  # 闭包捕获
+
         async def _session_async_tool_executor(*args, **kwargs):
-            tool_input = {}
             try:
-                # [SAME] Parameter processing as sync version
-                schema_info = args_schema.model_json_schema()
-                schema_fields = schema_info.get('properties', {})
-                field_names = list(schema_fields.keys())
+                # 使用公共函数处理参数
+                tool_input = process_tool_args(args_schema, args, kwargs)
 
-                allow_extra = bool(schema_info.get("additionalProperties", False))
-
-                # [FIX] Handle no-parameter tools / open schema tools
-                if not field_names:
-                    if allow_extra:
-                        if kwargs:
-                            tool_input = kwargs
-                        elif args and len(args) == 1 and isinstance(args[0], dict):
-                            tool_input = args[0]
-                        else:
-                            tool_input = {}
-                    else:
-                        tool_input = {}
-                else:
-                    if kwargs:
-                        tool_input = kwargs
-                    elif args:
-                        if len(args) == 1:
-                            if isinstance(args[0], dict):
-                                tool_input = args[0]
-                            else:
-                                tool_input = {field_names[0]: args[0]}
-                        else:
-                            for i, arg_value in enumerate(args):
-                                if i < len(field_names):
-                                    tool_input[field_names[i]] = arg_value
-
-                # [KEY] Use session-bound async execution
-                logger.debug(f"[SESSION_LANGCHAIN] Executing tool '{tool_name}' via session '{self._session.session_id}' (async)")
-                result = await self._session.use_tool_async(tool_name, tool_input)
-
+                # [关键] 使用会话绑定异步执行
+                logger.debug(
+                    f"[SESSION_LANGCHAIN] Executing tool '{tool_name}' "
+                    f"via session '{adapter_self._session.session_id}' (async)"
+                )
+                result = await adapter_self._session.use_tool_async(tool_name, tool_input)
                 view = call_tool_response_helper(result)
 
                 if view.is_error:
                     raise ToolException(view.error_message or view.text or "Tool execution failed")
 
-                if getattr(self, "_response_format", "text") == "content_and_artifact":
+                if adapter_self._response_format == "content_and_artifact":
                     response = {"text": view.text, "artifacts": view.artifacts}
-                    structured = self._normalize_structured_value(view.structured)
-                    data = self._normalize_structured_value(view.data)
+                    structured = adapter_self._normalize_structured_value(view.structured)
+                    data = adapter_self._normalize_structured_value(view.data)
                     if structured is not None:
                         response["structured"] = structured
                     if data is not None:
@@ -581,6 +349,8 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
 
                 return view.text
 
+            except ToolException:
+                raise
             except Exception as e:
                 error_msg = f"Async tool execution failed: {str(e)}"
                 logger.error(f"[SESSION_LANGCHAIN] {error_msg}")
@@ -590,29 +360,27 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
 
     async def list_tools_async(self) -> List[Tool]:
         """
-        Create session-bound LangChain tools (async version)
+        创建会话绑定的 LangChain 工具（异步版本）。
 
         Returns:
-            List of LangChain Tool objects bound to the session
+            绑定到会话的 LangChain Tool 对象列表
         """
         logger.debug(f"Creating session-bound tools for session '{self._session.session_id}'")
 
-        # Use parent's tool discovery logic
+        # 使用父类的工具发现逻辑
         mcpstore_tools = await self._context.list_tools_async()
         langchain_tools = []
 
         for tool_info in mcpstore_tools:
-            # Create args schema (same as parent)
-            args_schema = self._create_args_schema(tool_info)
+            # 使用公共函数
+            args_schema = create_args_schema(tool_info)
+            enhanced_description = enhance_description(tool_info)
 
-            # Enhance description (same as parent)
-            enhanced_description = self._enhance_description(tool_info)
-
-            # [CREATE] Session-bound functions
+            # 创建会话绑定函数
             sync_func = self._create_tool_function(tool_info.name, args_schema)
             async_coroutine = self._create_async_tool_function(tool_info.name, args_schema)
 
-            # Create LangChain tool with session binding
+            # 创建带会话绑定的 LangChain 工具
             langchain_tools.append(
                 StructuredTool(
                     name=tool_info.name,
@@ -628,9 +396,11 @@ class SessionAwareLangChainAdapter(LangChainAdapter):
 
     def list_tools(self) -> List[Tool]:
         """
-        Create session-bound LangChain tools (sync version)
+        创建会话绑定的 LangChain 工具（同步版本）。
 
         Returns:
-            List of LangChain Tool objects bound to the session
+            绑定到会话的 LangChain Tool 对象列表
         """
-        return self._context._bridge.run(self.list_tools_async(), op_name="LangChainAdapter.list_tools_for_session")
+        return self._context._bridge.run(
+            self.list_tools_async(), op_name="LangChainAdapter.list_tools_for_session"
+        )

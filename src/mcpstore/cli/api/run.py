@@ -1,9 +1,10 @@
 """
 API 启动命令
 """
-import typer
 import os
 import warnings
+
+import typer
 import uvicorn
 
 

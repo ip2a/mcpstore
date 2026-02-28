@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 from mcp.types import ToolAnnotations
+from mcpstore.mcp.utilities.openapi import HTTPRoute
+from mcpstore.mcp.utilities.openapi.director import RequestDirector
 from pydantic.networks import AnyUrl
 
 from mcpstore.mcp.resources import (
@@ -22,8 +24,6 @@ from mcpstore.mcp.server.dependencies import get_http_headers
 from mcpstore.mcp.server.tasks.config import TaskConfig
 from mcpstore.mcp.tools.tool import Tool, ToolResult
 from mcpstore.mcp.utilities.logging import get_logger
-from mcpstore.mcp.utilities.openapi import HTTPRoute
-from mcpstore.mcp.utilities.openapi.director import RequestDirector
 
 if TYPE_CHECKING:
     from mcpstore.mcp.server import Context

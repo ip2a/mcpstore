@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
-
 
 PATTERN = re.compile(r"(?:\bbridge|\bself\._bridge)\.run\(")
 ALLOWLIST = {

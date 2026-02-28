@@ -15,7 +15,6 @@ from starlette.requests import Request
 from starlette.routing import Route
 from uvicorn import Config, Server
 
-from mcpstore.mcp.utilities.http import find_available_port
 from mcpstore.mcp.utilities.logging import get_logger
 from mcpstore.mcp.utilities.ui import (
     HELPER_TEXT_STYLES,
