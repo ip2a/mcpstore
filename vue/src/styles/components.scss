@@ -1,9 +1,8 @@
 // 组件样式文件
 // 包含自定义组件样式和Element Plus组件样式覆盖
 
-// 导入变量和混入
-@import './variables.scss';
-@import './mixins.scss';
+// 导入混入
+@use './mixins.scss' as *;
 
 // 页面布局样式
 .page-header {

@@ -1,5 +1,5 @@
 // MCPStore Vue Frontend - Global Styles (Atomic / Minimalist)
-@import './variables.scss';
+@use './variables.scss' as *;
 
 // --- Reset & Base ---
 *, *::before, *::after {
