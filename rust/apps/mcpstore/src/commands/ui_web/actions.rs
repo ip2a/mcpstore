@@ -4,7 +4,7 @@ use axum::{
 };
 use maud::html;
 use mcpstore::config::ServerConfig;
-use mcpstore::store::{BackendKind, MCPStore};
+use mcpstore::{BackendKind, MCPStore};
 use std::{collections::HashMap, sync::Arc};
 
 use super::{

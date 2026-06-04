@@ -14,11 +14,11 @@ use crate::registry::{ConnectionStatus, ServiceEntry, ServiceRegistry};
 use crate::transport::client::ConnectionPool;
 use crate::transport::ToolDescription;
 
-use super::perspective::{
+use crate::perspective::{
     generate_tool_global_name, normalize_service_name, parse_agent_scoped, resolve_tool,
     AvailableTool, ToolResolution, GLOBAL_AGENT_STORE,
 };
-use super::{Result, StoreError};
+use crate::{Result, StoreError};
 
 mod control_queue;
 mod db_refresh;

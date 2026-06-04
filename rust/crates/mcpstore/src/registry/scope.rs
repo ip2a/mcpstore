@@ -2,7 +2,7 @@
 //!
 //! Store-wide vs agent-specific service visibility.
 
-use super::ServiceRegistry;
+use crate::registry::ServiceRegistry;
 
 impl ServiceRegistry {
     /// Associate a service with an agent scope.

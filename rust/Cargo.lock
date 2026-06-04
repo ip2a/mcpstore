@@ -1300,7 +1300,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mcpstore_cli"
+name = "mcpstore-cli"
 version = "0.1.0"
 dependencies = [
  "axum",

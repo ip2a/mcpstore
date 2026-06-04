@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use mcpstore::config::ServerConfig;
-use mcpstore::store::MCPStore;
+use mcpstore::MCPStore;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};

@@ -6,7 +6,7 @@
 //! - args is a list, env is a dict, headers is a dict
 //! - transport is in [streamable-http, sse, stdio]
 
-use super::models::ServerConfigFull;
+use crate::config::models::ServerConfigFull;
 use std::collections::HashMap;
 
 /// Validation errors.

@@ -1,4 +1,4 @@
-use super::{Result, StoreError};
+use crate::{Result, StoreError};
 use serde::{Deserialize, Serialize};
 
 pub const GLOBAL_AGENT_STORE: &str = "global_agent_store";

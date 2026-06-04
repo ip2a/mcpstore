@@ -3,7 +3,7 @@ use axum::{
     response::{Html, IntoResponse},
 };
 use maud::html;
-use mcpstore::store::{BackendKind, MCPStore};
+use mcpstore::{BackendKind, MCPStore};
 use mcpstore::registry::ConnectionStatus;
 use std::{collections::HashMap, sync::Arc};
 

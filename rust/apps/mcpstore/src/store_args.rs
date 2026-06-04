@@ -1,5 +1,5 @@
 use clap::{Args, ValueEnum};
-use mcpstore::store::{BackendKind, MCPStore, SourceMode, StoreOptions};
+use mcpstore::{BackendKind, MCPStore, SourceMode, StoreOptions};
 
 use crate::BoxErr;
 
