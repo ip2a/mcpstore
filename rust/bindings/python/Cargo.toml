@@ -22,6 +22,5 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
-# Internal crates
-mcpstore_config = { path = "../../crates/config" }
-mcpstore_core = { path = "../../crates/core" }
+# Unified crate
+mcpstore = { path = "../../crates/mcpstore" }
