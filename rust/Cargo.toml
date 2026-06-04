@@ -1,0 +1,47 @@
+[workspace]
+members = [
+    "crates/cache",
+    "crates/config",
+    "crates/events",
+    "crates/registry",
+    "crates/transport",
+    "crates/core",
+    "apps/cli",
+    "bindings/python",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.78"
+authors = ["ooooofish <ooooofish@126.com>"]
+license = "MIT"
+repository = "https://github.com/ip2a/mcpstore"
+
+[workspace.dependencies]
+tokio = { version = "1.40", features = ["rt-multi-thread", "sync", "macros", "time", "process", "io-util", "signal", "net"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+thiserror = "2.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-trait = "0.1"
+uuid = { version = "1.10", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+colored = "3.0"
+tabled = "0.18"
+
+# MCP 协议
+rmcp = { version = "1.5", features = ["client", "server", "transport-io", "transport-child-process", "transport-streamable-http-client-reqwest", "transport-streamable-http-server", "reqwest"] }
+
+# Redis
+redis = { version = "0.27", features = ["tokio-comp", "aio"] }
+
+# Python binding
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py310"] }
+pyo3-async-runtimes = { version = "0.23", features = ["tokio-runtime"] }

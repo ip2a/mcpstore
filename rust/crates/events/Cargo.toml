@@ -1,0 +1,22 @@
+[package]
+name = "mcpstore_events"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "MCPStore event bus - async pub/sub with priorities and filtering"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+async-trait = "0.1"
+uuid = { version = "1.10", features = ["v4"] }
+
+[dev-dependencies]
+tokio-test = "0.4"

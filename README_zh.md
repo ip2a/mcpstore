@@ -39,6 +39,22 @@
 pip install mcpstore
 ```
 
+### Rust-first 架构
+
+当前 `mcpstore` 以 Rust 作为唯一真实运行时：
+
+- `mcpstore api` 由 Rust 二进制直接启动完整 HTTP API 服务
+- `mcpstore mcp-server` 由 Rust 二进制直接暴露 MCP Server，支持 `stdio` 和 `streamable-http`
+- Python 包主要提供 PyO3 store facade、Python adapter，以及少量 Python 生态必须存在的兼容入口
+
+如果你只想把 `mcpstore` 当成独立服务使用，优先直接调用 Rust CLI：
+
+```bash
+mcpstore api --config-path ./mcp.json --port 18200
+mcpstore mcp-server --config-path ./mcp.json
+mcpstore mcp-server --config-path ./mcp.json --transport streamable-http --port 18300 --path /mcp
+```
+
 ### 简单示例
 
 一切的开始：初始化一个store 
@@ -125,25 +141,22 @@ agent2_tools = store.for_agent(agent_id2).list_tools()
 
 通过为不同 `agent` 隔离mcp服务，避免上下文过长,并由 `sotre` 统一维护。
 
-#### 聚合服务
+#### Rust API 与 MCP Server
 
-`hub_service` 是把当前对象（Store / Agent / Service）再暴露成一个 MCP 服务的桥接器，便于把管理面包装成新的 MCP 端点给外部使用。支持 HTTP / SSE / stdio ：
+当前推荐直接使用 Rust CLI 暴露服务，而不是再依赖历史 Python hub 接口：
 
-```python
-store = MCPStore.setup_store()
+```bash
+# 启动 Rust HTTP API
+mcpstore api --config-path ./mcp.json --host 127.0.0.1 --port 18200
 
-# 将全局 Store 暴露为 HTTP MCP
-hub = store.for_store().hub_http(port=8000, host="0.0.0.0", path="/mcp", block=False)
+# 以 stdio 启动 Rust MCP Server
+mcpstore mcp-server --config-path ./mcp.json
 
-# 仅暴露某个 Agent 视角的工具 
-agent_hub = store.for_agent("agent1").hub_sse(port=8100, host="0.0.0.0", path="/sse", block=False)
-
-# 将单个服务暴露为 stdio MCP (因为支持关闭单个服务内的某个工具)
-service_hub = store.for_agent("agent1").find_service("demo").hub_stdio(block=False)
+# 以 streamable-http 启动 Rust MCP Server
+mcpstore mcp-server --config-path ./mcp.json --transport streamable-http --host 127.0.0.1 --port 18300 --path /mcp
 ```
 
-- 选择 `hub_http` / `hub_sse` / `hub_stdio` 即可对应三种传输；`block=False` 时后台线程运行。
-- 会自动按对象类型生成服务名（Store / Agent / Service），无需手写 tool 注册,可以实现studio与http的转换。
+Python 侧已不再提供嵌入式 API server；请直接使用 Rust CLI 启动服务。
 
 
 
@@ -162,11 +175,13 @@ service_hub = store.for_agent("agent1").find_service("demo").hub_stdio(block=Fal
 | 查看配置        | `store.for_store().show_config()`                                                      |
 | 服务详情        | `store.for_store().service_info("service_name")`                                   |
 | 等待就绪        | `store.for_store().wait_service("service_name", timeout=30)`                           |
-| 聚合服务        | `store.for_agent(agent_id).hub_services()`                                             |
 | 列出agent     | `store.for_store().list_agents()` |
 | 列出服务        | `store.for_store().list_services()` |
 | 列出工具        | `store.for_store().list_tools()` |
-| 定位工具        | `store.for_store().find_tool("tool_name")` |
+| 列出资源        | `store.for_store().list_resources()` |
+| 读取资源        | `store.for_store().read_resource("resource://uri")` |
+| 列出 Prompts   | `store.for_store().list_prompts()` |
+| 获取 Prompt    | `store.for_store().get_prompt("prompt_name", {"k": "v"})` |
 | 执行工具 | `store.for_store().call_tool("tool_name", {"k": "v"})` |
 
 #### 数据源热拔插和共享
@@ -216,10 +231,14 @@ store.for_store().list_services()
 ```
 更多细节参考 `setup_store` 配置见文档
 
-### API 模式
+### API 与 MCP 服务
 
-新的版本移除了 `api` 模式直接启动，带来的效果是显著的，`mcpstore`不再强依赖`fastapi`包，也可以自己灵活的定制路由和复杂的网络情况
-旧版本的`api`被独立出来做成了示例的mini项目，可以快速启动。
+当前版本已经内置 Rust API 与 Rust MCP Server：
+
+- `mcpstore api`：启动完整 HTTP API 服务
+- `mcpstore mcp-server`：启动 MCP Server
+
+因此，对外服务能力应优先理解为 Rust-first；Python 不再承载独立的 API / MCP 核心实现。
 
 
 ### docker部署 

@@ -1,0 +1,27 @@
+[package]
+name = "mcpstore_python"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "PyO3 bindings for MCPStore Rust core - unified Python interface"
+
+[lib]
+name = "_rust"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { workspace = true }
+pyo3-async-runtimes = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Internal crates
+mcpstore_config = { path = "../../crates/config" }
+mcpstore_core = { path = "../../crates/core" }
