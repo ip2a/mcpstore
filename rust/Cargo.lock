@@ -1279,18 +1279,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "mcpstore_cache"
+name = "mcpstore"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
+ "http",
  "openkeyv",
  "redis 0.27.6",
+ "rmcp",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tokio-test",
+ "toml",
  "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -1303,10 +1309,7 @@ dependencies = [
  "colored",
  "crossterm",
  "maud",
- "mcpstore_config",
- "mcpstore_core",
- "mcpstore_registry",
- "mcpstore_transport",
+ "mcpstore",
  "ratatui",
  "reqwest 0.12.28",
  "rmcp",
@@ -1319,56 +1322,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "mcpstore_config"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "toml",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "mcpstore_core"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "mcpstore_cache",
- "mcpstore_config",
- "mcpstore_events",
- "mcpstore_registry",
- "mcpstore_transport",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "mcpstore_events"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tokio-test",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "mcpstore_python"
 version = "0.1.0"
 dependencies = [
- "mcpstore_config",
- "mcpstore_core",
+ "mcpstore",
  "pyo3",
  "pyo3-async-runtimes",
  "serde",
@@ -1376,34 +1333,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "mcpstore_registry"
-version = "0.1.0"
-dependencies = [
- "mcpstore_cache",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tokio-test",
- "tracing",
-]
-
-[[package]]
-name = "mcpstore_transport"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "http",
- "mcpstore_config",
- "rmcp",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
 ]
 
 [[package]]

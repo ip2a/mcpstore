@@ -1,4 +1,4 @@
-use mcpstore_core::perspective;
+use mcpstore::perspective;
 use pyo3::prelude::*;
 
 fn to_json<T: serde::Serialize>(value: &T, context: &str) -> PyResult<String> {
@@ -7,7 +7,7 @@ fn to_json<T: serde::Serialize>(value: &T, context: &str) -> PyResult<String> {
     })
 }
 
-fn map_err(err: mcpstore_core::StoreError) -> PyErr {
+fn map_err(err: mcpstore::StoreError) -> PyErr {
     pyo3::exceptions::PyValueError::new_err(err.to_string())
 }
 
