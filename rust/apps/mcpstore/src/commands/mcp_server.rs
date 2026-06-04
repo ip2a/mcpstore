@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use clap::{Args, ValueEnum};
-use mcpstore::{perspective::GLOBAL_AGENT_STORE, store::MCPStore};
+use mcpstore::{perspective::GLOBAL_AGENT_STORE, MCPStore};
 use rmcp::{
     model::{
         CallToolRequestParams, CallToolResult, Content, GetPromptRequestParams, GetPromptResult,

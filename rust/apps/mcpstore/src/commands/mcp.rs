@@ -2,7 +2,7 @@ use clap::{Args, ValueEnum};
 use mcpstore::config::ServerConfig;
 use std::collections::HashMap;
 
-use mcpstore::store::MCPStore;
+use mcpstore::MCPStore;
 
 use crate::{
     store_args::{build_store, BackendArg, StoreSourceArgs},

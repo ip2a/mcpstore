@@ -12,7 +12,7 @@ use clap::Args;
 use mcpstore::config::ServerConfig;
 use mcpstore::{
     perspective::GLOBAL_AGENT_STORE,
-    store::{BackendKind, MCPStore},
+    BackendKind, MCPStore,
     StoreError,
 };
 use serde::{Deserialize, Serialize};
@@ -1097,7 +1097,7 @@ fn normalize_prefix(prefix: &str) -> String {
     normalized
 }
 
-fn backend_label(backend: mcpstore::store::BackendKind) -> &'static str {
+fn backend_label(backend: mcpstore::BackendKind) -> &'static str {
     backend.as_str()
 }
 

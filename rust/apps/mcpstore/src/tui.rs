@@ -89,7 +89,7 @@ enum PendingAction {
 }
 
 struct TuiApp {
-    store: mcpstore::store::MCPStore,
+    store: mcpstore::MCPStore,
     services: Vec<ServiceSummary>,
     selected: usize,
     table_state: TableState,
@@ -106,7 +106,7 @@ struct TuiApp {
 
 impl TuiApp {
     fn new(
-        store: mcpstore::store::MCPStore,
+        store: mcpstore::MCPStore,
         tick_rate: Duration,
         source_label: String,
         backend_label: String,
@@ -726,7 +726,7 @@ mod tests {
     use super::*;
     use crossterm::event::{KeyEvent, KeyModifiers};
     use mcpstore::config::ServerConfig;
-    use mcpstore::store::MCPStore;
+    use mcpstore::MCPStore;
     use std::collections::HashMap;
     use std::time::{SystemTime, UNIX_EPOCH};
 

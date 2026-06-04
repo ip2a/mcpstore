@@ -2,7 +2,7 @@
 //!
 //! add / remove / update / list services.
 
-use super::{ConnectionStatus, ServiceEntry, ServiceRegistry};
+use crate::registry::{ConnectionStatus, ServiceEntry, ServiceRegistry};
 
 impl ServiceRegistry {
     /// Register or update a service entry and rebuild indexes.

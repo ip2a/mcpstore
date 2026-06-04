@@ -2,7 +2,7 @@
 //!
 //! Find tools by name, list tools for a service, etc.
 
-use super::{ServiceRegistry, ToolInfo};
+use crate::registry::{ServiceRegistry, ToolInfo};
 
 impl ServiceRegistry {
     /// Find which service owns a given tool (by global tool name).

@@ -1,6 +1,6 @@
 //! Event bus implementation with priority, error isolation, and optional history.
 
-use super::Event;
+use crate::Event;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 

@@ -1,7 +1,7 @@
 //! PyO3 wrapper for the MCPStore Rust runtime surface.
 
 use mcpstore::config::ServerConfig;
-use mcpstore::store::{BackendKind, MCPStore, SourceMode, StoreOptions};
+use mcpstore::core::store::{BackendKind, MCPStore, SourceMode, StoreOptions};
 use mcpstore::StoreError;
 use pyo3::prelude::*;
 

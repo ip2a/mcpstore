@@ -8,7 +8,7 @@ use openkeyv::{
 use serde_json::{Map, Value};
 use tokio::sync::OnceCell;
 
-use super::{CacheError, KvStore, Result};
+use crate::cache::{CacheError, KvStore, Result};
 
 pub trait OpenKeyvBackend:
     AsyncKeyValue + AsyncEnumerateKeys + AsyncEnumerateCollections + Send + Sync

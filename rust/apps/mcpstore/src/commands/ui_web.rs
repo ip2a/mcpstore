@@ -1,5 +1,5 @@
 use axum::{routing::get, Router};
-use mcpstore::store::MCPStore;
+use mcpstore::MCPStore;
 use std::sync::Arc;
 
 mod actions;
