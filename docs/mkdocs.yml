@@ -1,12 +1,12 @@
 site_name: McpStore
-site_description: good for mcp
+site_description: MCP 服务编排与工具接入文档
 site_author: whillhill
 site_url: https://mcpstore.wiki
 
 # Repository
 repo_name: whillhill/mcpstore
 repo_url: https://github.com/whillhill/mcpstore
-edit_uri: edit/main/mcpstore_docs/docs/
+edit_uri: edit/main/docs/docs/
 
 # Copyright
 copyright: Copyright &copy; 2025 whillhill
@@ -158,6 +158,8 @@ markdown_extensions:
 
 # Navigation
 nav:
+  - 首页: index.md
+
   - 快速开始:
       - 快速开始: quickstart.md
       - 构建Store: store/overview.md
@@ -172,6 +174,7 @@ nav:
       - 健康检查: services/check-health.md
       - 配置显示: services/show-config.md
       - 更新服务: services/update-service.md
+      - 增量更新: services/patch-service.md
       - 重启服务: services/restart-service.md
       - 删除服务: services/delete-service.md
 
@@ -200,9 +203,19 @@ nav:
       - 响应结构: api/response.md
       - API 文档: api/apis.md
       - 项目结合: api/integration.md
+      - 缓存配置: api/cache-config.md
+      - 缓存配置参考: api/cache-config-reference.md
 
   - CLI 使用:
       - CLI 命令: cli/commands.md
+
+  - 会话管理:
+      - Sessions: session/sessions.md
+
+  - 开发与维护:
+      - 开发指南: development.md
+      - 测试指南: testing.md
+      - 故障排查: troubleshooting.md
 
   - SDK示例:
       - 标准链路: examples/cache-config-examples.md

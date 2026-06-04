@@ -1,0 +1,27 @@
+[package]
+name = "mcpstore_core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "MCPStore core orchestrator - service lifecycle management"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+
+mcpstore_config = { path = "../config" }
+mcpstore_cache = { path = "../cache" }
+mcpstore_registry = { path = "../registry" }
+mcpstore_events = { path = "../events" }
+mcpstore_transport = { path = "../transport" }
+
+[dev-dependencies]
+uuid = { workspace = true }

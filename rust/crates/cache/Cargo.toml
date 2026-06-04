@@ -1,0 +1,23 @@
+[package]
+name = "mcpstore_cache"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "MCPStore cache layer - entity/relationship/state caching with serde serialization"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+async-trait = "0.1"
+redis = { workspace = true }
+openkeyv = { version = "0.1.4", default-features = false, features = ["redis"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
