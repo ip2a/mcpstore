@@ -103,17 +103,17 @@ impl Default for FilterBarState {
     }
 }
 
-pub fn render(frame: &mut Frame, area: Rect, state: &FilterBarState) {
+pub fn render(frame: &mut Frame, area: Rect, state: &FilterBarState, focused: bool) {
     let layout = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Min(40), Constraint::Min(30)])
         .split(area);
 
-    render_status_tabs(frame, layout[0], state);
+    render_status_tabs(frame, layout[0], state, focused);
     render_search_and_sort(frame, layout[1], state);
 }
 
-fn render_status_tabs(frame: &mut Frame, area: Rect, state: &FilterBarState) {
+fn render_status_tabs(frame: &mut Frame, area: Rect, state: &FilterBarState, focused: bool) {
     let tabs = [
         FilterStatus::All,
         FilterStatus::Connected,
@@ -122,29 +122,29 @@ fn render_status_tabs(frame: &mut Frame, area: Rect, state: &FilterBarState) {
         FilterStatus::Connecting,
     ];
 
-    let spans: Vec<Span> = tabs
-        .iter()
-        .enumerate()
-        .flat_map(|(i, tab)| {
-            let is_active = *tab == state.active_status;
-            let style = if is_active {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::Gray)
-            };
-            let prefix = if i > 0 { "  " } else { "" };
-            vec![
-                Span::raw(prefix),
-                Span::styled(format!("{} {}", i + 1, tab.label()), style),
-            ]
-        })
-        .collect();
+    let mut spans = vec![Span::styled(
+        if focused { "> " } else { "  " },
+        Style::default().fg(Color::Cyan),
+    )];
 
-    let paragraph = Paragraph::new(Line::from(spans))
-        .block(Block::default().borders(Borders::NONE));
+    spans.extend(tabs.iter().enumerate().flat_map(|(i, tab)| {
+        let is_active = *tab == state.active_status;
+        let style = if is_active {
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+        } else {
+            Style::default().fg(Color::Black)
+        };
+        let prefix = if i > 0 { "  " } else { "" };
+        vec![
+            Span::raw(prefix),
+            Span::styled(format!("{} {}", i + 1, tab.label()), style),
+        ]
+    }));
+
+    let paragraph =
+        Paragraph::new(Line::from(spans)).block(Block::default().borders(Borders::NONE));
 
     frame.render_widget(paragraph, area);
 }
@@ -165,15 +165,17 @@ fn render_search_and_sort(frame: &mut Frame, area: Rect, state: &FilterBarState)
     );
 
     let style = if state.search_mode {
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::Gray)
+        Style::default().fg(Color::Black)
     };
 
     let text = Line::from(vec![
         Span::styled(search_display, style),
         Span::raw("  "),
-        Span::styled(sort_display, Style::default().fg(Color::Gray)),
+        Span::styled(sort_display, Style::default().fg(Color::Black)),
     ]);
 
     let paragraph = Paragraph::new(text)

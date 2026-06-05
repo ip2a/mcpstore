@@ -92,6 +92,7 @@ pub fn render(
     area: ratatui::layout::Rect,
     services: &[ServiceSummary],
     table_state: &mut TableState,
+    focused: bool,
 ) {
     let header = Row::new(vec!["名称", "作用域", "协议", "状态", "工具", "操作"])
         .style(
@@ -119,6 +120,20 @@ pub fn render(
         .style(status_style(service.status))
     });
 
+    let border_style = if focused {
+        Style::default().fg(Color::Cyan)
+    } else {
+        Style::default().fg(Color::Black)
+    };
+
+    let row_highlight_style = if focused {
+        Style::default()
+            .bg(Color::Rgb(32, 42, 54))
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+
     let table = Table::new(
         rows,
         [
@@ -131,13 +146,14 @@ pub fn render(
         ],
     )
     .header(header)
-    .block(Block::default().borders(Borders::ALL).title("服务列表"))
-    .row_highlight_style(
-        Style::default()
-            .bg(Color::Rgb(32, 42, 54))
-            .add_modifier(Modifier::BOLD),
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(border_style)
+            .title("内容区 / 服务列表"),
     )
-    .highlight_symbol(">>> ");
+    .row_highlight_style(row_highlight_style)
+    .highlight_symbol(if focused { ">>> " } else { "    " });
 
     frame.render_stateful_widget(table, area, table_state);
 }
