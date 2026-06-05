@@ -13,7 +13,7 @@ pub fn draw(frame: &mut Frame, app: &mut TuiApp, _rt: &tokio::runtime::Runtime) 
     let main_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5),  // Header (ASCII art + stats)
+            Constraint::Length(6),  // Header (ASCII art + stats + bottom border)
             Constraint::Length(1),  // Filter bar
             Constraint::Min(10),    // Service table
             Constraint::Length(2),  // Footer
