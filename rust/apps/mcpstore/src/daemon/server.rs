@@ -7,7 +7,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::signal;
 
-use crate::daemon::protocol::{DaemonRequest, DaemonResponse, default_pid_path, default_socket_path};
+use crate::daemon::protocol::{
+    default_pid_path, default_socket_path, DaemonRequest, DaemonResponse,
+};
 use crate::store_args::StoreSourceArgs;
 
 /// Start the daemon: create store, bind socket, write PID, accept loop.
@@ -108,9 +110,7 @@ async fn handle_connection(
         Ok(r) => r,
         Err(e) => {
             let resp = DaemonResponse::err(format!("Invalid JSON: {}", e));
-            writer
-                .write_all(resp.to_json_line()?.as_bytes())
-                .await?;
+            writer.write_all(resp.to_json_line()?.as_bytes()).await?;
             return Ok(());
         }
     };
@@ -271,7 +271,9 @@ async fn handle_check_service(store: &MCPStore, params: Value) -> DaemonResponse
     let name = params.get("name").and_then(Value::as_str);
     if let Some(name) = name {
         match store.health_check(name).await {
-            Ok(status) => DaemonResponse::ok(Some(json!({"name": name, "health_status": format!("{:?}", status.health_status)}))),
+            Ok(status) => DaemonResponse::ok(Some(
+                json!({"name": name, "health_status": format!("{:?}", status.health_status)}),
+            )),
             Err(e) => DaemonResponse::err(e.to_string()),
         }
     } else {
@@ -280,7 +282,10 @@ async fn handle_check_service(store: &MCPStore, params: Value) -> DaemonResponse
         for svc in services {
             match store.health_check(&svc.name).await {
                 Ok(status) => {
-                    results.insert(svc.name.clone(), json!(format!("{:?}", status.health_status)));
+                    results.insert(
+                        svc.name.clone(),
+                        json!(format!("{:?}", status.health_status)),
+                    );
                 }
                 Err(_) => {
                     results.insert(svc.name.clone(), json!("unknown"));
@@ -306,8 +311,13 @@ async fn handle_wait_service(store: &MCPStore, params: Value) -> DaemonResponse 
 async fn handle_assign_service(store: &MCPStore, params: Value) -> DaemonResponse {
     let agent_id = get_str(&params, "agent_id");
     let service_name = get_str(&params, "service_name");
-    match store.assign_service_to_agent(&agent_id, &service_name).await {
-        Ok(()) => DaemonResponse::ok(Some(json!({"agent_id": agent_id, "service_name": service_name}))),
+    match store
+        .assign_service_to_agent(&agent_id, &service_name)
+        .await
+    {
+        Ok(()) => DaemonResponse::ok(Some(
+            json!({"agent_id": agent_id, "service_name": service_name}),
+        )),
         Err(e) => DaemonResponse::err(e.to_string()),
     }
 }
@@ -315,8 +325,13 @@ async fn handle_assign_service(store: &MCPStore, params: Value) -> DaemonRespons
 async fn handle_unassign_service(store: &MCPStore, params: Value) -> DaemonResponse {
     let agent_id = get_str(&params, "agent_id");
     let service_name = get_str(&params, "service_name");
-    match store.unassign_service_from_agent(&agent_id, &service_name).await {
-        Ok(()) => DaemonResponse::ok(Some(json!({"agent_id": agent_id, "service_name": service_name}))),
+    match store
+        .unassign_service_from_agent(&agent_id, &service_name)
+        .await
+    {
+        Ok(()) => DaemonResponse::ok(Some(
+            json!({"agent_id": agent_id, "service_name": service_name}),
+        )),
         Err(e) => DaemonResponse::err(e.to_string()),
     }
 }
@@ -349,5 +364,9 @@ fn get_field(params: &Value, key: &str) -> Value {
 }
 
 fn get_str(params: &Value, key: &str) -> String {
-    params.get(key).and_then(Value::as_str).unwrap_or("").to_string()
+    params
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
 }

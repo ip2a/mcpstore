@@ -3,8 +3,8 @@ use axum::{
     response::{Html, IntoResponse},
 };
 use maud::html;
-use mcpstore::{BackendKind, MCPStore};
 use mcpstore::registry::ConnectionStatus;
+use mcpstore::{BackendKind, MCPStore};
 use std::{collections::HashMap, sync::Arc};
 
 use super::{

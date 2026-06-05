@@ -1,18 +1,19 @@
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
 
-const BANNER: &str = r#"███    ███  ██████  ███████  ██████  ████████  ██████  ██████  ███████
+const BANNER: &str = "\
+███    ███  ██████  ███████  ██████  ████████  ██████  ██████  ███████
 ████  ████ ██      ██    ██ ██          ██    ██    ██ ██   ██ ██
 ██ ████ ██ ██      ███████  ██████      ██    ██    ██ ██████  █████
 ██  ██  ██ ██      ██           ██      ██    ██    ██ ██  ██  ██
-██      ██  ██████ ██      ██████       ██     ██████  ██   ██ ███████"#;
+██      ██  ██████ ██      ██████       ██     ██████  ██   ██ ███████";
 
-pub const BANNER_HEIGHT: u16 = 5;
+pub const BANNER_HEIGHT: u16 = 6;
 
 pub struct HeaderStats {
     pub total: usize,
@@ -45,17 +46,24 @@ pub fn render(frame: &mut Frame, area: Rect, stats: &HeaderStats) {
 }
 
 fn render_banner(frame: &mut Frame, area: Rect) {
-    let banner_lines: Vec<Line> = BANNER
-        .lines()
-        .map(|line| {
-            Line::from(vec![Span::styled(
-                line.to_string(),
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )])
-        })
-        .collect();
+    let area = area.inner(Margin {
+        horizontal: 1,
+        vertical: 0,
+    });
+    let mut banner_lines: Vec<Line> = vec![Line::from(Span::styled(
+        "字符画",
+        Style::default()
+            .fg(Color::Black)
+            .add_modifier(Modifier::BOLD),
+    ))];
+    banner_lines.extend(BANNER.lines().map(|line| {
+        Line::from(vec![Span::styled(
+            line.to_string(),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )])
+    }));
 
     let banner_height = banner_lines.len() as u16;
     let padding = area.height.saturating_sub(banner_height) / 2;
@@ -69,12 +77,18 @@ fn render_banner(frame: &mut Frame, area: Rect) {
         ])
         .split(area)[1];
 
-    let banner = Paragraph::new(banner_lines).alignment(Alignment::Center);
+    let banner = Paragraph::new(banner_lines).alignment(Alignment::Left);
     frame.render_widget(banner, inner);
 }
 
 fn render_stats(frame: &mut Frame, area: Rect, stats: &HeaderStats) {
     let text = vec![
+        Line::from(Span::styled(
+            "状态总览",
+            Style::default()
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        )),
         Line::from(vec![Span::styled(
             "MCPStore",
             Style::default()
@@ -92,8 +106,13 @@ fn render_stats(frame: &mut Frame, area: Rect, stats: &HeaderStats) {
         Line::from(format!("config={}", stats.config_path)),
     ];
 
-    let stats_widget = Paragraph::new(text)
-        .block(Block::default().borders(Borders::LEFT))
-        .alignment(Alignment::Left);
-    frame.render_widget(stats_widget, area);
+    let stats_block = Block::default().borders(Borders::LEFT);
+    let inner = stats_block.inner(area).inner(Margin {
+        horizontal: 1,
+        vertical: 0,
+    });
+    frame.render_widget(stats_block, area);
+
+    let stats_widget = Paragraph::new(text).alignment(Alignment::Left);
+    frame.render_widget(stats_widget, inner);
 }

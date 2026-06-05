@@ -8,14 +8,10 @@ pub mod registry;
 pub mod transport;
 
 // Facade re-exports: configuration
-pub use config::{
-    AppConfig, CacheBackend, CacheConfig, ConfigManager, McpConfig, ServerConfig,
-};
+pub use config::{AppConfig, CacheBackend, CacheConfig, ConfigManager, McpConfig, ServerConfig};
 
 // Facade re-exports: cache layer
-pub use cache::{
-    CacheLayerManager, CacheSnapshot, KvStore, MemoryStore, RedisStore,
-};
+pub use cache::{CacheLayerManager, CacheSnapshot, KvStore, MemoryStore, RedisStore};
 
 // Facade re-exports: event bus
 pub use events::{Event, EventBus};
@@ -28,4 +24,4 @@ pub use transport::{ContentItem, ToolCallResult, ToolDescription};
 
 // Facade re-exports: core store
 pub use core::store::{BackendKind, MCPStore, SourceMode, StoreOptions};
-pub use core::{perspective, StoreError, Result};
+pub use core::{perspective, Result, StoreError};

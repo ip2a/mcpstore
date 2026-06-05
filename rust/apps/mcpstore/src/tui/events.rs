@@ -1,10 +1,14 @@
 use crossterm::event::{KeyCode, KeyEvent};
 
-use super::app::TuiApp;
+use super::app::{FocusArea, MainView, TuiApp};
 use super::widgets::filter_bar::FilterStatus;
 use crate::BoxErr;
 
-pub fn handle_key(app: &mut TuiApp, rt: &tokio::runtime::Runtime, key: KeyEvent) -> Result<(), BoxErr> {
+pub fn handle_key(
+    app: &mut TuiApp,
+    rt: &tokio::runtime::Runtime,
+    key: KeyEvent,
+) -> Result<(), BoxErr> {
     if let Some(_pending) = app.pending_action.as_ref() {
         return handle_pending_action(app, rt, key);
     }
@@ -18,29 +22,67 @@ pub fn handle_key(app: &mut TuiApp, rt: &tokio::runtime::Runtime, key: KeyEvent)
         KeyCode::Char('q') => {
             app.should_quit = true;
         }
-        KeyCode::Up | KeyCode::Char('k') => app.move_selection(-1, rt)?,
-        KeyCode::Down | KeyCode::Char('j') => app.move_selection(1, rt)?,
-        KeyCode::Char('g') => app.jump_to(0, rt)?,
-        KeyCode::Char('G') => {
-            if !app.filtered_services.is_empty() {
-                app.jump_to(app.filtered_services.len() - 1, rt)?;
-            }
-        }
+        KeyCode::Down => app.focus_next_area(),
+        KeyCode::Up => app.focus_previous_area(),
+        KeyCode::Tab => app.focus_next_area(),
+        KeyCode::BackTab => app.focus_previous_area(),
         KeyCode::Char('r') => {
             app.refresh(rt, true)?;
             app.status_message = "[成功] 已刷新服务列表".to_string();
         }
-        KeyCode::Char('c') => app.connect_selected(rt)?,
-        KeyCode::Char('d') => app.disconnect_selected(rt)?,
-        KeyCode::Char('x') => app.restart_selected(rt)?,
-        KeyCode::Char('D') => app.prompt_remove(),
+        _ => handle_focused_key(app, rt, key)?,
+    }
+
+    Ok(())
+}
+
+fn handle_focused_key(
+    app: &mut TuiApp,
+    rt: &tokio::runtime::Runtime,
+    key: KeyEvent,
+) -> Result<(), BoxErr> {
+    match app.focus_area {
+        FocusArea::MainNav => handle_nav_key(app, key),
+        FocusArea::ViewFilter => handle_filter_key(app, rt, key),
+        FocusArea::ViewTable => handle_table_key(app, rt, key),
+    }
+}
+
+fn handle_nav_key(app: &mut TuiApp, key: KeyEvent) -> Result<(), BoxErr> {
+    match key.code {
+        KeyCode::Right | KeyCode::Char('l') => app.next_view(),
+        KeyCode::Left | KeyCode::Char('h') => app.previous_view(),
+        _ => {}
+    }
+    Ok(())
+}
+
+fn handle_filter_key(
+    app: &mut TuiApp,
+    rt: &tokio::runtime::Runtime,
+    key: KeyEvent,
+) -> Result<(), BoxErr> {
+    if app.active_view != MainView::Services {
+        return Ok(());
+    }
+
+    match key.code {
+        KeyCode::Left | KeyCode::Char('h') => {
+            app.set_status_filter(app.filter.active_status.prev(), rt)
+        }
+        KeyCode::Right | KeyCode::Char('l') => {
+            app.set_status_filter(app.filter.active_status.next(), rt)
+        }
         KeyCode::Char('1') => app.set_status_filter(FilterStatus::All, rt),
         KeyCode::Char('2') => app.set_status_filter(FilterStatus::Connected, rt),
         KeyCode::Char('3') => app.set_status_filter(FilterStatus::Error, rt),
         KeyCode::Char('4') => app.set_status_filter(FilterStatus::Disconnected, rt),
         KeyCode::Char('5') => app.set_status_filter(FilterStatus::Connecting, rt),
         KeyCode::Char('s') => {
-            if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
+            if key
+                .modifiers
+                .contains(crossterm::event::KeyModifiers::SHIFT)
+            {
                 app.toggle_sort_direction();
             } else {
                 app.toggle_sort();
@@ -48,7 +90,11 @@ pub fn handle_key(app: &mut TuiApp, rt: &tokio::runtime::Runtime, key: KeyEvent)
             app.status_message = format!(
                 "[成功] 排序: {} {}",
                 app.filter.sort_by.label(),
-                if app.filter.sort_asc { "升序" } else { "降序" }
+                if app.filter.sort_asc {
+                    "升序"
+                } else {
+                    "降序"
+                }
             );
         }
         KeyCode::Char('/') => {
@@ -61,7 +107,39 @@ pub fn handle_key(app: &mut TuiApp, rt: &tokio::runtime::Runtime, key: KeyEvent)
     Ok(())
 }
 
-fn handle_pending_action(app: &mut TuiApp, rt: &tokio::runtime::Runtime, key: KeyEvent) -> Result<(), BoxErr> {
+fn handle_table_key(
+    app: &mut TuiApp,
+    rt: &tokio::runtime::Runtime,
+    key: KeyEvent,
+) -> Result<(), BoxErr> {
+    if app.active_view != MainView::Services {
+        return Ok(());
+    }
+
+    match key.code {
+        KeyCode::Char('k') => app.move_selection(-1, rt)?,
+        KeyCode::Char('j') => app.move_selection(1, rt)?,
+        KeyCode::Char('g') => app.jump_to(0, rt)?,
+        KeyCode::Char('G') => {
+            if !app.filtered_services.is_empty() {
+                app.jump_to(app.filtered_services.len() - 1, rt)?;
+            }
+        }
+        KeyCode::Char('c') => app.connect_selected(rt)?,
+        KeyCode::Char('d') => app.disconnect_selected(rt)?,
+        KeyCode::Char('x') => app.restart_selected(rt)?,
+        KeyCode::Char('D') => app.prompt_remove(),
+        _ => {}
+    }
+
+    Ok(())
+}
+
+fn handle_pending_action(
+    app: &mut TuiApp,
+    rt: &tokio::runtime::Runtime,
+    key: KeyEvent,
+) -> Result<(), BoxErr> {
     match key.code {
         KeyCode::Char('y') => app.confirm_remove(rt)?,
         KeyCode::Char('n') | KeyCode::Esc => app.cancel_pending(),
