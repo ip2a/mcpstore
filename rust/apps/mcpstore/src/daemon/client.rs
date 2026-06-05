@@ -3,7 +3,7 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 
-use crate::daemon::protocol::{DaemonRequest, DaemonResponse, default_socket_path};
+use crate::daemon::protocol::{default_socket_path, DaemonRequest, DaemonResponse};
 
 /// Check whether the daemon socket exists and is connectable.
 pub fn daemon_socket_exists() -> bool {
@@ -11,10 +11,7 @@ pub fn daemon_socket_exists() -> bool {
 }
 
 /// Send a single request to the daemon and return the parsed response.
-pub async fn call_daemon(
-    method: impl Into<String>,
-    params: Value,
-) -> Result<Value, String> {
+pub async fn call_daemon(method: impl Into<String>, params: Value) -> Result<Value, String> {
     let socket_path = default_socket_path();
     if !socket_path.exists() {
         return Err("Daemon not running. Run `mcpstore start` first.".to_string());

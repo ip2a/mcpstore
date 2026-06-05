@@ -10,11 +10,7 @@ use axum::{
 use chrono::Utc;
 use clap::Args;
 use mcpstore::config::ServerConfig;
-use mcpstore::{
-    perspective::GLOBAL_AGENT_STORE,
-    BackendKind, MCPStore,
-    StoreError,
-};
+use mcpstore::{perspective::GLOBAL_AGENT_STORE, BackendKind, MCPStore, StoreError};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 

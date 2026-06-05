@@ -137,8 +137,13 @@ pub async fn list(a: ListArgs) -> std::result::Result<(), BoxErr> {
     if crate::daemon::client::daemon_socket_exists() {
         if a.scope == Scope::Agent {
             let agent_id = require_agent(a.agent.as_deref())?;
-            let result = crate::daemon::client::call_daemon("list_agents", serde_json::json!({})).await?;
-            println!("[Agent] {} service_count={}", agent_id, result.as_array().map(|v| v.len()).unwrap_or(0));
+            let result =
+                crate::daemon::client::call_daemon("list_agents", serde_json::json!({})).await?;
+            println!(
+                "[Agent] {} service_count={}",
+                agent_id,
+                result.as_array().map(|v| v.len()).unwrap_or(0)
+            );
             if let Some(arr) = result.as_array() {
                 for item in arr {
                     println!("- {}", item);
@@ -146,8 +151,13 @@ pub async fn list(a: ListArgs) -> std::result::Result<(), BoxErr> {
             }
             return Ok(());
         }
-        let result = crate::daemon::client::call_daemon("list_services", serde_json::json!({})).await?;
-        let services = result.get("services").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        let result =
+            crate::daemon::client::call_daemon("list_services", serde_json::json!({})).await?;
+        let services = result
+            .get("services")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
         println!("[List] service_count={}", services.len());
         if services.is_empty() {
             println!("  No services available");
@@ -158,7 +168,10 @@ pub async fn list(a: ListArgs) -> std::result::Result<(), BoxErr> {
             let transport = svc.get("transport").and_then(|v| v.as_str()).unwrap_or("?");
             let status = svc.get("status").and_then(|v| v.as_str()).unwrap_or("?");
             let tools_count = svc.get("tools_count").and_then(|v| v.as_u64()).unwrap_or(0);
-            println!("- {}  transport={}  status={}  tools={}", name, transport, status, tools_count);
+            println!(
+                "- {}  transport={}  status={}  tools={}",
+                name, transport, status, tools_count
+            );
         }
         return Ok(());
     }
@@ -279,7 +292,10 @@ pub async fn connect(a: ConnectArgs) -> std::result::Result<(), BoxErr> {
     if crate::daemon::client::daemon_socket_exists() {
         let params = serde_json::json!({"name": a.name});
         let result = crate::daemon::client::call_daemon("connect_service", params).await?;
-        let tools_count = result.get("tools_count").and_then(|v| v.as_u64()).unwrap_or(0);
+        let tools_count = result
+            .get("tools_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
         println!("[Success] Connected: {} (tools={})", a.name, tools_count);
         return Ok(());
     }
@@ -403,11 +419,11 @@ pub async fn wait(a: WaitArgs) -> std::result::Result<(), BoxErr> {
     if crate::daemon::client::daemon_socket_exists() {
         let params = serde_json::json!({"name": a.name, "timeout": a.timeout});
         let result = crate::daemon::client::call_daemon("wait_service", params).await?;
-        let status = result.get("health_status").and_then(|v| v.as_str()).unwrap_or("?");
-        println!(
-            "[Success] Service ready: {} ({})",
-            a.name, status
-        );
+        let status = result
+            .get("health_status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        println!("[Success] Service ready: {} ({})", a.name, status);
         return Ok(());
     }
     let store = build_store(&a.store)?;
@@ -484,7 +500,11 @@ pub async fn tools(a: ToolsArgs) -> std::result::Result<(), BoxErr> {
     if crate::daemon::client::daemon_socket_exists() {
         let params = serde_json::json!({"service_name": a.service_name});
         let result = crate::daemon::client::call_daemon("list_tools", params).await?;
-        let tools = result.get("tools").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        let tools = result
+            .get("tools")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
         println!("[Tools] service={} count={}", a.service_name, tools.len());
         for t in tools {
             let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("?");
@@ -536,11 +556,18 @@ pub async fn call_tool(a: CallToolArgs) -> std::result::Result<(), BoxErr> {
             "args": args,
         });
         let result = crate::daemon::client::call_daemon("call_tool", params).await?;
-        let is_error = result.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
+        let is_error = result
+            .get("is_error")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         if is_error {
             eprintln!("[Error] Tool call returned error");
         }
-        let content = result.get("content").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        let content = result
+            .get("content")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
         for item in content {
             let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("text");
             match item_type {
@@ -549,7 +576,10 @@ pub async fn call_tool(a: CallToolArgs) -> std::result::Result<(), BoxErr> {
                     println!("{}", text);
                 }
                 "image" => {
-                    let mime = item.get("mime_type").and_then(|v| v.as_str()).unwrap_or("?");
+                    let mime = item
+                        .get("mime_type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
                     println!("[Image: {}]", mime);
                 }
                 _ => {}

@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::transport::{ContentItem, Result, ToolCallResult, ToolDescription, TransportError};
 use crate::config::ServerConfig;
+use crate::transport::{ContentItem, Result, ToolCallResult, ToolDescription, TransportError};
 
 use rmcp::model::{CallToolRequestParams, GetPromptRequestParams, ReadResourceRequestParams};
 use rmcp::service::{RoleClient, RunningService};

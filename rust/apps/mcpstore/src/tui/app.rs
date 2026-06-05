@@ -7,10 +7,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use mcpstore::registry::ConnectionStatus;
-use ratatui::{
-    backend::CrosstermBackend,
-    widgets::TableState, Terminal,
-};
+use ratatui::{backend::CrosstermBackend, widgets::TableState, Terminal};
 
 use super::widgets::filter_bar::{FilterBarState, FilterStatus};
 use super::widgets::header::HeaderStats;
@@ -38,8 +35,75 @@ pub enum PendingAction {
     Remove(String),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MainView {
+    Services,
+    Tools,
+    Agents,
+    Logs,
+    Status,
+    Settings,
+}
+
+impl MainView {
+    pub const ALL: [Self; 6] = [
+        Self::Services,
+        Self::Tools,
+        Self::Agents,
+        Self::Logs,
+        Self::Status,
+        Self::Settings,
+    ];
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Services => "服务列表",
+            Self::Tools => "工具列表",
+            Self::Agents => "Agent列表",
+            Self::Logs => "日志",
+            Self::Status => "状态",
+            Self::Settings => "设置",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FocusArea {
+    MainNav,
+    ViewFilter,
+    ViewTable,
+}
+
+impl FocusArea {
+    pub fn next(&self) -> Self {
+        match self {
+            Self::MainNav => Self::ViewFilter,
+            Self::ViewFilter => Self::ViewTable,
+            Self::ViewTable => Self::ViewTable,
+        }
+    }
+
+    pub fn previous(&self) -> Self {
+        match self {
+            Self::MainNav => Self::MainNav,
+            Self::ViewFilter => Self::MainNav,
+            Self::ViewTable => Self::ViewFilter,
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::MainNav => "主导航",
+            Self::ViewFilter => "筛选区",
+            Self::ViewTable => "表格区",
+        }
+    }
+}
+
 pub struct TuiApp {
     pub store: mcpstore::MCPStore,
+    pub active_view: MainView,
+    pub focus_area: FocusArea,
     pub all_services: Vec<ServiceSummary>,
     pub filtered_services: Vec<ServiceSummary>,
     pub selected: usize,
@@ -67,6 +131,8 @@ impl TuiApp {
     ) -> Self {
         Self {
             store,
+            active_view: MainView::Services,
+            focus_area: FocusArea::MainNav,
             all_services: Vec::new(),
             filtered_services: Vec::new(),
             selected: 0,
@@ -82,6 +148,38 @@ impl TuiApp {
             config_path,
             filter: FilterBarState::default(),
         }
+    }
+
+    pub fn next_view(&mut self) {
+        self.shift_view(1);
+    }
+
+    pub fn previous_view(&mut self) {
+        self.shift_view(-1);
+    }
+
+    pub fn focus_next_area(&mut self) {
+        self.focus_area = self.focus_area.next();
+        self.filter.search_mode = false;
+        self.status_message = format!("[进行中] 焦点: {}", self.focus_area.label());
+    }
+
+    pub fn focus_previous_area(&mut self) {
+        self.focus_area = self.focus_area.previous();
+        self.filter.search_mode = false;
+        self.status_message = format!("[进行中] 焦点: {}", self.focus_area.label());
+    }
+
+    fn shift_view(&mut self, offset: isize) {
+        let current = MainView::ALL
+            .iter()
+            .position(|view| *view == self.active_view)
+            .unwrap_or(0) as isize;
+        let len = MainView::ALL.len() as isize;
+        let next = (current + offset).rem_euclid(len) as usize;
+        self.active_view = MainView::ALL[next];
+        self.filter.search_mode = false;
+        self.status_message = format!("[进行中] 当前页面: {}", self.active_view.label());
     }
 
     pub fn header_stats(&self) -> HeaderStats {
@@ -119,7 +217,11 @@ impl TuiApp {
         }
     }
 
-    pub fn refresh(&mut self, rt: &tokio::runtime::Runtime, reload_source: bool) -> Result<(), BoxErr> {
+    pub fn refresh(
+        &mut self,
+        rt: &tokio::runtime::Runtime,
+        reload_source: bool,
+    ) -> Result<(), BoxErr> {
         if reload_source {
             rt.block_on(async { self.store.load_from_source().await })?;
         }
@@ -193,7 +295,10 @@ impl TuiApp {
                 added_time: format_timestamp(service.added_time),
                 connection_status: format_connection_status(service.status).to_string(),
                 health_status: format!("{:?}", status.health_status),
-                attempts: format!("{}/{}", status.connection_attempts, status.max_connection_attempts),
+                attempts: format!(
+                    "{}/{}",
+                    status.connection_attempts, status.max_connection_attempts
+                ),
                 latency: format_latency(status.latency_p95, status.latency_p99),
                 retry_time: status
                     .next_retry_time
@@ -231,7 +336,11 @@ impl TuiApp {
         Ok(())
     }
 
-    pub fn move_selection(&mut self, offset: isize, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
+    pub fn move_selection(
+        &mut self,
+        offset: isize,
+        rt: &tokio::runtime::Runtime,
+    ) -> Result<(), BoxErr> {
         if self.filtered_services.is_empty() {
             return Ok(());
         }
