@@ -62,9 +62,7 @@ fn render_banner(frame: &mut Frame, area: Rect) {
         ])
         .split(area)[1];
 
-    let banner = Paragraph::new(banner_lines)
-        .alignment(Alignment::Center)
-        .wrap(ratatui::widgets::Wrap { trim: false });
+    let banner = Paragraph::new(banner_lines).alignment(Alignment::Center);
 
     frame.render_widget(banner, inner);
 }
