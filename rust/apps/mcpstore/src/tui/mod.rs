@@ -24,5 +24,9 @@ pub struct TuiArgs {
 
 pub fn run() -> Result<(), BoxErr> {
     let args = TuiArgs::parse();
+    run_from_args(&args)
+}
+
+pub fn run_from_args(args: &TuiArgs) -> Result<(), BoxErr> {
     app::run(&args.store, args.tick_ms)
 }
