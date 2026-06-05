@@ -43,12 +43,20 @@ pub enum Commands {
     McpServer(commands::mcp_server::McpServerArgs),
     #[command(visible_alias = "ui")]
     Web(commands::web::WebArgs),
+    Tui(crate::tui::TuiArgs),
 }
 
 pub fn run() -> Result<(), BoxErr> {
     bootstrap::init_tracing("mcpstore=info");
 
     let cli = Cli::parse();
+
+    // TUI runs its own blocking event loop and creates its own runtime,
+    // so it must be handled outside the async block to avoid nested runtimes.
+    if let Commands::Tui(args) = cli.command {
+        return crate::tui::run_from_args(&args);
+    }
+
     let rt = bootstrap::build_runtime()?;
 
     rt.block_on(async {
@@ -79,6 +87,7 @@ pub fn run() -> Result<(), BoxErr> {
             Commands::MigrateBackend(args) => commands::mcp::migrate_backend(args).await,
             Commands::McpServer(args) => commands::mcp_server::run(args).await,
             Commands::Web(args) => commands::web::run(args).await,
+            Commands::Tui(_) => unreachable!("Tui command handled before async block"),
         }
     })
 }
