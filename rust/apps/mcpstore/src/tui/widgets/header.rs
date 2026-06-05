@@ -13,7 +13,9 @@ const BANNER: &str = "\
 ██  ██  ██ ██      ██           ██      ██    ██    ██ ██  ██  ██
 ██      ██  ██████ ██      ██████       ██     ██████  ██   ██ ███████";
 
-pub const BANNER_HEIGHT: u16 = 6;
+const BANNER_HORIZONTAL_MARGIN: u16 = 1;
+
+pub const BANNER_HEIGHT: u16 = 5;
 
 pub struct HeaderStats {
     pub total: usize,
@@ -38,7 +40,7 @@ pub fn render(frame: &mut Frame, area: Rect, stats: &HeaderStats) {
 
     let layout = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .constraints([Constraint::Percentage(56), Constraint::Percentage(44)])
         .split(inner);
 
     render_banner(frame, layout[0]);
@@ -46,39 +48,53 @@ pub fn render(frame: &mut Frame, area: Rect, stats: &HeaderStats) {
 }
 
 fn render_banner(frame: &mut Frame, area: Rect) {
-    let area = area.inner(Margin {
-        horizontal: 1,
-        vertical: 0,
-    });
-    let mut banner_lines: Vec<Line> = vec![Line::from(Span::styled(
-        "字符画",
-        Style::default()
-            .fg(Color::Black)
-            .add_modifier(Modifier::BOLD),
-    ))];
-    banner_lines.extend(BANNER.lines().map(|line| {
+    let banner_lines: Vec<Line> = BANNER.lines().map(|line| {
         Line::from(vec![Span::styled(
             line.to_string(),
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         )])
-    }));
+    }).collect();
 
     let banner_height = banner_lines.len() as u16;
-    let padding = area.height.saturating_sub(banner_height) / 2;
+    let vertical_padding = area.height.saturating_sub(banner_height) / 2;
+    let banner_width = banner_area_width();
+    let horizontal_padding = area.width.saturating_sub(banner_width) / 2;
 
-    let inner = Layout::default()
-        .direction(Direction::Vertical)
+    let banner_area = Layout::default()
+        .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(padding),
-            Constraint::Length(banner_height.min(area.height)),
+            Constraint::Length(horizontal_padding),
+            Constraint::Length(banner_width.min(area.width)),
             Constraint::Min(0),
         ])
         .split(area)[1];
 
+    let inner = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(vertical_padding),
+            Constraint::Length(banner_height.min(banner_area.height)),
+            Constraint::Min(0),
+        ])
+        .split(banner_area)[1]
+        .inner(Margin {
+            horizontal: BANNER_HORIZONTAL_MARGIN,
+            vertical: 0,
+        });
+
     let banner = Paragraph::new(banner_lines).alignment(Alignment::Left);
     frame.render_widget(banner, inner);
+}
+
+fn banner_area_width() -> u16 {
+    let text_width = BANNER
+        .lines()
+        .map(|line| line.chars().count() as u16)
+        .max()
+        .unwrap_or(0);
+    text_width.saturating_add(BANNER_HORIZONTAL_MARGIN.saturating_mul(2))
 }
 
 fn render_stats(frame: &mut Frame, area: Rect, stats: &HeaderStats) {
