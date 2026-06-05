@@ -24,17 +24,21 @@ pub struct HeaderStats {
 }
 
 pub fn render(frame: &mut Frame, area: Rect, stats: &HeaderStats) {
+    let block = Block::default().borders(Borders::BOTTOM);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
     let layout = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(50), Constraint::Min(30)])
-        .split(area);
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(inner);
 
     render_banner(frame, layout[0]);
     render_stats(frame, layout[1], stats);
 }
 
 fn render_banner(frame: &mut Frame, area: Rect) {
-    let lines: Vec<Line> = BANNER
+    let banner_lines: Vec<Line> = BANNER
         .lines()
         .map(|line| {
             Line::from(vec![Span::styled(
@@ -46,11 +50,23 @@ fn render_banner(frame: &mut Frame, area: Rect) {
         })
         .collect();
 
-    let banner = Paragraph::new(lines)
-        .alignment(Alignment::Left)
+    let banner_height = banner_lines.len() as u16;
+    let padding = area.height.saturating_sub(banner_height) / 2;
+
+    let inner = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(padding),
+            Constraint::Length(banner_height.min(area.height)),
+            Constraint::Min(0),
+        ])
+        .split(area)[1];
+
+    let banner = Paragraph::new(banner_lines)
+        .alignment(Alignment::Center)
         .wrap(ratatui::widgets::Wrap { trim: false });
 
-    frame.render_widget(banner, area);
+    frame.render_widget(banner, inner);
 }
 
 fn render_stats(frame: &mut Frame, area: Rect, stats: &HeaderStats) {
