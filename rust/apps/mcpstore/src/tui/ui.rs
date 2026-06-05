@@ -10,13 +10,16 @@ use super::app::TuiApp;
 use super::widgets;
 
 pub fn draw(frame: &mut Frame, app: &mut TuiApp, _rt: &tokio::runtime::Runtime) {
+    let term_width = frame.area().width;
+    let header_h = widgets::header::header_height(term_width);
+
     let main_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(6),  // Header (ASCII art + stats + bottom border)
-            Constraint::Length(1),  // Filter bar
-            Constraint::Min(10),    // Service table
-            Constraint::Length(2),  // Footer
+            Constraint::Length(header_h), // Header dynamically sized for ASCII art
+            Constraint::Length(1),        // Filter bar
+            Constraint::Min(10),          // Service table
+            Constraint::Length(2),        // Footer
         ])
         .split(frame.area());
 
