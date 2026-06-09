@@ -1,0 +1,298 @@
+# src/mcpstore/adapters/langchain_adapter.py
+from __future__ import annotations
+
+"""
+LangChain 适配器模块
+
+将 MCPStore 工具转换为 LangChain 工具格式，支持同步和异步执行。
+"""
+
+import json
+import logging
+from dataclasses import asdict, is_dataclass
+from typing import Any, Type, List
+
+from pydantic import BaseModel
+
+try:
+    from langchain_core.tools import Tool, StructuredTool
+except ImportError as e:
+    _LANGCHAIN_IMPORT_ERROR = e
+else:
+    _LANGCHAIN_IMPORT_ERROR = None
+
+# 导入公共函数
+from .common import (
+    build_tool_error_payload,
+    call_tool_response_helper,
+    create_args_schema,
+    enhance_description,
+    get_tool_override,
+    process_tool_args,
+    service_name,
+    service_status_value,
+    tool_name,
+    tool_service_name,
+)
+from ..core.bridge import get_bridge_executor
+
+logger = logging.getLogger(__name__)
+
+
+def _require_langchain() -> None:
+    if _LANGCHAIN_IMPORT_ERROR is not None:
+        raise ImportError(
+            "The `langchain_core` package is not installed. "
+            "Install the LangChain dependencies before using LangChainAdapter."
+        ) from _LANGCHAIN_IMPORT_ERROR
+
+
+class LangChainAdapter:
+    """
+    MCPStore 与 LangChain 之间的适配器。
+    将 mcpstore 的原生对象转换为 LangChain 可直接使用的对象。
+    """
+
+    def __init__(self, context: Any, response_format: str = "text"):
+        _require_langchain()
+        self._context = context
+        self._bridge_executor = get_bridge_executor()
+        # 工具输出格式偏好
+        self._response_format = response_format if response_format in ("text", "content_and_artifact") else "text"
+
+    @staticmethod
+    def _serialize_unknown(obj):
+        """序列化未知类型对象。"""
+        if obj is None:
+            return None
+        if hasattr(obj, "model_dump"):
+            try:
+                return obj.model_dump()
+            except Exception:
+                pass
+        if hasattr(obj, "dict"):
+            try:
+                return obj.dict()
+            except Exception:
+                pass
+        if is_dataclass(obj):
+            try:
+                return asdict(obj)
+            except Exception:
+                pass
+        if hasattr(obj, "__dict__"):
+            try:
+                return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
+            except Exception:
+                pass
+        return str(obj)
+
+    def _normalize_structured_value(self, value):
+        """确保 structured/data 字段始终是 LangChain 能消费的基础类型。"""
+        if value is None:
+            return None
+        if isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, (dict, list)):
+            return value
+        try:
+            return json.loads(json.dumps(value, default=self._serialize_unknown, ensure_ascii=False))
+        except Exception:
+            return str(value)
+
+    def _format_error_output(
+        self,
+        tool_name: str,
+        message: str,
+        *,
+        tool_input: dict[str, Any] | None = None,
+        view=None,
+    ):
+        payload = build_tool_error_payload(
+            tool_name,
+            message,
+            tool_input=tool_input,
+            view=view,
+        )
+        payload = self._normalize_structured_value(payload)
+        if self._response_format == "content_and_artifact":
+            return {
+                "text": message,
+                "artifacts": getattr(view, "artifacts", []) if view is not None else [],
+                "structured": payload,
+                "data": payload,
+            }
+        return json.dumps(payload, ensure_ascii=False)
+
+    def _create_tool_function(self, tool_name: str, args_schema: Type[BaseModel]):
+        """
+        创建健壮的同步执行函数，智能处理各种参数传递方式。
+        """
+        adapter_self = self  # 闭包捕获
+
+        def _tool_executor(*args, **kwargs):
+            tool_input = {}
+            try:
+                # 使用公共函数处理参数
+                tool_input = process_tool_args(args_schema, args, kwargs)
+
+                # 调用 mcpstore 核心方法
+                result = adapter_self._context.call_tool(tool_name, tool_input)
+                view = call_tool_response_helper(result)
+
+                if view.is_error:
+                    return adapter_self._format_error_output(
+                        tool_name,
+                        view.error_message or view.text or "Tool execution failed",
+                        tool_input=tool_input,
+                        view=view,
+                    )
+
+                if adapter_self._response_format == "content_and_artifact":
+                    response = {"text": view.text, "artifacts": view.artifacts}
+                    structured = adapter_self._normalize_structured_value(view.structured)
+                    data = adapter_self._normalize_structured_value(view.data)
+                    if structured is not None:
+                        response["structured"] = structured
+                    if data is not None:
+                        response["data"] = data
+                    return response
+
+                return view.text
+
+            except Exception as e:
+                return adapter_self._format_error_output(
+                    tool_name,
+                    f"Tool '{tool_name}' execution failed: {str(e)}",
+                    tool_input=tool_input,
+                )
+
+        return _tool_executor
+
+    async def _create_tool_coroutine(self, tool_name: str, args_schema: Type[BaseModel]):
+        """
+        创建健壮的异步执行函数，智能处理各种参数传递方式。
+        """
+        adapter_self = self  # 闭包捕获
+
+        async def _tool_executor(*args, **kwargs):
+            tool_input = {}
+            try:
+                # 使用公共函数处理参数
+                tool_input = process_tool_args(args_schema, args, kwargs)
+
+                # 调用 mcpstore 核心方法（异步版本）
+                result = await adapter_self._context.call_tool_async(tool_name, tool_input)
+                view = call_tool_response_helper(result)
+
+                if view.is_error:
+                    return adapter_self._format_error_output(
+                        tool_name,
+                        view.error_message or view.text or "Tool execution failed",
+                        tool_input=tool_input,
+                        view=view,
+                    )
+
+                if adapter_self._response_format == "content_and_artifact":
+                    response = {"text": view.text, "artifacts": view.artifacts}
+                    structured = adapter_self._normalize_structured_value(view.structured)
+                    data = adapter_self._normalize_structured_value(view.data)
+                    if structured is not None:
+                        response["structured"] = structured
+                    if data is not None:
+                        response["data"] = data
+                    return response
+
+                return view.text
+
+            except Exception as e:
+                return adapter_self._format_error_output(
+                    tool_name,
+                    f"Tool '{tool_name}' execution failed: {str(e)}",
+                    tool_input=tool_input,
+                )
+
+        return _tool_executor
+
+    def list_tools(self) -> List[Tool]:
+        """获取所有可用的 mcpstore 工具并转换为 LangChain Tool 列表（同步版本）。"""
+        return self._bridge_executor.run_sync(
+            self.list_tools_async(),
+            op_name="LangChainAdapter.list_tools",
+        )
+
+    async def list_tools_async(self) -> List[Tool]:
+        """
+        获取所有可用的 mcpstore 工具并转换为 LangChain Tool 列表（异步版本）。
+
+        Raises:
+            RuntimeError: 如果没有可用工具（所有服务连接失败）
+        """
+        mcp_tools_info = await self._context.list_tools_async()
+
+        # 检查工具是否为空，提供友好的错误信息
+        if not mcp_tools_info:
+            logger.warning("[LIST_TOOLS] empty=True")
+            services = await self._context.list_services_async()
+            if not services:
+                raise RuntimeError(
+                    "No available tools: No MCP services have been added. "
+                    "Please add services using add_service() first."
+                )
+            else:
+                failed_services = [
+                    service_name(s)
+                    for s in services
+                    if service_status_value(s) != "healthy"
+                ]
+                if failed_services:
+                    raise RuntimeError(
+                        f"No available tools: The following services failed to connect: {', '.join(failed_services)}. "
+                        f"Please check service configuration and dependencies, or use wait_service() to wait for services to be ready. "
+                        f"\nTip: You can use list_services() to view detailed service status."
+                    )
+                else:
+                    raise RuntimeError(
+                        "No available tools: Services are connected but provide no tools. "
+                        "Please check if services are working properly."
+                    )
+
+        langchain_tools = []
+        for tool_info in mcp_tools_info:
+            # 使用公共函数
+            enhanced_description = enhance_description(tool_info)
+            args_schema = create_args_schema(tool_info)
+            name = tool_name(tool_info)
+            service = tool_service_name(tool_info)
+
+            # 创建同步和异步函数
+            sync_func = self._create_tool_function(name, args_schema)
+            async_coroutine = await self._create_tool_coroutine(name, args_schema)
+
+            # 读取工具覆盖配置（如 return_direct）
+            return_direct_flag = get_tool_override(
+                self._context,
+                service,
+                name,
+                "return_direct",
+                False,
+            )
+
+            # 创建 LangChain StructuredTool
+            lc_tool = StructuredTool(
+                name=name,
+                description=enhanced_description,
+                func=sync_func,
+                coroutine=async_coroutine,
+                args_schema=args_schema,
+            )
+
+            # 设置 return_direct
+            try:
+                setattr(lc_tool, 'return_direct', bool(return_direct_flag))
+            except Exception:
+                pass
+
+            langchain_tools.append(lc_tool)
+
+        return langchain_tools
