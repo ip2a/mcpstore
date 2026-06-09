@@ -772,6 +772,43 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertIn("--config-path", cmd)
         self.assertIn("--source", cmd)
 
+    def test_switch_cache_rebuilds_rust_store(self):
+        from mcpstore.config import RedisConfig
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        class FakeRustInner:
+            def __init__(self):
+                self.loaded = False
+
+            def load_from_config(self):
+                self.loaded = True
+
+        class FakeRustStore:
+            called = None
+
+            @staticmethod
+            def setup_with_options(config_path, source_mode, backend, redis_url, namespace):
+                FakeRustStore.called = (config_path, source_mode, backend, redis_url, namespace)
+                return FakeRustInner()
+
+        fake_module = type("FakeRustModule", (), {"MCPStore": FakeRustStore})
+        store = RustStoreBackend(object())
+        store._config_path = "mcp.json"
+        store._only_db = True
+
+        with patch("mcpstore.core.store.rust_backend.importlib.import_module", return_value=fake_module):
+            context = store.for_store()
+            self.assertIs(
+                context.switch_cache(RedisConfig(url="redis://localhost:6379/0", namespace="switched")),
+                context,
+            )
+
+        self.assertEqual(
+            FakeRustStore.called,
+            ("mcp.json", "db", "redis", "redis://localhost:6379/0", "switched"),
+        )
+        self.assertTrue(store._inner.loaded)
+
     def test_rust_backed_public_api_modules_import(self):
         from mcpstore.api.api_dependencies import get_store
         from mcpstore.config import MemoryConfig
