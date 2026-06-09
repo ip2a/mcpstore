@@ -686,6 +686,8 @@ class RustStoreBackend:
     ) -> Dict[str, Any]:
         if filepath is not None and output_path is not None:
             raise ValueError("filepath 和 output_path 不能同时传入")
+        if include_sessions:
+            raise NotImplementedError("Rust core does not expose serializable session state")
         path = output_path if output_path is not None else filepath
         path = os.fspath(path) if path is not None else None
         config = self.get_json_config()
