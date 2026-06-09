@@ -1357,15 +1357,16 @@ class RustRegistryFacade:
             {
                 "backend": inspect.get("backend"),
                 "namespace": inspect.get("namespace"),
-                "total_requests": 0,
-                "hits": 0,
-                "misses": 0,
-                "hit_rate": 0.0,
-                "avg_latency_ms": 0.0,
-                "p50_latency_ms": 0.0,
-                "p95_latency_ms": 0.0,
-                "p99_latency_ms": 0.0,
-                "total_size_bytes": 0,
+                "request_metrics_available": False,
+                "total_requests": None,
+                "hits": None,
+                "misses": None,
+                "hit_rate": None,
+                "avg_latency_ms": None,
+                "p50_latency_ms": None,
+                "p95_latency_ms": None,
+                "p99_latency_ms": None,
+                "total_size_bytes": None,
                 "entity_count": entity_count,
                 "relation_count": relation_count,
                 "state_count": state_count,
@@ -1377,7 +1378,7 @@ class RustRegistryFacade:
         return await self.get_cache_statistics()
 
     async def reset_cache_statistics(self) -> bool:
-        return True
+        raise NotImplementedError("Rust cache inspect does not expose resettable request metrics")
 
     async def switch_backend(self, backend: Any) -> bool:
         self._backend.switch_cache(self._cache_config_from_backend(backend))
