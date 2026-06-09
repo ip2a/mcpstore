@@ -949,22 +949,11 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(cache.cache_type, CacheType.OPENKEYV_REDIS)
         self.assertFalse(only_db)
 
-    def test_setup_store_accepts_mcp_config_file_alias(self):
+    def test_setup_store_rejects_mcp_config_file_alias(self):
         from mcpstore.core.store.setup_manager import StoreSetupManager
 
-        alias = Path("alias.json")
-        with patch.object(StoreSetupManager, "_setup_rust_store", return_value="store") as setup:
-            result = StoreSetupManager.setup_store(
-                mcp_config_file=alias,
-                external_db={"cache": {"type": "memory"}},
-                cache_mode="hybrid",
-            )
-
-        self.assertEqual(result, "store")
-        kwargs = setup.call_args.kwargs
-        self.assertEqual(kwargs["mcpjson_path"], "alias.json")
-        self.assertFalse(kwargs["only_db"])
-        self.assertIsNotNone(kwargs["cache"])
+        with self.assertRaisesRegex(ValueError, "mcp_config_file"):
+            StoreSetupManager.setup_store(mcp_config_file=Path("alias.json"))
 
     def test_setup_store_rejects_kwargs_aliases(self):
         from mcpstore.config import MemoryConfig

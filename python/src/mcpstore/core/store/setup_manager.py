@@ -22,7 +22,6 @@ class StoreSetupManager:
         static_config: Optional[Dict[str, Any]] = None,
         cache_mode: str = "auto",
         only_db: bool = False,
-        mcp_config_file: str | None = None,
         **kwargs: Any,
     ):
         """Initialize MCPStore synchronously with the Rust core."""
@@ -42,7 +41,6 @@ class StoreSetupManager:
                 static_config=static_config,
                 cache_mode=cache_mode,
                 only_db=only_db,
-                mcp_config_file=mcp_config_file,
                 extra_options=kwargs,
             )
         )
@@ -56,7 +54,6 @@ class StoreSetupManager:
         static_config: Optional[Dict[str, Any]] = None,
         cache_mode: str = "auto",
         only_db: bool = False,
-        mcp_config_file: str | None = None,
         **kwargs: Any,
     ):
         """Initialize MCPStore asynchronously with the Rust core."""
@@ -68,7 +65,6 @@ class StoreSetupManager:
             static_config=static_config,
             cache_mode=cache_mode,
             only_db=only_db,
-            mcp_config_file=mcp_config_file,
             extra_options=kwargs,
         )
 
@@ -81,7 +77,6 @@ class StoreSetupManager:
         static_config: Optional[Dict[str, Any]],
         cache_mode: str,
         only_db: bool,
-        mcp_config_file: str | None,
         extra_options: Dict[str, Any],
     ):
         from mcpstore.config.config import LoggingConfig
@@ -91,7 +86,7 @@ class StoreSetupManager:
         if extra_options:
             unsupported = ", ".join(sorted(extra_options))
             raise ValueError(f"Rust core 当前不支持 setup_store 参数: {unsupported}")
-        config_path = StoreSetupManager._normalize_path(mcpjson_path or mcp_config_file)
+        config_path = StoreSetupManager._normalize_path(mcpjson_path)
         resolved_cache, resolved_only_db = StoreSetupManager._normalize_cache_options(
             cache=cache,
             external_db=external_db,
