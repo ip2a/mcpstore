@@ -722,10 +722,10 @@ class RustStoreBackend:
         *,
         agent_id: Optional[str] = None,
         transport: str = "streamable-http",
-        host: str = "127.0.0.1",
-        port: int = 18300,
+        host: str = "0.0.0.0",
+        port: int = 8000,
         path: str = "/mcp",
-        block: bool = True,
+        block: bool = False,
         **_kwargs,
     ) -> Any:
         from mcpstore._rust_cli import resolve_rust_cli_binary, resolve_runtime_cwd
@@ -1888,10 +1888,10 @@ class RustStoreContext:
     def hub_http(
         self,
         *,
-        port: int = 18300,
-        host: str = "127.0.0.1",
+        port: int = 8000,
+        host: str = "0.0.0.0",
         path: str = "/mcp",
-        block: bool = True,
+        block: bool = False,
         **kwargs,
     ) -> Any:
         return self._backend.start_mcp_server(
@@ -1907,10 +1907,10 @@ class RustStoreContext:
     def hub_sse(
         self,
         *,
-        port: int = 18300,
-        host: str = "127.0.0.1",
+        port: int = 8000,
+        host: str = "0.0.0.0",
         path: str = "/mcp",
-        block: bool = True,
+        block: bool = False,
         **kwargs,
     ) -> Any:
         return self._backend.start_mcp_server(
@@ -1926,7 +1926,7 @@ class RustStoreContext:
     def hub_stdio(
         self,
         *,
-        block: bool = True,
+        block: bool = False,
         **kwargs,
     ) -> Any:
         return self._backend.start_mcp_server(
