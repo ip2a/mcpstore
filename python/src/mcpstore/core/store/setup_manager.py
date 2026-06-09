@@ -87,6 +87,15 @@ class StoreSetupManager:
 
         LoggingConfig.setup_logging(debug=debug)
 
+        if "config_path" in extra_options:
+            if mcpjson_path or mcp_config_file:
+                raise ValueError("config_path 不能与 mcpjson_path/mcp_config_file 同时传入")
+            mcpjson_path = extra_options.pop("config_path")
+        if "cache_config" in extra_options:
+            if cache is not None:
+                raise ValueError("cache_config 不能与 cache 同时传入")
+            cache = extra_options.pop("cache_config")
+
         if extra_options:
             unsupported = ", ".join(sorted(extra_options))
             raise ValueError(f"Rust core 当前不支持 setup_store 参数: {unsupported}")
