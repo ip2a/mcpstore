@@ -830,6 +830,18 @@ class RustServiceProxy:
         self._context = context
         self._service_name = service_name
 
+    def __getattr__(self, name: str) -> Any:
+        if name.endswith("_async"):
+            sync_name = name[:-6]
+            if hasattr(self, sync_name):
+                sync_method = getattr(self, sync_name)
+
+                async def _async_wrapper(*args, **kwargs):
+                    return sync_method(*args, **kwargs)
+
+                return _async_wrapper
+        raise AttributeError(name)
+
     @property
     def name(self) -> str:
         return self._service_name
@@ -981,6 +993,18 @@ class RustToolProxy:
         self._tool_name = tool_name
         self._service_name = service_name
         self._cached_info: Optional[Dict[str, Any]] = None
+
+    def __getattr__(self, name: str) -> Any:
+        if name.endswith("_async"):
+            sync_name = name[:-6]
+            if hasattr(self, sync_name):
+                sync_method = getattr(self, sync_name)
+
+                async def _async_wrapper(*args, **kwargs):
+                    return sync_method(*args, **kwargs)
+
+                return _async_wrapper
+        raise AttributeError(name)
 
     @property
     def name(self) -> str:
