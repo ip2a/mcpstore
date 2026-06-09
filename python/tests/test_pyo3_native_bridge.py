@@ -471,6 +471,34 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertFalse(kwargs["only_db"])
         self.assertIsNotNone(kwargs["cache"])
 
+    def test_start_api_server_delegates_to_rust_cli(self):
+        from mcpstore.config import MemoryConfig
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        store = RustStoreBackend(object())
+        store._config_path = "mcp.json"
+        store._cache_config = MemoryConfig()
+        store._only_db = True
+
+        completed = type("Completed", (), {"returncode": 0})()
+        with patch("mcpstore._rust_cli.resolve_rust_cli_binary", return_value="/bin/mcpstore"):
+            with patch("mcpstore._rust_cli.resolve_runtime_cwd", return_value="/tmp"):
+                with patch("mcpstore.core.store.rust_backend.subprocess.run", return_value=completed) as run:
+                    code = store.start_api_server(
+                        host="0.0.0.0",
+                        port=18200,
+                        url_prefix="/mcp",
+                        show_startup_info=False,
+                    )
+
+        self.assertEqual(code, 0)
+        cmd = run.call_args.args[0]
+        self.assertEqual(cmd[:6], ["/bin/mcpstore", "api", "--host", "0.0.0.0", "--port", "18200"])
+        self.assertIn("--url-prefix", cmd)
+        self.assertIn("--config-path", cmd)
+        self.assertIn("--source", cmd)
+        self.assertIn("--backend", cmd)
+
 
 if __name__ == "__main__":
     unittest.main()
