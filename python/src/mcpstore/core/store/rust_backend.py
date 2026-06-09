@@ -140,6 +140,68 @@ def _extract_text_result(result: Any) -> str:
     return "\n".join(text for text in text_blocks if text)
 
 
+def _event_payload(event: Any) -> Dict[str, Any]:
+    payload = event.get("payload", {}) if isinstance(event, dict) else getattr(event, "payload", {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def _event_type(event: Any) -> str:
+    value = event.get("event_type") if isinstance(event, dict) else getattr(event, "event_type", None)
+    return str(value or "")
+
+
+def _event_timestamp(event: Any) -> Optional[int]:
+    value = event.get("timestamp") if isinstance(event, dict) else getattr(event, "timestamp", None)
+    return value if isinstance(value, int) else None
+
+
+def _event_id(event: Any) -> Optional[str]:
+    value = event.get("event_id") if isinstance(event, dict) else getattr(event, "event_id", None)
+    return str(value) if value else None
+
+
+def _event_matches_service(event: Any, service_name: str) -> bool:
+    payload = _event_payload(event)
+    candidates = {
+        payload.get("service_name"),
+        payload.get("global_service_name"),
+        payload.get("serviceName"),
+        payload.get("name"),
+    }
+    return service_name in {str(value) for value in candidates if value}
+
+
+def _is_tool_call_event(event: Any) -> bool:
+    return _event_type(event) in {"TOOL_CALL_COMPLETED", "TOOL_CALL_FAILED"}
+
+
+def _event_matches_tool(event: Any, service_name: Optional[str], tool_names: set[str]) -> bool:
+    if not _is_tool_call_event(event):
+        return False
+    payload = _event_payload(event)
+    if service_name and not _event_matches_service(event, service_name):
+        return False
+    return str(payload.get("tool_name") or payload.get("toolName") or "") in tool_names
+
+
+def _tool_call_history_record(event: Any) -> Dict[str, Any]:
+    payload = _event_payload(event)
+    return _record_value(
+        {
+            "event_id": _event_id(event),
+            "event_type": _event_type(event),
+            "timestamp": _event_timestamp(event),
+            "service_name": payload.get("service_name") or payload.get("serviceName"),
+            "tool_name": payload.get("tool_name") or payload.get("toolName"),
+            "arguments": payload.get("arguments", {}),
+            "latency_ms": payload.get("latency_ms"),
+            "is_error": bool(payload.get("is_error") or _event_type(event) == "TOOL_CALL_FAILED"),
+            "status": payload.get("status"),
+            "error": payload.get("error"),
+        }
+    )
+
+
 def _normalize_status_targets(status: Optional[Any]) -> Optional[set[str]]:
     if status is None:
         return None
@@ -912,10 +974,18 @@ class RustServiceProxy:
 
     def tools_stats(self) -> Dict[str, Any]:
         tools = self.list_tools()
+        history = self._context._tool_call_history(
+            service_name=self._service_name,
+            limit=1000,
+        )
+        error_count = sum(1 for item in history if item.get("is_error"))
         return _record_value(
             {
                 "service_name": self._service_name,
                 "tool_count": len(tools),
+                "call_count": len(history),
+                "error_count": error_count,
+                "last_called_at": history[0].get("timestamp") if history else None,
                 "tools": [
                     {
                         "name": tool.get("name"),
@@ -929,8 +999,8 @@ class RustServiceProxy:
                     "services_count": 1,
                     "tools_by_service": {self._service_name: len(tools)},
                 },
-                "source": "rust_metadata",
-                "history_available": False,
+                "source": "rust_event_history",
+                "history_available": True,
             }
         )
 
@@ -1065,6 +1135,8 @@ class RustToolProxy:
 
     def usage_stats(self) -> Dict[str, Any]:
         info = self.tool_info()
+        history = self.call_history(limit=1000)
+        error_count = sum(1 for item in history if item.get("is_error"))
         return _record_value(
             {
                 "tool_name": info.get("name") or self._tool_name,
@@ -1073,16 +1145,36 @@ class RustToolProxy:
                     or info.get("service_name")
                     or info.get("global_service_name")
                 ),
-                "call_count": None,
-                "error_count": None,
-                "last_called_at": None,
-                "history_available": False,
-                "source": "rust_metadata",
+                "call_count": len(history),
+                "error_count": error_count,
+                "last_called_at": history[0].get("timestamp") if history else None,
+                "history_available": True,
+                "source": "rust_event_history",
             }
         )
 
     def call_history(self, limit: int = 50) -> List[Dict[str, Any]]:
-        return []
+        info = self.tool_info()
+        service_name = (
+            self._service_name
+            or info.get("service_name")
+            or info.get("global_service_name")
+        )
+        tool_names = {
+            str(name)
+            for name in (
+                self._tool_name,
+                info.get("name"),
+                info.get("original_name"),
+                info.get("tool_original_name"),
+            )
+            if name
+        }
+        return self._context._tool_call_history(
+            service_name=service_name,
+            tool_names=tool_names,
+            limit=limit,
+        )
 
     def find_cache(self) -> "RustCacheProxy":
         return RustCacheProxy(self._context, scope="tool", scope_value=self._tool_name)
@@ -1827,6 +1919,28 @@ class RustStoreContext:
 
     def event_history(self, count: int = 100) -> List[Dict[str, Any]]:
         return self._backend.event_history(count)
+
+    def _tool_call_history(
+        self,
+        *,
+        service_name: Optional[str] = None,
+        tool_names: Optional[set[str]] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        records = []
+        tool_names = {str(name) for name in tool_names or set() if name}
+        for event in self.event_history(1000):
+            if tool_names:
+                if not _event_matches_tool(event, service_name, tool_names):
+                    continue
+            elif not _is_tool_call_event(event):
+                continue
+            elif service_name and not _event_matches_service(event, service_name):
+                continue
+            records.append(_tool_call_history_record(event))
+            if len(records) >= limit:
+                break
+        return _record_value(records)
 
     def event_capability_report(self) -> Dict[str, Any]:
         return self._backend.event_capability_report()
