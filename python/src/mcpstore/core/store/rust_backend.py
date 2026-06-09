@@ -1,6 +1,7 @@
 import importlib
 import subprocess
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 
 class RustRecordView(dict):
@@ -174,19 +175,47 @@ class RustStoreBackend:
 
     @staticmethod
     def _redis_url(cache_config) -> Optional[str]:
-        if getattr(cache_config, "client", None) is not None:
-            raise ValueError("Rust core 不支持直接传入 Redis client 对象，请改用 url 或 host/port/db 配置")
         redis_url = getattr(cache_config, "url", None)
         if redis_url:
             return redis_url
         host = getattr(cache_config, "host", None)
-        if not host:
+        if host:
+            port = getattr(cache_config, "port", None) or 6379
+            db = getattr(cache_config, "db", None) or 0
+            password = getattr(cache_config, "password", None)
+            auth = f":{quote(str(password), safe='')}@" if password else ""
+            return f"redis://{auth}{host}:{port}/{db}"
+
+        client = getattr(cache_config, "client", None)
+        if client is None:
             return None
+
+        pool = getattr(client, "connection_pool", None)
+        kwargs = getattr(pool, "connection_kwargs", None)
+        if not isinstance(kwargs, dict):
+            raise ValueError(
+                "Rust core 无法直接复用 Python Redis client；请使用带 connection_pool.connection_kwargs 的 client，"
+                "或改用 RedisConfig(url=...)。"
+            )
+
+        host = kwargs.get("host")
+        if not host:
+            raise ValueError("Redis client connection_kwargs 缺少 host，Rust core 无法推导 Redis URL")
         port = getattr(cache_config, "port", None) or 6379
-        db = getattr(cache_config, "db", None) or 0
-        password = getattr(cache_config, "password", None)
-        auth = f":{password}@" if password else ""
-        return f"redis://{auth}{host}:{port}/{db}"
+        port = kwargs.get("port", port)
+        db = kwargs.get("db", 0)
+        username = kwargs.get("username")
+        password = kwargs.get("password")
+        if username and password:
+            auth = f"{quote(str(username), safe='')}:{quote(str(password), safe='')}@"
+        elif password:
+            auth = f":{quote(str(password), safe='')}@"
+        else:
+            auth = ""
+        connection_class = kwargs.get("connection_class")
+        class_name = getattr(connection_class, "__name__", "")
+        scheme = "rediss" if kwargs.get("ssl") or "SSL" in class_name else "redis"
+        return f"{scheme}://{auth}{host}:{port}/{db}"
 
     @classmethod
     def _cache_options(cls, cache_config):
