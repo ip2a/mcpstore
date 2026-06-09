@@ -1108,6 +1108,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
                     "/for_store/patch_service/{service_name}",
                     "/for_store/delete_config/{service_name}",
                     "/for_store/wait_service",
+                    "/for_agent/{agent_id}/show_config",
                     "/for_agent/{agent_id}/wait_service",
                     "/for_agent/{agent_id}/patch_service/{service_name}",
                     "/for_agent/{agent_id}/restart_service",
@@ -1214,6 +1215,40 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
         self.assertTrue(result["success"])
         self.assertEqual(agent_store.contexts["agent-a"].wait_call, ("demo", "healthy", 5))
+
+    def test_api_agent_show_config_delegates_to_agent_context(self):
+        if importlib.util.find_spec("fastapi") is None:
+            self.skipTest("fastapi is not installed")
+
+        import asyncio
+
+        from mcpstore.api.api_pack import agent_show_config, api_set_store
+
+        class FakeContext:
+            def __init__(self, agent_id):
+                self.agent_id = agent_id
+                self.scope = None
+
+            async def show_config_async(self, scope="all"):
+                self.scope = scope
+                return {"agents": {self.agent_id: ["demo"]}}
+
+        class FakeStore:
+            def __init__(self):
+                self.contexts = {}
+
+            def for_agent(self, agent_id):
+                context = FakeContext(agent_id)
+                self.contexts[agent_id] = context
+                return context
+
+        store = FakeStore()
+        api_set_store(store)
+        result = asyncio.run(agent_show_config("agent-a", scope="mcp"))
+
+        self.assertTrue(result["success"])
+        self.assertEqual(store.contexts["agent-a"].scope, "mcp")
+        self.assertEqual(result["data"], {"agents": {"agent-a": ["demo"]}})
 
     def test_api_service_management_routes_delegate_to_context(self):
         if importlib.util.find_spec("fastapi") is None:
