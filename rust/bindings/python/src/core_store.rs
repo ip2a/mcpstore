@@ -118,6 +118,13 @@ impl PyMCPStore {
             .map_err(map_store_err)
     }
 
+    fn update_service(&self, name: &str, config: &Bound<'_, PyAny>) -> PyResult<()> {
+        let config = py_to_server_config(config, "Service config update")?;
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.update_service(name, config))
+            .map_err(map_store_err)
+    }
+
     fn remove_service(&self, name: &str) -> PyResult<()> {
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.remove_service(name))
@@ -153,6 +160,15 @@ impl PyMCPStore {
             pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.find_service(name));
         service
             .map(|entry| to_py_object(py, &entry, "Service"))
+            .transpose()
+    }
+
+    fn get_service_config(&self, py: Python<'_>, name: &str) -> PyResult<Option<Py<PyAny>>> {
+        let config = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.get_service_config(name))
+            .map_err(map_store_err)?;
+        config
+            .map(|config| to_py_object(py, &config, "Service config"))
             .transpose()
     }
 
@@ -246,6 +262,34 @@ impl PyMCPStore {
             .into_iter()
             .map(|tool| to_py_object(py, &tool, "Scoped tool"))
             .collect()
+    }
+
+    #[pyo3(signature = (agent_id=None))]
+    fn check_services_scoped(
+        &self,
+        py: Python<'_>,
+        agent_id: Option<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let status = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.check_services_scoped(agent_id.as_deref()))
+            .map_err(map_store_err)?;
+        to_py_object(py, &status, "Scoped service health")
+    }
+
+    #[pyo3(signature = (agent_id, service_name))]
+    fn service_status_scoped(
+        &self,
+        py: Python<'_>,
+        agent_id: Option<String>,
+        service_name: &str,
+    ) -> PyResult<Py<PyAny>> {
+        let status = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .service_status_scoped(agent_id.as_deref(), service_name),
+            )
+            .map_err(map_store_err)?;
+        to_py_object(py, &status, "Scoped service status")
     }
 
     fn show_config(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {

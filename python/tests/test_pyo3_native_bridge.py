@@ -79,6 +79,106 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             adapter = None
         self.assertTrue(adapter is None or hasattr(adapter, "list_tools"))
 
+    def test_rust_binding_exposes_service_management_objects(self):
+        from mcpstore._rust import MCPStore
+
+        workdir = Path(tempfile.mkdtemp(prefix="mcpstore-pyo3-service-management-"))
+        store = MCPStore.setup_with_options(
+            str(workdir / "mcp.json"),
+            "local",
+            "memory",
+            None,
+            "smoke",
+        )
+        store.add_service(
+            "demo",
+            {
+                "command": "python",
+                "args": ["-c", "print(1)"],
+                "env": {},
+                "headers": {},
+                "transport": "stdio",
+            },
+        )
+
+        self.assertIsInstance(store.get_service_config("demo"), dict)
+        store.patch_service("demo", {"description": "patched"})
+        self.assertEqual(store.get_service_config("demo")["description"], "patched")
+        self.assertIsInstance(store.check_services_scoped(), dict)
+
+    def test_python_facade_keeps_service_and_tool_proxy_api(self):
+        from mcpstore.core.store.rust_backend import RustStoreContext
+
+        schema = {"type": "object", "properties": {"text": {"type": "string"}}}
+
+        class FakeBackend:
+            def __init__(self):
+                self.removed = []
+                self.restarted = []
+                self.patches = []
+
+            def list_tools_scoped(self, agent_id=None, service_name=None, *, filter="available"):
+                return [
+                    {
+                        "name": "echo",
+                        "description": "Echo input",
+                        "input_schema": schema,
+                        "service_name": service_name or "demo",
+                    }
+                ]
+
+            def resolve_tool_for_agent(self, agent_id, user_input):
+                return {
+                    "global_service_name": "demo",
+                    "canonical_tool_name": "echo",
+                }
+
+            def call_tool(self, service_name, tool_name, args):
+                return {
+                    "content": [{"type": "text", "text": args["text"]}],
+                    "is_error": False,
+                }
+
+            def find_service(self, name):
+                return {"name": name, "transport": "stdio"}
+
+            def service_status_scoped(self, agent_id, service_name):
+                return {"status": "connected"}
+
+            def check_services_scoped(self, agent_id=None):
+                return {"demo": "connected"}
+
+            def patch_service(self, name, updates):
+                self.patches.append((name, updates))
+                return True
+
+            def remove_service(self, name):
+                self.removed.append(name)
+                return True
+
+            def restart_service(self, name):
+                self.restarted.append(name)
+                return True
+
+        backend = FakeBackend()
+        context = RustStoreContext(backend)
+        service = context.find_service("demo")
+        self.assertEqual(service.name, "demo")
+        self.assertEqual(service.service_info().name, "demo")
+        self.assertEqual(service.check_health()["healthy"], True)
+
+        tool = service.find_tool("echo")
+        self.assertEqual(tool.name, "echo")
+        self.assertEqual(tool.tool_info().inputSchema, schema)
+        self.assertEqual(tool.call_tool({"text": "ok"}, return_extracted=True), "ok")
+
+        self.assertTrue(context.update_service("demo", {"description": "patched"}))
+        self.assertTrue(service.restart_service())
+        self.assertTrue(service.delete_service())
+        self.assertEqual(backend.patches, [("demo", {"description": "patched"})])
+        self.assertEqual(backend.restarted, ["demo"])
+        self.assertEqual(backend.removed, ["demo"])
+
     def test_perspective_resolver_uses_native_python_objects(self):
         from mcpstore._rust import PerspectiveResolver
 
