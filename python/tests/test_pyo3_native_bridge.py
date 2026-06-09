@@ -576,6 +576,26 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_call_tool_does_not_parse_json_string_arguments_in_python_facade(self):
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        class FakeInner:
+            def __init__(self):
+                self.called = False
+
+            def call_tool(self, service_name, tool_name, args):
+                self.called = True
+                return {"content": [{"type": "text", "text": "ok"}], "is_error": False}
+
+        inner = FakeInner()
+        backend = RustStoreBackend(inner)
+        result = backend.call_tool("demo", "echo", '{"text": "ok"}')
+
+        self.assertFalse(inner.called)
+        self.assertTrue(result.is_error)
+        self.assertEqual(result.data.arguments, {})
+        self.assertIn("只接受 dict", result.error)
+
     def test_python_facade_keeps_session_api_shape(self):
         from mcpstore.core.store.rust_backend import RustStoreBackend, RustStoreContext
 
