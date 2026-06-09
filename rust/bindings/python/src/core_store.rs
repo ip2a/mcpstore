@@ -395,6 +395,20 @@ impl PyMCPStore {
         to_py_object(py, &config, "Config")
     }
 
+    fn cache_health_check(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let health = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.cache_health_check())
+            .map_err(map_store_err)?;
+        to_py_object(py, &health, "Cache health")
+    }
+
+    fn cache_inspect(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let inspect = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.cache_inspect())
+            .map_err(map_store_err)?;
+        to_py_object(py, &inspect, "Cache inspect")
+    }
+
     fn reset_config(&self) -> PyResult<()> {
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.reset_config())
