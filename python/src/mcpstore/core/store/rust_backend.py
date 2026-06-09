@@ -1058,9 +1058,6 @@ class RustServiceProxy:
     def patch_service(self, updates: Any) -> bool:
         return self._context.patch_service(self._service_name, updates)
 
-    def refresh_content(self) -> bool:
-        return self.restart_service()
-
     def restart_service(self) -> bool:
         return self._context.restart_service(self._service_name)
 
@@ -1238,9 +1235,6 @@ class RustToolProxy:
         if not return_extracted:
             return result
         return _extract_text_result(result)
-
-    def test_call(self, args: Optional[Dict[str, Any]] = None) -> Any:
-        return self.call_tool(args)
 
     async def call_tool_async(
         self,
@@ -1916,9 +1910,6 @@ class RustStoreContext:
     def update_service(self, name: str, config: Any) -> bool:
         service_name = self._resolve_service_name(name)
         return self._backend.update_service(service_name, config)
-
-    def replace_service_config(self, name: str, config: Any) -> bool:
-        return self.update_service(name, config)
 
     def delete_service(self, name: str) -> bool:
         service_name = self._resolve_service_name(name)
