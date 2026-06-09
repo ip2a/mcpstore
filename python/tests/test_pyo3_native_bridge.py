@@ -966,21 +966,15 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertFalse(kwargs["only_db"])
         self.assertIsNotNone(kwargs["cache"])
 
-    def test_setup_store_accepts_config_path_and_cache_config_aliases(self):
+    def test_setup_store_rejects_kwargs_aliases(self):
         from mcpstore.config import MemoryConfig
         from mcpstore.core.store.setup_manager import StoreSetupManager
 
         cache = MemoryConfig()
-        with patch.object(StoreSetupManager, "_setup_rust_store", return_value="store") as setup:
-            result = StoreSetupManager.setup_store(
-                config_path=Path("config-alias.json"),
-                cache_config=cache,
-            )
-
-        self.assertEqual(result, "store")
-        kwargs = setup.call_args.kwargs
-        self.assertEqual(kwargs["mcpjson_path"], "config-alias.json")
-        self.assertIs(kwargs["cache"], cache)
+        with self.assertRaisesRegex(ValueError, "config_path"):
+            StoreSetupManager.setup_store(config_path=Path("config-alias.json"))
+        with self.assertRaisesRegex(ValueError, "cache_config"):
+            StoreSetupManager.setup_store(cache_config=cache)
 
     def test_setup_store_adds_static_config_through_rust_store(self):
         import asyncio
