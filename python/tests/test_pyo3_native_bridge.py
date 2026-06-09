@@ -1258,6 +1258,8 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             self.assertIsNotNone(api_main_router)
             self.assertIsNotNone(api_agent_router)
             paths = {route.path for route in api_main_router.routes}
+            self.assertNotIn("/for_store/update_config/{service_name}", paths)
+            self.assertNotIn("/for_store/delete_config/{service_name}", paths)
             self.assertTrue(
                 {
                     "/for_store/show_mcpjson",
@@ -1268,10 +1270,8 @@ class PyO3NativeBridgeTest(unittest.TestCase):
                     "/for_store/tool_records",
                     "/for_store/service_status/{service_name}",
                     "/for_store/service_info/{service_name}",
-                    "/for_store/update_config/{service_name}",
                     "/for_store/update_service/{service_name}",
                     "/for_store/patch_service/{service_name}",
-                    "/for_store/delete_config/{service_name}",
                     "/for_store/remove_service/{service_name}",
                     "/for_store/list_resources",
                     "/for_store/list_resource_templates",
