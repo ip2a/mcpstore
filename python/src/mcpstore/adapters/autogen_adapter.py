@@ -7,7 +7,6 @@ from .common import (
     attach_signature_from_schema,
     build_sync_executor,
     create_args_schema,
-    run_sync_bridge,
     tool_name,
 )
 
@@ -19,7 +18,13 @@ class AutoGenAdapter:
         self._context = context
 
     def list_tools(self) -> List[Callable[..., Any]]:
-        return run_sync_bridge(self.list_tools_async(), op_name="autogen_adapter.list_tools")
+        tools: List[Callable[..., Any]] = []
+        for t in self._context.list_tools():
+            args_schema = create_args_schema(t)
+            fn = build_sync_executor(self._context, tool_name(t), args_schema)
+            attach_signature_from_schema(fn, args_schema)
+            tools.append(fn)
+        return tools
 
     async def list_tools_async(self) -> List[Callable[..., Any]]:
         tools: List[Callable[..., Any]] = []

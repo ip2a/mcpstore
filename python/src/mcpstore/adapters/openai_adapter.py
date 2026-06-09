@@ -8,7 +8,7 @@ OpenAI 适配器模块
 from __future__ import annotations
 
 import json
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 # 导入公共函数
 from .common import (
@@ -16,7 +16,6 @@ from .common import (
     call_tool_response_helper,
     enhance_description,
     is_nullable,
-    run_sync_bridge,
     tool_input_schema,
     tool_name,
 )
@@ -32,7 +31,10 @@ class OpenAIAdapter:
 
     def list_tools(self) -> List[Dict[str, Any]]:
         """获取所有 MCPStore 工具并转换为 OpenAI function 格式（同步版本）。"""
-        return run_sync_bridge(self.list_tools_async(), op_name="openai_adapter.list_tools")
+        return [
+            self._convert_to_openai_format(tool_info)
+            for tool_info in self._context.list_tools()
+        ]
 
     async def list_tools_async(self) -> List[Dict[str, Any]]:
         """获取所有 MCPStore 工具并转换为 OpenAI function 格式（异步版本）。"""
@@ -170,50 +172,58 @@ class OpenAIAdapter:
         Returns:
             str: 工具执行结果
         """
-        return run_sync_bridge(
-            self.execute_tool_call_async(tool_call),
-            op_name="openai_adapter.execute_tool_call",
-        )
+        tool_name = None
+        try:
+            tool_name, arguments = self._parse_tool_call(tool_call)
+            result = self._context.call_tool(tool_name, arguments)
+            return self._format_tool_result(tool_name, arguments, result)
+        except Exception as e:
+            return f"Tool '{tool_name}' execution failed: {str(e)}"
 
     async def execute_tool_call_async(self, tool_call: Dict[str, Any]) -> str:
         """执行工具调用（异步版本）。"""
         tool_name = None
         try:
-            tool_name = tool_call.get("name") or tool_call.get("function", {}).get("name")
-            arguments = tool_call.get("arguments") or tool_call.get("function", {}).get("arguments", {})
-
-            if not tool_name:
-                raise ValueError("Tool name not found in tool_call")
-
-            # 如果 arguments 是字符串，尝试解析为 JSON
-            if isinstance(arguments, str):
-                try:
-                    arguments = json.loads(arguments)
-                except json.JSONDecodeError:
-                    raise ValueError("Tool arguments JSON parse failed")
-
-            # 调用工具
+            tool_name, arguments = self._parse_tool_call(tool_call)
             result = await self._context.call_tool_async(tool_name, arguments)
-
-            # 提取实际结果
-            view = call_tool_response_helper(result)
-            if view.is_error:
-                payload = build_tool_error_payload(
-                    tool_name,
-                    view.error_message or view.text or "Tool execution failed",
-                    tool_input=arguments if isinstance(arguments, dict) else None,
-                    view=view,
-                )
-                return json.dumps(payload, ensure_ascii=False)
-            actual_result = view.structured if view.structured is not None else view.data
-            if actual_result is None:
-                actual_result = view.text
-
-            # 格式化输出
-            if isinstance(actual_result, (dict, list)):
-                return json.dumps(actual_result, ensure_ascii=False)
-            return str(actual_result)
-
+            return self._format_tool_result(tool_name, arguments, result)
         except Exception as e:
-            error_msg = f"Tool '{tool_name}' execution failed: {str(e)}"
-            return error_msg
+            return f"Tool '{tool_name}' execution failed: {str(e)}"
+
+    @staticmethod
+    def _parse_tool_call(tool_call: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+        name = tool_call.get("name") or tool_call.get("function", {}).get("name")
+        arguments = tool_call.get("arguments") or tool_call.get("function", {}).get("arguments", {})
+
+        if not name:
+            raise ValueError("Tool name not found in tool_call")
+
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except json.JSONDecodeError:
+                raise ValueError("Tool arguments JSON parse failed")
+
+        if not isinstance(arguments, dict):
+            raise ValueError("Tool arguments must be a dict")
+
+        return name, arguments
+
+    @staticmethod
+    def _format_tool_result(name: str, arguments: Dict[str, Any], result: Any) -> str:
+        view = call_tool_response_helper(result)
+        if view.is_error:
+            payload = build_tool_error_payload(
+                name,
+                view.error_message or view.text or "Tool execution failed",
+                tool_input=arguments,
+                view=view,
+            )
+            return json.dumps(payload, ensure_ascii=False)
+        actual_result = view.structured if view.structured is not None else view.data
+        if actual_result is None:
+            actual_result = view.text
+
+        if isinstance(actual_result, (dict, list)):
+            return json.dumps(actual_result, ensure_ascii=False)
+        return str(actual_result)

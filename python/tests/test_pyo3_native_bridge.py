@@ -90,6 +90,56 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertFalse(hasattr(PerspectiveResolver, "normalize_service_name_json"))
         self.assertFalse(hasattr(PerspectiveResolver, "resolve_tool_json"))
 
+    def test_sync_adapters_do_not_use_async_bridge(self):
+        with self.assertRaises(ImportError):
+            from mcpstore.core.bridge import get_bridge_executor
+
+        from mcpstore.adapters.autogen_adapter import AutoGenAdapter
+        from mcpstore.adapters.openai_adapter import OpenAIAdapter
+
+        class FakeContext:
+            def __init__(self):
+                self.list_tools_called = False
+                self.call_tool_called = False
+
+            def list_tools(self):
+                self.list_tools_called = True
+                return [
+                    {
+                        "name": "echo",
+                        "description": "Echo input",
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {"text": {"type": "string"}},
+                            "required": ["text"],
+                        },
+                    }
+                ]
+
+            async def list_tools_async(self):
+                raise AssertionError("sync adapters must not call list_tools_async")
+
+            def call_tool(self, name, arguments):
+                self.call_tool_called = True
+                return {"content": [{"type": "text", "text": arguments["text"]}], "is_error": False}
+
+            async def call_tool_async(self, name, arguments):
+                raise AssertionError("sync adapters must not call call_tool_async")
+
+        context = FakeContext()
+        openai_tools = OpenAIAdapter(context).list_tools()
+        self.assertTrue(context.list_tools_called)
+        self.assertEqual(openai_tools[0]["function"]["name"], "echo")
+
+        result = OpenAIAdapter(context).execute_tool_call(
+            {"name": "echo", "arguments": {"text": "ok"}}
+        )
+        self.assertTrue(context.call_tool_called)
+        self.assertEqual(result, "ok")
+
+        autogen_tools = AutoGenAdapter(context).list_tools()
+        self.assertEqual(autogen_tools[0](text="auto"), "auto")
+
 
 if __name__ == "__main__":
     unittest.main()
