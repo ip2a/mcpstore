@@ -281,6 +281,15 @@ class RustStoreBackend:
             raise ValueError(f"Rust core 只接受 dict 对象，实际类型: {type(value).__name__}")
         return value
 
+    @classmethod
+    def _normalize_config_dict(cls, value: Any, context: str) -> Dict[str, Any]:
+        if isinstance(value, str):
+            value = json.loads(value)
+        try:
+            return cls._validate_dict(value)
+        except ValueError as error:
+            raise ValueError(f"{context} 必须是 dict 或 JSON object 字符串") from error
+
     @staticmethod
     def _is_wide_service_map(config: Dict[str, Any]) -> bool:
         service_fields = {
@@ -442,12 +451,12 @@ class RustStoreBackend:
         )
         return added
 
-    def patch_service(self, name: str, updates: Dict[str, Any]) -> bool:
-        self._inner.patch_service(name, self._validate_dict(updates))
+    def patch_service(self, name: str, updates: Any) -> bool:
+        self._inner.patch_service(name, self._normalize_config_dict(updates, "服务补丁配置"))
         return True
 
-    def update_service(self, name: str, config: Dict[str, Any]) -> bool:
-        self._inner.update_service(name, self._validate_dict(config))
+    def update_service(self, name: str, config: Any) -> bool:
+        self._inner.update_service(name, self._normalize_config_dict(config, "服务更新配置"))
         return True
 
     def remove_service(self, name: str) -> bool:
@@ -954,10 +963,10 @@ class RustServiceProxy:
             service_name=self._service_name,
         )
 
-    def update_config(self, config: Dict[str, Any]) -> bool:
+    def update_config(self, config: Any) -> bool:
         return self._context.update_service(self._service_name, config)
 
-    def patch_config(self, updates: Dict[str, Any]) -> bool:
+    def patch_config(self, updates: Any) -> bool:
         return self._context.patch_service(self._service_name, updates)
 
     def refresh_content(self) -> bool:
@@ -1786,14 +1795,14 @@ class RustStoreContext:
             )
         )
 
-    def patch_service(self, name: str, updates: Dict[str, Any]) -> bool:
+    def patch_service(self, name: str, updates: Any) -> bool:
         service_name = self._resolve_service_name(name)
         return self._backend.patch_service(service_name, updates)
 
-    def update_service(self, name: str, config: Dict[str, Any]) -> bool:
+    def update_service(self, name: str, config: Any) -> bool:
         return self.patch_service(name, config)
 
-    def replace_service_config(self, name: str, config: Dict[str, Any]) -> bool:
+    def replace_service_config(self, name: str, config: Any) -> bool:
         service_name = self._resolve_service_name(name)
         return self._backend.update_service(service_name, config)
 
