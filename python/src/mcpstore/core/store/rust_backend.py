@@ -1894,11 +1894,11 @@ class RustStoreContext:
         return self._backend.patch_service(service_name, updates)
 
     def update_service(self, name: str, config: Any) -> bool:
-        return self.patch_service(name, config)
-
-    def replace_service_config(self, name: str, config: Any) -> bool:
         service_name = self._resolve_service_name(name)
         return self._backend.update_service(service_name, config)
+
+    def replace_service_config(self, name: str, config: Any) -> bool:
+        return self.update_service(name, config)
 
     def delete_service(self, name: str) -> bool:
         service_name = self._resolve_service_name(name)
