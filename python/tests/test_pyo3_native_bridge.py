@@ -59,6 +59,37 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(services[0].transport_type, "stdio")
         self.assertIsInstance(context.show_config(), dict)
 
+    def test_perspective_resolver_uses_native_python_objects(self):
+        from mcpstore._rust import PerspectiveResolver
+
+        parsed = PerspectiveResolver.parse_agent_scoped("svc_byagent_agent-a")
+        self.assertIsInstance(parsed, dict)
+        self.assertEqual(parsed["agent_id"], "agent-a")
+        self.assertEqual(parsed["local_name"], "svc")
+
+        service = PerspectiveResolver.normalize_service_name("agent-a", "svc")
+        self.assertIsInstance(service, dict)
+        self.assertEqual(service["global_name"], "svc_byagent_agent-a")
+
+        tool = PerspectiveResolver.resolve_tool(
+            "agent-a",
+            "svc_echo",
+            [
+                {
+                    "name": "svc_echo",
+                    "original_name": "echo",
+                    "service_name": "svc",
+                    "global_service_name": "svc_byagent_agent-a",
+                }
+            ],
+        )
+        self.assertIsInstance(tool, dict)
+        self.assertEqual(tool["canonical_tool_name"], "echo")
+
+        self.assertFalse(hasattr(PerspectiveResolver, "parse_agent_scoped_json"))
+        self.assertFalse(hasattr(PerspectiveResolver, "normalize_service_name_json"))
+        self.assertFalse(hasattr(PerspectiveResolver, "resolve_tool_json"))
+
 
 if __name__ == "__main__":
     unittest.main()
