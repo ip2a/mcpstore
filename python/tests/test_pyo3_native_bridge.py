@@ -499,6 +499,69 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertIn("--source", cmd)
         self.assertIn("--backend", cmd)
 
+    def test_rust_backed_public_api_modules_import(self):
+        from mcpstore.api.api_dependencies import get_store
+        from mcpstore.config import MemoryConfig
+        from mcpstore.config.factory import create_kv_store
+        from mcpstore.config.namespace import get_namespace
+        from mcpstore.core.models import ErrorCode, ResponseBuilder, timed_response
+
+        store = object()
+        if importlib.util.find_spec("fastapi") is not None:
+            from mcpstore.api.api_pack import api_agent_router, api_main_router, api_set_store
+
+            self.assertIsNotNone(api_main_router)
+            self.assertIsNotNone(api_agent_router)
+        else:
+            from mcpstore.api.api_dependencies import set_store as api_set_store
+
+        api_set_store(store)
+        self.assertIs(get_store(), store)
+        self.assertEqual(get_namespace(MemoryConfig()), "mcpstore")
+        self.assertEqual(create_kv_store(MemoryConfig()).get_backend_type(), "memory")
+        self.assertEqual(ErrorCode.MISSING_PARAMETER.value, "missing_parameter")
+        self.assertTrue(ResponseBuilder.success()["success"])
+        self.assertFalse(ResponseBuilder.error()["success"])
+
+        @timed_response
+        def handler():
+            return ResponseBuilder.success()
+
+        self.assertIn("elapsed_ms", handler()["meta"])
+
+    def test_rust_context_keeps_bridge_execute_and_cache_read_shape(self):
+        import asyncio
+
+        from mcpstore.core.store.rust_backend import RustCacheProxy, RustStoreContext
+
+        class FakeBackend:
+            def cache_inspect(self):
+                return {
+                    "backend": "memory",
+                    "entities": [
+                        {"_type": "service", "_key": "demo", "name": "demo"},
+                        {"_type": "tool", "_key": "echo", "name": "echo"},
+                    ],
+                    "relations": [{"_type": "binding", "_key": "demo:echo"}],
+                    "states": [{"_type": "health", "_key": "demo"}],
+                }
+
+        context = RustStoreContext(FakeBackend())
+        self.assertEqual(asyncio.run(context.bridge_execute("value")), "value")
+
+        async def compute():
+            return "async-value"
+
+        self.assertEqual(asyncio.run(context.bridge_execute(compute())), "async-value")
+
+        cache = RustCacheProxy(context)
+        self.assertEqual(cache.get_scope(), "global")
+        self.assertEqual(cache.get_backend_type(), "memory")
+        self.assertEqual(len(cache.read_entity(None, None)), 2)
+        self.assertEqual(cache.read_entity("service", "demo")[0]["name"], "demo")
+        self.assertEqual(cache.read_relation("binding", None)[0]["_key"], "demo:echo")
+        self.assertEqual(cache.read_state("health", "demo")[0]["_type"], "health")
+
 
 if __name__ == "__main__":
     unittest.main()
