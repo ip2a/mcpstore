@@ -1107,6 +1107,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
                     "/for_store/update_config/{service_name}",
                     "/for_store/delete_config/{service_name}",
                     "/for_store/wait_service",
+                    "/for_agent/{agent_id}/wait_service",
                     "/for_agent/{agent_id}/service_status/{service_name}",
                     "/for_agent/{agent_id}/service_info/{service_name}",
                     "/for_agent/{agent_id}/service/{service_name}",
@@ -1161,7 +1162,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
         import asyncio
 
-        from mcpstore.api.api_pack import api_set_store, store_wait_service
+        from mcpstore.api.api_pack import api_set_store, agent_wait_service, store_wait_service
 
         class FakeContext:
             def __init__(self):
@@ -1188,6 +1189,27 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
         self.assertTrue(result["success"])
         self.assertEqual(store.context.wait_call, ("demo", ["healthy", "warning"], 3))
+
+        class FakeAgentStore:
+            def __init__(self):
+                self.contexts = {}
+
+            def for_agent(self, agent_id):
+                context = FakeContext()
+                self.contexts[agent_id] = context
+                return context
+
+        agent_store = FakeAgentStore()
+        api_set_store(agent_store)
+        result = asyncio.run(
+            agent_wait_service(
+                "agent-a",
+                {"name": "demo", "status": "healthy", "timeout": 5},
+            )
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(agent_store.contexts["agent-a"].wait_call, ("demo", "healthy", 5))
 
     def test_rust_context_keeps_cache_read_shape(self):
         from mcpstore.core.store.rust_backend import RustCacheProxy, RustStoreContext
