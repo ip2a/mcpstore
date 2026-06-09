@@ -90,6 +90,10 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             None,
             "smoke",
         )
+        self.assertEqual(store.list_resources_scoped(), [])
+        self.assertEqual(store.list_resource_templates_scoped(), [])
+        self.assertEqual(store.list_prompts_scoped(), [])
+
         store.add_service(
             "demo",
             {
@@ -148,6 +152,25 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             def check_services_scoped(self, agent_id=None):
                 return {"demo": "connected"}
 
+            def list_resources_scoped(self, agent_id=None, service_name=None):
+                return [{"uri": "memory://doc", "service_name": service_name or "demo"}]
+
+            def list_resource_templates_scoped(self, agent_id=None, service_name=None):
+                return [{"uriTemplate": "memory://{name}", "service_name": service_name or "demo"}]
+
+            def read_resource_scoped(self, agent_id, uri, service_name=None):
+                return {"uri": uri, "text": "body", "service_name": service_name or "demo"}
+
+            def list_prompts_scoped(self, agent_id=None, service_name=None):
+                return [{"name": "summarize", "service_name": service_name or "demo"}]
+
+            def get_prompt_scoped(self, agent_id, prompt_name, arguments, service_name=None):
+                return {
+                    "name": prompt_name,
+                    "arguments": arguments,
+                    "service_name": service_name or "demo",
+                }
+
             def patch_service(self, name, updates):
                 self.patches.append((name, updates))
                 return True
@@ -171,6 +194,11 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(tool.name, "echo")
         self.assertEqual(tool.tool_info().inputSchema, schema)
         self.assertEqual(tool.call_tool({"text": "ok"}, return_extracted=True), "ok")
+        self.assertEqual(context.list_resources()[0].uri, "memory://doc")
+        self.assertEqual(service.list_resource_templates()[0].uriTemplate, "memory://{name}")
+        self.assertEqual(service.read_resource("memory://doc").text, "body")
+        self.assertEqual(context.list_prompts()[0].name, "summarize")
+        self.assertEqual(service.get_prompt("summarize", {"topic": "rust"}).arguments["topic"], "rust")
 
         self.assertTrue(context.update_service("demo", {"description": "patched"}))
         self.assertTrue(service.restart_service())

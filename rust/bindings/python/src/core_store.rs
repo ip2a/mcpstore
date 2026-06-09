@@ -292,6 +292,102 @@ impl PyMCPStore {
         to_py_object(py, &status, "Scoped service status")
     }
 
+    #[pyo3(signature = (agent_id=None, service_name=None))]
+    fn list_resources_scoped(
+        &self,
+        py: Python<'_>,
+        agent_id: Option<String>,
+        service_name: Option<String>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let resources = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .list_resources_scoped(agent_id.as_deref(), service_name.as_deref()),
+            )
+            .map_err(map_store_err)?;
+        resources
+            .into_iter()
+            .map(|resource| to_py_object(py, &resource, "Scoped resource"))
+            .collect()
+    }
+
+    #[pyo3(signature = (agent_id=None, service_name=None))]
+    fn list_resource_templates_scoped(
+        &self,
+        py: Python<'_>,
+        agent_id: Option<String>,
+        service_name: Option<String>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let templates = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .list_resource_templates_scoped(agent_id.as_deref(), service_name.as_deref()),
+            )
+            .map_err(map_store_err)?;
+        templates
+            .into_iter()
+            .map(|template| to_py_object(py, &template, "Scoped resource template"))
+            .collect()
+    }
+
+    #[pyo3(signature = (agent_id, uri, service_name=None))]
+    fn read_resource_scoped(
+        &self,
+        py: Python<'_>,
+        agent_id: Option<String>,
+        uri: &str,
+        service_name: Option<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let resource = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.read_resource_scoped(
+                agent_id.as_deref(),
+                uri,
+                service_name.as_deref(),
+            ))
+            .map_err(map_store_err)?;
+        to_py_object(py, &resource, "Scoped resource read")
+    }
+
+    #[pyo3(signature = (agent_id=None, service_name=None))]
+    fn list_prompts_scoped(
+        &self,
+        py: Python<'_>,
+        agent_id: Option<String>,
+        service_name: Option<String>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let prompts = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .list_prompts_scoped(agent_id.as_deref(), service_name.as_deref()),
+            )
+            .map_err(map_store_err)?;
+        prompts
+            .into_iter()
+            .map(|prompt| to_py_object(py, &prompt, "Scoped prompt"))
+            .collect()
+    }
+
+    #[pyo3(signature = (agent_id, prompt_name, arguments, service_name=None))]
+    fn get_prompt_scoped(
+        &self,
+        py: Python<'_>,
+        agent_id: Option<String>,
+        prompt_name: &str,
+        arguments: &Bound<'_, PyAny>,
+        service_name: Option<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let arguments = py_to_serde_value(arguments, "Prompt arguments")?;
+        let prompt = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.get_prompt_scoped(
+                agent_id.as_deref(),
+                prompt_name,
+                arguments,
+                service_name.as_deref(),
+            ))
+            .map_err(map_store_err)?;
+        to_py_object(py, &prompt, "Scoped prompt result")
+    }
+
     fn show_config(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let config = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.show_config())
