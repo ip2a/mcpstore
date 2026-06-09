@@ -466,7 +466,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(tool.call_tool({"text": "ok"}).text_output, "ok")
         with self.assertRaisesRegex(ValueError, "timeout"):
             tool.call_tool({"text": "ok"}, timeout=10)
-        self.assertEqual(tool.test_call({"text": "test"}).text_output, "test")
+        self.assertFalse(hasattr(tool, "test_call"))
         self.assertEqual(context.use_tool("echo", {"text": "alias"}, return_extracted=True), "alias")
         with self.assertRaisesRegex(ValueError, "timeout"):
             context.call_tool("echo", {"text": "alias"}, timeout=10)
@@ -484,7 +484,8 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertTrue(context.update_service("demo", {"description": "patched"}))
         self.assertTrue(context.connect_service("demo"))
         self.assertTrue(service.disconnect_service())
-        self.assertTrue(service.refresh_content())
+        self.assertFalse(hasattr(service, "refresh_content"))
+        self.assertTrue(service.restart_service())
         self.assertEqual(context.event_history(2)[1].event_type, "TEST")
         self.assertTrue(context.event_capability_report().event_bus)
         self.assertEqual(context.show_config("client").clients["client-a"].service, "demo")
@@ -602,7 +603,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
                 {"url": "https://example.test/mcp", "headers": {"X-Test": "1"}},
             )
         )
-        self.assertTrue(context.replace_service_config("demo", {"command": "python"}))
+        self.assertTrue(context.update_service("demo", {"command": "python"}))
 
         self.assertEqual(inner.patches[0], ("demo", {"description": "patched"}, dict))
         self.assertEqual(inner.updates[0], ("demo", {"url": "https://example.test/mcp"}, dict))
@@ -615,7 +616,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "不再接受 JSON 字符串配置"):
             backend.patch_service("demo", '{"description": "legacy"}')
         with self.assertRaisesRegex(ValueError, "不再接受 JSON 字符串配置"):
-            context.replace_service_config("demo", '{"command": "python"}')
+            context.update_service("demo", '{"command": "python"}')
 
     def test_rust_context_exposes_documented_async_facade_methods(self):
         import asyncio
