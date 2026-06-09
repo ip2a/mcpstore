@@ -916,37 +916,36 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(tool_input_schema({"inputSchema": schema}), schema)
 
     def test_setup_store_normalizes_public_cache_options_without_old_core(self):
-        from mcpstore.config import CacheType, MemoryConfig, RedisConfig
+        from mcpstore.config import MemoryConfig, RedisConfig
         from mcpstore.core.store.setup_manager import StoreSetupManager
 
+        redis = RedisConfig(url="redis://localhost:6379/0", namespace="team")
         cache, only_db = StoreSetupManager._normalize_cache_options(
-            cache=None,
-            external_db={"cache": {"type": "redis", "url": "redis://localhost:6379/0", "namespace": "team"}},
+            cache=redis,
             cache_mode="shared",
             only_db=False,
         )
-        self.assertIsInstance(cache, RedisConfig)
+        self.assertIs(cache, redis)
         self.assertEqual(cache.url, "redis://localhost:6379/0")
         self.assertEqual(cache.namespace, "team")
         self.assertTrue(only_db)
 
+        memory = MemoryConfig(max_size=12)
         cache, only_db = StoreSetupManager._normalize_cache_options(
-            cache=None,
-            external_db={"cache": {"type": "memory", "max_size": 12}},
+            cache=memory,
             cache_mode="local",
             only_db=True,
         )
-        self.assertIsInstance(cache, MemoryConfig)
+        self.assertIs(cache, memory)
         self.assertEqual(cache.max_size, 12)
         self.assertFalse(only_db)
 
         cache, only_db = StoreSetupManager._normalize_cache_options(
             cache=None,
-            external_db={"cache": {"type": "openkeyv_redis", "url": "redis://localhost:6379/0"}},
             cache_mode="auto",
             only_db=False,
         )
-        self.assertEqual(cache.cache_type, CacheType.OPENKEYV_REDIS)
+        self.assertIsNone(cache)
         self.assertFalse(only_db)
 
     def test_setup_store_rejects_mcp_config_file_alias(self):
@@ -964,6 +963,8 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             StoreSetupManager.setup_store(config_path=Path("config-alias.json"))
         with self.assertRaisesRegex(ValueError, "cache_config"):
             StoreSetupManager.setup_store(cache_config=cache)
+        with self.assertRaisesRegex(ValueError, "external_db"):
+            StoreSetupManager.setup_store(external_db={"cache": {"type": "memory"}})
 
     def test_setup_store_adds_static_config_through_rust_store(self):
         import asyncio
