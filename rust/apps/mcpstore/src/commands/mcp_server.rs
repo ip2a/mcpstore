@@ -5,10 +5,11 @@ use clap::{Args, ValueEnum};
 use mcpstore::{perspective::GLOBAL_AGENT_STORE, MCPStore};
 use rmcp::{
     model::{
-        CallToolRequestParams, CallToolResult, Content, GetPromptRequestParams, GetPromptResult,
-        Implementation, ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult,
-        ListToolsResult, PaginatedRequestParams, Prompt, ReadResourceRequestParams,
-        ReadResourceResult, Resource, ResourceTemplate, ServerCapabilities, ServerInfo, Tool,
+        AnnotateAble, CallToolRequestParams, CallToolResult, Content, GetPromptRequestParams,
+        GetPromptResult, Implementation, ListPromptsResult, ListResourceTemplatesResult,
+        ListResourcesResult, ListToolsResult, PaginatedRequestParams, Prompt, RawAudioContent,
+        RawContent, RawResource, ReadResourceRequestParams, ReadResourceResult, Resource,
+        ResourceContents, ResourceTemplate, ServerCapabilities, ServerInfo, Tool,
     },
     serve_server,
     transport::{
@@ -253,11 +254,36 @@ impl ServerHandler for McpStoreServer {
             let mut content = Vec::with_capacity(result.content.len());
             for item in result.content {
                 match item {
-                    mcpstore::transport::ContentItem::Text { text } => {
+                    mcpstore::transport::ContentItem::Text { text, .. } => {
                         content.push(Content::text(text));
                     }
-                    mcpstore::transport::ContentItem::Image { data, mime_type } => {
+                    mcpstore::transport::ContentItem::Image {
+                        data, mime_type, ..
+                    } => {
                         content.push(Content::image(data, mime_type));
+                    }
+                    mcpstore::transport::ContentItem::Audio {
+                        data, mime_type, ..
+                    } => {
+                        content.push(
+                            RawContent::Audio(RawAudioContent { data, mime_type }).no_annotation(),
+                        );
+                    }
+                    mcpstore::transport::ContentItem::Resource { resource, .. } => {
+                        content.push(match serde_json::from_value::<ResourceContents>(resource) {
+                            Ok(resource) => Content::resource(resource),
+                            Err(error) => Content::text(format!(
+                                "Failed to decode resource content: {error}"
+                            )),
+                        });
+                    }
+                    mcpstore::transport::ContentItem::ResourceLink { resource, .. } => {
+                        content.push(match serde_json::from_value::<RawResource>(resource) {
+                            Ok(resource) => Content::resource_link(resource),
+                            Err(error) => Content::text(format!(
+                                "Failed to decode resource link: {error}"
+                            )),
+                        });
                     }
                 }
             }
