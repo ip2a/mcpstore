@@ -181,6 +181,16 @@ impl PyMCPStore {
             .collect()
     }
 
+    fn list_agents(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+        let agents = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_agents())
+            .map_err(map_store_err)?;
+        agents
+            .into_iter()
+            .map(|agent| to_py_object(py, &agent, "Agent"))
+            .collect()
+    }
+
     fn list_tools(&self, py: Python<'_>, service_name: &str) -> PyResult<Vec<Py<PyAny>>> {
         let tools = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.list_tools(service_name))

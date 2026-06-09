@@ -133,6 +133,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(store.list_resources_scoped(), [])
         self.assertEqual(store.list_resource_templates_scoped(), [])
         self.assertEqual(store.list_prompts_scoped(), [])
+        self.assertEqual(store.list_agents(), [])
         self.assertIsInstance(store.cache_health_check(), dict)
         self.assertIsInstance(store.cache_inspect(), dict)
 
@@ -172,6 +173,9 @@ class PyO3NativeBridgeTest(unittest.TestCase):
                         "service_name": service_name or "demo",
                     }
                 ]
+
+            def list_agents(self):
+                return [{"agent_id": "agent-a", "services": ["demo"]}]
 
             def resolve_tool_for_agent(self, agent_id, user_input):
                 return {
@@ -237,6 +241,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         agent = context.find_agent("agent-a")
         self.assertEqual(agent.agent_id, "agent-a")
         self.assertEqual(context.find_cache().scope, "global")
+        self.assertEqual(context.list_agents()[0].agent_id, "agent-a")
         self.assertEqual(agent.find_cache().scope, "agent")
         self.assertEqual(context.find_cache().inspect().backend, "memory")
         self.assertEqual(context.find_cache().health_check().healthy, True)
@@ -539,6 +544,36 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertIn("--config-path", cmd)
         self.assertIn("--source", cmd)
         self.assertIn("--backend", cmd)
+
+    def test_hub_http_delegates_to_rust_mcp_server_cli(self):
+        from mcpstore.config import MemoryConfig
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        store = RustStoreBackend(object())
+        store._config_path = "mcp.json"
+        store._cache_config = MemoryConfig()
+        store._only_db = True
+
+        completed = type("Completed", (), {"returncode": 0})()
+        with patch("mcpstore._rust_cli.resolve_rust_cli_binary", return_value="/bin/mcpstore"):
+            with patch("mcpstore._rust_cli.resolve_runtime_cwd", return_value="/tmp"):
+                with patch("mcpstore.core.store.rust_backend.subprocess.run", return_value=completed) as run:
+                    code = store.for_agent("agent-a").hub_http(
+                        host="0.0.0.0",
+                        port=18080,
+                        path="/mcp",
+                        block=True,
+                    )
+
+        self.assertEqual(code, 0)
+        cmd = run.call_args.args[0]
+        self.assertEqual(cmd[:4], ["/bin/mcpstore", "mcp-server", "--transport", "streamable-http"])
+        self.assertIn("--scope", cmd)
+        self.assertIn("agent", cmd)
+        self.assertIn("--agent", cmd)
+        self.assertIn("agent-a", cmd)
+        self.assertIn("--config-path", cmd)
+        self.assertIn("--source", cmd)
 
     def test_rust_backed_public_api_modules_import(self):
         from mcpstore.api.api_dependencies import get_store
