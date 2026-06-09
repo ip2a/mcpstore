@@ -696,20 +696,65 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
         class FakeInner:
             def __init__(self):
-                self.called = False
+                self.calls = []
+
+            def list_tools_scoped(self, agent_id=None, service_name=None):
+                return [{"name": "echo", "service_name": service_name or "demo"}]
+
+            def resolve_tool_for_agent(self, agent_id, user_input):
+                return {"global_service_name": "demo", "canonical_tool_name": "echo"}
 
             def call_tool(self, service_name, tool_name, args):
-                self.called = True
+                self.calls.append((service_name, tool_name, args))
                 return {"content": [{"type": "text", "text": "ok"}], "is_error": False}
 
         inner = FakeInner()
         backend = RustStoreBackend(inner)
         result = backend.call_tool("demo", "echo", '{"text": "ok"}')
 
-        self.assertFalse(inner.called)
+        self.assertEqual(inner.calls, [])
         self.assertTrue(result.is_error)
         self.assertEqual(result.data.arguments, {})
-        self.assertIn("只接受 dict", result.error)
+        self.assertIn("不再接受 JSON 字符串参数", result.error)
+
+        self.assertTrue(backend.call_tool("demo", "echo", "").is_error)
+        self.assertEqual(inner.calls, [])
+
+        context = backend.for_store()
+        self.assertTrue(context.call_tool("echo", "").is_error)
+        self.assertTrue(context.find_tool("echo", service_name="demo").call_tool("").is_error)
+
+        with context.with_session("tool-json-string") as session:
+            self.assertTrue(session.use_tool("echo", "").is_error)
+
+        self.assertEqual(inner.calls, [])
+
+        ok = context.call_tool("echo", None)
+        self.assertFalse(ok.is_error)
+        self.assertEqual(inner.calls, [("demo", "echo", {})])
+
+    def test_prompt_arguments_require_python_dicts(self):
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        class FakeInner:
+            def __init__(self):
+                self.calls = []
+
+            def get_prompt_scoped(self, agent_id, prompt_name, arguments, service_name=None):
+                self.calls.append((agent_id, prompt_name, arguments, service_name))
+                return {"name": prompt_name, "arguments": arguments}
+
+        inner = FakeInner()
+        backend = RustStoreBackend(inner)
+        context = backend.for_store()
+
+        self.assertEqual(context.get_prompt("summarize", None).arguments, {})
+        with self.assertRaisesRegex(ValueError, "不再接受 JSON 字符串参数"):
+            context.get_prompt("summarize", "")
+        with self.assertRaisesRegex(ValueError, "不再接受 JSON 字符串参数"):
+            context.find_service("demo").get_prompt("summarize", "")
+
+        self.assertEqual(inner.calls, [(None, "summarize", {}, None)])
 
     def test_python_facade_keeps_session_api_shape(self):
         from mcpstore.core.store.rust_backend import RustStoreBackend, RustStoreContext
