@@ -67,6 +67,8 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertIsInstance(context.show_config(), dict)
         self.assertIn("mcpServers", store.show_mcpjson())
         self.assertIn("mcpServers", context.show_mcpjson())
+        self.assertIsInstance(store.get_json_config(), dict)
+        self.assertEqual(store.get_data_space_info()["backend"], "memory")
 
     def test_python_facade_keeps_chain_adapter_api(self):
         from mcpstore import MCPStore
@@ -319,6 +321,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertTrue(context.event_capability_report().event_bus)
         self.assertEqual(context.wait_service("demo", status="healthy").health_status, "ready")
         self.assertEqual(context.wait_service("demo", status=["healthy", "warning"]).health_status, "ready")
+        self.assertEqual(context.wait_services(["demo"], status="healthy")["demo"].health_status, "ready")
         with self.assertRaises(TimeoutError):
             context.wait_service("demo", status="degraded")
         self.assertTrue(service.restart_service())
@@ -431,6 +434,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
         with context.with_session("browser_task") as active:
             active.bind_service("browser")
+            self.assertIs(context.current_session(), active)
             self.assertEqual(active.service_count, 1)
             self.assertEqual(active.list_tools()[0].name, "browser_navigate")
             self.assertEqual(active.use_tool("browser_navigate", {}, return_extracted=True), "browser:browser_navigate")
