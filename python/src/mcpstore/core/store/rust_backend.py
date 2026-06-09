@@ -615,6 +615,20 @@ class RustStoreBackend:
         self._inner.load_from_config()
         return True
 
+    def switch_cache(self, cache_config: Any) -> bool:
+        rust_mod = importlib.import_module("mcpstore._rust")
+        backend, redis_url, namespace = self._cache_options(cache_config)
+        self._inner = rust_mod.MCPStore.setup_with_options(
+            self._config_path,
+            "db" if self._only_db else "local",
+            backend,
+            redis_url,
+            namespace,
+        )
+        self._cache_config = cache_config
+        self.load_from_config()
+        return True
+
     def wait_service_ready(self, name: str, timeout: float = 10.0) -> Dict[str, Any]:
         return _record_value(self._inner.wait_service_ready(name, int(timeout)))
 
@@ -1738,6 +1752,10 @@ class RustStoreContext:
 
     def get_data_space_info(self) -> Dict[str, Any]:
         return self._backend.get_data_space_info()
+
+    def switch_cache(self, cache_config: Any) -> "RustStoreContext":
+        self._backend.switch_cache(cache_config)
+        return self
 
     def hub_http(
         self,
