@@ -760,6 +760,40 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertTrue(any(dep.startswith("fastapi") for dep in extras["api"]))
         self.assertTrue(any(dep.startswith("uvicorn") for dep in extras["api"]))
 
+    def test_api_wait_service_passes_status_to_rust_context(self):
+        if importlib.util.find_spec("fastapi") is None:
+            self.skipTest("fastapi is not installed")
+
+        import asyncio
+
+        from mcpstore.api.api_pack import api_set_store, store_wait_service
+
+        class FakeContext:
+            def __init__(self):
+                self.wait_call = None
+
+            async def wait_service_async(self, service_name, status=None, timeout=10.0):
+                self.wait_call = (service_name, status, timeout)
+                return {"service_global_name": service_name, "health_status": "ready"}
+
+        class FakeStore:
+            def __init__(self):
+                self.context = FakeContext()
+
+            def for_store(self):
+                return self.context
+
+        store = FakeStore()
+        api_set_store(store)
+        result = asyncio.run(
+            store_wait_service(
+                {"service_name": "demo", "status": ["healthy", "warning"], "timeout": 3}
+            )
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(store.context.wait_call, ("demo", ["healthy", "warning"], 3))
+
     def test_rust_context_keeps_bridge_execute_and_cache_read_shape(self):
         import asyncio
 

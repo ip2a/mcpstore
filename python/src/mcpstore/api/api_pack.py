@@ -230,7 +230,14 @@ async def store_wait_service(body: Dict[str, Any] = Body(...)):
             field="service_name",
         )
     context = get_store().for_store()
-    result = await _execute(context, context.wait_service_async(service_name, timeout=body.get("timeout", 10.0)))
+    result = await _execute(
+        context,
+        context.wait_service_async(
+            service_name,
+            status=body.get("status"),
+            timeout=body.get("timeout", 10.0),
+        ),
+    )
     return ResponseBuilder.success(message="Service ready status returned", data=result)
 
 
