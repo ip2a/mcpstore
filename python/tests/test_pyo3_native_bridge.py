@@ -212,6 +212,8 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertIsInstance(store.check_services_scoped(), dict)
 
     def test_python_facade_keeps_service_and_tool_proxy_api(self):
+        import asyncio
+
         from mcpstore.core.store.rust_backend import RustStoreBackend, RustStoreContext
 
         schema = {"type": "object", "properties": {"text": {"type": "string"}}}
@@ -367,6 +369,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertIn("demo", repr(service))
         self.assertEqual(service.service_info().name, "demo")
         self.assertEqual(service.check_health()["healthy"], True)
+        self.assertEqual(asyncio.run(service.check_health_async()).healthy, True)
         self.assertEqual(service.find_cache().scope, "service")
         self.assertEqual(service.tools_stats().tool_count, 1)
         self.assertEqual(service.tools_stats().metadata.total_tools, 1)
@@ -382,6 +385,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertTrue(tool.is_available)
         self.assertIn("echo", repr(tool))
         self.assertEqual(tool.tool_info().inputSchema, schema)
+        self.assertEqual(asyncio.run(tool.tool_info_async()).inputSchema, schema)
         self.assertEqual(tool.find_cache().scope, "tool")
         self.assertFalse(tool.usage_stats().history_available)
         self.assertEqual(tool.call_history(limit=5), [])
