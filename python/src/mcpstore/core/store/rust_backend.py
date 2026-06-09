@@ -846,6 +846,25 @@ class RustServiceProxy:
     def is_agent_scoped(self) -> bool:
         return self.agent_id is not None
 
+    @property
+    def context_type(self) -> str:
+        return self._context.context_type
+
+    @property
+    def tools_count(self) -> int:
+        return len(self.list_tools())
+
+    @property
+    def is_connected(self) -> bool:
+        status = self.service_status()
+        health_status = status.get("health_status", status.get("status", "unknown"))
+        return health_status in ("healthy", "connected", "ok", "ready")
+
+    def __repr__(self) -> str:
+        return f"RustServiceProxy(service_name={self._service_name!r}, context_type={self.context_type!r})"
+
+    __str__ = __repr__
+
     def service_info(self) -> Dict[str, Any]:
         return self._context.get_service_info(self._service_name)
 
@@ -890,6 +909,11 @@ class RustServiceProxy:
                     }
                     for tool in tools
                 ],
+                "metadata": {
+                    "total_tools": len(tools),
+                    "services_count": 1,
+                    "tools_by_service": {self._service_name: len(tools)},
+                },
                 "source": "rust_metadata",
                 "history_available": False,
             }
@@ -930,6 +954,9 @@ class RustServiceProxy:
     def patch_config(self, updates: Dict[str, Any]) -> bool:
         return self._context.patch_service(self._service_name, updates)
 
+    def refresh_content(self) -> bool:
+        return self.restart_service()
+
     def restart_service(self) -> bool:
         return self._context.restart_service(self._service_name)
 
@@ -966,6 +993,34 @@ class RustToolProxy:
     @property
     def service_name(self) -> Optional[str]:
         return self._service_name
+
+    @property
+    def context_type(self) -> str:
+        return self._context.context_type
+
+    @property
+    def scope(self) -> str:
+        return "agent" if self._context.agent_id else "store"
+
+    @property
+    def description(self) -> Optional[str]:
+        return self.tool_info().get("description")
+
+    @property
+    def has_schema(self) -> bool:
+        return bool(self.tool_schema())
+
+    @property
+    def is_available(self) -> bool:
+        return bool(self.tool_info().get("name"))
+
+    def __repr__(self) -> str:
+        return (
+            f"RustToolProxy(tool_name={self._tool_name!r}, "
+            f"service_name={self._service_name!r}, scope={self.scope!r})"
+        )
+
+    __str__ = __repr__
 
     def tool_info(self) -> Dict[str, Any]:
         if self._cached_info is None:
@@ -1044,6 +1099,9 @@ class RustToolProxy:
         if not return_extracted:
             return result
         return _extract_text_result(result)
+
+    def test_call(self, args: Optional[Dict[str, Any]] = None) -> Any:
+        return self.call_tool(args)
 
     async def call_tool_async(
         self,
