@@ -143,6 +143,21 @@ impl PyMCPStore {
             .map_err(map_store_err)
     }
 
+    fn event_history(&self, py: Python<'_>, count: usize) -> PyResult<Vec<Py<PyAny>>> {
+        let events =
+            pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.event_history(count));
+        events
+            .into_iter()
+            .map(|event| to_py_object(py, &event, "Event"))
+            .collect()
+    }
+
+    fn event_capability_report(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let report = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.event_capability_report());
+        to_py_object(py, &report, "Event capability report")
+    }
+
     fn restart_service(&self, name: &str) -> PyResult<()> {
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.restart_service(name))
