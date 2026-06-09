@@ -264,6 +264,9 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             def event_capability_report(self):
                 return {"event_bus": True}
 
+            def wait_service_ready(self, name, timeout=10.0):
+                return {"service_global_name": name, "health_status": "ready"}
+
         inner = FakeBackend()
         backend = RustStoreBackend(inner)
         context = RustStoreContext(backend)
@@ -314,6 +317,10 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertTrue(service.disconnect_service())
         self.assertEqual(context.event_history(1)[0].event_type, "TEST")
         self.assertTrue(context.event_capability_report().event_bus)
+        self.assertEqual(context.wait_service("demo", status="healthy").health_status, "ready")
+        self.assertEqual(context.wait_service("demo", status=["healthy", "warning"]).health_status, "ready")
+        with self.assertRaises(TimeoutError):
+            context.wait_service("demo", status="degraded")
         self.assertTrue(service.restart_service())
         self.assertTrue(service.delete_service())
         self.assertEqual(inner.patches, [("demo", {"description": "patched"})])
