@@ -1,11 +1,7 @@
 use mcpstore::perspective;
 use pyo3::prelude::*;
 
-fn to_json<T: serde::Serialize>(value: &T, context: &str) -> PyResult<String> {
-    serde_json::to_string(value).map_err(|err| {
-        pyo3::exceptions::PyRuntimeError::new_err(format!("{context} serialization failed: {err}"))
-    })
-}
+use crate::py_value::{py_to_json_value, to_py_object};
 
 fn map_err(err: mcpstore::StoreError) -> PyErr {
     pyo3::exceptions::PyValueError::new_err(err.to_string())
@@ -22,43 +18,46 @@ impl PyPerspectiveResolver {
     }
 
     #[staticmethod]
-    fn parse_agent_scoped_json(name: &str) -> PyResult<String> {
+    fn parse_agent_scoped(py: Python<'_>, name: &str) -> PyResult<Py<PyAny>> {
         let parsed = perspective::parse_agent_scoped(name).map_err(map_err)?;
-        to_json(&parsed, "Agent scoped name")
+        to_py_object(py, &parsed, "Agent scoped name")
     }
 
     #[staticmethod]
     #[pyo3(signature = (agent_id, name, target="global", strict=false))]
-    fn normalize_service_name_json(
+    fn normalize_service_name(
+        py: Python<'_>,
         agent_id: &str,
         name: &str,
         target: &str,
         strict: bool,
-    ) -> PyResult<String> {
+    ) -> PyResult<Py<PyAny>> {
         let resolution =
             perspective::normalize_service_name(agent_id, name, target, strict).map_err(map_err)?;
-        to_json(&resolution, "Service resolution")
+        to_py_object(py, &resolution, "Service resolution")
     }
 
     #[staticmethod]
-    #[pyo3(signature = (agent_id, user_input, available_tools_json, target="canonical", strict=false))]
-    fn resolve_tool_json(
+    #[pyo3(signature = (agent_id, user_input, available_tools, target="canonical", strict=false))]
+    fn resolve_tool(
+        py: Python<'_>,
         agent_id: &str,
         user_input: &str,
-        available_tools_json: &str,
+        available_tools: &Bound<'_, PyAny>,
         target: &str,
         strict: bool,
-    ) -> PyResult<String> {
+    ) -> PyResult<Py<PyAny>> {
+        let available_tools = py_to_json_value(available_tools, "available_tools")?;
         let available_tools: Vec<perspective::AvailableTool> =
-            serde_json::from_str(available_tools_json).map_err(|err| {
+            serde_json::from_value(available_tools).map_err(|err| {
                 pyo3::exceptions::PyValueError::new_err(format!(
-                    "available_tools JSON parse failed: {err}"
+                    "available_tools conversion failed: {err}"
                 ))
             })?;
         let resolution =
             perspective::resolve_tool(agent_id, user_input, &available_tools, target, strict)
                 .map_err(map_err)?;
-        to_json(&resolution, "Tool resolution")
+        to_py_object(py, &resolution, "Tool resolution")
     }
 
     #[staticmethod]

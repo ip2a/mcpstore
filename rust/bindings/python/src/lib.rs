@@ -11,6 +11,7 @@ use pyo3::prelude::*;
 
 mod core_store;
 mod perspective;
+mod py_value;
 
 /// Python module initialization.
 #[pymodule]
