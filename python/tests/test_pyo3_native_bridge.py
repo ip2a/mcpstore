@@ -453,7 +453,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(inner.restarted, ["demo", "demo"])
         self.assertEqual(inner.removed, ["demo"])
 
-    def test_add_service_accepts_legacy_config_shapes_through_rust(self):
+    def test_add_service_accepts_public_config_shapes_through_rust(self):
         from mcpstore.core.store.rust_backend import RustStoreBackend
 
         class FakeInner:
@@ -751,7 +751,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(tool_input_schema({"input_schema": schema}), schema)
         self.assertEqual(tool_input_schema({"inputSchema": schema}), schema)
 
-    def test_setup_store_normalizes_legacy_cache_options_without_old_core(self):
+    def test_setup_store_normalizes_public_cache_options_without_old_core(self):
         from mcpstore.config import CacheType, MemoryConfig, RedisConfig
         from mcpstore.core.store.setup_manager import StoreSetupManager
 
