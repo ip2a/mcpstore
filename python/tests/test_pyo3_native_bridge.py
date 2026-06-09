@@ -1107,7 +1107,17 @@ class PyO3NativeBridgeTest(unittest.TestCase):
                     "/for_store/update_config/{service_name}",
                     "/for_store/patch_service/{service_name}",
                     "/for_store/delete_config/{service_name}",
+                    "/for_store/list_resources",
+                    "/for_store/list_resource_templates",
+                    "/for_store/read_resource",
+                    "/for_store/list_prompts",
+                    "/for_store/get_prompt",
                     "/for_store/wait_service",
+                    "/for_agent/{agent_id}/list_resources",
+                    "/for_agent/{agent_id}/list_resource_templates",
+                    "/for_agent/{agent_id}/read_resource",
+                    "/for_agent/{agent_id}/list_prompts",
+                    "/for_agent/{agent_id}/get_prompt",
                     "/for_agent/{agent_id}/show_config",
                     "/for_agent/{agent_id}/wait_service",
                     "/for_agent/{agent_id}/patch_service/{service_name}",
@@ -1311,6 +1321,122 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         result = asyncio.run(agent_disconnect_service("agent-c", {"name": "demo"}))
         self.assertTrue(result["success"])
         self.assertEqual(store.agent_contexts["agent-c"].calls, [("disconnect", "demo")])
+
+    def test_api_resources_and_prompts_delegate_to_context(self):
+        if importlib.util.find_spec("fastapi") is None:
+            self.skipTest("fastapi is not installed")
+
+        import asyncio
+
+        from mcpstore.api.api_pack import (
+            agent_get_prompt,
+            agent_list_prompts,
+            agent_list_resource_templates,
+            agent_list_resources,
+            agent_read_resource,
+            api_set_store,
+            store_get_prompt,
+            store_list_prompts,
+            store_list_resource_templates,
+            store_list_resources,
+            store_read_resource,
+        )
+
+        class FakeContext:
+            def __init__(self):
+                self.calls = []
+
+            async def list_resources_async(self, service_name=None):
+                self.calls.append(("list_resources", service_name))
+                return [{"uri": "memory://doc"}]
+
+            async def list_resource_templates_async(self, service_name=None):
+                self.calls.append(("list_resource_templates", service_name))
+                return [{"uriTemplate": "memory://{name}"}]
+
+            async def read_resource_async(self, uri, service_name=None):
+                self.calls.append(("read_resource", uri, service_name))
+                return {"contents": [{"uri": uri, "text": "body"}]}
+
+            async def list_prompts_async(self, service_name=None):
+                self.calls.append(("list_prompts", service_name))
+                return [{"name": "summarize"}]
+
+            async def get_prompt_async(self, prompt_name, arguments=None, service_name=None):
+                self.calls.append(("get_prompt", prompt_name, arguments, service_name))
+                return {"messages": [{"role": "user", "content": {"text": prompt_name}}]}
+
+        class FakeStore:
+            def __init__(self):
+                self.store_context = FakeContext()
+                self.agent_contexts = {}
+
+            def for_store(self):
+                return self.store_context
+
+            def for_agent(self, agent_id):
+                context = FakeContext()
+                self.agent_contexts[agent_id] = context
+                return context
+
+        store = FakeStore()
+        api_set_store(store)
+
+        result = asyncio.run(store_list_resources(service_name="svc"))
+        self.assertTrue(result["success"])
+        self.assertEqual(result["data"]["total"], 1)
+        result = asyncio.run(store_list_resource_templates(service_name="svc"))
+        self.assertTrue(result["success"])
+        result = asyncio.run(store_read_resource(uri="memory://doc", service_name="svc"))
+        self.assertTrue(result["success"])
+        result = asyncio.run(store_list_prompts(service_name="svc"))
+        self.assertTrue(result["success"])
+        result = asyncio.run(
+            store_get_prompt(
+                {"prompt_name": "summarize", "arguments": {"topic": "rust"}, "service_name": "svc"}
+            )
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(
+            store.store_context.calls,
+            [
+                ("list_resources", "svc"),
+                ("list_resource_templates", "svc"),
+                ("read_resource", "memory://doc", "svc"),
+                ("list_prompts", "svc"),
+                ("get_prompt", "summarize", {"topic": "rust"}, "svc"),
+            ],
+        )
+
+        result = asyncio.run(agent_list_resources("agent-a", service_name="svc"))
+        self.assertTrue(result["success"])
+        result = asyncio.run(agent_list_resource_templates("agent-b", service_name="svc"))
+        self.assertTrue(result["success"])
+        result = asyncio.run(agent_read_resource("agent-c", uri="memory://doc", service_name="svc"))
+        self.assertTrue(result["success"])
+        result = asyncio.run(agent_list_prompts("agent-d", service_name="svc"))
+        self.assertTrue(result["success"])
+        result = asyncio.run(
+            agent_get_prompt(
+                "agent-e",
+                {"name": "summarize", "args": {"topic": "agent"}, "service_name": "svc"},
+            )
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(store.agent_contexts["agent-a"].calls, [("list_resources", "svc")])
+        self.assertEqual(
+            store.agent_contexts["agent-b"].calls,
+            [("list_resource_templates", "svc")],
+        )
+        self.assertEqual(
+            store.agent_contexts["agent-c"].calls,
+            [("read_resource", "memory://doc", "svc")],
+        )
+        self.assertEqual(store.agent_contexts["agent-d"].calls, [("list_prompts", "svc")])
+        self.assertEqual(
+            store.agent_contexts["agent-e"].calls,
+            [("get_prompt", "summarize", {"topic": "agent"}, "svc")],
+        )
 
     def test_rust_context_keeps_cache_read_shape(self):
         from mcpstore.core.store.rust_backend import RustCacheProxy, RustStoreContext

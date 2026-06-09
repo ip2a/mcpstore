@@ -57,6 +57,80 @@ async def store_list_tools(service_name: Optional[str] = Query(None)):
     return ResponseBuilder.success(message="Tools returned", data={"tools": tools})
 
 
+@api_store_router.get("/list_resources")
+@api_store_router.get("/resources")
+@timed_response
+async def store_list_resources(service_name: Optional[str] = Query(None)):
+    context = get_store().for_store()
+    resources = await _execute(context, context.list_resources_async(service_name=service_name))
+    return ResponseBuilder.success(
+        message="Resources returned",
+        data={"resources": resources, "total": len(resources)},
+    )
+
+
+@api_store_router.get("/list_resource_templates")
+@timed_response
+async def store_list_resource_templates(service_name: Optional[str] = Query(None)):
+    context = get_store().for_store()
+    templates = await _execute(
+        context,
+        context.list_resource_templates_async(service_name=service_name),
+    )
+    return ResponseBuilder.success(
+        message="Resource templates returned",
+        data={"resource_templates": templates, "total": len(templates)},
+    )
+
+
+@api_store_router.get("/read_resource")
+@timed_response
+async def store_read_resource(
+    uri: str = Query(...),
+    service_name: Optional[str] = Query(None),
+):
+    context = get_store().for_store()
+    result = await _execute(
+        context,
+        context.read_resource_async(uri, service_name=service_name),
+    )
+    return ResponseBuilder.success(message="Resource returned", data=result)
+
+
+@api_store_router.get("/list_prompts")
+@api_store_router.get("/prompts")
+@timed_response
+async def store_list_prompts(service_name: Optional[str] = Query(None)):
+    context = get_store().for_store()
+    prompts = await _execute(context, context.list_prompts_async(service_name=service_name))
+    return ResponseBuilder.success(
+        message="Prompts returned",
+        data={"prompts": prompts, "total": len(prompts)},
+    )
+
+
+@api_store_router.post("/get_prompt")
+@timed_response
+async def store_get_prompt(body: Dict[str, Any] = Body(...)):
+    prompt_name = body.get("prompt_name") or body.get("prompt") or body.get("name")
+    if not prompt_name:
+        return ResponseBuilder.error(
+            code=ErrorCode.MISSING_PARAMETER,
+            message="Missing prompt_name",
+            field="prompt_name",
+        )
+    context = get_store().for_store()
+    result = await _execute(
+        context,
+        context.get_prompt_async(
+            prompt_name,
+            body.get("args") or body.get("arguments") or {},
+            service_name=body.get("service_name"),
+        ),
+    )
+    return ResponseBuilder.success(message="Prompt returned", data=result)
+
+
 @api_store_router.post("/call_tool")
 @timed_response
 async def store_call_tool(body: Dict[str, Any] = Body(...)):
@@ -267,12 +341,93 @@ async def agent_add_service(agent_id: str, payload: Any = Body(...)):
 
 
 @api_agent_router.get("/{agent_id}/tools")
+@api_agent_router.get("/{agent_id}/list_tools")
 @timed_response
 async def agent_list_tools(agent_id: str, service_name: Optional[str] = Query(None)):
     validate_agent_id(agent_id)
     context = get_store().for_agent(agent_id)
     tools = await _execute(context, context.list_tools_async(service_name=service_name))
     return ResponseBuilder.success(message="Agent tools returned", data={"tools": tools})
+
+
+@api_agent_router.get("/{agent_id}/list_resources")
+@api_agent_router.get("/{agent_id}/resources")
+@timed_response
+async def agent_list_resources(agent_id: str, service_name: Optional[str] = Query(None)):
+    validate_agent_id(agent_id)
+    context = get_store().for_agent(agent_id)
+    resources = await _execute(context, context.list_resources_async(service_name=service_name))
+    return ResponseBuilder.success(
+        message="Agent resources returned",
+        data={"resources": resources, "total": len(resources)},
+    )
+
+
+@api_agent_router.get("/{agent_id}/list_resource_templates")
+@timed_response
+async def agent_list_resource_templates(agent_id: str, service_name: Optional[str] = Query(None)):
+    validate_agent_id(agent_id)
+    context = get_store().for_agent(agent_id)
+    templates = await _execute(
+        context,
+        context.list_resource_templates_async(service_name=service_name),
+    )
+    return ResponseBuilder.success(
+        message="Agent resource templates returned",
+        data={"resource_templates": templates, "total": len(templates)},
+    )
+
+
+@api_agent_router.get("/{agent_id}/read_resource")
+@timed_response
+async def agent_read_resource(
+    agent_id: str,
+    uri: str = Query(...),
+    service_name: Optional[str] = Query(None),
+):
+    validate_agent_id(agent_id)
+    context = get_store().for_agent(agent_id)
+    result = await _execute(
+        context,
+        context.read_resource_async(uri, service_name=service_name),
+    )
+    return ResponseBuilder.success(message="Agent resource returned", data=result)
+
+
+@api_agent_router.get("/{agent_id}/list_prompts")
+@api_agent_router.get("/{agent_id}/prompts")
+@timed_response
+async def agent_list_prompts(agent_id: str, service_name: Optional[str] = Query(None)):
+    validate_agent_id(agent_id)
+    context = get_store().for_agent(agent_id)
+    prompts = await _execute(context, context.list_prompts_async(service_name=service_name))
+    return ResponseBuilder.success(
+        message="Agent prompts returned",
+        data={"prompts": prompts, "total": len(prompts)},
+    )
+
+
+@api_agent_router.post("/{agent_id}/get_prompt")
+@timed_response
+async def agent_get_prompt(agent_id: str, body: Dict[str, Any] = Body(...)):
+    validate_agent_id(agent_id)
+    prompt_name = body.get("prompt_name") or body.get("prompt") or body.get("name")
+    if not prompt_name:
+        return ResponseBuilder.error(
+            code=ErrorCode.MISSING_PARAMETER,
+            message="Missing prompt_name",
+            field="prompt_name",
+        )
+    context = get_store().for_agent(agent_id)
+    result = await _execute(
+        context,
+        context.get_prompt_async(
+            prompt_name,
+            body.get("args") or body.get("arguments") or {},
+            service_name=body.get("service_name"),
+        ),
+    )
+    return ResponseBuilder.success(message="Agent prompt returned", data=result)
 
 
 @api_agent_router.post("/{agent_id}/call_tool")
