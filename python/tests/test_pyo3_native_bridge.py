@@ -332,21 +332,31 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(context.get_info().context_type, "store")
         self.assertEqual(agent.get_info().agent_id, "agent-a")
         with patch.object(backend, "start_mcp_server", return_value=0) as start_mcp_server:
+            self.assertEqual(context.hub_http(), 0)
+        start_mcp_server.assert_called_once_with(
+            agent_id=None,
+            transport="streamable-http",
+            host="0.0.0.0",
+            port=8000,
+            path="/mcp",
+            block=False,
+        )
+        with patch.object(backend, "start_mcp_server", return_value=0) as start_mcp_server:
             self.assertEqual(context.hub_sse(), 0)
         start_mcp_server.assert_called_once_with(
             agent_id=None,
             transport="streamable-http",
-            host="127.0.0.1",
-            port=18300,
+            host="0.0.0.0",
+            port=8000,
             path="/mcp",
-            block=True,
+            block=False,
         )
         with patch.object(backend, "start_mcp_server", return_value=0) as start_mcp_server:
             self.assertEqual(context.hub_stdio(), 0)
         start_mcp_server.assert_called_once_with(
             agent_id=None,
             transport="stdio",
-            block=True,
+            block=False,
         )
 
         service = context.find_service("demo")
