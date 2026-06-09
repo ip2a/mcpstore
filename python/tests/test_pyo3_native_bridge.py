@@ -164,8 +164,10 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(written, exported)
         self.assertEqual(json.loads(filepath_backup.read_text(encoding="utf-8")), exported)
 
-        with self.assertRaises(ValueError):
-            asyncio.run(store.exportjson(filepath=backup, output_path=output_backup))
+        with self.assertRaisesRegex(TypeError, "output_path"):
+            store.exportjson(output_path=output_backup)
+        with self.assertRaisesRegex(TypeError, "filepath"):
+            store.export_to_json(filepath=filepath_backup)
 
         asyncio.run(store.cleanup())
         self.assertEqual(store.for_store().list_services(), [])
