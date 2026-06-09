@@ -686,14 +686,11 @@ class RustStoreBackend:
         self,
         filepath: Optional[str] = None,
         *,
-        output_path: Optional[str] = None,
         include_sessions: bool = False,
     ) -> Dict[str, Any]:
-        if filepath is not None and output_path is not None:
-            raise ValueError("filepath 和 output_path 不能同时传入")
         if include_sessions:
             raise NotImplementedError("Rust core does not expose serializable session state")
-        path = output_path if output_path is not None else filepath
+        path = filepath
         path = os.fspath(path) if path is not None else None
         config = self.get_json_config()
         if path:
@@ -705,12 +702,10 @@ class RustStoreBackend:
         self,
         output_path: Optional[str] = None,
         *,
-        filepath: Optional[str] = None,
         include_sessions: bool = False,
     ) -> Dict[str, Any]:
         return await self.exportjson(
-            filepath=filepath,
-            output_path=output_path,
+            filepath=output_path,
             include_sessions=include_sessions,
         )
 
