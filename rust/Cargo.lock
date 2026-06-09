@@ -1280,7 +1280,7 @@ dependencies = [
 
 [[package]]
 name = "mcpstore"
-version = "0.1.0"
+version = "1.5.18"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1301,7 +1301,7 @@ dependencies = [
 
 [[package]]
 name = "mcpstore-cli"
-version = "0.1.0"
+version = "1.5.18"
 dependencies = [
  "axum",
  "chrono",
@@ -1323,7 +1323,7 @@ dependencies = [
 
 [[package]]
 name = "mcpstore_python"
-version = "0.1.0"
+version = "1.5.18"
 dependencies = [
  "mcpstore",
  "pyo3",
