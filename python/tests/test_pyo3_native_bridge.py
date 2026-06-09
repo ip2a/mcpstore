@@ -1816,6 +1816,101 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             [("get_prompt", "summarize", {"topic": "agent"}, "svc")],
         )
 
+    def test_api_tool_and_prompt_arguments_are_not_squashed(self):
+        import asyncio
+        import importlib
+        import sys
+        import types
+
+        if importlib.util.find_spec("fastapi") is None:
+            class FakeAPIRouter:
+                def __init__(self, *args, **kwargs):
+                    pass
+
+                def get(self, *args, **kwargs):
+                    return lambda func: func
+
+                def post(self, *args, **kwargs):
+                    return lambda func: func
+
+                def put(self, *args, **kwargs):
+                    return lambda func: func
+
+                def patch(self, *args, **kwargs):
+                    return lambda func: func
+
+                def delete(self, *args, **kwargs):
+                    return lambda func: func
+
+                def include_router(self, *args, **kwargs):
+                    return None
+
+            fake_fastapi = types.ModuleType("fastapi")
+            fake_fastapi.APIRouter = FakeAPIRouter
+            fake_fastapi.Body = lambda default=None, **kwargs: default
+            fake_fastapi.Query = lambda default=None, **kwargs: default
+            with patch.dict(sys.modules, {"fastapi": fake_fastapi}):
+                sys.modules.pop("mcpstore.api.api_pack", None)
+                api_pack = importlib.import_module("mcpstore.api.api_pack")
+        else:
+            api_pack = importlib.import_module("mcpstore.api.api_pack")
+
+        class FakeContext:
+            def __init__(self):
+                self.calls = []
+
+            async def call_tool_async(self, tool_name, args=None):
+                self.calls.append(("call_tool", tool_name, args))
+                return {"ok": True}
+
+            async def get_prompt_async(self, prompt_name, arguments=None, service_name=None):
+                self.calls.append(("get_prompt", prompt_name, arguments, service_name))
+                return {"ok": True}
+
+        class FakeStore:
+            def __init__(self):
+                self.store_context = FakeContext()
+                self.agent_contexts = {}
+
+            def for_store(self):
+                return self.store_context
+
+            def for_agent(self, agent_id):
+                context = FakeContext()
+                self.agent_contexts[agent_id] = context
+                return context
+
+        store = FakeStore()
+        api_pack.api_set_store(store)
+
+        result = asyncio.run(api_pack.store_call_tool({"tool_name": "echo", "args": ""}))
+        self.assertTrue(result["success"])
+        result = asyncio.run(
+            api_pack.store_get_prompt(
+                {"prompt_name": "summarize", "arguments": '{"topic":"rust"}'}
+            )
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(
+            store.store_context.calls,
+            [
+                ("call_tool", "echo", ""),
+                ("get_prompt", "summarize", '{"topic":"rust"}', None),
+            ],
+        )
+
+        result = asyncio.run(
+            api_pack.agent_call_tool("agent-a", {"tool_name": "echo", "args": ""})
+        )
+        self.assertTrue(result["success"])
+        result = asyncio.run(api_pack.agent_get_prompt("agent-b", {"name": "summarize", "args": ""}))
+        self.assertTrue(result["success"])
+        self.assertEqual(store.agent_contexts["agent-a"].calls, [("call_tool", "echo", "")])
+        self.assertEqual(
+            store.agent_contexts["agent-b"].calls,
+            [("get_prompt", "summarize", "", None)],
+        )
+
     def test_rust_context_keeps_cache_read_shape(self):
         from mcpstore.core.store.rust_backend import RustCacheProxy, RustStoreContext
 
