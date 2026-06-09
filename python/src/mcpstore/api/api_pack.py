@@ -300,6 +300,15 @@ async def agent_check_services(agent_id: str):
     return ResponseBuilder.success(message="Agent service health returned", data=result)
 
 
+@api_agent_router.get("/{agent_id}/show_config")
+@timed_response
+async def agent_show_config(agent_id: str, scope: str = Query("all")):
+    validate_agent_id(agent_id)
+    context = get_store().for_agent(agent_id)
+    result = await _execute(context, context.show_config_async(scope))
+    return ResponseBuilder.success(message="Agent config returned", data=result)
+
+
 @api_agent_router.post("/{agent_id}/wait_service")
 @timed_response
 async def agent_wait_service(agent_id: str, body: Dict[str, Any] = Body(...)):
