@@ -285,6 +285,21 @@ async def store_restart_service(body: Dict[str, Any] = Body(...)):
     return ResponseBuilder.success(message="Service restarted", data={"service_name": service_name, "ok": bool(ok)})
 
 
+@api_store_router.post("/connect_service")
+@timed_response
+async def store_connect_service(body: Dict[str, Any] = Body(...)):
+    service_name = body.get("service_name") or body.get("name")
+    if not service_name:
+        return ResponseBuilder.error(
+            code=ErrorCode.MISSING_PARAMETER,
+            message="Missing service_name",
+            field="service_name",
+        )
+    context = get_store().for_store()
+    ok = await _execute(context, context.connect_service_async(service_name))
+    return ResponseBuilder.success(message="Service connected", data={"service_name": service_name, "ok": bool(ok)})
+
+
 @api_store_router.post("/disconnect_service")
 @timed_response
 async def store_disconnect_service(body: Dict[str, Any] = Body(...)):
@@ -547,6 +562,22 @@ async def agent_restart_service(agent_id: str, body: Dict[str, Any] = Body(...))
     context = get_store().for_agent(agent_id)
     ok = await _execute(context, context.restart_service_async(service_name))
     return ResponseBuilder.success(message="Agent service restarted", data={"service_name": service_name, "ok": bool(ok)})
+
+
+@api_agent_router.post("/{agent_id}/connect_service")
+@timed_response
+async def agent_connect_service(agent_id: str, body: Dict[str, Any] = Body(...)):
+    validate_agent_id(agent_id)
+    service_name = body.get("service_name") or body.get("name")
+    if not service_name:
+        return ResponseBuilder.error(
+            code=ErrorCode.MISSING_PARAMETER,
+            message="Missing service_name",
+            field="service_name",
+        )
+    context = get_store().for_agent(agent_id)
+    ok = await _execute(context, context.connect_service_async(service_name))
+    return ResponseBuilder.success(message="Agent service connected", data={"service_name": service_name, "ok": bool(ok)})
 
 
 @api_agent_router.post("/{agent_id}/disconnect_service")
