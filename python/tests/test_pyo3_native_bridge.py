@@ -511,6 +511,55 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(inner.agent_added[1][0], "agent-b")
         self.assertEqual(inner.agent_added[1][1], "wide-agent")
 
+    def test_rust_context_exposes_documented_async_facade_methods(self):
+        import asyncio
+
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        class FakeInner:
+            def __init__(self):
+                self.added = []
+
+            def add_service(self, name, config):
+                self.added.append((name, config))
+
+            def list_services_scoped(self, agent_id=None):
+                return [{"name": "demo"}]
+
+            def list_tools_scoped(self, agent_id=None, service_name=None):
+                return [
+                    {
+                        "name": "demo_echo",
+                        "original_name": "echo",
+                        "service_name": "demo",
+                    }
+                ]
+
+            def wait_service_ready(self, name, timeout):
+                return {"service_global_name": name, "health_status": "ready"}
+
+            def show_config(self):
+                return {"mcpServers": {"demo": {}}, "agents": {}, "clients": {}}
+
+        backend = RustStoreBackend(FakeInner())
+        context = backend.for_store()
+
+        async def run():
+            added_context = await context.add_service_async(
+                {"name": "demo", "url": "https://example.test/mcp"}
+            )
+            self.assertIs(added_context, context)
+            self.assertEqual((await context.list_services_async())[0].name, "demo")
+            self.assertEqual((await context.list_tools_async())[0].name, "demo_echo")
+            self.assertEqual((await context.find_tool_async("echo")).name, "echo")
+            self.assertEqual(
+                (await context.wait_service_async("demo", status="healthy")).health_status,
+                "ready",
+            )
+            self.assertEqual(set((await context.show_config_async("mcp")).mcpServers), {"demo"})
+
+        asyncio.run(run())
+
     def test_python_facade_keeps_session_api_shape(self):
         from mcpstore.core.store.rust_backend import RustStoreBackend, RustStoreContext
 
