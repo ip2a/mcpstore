@@ -799,6 +799,10 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(session.session_id, "browser_task")
         self.assertTrue(session.is_active)
         self.assertEqual(context.find_session("browser_task"), session)
+        with self.assertRaisesRegex(TypeError, "user_session_id"):
+            context.create_session("browser_task", user_session_id="legacy")
+        with self.assertRaisesRegex(TypeError, "is_user_session_id"):
+            context.find_session("browser_task", is_user_session_id=True)
 
         with context.with_session("browser_task") as active:
             active.bind_service("browser")
@@ -820,6 +824,12 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertIsNone(context.active_session)
         context.session_auto("auto_browser")
         self.assertEqual(context.active_session.session_id, "auto_browser")
+        with self.assertRaisesRegex(TypeError, "default_timeout"):
+            context.session_auto(default_timeout=1)
+        with self.assertRaisesRegex(TypeError, "auto_cleanup"):
+            context.session_auto(auto_cleanup=True)
+        with self.assertRaisesRegex(TypeError, "session_prefix"):
+            context.session_auto(session_prefix="legacy_")
         context.session_manual()
         self.assertIsNone(context.active_session)
 
