@@ -1904,9 +1904,23 @@ class RustStoreContext:
             **kwargs,
         )
 
-    def hub_sse(self, *args, **kwargs) -> Any:
-        raise NotImplementedError(
-            "Rust mcp-server 当前仅暴露 stdio 和 streamable-http server transport；SSE 需要先在 Rust 侧实现。"
+    def hub_sse(
+        self,
+        *,
+        port: int = 18300,
+        host: str = "127.0.0.1",
+        path: str = "/mcp",
+        block: bool = True,
+        **kwargs,
+    ) -> Any:
+        return self._backend.start_mcp_server(
+            agent_id=self._agent_id,
+            transport="streamable-http",
+            host=host,
+            port=port,
+            path=path,
+            block=block,
+            **kwargs,
         )
 
     def hub_stdio(
