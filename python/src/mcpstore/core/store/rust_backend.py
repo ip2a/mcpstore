@@ -17,24 +17,13 @@ class RustRecordView(dict):
         "outputSchema": "output_schema",
         "transport_type": "transport",
     }
-    _OPTIONAL_DEFAULTS = {
-        "args": [],
-        "called_at": None,
-        "client_id": None,
-        "command": None,
-        "config": None,
-        "content": [],
-        "description": None,
-        "env": {},
-        "headers": {},
-        "meta": {},
-        "tags": [],
-        "state_metadata": None,
-        "data": None,
-        "structured_content": None,
-        "url": None,
-        "working_dir": None,
-        "workingDir": None,
+    _CONFIG_FIELD_ALIASES = {
+        "args": "args",
+        "description": "description",
+        "env": "env",
+        "headers": "headers",
+        "working_dir": "workingDir",
+        "workingDir": "workingDir",
     }
 
     def __getattr__(self, name: str) -> Any:
@@ -43,8 +32,9 @@ class RustRecordView(dict):
         key = self._ALIASES.get(name, name)
         if key in self:
             return self[key]
-        if name in self._OPTIONAL_DEFAULTS:
-            return self._default_value(name)
+        value = self._config_field_value(name)
+        if value is not _MISSING:
+            return value
         raise AttributeError(name)
 
     def __getitem__(self, key: Any) -> Any:
@@ -56,8 +46,9 @@ class RustRecordView(dict):
                 return super().__getitem__(aliased)
             if super().__contains__(key):
                 return super().__getitem__(key)
-            if key in self._OPTIONAL_DEFAULTS:
-                return self._default_value(key)
+            value = self._config_field_value(key)
+            if value is not _MISSING:
+                return value
         return super().__getitem__(key)
 
     def get(self, key: Any, default: Any = None) -> Any:
@@ -69,8 +60,9 @@ class RustRecordView(dict):
                 return super().get(aliased, default)
             if super().__contains__(key):
                 return super().get(key, default)
-            if key in self._OPTIONAL_DEFAULTS:
-                return self._default_value(key)
+            value = self._config_field_value(key)
+            if value is not _MISSING:
+                return value
         return super().get(key, default)
 
     def __contains__(self, key: object) -> bool:
@@ -80,18 +72,21 @@ class RustRecordView(dict):
             aliased = self._ALIASES.get(key)
             if aliased and super().__contains__(aliased):
                 return True
-            if key in self._OPTIONAL_DEFAULTS:
+            if self._config_field_value(key) is not _MISSING:
                 return True
         return super().__contains__(key)
 
-    @classmethod
-    def _default_value(cls, name: str) -> Any:
-        default = cls._OPTIONAL_DEFAULTS[name]
-        if isinstance(default, dict):
-            return dict(default)
-        if isinstance(default, list):
-            return list(default)
-        return default
+    def _config_field_value(self, name: str) -> Any:
+        config_key = self._CONFIG_FIELD_ALIASES.get(name)
+        if not config_key or not super().__contains__("config"):
+            return _MISSING
+        config = super().__getitem__("config")
+        if isinstance(config, dict) and config_key in config:
+            return config[config_key]
+        return _MISSING
+
+
+_MISSING = object()
 
 
 def _record_value(value: Any) -> Any:

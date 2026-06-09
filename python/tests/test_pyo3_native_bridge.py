@@ -70,6 +70,36 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertIsInstance(store.get_json_config(), dict)
         self.assertEqual(store.get_data_space_info()["backend"], "memory")
 
+    def test_record_view_reads_service_config_fields_without_fake_defaults(self):
+        from mcpstore.core.store.rust_backend import RustRecordView
+
+        record = RustRecordView(
+            {
+                "name": "demo",
+                "config": {
+                    "args": ["-c", "print(1)"],
+                    "env": {"A": "B"},
+                    "headers": {},
+                    "workingDir": "/tmp/demo",
+                },
+            }
+        )
+
+        self.assertEqual(record.args, ["-c", "print(1)"])
+        self.assertEqual(record["args"], ["-c", "print(1)"])
+        self.assertEqual(record.env, {"A": "B"})
+        self.assertEqual(record.working_dir, "/tmp/demo")
+        self.assertEqual(record.workingDir, "/tmp/demo")
+        self.assertIn("args", record)
+
+        missing = RustRecordView({"name": "demo"})
+        self.assertNotIn("args", missing)
+        self.assertNotIn("data", missing)
+        with self.assertRaises(AttributeError):
+            _ = missing.args
+        with self.assertRaises(KeyError):
+            _ = missing["data"]
+
     def test_rust_store_backend_has_no_python_fallback_without_pyo3(self):
         import importlib
 
