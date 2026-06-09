@@ -433,6 +433,10 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(service.tools_stats().metadata.total_tools, 1)
         self.assertEqual(service.tools_stats().metadata.tools_by_service.demo, 1)
         self.assertTrue(service.tools_stats().history_available)
+        self.assertTrue(service.update_service({"timeout": 10}))
+        self.assertTrue(service.patch_service({"headers": {"X-Test": "1"}}))
+        self.assertFalse(hasattr(service, "update_config"))
+        self.assertFalse(hasattr(service, "patch_config"))
         self.assertEqual(service.tools_stats().call_count, 1)
         self.assertEqual(service.tools_stats().error_count, 0)
         self.assertEqual(service.tools_stats().last_called_at, 20)
@@ -486,7 +490,14 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             context.wait_service("demo", status="degraded")
         self.assertTrue(service.restart_service())
         self.assertTrue(service.delete_service())
-        self.assertEqual(inner.patches, [("demo", {"description": "patched"})])
+        self.assertEqual(
+            inner.patches,
+            [
+                ("demo", {"timeout": 10}),
+                ("demo", {"headers": {"X-Test": "1"}}),
+                ("demo", {"description": "patched"}),
+            ],
+        )
         self.assertEqual(inner.restarted, ["demo", "demo"])
         self.assertEqual(inner.removed, ["demo"])
 

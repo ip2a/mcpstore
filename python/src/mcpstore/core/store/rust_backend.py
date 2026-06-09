@@ -1034,10 +1034,10 @@ class RustServiceProxy:
             service_name=self._service_name,
         )
 
-    def update_config(self, config: Any) -> bool:
+    def update_service(self, config: Any) -> bool:
         return self._context.update_service(self._service_name, config)
 
-    def patch_config(self, updates: Any) -> bool:
+    def patch_service(self, updates: Any) -> bool:
         return self._context.patch_service(self._service_name, updates)
 
     def refresh_content(self) -> bool:
