@@ -356,6 +356,12 @@ class RustStoreBackend:
     def show_config(self) -> Dict[str, Any]:
         return _record_value(self._inner.show_config())
 
+    def cache_health_check(self) -> Dict[str, Any]:
+        return _record_value(self._inner.cache_health_check())
+
+    def cache_inspect(self) -> Dict[str, Any]:
+        return _record_value(self._inner.cache_inspect())
+
     def reset_config(self) -> bool:
         self._inner.reset_config()
         return True
@@ -417,6 +423,9 @@ class RustServiceProxy:
 
     def find_tool(self, tool_name: str) -> "RustToolProxy":
         return RustToolProxy(self._context, tool_name, service_name=self._service_name)
+
+    def find_cache(self) -> "RustCacheProxy":
+        return RustCacheProxy(self._context, scope="service", scope_value=self._service_name)
 
     def list_resources(self) -> List[Dict[str, Any]]:
         return self._context.list_resources(service_name=self._service_name)
@@ -492,6 +501,9 @@ class RustToolProxy:
     def tool_meta(self) -> Dict[str, Any]:
         return self.tool_info().get("meta", {}) or {}
 
+    def find_cache(self) -> "RustCacheProxy":
+        return RustCacheProxy(self._context, scope="tool", scope_value=self._tool_name)
+
     def call_tool(
         self,
         args: Optional[Dict[str, Any]] = None,
@@ -549,6 +561,35 @@ class RustToolProxy:
         return _record_value({"name": self._tool_name, "service_name": self._service_name})
 
 
+class RustCacheProxy:
+    def __init__(
+        self,
+        context: "RustStoreContext",
+        scope: str = "global",
+        scope_value: Optional[str] = None,
+    ):
+        self._context = context
+        self._scope = scope
+        self._scope_value = scope_value
+
+    @property
+    def scope(self) -> str:
+        return self._scope
+
+    @property
+    def scope_value(self) -> Optional[str]:
+        return self._scope_value
+
+    def inspect(self) -> Dict[str, Any]:
+        return _record_value(self._context._backend.cache_inspect())
+
+    def health_check(self) -> Dict[str, Any]:
+        return _record_value(self._context._backend.cache_health_check())
+
+    def stats(self) -> Dict[str, Any]:
+        return self.inspect()
+
+
 class RustStoreContext:
     def __init__(self, backend: RustStoreBackend, agent_id: Optional[str] = None):
         self._backend = backend
@@ -595,6 +636,13 @@ class RustStoreContext:
 
     def find_tool(self, tool_name: str) -> RustToolProxy:
         return RustToolProxy(self, tool_name)
+
+    def find_agent(self, agent_id: str) -> "RustStoreContext":
+        return RustStoreContext(self._backend, agent_id=agent_id)
+
+    def find_cache(self) -> RustCacheProxy:
+        scope = "agent" if self._agent_id else "global"
+        return RustCacheProxy(self, scope=scope, scope_value=self._agent_id)
 
     def get_service_info(self, name: str) -> Dict[str, Any]:
         service_name = self._resolve_service_name(name)

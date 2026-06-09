@@ -93,6 +93,8 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(store.list_resources_scoped(), [])
         self.assertEqual(store.list_resource_templates_scoped(), [])
         self.assertEqual(store.list_prompts_scoped(), [])
+        self.assertIsInstance(store.cache_health_check(), dict)
+        self.assertIsInstance(store.cache_inspect(), dict)
 
         store.add_service(
             "demo",
@@ -171,6 +173,12 @@ class PyO3NativeBridgeTest(unittest.TestCase):
                     "service_name": service_name or "demo",
                 }
 
+            def cache_health_check(self):
+                return {"healthy": True}
+
+            def cache_inspect(self):
+                return {"backend": "memory"}
+
             def patch_service(self, name, updates):
                 self.patches.append((name, updates))
                 return True
@@ -185,14 +193,23 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
         backend = FakeBackend()
         context = RustStoreContext(backend)
+        agent = context.find_agent("agent-a")
+        self.assertEqual(agent.agent_id, "agent-a")
+        self.assertEqual(context.find_cache().scope, "global")
+        self.assertEqual(agent.find_cache().scope, "agent")
+        self.assertEqual(context.find_cache().inspect().backend, "memory")
+        self.assertEqual(context.find_cache().health_check().healthy, True)
+
         service = context.find_service("demo")
         self.assertEqual(service.name, "demo")
         self.assertEqual(service.service_info().name, "demo")
         self.assertEqual(service.check_health()["healthy"], True)
+        self.assertEqual(service.find_cache().scope, "service")
 
         tool = service.find_tool("echo")
         self.assertEqual(tool.name, "echo")
         self.assertEqual(tool.tool_info().inputSchema, schema)
+        self.assertEqual(tool.find_cache().scope, "tool")
         self.assertEqual(tool.call_tool({"text": "ok"}, return_extracted=True), "ok")
         self.assertEqual(context.list_resources()[0].uri, "memory://doc")
         self.assertEqual(service.list_resource_templates()[0].uriTemplate, "memory://{name}")
