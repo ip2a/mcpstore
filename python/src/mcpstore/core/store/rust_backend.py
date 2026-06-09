@@ -280,6 +280,9 @@ class RustStoreBackend:
     def list_services(self) -> List[Dict[str, Any]]:
         return _record_value(self._inner.list_services())
 
+    def list_agents(self) -> List[Dict[str, Any]]:
+        return _record_value(self._inner.list_agents())
+
     def list_services_scoped(self, agent_id: Optional[str] = None) -> List[Dict[str, Any]]:
         return _record_value(self._inner.list_services_scoped(agent_id))
 
@@ -378,8 +381,15 @@ class RustStoreBackend:
     def resolve_service_name_for_agent(self, agent_id: str, service_name: str) -> str:
         return self._inner.resolve_service_name_for_agent(agent_id, service_name)
 
-    def show_config(self) -> Dict[str, Any]:
-        return _record_value(self._inner.show_config())
+    def show_config(self, scope: str = "all") -> Dict[str, Any]:
+        config = _record_value(self._inner.show_config())
+        if scope in (None, "all"):
+            return config
+        if scope in ("mcp", "mcpServers"):
+            return _record_value({"mcpServers": config.get("mcpServers", {})})
+        if scope in ("agents", "agent"):
+            return _record_value({"agents": config.get("agents", {})})
+        raise ValueError(f"Rust core 当前不支持 show_config scope={scope!r}")
 
     def cache_health_check(self) -> Dict[str, Any]:
         return _record_value(self._inner.cache_health_check())
@@ -434,6 +444,52 @@ class RustStoreBackend:
 
         completed = subprocess.run(cmd, cwd=resolve_runtime_cwd(), check=False)
         return completed.returncode
+
+    def start_mcp_server(
+        self,
+        *,
+        agent_id: Optional[str] = None,
+        host: str = "127.0.0.1",
+        port: int = 18300,
+        path: str = "/mcp",
+        block: bool = True,
+        **_kwargs,
+    ) -> Any:
+        from mcpstore._rust_cli import resolve_rust_cli_binary, resolve_runtime_cwd
+
+        cmd = [
+            resolve_rust_cli_binary(),
+            "mcp-server",
+            "--transport",
+            "streamable-http",
+            "--host",
+            str(host),
+            "--port",
+            str(port),
+            "--path",
+            str(path),
+            "--scope",
+            "agent" if agent_id else "store",
+        ]
+        if agent_id:
+            cmd.extend(["--agent", agent_id])
+        if self._config_path:
+            cmd.extend(["--config-path", self._config_path])
+        if self._only_db:
+            cmd.extend(["--source", "db"])
+
+        backend, redis_url, namespace = self._cache_options(self._cache_config)
+        if backend:
+            cmd.extend(["--backend", backend])
+        if redis_url:
+            cmd.extend(["--redis-url", redis_url])
+        if namespace:
+            cmd.extend(["--namespace", namespace])
+
+        if block:
+            completed = subprocess.run(cmd, cwd=resolve_runtime_cwd(), check=False)
+            return completed.returncode
+        return subprocess.Popen(cmd, cwd=resolve_runtime_cwd())
 
     def session_key(self, agent_id: Optional[str]) -> str:
         return agent_id or "global_agent_store"
@@ -951,6 +1007,9 @@ class RustStoreContext:
     def list_services(self) -> List[Dict[str, Any]]:
         return _record_value(self._backend.list_services_scoped(self._agent_id))
 
+    def list_agents(self) -> List[Dict[str, Any]]:
+        return _record_value(self._backend.list_agents())
+
     def _list_tools_direct(
         self,
         service_name: Optional[str] = None,
@@ -1241,8 +1300,26 @@ class RustStoreContext:
                 return overrides[flag]
         return default
 
-    def show_config(self) -> Dict[str, Any]:
-        return self._backend.show_config()
+    def show_config(self, scope: str = "all") -> Dict[str, Any]:
+        return self._backend.show_config(scope)
+
+    def hub_http(
+        self,
+        *,
+        port: int = 18300,
+        host: str = "127.0.0.1",
+        path: str = "/mcp",
+        block: bool = True,
+        **kwargs,
+    ) -> Any:
+        return self._backend.start_mcp_server(
+            agent_id=self._agent_id,
+            host=host,
+            port=port,
+            path=path,
+            block=block,
+            **kwargs,
+        )
 
     def reset_config(self) -> bool:
         return self._backend.reset_config()
