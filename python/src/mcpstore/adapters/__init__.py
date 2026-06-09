@@ -12,6 +12,9 @@ def __getattr__(name: str):
         "LangChainAdapter": ".langchain_adapter",
         "OpenAIAdapter": ".openai_adapter",
         "AutoGenAdapter": ".autogen_adapter",
+        "LlamaIndexAdapter": ".llamaindex_adapter",
+        "CrewAIAdapter": ".crewai_adapter",
+        "SemanticKernelAdapter": ".semantic_kernel_adapter",
     }
     if name in _mapping:
         import importlib
@@ -26,4 +29,7 @@ __all__ = [
     "LangChainAdapter",
     "OpenAIAdapter",
     "AutoGenAdapter",
+    "LlamaIndexAdapter",
+    "CrewAIAdapter",
+    "SemanticKernelAdapter",
 ]
