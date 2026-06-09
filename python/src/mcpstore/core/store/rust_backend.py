@@ -1,5 +1,6 @@
 import importlib
 import json
+import os
 import subprocess
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
@@ -218,6 +219,7 @@ class RustStoreBackend:
         only_db: bool = False,
     ) -> "RustStoreBackend":
         rust_mod = importlib.import_module("mcpstore._rust")
+        config_path = os.fspath(config_path) if config_path is not None else None
         backend, redis_url, namespace = cls._cache_options(cache_config)
         rust_store = rust_mod.MCPStore.setup_with_options(
             config_path,
