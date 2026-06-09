@@ -274,6 +274,51 @@ class RustStoreBackend:
     ) -> Dict[str, Any]:
         return _record_value(self._inner.service_status_scoped(agent_id, service_name))
 
+    def list_resources_scoped(
+        self,
+        agent_id: Optional[str] = None,
+        service_name: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return _record_value(self._inner.list_resources_scoped(agent_id, service_name))
+
+    def list_resource_templates_scoped(
+        self,
+        agent_id: Optional[str] = None,
+        service_name: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return _record_value(self._inner.list_resource_templates_scoped(agent_id, service_name))
+
+    def read_resource_scoped(
+        self,
+        agent_id: Optional[str],
+        uri: str,
+        service_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return _record_value(self._inner.read_resource_scoped(agent_id, uri, service_name))
+
+    def list_prompts_scoped(
+        self,
+        agent_id: Optional[str] = None,
+        service_name: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return _record_value(self._inner.list_prompts_scoped(agent_id, service_name))
+
+    def get_prompt_scoped(
+        self,
+        agent_id: Optional[str],
+        prompt_name: str,
+        arguments: Dict[str, Any],
+        service_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._inner.get_prompt_scoped(
+                agent_id,
+                prompt_name,
+                self._validate_dict(arguments or {}),
+                service_name,
+            )
+        )
+
     def list_tools_scoped(
         self,
         agent_id: Optional[str] = None,
@@ -372,6 +417,29 @@ class RustServiceProxy:
 
     def find_tool(self, tool_name: str) -> "RustToolProxy":
         return RustToolProxy(self._context, tool_name, service_name=self._service_name)
+
+    def list_resources(self) -> List[Dict[str, Any]]:
+        return self._context.list_resources(service_name=self._service_name)
+
+    def list_resource_templates(self) -> List[Dict[str, Any]]:
+        return self._context.list_resource_templates(service_name=self._service_name)
+
+    def read_resource(self, uri: str) -> Dict[str, Any]:
+        return self._context.read_resource(uri, service_name=self._service_name)
+
+    def list_prompts(self) -> List[Dict[str, Any]]:
+        return self._context.list_prompts(service_name=self._service_name)
+
+    def get_prompt(
+        self,
+        prompt_name: str,
+        arguments: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return self._context.get_prompt(
+            prompt_name,
+            arguments or {},
+            service_name=self._service_name,
+        )
 
     def update_config(self, config: Dict[str, Any]) -> bool:
         return self._context.update_service(self._service_name, config)
@@ -541,6 +609,48 @@ class RustStoreContext:
 
     def check_services(self) -> Dict[str, Any]:
         return self._backend.check_services_scoped(self._agent_id)
+
+    def list_resources(self, service_name: Optional[str] = None) -> List[Dict[str, Any]]:
+        return _record_value(
+            self._backend.list_resources_scoped(self._agent_id, service_name)
+        )
+
+    def list_resource_templates(
+        self,
+        service_name: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return _record_value(
+            self._backend.list_resource_templates_scoped(self._agent_id, service_name)
+        )
+
+    def read_resource(
+        self,
+        uri: str,
+        service_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._backend.read_resource_scoped(self._agent_id, uri, service_name)
+        )
+
+    def list_prompts(self, service_name: Optional[str] = None) -> List[Dict[str, Any]]:
+        return _record_value(
+            self._backend.list_prompts_scoped(self._agent_id, service_name)
+        )
+
+    def get_prompt(
+        self,
+        prompt_name: str,
+        arguments: Optional[Dict[str, Any]] = None,
+        service_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._backend.get_prompt_scoped(
+                self._agent_id,
+                prompt_name,
+                arguments or {},
+                service_name,
+            )
+        )
 
     def patch_service(self, name: str, updates: Dict[str, Any]) -> bool:
         service_name = self._resolve_service_name(name)
