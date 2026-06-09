@@ -176,6 +176,7 @@ class RustStoreBackend:
         self._active_sessions: Dict[str, "RustSession"] = {}
         self._auto_sessions: Dict[str, "RustSession"] = {}
         self._tool_overrides: Dict[str, Dict[str, Any]] = {}
+        self._tool_visibility: Dict[str, Dict[str, Optional[set[str]]]] = {}
         self._config_path: Optional[str] = None
         self._cache_config: Any = None
         self._only_db: bool = False
@@ -767,6 +768,10 @@ class RustServiceProxy:
     def agent_id(self) -> Optional[str]:
         return self._context.agent_id
 
+    @property
+    def is_agent_scoped(self) -> bool:
+        return self.agent_id is not None
+
     def service_info(self) -> Dict[str, Any]:
         return self._context.get_service_info(self._service_name)
 
@@ -1286,19 +1291,64 @@ class RustStoreContext:
         *,
         filter: str = "available",
     ) -> List[Dict[str, Any]]:
-        return _record_value(
-            self._backend.list_tools_scoped(
-                self._agent_id,
-                service_name,
-                filter=filter,
-            )
+        tools = _record_value(
+            self._backend.list_tools_scoped(self._agent_id, service_name)
         )
+        return self._apply_tool_visibility(tools, service_name=service_name, filter=filter)
 
     def list_tools(self, service_name: Optional[str] = None, *, filter: str = "available") -> List[Dict[str, Any]]:
         active = self.active_session
         if service_name is None and active is not None and active._bound_services:
             return active.list_tools()
         return self._list_tools_direct(service_name, filter=filter)
+
+    def _tool_visibility_for(self, service_name: str) -> Optional[set[str]]:
+        return self._backend._tool_visibility.get(self.get_id(), {}).get(service_name)
+
+    def _tool_service_name(self, tool: Dict[str, Any], fallback: Optional[str] = None) -> str:
+        value = (
+            tool.get("service_name")
+            or tool.get("serviceName")
+            or tool.get("global_service_name")
+            or fallback
+            or ""
+        )
+        return str(value)
+
+    def _tool_candidate_names(self, tool: Dict[str, Any]) -> set[str]:
+        return {
+            str(name)
+            for name in (
+                tool.get("name"),
+                tool.get("original_name"),
+                tool.get("tool_original_name"),
+            )
+            if name
+        }
+
+    def _apply_tool_visibility(
+        self,
+        tools: List[Dict[str, Any]],
+        *,
+        service_name: Optional[str] = None,
+        filter: str = "available",
+    ) -> List[Dict[str, Any]]:
+        mode = filter or "available"
+        if mode not in {"all", "available", "removed"}:
+            raise ValueError(f"Rust facade 当前不支持工具过滤器: {filter}")
+        if mode == "all":
+            return _record_value(tools)
+
+        selected: List[Dict[str, Any]] = []
+        for tool in tools:
+            resolved_service = self._tool_service_name(tool, service_name)
+            visible = self._tool_visibility_for(resolved_service)
+            is_visible = True
+            if visible is not None:
+                is_visible = bool(self._tool_candidate_names(tool) & visible)
+            if (mode == "available" and is_visible) or (mode == "removed" and not is_visible):
+                selected.append(tool)
+        return _record_value(selected)
 
     def find_service(self, service_name: str) -> RustServiceProxy:
         return RustServiceProxy(self, service_name)
@@ -1312,6 +1362,91 @@ class RustStoreContext:
     def find_cache(self) -> RustCacheProxy:
         scope = "agent" if self._agent_id else "global"
         return RustCacheProxy(self, scope=scope, scope_value=self._agent_id)
+
+    def _service_names_for_tool_scope(self, service: Any) -> List[str]:
+        if service == "_all_services":
+            return [item.name for item in self.list_services()]
+        if isinstance(service, RustServiceProxy):
+            if service.agent_id != self._agent_id:
+                raise ValueError("不能使用其他 Agent 作用域的 ServiceProxy 修改当前 Agent 工具集")
+            return [service.service_name]
+        return [str(service)]
+
+    def _tool_names_for_service(self, service_name: str) -> set[str]:
+        names: set[str] = set()
+        for tool in self._list_tools_direct(service_name=service_name, filter="all"):
+            names.update(self._tool_candidate_names(tool))
+        return names
+
+    def _set_visible_tools(self, service_name: str, visible: Optional[set[str]]) -> None:
+        context_visibility = self._backend._tool_visibility.setdefault(self.get_id(), {})
+        if visible is None:
+            context_visibility.pop(service_name, None)
+        else:
+            context_visibility[service_name] = visible
+
+    def remove_tools(self, service: Any, tools: Any) -> "RustStoreContext":
+        for service_name in self._service_names_for_tool_scope(service):
+            if tools == "_all_tools":
+                self._set_visible_tools(service_name, set())
+                continue
+            current = self._tool_visibility_for(service_name)
+            visible = set(current) if current is not None else self._tool_names_for_service(service_name)
+            remove = {str(tool) for tool in (tools if isinstance(tools, (list, tuple, set)) else [tools])}
+            self._set_visible_tools(service_name, visible - remove)
+        return self
+
+    def add_tools(self, service: Any, tools: Any) -> "RustStoreContext":
+        for service_name in self._service_names_for_tool_scope(service):
+            current = self._tool_visibility_for(service_name)
+            if current is None:
+                visible = self._tool_names_for_service(service_name)
+            else:
+                visible = set(current)
+            visible.update(str(tool) for tool in (tools if isinstance(tools, (list, tuple, set)) else [tools]))
+            self._set_visible_tools(service_name, visible)
+        return self
+
+    def reset_tools(self, service: Any) -> "RustStoreContext":
+        for service_name in self._service_names_for_tool_scope(service):
+            self._set_visible_tools(service_name, None)
+        return self
+
+    def get_tool_set_info(self, service: Any) -> Dict[str, Any]:
+        service_name = self._service_names_for_tool_scope(service)[0]
+        total = len(self._list_tools_direct(service_name=service_name, filter="all"))
+        available = len(self._list_tools_direct(service_name=service_name, filter="available"))
+        removed = max(total - available, 0)
+        return _record_value(
+            {
+                "agent_id": self._agent_id,
+                "service_name": service_name,
+                "total_tools": total,
+                "available_tools": available,
+                "removed_tools": removed,
+                "utilization": (available / total) if total else 0.0,
+            }
+        )
+
+    def get_tool_set_summary(self) -> Dict[str, Any]:
+        services = {}
+        total_tools = 0
+        total_available = 0
+        for service in self.list_services():
+            info = self.get_tool_set_info(service.name)
+            services[service.name] = info
+            total_tools += info.total_tools
+            total_available += info.available_tools
+        return _record_value(
+            {
+                "agent_id": self._agent_id,
+                "total_services": len(services),
+                "total_available_tools": total_available,
+                "total_original_tools": total_tools,
+                "overall_utilization": (total_available / total_tools) if total_tools else 0.0,
+                "services": services,
+            }
+        )
 
     def create_session(
         self,
