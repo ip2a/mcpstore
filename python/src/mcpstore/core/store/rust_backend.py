@@ -601,6 +601,25 @@ class RustStoreBackend:
             }
         )
 
+    async def exportjson(self, path: Optional[str] = None) -> Dict[str, Any]:
+        config = self.get_json_config()
+        if path:
+            with open(path, "w", encoding="utf-8") as file:
+                json.dump(config, file, ensure_ascii=False, indent=2)
+        return config
+
+    async def export_to_json(self, path: str) -> Dict[str, Any]:
+        return await self.exportjson(path)
+
+    async def import_from_json(self, path: str) -> bool:
+        with open(path, "r", encoding="utf-8") as file:
+            config = json.load(file)
+        self.add_service(config)
+        return True
+
+    async def cleanup(self) -> bool:
+        return self.reset_config()
+
     def cache_health_check(self) -> Dict[str, Any]:
         return _record_value(self._inner.cache_health_check())
 
