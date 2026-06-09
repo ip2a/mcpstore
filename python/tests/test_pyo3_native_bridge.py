@@ -58,10 +58,26 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         services = context.list_services()
         self.assertEqual(services[0]["name"], "demo")
         self.assertEqual(services[0]["transport"], "stdio")
-        self.assertNotIn("transport_type", services[0])
-        with self.assertRaises(AttributeError):
-            getattr(services[0], "name")
+        self.assertEqual(services[0].name, "demo")
+        self.assertEqual(services[0].transport_type, "stdio")
+        self.assertEqual(services[0]["transport_type"], "stdio")
         self.assertIsInstance(context.show_config(), dict)
+
+    def test_python_facade_keeps_chain_adapter_api(self):
+        from mcpstore import MCPStore
+
+        workdir = Path(tempfile.mkdtemp(prefix="mcpstore-python-chain-"))
+        store = MCPStore.setup_store(str(workdir / "mcp.json"))
+        context = store.for_store()
+
+        self.assertIsNotNone(context.for_openai())
+        self.assertIsNotNone(context.for_autogen())
+
+        try:
+            adapter = context.for_langchain()
+        except ImportError:
+            adapter = None
+        self.assertTrue(adapter is None or hasattr(adapter, "list_tools"))
 
     def test_perspective_resolver_uses_native_python_objects(self):
         from mcpstore._rust import PerspectiveResolver
@@ -152,7 +168,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
         schema = {"type": "object", "properties": {"text": {"type": "string"}}}
         self.assertEqual(tool_input_schema({"input_schema": schema}), schema)
-        self.assertEqual(tool_input_schema({"inputSchema": schema}), {})
+        self.assertEqual(tool_input_schema({"inputSchema": schema}), schema)
 
 
 if __name__ == "__main__":
