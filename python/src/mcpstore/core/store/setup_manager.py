@@ -105,7 +105,7 @@ class StoreSetupManager:
         only_db: bool,
     ):
         mode = (cache_mode or "auto").lower()
-        if mode not in {"auto", "local", "hybrid", "shared"}:
+        if mode not in {"auto", "local", "shared"}:
             raise ValueError(f"Rust core 当前不支持 cache_mode={cache_mode!r}")
 
         resolved_only_db = False if mode == "local" else only_db or mode == "shared"
