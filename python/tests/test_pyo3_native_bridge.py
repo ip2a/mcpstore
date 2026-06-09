@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import importlib.util
 from pathlib import Path
 
 
@@ -139,6 +140,9 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
         autogen_tools = AutoGenAdapter(context).list_tools()
         self.assertEqual(autogen_tools[0](text="auto"), "auto")
+
+    def test_deprecated_python_mcp_module_is_removed(self):
+        self.assertIsNone(importlib.util.find_spec("mcpstore.mcp"))
 
 
 if __name__ == "__main__":
