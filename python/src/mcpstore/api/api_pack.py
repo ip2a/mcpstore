@@ -25,8 +25,6 @@ def api_set_store(store: Any) -> None:
 
 
 async def _execute(context: Any, value: Any) -> Any:
-    if hasattr(context, "bridge_execute"):
-        return await context.bridge_execute(value)
     if hasattr(value, "__await__"):
         return await value
     return value
