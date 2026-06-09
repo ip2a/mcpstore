@@ -39,6 +39,10 @@ mcpstore = "mcpstore.cli.main:main"
 redis = [
     "redis>=5.0.0",
 ]
+api = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+]
 
 
 [tool.setuptools]

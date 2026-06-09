@@ -2,6 +2,7 @@ import tempfile
 import unittest
 import importlib.util
 import json
+import tomllib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -703,6 +704,13 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             return ResponseBuilder.success()
 
         self.assertIn("elapsed_ms", handler()["meta"])
+
+    def test_python_package_declares_api_extra(self):
+        project = tomllib.loads(Path("python/pyproject.toml").read_text(encoding="utf-8"))
+        extras = project["project"]["optional-dependencies"]
+        self.assertIn("api", extras)
+        self.assertTrue(any(dep.startswith("fastapi") for dep in extras["api"]))
+        self.assertTrue(any(dep.startswith("uvicorn") for dep in extras["api"]))
 
     def test_rust_context_keeps_bridge_execute_and_cache_read_shape(self):
         import asyncio
