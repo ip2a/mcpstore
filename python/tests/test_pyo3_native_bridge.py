@@ -321,6 +321,13 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             def wait_service_ready(self, name, timeout=10.0):
                 return {"service_global_name": name, "health_status": "ready"}
 
+            def show_config(self):
+                return {
+                    "mcpServers": {"demo": {"transport": "stdio"}},
+                    "agents": {},
+                    "clients": {"client-a": {"service": "demo"}},
+                }
+
         inner = FakeBackend()
         backend = RustStoreBackend(inner)
         context = RustStoreContext(backend)
@@ -410,6 +417,8 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertTrue(service.refresh_content())
         self.assertEqual(context.event_history(1)[0].event_type, "TEST")
         self.assertTrue(context.event_capability_report().event_bus)
+        self.assertEqual(context.show_config("client").clients["client-a"].service, "demo")
+        self.assertEqual(backend.show_config("clients").clients["client-a"].service, "demo")
         self.assertEqual(context.wait_service("demo", status="healthy").health_status, "ready")
         self.assertEqual(context.wait_service("demo", status=["healthy", "warning"]).health_status, "ready")
         self.assertEqual(context.wait_services(["demo"], status="healthy")["demo"].health_status, "ready")
