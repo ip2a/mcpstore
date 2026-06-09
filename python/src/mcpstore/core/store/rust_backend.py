@@ -2152,14 +2152,8 @@ class RustStoreContext:
         block: bool = False,
         **kwargs,
     ) -> Any:
-        return self._backend.start_mcp_server(
-            agent_id=self._agent_id,
-            transport="streamable-http",
-            host=host,
-            port=port,
-            path=path,
-            block=block,
-            **kwargs,
+        raise NotImplementedError(
+            "Rust mcp-server does not expose SSE hub transport; use hub_http() for streamable-http"
         )
 
     def hub_stdio(
