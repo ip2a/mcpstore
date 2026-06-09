@@ -1,4 +1,4 @@
-"""Rust CLI resolution helpers for Python compatibility wrappers."""
+"""Rust CLI resolution helpers for the Python console entry point."""
 
 from __future__ import annotations
 
