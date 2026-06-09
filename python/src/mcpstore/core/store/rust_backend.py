@@ -248,36 +248,7 @@ class RustStoreBackend:
             auth = f":{quote(str(password), safe='')}@" if password else ""
             return f"redis://{auth}{host}:{port}/{db}"
 
-        client = getattr(cache_config, "client", None)
-        if client is None:
-            return None
-
-        pool = getattr(client, "connection_pool", None)
-        kwargs = getattr(pool, "connection_kwargs", None)
-        if not isinstance(kwargs, dict):
-            raise ValueError(
-                "Rust core 无法直接复用 Python Redis client；请使用带 connection_pool.connection_kwargs 的 client，"
-                "或改用 RedisConfig(url=...)。"
-            )
-
-        host = kwargs.get("host")
-        if not host:
-            raise ValueError("Redis client connection_kwargs 缺少 host，Rust core 无法推导 Redis URL")
-        port = getattr(cache_config, "port", None) or 6379
-        port = kwargs.get("port", port)
-        db = kwargs.get("db", 0)
-        username = kwargs.get("username")
-        password = kwargs.get("password")
-        if username and password:
-            auth = f"{quote(str(username), safe='')}:{quote(str(password), safe='')}@"
-        elif password:
-            auth = f":{quote(str(password), safe='')}@"
-        else:
-            auth = ""
-        connection_class = kwargs.get("connection_class")
-        class_name = getattr(connection_class, "__name__", "")
-        scheme = "rediss" if kwargs.get("ssl") or "SSL" in class_name else "redis"
-        return f"{scheme}://{auth}{host}:{port}/{db}"
+        return None
 
     @classmethod
     def _cache_options(cls, cache_config):

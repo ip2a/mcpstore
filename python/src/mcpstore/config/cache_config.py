@@ -7,12 +7,7 @@ Non-sensitive configuration is loaded from MCPStoreConfig, sensitive configurati
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Optional, Literal
-
-if TYPE_CHECKING:
-    from redis.asyncio import Redis
-else:
-    Redis = Any
+from typing import Optional, Literal
 
 
 class CacheType(Enum):
@@ -59,9 +54,6 @@ class RedisConfig(BaseCacheConfig):
     password: Optional[str] = None
     namespace: Optional[str] = None
 
-    # Redis client object (Method 1: pass directly)
-    client: Optional[Redis] = None
-
     # Connection pool configuration
     max_connections: int = 50
     retry_on_timeout: bool = True
@@ -77,14 +69,12 @@ class RedisConfig(BaseCacheConfig):
 
     def __post_init__(self):
         """Validate configuration parameters."""
-        # If no client provided, must provide URL or host (unless partial allowed)
-        if self.client is None and not self.allow_partial:
-            if not self.url and not self.host:
-                raise ValueError(
-                    "Redis configuration requires either 'client', 'url', or 'host'. "
-                    "Example: RedisConfig(url='redis://localhost:6379/0') or "
-                    "RedisConfig(host='localhost', port=6379)"
-                )
+        if not self.allow_partial and not self.url and not self.host:
+            raise ValueError(
+                "Redis configuration requires either 'url' or 'host'. "
+                "Example: RedisConfig(url='redis://localhost:6379/0') or "
+                "RedisConfig(host='localhost', port=6379)"
+            )
 
         # Validate timeout parameters
         if self.timeout <= 0:

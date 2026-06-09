@@ -866,27 +866,24 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
         self.assertEqual(FakeMCPStore.called[0], "pathlike.json")
 
-    def test_redis_client_config_normalizes_to_rust_url(self):
+    def test_redis_config_rejects_python_client_runtime(self):
         from mcpstore.config import RedisConfig
         from mcpstore.core.store.rust_backend import RustStoreBackend
 
-        class FakePool:
-            connection_kwargs = {
-                "host": "redis.local",
-                "port": 6380,
-                "db": 2,
-                "username": "user",
-                "password": "p@ss word",
-            }
+        with self.assertRaises(TypeError):
+            RedisConfig(client=object())
 
-        class FakeRedis:
-            connection_pool = FakePool()
-
-        config = RedisConfig(client=FakeRedis(), namespace="team")
+        config = RedisConfig(
+            host="redis.local",
+            port=6380,
+            db=2,
+            password="p@ss word",
+            namespace="team",
+        )
         backend, redis_url, namespace = RustStoreBackend._cache_options(config)
 
         self.assertEqual(backend, "redis")
-        self.assertEqual(redis_url, "redis://user:p%40ss%20word@redis.local:6380/2")
+        self.assertEqual(redis_url, "redis://:p%40ss%20word@redis.local:6380/2")
         self.assertEqual(namespace, "team")
 
     def test_start_api_server_delegates_to_rust_cli(self):
