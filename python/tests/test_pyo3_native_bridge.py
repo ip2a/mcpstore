@@ -65,6 +65,8 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(services[0].transport_type, "stdio")
         self.assertEqual(services[0]["transport_type"], "stdio")
         self.assertIsInstance(context.show_config(), dict)
+        self.assertIn("mcpServers", store.show_mcpjson())
+        self.assertIn("mcpServers", context.show_mcpjson())
 
     def test_python_facade_keeps_chain_adapter_api(self):
         from mcpstore import MCPStore
