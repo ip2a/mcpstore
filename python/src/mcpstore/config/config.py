@@ -33,9 +33,9 @@ class LoggingConfig:
         Setup logging configuration.
 
         Args:
-            debug: Backward-compatible log control. Supports:
+            debug: Log level control. Supports:
                    - True  -> DEBUG
-                   - False -> DEGRADED (was ERROR before; now more practical)
+                   - False -> logging disabled
                    - "DEBUG"/"INFO"/"DEGRADED"/"ERROR"/"CRITICAL" -> exact level
                    - int   -> logging level constant
             use_rich: Whether to enable rich formatted logging globally
