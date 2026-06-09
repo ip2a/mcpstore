@@ -30,6 +30,13 @@ async def _execute(context: Any, value: Any) -> Any:
     return value
 
 
+def _body_field(body: Dict[str, Any], *names: str, default: Any = None) -> Any:
+    for name in names:
+        if name in body:
+            return body[name]
+    return default
+
+
 @api_store_router.get("/list_services")
 @api_store_router.get("/services")
 @timed_response
@@ -124,7 +131,7 @@ async def store_get_prompt(body: Dict[str, Any] = Body(...)):
         context,
         context.get_prompt_async(
             prompt_name,
-            body.get("args") or body.get("arguments") or {},
+            _body_field(body, "args", "arguments", default={}),
             service_name=body.get("service_name"),
         ),
     )
@@ -142,7 +149,10 @@ async def store_call_tool(body: Dict[str, Any] = Body(...)):
             field="tool_name",
         )
     context = get_store().for_store()
-    result = await _execute(context, context.call_tool_async(tool_name, body.get("args") or {}))
+    result = await _execute(
+        context,
+        context.call_tool_async(tool_name, _body_field(body, "args", default={})),
+    )
     return ResponseBuilder.success(message="Tool call completed", data=result)
 
 
@@ -478,7 +488,7 @@ async def agent_get_prompt(agent_id: str, body: Dict[str, Any] = Body(...)):
         context,
         context.get_prompt_async(
             prompt_name,
-            body.get("args") or body.get("arguments") or {},
+            _body_field(body, "args", "arguments", default={}),
             service_name=body.get("service_name"),
         ),
     )
@@ -497,7 +507,10 @@ async def agent_call_tool(agent_id: str, body: Dict[str, Any] = Body(...)):
             field="tool_name",
         )
     context = get_store().for_agent(agent_id)
-    result = await _execute(context, context.call_tool_async(tool_name, body.get("args") or {}))
+    result = await _execute(
+        context,
+        context.call_tool_async(tool_name, _body_field(body, "args", default={})),
+    )
     return ResponseBuilder.success(message="Agent tool call completed", data=result)
 
 
