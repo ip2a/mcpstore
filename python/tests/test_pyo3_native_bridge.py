@@ -411,6 +411,47 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         autogen_tools = AutoGenAdapter(context).list_tools()
         self.assertEqual(autogen_tools[0](text="auto"), "auto")
 
+    def test_adapters_preserve_non_text_tool_content(self):
+        from mcpstore.adapters.autogen_adapter import AutoGenAdapter
+        from mcpstore.adapters.common import call_tool_response_helper
+        from mcpstore.adapters.openai_adapter import OpenAIAdapter
+
+        class FakeContext:
+            def list_tools(self):
+                return [
+                    {
+                        "name": "snapshot",
+                        "description": "Return image",
+                        "input_schema": {"type": "object", "properties": {}},
+                    }
+                ]
+
+            def call_tool(self, name, arguments):
+                return {
+                    "content": [
+                        {
+                            "type": "image",
+                            "data": "base64-image",
+                            "mime_type": "image/png",
+                        }
+                    ],
+                    "is_error": False,
+                }
+
+        result = FakeContext().call_tool("snapshot", {})
+        view = call_tool_response_helper(result)
+        self.assertEqual(view.artifacts[0]["type"], "image")
+        self.assertEqual(view.data["artifacts"][0]["mime_type"], "image/png")
+        self.assertIn("base64-image", view.text)
+
+        openai_result = OpenAIAdapter(FakeContext()).execute_tool_call(
+            {"name": "snapshot", "arguments": {}}
+        )
+        self.assertIn("base64-image", openai_result)
+
+        autogen_result = AutoGenAdapter(FakeContext()).list_tools()[0]()
+        self.assertIn("base64-image", autogen_result)
+
     def test_deprecated_python_mcp_module_is_removed(self):
         self.assertIsNone(importlib.util.find_spec("mcpstore.mcp"))
 

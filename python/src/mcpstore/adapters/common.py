@@ -300,6 +300,8 @@ def call_tool_response_helper(result: Any) -> ToolCallView:
 
     structured = _read_field(result, "structured_content", "structuredContent", default=None)
     data = _read_field(result, "data", "result", default=None)
+    if data is None and artifacts:
+        data = {"artifacts": artifacts}
     if not text_output and data is not None:
         if isinstance(data, (dict, list)):
             text_output = json.dumps(data, ensure_ascii=False)
