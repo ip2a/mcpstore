@@ -8,7 +8,7 @@ or inspected by applications that used the historical helper.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 
 @dataclass
@@ -27,7 +27,45 @@ class CacheStoreConfigView:
             "backend": self.get_backend_type(),
             "namespace": self.get_scope(),
             "config": self.config,
+            "entities": [],
+            "relations": [],
+            "states": [],
+            "events": [],
         }
+
+    def health_check(self) -> dict[str, Any]:
+        return {
+            "backend": self.get_backend_type(),
+            "namespace": self.get_scope(),
+            "healthy": True,
+        }
+
+    def stats(self) -> dict[str, Any]:
+        return self.inspect()
+
+    def dump_all(self) -> dict[str, Any]:
+        return self.inspect()
+
+    def read_entity(
+        self,
+        type_name: Optional[str] = None,
+        key: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        return []
+
+    def read_relation(
+        self,
+        type_name: Optional[str] = None,
+        key: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        return []
+
+    def read_state(
+        self,
+        type_name: Optional[str] = None,
+        key: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        return []
 
 
 def create_kv_store(cache_config: Any) -> CacheStoreConfigView:
