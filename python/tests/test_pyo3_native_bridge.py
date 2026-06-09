@@ -1203,11 +1203,15 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertTrue(asyncio.run(store.registry.ping()))
         stats = asyncio.run(store.registry.get_cache_statistics())
         self.assertEqual(stats.backend, "memory")
+        self.assertFalse(stats.request_metrics_available)
+        self.assertIsNone(stats.total_requests)
+        self.assertIsNone(stats.hit_rate)
         self.assertEqual(stats.entity_count, 1)
         self.assertEqual(stats.state_count, 1)
         self.assertTrue(asyncio.run(store.registry.clear_all()))
         self.assertTrue(store._inner.reset)
-        self.assertTrue(asyncio.run(store.registry.reset_cache_statistics()))
+        with self.assertRaises(NotImplementedError):
+            asyncio.run(store.registry.reset_cache_statistics())
         self.assertTrue(asyncio.run(store.registry.switch_backend(MemoryConfig())))
         self.assertEqual(switched[0].cache_type.value, "memory")
 
