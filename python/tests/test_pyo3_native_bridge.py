@@ -252,6 +252,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
                 self.removed = []
                 self.restarted = []
                 self.patches = []
+                self.updates = []
 
             def list_tools_scoped(self, agent_id=None, service_name=None, *, filter="available"):
                 return [
@@ -323,6 +324,10 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
             def patch_service(self, name, updates):
                 self.patches.append((name, updates))
+                return True
+
+            def update_service(self, name, config):
+                self.updates.append((name, config))
                 return True
 
             def remove_service(self, name):
@@ -433,7 +438,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(service.tools_stats().metadata.total_tools, 1)
         self.assertEqual(service.tools_stats().metadata.tools_by_service.demo, 1)
         self.assertTrue(service.tools_stats().history_available)
-        self.assertTrue(service.update_service({"timeout": 10}))
+        self.assertTrue(service.update_service({"url": "https://updated.example.test/mcp"}))
         self.assertTrue(service.patch_service({"headers": {"X-Test": "1"}}))
         self.assertFalse(hasattr(service, "update_config"))
         self.assertFalse(hasattr(service, "patch_config"))
@@ -493,8 +498,13 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(
             inner.patches,
             [
-                ("demo", {"timeout": 10}),
                 ("demo", {"headers": {"X-Test": "1"}}),
+            ],
+        )
+        self.assertEqual(
+            inner.updates,
+            [
+                ("demo", {"url": "https://updated.example.test/mcp"}),
                 ("demo", {"description": "patched"}),
             ],
         )
@@ -582,13 +592,21 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
         self.assertTrue(backend.patch_service("demo", {"description": "patched"}))
         self.assertTrue(backend.update_service("demo", {"url": "https://example.test/mcp"}))
-        self.assertTrue(context.update_service("demo", {"headers": {"X-Test": "1"}}))
+        self.assertTrue(
+            context.update_service(
+                "demo",
+                {"url": "https://example.test/mcp", "headers": {"X-Test": "1"}},
+            )
+        )
         self.assertTrue(context.replace_service_config("demo", {"command": "python"}))
 
         self.assertEqual(inner.patches[0], ("demo", {"description": "patched"}, dict))
         self.assertEqual(inner.updates[0], ("demo", {"url": "https://example.test/mcp"}, dict))
-        self.assertEqual(inner.patches[1], ("demo", {"headers": {"X-Test": "1"}}, dict))
-        self.assertEqual(inner.updates[1], ("demo", {"command": "python"}, dict))
+        self.assertEqual(
+            inner.updates[1],
+            ("demo", {"url": "https://example.test/mcp", "headers": {"X-Test": "1"}}, dict),
+        )
+        self.assertEqual(inner.updates[2], ("demo", {"command": "python"}, dict))
 
         with self.assertRaisesRegex(ValueError, "不再接受 JSON 字符串配置"):
             backend.patch_service("demo", '{"description": "legacy"}')
