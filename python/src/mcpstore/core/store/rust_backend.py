@@ -273,6 +273,10 @@ class RustStoreBackend:
         self._inner.restart_service(name)
         return True
 
+    def disconnect_service(self, name: str) -> bool:
+        self._inner.disconnect_service(name)
+        return True
+
     def list_services(self) -> List[Dict[str, Any]]:
         return _record_value(self._inner.list_services())
 
@@ -719,6 +723,51 @@ class RustCacheProxy:
     def stats(self) -> Dict[str, Any]:
         return self.inspect()
 
+    def get_scope(self) -> str:
+        return self._scope
+
+    def get_backend_type(self) -> Optional[str]:
+        inspect = self.inspect()
+        return inspect.get("backend")
+
+    def dump_all(self) -> Dict[str, Any]:
+        return self.inspect()
+
+    def _read_collection(
+        self,
+        collection_name: str,
+        type_name: Optional[str] = None,
+        key: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        inspect = self.inspect()
+        items = inspect.get(collection_name, []) or []
+        if type_name is not None:
+            items = [item for item in items if item.get("_type") == type_name]
+        if key is not None:
+            items = [item for item in items if item.get("_key") == key or item.get("key") == key]
+        return _record_value(items)
+
+    def read_entity(
+        self,
+        type_name: Optional[str] = None,
+        key: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self._read_collection("entities", type_name, key)
+
+    def read_relation(
+        self,
+        type_name: Optional[str] = None,
+        key: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self._read_collection("relations", type_name, key)
+
+    def read_state(
+        self,
+        type_name: Optional[str] = None,
+        key: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self._read_collection("states", type_name, key)
+
 
 class RustSession:
     def __init__(self, context: "RustStoreContext", session_id: str):
@@ -876,6 +925,11 @@ class RustStoreContext:
                 return _async_wrapper
         raise AttributeError(name)
 
+    async def bridge_execute(self, value: Any) -> Any:
+        if hasattr(value, "__await__"):
+            return await value
+        return value
+
     def add_service(self, config: Dict[str, Any]) -> bool:
         if self._agent_id:
             self._backend.add_service_for_agent(self._agent_id, config)
@@ -988,6 +1042,9 @@ class RustStoreContext:
     def get_service_status(self, name: str) -> Dict[str, Any]:
         return self._backend.service_status_scoped(self._agent_id, name)
 
+    def service_status(self, name: str) -> Dict[str, Any]:
+        return self.get_service_status(name)
+
     def check_services(self) -> Dict[str, Any]:
         return self._backend.check_services_scoped(self._agent_id)
 
@@ -1054,6 +1111,10 @@ class RustStoreContext:
     def restart_service(self, name: str) -> bool:
         service_name = self._resolve_service_name(name)
         return self._backend.restart_service(service_name)
+
+    def disconnect_service(self, name: str) -> bool:
+        service_name = self._resolve_service_name(name)
+        return self._backend.disconnect_service(service_name)
 
     def for_langchain(self, response_format: str = "text"):
         from mcpstore.adapters.langchain_adapter import LangChainAdapter
