@@ -16,9 +16,11 @@ class RustRecordView(dict):
     }
     _OPTIONAL_DEFAULTS = {
         "args": [],
+        "called_at": None,
         "client_id": None,
         "command": None,
         "config": None,
+        "content": [],
         "description": None,
         "env": {},
         "headers": {},
@@ -33,6 +35,8 @@ class RustRecordView(dict):
     }
 
     def __getattr__(self, name: str) -> Any:
+        if name == "text_output":
+            return _extract_text_result(self)
         key = self._ALIASES.get(name, name)
         if key in self:
             return self[key]
@@ -42,24 +46,34 @@ class RustRecordView(dict):
 
     def __getitem__(self, key: Any) -> Any:
         if isinstance(key, str):
+            if key == "text_output":
+                return _extract_text_result(self)
             aliased = self._ALIASES.get(key)
             if aliased in self:
                 return super().__getitem__(aliased)
+            if super().__contains__(key):
+                return super().__getitem__(key)
             if key in self._OPTIONAL_DEFAULTS:
                 return self._default_value(key)
         return super().__getitem__(key)
 
     def get(self, key: Any, default: Any = None) -> Any:
         if isinstance(key, str):
+            if key == "text_output":
+                return _extract_text_result(self) or default
             aliased = self._ALIASES.get(key)
             if aliased in self:
                 return super().get(aliased, default)
+            if super().__contains__(key):
+                return super().get(key, default)
             if key in self._OPTIONAL_DEFAULTS:
                 return self._default_value(key)
         return super().get(key, default)
 
     def __contains__(self, key: object) -> bool:
         if isinstance(key, str):
+            if key == "text_output":
+                return True
             aliased = self._ALIASES.get(key)
             if aliased and super().__contains__(aliased):
                 return True
