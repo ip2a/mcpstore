@@ -721,6 +721,7 @@ class RustStoreBackend:
         self,
         *,
         agent_id: Optional[str] = None,
+        transport: str = "streamable-http",
         host: str = "127.0.0.1",
         port: int = 18300,
         path: str = "/mcp",
@@ -733,16 +734,25 @@ class RustStoreBackend:
             resolve_rust_cli_binary(),
             "mcp-server",
             "--transport",
-            "streamable-http",
-            "--host",
-            str(host),
-            "--port",
-            str(port),
-            "--path",
-            str(path),
-            "--scope",
-            "agent" if agent_id else "store",
+            transport,
         ]
+        if transport != "stdio":
+            cmd.extend(
+                [
+                    "--host",
+                    str(host),
+                    "--port",
+                    str(port),
+                    "--path",
+                    str(path),
+                ]
+            )
+        cmd.extend(
+            [
+                "--scope",
+                "agent" if agent_id else "store",
+            ]
+        )
         if agent_id:
             cmd.extend(["--agent", agent_id])
         if self._config_path:
@@ -1886,6 +1896,7 @@ class RustStoreContext:
     ) -> Any:
         return self._backend.start_mcp_server(
             agent_id=self._agent_id,
+            transport="streamable-http",
             host=host,
             port=port,
             path=path,
@@ -1895,12 +1906,20 @@ class RustStoreContext:
 
     def hub_sse(self, *args, **kwargs) -> Any:
         raise NotImplementedError(
-            "Rust core 当前未暴露 SSE Hub；请使用 hub_http(...), 该接口委托 Rust streamable-http MCP server。"
+            "Rust mcp-server 当前仅暴露 stdio 和 streamable-http server transport；SSE 需要先在 Rust 侧实现。"
         )
 
-    def hub_stdio(self, *args, **kwargs) -> Any:
-        raise NotImplementedError(
-            "Rust core 当前未暴露可嵌入的 stdio Hub；请使用 Rust CLI `mcpstore mcp-server --transport stdio`。"
+    def hub_stdio(
+        self,
+        *,
+        block: bool = True,
+        **kwargs,
+    ) -> Any:
+        return self._backend.start_mcp_server(
+            agent_id=self._agent_id,
+            transport="stdio",
+            block=block,
+            **kwargs,
         )
 
     def reset_config(self) -> bool:
