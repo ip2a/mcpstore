@@ -1121,6 +1121,18 @@ class RustStoreContext:
     def check_services(self) -> Dict[str, Any]:
         return self._backend.check_services_scoped(self._agent_id)
 
+    def get_info(self) -> Dict[str, Any]:
+        return _record_value(
+            {
+                "context_type": self.context_type,
+                "agent_id": self._agent_id,
+                "namespace": self._backend.namespace(),
+                "backend": self._backend.current_backend(),
+                "service_count": len(self.list_services()),
+                "tool_count": len(self.list_tools()),
+            }
+        )
+
     def list_resources(self, service_name: Optional[str] = None) -> List[Dict[str, Any]]:
         return _record_value(
             self._backend.list_resources_scoped(self._agent_id, service_name)
@@ -1333,6 +1345,16 @@ class RustStoreContext:
             path=path,
             block=block,
             **kwargs,
+        )
+
+    def hub_sse(self, *args, **kwargs) -> Any:
+        raise NotImplementedError(
+            "Rust core 当前未暴露 SSE Hub；请使用 hub_http(...), 该接口委托 Rust streamable-http MCP server。"
+        )
+
+    def hub_stdio(self, *args, **kwargs) -> Any:
+        raise NotImplementedError(
+            "Rust core 当前未暴露可嵌入的 stdio Hub；请使用 Rust CLI `mcpstore mcp-server --transport stdio`。"
         )
 
     def reset_config(self) -> bool:

@@ -174,8 +174,17 @@ class PyO3NativeBridgeTest(unittest.TestCase):
                     }
                 ]
 
+            def list_services_scoped(self, agent_id=None):
+                return [{"name": "demo", "transport": "stdio"}]
+
             def list_agents(self):
                 return [{"agent_id": "agent-a", "services": ["demo"]}]
+
+            def namespace(self):
+                return "test"
+
+            def current_backend(self):
+                return "memory"
 
             def resolve_tool_for_agent(self, agent_id, user_input):
                 return {
@@ -245,6 +254,12 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(agent.find_cache().scope, "agent")
         self.assertEqual(context.find_cache().inspect().backend, "memory")
         self.assertEqual(context.find_cache().health_check().healthy, True)
+        self.assertEqual(context.get_info().context_type, "store")
+        self.assertEqual(agent.get_info().agent_id, "agent-a")
+        with self.assertRaises(NotImplementedError):
+            context.hub_sse()
+        with self.assertRaises(NotImplementedError):
+            context.hub_stdio()
 
         service = context.find_service("demo")
         self.assertEqual(service.name, "demo")
