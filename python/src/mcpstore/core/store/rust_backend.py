@@ -351,6 +351,15 @@ class RustStoreBackend:
         except ValueError as error:
             raise ValueError(f"{context} 必须是 dict；Python SDK 不再接受 JSON 字符串配置") from error
 
+    @classmethod
+    def _normalize_optional_dict(cls, value: Any, context: str) -> Dict[str, Any]:
+        if value is None:
+            return {}
+        try:
+            return cls._validate_dict(value)
+        except ValueError as error:
+            raise ValueError(f"{context} 必须是 dict；Python SDK 不再接受 JSON 字符串参数") from error
+
     @staticmethod
     def _is_wide_service_map(config: Dict[str, Any]) -> bool:
         service_fields = {
@@ -608,7 +617,7 @@ class RustStoreBackend:
             self._inner.get_prompt_scoped(
                 agent_id,
                 prompt_name,
-                self._validate_dict(arguments or {}),
+                self._normalize_optional_dict(arguments, "Prompt arguments"),
                 service_name,
             )
         )
@@ -635,7 +644,7 @@ class RustStoreBackend:
                 self._inner.call_tool(
                     service_name,
                     tool_name,
-                    self._validate_dict(args or {}),
+                    self._normalize_optional_dict(args, "Tool arguments"),
                 )
             )
         except Exception as error:
@@ -1038,7 +1047,7 @@ class RustServiceProxy:
     ) -> Dict[str, Any]:
         return self._context.get_prompt(
             prompt_name,
-            arguments or {},
+            arguments,
             service_name=self._service_name,
         )
 
@@ -1219,9 +1228,9 @@ class RustToolProxy:
                 or info.get("name")
                 or self._tool_name
             )
-            result = self._context._backend.call_tool(service_name, tool_name, args or {})
+            result = self._context._backend.call_tool(service_name, tool_name, args)
         else:
-            result = self._context.call_tool(self._tool_name, args or {})
+            result = self._context.call_tool(self._tool_name, args)
         if not return_extracted:
             return result
         return _extract_text_result(result)
@@ -1491,7 +1500,7 @@ class RustSession:
         **kwargs,
     ) -> Any:
         _reject_unsupported_kwargs("RustSession.use_tool", kwargs)
-        result = self._context.call_tool(tool_name, arguments or {})
+        result = self._context.call_tool(tool_name, arguments)
         if not return_extracted:
             return result
         content = result.get("content", []) if isinstance(result, dict) else []
@@ -1888,7 +1897,7 @@ class RustStoreContext:
             self._backend.get_prompt_scoped(
                 self._agent_id,
                 prompt_name,
-                arguments or {},
+                arguments,
                 service_name,
             )
         )
@@ -1983,7 +1992,7 @@ class RustStoreContext:
 
     def _call_tool_direct(self, tool_name: str, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         service_name, original_tool = self._resolve_tool(tool_name)
-        return self._backend.call_tool(service_name, original_tool, args or {})
+        return self._backend.call_tool(service_name, original_tool, args)
 
     def call_tool(
         self,
