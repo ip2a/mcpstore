@@ -71,7 +71,7 @@ def _read_field(data: Any, *names: str, default: Any = None) -> Any:
 
 
 def service_name(service_info: Any) -> str:
-    """读取服务名称，兼容 Rust 字典结构与旧对象结构。"""
+    """Read the service name from mapping or object-shaped SDK records."""
     value = _read_field(service_info, "name", default="")
     return value if isinstance(value, str) else str(value or "")
 
@@ -237,7 +237,7 @@ def process_tool_args(
                             tool_input[field_names[i]] = arg_value
 
     except Exception:
-        # 降级处理：直接使用 kwargs
+        # Keep direct kwargs usable when adapter schema coercion fails.
         tool_input = dict(kwargs) if kwargs else {}
 
     return tool_input
