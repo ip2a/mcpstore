@@ -93,6 +93,31 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             adapter = None
         self.assertTrue(adapter is None or hasattr(adapter, "list_tools"))
 
+    def test_python_facade_keeps_export_import_cleanup_api(self):
+        import asyncio
+
+        from mcpstore import MCPStore
+
+        workdir = Path(tempfile.mkdtemp(prefix="mcpstore-python-export-"))
+        store = MCPStore.setup_store(str(workdir / "mcp.json"))
+        store.for_store().add_service(
+            {"name": "demo", "command": "python", "args": ["-c", "print(1)"], "transport": "stdio"}
+        )
+
+        exported = asyncio.run(store.exportjson())
+        self.assertIn("mcpServers", exported)
+        self.assertIn("demo", exported["mcpServers"])
+
+        backup = workdir / "backup.json"
+        written = asyncio.run(store.export_to_json(str(backup)))
+        self.assertEqual(written, exported)
+        self.assertEqual(json.loads(backup.read_text(encoding="utf-8")), exported)
+
+        asyncio.run(store.cleanup())
+        self.assertEqual(store.for_store().list_services(), [])
+        self.assertTrue(asyncio.run(store.import_from_json(str(backup))))
+        self.assertEqual(store.for_store().list_services()[0].name, "demo")
+
     def test_additional_adapters_use_rust_context_shape(self):
         from mcpstore.adapters.semantic_kernel_adapter import SemanticKernelAdapter
 
