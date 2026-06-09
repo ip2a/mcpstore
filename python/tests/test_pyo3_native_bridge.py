@@ -834,6 +834,44 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         )
         self.assertTrue(store._inner.loaded)
 
+    def test_registry_facade_delegates_to_rust_cache_surface(self):
+        import asyncio
+
+        from mcpstore.config import MemoryConfig
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        class FakeInner:
+            def cache_health_check(self):
+                return {"healthy": True, "backend": "memory"}
+
+            def cache_inspect(self):
+                return {
+                    "backend": "memory",
+                    "namespace": "test",
+                    "entities": [{"name": "svc"}],
+                    "relations": [],
+                    "states": [{"status": "ready"}],
+                    "events": [],
+                }
+
+            def reset_config(self):
+                self.reset = True
+
+        store = RustStoreBackend(FakeInner())
+        switched = []
+        store.switch_cache = lambda config: switched.append(config) or True
+
+        self.assertTrue(asyncio.run(store.registry.ping()))
+        stats = asyncio.run(store.registry.get_cache_statistics())
+        self.assertEqual(stats.backend, "memory")
+        self.assertEqual(stats.entity_count, 1)
+        self.assertEqual(stats.state_count, 1)
+        self.assertTrue(asyncio.run(store.registry.clear_all()))
+        self.assertTrue(store._inner.reset)
+        self.assertTrue(asyncio.run(store.registry.reset_cache_statistics()))
+        self.assertTrue(asyncio.run(store.registry.switch_backend(MemoryConfig())))
+        self.assertEqual(switched[0].cache_type.value, "memory")
+
     def test_rust_backed_public_api_modules_import(self):
         from mcpstore.api.api_dependencies import get_store
         from mcpstore.config import MemoryConfig

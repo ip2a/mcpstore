@@ -177,6 +177,7 @@ class RustStoreBackend:
         self._auto_sessions: Dict[str, "RustSession"] = {}
         self._tool_overrides: Dict[str, Dict[str, Any]] = {}
         self._tool_visibility: Dict[str, Dict[str, Optional[set[str]]]] = {}
+        self.registry = RustRegistryFacade(self)
         self._config_path: Optional[str] = None
         self._cache_config: Any = None
         self._only_db: bool = False
@@ -1116,6 +1117,81 @@ class RustCacheProxy:
         key: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         return self._read_collection("states", type_name, key)
+
+
+class RustRegistryFacade:
+    def __init__(self, backend: RustStoreBackend):
+        self._backend = backend
+
+    async def ping(self) -> bool:
+        health = self._backend.cache_health_check()
+        return bool(health.get("healthy", True))
+
+    async def clear_all(self) -> bool:
+        return self._backend.reset_config()
+
+    async def get_cache_statistics(self) -> Dict[str, Any]:
+        inspect = self._backend.cache_inspect()
+        entity_count = len(inspect.get("entities", []) or [])
+        relation_count = len(inspect.get("relations", []) or [])
+        state_count = len(inspect.get("states", []) or [])
+        event_count = len(inspect.get("events", []) or [])
+        return _record_value(
+            {
+                "backend": inspect.get("backend"),
+                "namespace": inspect.get("namespace"),
+                "total_requests": 0,
+                "hits": 0,
+                "misses": 0,
+                "hit_rate": 0.0,
+                "avg_latency_ms": 0.0,
+                "p50_latency_ms": 0.0,
+                "p95_latency_ms": 0.0,
+                "p99_latency_ms": 0.0,
+                "total_size_bytes": 0,
+                "entity_count": entity_count,
+                "relation_count": relation_count,
+                "state_count": state_count,
+                "event_count": event_count,
+            }
+        )
+
+    async def get_statistics(self) -> Dict[str, Any]:
+        return await self.get_cache_statistics()
+
+    async def reset_cache_statistics(self) -> bool:
+        return True
+
+    async def switch_backend(self, backend: Any) -> bool:
+        self._backend.switch_cache(self._cache_config_from_backend(backend))
+        return True
+
+    def _cache_config_from_backend(self, backend: Any) -> Any:
+        if hasattr(backend, "cache_type"):
+            return backend
+
+        class_name = backend.__class__.__name__.lower()
+        if "redis" in class_name or hasattr(backend, "url"):
+            from mcpstore.config import RedisConfig
+
+            url = getattr(backend, "url", None) or getattr(backend, "_url", None)
+            if url is None:
+                host = getattr(backend, "host", None) or "localhost"
+                port = getattr(backend, "port", None) or 6379
+                db = getattr(backend, "db", None) or 0
+                url = f"redis://{host}:{port}/{db}"
+            return RedisConfig(
+                url=url,
+                password=getattr(backend, "password", None),
+                namespace=getattr(backend, "namespace", None),
+            )
+
+        if "memory" in class_name:
+            from mcpstore.config import MemoryConfig
+
+            return MemoryConfig()
+
+        raise ValueError(f"Rust registry facade 无法识别 cache backend: {backend!r}")
 
 
 class RustSession:
