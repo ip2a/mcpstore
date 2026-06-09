@@ -323,8 +323,15 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
             def show_config(self):
                 return {
-                    "mcpServers": {"demo": {"transport": "stdio"}},
-                    "agents": {},
+                    "mcpServers": {
+                        "demo": {"transport": "stdio"},
+                        "agent-demo": {"transport": "stdio"},
+                        "other-agent-demo": {"transport": "stdio"},
+                    },
+                    "agents": {
+                        "agent-a": ["agent-demo"],
+                        "agent-b": ["other-agent-demo"],
+                    },
                     "clients": {"client-a": {"service": "demo"}},
                 }
 
@@ -419,6 +426,9 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertTrue(context.event_capability_report().event_bus)
         self.assertEqual(context.show_config("client").clients["client-a"].service, "demo")
         self.assertEqual(backend.show_config("clients").clients["client-a"].service, "demo")
+        self.assertEqual(set(context.show_config("mcp").mcpServers), {"demo", "agent-demo", "other-agent-demo"})
+        self.assertEqual(set(agent.show_config("all").mcpServers), {"agent-demo"})
+        self.assertEqual(agent.show_config("agent").agents["agent-a"], ["agent-demo"])
         self.assertEqual(context.wait_service("demo", status="healthy").health_status, "ready")
         self.assertEqual(context.wait_service("demo", status=["healthy", "warning"]).health_status, "ready")
         self.assertEqual(context.wait_services(["demo"], status="healthy")["demo"].health_status, "ready")
