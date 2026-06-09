@@ -101,6 +101,34 @@ def _record_value(value: Any) -> Any:
     return value
 
 
+class AwaitableBool:
+    def __init__(self, value: bool):
+        self.value = bool(value)
+
+    def __bool__(self) -> bool:
+        return self.value
+
+    def __eq__(self, other: Any) -> bool:
+        return self.value == other
+
+    def __repr__(self) -> str:
+        return repr(self.value)
+
+    def __await__(self):
+        async def _value():
+            return self.value
+
+        return _value().__await__()
+
+
+class AwaitableList(list):
+    def __await__(self):
+        async def _value():
+            return list(self)
+
+        return _value().__await__()
+
+
 def _extract_text_result(result: Any) -> str:
     content = result.get("content", []) if isinstance(result, dict) else []
     text_blocks = [
@@ -366,11 +394,11 @@ class RustStoreBackend:
         *,
         json_file: Optional[str] = None,
         headers: Optional[Dict[str, Any]] = None,
-    ) -> bool:
+    ) -> AwaitableBool:
         configs = self._normalize_service_config(config, json_file=json_file, headers=headers)
         for config in configs:
             self._add_service_one(config)
-        return True
+        return AwaitableBool(True)
 
     def _add_service_one(self, config: Dict[str, Any]) -> None:
         mcp_servers = config.get("mcpServers", {})
@@ -465,7 +493,7 @@ class RustStoreBackend:
         return True
 
     def list_services(self) -> List[Dict[str, Any]]:
-        return _record_value(self._inner.list_services())
+        return AwaitableList(_record_value(self._inner.list_services()))
 
     def list_agents(self) -> List[Dict[str, Any]]:
         return _record_value(self._inner.list_agents())
