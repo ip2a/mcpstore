@@ -65,6 +65,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
     def test_python_facade_keeps_chain_adapter_api(self):
         from mcpstore import MCPStore
+        import mcpstore
 
         workdir = Path(tempfile.mkdtemp(prefix="mcpstore-python-chain-"))
         store = MCPStore.setup_store(str(workdir / "mcp.json"))
@@ -72,12 +73,50 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
         self.assertIsNotNone(context.for_openai())
         self.assertIsNotNone(context.for_autogen())
+        self.assertIsNotNone(context.for_llamaindex())
+        self.assertIsNotNone(context.for_crewai())
+        self.assertIsNotNone(context.for_semantic_kernel())
+        self.assertIsNotNone(mcpstore.LlamaIndexAdapter)
+        self.assertIsNotNone(mcpstore.CrewAIAdapter)
+        self.assertIsNotNone(mcpstore.SemanticKernelAdapter)
 
         try:
             adapter = context.for_langchain()
         except ImportError:
             adapter = None
         self.assertTrue(adapter is None or hasattr(adapter, "list_tools"))
+
+    def test_additional_adapters_use_rust_context_shape(self):
+        from mcpstore.adapters.semantic_kernel_adapter import SemanticKernelAdapter
+
+        class FakeContext:
+            def __init__(self):
+                self.called = False
+
+            def list_tools(self):
+                return [
+                    {
+                        "name": "echo",
+                        "description": "Echo input",
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {"text": {"type": "string"}},
+                            "required": ["text"],
+                        },
+                    }
+                ]
+
+            async def list_tools_async(self):
+                return self.list_tools()
+
+            def call_tool(self, name, arguments):
+                self.called = True
+                return {"content": [{"type": "text", "text": arguments["text"]}], "is_error": False}
+
+        context = FakeContext()
+        functions = SemanticKernelAdapter(context).get_functions()
+        self.assertEqual(functions[0](text="semantic"), "semantic")
+        self.assertTrue(context.called)
 
     def test_rust_binding_exposes_service_management_objects(self):
         from mcpstore._rust import MCPStore
