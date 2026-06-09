@@ -887,6 +887,24 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         autogen_result = AutoGenAdapter(FakeContext()).list_tools()[0]()
         self.assertIn("base64-image", autogen_result)
 
+    def test_adapters_preserve_object_shaped_non_text_payload(self):
+        from mcpstore.adapters.common import call_tool_response_helper
+
+        class ImageContent:
+            type = "image"
+            data = "base64-object-image"
+            mimeType = "image/png"
+            width = 640
+            height = 480
+
+        view = call_tool_response_helper({"content": [ImageContent()], "is_error": False})
+
+        self.assertEqual(view.text, "")
+        self.assertEqual(view.artifacts[0]["type"], "image")
+        self.assertEqual(view.artifacts[0]["data"], "base64-object-image")
+        self.assertEqual(view.artifacts[0]["mimeType"], "image/png")
+        self.assertEqual(view.data["artifacts"][0]["width"], 640)
+
     def test_python_mcp_module_is_removed(self):
         self.assertIsNone(importlib.util.find_spec("mcpstore.mcp"))
 
