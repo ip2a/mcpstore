@@ -277,6 +277,28 @@ class RustStoreBackend:
             raise ValueError(f"Rust core 只接受 dict 对象，实际类型: {type(value).__name__}")
         return value
 
+    @staticmethod
+    def _is_wide_service_map(config: Dict[str, Any]) -> bool:
+        service_fields = {
+            "args",
+            "command",
+            "description",
+            "env",
+            "headers",
+            "transport",
+            "type",
+            "url",
+            "workingDir",
+            "working_dir",
+        }
+        return (
+            "name" not in config
+            and "mcpServers" not in config
+            and not any(key in config for key in service_fields)
+            and bool(config)
+            and all(isinstance(value, dict) for value in config.values())
+        )
+
     @classmethod
     def _normalize_service_config(
         cls,
@@ -308,6 +330,17 @@ class RustStoreBackend:
                         merged["headers"] = {**dict(server.get("headers") or {}), **headers}
                         servers[name] = merged
                     item["mcpServers"] = servers
+                elif cls._is_wide_service_map(item):
+                    item = {
+                        name: {
+                            **dict(server_config),
+                            "headers": {
+                                **dict(server_config.get("headers") or {}),
+                                **headers,
+                            },
+                        }
+                        for name, server_config in item.items()
+                    }
                 else:
                     item["headers"] = {**dict(item.get("headers") or {}), **headers}
             normalized.append(item)
@@ -343,6 +376,10 @@ class RustStoreBackend:
             for name, server_config in mcp_servers.items():
                 self._inner.add_service(name, self._validate_dict(server_config))
             return
+        if self._is_wide_service_map(config):
+            for name, server_config in config.items():
+                self._inner.add_service(name, self._validate_dict(server_config))
+            return
 
         name = config.get("name")
         if not name:
@@ -369,6 +406,16 @@ class RustStoreBackend:
         mcp_servers = config.get("mcpServers", {})
         if mcp_servers:
             for local_name, server_config in mcp_servers.items():
+                added.append(
+                    self._inner.add_service_for_agent(
+                        agent_id,
+                        local_name,
+                        self._validate_dict(server_config),
+                    )
+                )
+            return added
+        if self._is_wide_service_map(config):
+            for local_name, server_config in config.items():
                 added.append(
                     self._inner.add_service_for_agent(
                         agent_id,
@@ -1185,7 +1232,7 @@ class RustStoreContext:
         *,
         json_file: Optional[str] = None,
         headers: Optional[Dict[str, Any]] = None,
-    ) -> bool:
+    ) -> "RustStoreContext":
         if self._agent_id:
             self._backend.add_service_for_agent(
                 self._agent_id,
@@ -1193,8 +1240,9 @@ class RustStoreContext:
                 json_file=json_file,
                 headers=headers,
             )
-            return True
-        return self._backend.add_service(config, json_file=json_file, headers=headers)
+        else:
+            self._backend.add_service(config, json_file=json_file, headers=headers)
+        return self
 
     @property
     def agent_id(self) -> Optional[str]:
