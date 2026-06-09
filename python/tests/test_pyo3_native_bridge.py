@@ -56,8 +56,10 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         )
 
         services = context.list_services()
-        self.assertEqual(services[0].name, "demo")
-        self.assertEqual(services[0].transport_type, "stdio")
+        self.assertEqual(services[0]["name"], "demo")
+        self.assertEqual(services[0]["transport_type"], "stdio")
+        with self.assertRaises(AttributeError):
+            getattr(services[0], "name")
         self.assertIsInstance(context.show_config(), dict)
 
     def test_perspective_resolver_uses_native_python_objects(self):
