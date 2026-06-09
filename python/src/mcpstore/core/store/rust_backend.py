@@ -1,4 +1,5 @@
 import importlib
+import subprocess
 from typing import Any, Dict, List, Optional
 
 
@@ -130,6 +131,9 @@ class RustStoreBackend:
         self._active_sessions: Dict[str, "RustSession"] = {}
         self._auto_sessions: Dict[str, "RustSession"] = {}
         self._tool_overrides: Dict[str, Dict[str, Any]] = {}
+        self._config_path: Optional[str] = None
+        self._cache_config: Any = None
+        self._only_db: bool = False
 
     @classmethod
     def setup(
@@ -148,6 +152,9 @@ class RustStoreBackend:
             namespace,
         )
         store = cls(rust_store)
+        store._config_path = config_path
+        store._cache_config = cache_config
+        store._only_db = only_db
         store.load_from_config()
         return store
 
@@ -386,6 +393,43 @@ class RustStoreBackend:
 
     def wait_service_ready(self, name: str, timeout: float = 10.0) -> Dict[str, Any]:
         return _record_value(self._inner.wait_service_ready(name, int(timeout)))
+
+    def start_api_server(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 18200,
+        url_prefix: str = "",
+        show_startup_info: bool = True,
+        log_level: Optional[str] = None,
+        **_kwargs,
+    ) -> int:
+        from mcpstore._rust_cli import resolve_rust_cli_binary, resolve_runtime_cwd
+
+        cmd = [
+            resolve_rust_cli_binary(),
+            "api",
+            "--host",
+            str(host),
+            "--port",
+            str(port),
+        ]
+        if url_prefix:
+            cmd.extend(["--url-prefix", url_prefix])
+        if self._config_path:
+            cmd.extend(["--config-path", self._config_path])
+        if self._only_db:
+            cmd.extend(["--source", "db"])
+
+        backend, redis_url, namespace = self._cache_options(self._cache_config)
+        if backend:
+            cmd.extend(["--backend", backend])
+        if redis_url:
+            cmd.extend(["--redis-url", redis_url])
+        if namespace:
+            cmd.extend(["--namespace", namespace])
+
+        completed = subprocess.run(cmd, cwd=resolve_runtime_cwd(), check=False)
+        return completed.returncode
 
     def session_key(self, agent_id: Optional[str]) -> str:
         return agent_id or "global_agent_store"
