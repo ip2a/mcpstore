@@ -70,6 +70,22 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertIsInstance(store.get_json_config(), dict)
         self.assertEqual(store.get_data_space_info()["backend"], "memory")
 
+    def test_rust_store_backend_has_no_python_fallback_without_pyo3(self):
+        import importlib
+
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        original_import_module = importlib.import_module
+
+        def fail_rust_extension(name, *args, **kwargs):
+            if name == "mcpstore._rust":
+                raise ImportError("missing PyO3 extension")
+            return original_import_module(name, *args, **kwargs)
+
+        with patch("importlib.import_module", side_effect=fail_rust_extension):
+            with self.assertRaisesRegex(ImportError, "missing PyO3 extension"):
+                RustStoreBackend.setup()
+
     def test_top_level_store_methods_are_sync_and_awaitable(self):
         import asyncio
 
