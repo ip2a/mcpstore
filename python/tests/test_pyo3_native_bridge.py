@@ -449,6 +449,50 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         context.session_manual()
         self.assertIsNone(context.active_session)
 
+    def test_python_facade_keeps_agent_tool_set_management_shape(self):
+        from mcpstore.core.store.rust_backend import RustStoreBackend, RustStoreContext
+
+        class FakeBackend:
+            def list_services_scoped(self, agent_id=None):
+                return [{"name": "svc", "transport": "stdio"}]
+
+            def list_tools_scoped(self, agent_id=None, service_name=None, *, filter="available"):
+                service = service_name or "svc"
+                return [
+                    {"name": "alpha", "original_name": "alpha", "service_name": service},
+                    {"name": "beta", "original_name": "beta", "service_name": service},
+                ]
+
+        backend = RustStoreBackend(FakeBackend())
+        agent = RustStoreContext(backend, agent_id="agent-a")
+
+        self.assertEqual([tool.name for tool in agent.list_tools(filter="all")], ["alpha", "beta"])
+        self.assertEqual([tool.name for tool in agent.list_tools(filter="available")], ["alpha", "beta"])
+
+        self.assertIs(agent.remove_tools(service="svc", tools="_all_tools"), agent)
+        self.assertEqual(agent.list_tools(filter="available"), [])
+        self.assertEqual([tool.name for tool in agent.list_tools(filter="removed")], ["alpha", "beta"])
+
+        self.assertIs(agent.add_tools(service="svc", tools=["alpha"]), agent)
+        self.assertEqual([tool.name for tool in agent.list_tools(filter="available")], ["alpha"])
+        info = agent.get_tool_set_info(service="svc")
+        self.assertEqual(info.total_tools, 2)
+        self.assertEqual(info.available_tools, 1)
+        self.assertEqual(info.removed_tools, 1)
+
+        summary = agent.get_tool_set_summary()
+        self.assertEqual(summary.agent_id, "agent-a")
+        self.assertEqual(summary.total_services, 1)
+
+        service_proxy = agent.find_service("svc")
+        self.assertTrue(service_proxy.is_agent_scoped)
+        self.assertIs(agent.reset_tools(service=service_proxy), agent)
+        self.assertEqual([tool.name for tool in agent.list_tools(filter="available")], ["alpha", "beta"])
+
+        other_agent = RustStoreContext(backend, agent_id="agent-b")
+        with self.assertRaises(ValueError):
+            other_agent.add_tools(service=service_proxy, tools=["alpha"])
+
     def test_perspective_resolver_uses_native_python_objects(self):
         from mcpstore._rust import PerspectiveResolver
 
