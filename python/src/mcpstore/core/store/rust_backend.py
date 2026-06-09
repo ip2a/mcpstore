@@ -116,6 +116,9 @@ class RustStoreBackend:
 
     def __init__(self, rust_store):
         self._inner = rust_store
+        self._sessions: Dict[tuple[str, str], "RustSession"] = {}
+        self._active_sessions: Dict[str, "RustSession"] = {}
+        self._auto_sessions: Dict[str, "RustSession"] = {}
 
     @classmethod
     def setup(
@@ -373,6 +376,55 @@ class RustStoreBackend:
     def wait_service_ready(self, name: str, timeout: float = 10.0) -> Dict[str, Any]:
         return _record_value(self._inner.wait_service_ready(name, int(timeout)))
 
+    def session_key(self, agent_id: Optional[str]) -> str:
+        return agent_id or "global_agent_store"
+
+    def get_session(
+        self,
+        context: "RustStoreContext",
+        session_id: str,
+    ) -> "RustSession":
+        key = (context.get_id(), session_id)
+        session = self._sessions.get(key)
+        if session is None or not session.is_active:
+            session = RustSession(context, session_id)
+            self._sessions[key] = session
+        return session
+
+    def find_session(
+        self,
+        context: "RustStoreContext",
+        session_id: Optional[str] = None,
+    ) -> Optional["RustSession"]:
+        context_id = context.get_id()
+        if session_id is None:
+            return self._auto_sessions.get(context_id) or self._active_sessions.get(context_id)
+        session = self._sessions.get((context_id, session_id))
+        if session is not None and session.is_active:
+            return session
+        return None
+
+    def set_active_session(
+        self,
+        context: "RustStoreContext",
+        session: Optional["RustSession"],
+    ) -> None:
+        context_id = context.get_id()
+        if session is None:
+            self._active_sessions.pop(context_id, None)
+        else:
+            self._active_sessions[context_id] = session
+
+    def active_session(self, context: "RustStoreContext") -> Optional["RustSession"]:
+        context_id = context.get_id()
+        return self._active_sessions.get(context_id) or self._auto_sessions.get(context_id)
+
+    def enable_auto_session(self, context: "RustStoreContext", session: "RustSession") -> None:
+        self._auto_sessions[context.get_id()] = session
+
+    def disable_auto_session(self, context: "RustStoreContext") -> None:
+        self._auto_sessions.pop(context.get_id(), None)
+
 
 class RustServiceProxy:
     def __init__(self, context: "RustStoreContext", service_name: str):
@@ -590,6 +642,147 @@ class RustCacheProxy:
         return self.inspect()
 
 
+class RustSession:
+    def __init__(self, context: "RustStoreContext", session_id: str):
+        self._context = context
+        self._session_id = session_id
+        self._is_active = True
+        self._bound_services: List[str] = []
+
+    @property
+    def session_id(self) -> str:
+        return self._session_id
+
+    @property
+    def is_active(self) -> bool:
+        return self._is_active
+
+    @property
+    def service_count(self) -> int:
+        return len(self._bound_services) if self._bound_services else len(self.list_services())
+
+    @property
+    def tool_count(self) -> int:
+        return len(self.list_tools())
+
+    def __enter__(self) -> "RustSession":
+        self._is_active = True
+        self._context._backend.set_active_session(self._context, self)
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self._context._backend.set_active_session(self._context, None)
+
+    async def __aenter__(self) -> "RustSession":
+        return self.__enter__()
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        self.__exit__(exc_type, exc, tb)
+
+    def bind_service(self, service_name: str) -> "RustSession":
+        resolved = self._context._resolve_service_name(service_name)
+        if resolved not in self._bound_services:
+            self._bound_services.append(resolved)
+        return self
+
+    async def bind_service_async(self, service_name: str) -> "RustSession":
+        return self.bind_service(service_name)
+
+    def list_services(self) -> List[Dict[str, Any]]:
+        if not self._bound_services:
+            return self._context.list_services()
+        services = []
+        for name in self._bound_services:
+            info = self._context.get_service_info(name)
+            if info:
+                services.append(info)
+        return _record_value(services)
+
+    def list_tools(self, service_name: Optional[str] = None) -> List[Dict[str, Any]]:
+        if service_name is not None:
+            return self._context._list_tools_direct(service_name=service_name)
+        if not self._bound_services:
+            return self._context._list_tools_direct()
+        tools: List[Dict[str, Any]] = []
+        for name in self._bound_services:
+            tools.extend(self._context._list_tools_direct(service_name=name))
+        return _record_value(tools)
+
+    def use_tool(
+        self,
+        tool_name: str,
+        arguments: Optional[Dict[str, Any]] = None,
+        *,
+        return_extracted: bool = False,
+        **_kwargs,
+    ) -> Any:
+        result = self._context.call_tool(tool_name, arguments or {})
+        if not return_extracted:
+            return result
+        content = result.get("content", []) if isinstance(result, dict) else []
+        text_blocks = [
+            item.get("text", "")
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        ]
+        return "\n".join(text for text in text_blocks if text)
+
+    async def use_tool_async(
+        self,
+        tool_name: str,
+        arguments: Optional[Dict[str, Any]] = None,
+        *,
+        return_extracted: bool = False,
+        **kwargs,
+    ) -> Any:
+        return self.use_tool(
+            tool_name,
+            arguments,
+            return_extracted=return_extracted,
+            **kwargs,
+        )
+
+    def session_info(self) -> Dict[str, Any]:
+        return _record_value(
+            {
+                "session_id": self._session_id,
+                "is_active": self._is_active,
+                "agent_id": self._context.agent_id,
+                "services": list(self._bound_services),
+                "service_count": self.service_count,
+                "tool_count": self.tool_count,
+            }
+        )
+
+    def connection_status(self) -> Dict[str, Any]:
+        return _record_value(
+            {
+                "session_id": self._session_id,
+                "is_active": self._is_active,
+                "services": {
+                    service: "bound"
+                    for service in self._bound_services
+                },
+            }
+        )
+
+    def restart_session(self) -> "RustSession":
+        for service_name in list(self._bound_services):
+            self._context.restart_service(service_name)
+        return self
+
+    def extend_session(self, seconds: int = 3600) -> "RustSession":
+        return self
+
+    def clear_cache(self) -> bool:
+        return True
+
+    def close_session(self) -> bool:
+        self._is_active = False
+        self._context._backend.set_active_session(self._context, None)
+        return True
+
+
 class RustStoreContext:
     def __init__(self, backend: RustStoreBackend, agent_id: Optional[str] = None):
         self._backend = backend
@@ -619,10 +812,19 @@ class RustStoreContext:
     def context_type(self) -> str:
         return "agent" if self._agent_id else "store"
 
+    @property
+    def active_session(self) -> Optional[RustSession]:
+        return self._backend.active_session(self)
+
     def list_services(self) -> List[Dict[str, Any]]:
         return _record_value(self._backend.list_services_scoped(self._agent_id))
 
-    def list_tools(self, service_name: Optional[str] = None, *, filter: str = "available") -> List[Dict[str, Any]]:
+    def _list_tools_direct(
+        self,
+        service_name: Optional[str] = None,
+        *,
+        filter: str = "available",
+    ) -> List[Dict[str, Any]]:
         return _record_value(
             self._backend.list_tools_scoped(
                 self._agent_id,
@@ -630,6 +832,12 @@ class RustStoreContext:
                 filter=filter,
             )
         )
+
+    def list_tools(self, service_name: Optional[str] = None, *, filter: str = "available") -> List[Dict[str, Any]]:
+        active = self.active_session
+        if service_name is None and active is not None and active._bound_services:
+            return active.list_tools()
+        return self._list_tools_direct(service_name, filter=filter)
 
     def find_service(self, service_name: str) -> RustServiceProxy:
         return RustServiceProxy(self, service_name)
@@ -643,6 +851,53 @@ class RustStoreContext:
     def find_cache(self) -> RustCacheProxy:
         scope = "agent" if self._agent_id else "global"
         return RustCacheProxy(self, scope=scope, scope_value=self._agent_id)
+
+    def create_session(
+        self,
+        session_id: str,
+        user_session_id: Optional[str] = None,
+    ) -> RustSession:
+        return self._backend.get_session(self, user_session_id or session_id)
+
+    def find_session(
+        self,
+        session_id: Optional[str] = None,
+        is_user_session_id: bool = False,
+    ) -> Optional[RustSession]:
+        return self._backend.find_session(self, session_id)
+
+    def get_session(self, session_id: str) -> RustSession:
+        return self.create_session(session_id)
+
+    def list_sessions(self) -> List[RustSession]:
+        context_id = self.get_id()
+        return [
+            session
+            for (cached_context_id, _), session in self._backend._sessions.items()
+            if cached_context_id == context_id and session.is_active
+        ]
+
+    def with_session(self, session_id: str) -> RustSession:
+        return self.create_session(session_id)
+
+    async def with_session_async(self, session_id: str) -> RustSession:
+        return self.with_session(session_id)
+
+    def session_auto(
+        self,
+        session_id: str = "auto_session_default",
+        default_timeout: int = 720000,
+        auto_cleanup: bool = False,
+        session_prefix: str = "auto_",
+    ) -> "RustStoreContext":
+        session = self.create_session(session_id)
+        session._is_active = True
+        self._backend.enable_auto_session(self, session)
+        return self
+
+    def session_manual(self) -> "RustStoreContext":
+        self._backend.disable_auto_session(self)
+        return self
 
     def get_service_info(self, name: str) -> Dict[str, Any]:
         service_name = self._resolve_service_name(name)
@@ -722,13 +977,13 @@ class RustStoreContext:
         service_name = self._resolve_service_name(name)
         return self._backend.restart_service(service_name)
 
-    def for_langchain(self):
+    def for_langchain(self, response_format: str = "text"):
         from mcpstore.adapters.langchain_adapter import LangChainAdapter
 
-        return LangChainAdapter(self)
+        return LangChainAdapter(self, response_format=response_format)
 
-    def for_langgraph(self):
-        return self.for_langchain()
+    def for_langgraph(self, response_format: str = "text"):
+        return self.for_langchain(response_format=response_format)
 
     def for_openai(self):
         from mcpstore.adapters.openai_adapter import OpenAIAdapter
@@ -778,5 +1033,16 @@ class RustStoreContext:
         return self._backend.wait_service_ready(service_name, timeout)
 
     def _resolve_tool(self, tool_name: str) -> tuple[str, str]:
+        active = self.active_session
+        if active is not None and active._bound_services:
+            for service_name in active._bound_services:
+                for tool in self._list_tools_direct(service_name=service_name):
+                    names = {
+                        tool.get("name"),
+                        tool.get("original_name"),
+                        tool.get("tool_original_name"),
+                    }
+                    if tool_name in names:
+                        return service_name, tool.get("original_name") or tool.get("name")
         resolution = self._backend.resolve_tool_for_agent(self.get_id(), tool_name)
         return resolution["global_service_name"], resolution["canonical_tool_name"]

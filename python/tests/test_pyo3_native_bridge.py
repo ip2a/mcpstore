@@ -113,7 +113,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertIsInstance(store.check_services_scoped(), dict)
 
     def test_python_facade_keeps_service_and_tool_proxy_api(self):
-        from mcpstore.core.store.rust_backend import RustStoreContext
+        from mcpstore.core.store.rust_backend import RustStoreBackend, RustStoreContext
 
         schema = {"type": "object", "properties": {"text": {"type": "string"}}}
 
@@ -191,7 +191,8 @@ class PyO3NativeBridgeTest(unittest.TestCase):
                 self.restarted.append(name)
                 return True
 
-        backend = FakeBackend()
+        inner = FakeBackend()
+        backend = RustStoreBackend(inner)
         context = RustStoreContext(backend)
         agent = context.find_agent("agent-a")
         self.assertEqual(agent.agent_id, "agent-a")
@@ -220,9 +221,69 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertTrue(context.update_service("demo", {"description": "patched"}))
         self.assertTrue(service.restart_service())
         self.assertTrue(service.delete_service())
-        self.assertEqual(backend.patches, [("demo", {"description": "patched"})])
-        self.assertEqual(backend.restarted, ["demo"])
-        self.assertEqual(backend.removed, ["demo"])
+        self.assertEqual(inner.patches, [("demo", {"description": "patched"})])
+        self.assertEqual(inner.restarted, ["demo"])
+        self.assertEqual(inner.removed, ["demo"])
+
+    def test_python_facade_keeps_session_api_shape(self):
+        from mcpstore.core.store.rust_backend import RustStoreBackend, RustStoreContext
+
+        class FakeBackend:
+            def list_services_scoped(self, agent_id=None):
+                return [
+                    {"name": "browser", "transport": "stdio"},
+                    {"name": "search", "transport": "stdio"},
+                ]
+
+            def list_tools_scoped(self, agent_id=None, service_name=None, *, filter="available"):
+                if service_name == "browser":
+                    return [{"name": "browser_navigate", "service_name": "browser"}]
+                if service_name == "search":
+                    return [{"name": "web_search", "service_name": "search"}]
+                return [
+                    {"name": "browser_navigate", "service_name": "browser"},
+                    {"name": "web_search", "service_name": "search"},
+                ]
+
+            def find_service(self, name):
+                return {"name": name, "transport": "stdio"}
+
+            def resolve_tool_for_agent(self, agent_id, user_input):
+                if user_input == "browser_navigate":
+                    return {
+                        "global_service_name": "browser",
+                        "canonical_tool_name": "browser_navigate",
+                    }
+                return {"global_service_name": "search", "canonical_tool_name": "web_search"}
+
+            def call_tool(self, service_name, tool_name, args):
+                return {
+                    "content": [{"type": "text", "text": f"{service_name}:{tool_name}"}],
+                    "is_error": False,
+                }
+
+        backend = RustStoreBackend(FakeBackend())
+        context = RustStoreContext(backend)
+        session = context.create_session("browser_task")
+        self.assertEqual(session.session_id, "browser_task")
+        self.assertTrue(session.is_active)
+        self.assertEqual(context.find_session("browser_task"), session)
+
+        with context.with_session("browser_task") as active:
+            active.bind_service("browser")
+            self.assertEqual(active.service_count, 1)
+            self.assertEqual(active.list_tools()[0].name, "browser_navigate")
+            self.assertEqual(active.use_tool("browser_navigate", {}, return_extracted=True), "browser:browser_navigate")
+
+            fresh_context = RustStoreContext(backend)
+            self.assertEqual(fresh_context.active_session.session_id, "browser_task")
+            self.assertEqual([tool.name for tool in fresh_context.list_tools()], ["browser_navigate"])
+
+        self.assertIsNone(context.active_session)
+        context.session_auto("auto_browser")
+        self.assertEqual(context.active_session.session_id, "auto_browser")
+        context.session_manual()
+        self.assertIsNone(context.active_session)
 
     def test_perspective_resolver_uses_native_python_objects(self):
         from mcpstore._rust import PerspectiveResolver
