@@ -17,13 +17,11 @@ import warnings
 from typing import Callable, Any, Type, List, Dict, Optional, Tuple
 
 from pydantic import BaseModel, create_model, Field, ConfigDict
-from ..core.bridge import get_bridge_executor
 
 __all__ = [
     # 公共工具函数
     'is_nullable',
     'process_tool_args',
-    'run_sync_bridge',
     'get_tool_override',
     'enhance_description',
     'create_args_schema',
@@ -105,11 +103,6 @@ def tool_input_schema(tool_info: Any) -> Dict[str, Any]:
     """读取工具输入 schema，兼容 `inputSchema` / `input_schema`。"""
     schema = _read_field(tool_info, "inputSchema", "input_schema", default={}) or {}
     return schema if isinstance(schema, dict) else {}
-
-
-def run_sync_bridge(coro, op_name: str):
-    """统一通过桥接执行同步包装，避免依赖具体 context 私有实现。"""
-    return get_bridge_executor().run_sync(coro, op_name=op_name)
 
 
 def get_tool_override(

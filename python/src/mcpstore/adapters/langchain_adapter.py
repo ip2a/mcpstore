@@ -34,7 +34,6 @@ from .common import (
     tool_name,
     tool_service_name,
 )
-from ..core.bridge import get_bridge_executor
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +55,6 @@ class LangChainAdapter:
     def __init__(self, context: Any, response_format: str = "text"):
         _require_langchain()
         self._context = context
-        self._bridge_executor = get_bridge_executor()
         # 工具输出格式偏好
         self._response_format = response_format if response_format in ("text", "content_and_artifact") else "text"
 
@@ -169,7 +167,7 @@ class LangChainAdapter:
 
         return _tool_executor
 
-    async def _create_tool_coroutine(self, tool_name: str, args_schema: Type[BaseModel]):
+    def _create_tool_coroutine(self, tool_name: str, args_schema: Type[BaseModel]):
         """
         创建健壮的异步执行函数，智能处理各种参数传递方式。
         """
@@ -216,10 +214,7 @@ class LangChainAdapter:
 
     def list_tools(self) -> List[Tool]:
         """获取所有可用的 mcpstore 工具并转换为 LangChain Tool 列表（同步版本）。"""
-        return self._bridge_executor.run_sync(
-            self.list_tools_async(),
-            op_name="LangChainAdapter.list_tools",
-        )
+        return self._build_langchain_tools(self._context.list_tools())
 
     async def list_tools_async(self) -> List[Tool]:
         """
@@ -257,6 +252,9 @@ class LangChainAdapter:
                         "Please check if services are working properly."
                     )
 
+        return self._build_langchain_tools(mcp_tools_info)
+
+    def _build_langchain_tools(self, mcp_tools_info: List[Any]) -> List[Tool]:
         langchain_tools = []
         for tool_info in mcp_tools_info:
             # 使用公共函数
@@ -267,7 +265,7 @@ class LangChainAdapter:
 
             # 创建同步和异步函数
             sync_func = self._create_tool_function(name, args_schema)
-            async_coroutine = await self._create_tool_coroutine(name, args_schema)
+            async_coroutine = self._create_tool_coroutine(name, args_schema)
 
             # 读取工具覆盖配置（如 return_direct）
             return_direct_flag = get_tool_override(
