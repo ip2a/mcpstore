@@ -786,6 +786,31 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(kwargs["mcpjson_path"], "config-alias.json")
         self.assertIs(kwargs["cache"], cache)
 
+    def test_setup_store_adds_static_config_through_rust_store(self):
+        import asyncio
+
+        from mcpstore.core.store.setup_manager import StoreSetupManager
+
+        class FakeStore:
+            def __init__(self):
+                self.added = []
+
+            def add_service(self, config):
+                self.added.append(config)
+
+        static_config = {"mcpServers": {"demo": {"url": "https://example.test/mcp"}}}
+        sync_store = FakeStore()
+        with patch.object(StoreSetupManager, "_setup_rust_store", return_value=sync_store):
+            result = StoreSetupManager.setup_store(static_config=static_config)
+        self.assertIs(result, sync_store)
+        self.assertEqual(sync_store.added, [static_config])
+
+        async_store = FakeStore()
+        with patch.object(StoreSetupManager, "_setup_rust_store", return_value=async_store):
+            result = asyncio.run(StoreSetupManager.setup_store_async(static_config=static_config))
+        self.assertIs(result, async_store)
+        self.assertEqual(async_store.added, [static_config])
+
     def test_rust_backend_setup_normalizes_pathlike_config_path(self):
         import types
 
