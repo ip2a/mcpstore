@@ -345,12 +345,10 @@ class RustStoreBackend:
 
     @classmethod
     def _normalize_config_dict(cls, value: Any, context: str) -> Dict[str, Any]:
-        if isinstance(value, str):
-            value = json.loads(value)
         try:
             return cls._validate_dict(value)
         except ValueError as error:
-            raise ValueError(f"{context} 必须是 dict 或 JSON object 字符串") from error
+            raise ValueError(f"{context} 必须是 dict；Python SDK 不再接受 JSON 字符串配置") from error
 
     @staticmethod
     def _is_wide_service_map(config: Dict[str, Any]) -> bool:
@@ -385,8 +383,6 @@ class RustStoreBackend:
         if json_file is not None:
             with open(json_file, "r", encoding="utf-8") as file:
                 config = json.load(file)
-        elif isinstance(config, str):
-            config = json.loads(config)
 
         if config is None:
             raise ValueError("服务配置缺少 config 或 json_file")
@@ -394,7 +390,10 @@ class RustStoreBackend:
         configs = config if isinstance(config, list) else [config]
         normalized: List[Dict[str, Any]] = []
         for item in configs:
-            item = cls._validate_dict(item)
+            try:
+                item = cls._validate_dict(item)
+            except ValueError as error:
+                raise ValueError("服务配置必须是 dict/list；Python SDK 不再接受 JSON 字符串配置") from error
             if headers:
                 item = dict(item)
                 if "mcpServers" in item and isinstance(item["mcpServers"], dict):

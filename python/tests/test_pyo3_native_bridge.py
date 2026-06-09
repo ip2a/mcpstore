@@ -534,11 +534,14 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             context,
         )
 
-        backend.for_agent("agent-a").add_service(
-            json.dumps({"name": "local", "command": "python"}),
-        )
+        backend.for_agent("agent-a").add_service({"name": "local", "command": "python"})
         self.assertEqual(inner.agent_added[0][0], "agent-a")
         self.assertEqual(inner.agent_added[0][1], "local")
+
+        with self.assertRaisesRegex(ValueError, "不再接受 JSON 字符串配置"):
+            backend.for_agent("agent-a").add_service(
+                json.dumps({"name": "legacy", "command": "python"})
+            )
 
         agent = backend.for_agent("agent-b")
         self.assertIs(
@@ -548,7 +551,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(inner.agent_added[1][0], "agent-b")
         self.assertEqual(inner.agent_added[1][1], "wide-agent")
 
-    def test_service_config_mutations_parse_json_strings_before_pyo3(self):
+    def test_service_config_mutations_require_python_dicts(self):
         from mcpstore.core.store.rust_backend import RustStoreBackend
 
         class FakeInner:
@@ -566,15 +569,20 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         backend = RustStoreBackend(inner)
         context = backend.for_store()
 
-        self.assertTrue(backend.patch_service("demo", '{"description": "patched"}'))
-        self.assertTrue(backend.update_service("demo", '{"url": "https://example.test/mcp"}'))
-        self.assertTrue(context.update_service("demo", '{"headers": {"X-Test": "1"}}'))
-        self.assertTrue(context.replace_service_config("demo", '{"command": "python"}'))
+        self.assertTrue(backend.patch_service("demo", {"description": "patched"}))
+        self.assertTrue(backend.update_service("demo", {"url": "https://example.test/mcp"}))
+        self.assertTrue(context.update_service("demo", {"headers": {"X-Test": "1"}}))
+        self.assertTrue(context.replace_service_config("demo", {"command": "python"}))
 
         self.assertEqual(inner.patches[0], ("demo", {"description": "patched"}, dict))
         self.assertEqual(inner.updates[0], ("demo", {"url": "https://example.test/mcp"}, dict))
         self.assertEqual(inner.patches[1], ("demo", {"headers": {"X-Test": "1"}}, dict))
         self.assertEqual(inner.updates[1], ("demo", {"command": "python"}, dict))
+
+        with self.assertRaisesRegex(ValueError, "不再接受 JSON 字符串配置"):
+            backend.patch_service("demo", '{"description": "legacy"}')
+        with self.assertRaisesRegex(ValueError, "不再接受 JSON 字符串配置"):
+            context.replace_service_config("demo", '{"command": "python"}')
 
     def test_rust_context_exposes_documented_async_facade_methods(self):
         import asyncio
