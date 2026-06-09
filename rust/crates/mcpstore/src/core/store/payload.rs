@@ -34,14 +34,7 @@ impl MCPStore {
         let mut value = serde_json::to_value(service)
             .unwrap_or_else(|_| serde_json::Value::Object(Default::default()));
         if let serde_json::Value::Object(object) = &mut value {
-            let transport = object
-                .get("transport")
-                .cloned()
-                .unwrap_or(serde_json::Value::Null);
-            object.insert("transport_type".to_string(), transport);
             object.insert("tool_count".to_string(), serde_json::json!(tool_count));
-            object.insert("client_id".to_string(), serde_json::Value::Null);
-            object.insert("state_metadata".to_string(), serde_json::Value::Null);
             if localize_for_agent {
                 object.insert("global_name".to_string(), serde_json::json!(global_name));
                 object.insert("name".to_string(), serde_json::json!(localized_name));
@@ -65,7 +58,6 @@ impl MCPStore {
             "description": description,
             "schema": schema,
             "input_schema": schema,
-            "inputSchema": schema,
             "service_name": service_name,
             "global_service_name": global_service_name,
             "service_global_name": global_service_name,
