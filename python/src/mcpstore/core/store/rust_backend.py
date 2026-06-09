@@ -1787,14 +1787,12 @@ class RustStoreContext:
     def create_session(
         self,
         session_id: str,
-        user_session_id: Optional[str] = None,
     ) -> RustSession:
-        return self._backend.get_session(self, user_session_id or session_id)
+        return self._backend.get_session(self, session_id)
 
     def find_session(
         self,
         session_id: Optional[str] = None,
-        is_user_session_id: bool = False,
     ) -> Optional[RustSession]:
         return self._backend.find_session(self, session_id)
 
@@ -1818,9 +1816,6 @@ class RustStoreContext:
     def session_auto(
         self,
         session_id: str = "auto_session_default",
-        default_timeout: int = 720000,
-        auto_cleanup: bool = False,
-        session_prefix: str = "auto_",
     ) -> "RustStoreContext":
         session = self.create_session(session_id)
         session._is_active = True
