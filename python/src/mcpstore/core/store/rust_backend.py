@@ -231,6 +231,12 @@ def _status_value(status: Any) -> str:
     return str(value or "").lower()
 
 
+def _reject_unsupported_kwargs(context: str, kwargs: Dict[str, Any]) -> None:
+    if kwargs:
+        unsupported = ", ".join(sorted(kwargs))
+        raise ValueError(f"{context} 当前不支持参数: {unsupported}")
+
+
 def _tool_error_result(
     service_name: str,
     tool_name: str,
@@ -1214,8 +1220,9 @@ class RustToolProxy:
         args: Optional[Dict[str, Any]] = None,
         *,
         return_extracted: bool = False,
-        **_kwargs,
+        **kwargs,
     ) -> Any:
+        _reject_unsupported_kwargs("RustToolProxy.call_tool", kwargs)
         if self._service_name:
             info = self.tool_info()
             service_name = self._context._resolve_service_name(self._service_name)
@@ -1497,8 +1504,9 @@ class RustSession:
         arguments: Optional[Dict[str, Any]] = None,
         *,
         return_extracted: bool = False,
-        **_kwargs,
+        **kwargs,
     ) -> Any:
+        _reject_unsupported_kwargs("RustSession.use_tool", kwargs)
         result = self._context.call_tool(tool_name, arguments or {})
         if not return_extracted:
             return result
@@ -2002,8 +2010,9 @@ class RustStoreContext:
         args: Optional[Dict[str, Any]] = None,
         *,
         return_extracted: bool = False,
-        **_kwargs,
+        **kwargs,
     ) -> Any:
+        _reject_unsupported_kwargs("RustStoreContext.call_tool", kwargs)
         result = self._call_tool_direct(tool_name, args)
         if return_extracted:
             return _extract_text_result(result)
