@@ -984,6 +984,13 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertIsNone(cache)
         self.assertFalse(only_db)
 
+        with self.assertRaisesRegex(ValueError, "cache_mode='hybrid'"):
+            StoreSetupManager._normalize_cache_options(
+                cache=redis,
+                cache_mode="hybrid",
+                only_db=False,
+            )
+
     def test_setup_store_rejects_mcp_config_file_alias(self):
         from mcpstore.core.store.setup_manager import StoreSetupManager
 
