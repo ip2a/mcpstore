@@ -257,10 +257,9 @@ async fn handle_call_tool(store: &MCPStore, params: Value) -> DaemonResponse {
     let args = params.get("args").cloned().unwrap_or_else(|| json!({}));
     match store.call_tool(&service_name, &tool_name, args).await {
         Ok(result) => DaemonResponse::ok(Some(json!({
-            "content": result.content.iter().map(|c| match c {
-                mcpstore::transport::ContentItem::Text { text } => json!({"type": "text", "text": text}),
-                mcpstore::transport::ContentItem::Image { data, mime_type } => json!({"type": "image", "data": data, "mime_type": mime_type}),
-            }).collect::<Vec<_>>(),
+            "content": result.content.iter()
+                .map(|c| serde_json::to_value(c).unwrap_or_else(|_| json!({"type": "error"})))
+                .collect::<Vec<_>>(),
             "is_error": result.is_error,
         }))),
         Err(e) => DaemonResponse::err(e.to_string()),

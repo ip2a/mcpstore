@@ -598,9 +598,18 @@ pub async fn call_tool(a: CallToolArgs) -> std::result::Result<(), BoxErr> {
     }
     for item in &result.content {
         match item {
-            mcpstore::transport::ContentItem::Text { text } => println!("{text}"),
+            mcpstore::transport::ContentItem::Text { text, .. } => println!("{text}"),
             mcpstore::transport::ContentItem::Image { mime_type, .. } => {
                 println!("[Image: {mime_type}]")
+            }
+            mcpstore::transport::ContentItem::Audio { mime_type, .. } => {
+                println!("[Audio: {mime_type}]")
+            }
+            mcpstore::transport::ContentItem::Resource { resource, .. } => {
+                println!("[Resource: {resource}]")
+            }
+            mcpstore::transport::ContentItem::ResourceLink { resource, .. } => {
+                println!("[ResourceLink: {resource}]")
             }
         }
     }
