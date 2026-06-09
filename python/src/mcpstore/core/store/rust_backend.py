@@ -634,15 +634,35 @@ class RustStoreBackend:
             }
         )
 
-    async def exportjson(self, path: Optional[str] = None) -> Dict[str, Any]:
+    async def exportjson(
+        self,
+        filepath: Optional[str] = None,
+        *,
+        output_path: Optional[str] = None,
+        include_sessions: bool = False,
+    ) -> Dict[str, Any]:
+        if filepath is not None and output_path is not None:
+            raise ValueError("filepath 和 output_path 不能同时传入")
+        path = output_path if output_path is not None else filepath
+        path = os.fspath(path) if path is not None else None
         config = self.get_json_config()
         if path:
             with open(path, "w", encoding="utf-8") as file:
                 json.dump(config, file, ensure_ascii=False, indent=2)
         return config
 
-    async def export_to_json(self, path: str) -> Dict[str, Any]:
-        return await self.exportjson(path)
+    async def export_to_json(
+        self,
+        output_path: Optional[str] = None,
+        *,
+        filepath: Optional[str] = None,
+        include_sessions: bool = False,
+    ) -> Dict[str, Any]:
+        return await self.exportjson(
+            filepath=filepath,
+            output_path=output_path,
+            include_sessions=include_sessions,
+        )
 
     async def import_from_json(self, path: str) -> bool:
         with open(path, "r", encoding="utf-8") as file:
