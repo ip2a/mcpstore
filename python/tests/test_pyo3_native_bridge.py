@@ -136,6 +136,8 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(store.list_resource_templates_scoped(), [])
         self.assertEqual(store.list_prompts_scoped(), [])
         self.assertEqual(store.list_agents(), [])
+        self.assertIsInstance(store.event_history(10), list)
+        self.assertIsInstance(store.event_capability_report(), dict)
         self.assertIsInstance(store.cache_health_check(), dict)
         self.assertIsInstance(store.cache_inspect(), dict)
 
@@ -246,6 +248,20 @@ class PyO3NativeBridgeTest(unittest.TestCase):
                 self.restarted.append(name)
                 return True
 
+            def connect_service(self, name):
+                self.connected = name
+                return True
+
+            def disconnect_service(self, name):
+                self.disconnected = name
+                return True
+
+            def event_history(self, count=100):
+                return [{"event_type": "TEST", "count": count}]
+
+            def event_capability_report(self):
+                return {"event_bus": True}
+
         inner = FakeBackend()
         backend = RustStoreBackend(inner)
         context = RustStoreContext(backend)
@@ -292,6 +308,10 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(service.get_prompt("summarize", {"topic": "rust"}).arguments["topic"], "rust")
 
         self.assertTrue(context.update_service("demo", {"description": "patched"}))
+        self.assertTrue(context.connect_service("demo"))
+        self.assertTrue(service.disconnect_service())
+        self.assertEqual(context.event_history(1)[0].event_type, "TEST")
+        self.assertTrue(context.event_capability_report().event_bus)
         self.assertTrue(service.restart_service())
         self.assertTrue(service.delete_service())
         self.assertEqual(inner.patches, [("demo", {"description": "patched"})])
