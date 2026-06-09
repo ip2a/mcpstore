@@ -408,16 +408,8 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             path="/mcp",
             block=False,
         )
-        with patch.object(backend, "start_mcp_server", return_value=0) as start_mcp_server:
-            self.assertEqual(context.hub_sse(), 0)
-        start_mcp_server.assert_called_once_with(
-            agent_id=None,
-            transport="streamable-http",
-            host="0.0.0.0",
-            port=8000,
-            path="/mcp",
-            block=False,
-        )
+        with self.assertRaisesRegex(NotImplementedError, "hub_http"):
+            context.hub_sse()
         with patch.object(backend, "start_mcp_server", return_value=0) as start_mcp_server:
             self.assertEqual(context.hub_stdio(), 0)
         start_mcp_server.assert_called_once_with(
@@ -1150,37 +1142,17 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertIn("--config-path", cmd)
         self.assertIn("--source", cmd)
 
-    def test_hub_sse_uses_rust_streamable_http_server_cli(self):
-        from mcpstore.config import MemoryConfig
+    def test_hub_sse_is_not_faked_with_streamable_http(self):
         from mcpstore.core.store.rust_backend import RustStoreBackend
 
         store = RustStoreBackend(object())
-        store._config_path = "mcp.json"
-        store._cache_config = MemoryConfig()
-        store._only_db = True
-
-        completed = type("Completed", (), {"returncode": 0})()
-        with patch("mcpstore._rust_cli.resolve_rust_cli_binary", return_value="/bin/mcpstore"):
-            with patch("mcpstore._rust_cli.resolve_runtime_cwd", return_value="/tmp"):
-                with patch("mcpstore.core.store.rust_backend.subprocess.run", return_value=completed) as run:
-                    code = store.for_store().hub_sse(
-                        host="0.0.0.0",
-                        port=18081,
-                        path="/sse",
-                        block=True,
-                    )
-
-        self.assertEqual(code, 0)
-        cmd = run.call_args.args[0]
-        self.assertEqual(cmd[:4], ["/bin/mcpstore", "mcp-server", "--transport", "streamable-http"])
-        self.assertIn("--host", cmd)
-        self.assertIn("0.0.0.0", cmd)
-        self.assertIn("--port", cmd)
-        self.assertIn("18081", cmd)
-        self.assertIn("--path", cmd)
-        self.assertIn("/sse", cmd)
-        self.assertIn("--scope", cmd)
-        self.assertIn("store", cmd)
+        with self.assertRaisesRegex(NotImplementedError, "hub_http"):
+            store.for_store().hub_sse(
+                host="0.0.0.0",
+                port=18081,
+                path="/sse",
+                block=True,
+            )
 
     def test_hub_stdio_delegates_to_rust_mcp_server_cli(self):
         from mcpstore.config import MemoryConfig
