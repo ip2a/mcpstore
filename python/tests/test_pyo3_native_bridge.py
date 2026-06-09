@@ -70,6 +70,31 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertIsInstance(store.get_json_config(), dict)
         self.assertEqual(store.get_data_space_info()["backend"], "memory")
 
+    def test_top_level_store_methods_are_sync_and_awaitable(self):
+        import asyncio
+
+        from mcpstore import MCPStore
+
+        workdir = Path(tempfile.mkdtemp(prefix="mcpstore-python-awaitable-"))
+        store = MCPStore.setup_store(str(workdir / "mcp.json"))
+
+        result = store.add_service(
+            {"name": "demo", "command": "python", "args": ["-c", "print(1)"], "transport": "stdio"}
+        )
+        self.assertTrue(result)
+        self.assertIsInstance(store.list_services(), list)
+
+        async def run():
+            ok = await store.add_service(
+                {"name": "demo2", "command": "python", "args": ["-c", "print(2)"], "transport": "stdio"}
+            )
+            services = await store.list_services()
+            return ok, services
+
+        ok, services = asyncio.run(run())
+        self.assertTrue(ok)
+        self.assertEqual({service.name for service in services}, {"demo", "demo2"})
+
     def test_python_facade_keeps_chain_adapter_api(self):
         from mcpstore import MCPStore
         import mcpstore
