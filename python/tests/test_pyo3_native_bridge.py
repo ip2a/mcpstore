@@ -1206,6 +1206,21 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
         self.assertIn("elapsed_ms", handler()["meta"])
 
+    def test_top_level_adapter_import_errors_are_not_silenced(self):
+        import builtins
+        import mcpstore
+
+        original_import = builtins.__import__
+
+        def fail_langchain(name, *args, **kwargs):
+            if name == "mcpstore.adapters.langchain_adapter":
+                raise ImportError("langchain unavailable")
+            return original_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=fail_langchain):
+            with self.assertRaisesRegex(ImportError, "langchain unavailable"):
+                mcpstore.__getattr__("LangChainAdapter")
+
     def test_python_package_declares_api_extra(self):
         project = tomllib.loads(Path("python/pyproject.toml").read_text(encoding="utf-8"))
         extras = project["project"]["optional-dependencies"]
