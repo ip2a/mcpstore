@@ -995,6 +995,21 @@ class RustStoreContext:
 
         return AutoGenAdapter(self)
 
+    def for_llamaindex(self):
+        from mcpstore.adapters.llamaindex_adapter import LlamaIndexAdapter
+
+        return LlamaIndexAdapter(self)
+
+    def for_crewai(self):
+        from mcpstore.adapters.crewai_adapter import CrewAIAdapter
+
+        return CrewAIAdapter(self)
+
+    def for_semantic_kernel(self):
+        from mcpstore.adapters.semantic_kernel_adapter import SemanticKernelAdapter
+
+        return SemanticKernelAdapter(self)
+
     def _call_tool_direct(self, tool_name: str, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         service_name, original_tool = self._resolve_tool(tool_name)
         return self._backend.call_tool(service_name, original_tool, args or {})
