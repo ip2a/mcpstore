@@ -703,6 +703,25 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
             self.assertIsNotNone(api_main_router)
             self.assertIsNotNone(api_agent_router)
+            paths = {route.path for route in api_main_router.routes}
+            self.assertTrue(
+                {
+                    "/for_store/show_mcpjson",
+                    "/for_store/setup_config",
+                    "/for_store/reset_config",
+                    "/for_store/sync_status",
+                    "/for_store/list_agents",
+                    "/for_store/tool_records",
+                    "/for_store/service_status/{service_name}",
+                    "/for_store/service_info/{service_name}",
+                    "/for_store/update_config/{service_name}",
+                    "/for_store/delete_config/{service_name}",
+                    "/for_store/wait_service",
+                    "/for_agent/{agent_id}/service_status/{service_name}",
+                    "/for_agent/{agent_id}/service_info/{service_name}",
+                    "/for_agent/{agent_id}/service/{service_name}",
+                }.issubset(paths)
+            )
         else:
             from mcpstore.api.api_dependencies import set_store as api_set_store
 

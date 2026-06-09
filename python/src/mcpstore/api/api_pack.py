@@ -44,7 +44,7 @@ async def store_list_services():
 @api_store_router.post("/add_service")
 @api_store_router.post("/services")
 @timed_response
-async def store_add_service(payload: Dict[str, Any] = Body(...)):
+async def store_add_service(payload: Any = Body(...)):
     context = get_store().for_store()
     await _execute(context, context.add_service_async(payload))
     return ResponseBuilder.success(message="Service add submitted", data={"status": "initializing"})
@@ -84,10 +84,154 @@ async def store_check_services():
 
 @api_store_router.get("/show_config")
 @timed_response
-async def store_show_config():
+async def store_show_config(scope: str = Query("all")):
     context = get_store().for_store()
-    result = await _execute(context, context.show_config_async())
+    result = await _execute(context, context.show_config_async(scope))
     return ResponseBuilder.success(message="Config returned", data=result)
+
+
+@api_store_router.get("/show_mcpjson")
+@timed_response
+async def store_show_mcpjson():
+    context = get_store().for_store()
+    result = await _execute(context, context.show_config_async("mcp"))
+    return ResponseBuilder.success(message="MCP JSON returned", data=result)
+
+
+@api_store_router.get("/setup_config")
+@timed_response
+async def store_setup_config():
+    context = get_store().for_store()
+    data = {
+        "info": await _execute(context, context.get_info_async()),
+        "event_capability": await _execute(context, context.event_capability_report_async()),
+    }
+    return ResponseBuilder.success(message="Setup config returned", data=data)
+
+
+@api_store_router.post("/reset_config")
+@timed_response
+async def store_reset_config():
+    context = get_store().for_store()
+    ok = await _execute(context, context.reset_config_async())
+    return ResponseBuilder.success(message="Config reset", data={"reset": bool(ok)})
+
+
+@api_store_router.get("/sync_status")
+@timed_response
+async def store_sync_status():
+    context = get_store().for_store()
+    capability = await _execute(context, context.event_capability_report_async())
+    return ResponseBuilder.success(
+        message="Sync status returned",
+        data={
+            "is_running": False,
+            "source": "rust_event_layer",
+            "event_capability": capability,
+        },
+    )
+
+
+@api_store_router.get("/list_agents")
+@timed_response
+async def store_list_agents():
+    context = get_store().for_store()
+    agents = await _execute(context, context.list_agents_async())
+    return ResponseBuilder.success(message="Agents returned", data={"agents": agents, "total": len(agents)})
+
+
+@api_store_router.get("/tool_records")
+@timed_response
+async def store_tool_records(limit: int = Query(50, ge=1, le=1000)):
+    context = get_store().for_store()
+    events = await _execute(context, context.event_history_async(limit))
+    return ResponseBuilder.success(
+        message="Tool records returned",
+        data={
+            "records": events,
+            "total": len(events),
+            "source": "rust_event_history",
+        },
+    )
+
+
+@api_store_router.get("/service_status/{service_name}")
+@timed_response
+async def store_service_status(service_name: str):
+    context = get_store().for_store()
+    result = await _execute(context, context.service_status_async(service_name))
+    return ResponseBuilder.success(message="Service status returned", data=result)
+
+
+@api_store_router.get("/service_info/{service_name}")
+@timed_response
+async def store_service_info(service_name: str):
+    context = get_store().for_store()
+    result = await _execute(context, context.service_info_async(service_name))
+    return ResponseBuilder.success(message="Service info returned", data=result)
+
+
+@api_store_router.put("/update_config/{service_name}")
+@api_store_router.put("/service/{service_name}")
+@timed_response
+async def store_update_service(service_name: str, payload: Dict[str, Any] = Body(...)):
+    context = get_store().for_store()
+    ok = await _execute(context, context.update_service_async(service_name, payload))
+    return ResponseBuilder.success(message="Service updated", data={"service_name": service_name, "ok": bool(ok)})
+
+
+@api_store_router.delete("/delete_config/{service_name}")
+@api_store_router.delete("/service/{service_name}")
+@timed_response
+async def store_delete_service(service_name: str):
+    context = get_store().for_store()
+    ok = await _execute(context, context.delete_service_async(service_name))
+    return ResponseBuilder.success(message="Service deleted", data={"service_name": service_name, "ok": bool(ok)})
+
+
+@api_store_router.post("/restart_service")
+@timed_response
+async def store_restart_service(body: Dict[str, Any] = Body(...)):
+    service_name = body.get("service_name") or body.get("name")
+    if not service_name:
+        return ResponseBuilder.error(
+            code=ErrorCode.MISSING_PARAMETER,
+            message="Missing service_name",
+            field="service_name",
+        )
+    context = get_store().for_store()
+    ok = await _execute(context, context.restart_service_async(service_name))
+    return ResponseBuilder.success(message="Service restarted", data={"service_name": service_name, "ok": bool(ok)})
+
+
+@api_store_router.post("/disconnect_service")
+@timed_response
+async def store_disconnect_service(body: Dict[str, Any] = Body(...)):
+    service_name = body.get("service_name") or body.get("name")
+    if not service_name:
+        return ResponseBuilder.error(
+            code=ErrorCode.MISSING_PARAMETER,
+            message="Missing service_name",
+            field="service_name",
+        )
+    context = get_store().for_store()
+    ok = await _execute(context, context.disconnect_service_async(service_name))
+    return ResponseBuilder.success(message="Service disconnected", data={"service_name": service_name, "ok": bool(ok)})
+
+
+@api_store_router.post("/wait_service")
+@timed_response
+async def store_wait_service(body: Dict[str, Any] = Body(...)):
+    service_name = body.get("service_name") or body.get("name")
+    if not service_name:
+        return ResponseBuilder.error(
+            code=ErrorCode.MISSING_PARAMETER,
+            message="Missing service_name",
+            field="service_name",
+        )
+    context = get_store().for_store()
+    result = await _execute(context, context.wait_service_async(service_name, timeout=body.get("timeout", 10.0)))
+    return ResponseBuilder.success(message="Service ready status returned", data=result)
 
 
 @api_agent_router.get("/{agent_id}/services")
@@ -101,7 +245,7 @@ async def agent_list_services(agent_id: str):
 
 @api_agent_router.post("/{agent_id}/services")
 @timed_response
-async def agent_add_service(agent_id: str, payload: Dict[str, Any] = Body(...)):
+async def agent_add_service(agent_id: str, payload: Any = Body(...)):
     validate_agent_id(agent_id)
     context = get_store().for_agent(agent_id)
     await _execute(context, context.add_service_async(payload))
@@ -140,6 +284,42 @@ async def agent_check_services(agent_id: str):
     context = get_store().for_agent(agent_id)
     result = await _execute(context, context.check_services_async())
     return ResponseBuilder.success(message="Agent service health returned", data=result)
+
+
+@api_agent_router.get("/{agent_id}/service_status/{service_name}")
+@timed_response
+async def agent_service_status(agent_id: str, service_name: str):
+    validate_agent_id(agent_id)
+    context = get_store().for_agent(agent_id)
+    result = await _execute(context, context.service_status_async(service_name))
+    return ResponseBuilder.success(message="Agent service status returned", data=result)
+
+
+@api_agent_router.get("/{agent_id}/service_info/{service_name}")
+@timed_response
+async def agent_service_info(agent_id: str, service_name: str):
+    validate_agent_id(agent_id)
+    context = get_store().for_agent(agent_id)
+    result = await _execute(context, context.service_info_async(service_name))
+    return ResponseBuilder.success(message="Agent service info returned", data=result)
+
+
+@api_agent_router.put("/{agent_id}/service/{service_name}")
+@timed_response
+async def agent_update_service(agent_id: str, service_name: str, payload: Dict[str, Any] = Body(...)):
+    validate_agent_id(agent_id)
+    context = get_store().for_agent(agent_id)
+    ok = await _execute(context, context.update_service_async(service_name, payload))
+    return ResponseBuilder.success(message="Agent service updated", data={"service_name": service_name, "ok": bool(ok)})
+
+
+@api_agent_router.delete("/{agent_id}/service/{service_name}")
+@timed_response
+async def agent_delete_service(agent_id: str, service_name: str):
+    validate_agent_id(agent_id)
+    context = get_store().for_agent(agent_id)
+    ok = await _execute(context, context.delete_service_async(service_name))
+    return ResponseBuilder.success(message="Agent service deleted", data={"service_name": service_name, "ok": bool(ok)})
 
 
 @api_cache_router.get("/inspect")
