@@ -533,6 +533,45 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertFalse(kwargs["only_db"])
         self.assertIsNotNone(kwargs["cache"])
 
+    def test_setup_store_accepts_config_path_and_cache_config_aliases(self):
+        from mcpstore.config import MemoryConfig
+        from mcpstore.core.store.setup_manager import StoreSetupManager
+
+        cache = MemoryConfig()
+        with patch.object(StoreSetupManager, "_setup_rust_store", return_value="store") as setup:
+            result = StoreSetupManager.setup_store(
+                config_path="config-alias.json",
+                cache_config=cache,
+            )
+
+        self.assertEqual(result, "store")
+        kwargs = setup.call_args.kwargs
+        self.assertEqual(kwargs["mcpjson_path"], "config-alias.json")
+        self.assertIs(kwargs["cache"], cache)
+
+    def test_redis_client_config_normalizes_to_rust_url(self):
+        from mcpstore.config import RedisConfig
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        class FakePool:
+            connection_kwargs = {
+                "host": "redis.local",
+                "port": 6380,
+                "db": 2,
+                "username": "user",
+                "password": "p@ss word",
+            }
+
+        class FakeRedis:
+            connection_pool = FakePool()
+
+        config = RedisConfig(client=FakeRedis(), namespace="team")
+        backend, redis_url, namespace = RustStoreBackend._cache_options(config)
+
+        self.assertEqual(backend, "redis")
+        self.assertEqual(redis_url, "redis://user:p%40ss%20word@redis.local:6380/2")
+        self.assertEqual(namespace, "team")
+
     def test_start_api_server_delegates_to_rust_cli(self):
         from mcpstore.config import MemoryConfig
         from mcpstore.core.store.rust_backend import RustStoreBackend
