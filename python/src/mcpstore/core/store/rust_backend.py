@@ -176,13 +176,14 @@ def _tool_error_result(
     error: Exception,
 ) -> Dict[str, Any]:
     message = f"MCP 工具调用失败: {error}"
+    arguments = dict(args) if isinstance(args, dict) else {}
     payload = {
         "ok": False,
         "is_error": True,
         "error_type": "mcp_tool_call_failed",
         "service_name": service_name,
         "tool_name": tool_name,
-        "arguments": dict(args or {}),
+        "arguments": arguments,
         "message": message,
     }
     return _record_value(
