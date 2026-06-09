@@ -100,8 +100,8 @@ def tool_service_name(tool_info: Any) -> str:
 
 
 def tool_input_schema(tool_info: Any) -> Dict[str, Any]:
-    """读取工具输入 schema，兼容 `inputSchema` / `input_schema`。"""
-    schema = _read_field(tool_info, "inputSchema", "input_schema", default={}) or {}
+    """读取 Rust 工具输入 schema。"""
+    schema = _read_field(tool_info, "input_schema", default={}) or {}
     return schema if isinstance(schema, dict) else {}
 
 

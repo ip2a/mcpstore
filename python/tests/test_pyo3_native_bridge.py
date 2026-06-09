@@ -57,7 +57,8 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
         services = context.list_services()
         self.assertEqual(services[0]["name"], "demo")
-        self.assertEqual(services[0]["transport_type"], "stdio")
+        self.assertEqual(services[0]["transport"], "stdio")
+        self.assertNotIn("transport_type", services[0])
         with self.assertRaises(AttributeError):
             getattr(services[0], "name")
         self.assertIsInstance(context.show_config(), dict)
@@ -145,6 +146,13 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
     def test_deprecated_python_mcp_module_is_removed(self):
         self.assertIsNone(importlib.util.find_spec("mcpstore.mcp"))
+
+    def test_python_adapters_use_rust_schema_field(self):
+        from mcpstore.adapters.common import tool_input_schema
+
+        schema = {"type": "object", "properties": {"text": {"type": "string"}}}
+        self.assertEqual(tool_input_schema({"input_schema": schema}), schema)
+        self.assertEqual(tool_input_schema({"inputSchema": schema}), {})
 
 
 if __name__ == "__main__":
