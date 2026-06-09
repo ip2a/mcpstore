@@ -45,7 +45,7 @@ pip install mcpstore
 
 - `mcpstore api` 由 Rust 二进制直接启动完整 HTTP API 服务
 - `mcpstore mcp-server` 由 Rust 二进制直接暴露 MCP Server，支持 `stdio` 和 `streamable-http`
-- Python 包主要提供 PyO3 store facade、Python adapter，以及少量 Python 生态必须存在的兼容入口
+- Python 包主要提供 PyO3 store facade、稳定的 Python SDK 入口，以及 Python 生态 adapter
 
 如果你只想把 `mcpstore` 当成独立服务使用，优先直接调用 Rust CLI：
 
