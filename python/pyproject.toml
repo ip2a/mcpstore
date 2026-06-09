@@ -1,0 +1,59 @@
+[build-system]
+requires = ["maturin>=1,<2"]
+build-backend = "maturin"
+
+[project]
+name = "mcpstore"
+version = "1.5.18"
+description = "A composable, ready-to-use MCP toolkit for agents and rapid integration."
+readme = "README.md"
+requires-python = ">=3.10"
+
+dependencies = [
+    "rich>=13.9.4",
+    "pydantic[email]>=2.11.7",
+    "toml>=0.10.2",
+]
+
+authors = [
+    {name = "ooooofish", email = "ooooofish@126.com"}
+]
+license = "MIT"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/ip2a/mcpstore"
+"Bug Tracker" = "https://github.com/ip2a/mcpstore/issues"
+
+[project.scripts]
+mcpstore = "mcpstore.cli.main:main"
+
+[project.optional-dependencies]
+redis = [
+    "redis>=5.0.0",
+]
+
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["*test*"]
+
+[tool.maturin]
+manifest-path = "../rust/bindings/python/Cargo.toml"
+python-source = "src"
+module-name = "mcpstore._rust"
+
+
+[[tool.uv.index]]
+url = "https://mirrors.aliyun.com/pypi/simple"
+default = true
