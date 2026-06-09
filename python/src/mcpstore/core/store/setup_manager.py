@@ -100,9 +100,6 @@ class StoreSetupManager:
         if extra_options:
             unsupported = ", ".join(sorted(extra_options))
             raise ValueError(f"Rust core 当前不支持 setup_store 参数: {unsupported}")
-        if static_config:
-            raise ValueError("Rust core 当前不支持 static_config，请改用 Rust core 已暴露的显式 API。")
-
         config_path = StoreSetupManager._normalize_path(mcpjson_path or mcp_config_file)
         resolved_cache, resolved_only_db = StoreSetupManager._normalize_cache_options(
             cache=cache,
@@ -111,12 +108,15 @@ class StoreSetupManager:
             only_db=only_db,
         )
 
-        return StoreSetupManager._setup_rust_store(
+        store = StoreSetupManager._setup_rust_store(
             mcpjson_path=config_path,
             debug=debug,
             cache=resolved_cache,
             only_db=resolved_only_db,
         )
+        if static_config:
+            store.add_service(static_config)
+        return store
 
     @staticmethod
     def _normalize_cache_options(
