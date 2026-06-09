@@ -354,11 +354,36 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(inner.added[0][0], "demo")
         self.assertEqual(inner.added[0][1]["headers"]["X-Test"], "1")
 
+        backend.for_store().add_service(
+            {
+                "wide-a": {"url": "https://a.example.test/mcp"},
+                "wide-b": {"command": "python", "args": ["-m", "server"]},
+            },
+            headers={"Authorization": "Bearer test"},
+        )
+        self.assertEqual(inner.added[1][0], "wide-a")
+        self.assertEqual(inner.added[1][1]["headers"]["Authorization"], "Bearer test")
+        self.assertEqual(inner.added[2][0], "wide-b")
+
+        context = backend.for_store()
+        self.assertIs(
+            context.add_service({"name": "chainable", "url": "https://chain.example.test/mcp"}),
+            context,
+        )
+
         backend.for_agent("agent-a").add_service(
             json.dumps({"name": "local", "command": "python"}),
         )
         self.assertEqual(inner.agent_added[0][0], "agent-a")
         self.assertEqual(inner.agent_added[0][1], "local")
+
+        agent = backend.for_agent("agent-b")
+        self.assertIs(
+            agent.add_service({"wide-agent": {"url": "https://agent.example.test/mcp"}}),
+            agent,
+        )
+        self.assertEqual(inner.agent_added[1][0], "agent-b")
+        self.assertEqual(inner.agent_added[1][1], "wide-agent")
 
     def test_python_facade_keeps_session_api_shape(self):
         from mcpstore.core.store.rust_backend import RustStoreBackend, RustStoreContext
