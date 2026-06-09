@@ -695,6 +695,10 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             self.assertEqual(active.service_count, 1)
             self.assertEqual(active.list_tools()[0].name, "browser_navigate")
             self.assertEqual(active.use_tool("browser_navigate", {}, return_extracted=True), "browser:browser_navigate")
+            with self.assertRaises(NotImplementedError):
+                active.extend_session()
+            with self.assertRaises(NotImplementedError):
+                active.clear_cache()
 
             fresh_context = RustStoreContext(backend)
             self.assertEqual(fresh_context.active_session.session_id, "browser_task")
