@@ -693,6 +693,25 @@ class RustServiceProxy:
     def list_tools(self) -> List[Dict[str, Any]]:
         return self._context.list_tools(service_name=self._service_name)
 
+    def tools_stats(self) -> Dict[str, Any]:
+        tools = self.list_tools()
+        return _record_value(
+            {
+                "service_name": self._service_name,
+                "tool_count": len(tools),
+                "tools": [
+                    {
+                        "name": tool.get("name"),
+                        "description": tool.get("description"),
+                        "tags": tool.get("tags", []) or [],
+                    }
+                    for tool in tools
+                ],
+                "source": "rust_metadata",
+                "history_available": False,
+            }
+        )
+
     def find_tool(self, tool_name: str, service_name: Optional[str] = None) -> "RustToolProxy":
         return RustToolProxy(self._context, tool_name, service_name=service_name or self._service_name)
 
@@ -772,6 +791,27 @@ class RustToolProxy:
 
     def tool_meta(self) -> Dict[str, Any]:
         return self.tool_info().get("meta", {}) or {}
+
+    def usage_stats(self) -> Dict[str, Any]:
+        info = self.tool_info()
+        return _record_value(
+            {
+                "tool_name": info.get("name") or self._tool_name,
+                "service_name": (
+                    self._service_name
+                    or info.get("service_name")
+                    or info.get("global_service_name")
+                ),
+                "call_count": None,
+                "error_count": None,
+                "last_called_at": None,
+                "history_available": False,
+                "source": "rust_metadata",
+            }
+        )
+
+    def call_history(self, limit: int = 50) -> List[Dict[str, Any]]:
+        return []
 
     def find_cache(self) -> "RustCacheProxy":
         return RustCacheProxy(self._context, scope="tool", scope_value=self._tool_name)
