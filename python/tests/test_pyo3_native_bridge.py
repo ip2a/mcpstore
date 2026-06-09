@@ -1398,6 +1398,39 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(agent_store.contexts["agent-a"].wait_call, ("demo", "healthy", 5))
 
+    def test_api_sync_status_reports_rust_event_capability_only(self):
+        if importlib.util.find_spec("fastapi") is None:
+            self.skipTest("fastapi is not installed")
+
+        import asyncio
+
+        from mcpstore.api.api_pack import api_set_store, store_sync_status
+
+        class FakeContext:
+            def __init__(self):
+                self.called = False
+
+            async def event_capability_report_async(self):
+                self.called = True
+                return {"event_bus": True, "history": True}
+
+        class FakeStore:
+            def __init__(self):
+                self.context = FakeContext()
+
+            def for_store(self):
+                return self.context
+
+        store = FakeStore()
+        api_set_store(store)
+        result = asyncio.run(store_sync_status())
+
+        self.assertTrue(result["success"])
+        self.assertTrue(store.context.called)
+        self.assertEqual(result["data"]["source"], "rust_event_capability")
+        self.assertEqual(result["data"]["event_capability"]["event_bus"], True)
+        self.assertNotIn("is_running", result["data"])
+
     def test_api_agent_show_config_delegates_to_agent_context(self):
         if importlib.util.find_spec("fastapi") is None:
             self.skipTest("fastapi is not installed")

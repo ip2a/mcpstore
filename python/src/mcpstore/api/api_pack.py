@@ -195,10 +195,9 @@ async def store_sync_status():
     context = get_store().for_store()
     capability = await _execute(context, context.event_capability_report_async())
     return ResponseBuilder.success(
-        message="Sync status returned",
+        message="Rust event capability returned",
         data={
-            "is_running": False,
-            "source": "rust_event_layer",
+            "source": "rust_event_capability",
             "event_capability": capability,
         },
     )
