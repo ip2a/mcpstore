@@ -291,6 +291,29 @@ async def agent_check_services(agent_id: str):
     return ResponseBuilder.success(message="Agent service health returned", data=result)
 
 
+@api_agent_router.post("/{agent_id}/wait_service")
+@timed_response
+async def agent_wait_service(agent_id: str, body: Dict[str, Any] = Body(...)):
+    validate_agent_id(agent_id)
+    service_name = body.get("service_name") or body.get("name")
+    if not service_name:
+        return ResponseBuilder.error(
+            code=ErrorCode.MISSING_PARAMETER,
+            message="Missing service_name",
+            field="service_name",
+        )
+    context = get_store().for_agent(agent_id)
+    result = await _execute(
+        context,
+        context.wait_service_async(
+            service_name,
+            status=body.get("status"),
+            timeout=body.get("timeout", 10.0),
+        ),
+    )
+    return ResponseBuilder.success(message="Agent service ready status returned", data=result)
+
+
 @api_agent_router.get("/{agent_id}/service_status/{service_name}")
 @timed_response
 async def agent_service_status(agent_id: str, service_name: str):
