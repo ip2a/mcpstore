@@ -1,4 +1,5 @@
 import importlib
+import json
 import subprocess
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
@@ -247,6 +248,42 @@ class RustStoreBackend:
             raise ValueError(f"Rust core 只接受 dict 对象，实际类型: {type(value).__name__}")
         return value
 
+    @classmethod
+    def _normalize_service_config(
+        cls,
+        config: Any = None,
+        *,
+        json_file: Optional[str] = None,
+        headers: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        if json_file is not None:
+            with open(json_file, "r", encoding="utf-8") as file:
+                config = json.load(file)
+        elif isinstance(config, str):
+            config = json.loads(config)
+
+        if config is None:
+            raise ValueError("服务配置缺少 config 或 json_file")
+
+        configs = config if isinstance(config, list) else [config]
+        normalized: List[Dict[str, Any]] = []
+        for item in configs:
+            item = cls._validate_dict(item)
+            if headers:
+                item = dict(item)
+                if "mcpServers" in item and isinstance(item["mcpServers"], dict):
+                    servers = {}
+                    for name, server_config in item["mcpServers"].items():
+                        server = cls._validate_dict(server_config)
+                        merged = dict(server)
+                        merged["headers"] = {**dict(server.get("headers") or {}), **headers}
+                        servers[name] = merged
+                    item["mcpServers"] = servers
+                else:
+                    item["headers"] = {**dict(item.get("headers") or {}), **headers}
+            normalized.append(item)
+        return normalized
+
     def for_store(self):
         return RustStoreContext(self)
 
@@ -259,21 +296,46 @@ class RustStoreBackend:
     def current_backend(self) -> str:
         return self._inner.current_backend()
 
-    def add_service(self, config: Dict[str, Any]) -> bool:
+    def add_service(
+        self,
+        config: Any = None,
+        *,
+        json_file: Optional[str] = None,
+        headers: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        configs = self._normalize_service_config(config, json_file=json_file, headers=headers)
+        for config in configs:
+            self._add_service_one(config)
+        return True
+
+    def _add_service_one(self, config: Dict[str, Any]) -> None:
         mcp_servers = config.get("mcpServers", {})
         if mcp_servers:
             for name, server_config in mcp_servers.items():
                 self._inner.add_service(name, self._validate_dict(server_config))
-            return True
+            return
 
         name = config.get("name")
         if not name:
             raise ValueError("服务配置缺少 name，或缺少 mcpServers 批量配置")
         server_config = {k: v for k, v in config.items() if k != "name"}
         self._inner.add_service(name, self._validate_dict(server_config))
-        return True
 
-    def add_service_for_agent(self, agent_id: str, config: Dict[str, Any]) -> List[str]:
+    def add_service_for_agent(
+        self,
+        agent_id: str,
+        config: Any = None,
+        *,
+        json_file: Optional[str] = None,
+        headers: Optional[Dict[str, Any]] = None,
+    ) -> List[str]:
+        added: List[str] = []
+        configs = self._normalize_service_config(config, json_file=json_file, headers=headers)
+        for item in configs:
+            added.extend(self._add_service_for_agent_one(agent_id, item))
+        return added
+
+    def _add_service_for_agent_one(self, agent_id: str, config: Dict[str, Any]) -> List[str]:
         added: List[str] = []
         mcp_servers = config.get("mcpServers", {})
         if mcp_servers:
@@ -1029,11 +1091,22 @@ class RustStoreContext:
             return await value
         return value
 
-    def add_service(self, config: Dict[str, Any]) -> bool:
+    def add_service(
+        self,
+        config: Any = None,
+        *,
+        json_file: Optional[str] = None,
+        headers: Optional[Dict[str, Any]] = None,
+    ) -> bool:
         if self._agent_id:
-            self._backend.add_service_for_agent(self._agent_id, config)
+            self._backend.add_service_for_agent(
+                self._agent_id,
+                config,
+                json_file=json_file,
+                headers=headers,
+            )
             return True
-        return self._backend.add_service(config)
+        return self._backend.add_service(config, json_file=json_file, headers=headers)
 
     @property
     def agent_id(self) -> Optional[str]:

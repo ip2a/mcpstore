@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 import importlib.util
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -276,6 +277,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(context.use_tool("echo", {"text": "alias"}, return_extracted=True), "alias")
         scoped_tool = context.find_tool("echo", service_name="demo")
         self.assertEqual(scoped_tool.call_tool({"text": "scoped"}, return_extracted=True), "scoped")
+
         self.assertIs(scoped_tool.set_redirect(True), scoped_tool)
         self.assertTrue(context.get_tool_override("demo", "echo", "return_direct", False))
         self.assertEqual(context.list_resources()[0].uri, "memory://doc")
@@ -290,6 +292,39 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(inner.patches, [("demo", {"description": "patched"})])
         self.assertEqual(inner.restarted, ["demo"])
         self.assertEqual(inner.removed, ["demo"])
+
+    def test_add_service_accepts_legacy_config_shapes_through_rust(self):
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        class FakeInner:
+            def __init__(self):
+                self.added = []
+                self.agent_added = []
+
+            def add_service(self, name, config):
+                self.added.append((name, config))
+
+            def add_service_for_agent(self, agent_id, local_name, config):
+                self.agent_added.append((agent_id, local_name, config))
+                return f"{local_name}_byagent_{agent_id}"
+
+        inner = FakeInner()
+        backend = RustStoreBackend(inner)
+        path = Path(tempfile.mkdtemp(prefix="mcpstore-service-json-")) / "mcp.json"
+        path.write_text(
+            json.dumps({"mcpServers": {"demo": {"url": "https://example.test/mcp"}}}),
+            encoding="utf-8",
+        )
+
+        backend.add_service(json_file=str(path), headers={"X-Test": "1"})
+        self.assertEqual(inner.added[0][0], "demo")
+        self.assertEqual(inner.added[0][1]["headers"]["X-Test"], "1")
+
+        backend.for_agent("agent-a").add_service(
+            json.dumps({"name": "local", "command": "python"}),
+        )
+        self.assertEqual(inner.agent_added[0][0], "agent-a")
+        self.assertEqual(inner.agent_added[0][1], "local")
 
     def test_python_facade_keeps_session_api_shape(self):
         from mcpstore.core.store.rust_backend import RustStoreBackend, RustStoreContext
