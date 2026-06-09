@@ -283,7 +283,19 @@ def _extract_artifacts(contents: list) -> List[Dict[str, Any]]:
         if block_type == "text" or (block_type is None and hasattr(block, "text")):
             continue
         artifact = {"type": getattr(block, "type", block.__class__.__name__.lower())}
-        for attr in ("uri", "mime", "mime_type", "name", "filename", "size", "bytes", "width", "height"):
+        for attr in (
+            "uri",
+            "mime",
+            "mime_type",
+            "mimeType",
+            "name",
+            "filename",
+            "size",
+            "data",
+            "bytes",
+            "width",
+            "height",
+        ):
             if hasattr(block, attr):
                 value = getattr(block, attr)
                 if value is not None:
