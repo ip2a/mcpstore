@@ -506,6 +506,9 @@ class RustStoreBackend:
             return _record_value({"agents": config.get("agents", {})})
         raise ValueError(f"Rust core 当前不支持 show_config scope={scope!r}")
 
+    def show_mcpjson(self) -> Dict[str, Any]:
+        return self.show_config("mcp")
+
     def cache_health_check(self) -> Dict[str, Any]:
         return _record_value(self._inner.cache_health_check())
 
@@ -1496,6 +1499,9 @@ class RustStoreContext:
 
     def show_config(self, scope: str = "all") -> Dict[str, Any]:
         return self._backend.show_config(scope)
+
+    def show_mcpjson(self) -> Dict[str, Any]:
+        return self._backend.show_mcpjson()
 
     def hub_http(
         self,
