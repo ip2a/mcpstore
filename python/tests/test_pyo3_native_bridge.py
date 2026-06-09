@@ -257,6 +257,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(tool.tool_info().inputSchema, schema)
         self.assertEqual(tool.find_cache().scope, "tool")
         self.assertEqual(tool.call_tool({"text": "ok"}, return_extracted=True), "ok")
+        self.assertEqual(tool.call_tool({"text": "ok"}).text_output, "ok")
         self.assertEqual(context.use_tool("echo", {"text": "alias"}, return_extracted=True), "alias")
         scoped_tool = context.find_tool("echo", service_name="demo")
         self.assertEqual(scoped_tool.call_tool({"text": "scoped"}, return_extracted=True), "scoped")
