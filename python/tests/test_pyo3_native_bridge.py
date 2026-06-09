@@ -1080,7 +1080,6 @@ class PyO3NativeBridgeTest(unittest.TestCase):
     def test_rust_backed_public_api_modules_import(self):
         from mcpstore.api.api_dependencies import get_store
         from mcpstore.config import MemoryConfig
-        from mcpstore.config.factory import create_kv_store
         from mcpstore.config.namespace import get_namespace
         from mcpstore.core.models import ErrorCode, ResponseBuilder, timed_response
 
@@ -1147,8 +1146,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         api_set_store(store)
         self.assertIs(get_store(), store)
         self.assertEqual(get_namespace(MemoryConfig()), "mcpstore")
-        with self.assertRaisesRegex(RuntimeError, "Rust/PyO3 backend"):
-            create_kv_store(MemoryConfig())
+        self.assertIsNone(importlib.util.find_spec("mcpstore.config.factory"))
         self.assertEqual(ErrorCode.MISSING_PARAMETER.value, "missing_parameter")
         self.assertTrue(ResponseBuilder.success()["success"])
         self.assertFalse(ResponseBuilder.error()["success"])
