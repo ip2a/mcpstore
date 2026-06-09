@@ -1128,6 +1128,20 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertTrue(any(dep.startswith("fastapi") for dep in extras["api"]))
         self.assertTrue(any(dep.startswith("uvicorn") for dep in extras["api"]))
 
+    def test_python_and_rust_versions_match(self):
+        import mcpstore
+
+        python_project = tomllib.loads(Path("python/pyproject.toml").read_text(encoding="utf-8"))
+        rust_workspace = tomllib.loads(Path("rust/Cargo.toml").read_text(encoding="utf-8"))
+        rust_crate = tomllib.loads(Path("rust/crates/mcpstore/Cargo.toml").read_text(encoding="utf-8"))
+        rust_binding = tomllib.loads(Path("rust/bindings/python/Cargo.toml").read_text(encoding="utf-8"))
+
+        version = python_project["project"]["version"]
+        self.assertEqual(mcpstore.__version__, version)
+        self.assertEqual(rust_workspace["workspace"]["package"]["version"], version)
+        self.assertEqual(rust_crate["package"]["version"], version)
+        self.assertTrue(rust_binding["package"]["version"]["workspace"])
+
     def test_api_wait_service_passes_status_to_rust_context(self):
         if importlib.util.find_spec("fastapi") is None:
             self.skipTest("fastapi is not installed")
