@@ -464,8 +464,12 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(tool.call_history(limit=5)[0].arguments.text, "history")
         self.assertEqual(tool.call_tool({"text": "ok"}, return_extracted=True), "ok")
         self.assertEqual(tool.call_tool({"text": "ok"}).text_output, "ok")
+        with self.assertRaisesRegex(ValueError, "timeout"):
+            tool.call_tool({"text": "ok"}, timeout=10)
         self.assertEqual(tool.test_call({"text": "test"}).text_output, "test")
         self.assertEqual(context.use_tool("echo", {"text": "alias"}, return_extracted=True), "alias")
+        with self.assertRaisesRegex(ValueError, "timeout"):
+            context.call_tool("echo", {"text": "alias"}, timeout=10)
         scoped_tool = context.find_tool("echo", service_name="demo")
         self.assertEqual(scoped_tool.call_tool({"text": "scoped"}, return_extracted=True), "scoped")
 
@@ -732,6 +736,8 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             self.assertEqual(active.service_count, 1)
             self.assertEqual(active.list_tools()[0].name, "browser_navigate")
             self.assertEqual(active.use_tool("browser_navigate", {}, return_extracted=True), "browser:browser_navigate")
+            with self.assertRaisesRegex(ValueError, "timeout"):
+                active.use_tool("browser_navigate", {}, timeout=10)
             with self.assertRaises(NotImplementedError):
                 active.extend_session()
             with self.assertRaises(NotImplementedError):
