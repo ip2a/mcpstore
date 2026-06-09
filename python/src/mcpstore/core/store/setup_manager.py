@@ -6,6 +6,7 @@ exposed by ``mcpstore._rust``.
 """
 
 import asyncio
+import os
 from typing import Any, Dict, Optional, Union
 
 
@@ -102,7 +103,7 @@ class StoreSetupManager:
         if static_config:
             raise ValueError("Rust core 当前不支持 static_config，请改用 Rust core 已暴露的显式 API。")
 
-        config_path = mcpjson_path or mcp_config_file
+        config_path = StoreSetupManager._normalize_path(mcpjson_path or mcp_config_file)
         resolved_cache, resolved_only_db = StoreSetupManager._normalize_cache_options(
             cache=cache,
             external_db=external_db,
@@ -189,6 +190,12 @@ class StoreSetupManager:
             return redis_config
 
         raise ValueError(f"不支持的 external_db.cache.type: {cache_type}")
+
+    @staticmethod
+    def _normalize_path(path: Any) -> str | None:
+        if path is None:
+            return None
+        return os.fspath(path)
 
     @staticmethod
     def _setup_rust_store(
