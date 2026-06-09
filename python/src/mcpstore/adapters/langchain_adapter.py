@@ -156,7 +156,13 @@ class LangChainAdapter:
                         response["data"] = data
                     return response
 
-                return view.text
+                if view.text:
+                    return view.text
+                actual = view.structured if view.structured is not None else view.data
+                actual = adapter_self._normalize_structured_value(actual)
+                if isinstance(actual, (dict, list)):
+                    return json.dumps(actual, ensure_ascii=False)
+                return "" if actual is None else str(actual)
 
             except Exception as e:
                 return adapter_self._format_error_output(
@@ -201,7 +207,13 @@ class LangChainAdapter:
                         response["data"] = data
                     return response
 
-                return view.text
+                if view.text:
+                    return view.text
+                actual = view.structured if view.structured is not None else view.data
+                actual = adapter_self._normalize_structured_value(actual)
+                if isinstance(actual, (dict, list)):
+                    return json.dumps(actual, ensure_ascii=False)
+                return "" if actual is None else str(actual)
 
             except Exception as e:
                 return adapter_self._format_error_output(

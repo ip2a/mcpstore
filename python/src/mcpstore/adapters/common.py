@@ -48,6 +48,7 @@ class ToolCallView(BaseModel):
     """标准化 MCPStore CallToolResult 的辅助视图。"""
 
     text: str = ""
+    content: List[Any] = Field(default_factory=list)
     artifacts: List[Dict[str, Any]] = Field(default_factory=list)
     structured: Any = None
     data: Any = None
@@ -251,8 +252,14 @@ def _extract_text_blocks(contents: list) -> List[str]:
     blocks: List[str] = []
     for block in contents or []:
         if isinstance(block, dict):
+            block_type = block.get("type")
+            if block_type is not None and block_type != "text":
+                continue
             text = block.get("text")
         else:
+            block_type = getattr(block, "type", None)
+            if block_type is not None and block_type != "text":
+                continue
             text = getattr(block, "text", None)
         if isinstance(text, str):
             blocks.append(text)
@@ -264,14 +271,16 @@ def _extract_artifacts(contents: list) -> List[Dict[str, Any]]:
     artifacts: List[Dict[str, Any]] = []
     for block in contents or []:
         if isinstance(block, dict):
-            if "text" in block:
+            block_type = block.get("type")
+            if block_type == "text" or (block_type is None and "text" in block):
                 continue
             artifact = dict(block)
             artifact.setdefault("type", artifact.get("type", "artifact"))
             artifacts.append(artifact)
             continue
 
-        if hasattr(block, "text"):
+        block_type = getattr(block, "type", None)
+        if block_type == "text" or (block_type is None and hasattr(block, "text")):
             continue
         artifact = {"type": getattr(block, "type", block.__class__.__name__.lower())}
         for attr in ("uri", "mime", "mime_type", "name", "filename", "size", "bytes", "width", "height"):
@@ -302,11 +311,6 @@ def call_tool_response_helper(result: Any) -> ToolCallView:
     data = _read_field(result, "data", "result", default=None)
     if data is None and artifacts:
         data = {"artifacts": artifacts}
-    if not text_output and data is not None:
-        if isinstance(data, (dict, list)):
-            text_output = json.dumps(data, ensure_ascii=False)
-        else:
-            text_output = str(data)
 
     is_error = bool(_read_field(result, "is_error", "isError", default=False))
     error_message = _read_field(result, "error", "error_message", "message", default=None)
@@ -315,6 +319,7 @@ def call_tool_response_helper(result: Any) -> ToolCallView:
 
     return ToolCallView(
         text=text_output,
+        content=list(contents),
         artifacts=artifacts,
         structured=structured,
         data=data,

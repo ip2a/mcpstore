@@ -651,6 +651,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
                             "type": "image",
                             "data": "base64-image",
                             "mime_type": "image/png",
+                            "text": "preview caption",
                         }
                     ],
                     "is_error": False,
@@ -658,9 +659,11 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
         result = FakeContext().call_tool("snapshot", {})
         view = call_tool_response_helper(result)
+        self.assertEqual(view.content, result["content"])
+        self.assertEqual(view.text, "")
         self.assertEqual(view.artifacts[0]["type"], "image")
+        self.assertEqual(view.artifacts[0]["text"], "preview caption")
         self.assertEqual(view.data["artifacts"][0]["mime_type"], "image/png")
-        self.assertIn("base64-image", view.text)
 
         openai_result = OpenAIAdapter(FakeContext()).execute_tool_call(
             {"name": "snapshot", "arguments": {}}
