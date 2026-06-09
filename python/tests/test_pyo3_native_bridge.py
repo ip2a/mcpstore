@@ -1105,15 +1105,23 @@ class PyO3NativeBridgeTest(unittest.TestCase):
                     "/for_store/service_status/{service_name}",
                     "/for_store/service_info/{service_name}",
                     "/for_store/update_config/{service_name}",
+                    "/for_store/update_service/{service_name}",
                     "/for_store/patch_service/{service_name}",
                     "/for_store/delete_config/{service_name}",
+                    "/for_store/remove_service/{service_name}",
                     "/for_store/list_resources",
                     "/for_store/list_resource_templates",
                     "/for_store/read_resource",
                     "/for_store/list_prompts",
                     "/for_store/get_prompt",
                     "/for_store/wait_service",
+                    "/for_store/wait_service/{service_name}",
                     "/for_store/connect_service",
+                    "/for_store/connect_service/{service_name}",
+                    "/for_store/restart_service/{service_name}",
+                    "/for_store/disconnect_service/{service_name}",
+                    "/for_agent/{agent_id}/list_services",
+                    "/for_agent/{agent_id}/add_service",
                     "/for_agent/{agent_id}/list_resources",
                     "/for_agent/{agent_id}/list_resource_templates",
                     "/for_agent/{agent_id}/read_resource",
@@ -1121,10 +1129,16 @@ class PyO3NativeBridgeTest(unittest.TestCase):
                     "/for_agent/{agent_id}/get_prompt",
                     "/for_agent/{agent_id}/show_config",
                     "/for_agent/{agent_id}/wait_service",
+                    "/for_agent/{agent_id}/wait_service/{service_name}",
                     "/for_agent/{agent_id}/patch_service/{service_name}",
+                    "/for_agent/{agent_id}/update_service/{service_name}",
+                    "/for_agent/{agent_id}/remove_service/{service_name}",
                     "/for_agent/{agent_id}/restart_service",
+                    "/for_agent/{agent_id}/restart_service/{service_name}",
                     "/for_agent/{agent_id}/connect_service",
+                    "/for_agent/{agent_id}/connect_service/{service_name}",
                     "/for_agent/{agent_id}/disconnect_service",
+                    "/for_agent/{agent_id}/disconnect_service/{service_name}",
                     "/for_agent/{agent_id}/service_status/{service_name}",
                     "/for_agent/{agent_id}/service_info/{service_name}",
                     "/for_agent/{agent_id}/service/{service_name}",
@@ -1270,12 +1284,19 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
         from mcpstore.api.api_pack import (
             agent_connect_service,
+            agent_connect_service_by_name,
             agent_disconnect_service,
+            agent_disconnect_service_by_name,
             agent_patch_service,
             agent_restart_service,
+            agent_restart_service_by_name,
+            agent_wait_service_by_name,
             api_set_store,
             store_connect_service,
+            store_connect_service_by_name,
             store_patch_service,
+            store_restart_service_by_name,
+            store_wait_service_by_name,
         )
 
         class FakeContext:
@@ -1297,6 +1318,10 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             async def disconnect_service_async(self, service_name):
                 self.calls.append(("disconnect", service_name))
                 return True
+
+            async def wait_service_async(self, service_name, status=None, timeout=10.0):
+                self.calls.append(("wait", service_name, status, timeout))
+                return {"service_name": service_name, "health_status": "ready"}
 
         class FakeStore:
             def __init__(self):
@@ -1320,9 +1345,21 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
         result = asyncio.run(store_connect_service({"service_name": "demo"}))
         self.assertTrue(result["success"])
+        result = asyncio.run(store_connect_service_by_name("path-demo"))
+        self.assertTrue(result["success"])
+        result = asyncio.run(store_restart_service_by_name("path-demo"))
+        self.assertTrue(result["success"])
+        result = asyncio.run(store_wait_service_by_name("path-demo", status="healthy", timeout=2))
+        self.assertTrue(result["success"])
         self.assertEqual(
             store.store_context.calls,
-            [("patch", "demo", {"timeout": 3}), ("connect", "demo")],
+            [
+                ("patch", "demo", {"timeout": 3}),
+                ("connect", "demo"),
+                ("connect", "path-demo"),
+                ("restart", "path-demo"),
+                ("wait", "path-demo", "healthy", 2),
+            ],
         )
 
         result = asyncio.run(agent_patch_service("agent-a", "demo", {"timeout": 5}))
@@ -1336,6 +1373,22 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         result = asyncio.run(agent_connect_service("agent-d", {"name": "demo"}))
         self.assertTrue(result["success"])
         self.assertEqual(store.agent_contexts["agent-d"].calls, [("connect", "demo")])
+
+        result = asyncio.run(agent_connect_service_by_name("agent-e", "demo"))
+        self.assertTrue(result["success"])
+        self.assertEqual(store.agent_contexts["agent-e"].calls, [("connect", "demo")])
+
+        result = asyncio.run(agent_restart_service_by_name("agent-f", "demo"))
+        self.assertTrue(result["success"])
+        self.assertEqual(store.agent_contexts["agent-f"].calls, [("restart", "demo")])
+
+        result = asyncio.run(agent_disconnect_service_by_name("agent-g", "demo"))
+        self.assertTrue(result["success"])
+        self.assertEqual(store.agent_contexts["agent-g"].calls, [("disconnect", "demo")])
+
+        result = asyncio.run(agent_wait_service_by_name("agent-h", "demo", status="healthy", timeout=3))
+        self.assertTrue(result["success"])
+        self.assertEqual(store.agent_contexts["agent-h"].calls, [("wait", "demo", "healthy", 3)])
 
         result = asyncio.run(agent_disconnect_service("agent-c", {"name": "demo"}))
         self.assertTrue(result["success"])
