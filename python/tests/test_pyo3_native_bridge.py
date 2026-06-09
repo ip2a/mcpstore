@@ -342,7 +342,22 @@ class PyO3NativeBridgeTest(unittest.TestCase):
                 return True
 
             def event_history(self, count=100):
-                return [{"event_type": "TEST", "count": count}]
+                return [
+                    {
+                        "event_type": "TOOL_CALL_COMPLETED",
+                        "event_id": "evt-tool-1",
+                        "timestamp": 20,
+                        "payload": {
+                            "service_name": "demo",
+                            "tool_name": "echo",
+                            "arguments": {"text": "history"},
+                            "latency_ms": 1.5,
+                            "is_error": False,
+                            "status": "success",
+                        },
+                    },
+                    {"event_type": "TEST", "count": count, "timestamp": 10, "payload": {"ok": True}},
+                ][:count]
 
             def event_capability_report(self):
                 return {"event_bus": True}
@@ -417,7 +432,10 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(service.tools_stats().tool_count, 1)
         self.assertEqual(service.tools_stats().metadata.total_tools, 1)
         self.assertEqual(service.tools_stats().metadata.tools_by_service.demo, 1)
-        self.assertFalse(service.tools_stats().history_available)
+        self.assertTrue(service.tools_stats().history_available)
+        self.assertEqual(service.tools_stats().call_count, 1)
+        self.assertEqual(service.tools_stats().error_count, 0)
+        self.assertEqual(service.tools_stats().last_called_at, 20)
 
         tool = service.find_tool("echo")
         self.assertEqual(tool.name, "echo")
@@ -430,8 +448,11 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(tool.tool_info().inputSchema, schema)
         self.assertEqual(asyncio.run(tool.tool_info_async()).inputSchema, schema)
         self.assertEqual(tool.find_cache().scope, "tool")
-        self.assertFalse(tool.usage_stats().history_available)
-        self.assertEqual(tool.call_history(limit=5), [])
+        self.assertTrue(tool.usage_stats().history_available)
+        self.assertEqual(tool.usage_stats().call_count, 1)
+        self.assertEqual(tool.usage_stats().error_count, 0)
+        self.assertEqual(tool.usage_stats().last_called_at, 20)
+        self.assertEqual(tool.call_history(limit=5)[0].arguments.text, "history")
         self.assertEqual(tool.call_tool({"text": "ok"}, return_extracted=True), "ok")
         self.assertEqual(tool.call_tool({"text": "ok"}).text_output, "ok")
         self.assertEqual(tool.test_call({"text": "test"}).text_output, "test")
@@ -451,7 +472,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertTrue(context.connect_service("demo"))
         self.assertTrue(service.disconnect_service())
         self.assertTrue(service.refresh_content())
-        self.assertEqual(context.event_history(1)[0].event_type, "TEST")
+        self.assertEqual(context.event_history(2)[1].event_type, "TEST")
         self.assertTrue(context.event_capability_report().event_bus)
         self.assertEqual(context.show_config("client").clients["client-a"].service, "demo")
         self.assertEqual(backend.show_config("clients").clients["client-a"].service, "demo")
