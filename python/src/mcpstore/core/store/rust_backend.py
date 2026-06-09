@@ -612,6 +612,8 @@ class RustStoreBackend:
             return _record_value({"mcpServers": config.get("mcpServers", {})})
         if scope in ("agents", "agent"):
             return _record_value({"agents": config.get("agents", {})})
+        if scope in ("clients", "client"):
+            return _record_value({"clients": config.get("clients", {})})
         raise ValueError(f"Rust core 当前不支持 show_config scope={scope!r}")
 
     def show_mcpjson(self) -> Dict[str, Any]:
