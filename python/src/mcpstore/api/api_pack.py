@@ -242,7 +242,6 @@ async def store_service_info(service_name: str):
     return ResponseBuilder.success(message="Service info returned", data=result)
 
 
-@api_store_router.put("/update_config/{service_name}")
 @api_store_router.post("/update_service/{service_name}")
 @api_store_router.put("/service/{service_name}")
 @timed_response
@@ -261,7 +260,6 @@ async def store_patch_service(service_name: str, payload: Dict[str, Any] = Body(
     return ResponseBuilder.success(message="Service patched", data={"service_name": service_name, "ok": bool(ok)})
 
 
-@api_store_router.delete("/delete_config/{service_name}")
 @api_store_router.post("/remove_service/{service_name}")
 @api_store_router.delete("/service/{service_name}")
 @timed_response
