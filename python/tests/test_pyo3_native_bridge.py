@@ -1080,7 +1080,6 @@ class PyO3NativeBridgeTest(unittest.TestCase):
                         host="0.0.0.0",
                         port=18200,
                         url_prefix="/mcp",
-                        show_startup_info=False,
                     )
 
         self.assertEqual(code, 0)
@@ -1090,6 +1089,20 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertIn("--config-path", cmd)
         self.assertIn("--source", cmd)
         self.assertIn("--backend", cmd)
+
+    def test_server_launch_rejects_unsupported_python_only_options(self):
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        store = RustStoreBackend(object())
+
+        with self.assertRaisesRegex(ValueError, "show_startup_info"):
+            store.start_api_server(show_startup_info=False)
+        with self.assertRaisesRegex(ValueError, "log_level"):
+            store.start_api_server(log_level="debug")
+        with self.assertRaisesRegex(ValueError, "legacy"):
+            store.start_api_server(legacy=True)
+        with self.assertRaisesRegex(ValueError, "legacy"):
+            store.for_store().hub_http(legacy=True)
 
     def test_hub_http_delegates_to_rust_mcp_server_cli(self):
         from mcpstore.config import MemoryConfig

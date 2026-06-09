@@ -755,9 +755,17 @@ class RustStoreBackend:
         url_prefix: str = "",
         show_startup_info: bool = True,
         log_level: Optional[str] = None,
-        **_kwargs,
+        **kwargs,
     ) -> int:
         from mcpstore._rust_cli import resolve_rust_cli_binary, resolve_runtime_cwd
+
+        if kwargs:
+            unsupported = ", ".join(sorted(kwargs))
+            raise ValueError(f"Rust API server 当前不支持参数: {unsupported}")
+        if show_startup_info is not True:
+            raise ValueError("Rust API server 当前不支持 show_startup_info=False")
+        if log_level is not None:
+            raise ValueError("Rust API server 当前不支持 log_level 参数")
 
         cmd = [
             resolve_rust_cli_binary(),
@@ -794,9 +802,13 @@ class RustStoreBackend:
         port: int = 8000,
         path: str = "/mcp",
         block: bool = False,
-        **_kwargs,
+        **kwargs,
     ) -> Any:
         from mcpstore._rust_cli import resolve_rust_cli_binary, resolve_runtime_cwd
+
+        if kwargs:
+            unsupported = ", ".join(sorted(kwargs))
+            raise ValueError(f"Rust MCP server 当前不支持参数: {unsupported}")
 
         cmd = [
             resolve_rust_cli_binary(),
