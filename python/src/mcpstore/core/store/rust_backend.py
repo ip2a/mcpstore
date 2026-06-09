@@ -378,6 +378,10 @@ class RustStoreBackend:
         self._inner.restart_service(name)
         return True
 
+    def connect_service(self, name: str) -> bool:
+        self._inner.connect_service(name)
+        return True
+
     def disconnect_service(self, name: str) -> bool:
         self._inner.disconnect_service(name)
         return True
@@ -387,6 +391,12 @@ class RustStoreBackend:
 
     def list_agents(self) -> List[Dict[str, Any]]:
         return _record_value(self._inner.list_agents())
+
+    def event_history(self, count: int = 100) -> List[Dict[str, Any]]:
+        return _record_value(self._inner.event_history(int(count)))
+
+    def event_capability_report(self) -> Dict[str, Any]:
+        return _record_value(self._inner.event_capability_report())
 
     def list_services_scoped(self, agent_id: Optional[str] = None) -> List[Dict[str, Any]]:
         return _record_value(self._inner.list_services_scoped(agent_id))
@@ -749,6 +759,12 @@ class RustServiceProxy:
 
     def restart_service(self) -> bool:
         return self._context.restart_service(self._service_name)
+
+    def connect_service(self) -> bool:
+        return self._context.connect_service(self._service_name)
+
+    def disconnect_service(self) -> bool:
+        return self._context.disconnect_service(self._service_name)
 
     def delete_service(self) -> bool:
         return self._context.delete_service(self._service_name)
@@ -1342,6 +1358,16 @@ class RustStoreContext:
     def disconnect_service(self, name: str) -> bool:
         service_name = self._resolve_service_name(name)
         return self._backend.disconnect_service(service_name)
+
+    def connect_service(self, name: str) -> bool:
+        service_name = self._resolve_service_name(name)
+        return self._backend.connect_service(service_name)
+
+    def event_history(self, count: int = 100) -> List[Dict[str, Any]]:
+        return self._backend.event_history(count)
+
+    def event_capability_report(self) -> Dict[str, Any]:
+        return self._backend.event_capability_report()
 
     def for_langchain(self, response_format: str = "text"):
         from mcpstore.adapters.langchain_adapter import LangChainAdapter
