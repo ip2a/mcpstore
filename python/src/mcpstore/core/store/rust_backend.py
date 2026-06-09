@@ -84,6 +84,16 @@ def _record_value(value: Any) -> Any:
     return value
 
 
+def _extract_text_result(result: Any) -> str:
+    content = result.get("content", []) if isinstance(result, dict) else []
+    text_blocks = [
+        item.get("text", "")
+        for item in content
+        if isinstance(item, dict) and item.get("type") == "text"
+    ]
+    return "\n".join(text for text in text_blocks if text)
+
+
 def _tool_error_result(
     service_name: str,
     tool_name: str,
@@ -119,6 +129,7 @@ class RustStoreBackend:
         self._sessions: Dict[tuple[str, str], "RustSession"] = {}
         self._active_sessions: Dict[str, "RustSession"] = {}
         self._auto_sessions: Dict[str, "RustSession"] = {}
+        self._tool_overrides: Dict[str, Dict[str, Any]] = {}
 
     @classmethod
     def setup(
@@ -473,8 +484,8 @@ class RustServiceProxy:
     def list_tools(self) -> List[Dict[str, Any]]:
         return self._context.list_tools(service_name=self._service_name)
 
-    def find_tool(self, tool_name: str) -> "RustToolProxy":
-        return RustToolProxy(self._context, tool_name, service_name=self._service_name)
+    def find_tool(self, tool_name: str, service_name: Optional[str] = None) -> "RustToolProxy":
+        return RustToolProxy(self._context, tool_name, service_name=service_name or self._service_name)
 
     def find_cache(self) -> "RustCacheProxy":
         return RustCacheProxy(self._context, scope="service", scope_value=self._service_name)
@@ -556,22 +567,45 @@ class RustToolProxy:
     def find_cache(self) -> "RustCacheProxy":
         return RustCacheProxy(self._context, scope="tool", scope_value=self._tool_name)
 
+    def set_redirect(self, enabled: bool = True) -> "RustToolProxy":
+        info = self.tool_info()
+        service_name = (
+            self._service_name
+            or info.get("service_name")
+            or info.get("global_service_name")
+            or ""
+        )
+        resolved_tool_name = info.get("name") or self._tool_name
+        self._context._set_tool_override(
+            service_name,
+            resolved_tool_name,
+            "return_direct",
+            bool(enabled),
+        )
+        return self
+
     def call_tool(
         self,
         args: Optional[Dict[str, Any]] = None,
         *,
         return_extracted: bool = False,
+        **_kwargs,
     ) -> Any:
-        result = self._context.call_tool(self._tool_name, args or {})
+        if self._service_name:
+            info = self.tool_info()
+            service_name = self._context._resolve_service_name(self._service_name)
+            tool_name = (
+                info.get("original_name")
+                or info.get("tool_original_name")
+                or info.get("name")
+                or self._tool_name
+            )
+            result = self._context._backend.call_tool(service_name, tool_name, args or {})
+        else:
+            result = self._context.call_tool(self._tool_name, args or {})
         if not return_extracted:
             return result
-        content = result.get("content", []) if isinstance(result, dict) else []
-        text_blocks = [
-            item.get("text", "")
-            for item in content
-            if isinstance(item, dict) and item.get("type") == "text"
-        ]
-        return "\n".join(text for text in text_blocks if text)
+        return _extract_text_result(result)
 
     async def call_tool_async(
         self,
@@ -842,8 +876,8 @@ class RustStoreContext:
     def find_service(self, service_name: str) -> RustServiceProxy:
         return RustServiceProxy(self, service_name)
 
-    def find_tool(self, tool_name: str) -> RustToolProxy:
-        return RustToolProxy(self, tool_name)
+    def find_tool(self, tool_name: str, service_name: Optional[str] = None) -> RustToolProxy:
+        return RustToolProxy(self, tool_name, service_name=service_name)
 
     def find_agent(self, agent_id: str) -> "RustStoreContext":
         return RustStoreContext(self._backend, agent_id=agent_id)
@@ -1014,15 +1048,93 @@ class RustStoreContext:
         service_name, original_tool = self._resolve_tool(tool_name)
         return self._backend.call_tool(service_name, original_tool, args or {})
 
-    def call_tool(self, tool_name: str, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        return self._call_tool_direct(tool_name, args)
+    def call_tool(
+        self,
+        tool_name: str,
+        args: Optional[Dict[str, Any]] = None,
+        *,
+        return_extracted: bool = False,
+        **_kwargs,
+    ) -> Any:
+        result = self._call_tool_direct(tool_name, args)
+        if return_extracted:
+            return _extract_text_result(result)
+        return result
+
+    def use_tool(
+        self,
+        tool_name: str,
+        args: Optional[Dict[str, Any]] = None,
+        *,
+        return_extracted: bool = False,
+        **kwargs,
+    ) -> Any:
+        return self.call_tool(
+            tool_name,
+            args,
+            return_extracted=return_extracted,
+            **kwargs,
+        )
 
     async def call_tool_async(
         self,
         tool_name: str,
         args: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        return self._call_tool_direct(tool_name, args)
+        *,
+        return_extracted: bool = False,
+        **kwargs,
+    ) -> Any:
+        return self.call_tool(
+            tool_name,
+            args,
+            return_extracted=return_extracted,
+            **kwargs,
+        )
+
+    async def use_tool_async(
+        self,
+        tool_name: str,
+        args: Optional[Dict[str, Any]] = None,
+        *,
+        return_extracted: bool = False,
+        **kwargs,
+    ) -> Any:
+        return await self.call_tool_async(
+            tool_name,
+            args,
+            return_extracted=return_extracted,
+            **kwargs,
+        )
+
+    def _tool_override_key(self, service_name: str, tool_name: str) -> str:
+        return f"{service_name or ''}:{tool_name}"
+
+    def _set_tool_override(
+        self,
+        service_name: str,
+        tool_name: str,
+        flag: str,
+        value: Any,
+    ) -> None:
+        key = self._tool_override_key(service_name, tool_name)
+        self._backend._tool_overrides.setdefault(key, {})[flag] = value
+
+    def get_tool_override(
+        self,
+        service_name: str,
+        tool_name: str,
+        flag: str,
+        default: Any = None,
+    ) -> Any:
+        keys = [
+            self._tool_override_key(service_name, tool_name),
+            self._tool_override_key("", tool_name),
+        ]
+        for key in keys:
+            overrides = self._backend._tool_overrides.get(key)
+            if overrides and flag in overrides:
+                return overrides[flag]
+        return default
 
     def show_config(self) -> Dict[str, Any]:
         return self._backend.show_config()
