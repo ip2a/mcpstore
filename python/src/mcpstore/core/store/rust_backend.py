@@ -1956,7 +1956,36 @@ class RustStoreContext:
         return default
 
     def show_config(self, scope: str = "all") -> Dict[str, Any]:
-        return self._backend.show_config(scope)
+        config = self._backend.show_config(scope)
+        if not self._agent_id:
+            return config
+        return self._agent_scoped_config(config, scope)
+
+    def _agent_scoped_config(self, config: Dict[str, Any], scope: str = "all") -> Dict[str, Any]:
+        agents = config.get("agents", {}) or {}
+        service_names = list(agents.get(self._agent_id, []) or [])
+        if scope in ("agents", "agent"):
+            return _record_value({"agents": {self._agent_id: service_names}})
+        if scope in ("mcp", "mcpServers"):
+            mcp_servers = config.get("mcpServers", {}) or {}
+            return _record_value(
+                {
+                    "mcpServers": {
+                        name: value
+                        for name, value in mcp_servers.items()
+                        if name in service_names
+                    }
+                }
+            )
+        if scope in ("clients", "client"):
+            return _record_value({"clients": config.get("clients", {}) or {}})
+        if scope in (None, "all"):
+            scoped = self._agent_scoped_config(config, "mcp")
+            scoped["agents"] = {self._agent_id: service_names}
+            if "clients" in config:
+                scoped["clients"] = config.get("clients", {}) or {}
+            return _record_value(scoped)
+        return config
 
     def show_mcpjson(self) -> Dict[str, Any]:
         return self._backend.show_mcpjson()
