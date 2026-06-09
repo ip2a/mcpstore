@@ -10,10 +10,10 @@ pub fn to_py_object<T: serde::Serialize>(
     let value = serde_json::to_value(value).map_err(|err| {
         pyo3::exceptions::PyRuntimeError::new_err(format!("{context} serialization failed: {err}"))
     })?;
-    json_value_to_py(py, value)
+    serde_value_to_py(py, value)
 }
 
-fn json_value_to_py(py: Python<'_>, value: serde_json::Value) -> PyResult<Py<PyAny>> {
+fn serde_value_to_py(py: Python<'_>, value: serde_json::Value) -> PyResult<Py<PyAny>> {
     match value {
         serde_json::Value::Null => Ok(py.None()),
         serde_json::Value::Bool(value) => value.into_py_any(py),
@@ -26,7 +26,7 @@ fn json_value_to_py(py: Python<'_>, value: serde_json::Value) -> PyResult<Py<PyA
                 value.into_py_any(py)
             } else {
                 Err(pyo3::exceptions::PyValueError::new_err(
-                    "Unsupported JSON number",
+                    "Unsupported serde number",
                 ))
             }
         }
@@ -34,21 +34,21 @@ fn json_value_to_py(py: Python<'_>, value: serde_json::Value) -> PyResult<Py<PyA
         serde_json::Value::Array(values) => {
             let list = PyList::empty(py);
             for value in values {
-                list.append(json_value_to_py(py, value)?)?;
+                list.append(serde_value_to_py(py, value)?)?;
             }
             Ok(list.into_any().unbind())
         }
         serde_json::Value::Object(values) => {
             let dict = PyDict::new(py);
             for (key, value) in values {
-                dict.set_item(key, json_value_to_py(py, value)?)?;
+                dict.set_item(key, serde_value_to_py(py, value)?)?;
             }
             Ok(dict.into_any().unbind())
         }
     }
 }
 
-pub fn py_to_json_value(value: &Bound<'_, PyAny>, context: &str) -> PyResult<serde_json::Value> {
+pub fn py_to_serde_value(value: &Bound<'_, PyAny>, context: &str) -> PyResult<serde_json::Value> {
     if value.is_none() {
         return Ok(serde_json::Value::Null);
     }
@@ -60,21 +60,21 @@ pub fn py_to_json_value(value: &Bound<'_, PyAny>, context: &str) -> PyResult<ser
                     "{context} dict key must be str: {err}"
                 ))
             })?;
-            object.insert(key, py_to_json_value(&value, context)?);
+            object.insert(key, py_to_serde_value(&value, context)?);
         }
         return Ok(serde_json::Value::Object(object));
     }
     if let Ok(list) = value.downcast::<PyList>() {
         let mut values = Vec::with_capacity(list.len());
         for value in list.iter() {
-            values.push(py_to_json_value(&value, context)?);
+            values.push(py_to_serde_value(&value, context)?);
         }
         return Ok(serde_json::Value::Array(values));
     }
     if let Ok(tuple) = value.downcast::<PyTuple>() {
         let mut values = Vec::with_capacity(tuple.len());
         for value in tuple.iter() {
-            values.push(py_to_json_value(&value, context)?);
+            values.push(py_to_serde_value(&value, context)?);
         }
         return Ok(serde_json::Value::Array(values));
     }
@@ -92,7 +92,7 @@ pub fn py_to_json_value(value: &Bound<'_, PyAny>, context: &str) -> PyResult<ser
             .map(serde_json::Value::Number)
             .ok_or_else(|| {
                 pyo3::exceptions::PyValueError::new_err(format!(
-                    "{context} float value is not JSON-compatible"
+                    "{context} float value must be finite"
                 ))
             });
     }

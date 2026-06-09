@@ -1,7 +1,7 @@
 use mcpstore::perspective;
 use pyo3::prelude::*;
 
-use crate::py_value::{py_to_json_value, to_py_object};
+use crate::py_value::{py_to_serde_value, to_py_object};
 
 fn map_err(err: mcpstore::StoreError) -> PyErr {
     pyo3::exceptions::PyValueError::new_err(err.to_string())
@@ -47,7 +47,7 @@ impl PyPerspectiveResolver {
         target: &str,
         strict: bool,
     ) -> PyResult<Py<PyAny>> {
-        let available_tools = py_to_json_value(available_tools, "available_tools")?;
+        let available_tools = py_to_serde_value(available_tools, "available_tools")?;
         let available_tools: Vec<perspective::AvailableTool> =
             serde_json::from_value(available_tools).map_err(|err| {
                 pyo3::exceptions::PyValueError::new_err(format!(
