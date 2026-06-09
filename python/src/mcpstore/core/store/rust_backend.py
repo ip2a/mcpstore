@@ -585,6 +585,21 @@ class RustStoreBackend:
     def show_mcpjson(self) -> Dict[str, Any]:
         return self.show_config("mcp")
 
+    def get_json_config(self) -> Dict[str, Any]:
+        return self.show_config()
+
+    def get_data_space_info(self) -> Dict[str, Any]:
+        return _record_value(
+            {
+                "namespace": self.namespace(),
+                "backend": self.current_backend(),
+                "config_path": self._config_path,
+                "source_mode": "db" if self._only_db else "local",
+                "service_count": len(self.list_services()),
+                "agent_count": len(self.list_agents()),
+            }
+        )
+
     def cache_health_check(self) -> Dict[str, Any]:
         return _record_value(self._inner.cache_health_check())
 
@@ -1256,6 +1271,9 @@ class RustStoreContext:
     def active_session(self) -> Optional[RustSession]:
         return self._backend.active_session(self)
 
+    def current_session(self) -> Optional[RustSession]:
+        return self.active_session
+
     def list_services(self) -> List[Dict[str, Any]]:
         return _record_value(self._backend.list_services_scoped(self._agent_id))
 
@@ -1580,6 +1598,12 @@ class RustStoreContext:
     def show_mcpjson(self) -> Dict[str, Any]:
         return self._backend.show_mcpjson()
 
+    def get_json_config(self) -> Dict[str, Any]:
+        return self._backend.get_json_config()
+
+    def get_data_space_info(self) -> Dict[str, Any]:
+        return self._backend.get_data_space_info()
+
     def hub_http(
         self,
         *,
@@ -1637,6 +1661,17 @@ class RustStoreContext:
             f"Wait for service status timed out: {name} "
             f"(expected={sorted(targets)}, actual={actual or 'unknown'})"
         )
+
+    def wait_services(
+        self,
+        names: List[str],
+        status: Optional[Any] = None,
+        timeout: float = 10.0,
+    ) -> Dict[str, Any]:
+        results = {}
+        for name in names:
+            results[name] = self.wait_service(name, status=status, timeout=timeout)
+        return _record_value(results)
 
     def _resolve_tool(self, tool_name: str) -> tuple[str, str]:
         active = self.active_session
