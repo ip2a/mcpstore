@@ -854,7 +854,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         autogen_result = AutoGenAdapter(FakeContext()).list_tools()[0]()
         self.assertIn("base64-image", autogen_result)
 
-    def test_deprecated_python_mcp_module_is_removed(self):
+    def test_python_mcp_module_is_removed(self):
         self.assertIsNone(importlib.util.find_spec("mcpstore.mcp"))
 
     def test_python_adapters_use_rust_schema_field(self):
