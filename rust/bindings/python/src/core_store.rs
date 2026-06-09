@@ -5,7 +5,7 @@ use mcpstore::core::store::{BackendKind, MCPStore, SourceMode, StoreOptions};
 use mcpstore::StoreError;
 use pyo3::prelude::*;
 
-use crate::py_value::{py_to_json_value, to_py_object};
+use crate::py_value::{py_to_serde_value, to_py_object};
 
 #[pyclass(name = "MCPStore")]
 pub struct PyMCPStore {
@@ -44,7 +44,7 @@ fn backend_as_str(backend: &BackendKind) -> &'static str {
 }
 
 fn py_to_server_config(value: &Bound<'_, PyAny>, context: &str) -> PyResult<ServerConfig> {
-    let value = py_to_json_value(value, context)?;
+    let value = py_to_serde_value(value, context)?;
     serde_json::from_value(value).map_err(|err| {
         pyo3::exceptions::PyValueError::new_err(format!("{context} conversion failed: {err}"))
     })
@@ -112,7 +112,7 @@ impl PyMCPStore {
     }
 
     fn patch_service(&self, name: &str, updates: &Bound<'_, PyAny>) -> PyResult<()> {
-        let updates = py_to_json_value(updates, "Service config patch")?;
+        let updates = py_to_serde_value(updates, "Service config patch")?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.patch_service(name, updates))
             .map_err(map_store_err)
@@ -182,7 +182,7 @@ impl PyMCPStore {
         tool_name: &str,
         args: &Bound<'_, PyAny>,
     ) -> PyResult<Py<PyAny>> {
-        let args = py_to_json_value(args, "Tool arguments")?;
+        let args = py_to_serde_value(args, "Tool arguments")?;
         let result = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.call_tool(service_name, tool_name, args))
             .map_err(map_store_err)?;
