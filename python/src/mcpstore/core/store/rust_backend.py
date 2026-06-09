@@ -2,45 +2,9 @@ import importlib
 from typing import Any, Dict, List, Optional
 
 
-class RustRecordView(dict):
-    """保持 dict 行为，同时支持高级 API 的属性访问。"""
-
-    _ALIASES = {
-        "inputSchema": "input_schema",
-        "transport_type": "transport",
-    }
-    _OPTIONAL_DEFAULTS = {
-        "args": [],
-        "client_id": None,
-        "command": None,
-        "config": None,
-        "description": None,
-        "env": {},
-        "headers": {},
-        "state_metadata": None,
-        "data": None,
-        "url": None,
-        "working_dir": None,
-        "workingDir": None,
-    }
-
-    def __getattr__(self, name: str) -> Any:
-        key = self._ALIASES.get(name, name)
-        if key in self:
-            return self[key]
-        if name in self._OPTIONAL_DEFAULTS:
-            default = self._OPTIONAL_DEFAULTS[name]
-            if isinstance(default, dict):
-                return dict(default)
-            if isinstance(default, list):
-                return list(default)
-            return default
-        raise AttributeError(name)
-
-
 def _record_value(value: Any) -> Any:
     if isinstance(value, dict):
-        return RustRecordView({key: _record_value(item) for key, item in value.items()})
+        return {key: _record_value(item) for key, item in value.items()}
     if isinstance(value, list):
         return [_record_value(item) for item in value]
     return value
@@ -51,7 +15,7 @@ def _tool_error_result(
     tool_name: str,
     args: Optional[Dict[str, Any]],
     error: Exception,
-) -> RustRecordView:
+) -> Dict[str, Any]:
     message = f"MCP 工具调用失败: {error}"
     payload = {
         "ok": False,
@@ -207,17 +171,13 @@ class RustStoreBackend:
         return True
 
     def list_services(self) -> List[Dict[str, Any]]:
-        return [
-            self._normalize_service(service)
-            for service in _record_value(self._inner.list_services())
-        ]
+        return _record_value(self._inner.list_services())
 
     def list_services_scoped(self, agent_id: Optional[str] = None) -> List[Dict[str, Any]]:
         return _record_value(self._inner.list_services_scoped(agent_id))
 
     def find_service(self, name: str) -> Optional[Dict[str, Any]]:
-        service = _record_value(self._inner.find_service(name))
-        return self._normalize_service(service) if service is not None else None
+        return _record_value(self._inner.find_service(name))
 
     def list_tools_scoped(
         self,
@@ -266,45 +226,6 @@ class RustStoreBackend:
 
     def wait_service_ready(self, name: str, timeout: float = 10.0) -> Dict[str, Any]:
         return _record_value(self._inner.wait_service_ready(name, int(timeout)))
-
-    @staticmethod
-    def _generate_tool_global_name(service_name: str, original_name: str) -> str:
-        rust_mod = importlib.import_module("mcpstore._rust")
-        return rust_mod.PerspectiveResolver.generate_tool_global_name(
-            service_name,
-            original_name,
-        )
-
-    @staticmethod
-    def _normalize_service(service: Dict[str, Any]) -> Dict[str, Any]:
-        service = RustRecordView(service)
-        service.setdefault("transport_type", service.get("transport"))
-        service.setdefault("tool_count", len(service.get("tools") or []))
-        service.setdefault("client_id", None)
-        service.setdefault("state_metadata", None)
-        return service
-
-    @staticmethod
-    def _normalize_tool(tool: Dict[str, Any], service_name: str) -> Dict[str, Any]:
-        tool = RustRecordView(tool)
-        original_name = tool.get("original_name") or tool.get("name")
-        if not original_name:
-            raise ValueError(f"Rust tool metadata 缺少 name/original_name: {tool!r}")
-        global_tool_name = RustStoreBackend._generate_tool_global_name(
-            service_name,
-            original_name,
-        )
-        schema = tool.get("input_schema", tool.get("schema", {}))
-        tool["name"] = global_tool_name
-        tool.setdefault("original_name", original_name)
-        tool.setdefault("input_schema", schema)
-        tool.setdefault("inputSchema", schema)
-        tool.setdefault("service_name", service_name)
-        tool.setdefault("global_service_name", service_name)
-        tool.setdefault("service_global_name", service_name)
-        tool.setdefault("global_tool_name", global_tool_name)
-        return tool
-
 
 class RustStoreContext:
     def __init__(self, backend: RustStoreBackend, agent_id: Optional[str] = None):
