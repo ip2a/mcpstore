@@ -992,9 +992,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(store.context.wait_call, ("demo", ["healthy", "warning"], 3))
 
-    def test_rust_context_keeps_bridge_execute_and_cache_read_shape(self):
-        import asyncio
-
+    def test_rust_context_keeps_cache_read_shape(self):
         from mcpstore.core.store.rust_backend import RustCacheProxy, RustStoreContext
 
         class FakeBackend:
@@ -1010,13 +1008,6 @@ class PyO3NativeBridgeTest(unittest.TestCase):
                 }
 
         context = RustStoreContext(FakeBackend())
-        self.assertEqual(asyncio.run(context.bridge_execute("value")), "value")
-
-        async def compute():
-            return "async-value"
-
-        self.assertEqual(asyncio.run(context.bridge_execute(compute())), "async-value")
-
         cache = RustCacheProxy(context)
         self.assertEqual(cache.get_scope(), "global")
         self.assertEqual(cache.get_backend_type(), "memory")

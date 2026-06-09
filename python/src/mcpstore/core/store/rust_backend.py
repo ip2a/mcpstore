@@ -1378,11 +1378,6 @@ class RustStoreContext:
                 return _async_wrapper
         raise AttributeError(name)
 
-    async def bridge_execute(self, value: Any) -> Any:
-        if hasattr(value, "__await__"):
-            return await value
-        return value
-
     def add_service(
         self,
         config: Any = None,
