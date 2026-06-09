@@ -738,9 +738,10 @@ class PyO3NativeBridgeTest(unittest.TestCase):
     def test_setup_store_accepts_mcp_config_file_alias(self):
         from mcpstore.core.store.setup_manager import StoreSetupManager
 
+        alias = Path("alias.json")
         with patch.object(StoreSetupManager, "_setup_rust_store", return_value="store") as setup:
             result = StoreSetupManager.setup_store(
-                mcp_config_file="alias.json",
+                mcp_config_file=alias,
                 external_db={"cache": {"type": "memory"}},
                 cache_mode="hybrid",
             )
@@ -758,7 +759,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         cache = MemoryConfig()
         with patch.object(StoreSetupManager, "_setup_rust_store", return_value="store") as setup:
             result = StoreSetupManager.setup_store(
-                config_path="config-alias.json",
+                config_path=Path("config-alias.json"),
                 cache_config=cache,
             )
 
@@ -766,6 +767,29 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         kwargs = setup.call_args.kwargs
         self.assertEqual(kwargs["mcpjson_path"], "config-alias.json")
         self.assertIs(kwargs["cache"], cache)
+
+    def test_rust_backend_setup_normalizes_pathlike_config_path(self):
+        import types
+
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        class FakeRustStore:
+            def load_from_config(self):
+                pass
+
+        class FakeMCPStore:
+            called = None
+
+            @staticmethod
+            def setup_with_options(config_path, source_mode, backend, redis_url, namespace):
+                FakeMCPStore.called = (config_path, source_mode, backend, redis_url, namespace)
+                return FakeRustStore()
+
+        fake_module = types.SimpleNamespace(MCPStore=FakeMCPStore)
+        with patch("importlib.import_module", return_value=fake_module):
+            RustStoreBackend.setup(config_path=Path("pathlike.json"))
+
+        self.assertEqual(FakeMCPStore.called[0], "pathlike.json")
 
     def test_redis_client_config_normalizes_to_rust_url(self):
         from mcpstore.config import RedisConfig
