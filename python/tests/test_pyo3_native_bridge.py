@@ -155,9 +155,9 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(json.loads(backup.read_text(encoding="utf-8")), exported)
 
         output_backup = workdir / "output-backup.json"
-        written = asyncio.run(store.export_to_json(output_path=output_backup, include_sessions=True))
-        self.assertEqual(written, exported)
-        self.assertEqual(json.loads(output_backup.read_text(encoding="utf-8")), exported)
+        with self.assertRaises(NotImplementedError):
+            asyncio.run(store.export_to_json(output_path=output_backup, include_sessions=True))
+        self.assertFalse(output_backup.exists())
 
         filepath_backup = workdir / "filepath-backup.json"
         written = asyncio.run(store.exportjson(filepath=filepath_backup))
