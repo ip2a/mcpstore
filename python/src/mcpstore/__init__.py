@@ -64,11 +64,8 @@ def __getattr__(name: str):
 
     if name in adapters_mapping:
         module_name = adapters_mapping[name]
-        try:
-            module = __import__(f"mcpstore.adapters.{module_name}", fromlist=[name])
-            adapter_class = getattr(module, name)
-        except ImportError:
-            adapter_class = None
+        module = __import__(f"mcpstore.adapters.{module_name}", fromlist=[name])
+        adapter_class = getattr(module, name)
 
         globals()[name] = adapter_class
         return adapter_class
