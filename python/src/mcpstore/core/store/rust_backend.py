@@ -1542,10 +1542,10 @@ class RustSession:
         return self
 
     def extend_session(self, seconds: int = 3600) -> "RustSession":
-        return self
+        raise NotImplementedError("Rust core does not expose session lease extension")
 
     def clear_cache(self) -> bool:
-        return True
+        raise NotImplementedError("Rust core does not expose session-scoped cache clearing")
 
     def close_session(self) -> bool:
         self._is_active = False
