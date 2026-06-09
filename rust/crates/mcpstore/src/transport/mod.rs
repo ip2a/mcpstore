@@ -36,7 +36,41 @@ pub struct ToolCallResult {
 #[serde(tag = "type")]
 pub enum ContentItem {
     #[serde(rename = "text")]
-    Text { text: String },
+    Text {
+        text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        annotations: Option<serde_json::Value>,
+        #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+        meta: Option<serde_json::Value>,
+    },
     #[serde(rename = "image")]
-    Image { data: String, mime_type: String },
+    Image {
+        data: String,
+        mime_type: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        annotations: Option<serde_json::Value>,
+        #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+        meta: Option<serde_json::Value>,
+    },
+    #[serde(rename = "audio")]
+    Audio {
+        data: String,
+        mime_type: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        annotations: Option<serde_json::Value>,
+    },
+    #[serde(rename = "resource")]
+    Resource {
+        resource: serde_json::Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        annotations: Option<serde_json::Value>,
+        #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+        meta: Option<serde_json::Value>,
+    },
+    #[serde(rename = "resource_link")]
+    ResourceLink {
+        resource: serde_json::Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        annotations: Option<serde_json::Value>,
+    },
 }
