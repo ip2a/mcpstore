@@ -333,8 +333,13 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(agent.get_info().agent_id, "agent-a")
         with self.assertRaises(NotImplementedError):
             context.hub_sse()
-        with self.assertRaises(NotImplementedError):
-            context.hub_stdio()
+        with patch.object(backend, "start_mcp_server", return_value=0) as start_mcp_server:
+            self.assertEqual(context.hub_stdio(), 0)
+        start_mcp_server.assert_called_once_with(
+            agent_id=None,
+            transport="stdio",
+            block=True,
+        )
 
         service = context.find_service("demo")
         self.assertEqual(service.name, "demo")
@@ -821,6 +826,32 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertIn("agent-a", cmd)
         self.assertIn("--config-path", cmd)
         self.assertIn("--source", cmd)
+
+    def test_hub_stdio_delegates_to_rust_mcp_server_cli(self):
+        from mcpstore.config import MemoryConfig
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        store = RustStoreBackend(object())
+        store._config_path = "mcp.json"
+        store._cache_config = MemoryConfig()
+        store._only_db = True
+
+        completed = type("Completed", (), {"returncode": 0})()
+        with patch("mcpstore._rust_cli.resolve_rust_cli_binary", return_value="/bin/mcpstore"):
+            with patch("mcpstore._rust_cli.resolve_runtime_cwd", return_value="/tmp"):
+                with patch("mcpstore.core.store.rust_backend.subprocess.run", return_value=completed) as run:
+                    code = store.for_store().hub_stdio(block=True)
+
+        self.assertEqual(code, 0)
+        cmd = run.call_args.args[0]
+        self.assertEqual(cmd[:4], ["/bin/mcpstore", "mcp-server", "--transport", "stdio"])
+        self.assertIn("--scope", cmd)
+        self.assertIn("store", cmd)
+        self.assertIn("--config-path", cmd)
+        self.assertIn("--source", cmd)
+        self.assertNotIn("--host", cmd)
+        self.assertNotIn("--port", cmd)
+        self.assertNotIn("--path", cmd)
 
     def test_switch_cache_rebuilds_rust_store(self):
         from mcpstore.config import RedisConfig
