@@ -111,6 +111,35 @@ def _extract_text_result(result: Any) -> str:
     return "\n".join(text for text in text_blocks if text)
 
 
+def _normalize_status_targets(status: Optional[Any]) -> Optional[set[str]]:
+    if status is None:
+        return None
+    values = status if isinstance(status, (list, tuple, set)) else [status]
+    targets: set[str] = set()
+    for value in values:
+        key = str(value).lower()
+        targets.add(key)
+        if key == "healthy":
+            targets.add("ready")
+        elif key == "ready":
+            targets.add("healthy")
+        elif key == "warning":
+            targets.add("degraded")
+        elif key == "ok":
+            targets.update({"healthy", "ready"})
+    return targets
+
+
+def _status_value(status: Any) -> str:
+    if isinstance(status, dict):
+        value = status.get("health_status") or status.get("status")
+        if isinstance(value, dict):
+            value = value.get("value") or value.get("status") or value.get("name")
+        return str(value or "").lower()
+    value = getattr(status, "health_status", None) or getattr(status, "status", None)
+    return str(value or "").lower()
+
+
 def _tool_error_result(
     service_name: str,
     tool_name: str,
@@ -1549,7 +1578,17 @@ class RustStoreContext:
         timeout: float = 10.0,
     ) -> Dict[str, Any]:
         service_name = self._resolve_service_name(name)
-        return self._backend.wait_service_ready(service_name, timeout)
+        result = self._backend.wait_service_ready(service_name, timeout)
+        targets = _normalize_status_targets(status)
+        if targets is None:
+            return result
+        actual = _status_value(result)
+        if actual in targets:
+            return result
+        raise TimeoutError(
+            f"Wait for service status timed out: {name} "
+            f"(expected={sorted(targets)}, actual={actual or 'unknown'})"
+        )
 
     def _resolve_tool(self, tool_name: str) -> tuple[str, str]:
         active = self.active_session
