@@ -1406,13 +1406,19 @@ class RustRegistryFacade:
             from mcpstore.config import RedisConfig
 
             url = getattr(backend, "url", None) or getattr(backend, "_url", None)
-            if url is None:
-                host = getattr(backend, "host", None) or "localhost"
-                port = getattr(backend, "port", None) or 6379
-                db = getattr(backend, "db", None) or 0
-                url = f"redis://{host}:{port}/{db}"
+            if url:
+                return RedisConfig(
+                    url=url,
+                    password=getattr(backend, "password", None),
+                    namespace=getattr(backend, "namespace", None),
+                )
+            host = getattr(backend, "host", None)
+            if not host:
+                raise ValueError("Redis cache backend 缺少 url 或 host，Rust core 不会使用隐式默认 Redis 地址")
             return RedisConfig(
-                url=url,
+                host=host,
+                port=getattr(backend, "port", None),
+                db=getattr(backend, "db", None),
                 password=getattr(backend, "password", None),
                 namespace=getattr(backend, "namespace", None),
             )
