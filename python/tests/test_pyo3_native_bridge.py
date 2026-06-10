@@ -1344,6 +1344,27 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertTrue(asyncio.run(store.registry.switch_backend(MemoryConfig())))
         self.assertEqual(switched[0].cache_type.value, "memory")
 
+        class ExternalRedisBackend:
+            host = "redis.local"
+            port = 6380
+            db = 2
+            password = "secret"
+            namespace = "registry"
+
+        self.assertTrue(asyncio.run(store.registry.switch_backend(ExternalRedisBackend())))
+        self.assertEqual(switched[1].cache_type.value, "redis")
+        self.assertEqual(switched[1].host, "redis.local")
+        self.assertEqual(switched[1].port, 6380)
+        self.assertEqual(switched[1].db, 2)
+        self.assertEqual(switched[1].password, "secret")
+        self.assertEqual(switched[1].namespace, "registry")
+
+        class ExternalRedisWithoutAddress:
+            pass
+
+        with self.assertRaisesRegex(ValueError, "缺少 url 或 host"):
+            asyncio.run(store.registry.switch_backend(ExternalRedisWithoutAddress()))
+
     def test_rust_backed_public_api_modules_import(self):
         from mcpstore.api.api_dependencies import get_store
         from mcpstore.config import MemoryConfig
