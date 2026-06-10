@@ -151,7 +151,7 @@ async def store_call_tool(body: Dict[str, Any] = Body(...)):
     context = get_store().for_store()
     result = await _execute(
         context,
-        context.call_tool_async(tool_name, _body_field(body, "args", default={})),
+        context.call_tool_async(tool_name, _body_field(body, "args", "arguments", default={})),
     )
     return ResponseBuilder.success(message="Tool call completed", data=result)
 
@@ -509,7 +509,7 @@ async def agent_call_tool(agent_id: str, body: Dict[str, Any] = Body(...)):
     context = get_store().for_agent(agent_id)
     result = await _execute(
         context,
-        context.call_tool_async(tool_name, _body_field(body, "args", default={})),
+        context.call_tool_async(tool_name, _body_field(body, "args", "arguments", default={})),
     )
     return ResponseBuilder.success(message="Agent tool call completed", data=result)
 
