@@ -1897,14 +1897,20 @@ class PyO3NativeBridgeTest(unittest.TestCase):
                 return self.store_context
 
             def for_agent(self, agent_id):
-                context = FakeContext()
-                self.agent_contexts[agent_id] = context
-                return context
+                if agent_id not in self.agent_contexts:
+                    self.agent_contexts[agent_id] = FakeContext()
+                return self.agent_contexts[agent_id]
 
         store = FakeStore()
         api_pack.api_set_store(store)
 
         result = asyncio.run(api_pack.store_call_tool({"tool_name": "echo", "args": ""}))
+        self.assertTrue(result["success"])
+        result = asyncio.run(
+            api_pack.store_call_tool(
+                {"tool_name": "echo", "arguments": {"topic": "rust"}}
+            )
+        )
         self.assertTrue(result["success"])
         result = asyncio.run(
             api_pack.store_get_prompt(
@@ -1916,6 +1922,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             store.store_context.calls,
             [
                 ("call_tool", "echo", ""),
+                ("call_tool", "echo", {"topic": "rust"}),
                 ("get_prompt", "summarize", '{"topic":"rust"}', None),
             ],
         )
@@ -1924,9 +1931,22 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             api_pack.agent_call_tool("agent-a", {"tool_name": "echo", "args": ""})
         )
         self.assertTrue(result["success"])
+        result = asyncio.run(
+            api_pack.agent_call_tool(
+                "agent-a",
+                {"tool_name": "echo", "arguments": {"topic": "agent-rust"}},
+            )
+        )
+        self.assertTrue(result["success"])
         result = asyncio.run(api_pack.agent_get_prompt("agent-b", {"name": "summarize", "args": ""}))
         self.assertTrue(result["success"])
-        self.assertEqual(store.agent_contexts["agent-a"].calls, [("call_tool", "echo", "")])
+        self.assertEqual(
+            store.agent_contexts["agent-a"].calls,
+            [
+                ("call_tool", "echo", ""),
+                ("call_tool", "echo", {"topic": "agent-rust"}),
+            ],
+        )
         self.assertEqual(
             store.agent_contexts["agent-b"].calls,
             [("get_prompt", "summarize", "", None)],
