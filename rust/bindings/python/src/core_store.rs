@@ -13,7 +13,7 @@ use mcpstore::{
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 
-use crate::py_value::{py_to_serde_value, serde_value_to_py, to_py_object};
+use crate::py_value::{py_to_serde_value, serde_value_to_py};
 
 #[pyclass(name = "MCPStore")]
 pub struct PyMCPStore {
@@ -401,7 +401,7 @@ impl PyMCPStore {
     fn event_capability_report(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let report = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.event_capability_report());
-        to_py_object(py, &report, "Event capability report")
+        serde_value_to_py(py, report)
     }
 
     fn restart_service(&self, name: &str) -> PyResult<()> {
@@ -430,7 +430,7 @@ impl PyMCPStore {
             .block_on(self.inner.get_service_config(name))
             .map_err(map_store_err)?;
         config
-            .map(|config| to_py_object(py, &config, "Service config"))
+            .map(|config| serde_value_to_py(py, config))
             .transpose()
     }
 
@@ -449,7 +449,7 @@ impl PyMCPStore {
             .map_err(map_store_err)?;
         agents
             .into_iter()
-            .map(|agent| to_py_object(py, &agent, "Agent"))
+            .map(|agent| serde_value_to_py(py, agent))
             .collect()
     }
 
@@ -545,7 +545,7 @@ impl PyMCPStore {
         let status = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.check_services_scoped(agent_id.as_deref()))
             .map_err(map_store_err)?;
-        to_py_object(py, &status, "Scoped service health")
+        serde_value_to_py(py, status)
     }
 
     #[pyo3(signature = (agent_id, service_name))]
@@ -561,7 +561,7 @@ impl PyMCPStore {
                     .service_status_scoped(agent_id.as_deref(), service_name),
             )
             .map_err(map_store_err)?;
-        to_py_object(py, &status, "Scoped service status")
+        serde_value_to_py(py, status)
     }
 
     #[pyo3(signature = (agent_id=None, service_name=None))]
@@ -579,7 +579,7 @@ impl PyMCPStore {
             .map_err(map_store_err)?;
         resources
             .into_iter()
-            .map(|resource| to_py_object(py, &resource, "Scoped resource"))
+            .map(|resource| serde_value_to_py(py, resource))
             .collect()
     }
 
@@ -598,7 +598,7 @@ impl PyMCPStore {
             .map_err(map_store_err)?;
         templates
             .into_iter()
-            .map(|template| to_py_object(py, &template, "Scoped resource template"))
+            .map(|template| serde_value_to_py(py, template))
             .collect()
     }
 
@@ -617,7 +617,7 @@ impl PyMCPStore {
                 service_name.as_deref(),
             ))
             .map_err(map_store_err)?;
-        to_py_object(py, &resource, "Scoped resource read")
+        serde_value_to_py(py, resource)
     }
 
     #[pyo3(signature = (agent_id=None, service_name=None))]
@@ -635,7 +635,7 @@ impl PyMCPStore {
             .map_err(map_store_err)?;
         prompts
             .into_iter()
-            .map(|prompt| to_py_object(py, &prompt, "Scoped prompt"))
+            .map(|prompt| serde_value_to_py(py, prompt))
             .collect()
     }
 
@@ -657,28 +657,28 @@ impl PyMCPStore {
                 service_name.as_deref(),
             ))
             .map_err(map_store_err)?;
-        to_py_object(py, &prompt, "Scoped prompt result")
+        serde_value_to_py(py, prompt)
     }
 
     fn show_config(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let config = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.show_config())
             .map_err(map_store_err)?;
-        to_py_object(py, &config, "Config")
+        serde_value_to_py(py, config)
     }
 
     fn cache_health_check(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let health = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.cache_health_check())
             .map_err(map_store_err)?;
-        to_py_object(py, &health, "Cache health")
+        serde_value_to_py(py, health)
     }
 
     fn cache_inspect(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let inspect = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.cache_inspect())
             .map_err(map_store_err)?;
-        to_py_object(py, &inspect, "Cache inspect")
+        serde_value_to_py(py, inspect)
     }
 
     fn reset_config(&self) -> PyResult<()> {
