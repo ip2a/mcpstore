@@ -1,8 +1,13 @@
 //! PyO3 wrapper for the MCPStore Rust runtime surface.
 
 use mcpstore::config::ServerConfig;
+use mcpstore::core::perspective::ToolResolution;
 use mcpstore::core::store::{BackendKind, MCPStore, SourceMode, StoreOptions};
-use mcpstore::{ConnectionStatus, ServiceEntry, StoreError, ToolDescription, ToolInfo};
+use mcpstore::{
+    cache::models::{HealthStatus, ServiceStatus, ToolAvailability, ToolStatusItem},
+    ConnectionStatus, ContentItem, Event, ServiceEntry, StoreError, ToolCallResult,
+    ToolDescription, ToolInfo,
+};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 
@@ -96,6 +101,165 @@ fn service_entry_to_py(py: Python<'_>, service: &ServiceEntry) -> PyResult<Py<Py
     dict.set_item("tools", tools)?;
     dict.set_item("config", serde_value_to_py(py, service.config.clone())?)?;
     dict.set_item("added_time", service.added_time)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn event_to_py(py: Python<'_>, event: &Event) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("event_type", &event.event_type)?;
+    dict.set_item("event_id", &event.event_id)?;
+    dict.set_item("timestamp", event.timestamp)?;
+    dict.set_item("priority", event.priority)?;
+    dict.set_item("payload", serde_value_to_py(py, event.payload.clone())?)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn tool_resolution_to_py(py: Python<'_>, resolution: &ToolResolution) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("agent_id", &resolution.agent_id)?;
+    dict.set_item("local_service_name", &resolution.local_service_name)?;
+    dict.set_item("global_service_name", &resolution.global_service_name)?;
+    dict.set_item("local_tool_name", &resolution.local_tool_name)?;
+    dict.set_item("global_tool_name", &resolution.global_tool_name)?;
+    dict.set_item("canonical_tool_name", &resolution.canonical_tool_name)?;
+    dict.set_item("resolution_method", &resolution.resolution_method)?;
+    dict.set_item("original_input", &resolution.original_input)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn content_item_to_py(py: Python<'_>, item: &ContentItem) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    match item {
+        ContentItem::Text {
+            text,
+            annotations,
+            meta,
+        } => {
+            dict.set_item("type", "text")?;
+            dict.set_item("text", text)?;
+            if let Some(value) = annotations {
+                dict.set_item("annotations", serde_value_to_py(py, value.clone())?)?;
+            }
+            if let Some(value) = meta {
+                dict.set_item("_meta", serde_value_to_py(py, value.clone())?)?;
+            }
+        }
+        ContentItem::Image {
+            data,
+            mime_type,
+            annotations,
+            meta,
+        } => {
+            dict.set_item("type", "image")?;
+            dict.set_item("data", data)?;
+            dict.set_item("mime_type", mime_type)?;
+            if let Some(value) = annotations {
+                dict.set_item("annotations", serde_value_to_py(py, value.clone())?)?;
+            }
+            if let Some(value) = meta {
+                dict.set_item("_meta", serde_value_to_py(py, value.clone())?)?;
+            }
+        }
+        ContentItem::Audio {
+            data,
+            mime_type,
+            annotations,
+        } => {
+            dict.set_item("type", "audio")?;
+            dict.set_item("data", data)?;
+            dict.set_item("mime_type", mime_type)?;
+            if let Some(value) = annotations {
+                dict.set_item("annotations", serde_value_to_py(py, value.clone())?)?;
+            }
+        }
+        ContentItem::Resource {
+            resource,
+            annotations,
+            meta,
+        } => {
+            dict.set_item("type", "resource")?;
+            dict.set_item("resource", serde_value_to_py(py, resource.clone())?)?;
+            if let Some(value) = annotations {
+                dict.set_item("annotations", serde_value_to_py(py, value.clone())?)?;
+            }
+            if let Some(value) = meta {
+                dict.set_item("_meta", serde_value_to_py(py, value.clone())?)?;
+            }
+        }
+        ContentItem::ResourceLink {
+            resource,
+            annotations,
+        } => {
+            dict.set_item("type", "resource_link")?;
+            dict.set_item("resource", serde_value_to_py(py, resource.clone())?)?;
+            if let Some(value) = annotations {
+                dict.set_item("annotations", serde_value_to_py(py, value.clone())?)?;
+            }
+        }
+    }
+    Ok(dict.into_any().unbind())
+}
+
+fn tool_call_result_to_py(py: Python<'_>, result: &ToolCallResult) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    let content = PyList::empty(py);
+    for item in &result.content {
+        content.append(content_item_to_py(py, item)?)?;
+    }
+    dict.set_item("content", content)?;
+    dict.set_item("is_error", result.is_error)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn health_status_as_str(status: &HealthStatus) -> &'static str {
+    match status {
+        HealthStatus::Init => "init",
+        HealthStatus::Startup => "startup",
+        HealthStatus::Ready => "ready",
+        HealthStatus::Healthy => "healthy",
+        HealthStatus::Degraded => "degraded",
+        HealthStatus::CircuitOpen => "circuit_open",
+        HealthStatus::HalfOpen => "half_open",
+        HealthStatus::Disconnected => "disconnected",
+    }
+}
+
+fn tool_availability_as_str(status: &ToolAvailability) -> &'static str {
+    match status {
+        ToolAvailability::Available => "available",
+        ToolAvailability::Unavailable => "unavailable",
+    }
+}
+
+fn tool_status_item_to_py(py: Python<'_>, item: &ToolStatusItem) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("tool_global_name", &item.tool_global_name)?;
+    dict.set_item("tool_original_name", &item.tool_original_name)?;
+    dict.set_item("status", tool_availability_as_str(&item.status))?;
+    Ok(dict.into_any().unbind())
+}
+
+fn service_status_to_py(py: Python<'_>, status: &ServiceStatus) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    let tools = PyList::empty(py);
+    for tool in &status.tools {
+        tools.append(tool_status_item_to_py(py, tool)?)?;
+    }
+
+    dict.set_item("service_global_name", &status.service_global_name)?;
+    dict.set_item("health_status", health_status_as_str(&status.health_status))?;
+    dict.set_item("last_health_check", status.last_health_check)?;
+    dict.set_item("connection_attempts", status.connection_attempts)?;
+    dict.set_item("max_connection_attempts", status.max_connection_attempts)?;
+    dict.set_item("current_error", status.current_error.as_deref())?;
+    dict.set_item("tools", tools)?;
+    dict.set_item("window_error_rate", status.window_error_rate)?;
+    dict.set_item("latency_p95", status.latency_p95)?;
+    dict.set_item("latency_p99", status.latency_p99)?;
+    dict.set_item("sample_size", status.sample_size)?;
+    dict.set_item("next_retry_time", status.next_retry_time)?;
+    dict.set_item("hard_deadline", status.hard_deadline)?;
+    dict.set_item("lease_deadline", status.lease_deadline)?;
     Ok(dict.into_any().unbind())
 }
 
@@ -195,10 +359,7 @@ impl PyMCPStore {
     fn event_history(&self, py: Python<'_>, count: usize) -> PyResult<Vec<Py<PyAny>>> {
         let events =
             pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.event_history(count));
-        events
-            .into_iter()
-            .map(|event| to_py_object(py, &event, "Event"))
-            .collect()
+        events.iter().map(|event| event_to_py(py, event)).collect()
     }
 
     fn event_capability_report(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
@@ -277,7 +438,7 @@ impl PyMCPStore {
         let result = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.call_tool(service_name, tool_name, args))
             .map_err(map_store_err)?;
-        to_py_object(py, &result, "Tool call result")
+        tool_call_result_to_py(py, &result)
     }
 
     fn resolve_tool_for_agent(
@@ -289,7 +450,7 @@ impl PyMCPStore {
         let resolution = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.resolve_tool_for_agent(agent_id, user_input))
             .map_err(map_store_err)?;
-        to_py_object(py, &resolution, "Tool resolution")
+        tool_resolution_to_py(py, &resolution)
     }
 
     fn resolve_service_name_for_agent(
@@ -500,7 +661,7 @@ impl PyMCPStore {
         let status = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.wait_service_ready(name, timeout_secs))
             .map_err(map_store_err)?;
-        to_py_object(py, &status, "Service ready status")
+        service_status_to_py(py, &status)
     }
 
     fn __repr__(&self) -> String {
