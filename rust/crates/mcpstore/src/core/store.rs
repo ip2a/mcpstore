@@ -67,6 +67,24 @@ pub struct ScopedServiceHealth {
     pub health_status: HealthStatus,
 }
 
+#[derive(Debug, Clone)]
+pub struct EventCapabilityReport {
+    pub event_bus: bool,
+    pub history: bool,
+    pub history_capacity: usize,
+    pub cache_event_layer: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct CacheHealthReport {
+    pub namespace: String,
+    pub backend: String,
+    pub entities: Vec<String>,
+    pub relations: Vec<String>,
+    pub states: Vec<String>,
+    pub events: Vec<String>,
+}
+
 impl StoreRuntimeConfig {
     fn from_app_config(config: &AppConfig) -> Self {
         let health = &config.health_check;
@@ -1131,25 +1149,47 @@ impl MCPStore {
     }
 
     pub async fn event_capability_report(&self) -> serde_json::Value {
+        let report = self.event_capability_report_entry().await;
         serde_json::json!({
-            "event_bus": true,
-            "history": true,
-            "history_capacity": 1000,
-            "cache_event_layer": true,
+            "event_bus": report.event_bus,
+            "history": report.history,
+            "history_capacity": report.history_capacity,
+            "cache_event_layer": report.cache_event_layer,
         })
     }
 
+    pub async fn event_capability_report_entry(&self) -> EventCapabilityReport {
+        EventCapabilityReport {
+            event_bus: true,
+            history: true,
+            history_capacity: 1000,
+            cache_event_layer: true,
+        }
+    }
+
     pub async fn cache_health_check(&self) -> Result<serde_json::Value> {
+        let report = self.cache_health_report().await?;
+        Ok(serde_json::json!({
+            "namespace": report.namespace,
+            "backend": report.backend,
+            "entities": report.entities,
+            "relations": report.relations,
+            "states": report.states,
+            "events": report.events,
+        }))
+    }
+
+    pub async fn cache_health_report(&self) -> Result<CacheHealthReport> {
         let namespace = self.namespace();
         let snapshot = self.cache.snapshot().await?;
-        Ok(serde_json::json!({
-            "namespace": namespace,
-            "backend": self.current_backend().await.as_str(),
-            "entities": snapshot.entities.keys().cloned().collect::<Vec<_>>(),
-            "relations": snapshot.relations.keys().cloned().collect::<Vec<_>>(),
-            "states": snapshot.states.keys().cloned().collect::<Vec<_>>(),
-            "events": snapshot.events.keys().cloned().collect::<Vec<_>>(),
-        }))
+        Ok(CacheHealthReport {
+            namespace,
+            backend: self.current_backend().await.as_str().to_string(),
+            entities: snapshot.entities.keys().cloned().collect(),
+            relations: snapshot.relations.keys().cloned().collect(),
+            states: snapshot.states.keys().cloned().collect(),
+            events: snapshot.events.keys().cloned().collect(),
+        })
     }
 
     pub async fn cache_inspect(&self) -> Result<serde_json::Value> {
