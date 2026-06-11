@@ -21,6 +21,28 @@ pub(super) fn wrap_cache_item(
 }
 
 impl MCPStore {
+    pub(super) fn scoped_service_entry(
+        mut service: ServiceEntry,
+        localize_for_agent: bool,
+    ) -> ScopedServiceEntry {
+        service
+            .tools
+            .sort_by(|left, right| left.name.cmp(&right.name));
+        let tool_count = service.tools.len();
+        let global_name = if localize_for_agent {
+            let global_name = service.name.clone();
+            service.name = service.original_name.clone();
+            Some(global_name)
+        } else {
+            None
+        };
+        ScopedServiceEntry {
+            service,
+            tool_count,
+            global_name,
+        }
+    }
+
     pub(super) fn service_payload_value(
         mut service: ServiceEntry,
         localize_for_agent: bool,
@@ -63,6 +85,28 @@ impl MCPStore {
             "service_global_name": global_service_name,
             "global_tool_name": global_tool_name,
         }))
+    }
+
+    pub(super) fn scoped_tool_entry(
+        displayed_name: String,
+        original_name: String,
+        service_name: String,
+        global_service_name: String,
+        description: String,
+        schema: serde_json::Value,
+    ) -> Result<ScopedToolEntry> {
+        let global_tool_name = generate_tool_global_name(&global_service_name, &original_name)?;
+        Ok(ScopedToolEntry {
+            name: displayed_name,
+            original_name,
+            description,
+            schema: schema.clone(),
+            input_schema: schema,
+            service_name,
+            service_global_name: global_service_name.clone(),
+            global_service_name,
+            global_tool_name,
+        })
     }
 
     pub(super) fn resource_payload_value(
