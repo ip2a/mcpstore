@@ -41,6 +41,26 @@ struct StoreRuntimeConfig {
     health_warn_latency_ms: f64,
 }
 
+#[derive(Debug, Clone)]
+pub struct ScopedServiceEntry {
+    pub service: ServiceEntry,
+    pub tool_count: usize,
+    pub global_name: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScopedToolEntry {
+    pub name: String,
+    pub original_name: String,
+    pub description: String,
+    pub schema: serde_json::Value,
+    pub input_schema: serde_json::Value,
+    pub service_name: String,
+    pub global_service_name: String,
+    pub service_global_name: String,
+    pub global_tool_name: String,
+}
+
 impl StoreRuntimeConfig {
     fn from_app_config(config: &AppConfig) -> Self {
         let health = &config.health_check;
@@ -1341,6 +1361,37 @@ impl MCPStore {
         }
     }
 
+    pub async fn list_service_entries_scoped(
+        &self,
+        agent_id: Option<&str>,
+    ) -> Result<Vec<ScopedServiceEntry>> {
+        self.refresh_from_db_if_needed().await?;
+        match agent_id {
+            None => {
+                let mut services = self.list_services().await;
+                services.sort_by(|left, right| left.name.cmp(&right.name));
+                Ok(services
+                    .into_iter()
+                    .map(|service| Self::scoped_service_entry(service, false))
+                    .collect())
+            }
+            Some(agent_id) => {
+                let mut service_names = self.list_agent_service_names(agent_id).await?;
+                service_names.sort();
+
+                let mut services = Vec::with_capacity(service_names.len());
+                for global_service_name in service_names {
+                    let service = self
+                        .find_service(&global_service_name)
+                        .await
+                        .ok_or_else(|| StoreError::ServiceNotFound(global_service_name.clone()))?;
+                    services.push(Self::scoped_service_entry(service, true));
+                }
+                Ok(services)
+            }
+        }
+    }
+
     pub async fn service_info_scoped(
         &self,
         agent_id: Option<&str>,
@@ -1410,6 +1461,59 @@ impl MCPStore {
                 Ok(payload)
             }
             (Some(agent_id), None) => self.collect_agent_tools_scoped(agent_id).await,
+        }
+    }
+
+    pub async fn list_tool_entries_scoped(
+        &self,
+        agent_id: Option<&str>,
+        service_name: Option<&str>,
+    ) -> Result<Vec<ScopedToolEntry>> {
+        self.refresh_from_db_if_needed().await?;
+        match (agent_id, service_name) {
+            (None, Some(service_name)) => {
+                let mut tools = self.list_tools(service_name).await?;
+                tools.sort_by(|left, right| left.name.cmp(&right.name));
+                tools
+                    .into_iter()
+                    .map(|tool| {
+                        Self::scoped_tool_entry(
+                            tool.name.clone(),
+                            tool.name,
+                            service_name.to_string(),
+                            service_name.to_string(),
+                            tool.description,
+                            tool.input_schema,
+                        )
+                    })
+                    .collect()
+            }
+            (None, None) => self.collect_store_tool_descriptions_scoped().await,
+            (Some(agent_id), Some(service_name)) => {
+                let global_service_name = self
+                    .resolve_service_name_for_agent(agent_id, service_name)
+                    .await?;
+                let service = self
+                    .find_service(&global_service_name)
+                    .await
+                    .ok_or_else(|| StoreError::ServiceNotFound(global_service_name.clone()))?;
+                let mut tools = self.list_tools(&global_service_name).await?;
+                tools.sort_by(|left, right| left.name.cmp(&right.name));
+                tools
+                    .into_iter()
+                    .map(|tool| {
+                        Self::scoped_tool_entry(
+                            tool.name.clone(),
+                            tool.name,
+                            service.original_name.clone(),
+                            global_service_name.clone(),
+                            tool.description,
+                            tool.input_schema,
+                        )
+                    })
+                    .collect()
+            }
+            (Some(agent_id), None) => self.collect_agent_tool_descriptions_scoped(agent_id).await,
         }
     }
 
@@ -1664,6 +1768,30 @@ impl MCPStore {
                 let original_name = tool.name.clone();
                 let displayed_name = generate_tool_global_name(&service.name, &original_name)?;
                 tools.push(Self::tool_payload_value(
+                    displayed_name,
+                    original_name,
+                    service.name.clone(),
+                    service.name.clone(),
+                    tool.description,
+                    tool.schema,
+                )?);
+            }
+        }
+        Ok(tools)
+    }
+
+    async fn collect_store_tool_descriptions_scoped(&self) -> Result<Vec<ScopedToolEntry>> {
+        let mut services = self.list_services().await;
+        services.sort_by(|left, right| left.name.cmp(&right.name));
+
+        let mut tools = Vec::new();
+        for service in services {
+            let mut service_tools = service.tools.clone();
+            service_tools.sort_by(|left, right| left.name.cmp(&right.name));
+            for tool in service_tools {
+                let original_name = tool.name.clone();
+                let displayed_name = generate_tool_global_name(&service.name, &original_name)?;
+                tools.push(Self::scoped_tool_entry(
                     displayed_name,
                     original_name,
                     service.name.clone(),
@@ -1981,6 +2109,37 @@ impl MCPStore {
                     displayed_name,
                     original_name,
                     local_service_name.clone(),
+                    global_service_name.clone(),
+                    tool.description,
+                    tool.input_schema,
+                )?);
+            }
+        }
+        Ok(tools)
+    }
+
+    async fn collect_agent_tool_descriptions_scoped(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<ScopedToolEntry>> {
+        let mut service_names = self.list_agent_service_names(agent_id).await?;
+        service_names.sort();
+
+        let mut tools = Vec::new();
+        for global_service_name in service_names {
+            let service = self
+                .find_service(&global_service_name)
+                .await
+                .ok_or_else(|| StoreError::ServiceNotFound(global_service_name.clone()))?;
+            let mut service_tools = self.list_tools(&global_service_name).await?;
+            service_tools.sort_by(|left, right| left.name.cmp(&right.name));
+            for tool in service_tools {
+                let original_name = tool.name.clone();
+                let displayed_name = format!("{}_{}", service.original_name, original_name);
+                tools.push(Self::scoped_tool_entry(
+                    displayed_name,
+                    original_name,
+                    service.original_name.clone(),
                     global_service_name.clone(),
                     tool.description,
                     tool.input_schema,

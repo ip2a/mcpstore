@@ -2,7 +2,9 @@
 
 use mcpstore::config::ServerConfig;
 use mcpstore::core::perspective::ToolResolution;
-use mcpstore::core::store::{BackendKind, MCPStore, SourceMode, StoreOptions};
+use mcpstore::core::store::{
+    BackendKind, MCPStore, ScopedServiceEntry, ScopedToolEntry, SourceMode, StoreOptions,
+};
 use mcpstore::{
     cache::models::{HealthStatus, ServiceStatus, ToolAvailability, ToolStatusItem},
     ConnectionStatus, ContentItem, Event, ServiceEntry, StoreError, ToolCallResult,
@@ -84,7 +86,27 @@ fn tool_description_to_py(py: Python<'_>, tool: &ToolDescription) -> PyResult<Py
     Ok(dict.into_any().unbind())
 }
 
-fn service_entry_to_py(py: Python<'_>, service: &ServiceEntry) -> PyResult<Py<PyAny>> {
+fn scoped_tool_entry_to_py(py: Python<'_>, tool: &ScopedToolEntry) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("name", &tool.name)?;
+    dict.set_item("original_name", &tool.original_name)?;
+    dict.set_item("description", &tool.description)?;
+    dict.set_item("schema", serde_value_to_py(py, tool.schema.clone())?)?;
+    dict.set_item(
+        "input_schema",
+        serde_value_to_py(py, tool.input_schema.clone())?,
+    )?;
+    dict.set_item("service_name", &tool.service_name)?;
+    dict.set_item("global_service_name", &tool.global_service_name)?;
+    dict.set_item("service_global_name", &tool.service_global_name)?;
+    dict.set_item("global_tool_name", &tool.global_tool_name)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn service_entry_dict<'py>(
+    py: Python<'py>,
+    service: &ServiceEntry,
+) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
     let tools = PyList::empty(py);
     for tool in &service.tools {
@@ -101,6 +123,20 @@ fn service_entry_to_py(py: Python<'_>, service: &ServiceEntry) -> PyResult<Py<Py
     dict.set_item("tools", tools)?;
     dict.set_item("config", serde_value_to_py(py, service.config.clone())?)?;
     dict.set_item("added_time", service.added_time)?;
+    Ok(dict)
+}
+
+fn service_entry_to_py(py: Python<'_>, service: &ServiceEntry) -> PyResult<Py<PyAny>> {
+    let dict = service_entry_dict(py, service)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn scoped_service_entry_to_py(py: Python<'_>, entry: &ScopedServiceEntry) -> PyResult<Py<PyAny>> {
+    let dict = service_entry_dict(py, &entry.service)?;
+    dict.set_item("tool_count", entry.tool_count)?;
+    if let Some(global_name) = &entry.global_name {
+        dict.set_item("global_name", global_name)?;
+    }
     Ok(dict.into_any().unbind())
 }
 
@@ -473,11 +509,11 @@ impl PyMCPStore {
         agent_id: Option<String>,
     ) -> PyResult<Vec<Py<PyAny>>> {
         let services = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.list_services_scoped(agent_id.as_deref()))
+            .block_on(self.inner.list_service_entries_scoped(agent_id.as_deref()))
             .map_err(map_store_err)?;
         services
-            .into_iter()
-            .map(|service| to_py_object(py, &service, "Scoped service"))
+            .iter()
+            .map(|service| scoped_service_entry_to_py(py, service))
             .collect()
     }
 
@@ -491,12 +527,12 @@ impl PyMCPStore {
         let tools = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(
                 self.inner
-                    .list_tools_scoped(agent_id.as_deref(), service_name.as_deref()),
+                    .list_tool_entries_scoped(agent_id.as_deref(), service_name.as_deref()),
             )
             .map_err(map_store_err)?;
         tools
-            .into_iter()
-            .map(|tool| to_py_object(py, &tool, "Scoped tool"))
+            .iter()
+            .map(|tool| scoped_tool_entry_to_py(py, tool))
             .collect()
     }
 
