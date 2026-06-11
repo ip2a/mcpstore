@@ -261,7 +261,7 @@ def _tool_error_result(
 
 
 class RustStoreBackend:
-    """Python facade for mcpstore._rust.MCPStore."""
+    """Compatibility name for the Rust-backed Python store facade."""
 
     def __init__(self, rust_store):
         self._inner = rust_store
@@ -906,6 +906,10 @@ class RustStoreBackend:
 
     def disable_auto_session(self, context: "RustStoreContext") -> None:
         self._auto_sessions.pop(context.get_id(), None)
+
+
+class MCPStore(RustStoreBackend):
+    """Public Python MCPStore facade backed by the PyO3 Rust runtime."""
 
 
 class RustServiceProxy:

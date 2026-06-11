@@ -126,9 +126,9 @@ class StoreSetupManager:
         cache: Optional[Union["MemoryConfig", "RedisConfig"]],
         only_db: bool,
     ):
-        from mcpstore.core.store.rust_backend import RustStoreBackend
+        from mcpstore.core.store.rust_backend import MCPStore
 
-        return RustStoreBackend.setup(
+        return MCPStore.setup(
             config_path=mcpjson_path,
             cache_config=cache,
             only_db=only_db,
