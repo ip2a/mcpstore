@@ -868,6 +868,12 @@ impl MCPStore {
     }
 
     pub async fn show_config(&self) -> Result<serde_json::Value> {
+        let config = self.show_config_entry().await?;
+        serde_json::to_value(config)
+            .map_err(|e| StoreError::Other(format!("Config serialization failed: {e}")))
+    }
+
+    pub async fn show_config_entry(&self) -> Result<crate::config::McpConfig> {
         if self.source_mode == SourceMode::Db {
             self.refresh_from_db_if_needed().await?;
 
@@ -897,13 +903,10 @@ impl MCPStore {
                 }
             }
 
-            return serde_json::to_value(config)
-                .map_err(|e| StoreError::Other(format!("Config serialization failed: {e}")));
+            return Ok(config);
         }
 
-        let cfg = self.config_manager.load_or_default();
-        serde_json::to_value(cfg)
-            .map_err(|e| StoreError::Other(format!("Config serialization failed: {e}")))
+        Ok(self.config_manager.load_or_default())
     }
 
     pub async fn reset_config(&self) -> Result<()> {
