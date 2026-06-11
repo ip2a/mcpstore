@@ -13,7 +13,7 @@ pub fn to_py_object<T: serde::Serialize>(
     serde_value_to_py(py, value)
 }
 
-fn serde_value_to_py(py: Python<'_>, value: serde_json::Value) -> PyResult<Py<PyAny>> {
+pub(crate) fn serde_value_to_py(py: Python<'_>, value: serde_json::Value) -> PyResult<Py<PyAny>> {
     match value {
         serde_json::Value::Null => Ok(py.None()),
         serde_json::Value::Bool(value) => value.into_py_any(py),
