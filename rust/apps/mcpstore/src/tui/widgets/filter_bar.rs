@@ -1,10 +1,14 @@
 use mcpstore::registry::ConnectionStatus;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
+};
+
+use crate::tui::{
+    i18n::{self, Locale, TextKey},
+    layout as tui_layout, theme,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -17,14 +21,18 @@ pub enum FilterStatus {
 }
 
 impl FilterStatus {
-    pub fn label(&self) -> &'static str {
+    pub fn label_key(&self) -> TextKey {
         match self {
-            FilterStatus::All => "全部",
-            FilterStatus::Connected => "已连接",
-            FilterStatus::Error => "错误",
-            FilterStatus::Disconnected => "断开",
-            FilterStatus::Connecting => "连接中",
+            FilterStatus::All => TextKey::FilterAll,
+            FilterStatus::Connected => TextKey::FilterConnected,
+            FilterStatus::Error => TextKey::FilterError,
+            FilterStatus::Disconnected => TextKey::FilterDisconnected,
+            FilterStatus::Connecting => TextKey::FilterConnecting,
         }
+    }
+
+    pub fn label(&self, locale: Locale) -> &'static str {
+        i18n::text(locale, self.label_key())
     }
 
     pub fn matches(&self, status: ConnectionStatus) -> bool {
@@ -66,12 +74,16 @@ pub enum SortBy {
 }
 
 impl SortBy {
-    pub fn label(&self) -> &'static str {
+    pub fn label_key(&self) -> TextKey {
         match self {
-            SortBy::Name => "名称",
-            SortBy::Status => "状态",
-            SortBy::Tools => "工具",
+            SortBy::Name => TextKey::SortName,
+            SortBy::Status => TextKey::SortStatus,
+            SortBy::Tools => TextKey::SortTools,
         }
+    }
+
+    pub fn label(&self, locale: Locale) -> &'static str {
+        i18n::text(locale, self.label_key())
     }
 
     pub fn next(&self) -> Self {
@@ -103,17 +115,32 @@ impl Default for FilterBarState {
     }
 }
 
-pub fn render(frame: &mut Frame, area: Rect, state: &FilterBarState, focused: bool) {
+pub fn render(
+    frame: &mut Frame,
+    area: Rect,
+    state: &FilterBarState,
+    focused: bool,
+    locale: Locale,
+) {
     let layout = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(40), Constraint::Min(30)])
+        .constraints([
+            Constraint::Min(tui_layout::FILTER_STATUS_MIN_WIDTH),
+            Constraint::Min(tui_layout::FILTER_SEARCH_MIN_WIDTH),
+        ])
         .split(area);
 
-    render_status_tabs(frame, layout[0], state, focused);
-    render_search_and_sort(frame, layout[1], state);
+    render_status_tabs(frame, layout[0], state, focused, locale);
+    render_search_and_sort(frame, layout[1], state, locale);
 }
 
-fn render_status_tabs(frame: &mut Frame, area: Rect, state: &FilterBarState, focused: bool) {
+fn render_status_tabs(
+    frame: &mut Frame,
+    area: Rect,
+    state: &FilterBarState,
+    focused: bool,
+    locale: Locale,
+) {
     let tabs = [
         FilterStatus::All,
         FilterStatus::Connected,
@@ -124,22 +151,20 @@ fn render_status_tabs(frame: &mut Frame, area: Rect, state: &FilterBarState, foc
 
     let mut spans = vec![Span::styled(
         if focused { "> " } else { "  " },
-        Style::default().fg(Color::Cyan),
+        theme::accent(),
     )];
 
     spans.extend(tabs.iter().enumerate().flat_map(|(i, tab)| {
         let is_active = *tab == state.active_status;
         let style = if is_active {
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+            theme::selected_label()
         } else {
-            Style::default().fg(Color::Black)
+            theme::text()
         };
         let prefix = if i > 0 { "  " } else { "" };
         vec![
             Span::raw(prefix),
-            Span::styled(format!("{} {}", i + 1, tab.label()), style),
+            Span::styled(format!("{} {}", i + 1, tab.label(locale)), style),
         ]
     }));
 
@@ -149,33 +174,40 @@ fn render_status_tabs(frame: &mut Frame, area: Rect, state: &FilterBarState, foc
     frame.render_widget(paragraph, area);
 }
 
-fn render_search_and_sort(frame: &mut Frame, area: Rect, state: &FilterBarState) {
+fn render_search_and_sort(frame: &mut Frame, area: Rect, state: &FilterBarState, locale: Locale) {
     let search_display = if state.search_mode {
-        format!("[搜索: {}_]", state.search_text)
+        format!(
+            "[{}: {}_]",
+            i18n::text(locale, TextKey::SearchLabel),
+            state.search_text
+        )
     } else if state.search_text.is_empty() {
-        "[按 / 搜索]".to_string()
+        format!("[{}]", i18n::text(locale, TextKey::SearchPrompt))
     } else {
-        format!("[搜索: {}]", state.search_text)
+        format!(
+            "[{}: {}]",
+            i18n::text(locale, TextKey::SearchLabel),
+            state.search_text
+        )
     };
 
     let sort_display = format!(
-        "排序:{} {}",
-        state.sort_by.label(),
+        "{}:{} {}",
+        i18n::text(locale, TextKey::SortLabel),
+        state.sort_by.label(locale),
         if state.sort_asc { "↑" } else { "↓" }
     );
 
     let style = if state.search_mode {
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD)
+        theme::accent_bold()
     } else {
-        Style::default().fg(Color::Black)
+        theme::text()
     };
 
     let text = Line::from(vec![
         Span::styled(search_display, style),
         Span::raw("  "),
-        Span::styled(sort_display, Style::default().fg(Color::Black)),
+        Span::styled(sort_display, theme::text()),
     ]);
 
     let paragraph = Paragraph::new(text)

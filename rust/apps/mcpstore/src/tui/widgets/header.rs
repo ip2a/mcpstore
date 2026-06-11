@@ -1,10 +1,11 @@
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
-    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
+
+use crate::tui::{layout as tui_layout, theme};
 
 const BANNER: &str = "\
 ███    ███  ██████  ███████  ██████  ████████  ██████  ██████  ███████
@@ -12,8 +13,6 @@ const BANNER: &str = "\
 ██ ████ ██ ██      ███████  ██████      ██    ██    ██ ██████  █████
 ██  ██  ██ ██      ██           ██      ██    ██    ██ ██  ██  ██
 ██      ██  ██████ ██      ██████       ██     ██████  ██   ██ ███████";
-
-const BANNER_HORIZONTAL_MARGIN: u16 = 1;
 
 pub const BANNER_HEIGHT: u16 = 5;
 
@@ -30,7 +29,7 @@ pub struct HeaderStats {
 
 /// Compute header height based on terminal width.
 pub fn header_height(_term_width: u16) -> u16 {
-    BANNER_HEIGHT + 1
+    BANNER_HEIGHT + tui_layout::HEADER_BORDER_HEIGHT
 }
 
 pub fn render(frame: &mut Frame, area: Rect, stats: &HeaderStats) {
@@ -40,7 +39,10 @@ pub fn render(frame: &mut Frame, area: Rect, stats: &HeaderStats) {
 
     let layout = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(56), Constraint::Percentage(44)])
+        .constraints([
+            Constraint::Percentage(tui_layout::HEADER_BANNER_PERCENT),
+            Constraint::Percentage(tui_layout::HEADER_STATUS_PERCENT),
+        ])
         .split(inner);
 
     render_banner(frame, layout[0]);
@@ -48,14 +50,11 @@ pub fn render(frame: &mut Frame, area: Rect, stats: &HeaderStats) {
 }
 
 fn render_banner(frame: &mut Frame, area: Rect) {
-    let banner_lines: Vec<Line> = BANNER.lines().map(|line| {
-        Line::from(vec![Span::styled(
-            line.to_string(),
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )])
-    }).collect();
+    // Banner region: left side of the top header.
+    let banner_lines: Vec<Line> = BANNER
+        .lines()
+        .map(|line| Line::from(vec![Span::styled(line.to_string(), theme::accent_bold())]))
+        .collect();
 
     let banner_height = banner_lines.len() as u16;
     let vertical_padding = area.height.saturating_sub(banner_height) / 2;
@@ -80,7 +79,7 @@ fn render_banner(frame: &mut Frame, area: Rect) {
         ])
         .split(banner_area)[1]
         .inner(Margin {
-            horizontal: BANNER_HORIZONTAL_MARGIN,
+            horizontal: tui_layout::BANNER_HORIZONTAL_MARGIN,
             vertical: 0,
         });
 
@@ -94,23 +93,13 @@ fn banner_area_width() -> u16 {
         .map(|line| line.chars().count() as u16)
         .max()
         .unwrap_or(0);
-    text_width.saturating_add(BANNER_HORIZONTAL_MARGIN.saturating_mul(2))
+    text_width.saturating_add(tui_layout::BANNER_HORIZONTAL_MARGIN.saturating_mul(2))
 }
 
 fn render_stats(frame: &mut Frame, area: Rect, stats: &HeaderStats) {
+    // Status summary region: right side of the top header.
     let text = vec![
-        Line::from(Span::styled(
-            "状态总览",
-            Style::default()
-                .fg(Color::Black)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(vec![Span::styled(
-            "MCPStore",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )]),
+        Line::from(vec![Span::styled("MCPStore", theme::accent_bold())]),
         Line::from(format!(
             "total={}  connected={}  error={}  connecting={}  disconnected={}",
             stats.total, stats.connected, stats.error, stats.connecting, stats.disconnected
@@ -124,7 +113,7 @@ fn render_stats(frame: &mut Frame, area: Rect, stats: &HeaderStats) {
 
     let stats_block = Block::default().borders(Borders::LEFT);
     let inner = stats_block.inner(area).inner(Margin {
-        horizontal: 1,
+        horizontal: tui_layout::STATUS_HORIZONTAL_MARGIN,
         vertical: 0,
     });
     frame.render_widget(stats_block, area);

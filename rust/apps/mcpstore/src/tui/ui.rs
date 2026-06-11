@@ -1,15 +1,25 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
 
-use super::app::{FocusArea, MainView, TuiApp};
-use super::widgets;
+use super::app::{FocusArea, TuiApp};
+use super::{layout, pages, theme, widgets};
 
-pub fn draw(frame: &mut Frame, app: &mut TuiApp, _rt: &tokio::runtime::Runtime) {
+pub fn draw(frame: &mut Frame, app: &mut TuiApp, rt: &tokio::runtime::Runtime) {
+    app.sync_status_history();
+    if app.active_view == super::app::MainView::Logs {
+        app.refresh_log_sources(rt);
+    }
+    if app.active_view == super::app::MainView::Agents {
+        if let Err(error) = app.refresh_agents(rt) {
+            app.status_message = format!("[错误] {error}");
+        }
+    }
+    if app.active_view == super::app::MainView::Status {
+        app.refresh_status_sources(rt);
+    }
     let term_width = frame.area().width;
     let header_h = widgets::header::header_height(term_width);
 
@@ -17,136 +27,84 @@ pub fn draw(frame: &mut Frame, app: &mut TuiApp, _rt: &tokio::runtime::Runtime) 
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(header_h), // Header dynamically sized for ASCII art
-            Constraint::Length(2),        // Main navigation + divider
-            Constraint::Min(10),          // Active view content
+            Constraint::Length(layout::MAIN_NAV_HEIGHT), // Main navigation + divider
+            Constraint::Min(layout::MAIN_CONTENT_MIN_HEIGHT), // Active view content
         ])
         .split(frame.area());
 
     widgets::header::render(frame, main_layout[0], &app.header_stats());
+    let visible_pages = pages::visible_pages();
     widgets::nav_bar::render(
         frame,
         main_layout[1],
+        &visible_pages,
         app.active_view,
         app.focus_area == FocusArea::MainNav,
+        app.locale,
     );
     render_active_view(frame, main_layout[2], app);
 
     if app.pending_action.is_some() {
         render_confirm_dialog(frame);
     }
-}
 
-fn render_active_view(frame: &mut Frame, area: Rect, app: &mut TuiApp) {
-    let content_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // Per-view filters/actions
-            Constraint::Min(8),    // Per-view table/form
-        ])
-        .split(area);
+    if app.show_service_detail {
+        if let Some(detail) = app.selected_detail.as_ref() {
+            widgets::modal::render_service_detail(frame, detail);
+        }
+    }
 
-    match app.active_view {
-        MainView::Services => {
-            widgets::filter_bar::render(
+    if app.show_tool_detail {
+        if let (Some(service), Some(tool)) =
+            (app.current_tool_call_service_name(), app.current_tool())
+        {
+            widgets::modal::render_tool_detail(
                 frame,
-                content_layout[0],
-                &app.filter,
-                app.focus_area == FocusArea::ViewFilter,
-            );
-            widgets::service_table::render(
-                frame,
-                content_layout[1],
-                &app.filtered_services,
-                &mut app.table_state,
-                app.focus_area == FocusArea::ViewTable,
+                service,
+                tool,
+                &app.tool_test_args,
+                &app.tool_test_result,
             );
         }
-        MainView::Tools => {
-            render_placeholder_view(frame, &content_layout, "工具列表", app.focus_area)
-        }
-        MainView::Agents => {
-            render_placeholder_view(frame, &content_layout, "Agent列表", app.focus_area)
-        }
-        MainView::Logs => render_placeholder_view(frame, &content_layout, "日志", app.focus_area),
-        MainView::Status => render_placeholder_view(frame, &content_layout, "状态", app.focus_area),
-        MainView::Settings => {
-            render_placeholder_view(frame, &content_layout, "设置", app.focus_area)
-        }
+    }
+
+    if let Some(modal) = app.edit_modal.as_ref() {
+        widgets::modal::render_input(frame, &modal.title, &modal.value, &modal.hint);
+    }
+
+    if let Some(modal) = app.select_modal.as_ref() {
+        widgets::modal::render_select(frame, &modal.title, &modal.options, modal.selected);
+    }
+
+    if let Some(modal) = app.loading_modal.as_ref() {
+        widgets::modal::render_loading(frame, &modal.title, &modal.message);
     }
 }
 
-fn render_placeholder_view(
-    frame: &mut Frame,
-    layout: &[Rect],
-    title: &'static str,
-    focus_area: FocusArea,
-) {
-    let filter = Paragraph::new(Line::from(vec![
-        Span::styled(
-            if focus_area == FocusArea::ViewFilter {
-                "> "
-            } else {
-                "  "
-            },
-            Style::default().fg(Color::Cyan),
-        ),
-        Span::styled("筛选区", Style::default().fg(Color::Gray)),
-        Span::raw("  "),
-        Span::styled("待接入", Style::default().fg(Color::DarkGray)),
-    ]))
-    .block(Block::default().borders(Borders::NONE));
-    frame.render_widget(filter, layout[0]);
-
-    let body = Paragraph::new(Line::from(format!("{title} 表单区待接入")))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(if focus_area == FocusArea::ViewTable {
-                    Style::default().fg(Color::Cyan)
-                } else {
-                    Style::default().fg(Color::Black)
-                })
-                .title(format!("内容区 / {title}")),
-        )
-        .style(Style::default().fg(Color::Gray));
-    frame.render_widget(body, layout[1]);
-}
-
-fn render_confirm_dialog(frame: &mut Frame) {
-    let area = centered_rect(48, 20, frame.area());
-    frame.render_widget(Clear, area);
-
-    let text = Paragraph::new(vec![
-        Line::from(Span::styled(
-            "确认删除",
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-        Line::from("删除会同步修改当前 store 配置与运行态缓存。"),
-        Line::from("按 y 确认删除，按 n 或 Esc 取消。"),
-    ])
-    .block(Block::default().borders(Borders::ALL).title("危险操作"))
-    .wrap(Wrap { trim: true });
-
-    frame.render_widget(text, area);
-}
-
-fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
-    let vertical = Layout::default()
+fn render_active_view(frame: &mut Frame, area: Rect, app: &mut TuiApp) {
+    // Content region: contains the active view filter row and body.
+    let content_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Length(layout::CONTROL_BAR_HEIGHT), // Control bar region.
+            Constraint::Length(layout::CONTROL_CONTENT_GAP_HEIGHT), // Gap between control bar and content.
+            Constraint::Min(layout::VIEW_CONTENT_MIN_HEIGHT),       // Per-view table/form
         ])
         .split(area);
 
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(vertical[1])[1]
+    pages::render_control_bar(frame, content_layout[0], app);
+    pages::render_content(frame, content_layout[2], app);
+}
+
+fn render_confirm_dialog(frame: &mut Frame) {
+    widgets::modal::render_confirm(
+        frame,
+        "危险操作",
+        vec![
+            Line::from(Span::styled("确认删除", theme::danger())),
+            Line::from(""),
+            Line::from("删除会同步修改当前 store 配置与运行态缓存。"),
+            Line::from("按 y 确认删除，按 n 或 Esc 取消。"),
+        ],
+    );
 }
