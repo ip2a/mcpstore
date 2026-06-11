@@ -3,7 +3,8 @@
 use mcpstore::config::ServerConfig;
 use mcpstore::core::perspective::ToolResolution;
 use mcpstore::core::store::{
-    BackendKind, MCPStore, ScopedServiceEntry, ScopedToolEntry, SourceMode, StoreOptions,
+    BackendKind, MCPStore, ScopedServiceEntry, ScopedServiceHealth, ScopedToolEntry, SourceMode,
+    StoreOptions,
 };
 use mcpstore::{
     cache::models::{HealthStatus, ServiceStatus, ToolAvailability, ToolStatusItem},
@@ -299,6 +300,20 @@ fn service_status_to_py(py: Python<'_>, status: &ServiceStatus) -> PyResult<Py<P
     Ok(dict.into_any().unbind())
 }
 
+fn scoped_service_health_to_py(
+    py: Python<'_>,
+    statuses: &[ScopedServiceHealth],
+) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    for status in statuses {
+        dict.set_item(
+            &status.service_name,
+            health_status_as_str(&status.health_status),
+        )?;
+    }
+    Ok(dict.into_any().unbind())
+}
+
 #[pymethods]
 impl PyMCPStore {
     #[staticmethod]
@@ -543,9 +558,9 @@ impl PyMCPStore {
         agent_id: Option<String>,
     ) -> PyResult<Py<PyAny>> {
         let status = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.check_services_scoped(agent_id.as_deref()))
+            .block_on(self.inner.check_service_health_scoped(agent_id.as_deref()))
             .map_err(map_store_err)?;
-        serde_value_to_py(py, status)
+        scoped_service_health_to_py(py, &status)
     }
 
     #[pyo3(signature = (agent_id, service_name))]
@@ -558,10 +573,10 @@ impl PyMCPStore {
         let status = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(
                 self.inner
-                    .service_status_scoped(agent_id.as_deref(), service_name),
+                    .service_status_entry_scoped(agent_id.as_deref(), service_name),
             )
             .map_err(map_store_err)?;
-        serde_value_to_py(py, status)
+        service_status_to_py(py, &status)
     }
 
     #[pyo3(signature = (agent_id=None, service_name=None))]
