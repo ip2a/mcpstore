@@ -3,8 +3,8 @@
 use mcpstore::config::ServerConfig;
 use mcpstore::core::perspective::ToolResolution;
 use mcpstore::core::store::{
-    BackendKind, MCPStore, ScopedServiceEntry, ScopedServiceHealth, ScopedToolEntry, SourceMode,
-    StoreOptions,
+    BackendKind, CacheHealthReport, EventCapabilityReport, MCPStore, ScopedServiceEntry,
+    ScopedServiceHealth, ScopedToolEntry, SourceMode, StoreOptions,
 };
 use mcpstore::{
     cache::models::{HealthStatus, ServiceStatus, ToolAvailability, ToolStatusItem},
@@ -148,6 +148,18 @@ fn event_to_py(py: Python<'_>, event: &Event) -> PyResult<Py<PyAny>> {
     dict.set_item("timestamp", event.timestamp)?;
     dict.set_item("priority", event.priority)?;
     dict.set_item("payload", serde_value_to_py(py, event.payload.clone())?)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn event_capability_report_to_py(
+    py: Python<'_>,
+    report: &EventCapabilityReport,
+) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("event_bus", report.event_bus)?;
+    dict.set_item("history", report.history)?;
+    dict.set_item("history_capacity", report.history_capacity)?;
+    dict.set_item("cache_event_layer", report.cache_event_layer)?;
     Ok(dict.into_any().unbind())
 }
 
@@ -300,6 +312,25 @@ fn service_status_to_py(py: Python<'_>, status: &ServiceStatus) -> PyResult<Py<P
     Ok(dict.into_any().unbind())
 }
 
+fn string_list_to_py(py: Python<'_>, values: &[String]) -> PyResult<Py<PyAny>> {
+    let list = PyList::empty(py);
+    for value in values {
+        list.append(value)?;
+    }
+    Ok(list.into_any().unbind())
+}
+
+fn cache_health_report_to_py(py: Python<'_>, report: &CacheHealthReport) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("namespace", &report.namespace)?;
+    dict.set_item("backend", &report.backend)?;
+    dict.set_item("entities", string_list_to_py(py, &report.entities)?)?;
+    dict.set_item("relations", string_list_to_py(py, &report.relations)?)?;
+    dict.set_item("states", string_list_to_py(py, &report.states)?)?;
+    dict.set_item("events", string_list_to_py(py, &report.events)?)?;
+    Ok(dict.into_any().unbind())
+}
+
 fn scoped_service_health_to_py(
     py: Python<'_>,
     statuses: &[ScopedServiceHealth],
@@ -415,8 +446,8 @@ impl PyMCPStore {
 
     fn event_capability_report(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let report = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.event_capability_report());
-        serde_value_to_py(py, report)
+            .block_on(self.inner.event_capability_report_entry());
+        event_capability_report_to_py(py, &report)
     }
 
     fn restart_service(&self, name: &str) -> PyResult<()> {
@@ -684,9 +715,9 @@ impl PyMCPStore {
 
     fn cache_health_check(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let health = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.cache_health_check())
+            .block_on(self.inner.cache_health_report())
             .map_err(map_store_err)?;
-        serde_value_to_py(py, health)
+        cache_health_report_to_py(py, &health)
     }
 
     fn cache_inspect(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
