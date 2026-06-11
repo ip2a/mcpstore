@@ -104,3 +104,28 @@ pub fn py_to_serde_value(value: &Bound<'_, PyAny>, context: &str) -> PyResult<se
         value.get_type().name()?
     )))
 }
+
+pub fn py_to_serde_object_or_empty(
+    value: &Bound<'_, PyAny>,
+    context: &str,
+) -> PyResult<serde_json::Value> {
+    if value.is_none() {
+        return Ok(serde_json::Value::Object(serde_json::Map::new()));
+    }
+
+    let value = py_to_serde_value(value, context)?;
+    match value {
+        serde_json::Value::Object(_) => Ok(value),
+        other => Err(pyo3::exceptions::PyTypeError::new_err(format!(
+            "{context} must be a dict or None, got {}",
+            match other {
+                serde_json::Value::Null => "None",
+                serde_json::Value::Bool(_) => "bool",
+                serde_json::Value::Number(_) => "number",
+                serde_json::Value::String(_) => "str",
+                serde_json::Value::Array(_) => "list",
+                serde_json::Value::Object(_) => "dict",
+            }
+        ))),
+    }
+}
