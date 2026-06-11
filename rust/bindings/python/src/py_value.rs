@@ -2,17 +2,6 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 use pyo3::IntoPyObjectExt;
 
-pub fn to_py_object<T: serde::Serialize>(
-    py: Python<'_>,
-    value: &T,
-    context: &str,
-) -> PyResult<Py<PyAny>> {
-    let value = serde_json::to_value(value).map_err(|err| {
-        pyo3::exceptions::PyRuntimeError::new_err(format!("{context} serialization failed: {err}"))
-    })?;
-    serde_value_to_py(py, value)
-}
-
 pub(crate) fn serde_value_to_py(py: Python<'_>, value: serde_json::Value) -> PyResult<Py<PyAny>> {
     match value {
         serde_json::Value::Null => Ok(py.None()),
@@ -103,29 +92,4 @@ pub fn py_to_serde_value(value: &Bound<'_, PyAny>, context: &str) -> PyResult<se
         "{context} contains unsupported Python value: {}",
         value.get_type().name()?
     )))
-}
-
-pub fn py_to_serde_object_or_empty(
-    value: &Bound<'_, PyAny>,
-    context: &str,
-) -> PyResult<serde_json::Value> {
-    if value.is_none() {
-        return Ok(serde_json::Value::Object(serde_json::Map::new()));
-    }
-
-    let value = py_to_serde_value(value, context)?;
-    match value {
-        serde_json::Value::Object(_) => Ok(value),
-        other => Err(pyo3::exceptions::PyTypeError::new_err(format!(
-            "{context} must be a dict or None, got {}",
-            match other {
-                serde_json::Value::Null => "None",
-                serde_json::Value::Bool(_) => "bool",
-                serde_json::Value::Number(_) => "number",
-                serde_json::Value::String(_) => "str",
-                serde_json::Value::Array(_) => "list",
-                serde_json::Value::Object(_) => "dict",
-            }
-        ))),
-    }
 }

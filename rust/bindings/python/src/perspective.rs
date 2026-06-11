@@ -1,10 +1,50 @@
 use mcpstore::perspective;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
-use crate::py_value::{py_to_serde_value, to_py_object};
+use crate::py_value::py_to_serde_value;
 
 fn map_err(err: mcpstore::StoreError) -> PyErr {
     pyo3::exceptions::PyValueError::new_err(err.to_string())
+}
+
+fn agent_scoped_name_to_py(
+    py: Python<'_>,
+    parsed: &perspective::AgentScopedName,
+) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("agent_id", parsed.agent_id.as_deref())?;
+    dict.set_item("local_name", &parsed.local_name)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn service_resolution_to_py(
+    py: Python<'_>,
+    resolution: &perspective::ServiceResolution,
+) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("agent_id", &resolution.agent_id)?;
+    dict.set_item("local_name", &resolution.local_name)?;
+    dict.set_item("global_name", &resolution.global_name)?;
+    dict.set_item("resolution_method", &resolution.resolution_method)?;
+    dict.set_item("original_input", &resolution.original_input)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn tool_resolution_to_py(
+    py: Python<'_>,
+    resolution: &perspective::ToolResolution,
+) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("agent_id", &resolution.agent_id)?;
+    dict.set_item("local_service_name", &resolution.local_service_name)?;
+    dict.set_item("global_service_name", &resolution.global_service_name)?;
+    dict.set_item("local_tool_name", &resolution.local_tool_name)?;
+    dict.set_item("global_tool_name", &resolution.global_tool_name)?;
+    dict.set_item("canonical_tool_name", &resolution.canonical_tool_name)?;
+    dict.set_item("resolution_method", &resolution.resolution_method)?;
+    dict.set_item("original_input", &resolution.original_input)?;
+    Ok(dict.into_any().unbind())
 }
 
 #[pyclass(name = "PerspectiveResolver")]
@@ -20,7 +60,7 @@ impl PyPerspectiveResolver {
     #[staticmethod]
     fn parse_agent_scoped(py: Python<'_>, name: &str) -> PyResult<Py<PyAny>> {
         let parsed = perspective::parse_agent_scoped(name).map_err(map_err)?;
-        to_py_object(py, &parsed, "Agent scoped name")
+        agent_scoped_name_to_py(py, &parsed)
     }
 
     #[staticmethod]
@@ -34,7 +74,7 @@ impl PyPerspectiveResolver {
     ) -> PyResult<Py<PyAny>> {
         let resolution =
             perspective::normalize_service_name(agent_id, name, target, strict).map_err(map_err)?;
-        to_py_object(py, &resolution, "Service resolution")
+        service_resolution_to_py(py, &resolution)
     }
 
     #[staticmethod]
@@ -57,7 +97,7 @@ impl PyPerspectiveResolver {
         let resolution =
             perspective::resolve_tool(agent_id, user_input, &available_tools, target, strict)
                 .map_err(map_err)?;
-        to_py_object(py, &resolution, "Tool resolution")
+        tool_resolution_to_py(py, &resolution)
     }
 
     #[staticmethod]
