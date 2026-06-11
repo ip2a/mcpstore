@@ -1,6 +1,6 @@
 //! PyO3 wrapper for the MCPStore Rust runtime surface.
 
-use mcpstore::config::ServerConfig;
+use mcpstore::config::{McpConfig, ServerConfig};
 use mcpstore::core::perspective::ToolResolution;
 use mcpstore::core::store::{
     BackendKind, CacheHealthReport, EventCapabilityReport, MCPStore, ScopedServiceEntry,
@@ -57,6 +57,47 @@ fn py_to_server_config(value: &Bound<'_, PyAny>, context: &str) -> PyResult<Serv
     serde_json::from_value(value).map_err(|err| {
         pyo3::exceptions::PyValueError::new_err(format!("{context} conversion failed: {err}"))
     })
+}
+
+fn string_map_to_py<'py>(
+    py: Python<'py>,
+    values: &std::collections::HashMap<String, String>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let dict = PyDict::new(py);
+    for (key, value) in values {
+        dict.set_item(key, value)?;
+    }
+    Ok(dict)
+}
+
+fn server_config_to_py(py: Python<'_>, config: &ServerConfig) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("url", config.url.as_deref())?;
+    dict.set_item("command", config.command.as_deref())?;
+    dict.set_item("args", string_list_to_py(py, &config.args)?)?;
+    dict.set_item("env", string_map_to_py(py, &config.env)?)?;
+    dict.set_item("headers", string_map_to_py(py, &config.headers)?)?;
+    dict.set_item("transport", config.transport.as_deref())?;
+    dict.set_item("workingDir", config.working_dir.as_deref())?;
+    dict.set_item("description", config.description.as_deref())?;
+    Ok(dict.into_any().unbind())
+}
+
+fn mcp_config_to_py(py: Python<'_>, config: &McpConfig) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    let servers = PyDict::new(py);
+    for (name, server_config) in &config.mcp_servers {
+        servers.set_item(name, server_config_to_py(py, server_config)?)?;
+    }
+    dict.set_item("mcpServers", servers)?;
+    if !config.agents.is_empty() {
+        let agents = PyDict::new(py);
+        for (agent_id, services) in &config.agents {
+            agents.set_item(agent_id, string_list_to_py(py, services)?)?;
+        }
+        dict.set_item("agents", agents)?;
+    }
+    Ok(dict.into_any().unbind())
 }
 
 fn connection_status_as_str(status: ConnectionStatus) -> &'static str {
@@ -708,9 +749,9 @@ impl PyMCPStore {
 
     fn show_config(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let config = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.show_config())
+            .block_on(self.inner.show_config_entry())
             .map_err(map_store_err)?;
-        serde_value_to_py(py, config)
+        mcp_config_to_py(py, &config)
     }
 
     fn cache_health_check(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
