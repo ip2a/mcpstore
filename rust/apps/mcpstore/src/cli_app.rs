@@ -47,8 +47,6 @@ pub enum Commands {
 }
 
 pub fn run() -> Result<(), BoxErr> {
-    bootstrap::init_tracing("mcpstore=info");
-
     let cli = Cli::parse();
 
     // TUI runs its own blocking event loop and creates its own runtime,
@@ -56,6 +54,8 @@ pub fn run() -> Result<(), BoxErr> {
     if let Commands::Tui(args) = cli.command {
         return crate::tui::run_from_args(&args);
     }
+
+    bootstrap::init_tracing("mcpstore=info");
 
     let rt = bootstrap::build_runtime()?;
 

@@ -59,6 +59,8 @@ pub struct AppConfig {
     pub monitoring: MonitoringConfig,
     #[serde(default)]
     pub standalone: StandaloneConfig,
+    #[serde(default)]
+    pub ui: UiConfig,
 }
 
 impl Default for AppConfig {
@@ -73,6 +75,21 @@ impl Default for AppConfig {
             health_check: HealthCheckConfig::default(),
             monitoring: MonitoringConfig::default(),
             standalone: StandaloneConfig::default(),
+            ui: UiConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UiConfig {
+    #[serde(default = "default_ui_language")]
+    pub language: String,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            language: default_ui_language(),
         }
     }
 }
@@ -291,6 +308,10 @@ fn default_created_by() -> String {
 
 fn default_created_at() -> String {
     chrono::Utc::now().to_rfc3339()
+}
+
+fn default_ui_language() -> String {
+    "zh-cn".to_string()
 }
 
 fn default_true() -> bool {
@@ -1212,6 +1233,8 @@ mod tests {
         assert!(template.contains("[health_check]"));
         assert!(template.contains("[monitoring]"));
         assert!(template.contains("[standalone]"));
+        assert!(template.contains("[ui]"));
+        assert!(template.contains("language = \"zh-cn\""));
         assert!(template.contains("log_level = \"info\""));
     }
 

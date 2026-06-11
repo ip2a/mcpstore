@@ -1,12 +1,15 @@
 use mcpstore::registry::ConnectionStatus;
 use ratatui::{
-    layout::Constraint,
-    style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Row, Table, TableState},
+    style::Style,
+    widgets::{Row, Table, TableState},
     Frame,
 };
 
 use super::filter_bar::{FilterBarState, SortBy};
+use crate::tui::{
+    i18n::{self, Locale, TextKey},
+    layout as tui_layout, theme, widgets,
+};
 
 #[derive(Clone)]
 pub struct ServiceSummary {
@@ -93,14 +96,18 @@ pub fn render(
     services: &[ServiceSummary],
     table_state: &mut TableState,
     focused: bool,
+    locale: Locale,
 ) {
-    let header = Row::new(vec!["名称", "作用域", "协议", "状态", "工具", "操作"])
-        .style(
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )
-        .height(1);
+    let header = Row::new(vec![
+        i18n::text(locale, TextKey::TableName),
+        i18n::text(locale, TextKey::TableScope),
+        i18n::text(locale, TextKey::TableProtocol),
+        i18n::text(locale, TextKey::TableStatus),
+        i18n::text(locale, TextKey::TableTools),
+        i18n::text(locale, TextKey::TableActions),
+    ])
+    .style(theme::table_header())
+    .height(1);
 
     let rows = services.iter().map(|service| {
         let scope = if service.agent_id == "global_agent_store" {
@@ -110,60 +117,44 @@ pub fn render(
         };
 
         Row::new(vec![
-            truncate_text(&service.name, 24),
+            truncate_text(&service.name, 22),
             scope,
-            truncate_text(&service.transport, 8),
+            service.transport.clone(),
             format_connection_status(service.status).to_string(),
             service.tools.to_string(),
-            "c:连 d:断 x:启 D:删".to_string(),
+            i18n::text(locale, TextKey::ServiceRowActions).to_string(),
         ])
         .style(status_style(service.status))
     });
 
-    let border_style = if focused {
-        Style::default().fg(Color::Cyan)
-    } else {
-        Style::default().fg(Color::Black)
-    };
-
     let row_highlight_style = if focused {
-        Style::default()
-            .bg(Color::Rgb(32, 42, 54))
-            .add_modifier(Modifier::BOLD)
+        theme::table_row_highlight()
     } else {
         Style::default()
     };
 
-    let table = Table::new(
-        rows,
-        [
-            Constraint::Length(26),
-            Constraint::Length(12),
-            Constraint::Length(10),
-            Constraint::Length(12),
-            Constraint::Length(6),
-            Constraint::Min(16),
-        ],
-    )
-    .header(header)
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(border_style)
-            .title("内容区 / 服务列表"),
-    )
-    .row_highlight_style(row_highlight_style)
-    .highlight_symbol(if focused { ">>> " } else { "    " });
+    let table = Table::new(rows, tui_layout::service_table_widths())
+        .header(header)
+        .block(widgets::chrome::panel_block(
+            format!(
+                "{} / {}",
+                i18n::text(locale, TextKey::ContentRegion),
+                i18n::text(locale, TextKey::NavServices)
+            ),
+            focused,
+        ))
+        .row_highlight_style(row_highlight_style)
+        .highlight_symbol(if focused { ">>> " } else { "    " });
 
     frame.render_stateful_widget(table, area, table_state);
 }
 
 fn status_style(status: ConnectionStatus) -> Style {
     match status {
-        ConnectionStatus::Connected => Style::default().fg(Color::Green),
-        ConnectionStatus::Connecting => Style::default().fg(Color::Yellow),
-        ConnectionStatus::Disconnected => Style::default().fg(Color::Gray),
-        ConnectionStatus::Error => Style::default().fg(Color::Red),
+        ConnectionStatus::Connected => theme::success(),
+        ConnectionStatus::Connecting => theme::warning(),
+        ConnectionStatus::Disconnected => theme::muted(),
+        ConnectionStatus::Error => theme::error(),
     }
 }
 
