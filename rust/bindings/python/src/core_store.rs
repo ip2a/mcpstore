@@ -2,10 +2,11 @@
 
 use mcpstore::config::ServerConfig;
 use mcpstore::core::store::{BackendKind, MCPStore, SourceMode, StoreOptions};
-use mcpstore::StoreError;
+use mcpstore::{ConnectionStatus, ServiceEntry, StoreError, ToolDescription, ToolInfo};
 use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyList};
 
-use crate::py_value::{py_to_serde_value, to_py_object};
+use crate::py_value::{py_to_serde_value, serde_value_to_py, to_py_object};
 
 #[pyclass(name = "MCPStore")]
 pub struct PyMCPStore {
@@ -48,6 +49,54 @@ fn py_to_server_config(value: &Bound<'_, PyAny>, context: &str) -> PyResult<Serv
     serde_json::from_value(value).map_err(|err| {
         pyo3::exceptions::PyValueError::new_err(format!("{context} conversion failed: {err}"))
     })
+}
+
+fn connection_status_as_str(status: ConnectionStatus) -> &'static str {
+    match status {
+        ConnectionStatus::Connecting => "connecting",
+        ConnectionStatus::Connected => "connected",
+        ConnectionStatus::Disconnected => "disconnected",
+        ConnectionStatus::Error => "error",
+    }
+}
+
+fn tool_info_to_py(py: Python<'_>, tool: &ToolInfo) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("name", &tool.name)?;
+    dict.set_item("description", &tool.description)?;
+    dict.set_item("schema", serde_value_to_py(py, tool.schema.clone())?)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn tool_description_to_py(py: Python<'_>, tool: &ToolDescription) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("name", &tool.name)?;
+    dict.set_item("description", &tool.description)?;
+    dict.set_item(
+        "input_schema",
+        serde_value_to_py(py, tool.input_schema.clone())?,
+    )?;
+    Ok(dict.into_any().unbind())
+}
+
+fn service_entry_to_py(py: Python<'_>, service: &ServiceEntry) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    let tools = PyList::empty(py);
+    for tool in &service.tools {
+        tools.append(tool_info_to_py(py, tool)?)?;
+    }
+
+    dict.set_item("name", &service.name)?;
+    dict.set_item("original_name", &service.original_name)?;
+    dict.set_item("agent_id", &service.agent_id)?;
+    dict.set_item("transport", &service.transport)?;
+    dict.set_item("url", service.url.as_deref())?;
+    dict.set_item("command", service.command.as_deref())?;
+    dict.set_item("status", connection_status_as_str(service.status))?;
+    dict.set_item("tools", tools)?;
+    dict.set_item("config", serde_value_to_py(py, service.config.clone())?)?;
+    dict.set_item("added_time", service.added_time)?;
+    Ok(dict.into_any().unbind())
 }
 
 #[pymethods]
@@ -174,7 +223,8 @@ impl PyMCPStore {
         let service =
             pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.find_service(name));
         service
-            .map(|entry| to_py_object(py, &entry, "Service"))
+            .as_ref()
+            .map(|entry| service_entry_to_py(py, entry))
             .transpose()
     }
 
@@ -191,8 +241,8 @@ impl PyMCPStore {
         let services =
             pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.list_services());
         services
-            .into_iter()
-            .map(|entry| to_py_object(py, &entry, "Service"))
+            .iter()
+            .map(|entry| service_entry_to_py(py, entry))
             .collect()
     }
 
@@ -211,8 +261,8 @@ impl PyMCPStore {
             .block_on(self.inner.list_tools(service_name))
             .map_err(map_store_err)?;
         tools
-            .into_iter()
-            .map(|tool| to_py_object(py, &tool, "Tool"))
+            .iter()
+            .map(|tool| tool_description_to_py(py, tool))
             .collect()
     }
 
