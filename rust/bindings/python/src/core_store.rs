@@ -142,6 +142,7 @@ fn scoped_tool_entry_to_py(py: Python<'_>, tool: &ScopedToolEntry) -> PyResult<P
     dict.set_item("global_service_name", &tool.global_service_name)?;
     dict.set_item("service_global_name", &tool.service_global_name)?;
     dict.set_item("global_tool_name", &tool.global_tool_name)?;
+    dict.set_item("client_id", &tool.client_id)?;
     Ok(dict.into_any().unbind())
 }
 
@@ -158,6 +159,7 @@ fn service_entry_dict<'py>(
     dict.set_item("name", &service.name)?;
     dict.set_item("original_name", &service.original_name)?;
     dict.set_item("agent_id", &service.agent_id)?;
+    dict.set_item("client_id", &service.name)?;
     dict.set_item("transport", &service.transport)?;
     dict.set_item("url", service.url.as_deref())?;
     dict.set_item("command", service.command.as_deref())?;
@@ -176,6 +178,7 @@ fn service_entry_to_py(py: Python<'_>, service: &ServiceEntry) -> PyResult<Py<Py
 fn scoped_service_entry_to_py(py: Python<'_>, entry: &ScopedServiceEntry) -> PyResult<Py<PyAny>> {
     let dict = service_entry_dict(py, &entry.service)?;
     dict.set_item("tool_count", entry.tool_count)?;
+    dict.set_item("client_id", &entry.client_id)?;
     if let Some(global_name) = &entry.global_name {
         dict.set_item("global_name", global_name)?;
     }
@@ -298,6 +301,7 @@ fn tool_call_result_to_py(py: Python<'_>, result: &ToolCallResult) -> PyResult<P
     }
     dict.set_item("content", content)?;
     dict.set_item("is_error", result.is_error)?;
+    dict.set_item("data", py.None())?;
     Ok(dict.into_any().unbind())
 }
 

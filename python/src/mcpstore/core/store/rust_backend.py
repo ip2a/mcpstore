@@ -135,6 +135,13 @@ def _extract_text_result(result: Any) -> str:
     return "\n".join(text for text in text_blocks if text)
 
 
+def _tool_result_value(result: Any) -> Any:
+    value = _record_value(result)
+    if isinstance(value, dict) and "data" not in value:
+        value["data"] = None
+    return value
+
+
 def _event_payload(event: Any) -> Dict[str, Any]:
     payload = event.get("payload", {}) if isinstance(event, dict) else getattr(event, "payload", {})
     return payload if isinstance(payload, dict) else {}
@@ -640,7 +647,7 @@ class RustStoreBackend:
         args: Dict[str, Any],
     ) -> Dict[str, Any]:
         try:
-            return _record_value(
+            return _tool_result_value(
                 self._inner.call_tool(
                     service_name,
                     tool_name,

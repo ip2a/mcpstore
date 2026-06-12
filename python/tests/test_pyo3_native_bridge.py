@@ -62,6 +62,8 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(services[0]["name"], "demo")
         self.assertEqual(services[0]["transport"], "stdio")
         self.assertEqual(services[0].name, "demo")
+        self.assertEqual(services[0].client_id, "demo")
+        self.assertEqual(services[0]["client_id"], "demo")
         self.assertEqual(services[0].transport_type, "stdio")
         self.assertEqual(services[0]["transport_type"], "stdio")
         self.assertIsInstance(context.show_config(), dict)
@@ -727,6 +729,12 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         with context.with_session("tool-json-string") as session:
             self.assertTrue(session.use_tool("echo", "").is_error)
 
+        result = backend.call_tool("demo", "echo", {})
+        self.assertFalse(result.is_error)
+        self.assertIsNone(result.data)
+        self.assertEqual(inner.calls, [("demo", "echo", {})])
+
+        inner.calls.clear()
         self.assertEqual(inner.calls, [])
 
         ok = context.call_tool("echo", None)

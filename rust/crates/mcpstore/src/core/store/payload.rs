@@ -29,6 +29,7 @@ impl MCPStore {
             .tools
             .sort_by(|left, right| left.name.cmp(&right.name));
         let tool_count = service.tools.len();
+        let client_id = service.name.clone();
         let global_name = if localize_for_agent {
             let global_name = service.name.clone();
             service.name = service.original_name.clone();
@@ -40,6 +41,7 @@ impl MCPStore {
             service,
             tool_count,
             global_name,
+            client_id,
         }
     }
 
@@ -56,6 +58,7 @@ impl MCPStore {
         let mut value = serde_json::to_value(service)
             .unwrap_or_else(|_| serde_json::Value::Object(Default::default()));
         if let serde_json::Value::Object(object) = &mut value {
+            object.insert("client_id".to_string(), serde_json::json!(global_name));
             object.insert("tool_count".to_string(), serde_json::json!(tool_count));
             if localize_for_agent {
                 object.insert("global_name".to_string(), serde_json::json!(global_name));
@@ -74,6 +77,7 @@ impl MCPStore {
         schema: serde_json::Value,
     ) -> Result<serde_json::Value> {
         let global_tool_name = generate_tool_global_name(&global_service_name, &original_name)?;
+        let client_id = global_service_name.clone();
         Ok(serde_json::json!({
             "name": displayed_name,
             "original_name": original_name,
@@ -84,6 +88,7 @@ impl MCPStore {
             "global_service_name": global_service_name,
             "service_global_name": global_service_name,
             "global_tool_name": global_tool_name,
+            "client_id": client_id,
         }))
     }
 
@@ -96,6 +101,7 @@ impl MCPStore {
         schema: serde_json::Value,
     ) -> Result<ScopedToolEntry> {
         let global_tool_name = generate_tool_global_name(&global_service_name, &original_name)?;
+        let client_id = global_service_name.clone();
         Ok(ScopedToolEntry {
             name: displayed_name,
             original_name,
@@ -106,6 +112,7 @@ impl MCPStore {
             service_global_name: global_service_name.clone(),
             global_service_name,
             global_tool_name,
+            client_id,
         })
     }
 
