@@ -46,6 +46,7 @@ pub struct ScopedServiceEntry {
     pub service: ServiceEntry,
     pub tool_count: usize,
     pub global_name: Option<String>,
+    pub client_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +60,7 @@ pub struct ScopedToolEntry {
     pub global_service_name: String,
     pub service_global_name: String,
     pub global_tool_name: String,
+    pub client_id: String,
 }
 
 #[derive(Debug, Clone)]
