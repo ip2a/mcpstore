@@ -102,6 +102,14 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         with self.assertRaises(KeyError):
             _ = missing["data"]
 
+        comparable = RustRecordView(
+            {
+                "name": "demo",
+                "config": {"args": ["-c", "print(1)"]},
+            }
+        )
+        self.assertEqual(len({record, comparable}), 2)
+
     def test_rust_store_backend_has_no_python_fallback_without_pyo3(self):
         import importlib
 
@@ -510,7 +518,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertTrue(context.update_service("demo", {"description": "patched"}))
         self.assertTrue(context.connect_service("demo"))
         self.assertTrue(service.disconnect_service())
-        self.assertFalse(hasattr(service, "refresh_content"))
+        self.assertTrue(service.refresh_content())
         self.assertTrue(service.restart_service())
         self.assertEqual(context.event_history(2)[1].event_type, "TEST")
         self.assertTrue(context.event_capability_report().event_bus)
@@ -519,6 +527,10 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(set(context.show_config("mcp").mcpServers), {"demo", "agent-demo", "other-agent-demo"})
         self.assertEqual(set(agent.show_config("all").mcpServers), {"agent-demo"})
         self.assertEqual(agent.show_config("agent").agents["agent-a"], ["agent-demo"])
+        self.assertEqual(agent.get_stats().service_count, 1)
+        self.assertEqual(asyncio.run(agent.get_stats_async()).healthy_services, 1)
+        self.assertEqual(agent.map_global("svc"), "svc_byagent_agent-a")
+        self.assertEqual(agent.map_local("svc_byagent_agent-a"), "svc")
         self.assertEqual(context.wait_service("demo", status="healthy").health_status, "ready")
         self.assertEqual(context.wait_service("demo", status=["healthy", "warning"]).health_status, "ready")
         self.assertEqual(context.wait_services(["demo"], status="healthy")["demo"].health_status, "ready")
@@ -539,7 +551,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
                 ("demo", {"description": "patched"}),
             ],
         )
-        self.assertEqual(inner.restarted, ["demo", "demo"])
+        self.assertEqual(inner.restarted, ["demo", "demo", "demo"])
         self.assertEqual(inner.removed, ["demo"])
 
     def test_add_service_accepts_public_config_shapes_through_rust(self):
