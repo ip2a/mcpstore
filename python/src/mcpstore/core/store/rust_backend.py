@@ -76,6 +76,9 @@ class RustRecordView(dict):
                 return True
         return super().__contains__(key)
 
+    def __hash__(self) -> int:
+        return hash(_freeze_record_value(dict(self)))
+
     def _config_field_value(self, name: str) -> Any:
         config_key = self._CONFIG_FIELD_ALIASES.get(name)
         if not config_key or not super().__contains__("config"):
@@ -87,6 +90,8 @@ class RustRecordView(dict):
 
 
 _MISSING = object()
+_GLOBAL_AGENT_STORE = "global_agent_store"
+_AGENT_SEPARATOR = "_byagent_"
 
 
 def _record_value(value: Any) -> Any:
@@ -94,6 +99,16 @@ def _record_value(value: Any) -> Any:
         return RustRecordView({key: _record_value(item) for key, item in value.items()})
     if isinstance(value, list):
         return [_record_value(item) for item in value]
+    return value
+
+
+def _freeze_record_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return tuple(sorted((str(key), _freeze_record_value(item)) for key, item in value.items()))
+    if isinstance(value, list):
+        return tuple(_freeze_record_value(item) for item in value)
+    if isinstance(value, set):
+        return tuple(sorted(_freeze_record_value(item) for item in value))
     return value
 
 
@@ -229,6 +244,8 @@ def _status_value(status: Any) -> str:
         if isinstance(value, dict):
             value = value.get("value") or value.get("status") or value.get("name")
         return str(value or "").lower()
+    if isinstance(status, str):
+        return status.lower()
     value = getattr(status, "health_status", None) or getattr(status, "status", None)
     return str(value or "").lower()
 
@@ -1071,6 +1088,11 @@ class RustServiceProxy:
     def restart_service(self) -> bool:
         return self._context.restart_service(self._service_name)
 
+    def refresh_content(self) -> bool:
+        # Historical examples use refresh_content() as a "reload this service surface" action.
+        # Restarting is the closest supported Rust-backed operation and refreshes exposed metadata.
+        return self.restart_service()
+
     def connect_service(self) -> bool:
         return self._context.connect_service(self._service_name)
 
@@ -1872,6 +1894,42 @@ class RustStoreContext:
             }
         )
 
+    def get_stats(self) -> Dict[str, Any]:
+        services = self.list_services()
+        tools = self.list_tools()
+        service_health = self.check_services()
+
+        healthy_services = 0
+        unhealthy_services = 0
+        if isinstance(service_health, dict):
+            for value in service_health.values():
+                if _status_value(value) in {"healthy", "ready", "connected", "ok"}:
+                    healthy_services += 1
+                else:
+                    unhealthy_services += 1
+
+        history = self._tool_call_history(limit=1000)
+        events = self.event_history(1000)
+        last_activity = None
+        for event in events:
+            timestamp = _event_timestamp(event)
+            if timestamp is not None:
+                last_activity = timestamp
+                break
+
+        return _record_value(
+            {
+                "agent_id": self._agent_id,
+                "service_count": len(services),
+                "tool_count": len(tools),
+                "healthy_services": healthy_services,
+                "unhealthy_services": unhealthy_services,
+                "total_tool_executions": len(history),
+                "is_active": bool(services) or self.active_session is not None or bool(self.list_sessions()),
+                "last_activity": last_activity,
+            }
+        )
+
     def list_resources(self, service_name: Optional[str] = None) -> List[Dict[str, Any]]:
         return _record_value(
             self._backend.list_resources_scoped(self._agent_id, service_name)
@@ -2190,6 +2248,35 @@ class RustStoreContext:
 
     def get_id(self) -> str:
         return self._agent_id or "global_agent_store"
+
+    def map_global(self, name: str) -> str:
+        value = str(name)
+        if not self._agent_id or self._agent_id == _GLOBAL_AGENT_STORE:
+            return value
+        if _AGENT_SEPARATOR in value:
+            return value
+        if ":" in value:
+            parsed_agent, local_name = value.split(":", 1)
+            if parsed_agent and local_name and parsed_agent == self._agent_id:
+                return f"{local_name}{_AGENT_SEPARATOR}{self._agent_id}"
+            return value
+        return f"{value}{_AGENT_SEPARATOR}{self._agent_id}"
+
+    def map_local(self, name: str) -> str:
+        value = str(name)
+        if not self._agent_id or self._agent_id == _GLOBAL_AGENT_STORE:
+            return value
+        suffix = f"{_AGENT_SEPARATOR}{self._agent_id}"
+        if value.endswith(suffix):
+            return value[: -len(suffix)]
+        if ":" in value:
+            parsed_agent, local_name = value.split(":", 1)
+            if parsed_agent == self._agent_id and local_name:
+                return local_name
+        for service in self.list_services():
+            if service.get("global_name") == value or service.get("client_id") == value:
+                return service.get("name") or service.get("original_name") or value
+        return value
 
     def _resolve_service_name(self, name: str) -> str:
         if not self._agent_id:
