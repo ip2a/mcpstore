@@ -57,7 +57,7 @@ pub(super) async fn action_remove(
     }
 }
 
-pub(super) async fn action_switch_backend(
+pub(super) async fn action_switch_cache_storage(
     State(store): State<Arc<MCPStore>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -87,7 +87,9 @@ pub(super) async fn action_switch_backend(
     }
 }
 
-pub(super) async fn modal_switch_backend(State(store): State<Arc<MCPStore>>) -> impl IntoResponse {
+pub(super) async fn modal_switch_cache_storage(
+    State(store): State<Arc<MCPStore>>,
+) -> impl IntoResponse {
     let cache_storage = store.current_cache_storage().await;
     let current_label = match cache_storage {
         CacheStorage::Memory => "memory",
@@ -105,7 +107,7 @@ pub(super) async fn modal_switch_backend(State(store): State<Arc<MCPStore>>) -> 
                     }
                     button.button.button-ghost type="button" onclick="closeModal()" { "Close" }
                 }
-                form.modal-form method="get" action="/action/switch-backend" {
+                form.modal-form method="get" action="/action/switch-cache-storage" {
                     div.field {
                         label for="field-target" { "Target cache storage" }
                         select id="field-target" name="target" {

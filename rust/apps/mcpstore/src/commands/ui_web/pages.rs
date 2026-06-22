@@ -21,7 +21,7 @@ pub(super) async fn page_home(
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let agent_filter = params.get("agent").cloned().unwrap_or_default();
-    let backend_label = match store.current_cache_storage().await {
+    let cache_storage_label = match store.current_cache_storage().await {
         CacheStorage::Memory => "memory",
         CacheStorage::Redis => "redis",
         CacheStorage::OpenKeyvMemory => "openkeyv_memory",
@@ -102,7 +102,7 @@ pub(super) async fn page_home(
             div.heading-actions {
                 a.button.button-primary href="/add" { "Add Service" }
                 a.button.button-ghost href="/" { "Refresh" }
-                button.button type="button" data-modal="/modal/switch-backend" { "Data hot migration" }
+                button.button type="button" data-modal="/modal/switch-cache-storage" { "Data hot migration" }
             }
         }
 
@@ -141,7 +141,7 @@ pub(super) async fn page_home(
             div.control-group {
                 span.control-label { "Data source" }
                 span.meta-pill { (source_label) }
-                span.meta-pill { (backend_label) }
+                span.meta-pill { (cache_storage_label) }
             }
             @if !transport_counts.is_empty() {
                 div.control-group {
