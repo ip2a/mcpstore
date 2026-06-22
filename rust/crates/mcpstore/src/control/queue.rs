@@ -1,6 +1,6 @@
 use std::sync::atomic::Ordering;
 
-use super::*;
+use crate::store::prelude::*;
 
 impl MCPStore {
     pub async fn process_control_requests(&self) -> Result<usize> {
@@ -59,7 +59,7 @@ impl MCPStore {
         Ok(processed)
     }
 
-    pub(super) async fn queue_service_add_request(
+    pub(crate) async fn queue_service_add_request(
         &self,
         name: &str,
         original_name: &str,
@@ -78,7 +78,7 @@ impl MCPStore {
         .await
     }
 
-    pub(super) async fn queue_control_request(
+    pub(crate) async fn queue_control_request(
         &self,
         request_type: &str,
         payload: serde_json::Value,

@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
-use super::*;
+use crate::store::prelude::*;
 
 impl MCPStore {
-    pub(super) async fn load_from_db(&self) -> Result<()> {
+    pub(crate) async fn load_from_db(&self) -> Result<()> {
         let services = self.cache.get_all_entities_async("services").await?;
         let cached_service_names = services.keys().cloned().collect::<HashSet<_>>();
         for service in self.registry.list_services().await {
@@ -111,7 +111,7 @@ impl MCPStore {
         Ok(())
     }
 
-    pub(super) async fn refresh_from_db_if_needed(&self) -> Result<()> {
+    pub(crate) async fn refresh_from_db_if_needed(&self) -> Result<()> {
         if self.source_mode == SourceMode::Db {
             self.load_from_db().await?;
         }

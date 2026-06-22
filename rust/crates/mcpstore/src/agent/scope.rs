@@ -1,4 +1,4 @@
-use super::*;
+use crate::store::prelude::*;
 
 impl MCPStore {
     pub async fn assign_service_to_agent(&self, agent_id: &str, service_name: &str) -> Result<()> {

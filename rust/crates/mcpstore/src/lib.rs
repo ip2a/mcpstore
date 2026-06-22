@@ -1,10 +1,16 @@
 #![recursion_limit = "256"]
 
+pub(crate) mod agent;
 pub mod cache;
 pub mod config;
+pub(crate) mod control;
 pub mod core;
 pub mod events;
+pub(crate) mod health;
+pub mod perspective;
 pub mod registry;
+pub(crate) mod service;
+pub mod store;
 pub mod transport;
 
 // Facade re-exports: configuration
@@ -23,5 +29,5 @@ pub use registry::{ConnectionStatus, ServiceEntry, ToolInfo};
 pub use transport::{ContentItem, ToolCallResult, ToolDescription};
 
 // Facade re-exports: core store
-pub use core::store::{BackendKind, CacheStorage, MCPStore, SourceMode, StoreOptions};
-pub use core::{perspective, Result, StoreError};
+pub use core::{Result, StoreError};
+pub use store::{BackendKind, CacheStorage, MCPStore, SourceMode, StoreOptions};

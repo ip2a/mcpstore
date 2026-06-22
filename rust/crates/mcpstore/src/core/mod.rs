@@ -1,5 +1,5 @@
-pub mod perspective;
-pub mod store;
+pub use crate::perspective;
+pub use crate::store;
 
 #[derive(thiserror::Error, Debug)]
 pub enum StoreError {

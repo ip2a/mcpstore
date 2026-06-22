@@ -1,4 +1,4 @@
-use super::*;
+use crate::store::prelude::*;
 
 impl MCPStore {
     pub async fn list_services_scoped(

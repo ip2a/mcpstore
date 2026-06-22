@@ -5,16 +5,14 @@ use crate::cache::{
     RedisStore,
 };
 use crate::events::Event;
-
-use super::payload::wrap_cache_item;
-use super::*;
+use crate::store::prelude::*;
 
 const ENTITY_TYPES: &[&str] = &["agents", "clients", "services", "store", "tools"];
 const RELATION_TYPES: &[&str] = &["agent_services", "service_tools"];
 const STATE_TYPES: &[&str] = &["service_status", "service_metadata"];
 
 impl MCPStore {
-    pub(super) fn build_backend(
+    pub(crate) fn build_backend(
         cache_storage: &CacheStorage,
         redis_url: &str,
         namespace: &str,

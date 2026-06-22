@@ -1,4 +1,4 @@
-use super::*;
+use crate::store::prelude::*;
 
 fn merge_json_object(target: &mut serde_json::Value, updates: serde_json::Value) -> Result<()> {
     let target_object = target.as_object_mut().ok_or_else(|| {
@@ -56,7 +56,7 @@ impl MCPStore {
         Ok(resolution.global_name)
     }
 
-    pub(super) async fn add_service_with_identity(
+    pub(crate) async fn add_service_with_identity(
         &self,
         name: &str,
         original_name: &str,
@@ -124,7 +124,7 @@ impl MCPStore {
         self.connect_service_internal(name, false).await
     }
 
-    pub(super) async fn connect_service_internal(
+    pub(crate) async fn connect_service_internal(
         &self,
         name: &str,
         automatic_retry: bool,
