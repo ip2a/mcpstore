@@ -8,9 +8,19 @@ use openkeyv::{
 use serde_json::{Map, Value};
 use tokio::sync::OnceCell;
 
-use crate::cache::{CacheError, KvStore, Result};
+use crate::cache::{CacheError, Result};
 
-pub trait OpenKeyvBackend:
+#[async_trait::async_trait]
+pub(crate) trait CacheStore: Send + Sync {
+    async fn put(&self, key: &str, value: Value, collection: &str) -> Result<()>;
+    async fn get(&self, key: &str, collection: &str) -> Result<Option<Value>>;
+    async fn delete(&self, key: &str, collection: &str) -> Result<()>;
+    async fn collections(&self) -> Result<Vec<String>>;
+    async fn keys(&self, collection: &str) -> Result<Vec<String>>;
+    async fn get_many(&self, keys: &[String], collection: &str) -> Result<Vec<Option<Value>>>;
+}
+
+trait OpenKeyvBackend:
     AsyncKeyValue + AsyncEnumerateKeys + AsyncEnumerateCollections + Send + Sync
 {
 }
@@ -20,29 +30,29 @@ impl<T> OpenKeyvBackend for T where
 {
 }
 
-pub struct OpenKeyvAdapter<T>
+struct OpenKeyvCacheStore<T>
 where
     T: OpenKeyvBackend,
 {
     inner: T,
 }
 
-impl<T> OpenKeyvAdapter<T>
+impl<T> OpenKeyvCacheStore<T>
 where
     T: OpenKeyvBackend,
 {
-    pub fn new(inner: T) -> Self {
+    fn new(inner: T) -> Self {
         Self { inner }
     }
 }
 
-pub struct OpenKeyvRedisStore {
+struct LazyRedisStore {
     redis_url: String,
     inner: OnceCell<OpenKeyvRedisInner>,
 }
 
-impl OpenKeyvRedisStore {
-    pub fn new(redis_url: impl Into<String>) -> Self {
+impl LazyRedisStore {
+    fn new(redis_url: impl Into<String>) -> Self {
         Self {
             redis_url: redis_url.into(),
             inner: OnceCell::new(),
@@ -56,12 +66,12 @@ impl OpenKeyvRedisStore {
     }
 }
 
-pub fn openkeyv_memory_backend() -> Arc<dyn KvStore> {
-    Arc::new(OpenKeyvAdapter::new(OpenKeyvMemoryStore::new()))
+pub(crate) fn memory_cache_store() -> Arc<dyn CacheStore> {
+    Arc::new(OpenKeyvCacheStore::new(OpenKeyvMemoryStore::new()))
 }
 
-pub fn openkeyv_redis_backend(redis_url: &str) -> Arc<dyn KvStore> {
-    Arc::new(OpenKeyvAdapter::new(OpenKeyvRedisStore::new(redis_url)))
+pub(crate) fn redis_cache_store(redis_url: &str) -> Arc<dyn CacheStore> {
+    Arc::new(OpenKeyvCacheStore::new(LazyRedisStore::new(redis_url)))
 }
 
 fn map_openkeyv_err(err: openkeyv::Error) -> CacheError {
@@ -80,7 +90,7 @@ fn object_to_value(value: HashMap<String, Value>) -> Value {
 }
 
 #[async_trait::async_trait]
-impl<T> KvStore for OpenKeyvAdapter<T>
+impl<T> CacheStore for OpenKeyvCacheStore<T>
 where
     T: OpenKeyvBackend,
 {
@@ -133,7 +143,7 @@ where
 }
 
 #[async_trait::async_trait]
-impl AsyncKeyValue for OpenKeyvRedisStore {
+impl AsyncKeyValue for LazyRedisStore {
     async fn get(
         &self,
         key: &str,
@@ -203,7 +213,7 @@ impl AsyncKeyValue for OpenKeyvRedisStore {
 }
 
 #[async_trait::async_trait]
-impl AsyncEnumerateKeys for OpenKeyvRedisStore {
+impl AsyncEnumerateKeys for LazyRedisStore {
     async fn keys(
         &self,
         collection: Option<&str>,
@@ -214,7 +224,7 @@ impl AsyncEnumerateKeys for OpenKeyvRedisStore {
 }
 
 #[async_trait::async_trait]
-impl AsyncEnumerateCollections for OpenKeyvRedisStore {
+impl AsyncEnumerateCollections for LazyRedisStore {
     async fn collections(&self, limit: Option<usize>) -> openkeyv::Result<Vec<String>> {
         self.inner().await?.collections(limit).await
     }
@@ -226,7 +236,7 @@ mod tests {
 
     #[tokio::test]
     async fn openkeyv_memory_adapter_round_trips_objects() {
-        let store = OpenKeyvAdapter::new(OpenKeyvMemoryStore::new());
+        let store = OpenKeyvCacheStore::new(OpenKeyvMemoryStore::new());
         let value = serde_json::json!({"name": "svc", "enabled": true});
 
         store
@@ -251,7 +261,7 @@ mod tests {
 
     #[tokio::test]
     async fn openkeyv_memory_adapter_preserves_get_many_order() {
-        let store = OpenKeyvAdapter::new(OpenKeyvMemoryStore::new());
+        let store = OpenKeyvCacheStore::new(OpenKeyvMemoryStore::new());
         store
             .put("a", serde_json::json!({"name": "a"}), "services")
             .await
@@ -271,7 +281,7 @@ mod tests {
 
     #[tokio::test]
     async fn openkeyv_memory_adapter_deletes_entries() {
-        let store = OpenKeyvAdapter::new(OpenKeyvMemoryStore::new());
+        let store = OpenKeyvCacheStore::new(OpenKeyvMemoryStore::new());
         store
             .put("svc", serde_json::json!({"name": "svc"}), "services")
             .await
@@ -284,7 +294,7 @@ mod tests {
 
     #[tokio::test]
     async fn openkeyv_memory_adapter_rejects_non_object_values() {
-        let store = OpenKeyvAdapter::new(OpenKeyvMemoryStore::new());
+        let store = OpenKeyvCacheStore::new(OpenKeyvMemoryStore::new());
         let err = store
             .put("bad", serde_json::json!(["not", "object"]), "services")
             .await;

@@ -1286,7 +1286,6 @@ dependencies = [
  "chrono",
  "http",
  "openkeyv",
- "redis 0.27.6",
  "rmcp",
  "serde",
  "serde_json",
@@ -1452,7 +1451,7 @@ dependencies = [
  "chrono",
  "dashmap",
  "flate2",
- "redis 0.29.5",
+ "redis",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -1833,30 +1832,6 @@ dependencies = [
  "unicode-segmentation",
  "unicode-truncate",
  "unicode-width 0.2.0",
-]
-
-[[package]]
-name = "redis"
-version = "0.27.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09d8f99a4090c89cc489a94833c901ead69bfbf3877b4867d5482e321ee875bc"
-dependencies = [
- "arc-swap",
- "async-trait",
- "bytes",
- "combine",
- "futures-util",
- "itertools",
- "itoa",
- "num-bigint",
- "percent-encoding",
- "pin-project-lite",
- "ryu",
- "sha1_smol",
- "socket2 0.5.10",
- "tokio",
- "tokio-util",
- "url",
 ]
 
 [[package]]

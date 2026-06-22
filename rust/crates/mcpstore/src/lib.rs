@@ -17,7 +17,7 @@ pub mod transport;
 pub use config::{AppConfig, CacheBackend, CacheConfig, ConfigManager, McpConfig, ServerConfig};
 
 // Facade re-exports: cache layer
-pub use cache::{CacheLayerManager, CacheSnapshot, KvStore, MemoryStore, RedisStore};
+pub use cache::{CacheLayerManager, CacheSnapshot};
 
 // Facade re-exports: event bus
 pub use events::{Event, EventBus};

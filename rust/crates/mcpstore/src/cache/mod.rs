@@ -18,13 +18,11 @@ use tokio::sync::RwLock as AsyncRwLock;
 pub(crate) mod inspect;
 pub mod models;
 pub mod naming;
-pub mod openkeyv_adapter;
 pub(crate) mod projection;
 pub mod serializer;
+pub(crate) mod storage;
 
-pub use openkeyv_adapter::{
-    openkeyv_memory_backend, openkeyv_redis_backend, OpenKeyvAdapter, OpenKeyvRedisStore,
-};
+pub(crate) use storage::{memory_cache_store, redis_cache_store, CacheStore};
 
 // ==================== Error Type ====================
 
@@ -50,256 +48,11 @@ pub struct CacheSnapshot {
     pub events: HashMap<String, HashMap<String, serde_json::Value>>,
 }
 
-// ==================== KvStore Trait ====================
-
-/// Abstract async key-value store, aligned with Python's AsyncKeyValue.
-#[async_trait::async_trait]
-pub trait KvStore: Send + Sync {
-    async fn put(&self, key: &str, value: serde_json::Value, collection: &str) -> Result<()>;
-    async fn get(&self, key: &str, collection: &str) -> Result<Option<serde_json::Value>>;
-    async fn delete(&self, key: &str, collection: &str) -> Result<()>;
-    async fn collections(&self) -> Result<Vec<String>>;
-    async fn keys(&self, collection: &str) -> Result<Vec<String>>;
-    async fn get_many(
-        &self,
-        keys: &[String],
-        collection: &str,
-    ) -> Result<Vec<Option<serde_json::Value>>>;
-}
-
-// ==================== MemoryStore ====================
-
-/// In-memory KV backend (development / single-process).
-pub struct MemoryStore {
-    data: Arc<AsyncRwLock<HashMap<String, HashMap<String, serde_json::Value>>>>,
-}
-
-impl MemoryStore {
-    pub fn new() -> Self {
-        Self {
-            data: Arc::new(AsyncRwLock::new(HashMap::new())),
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl KvStore for MemoryStore {
-    async fn put(&self, key: &str, value: serde_json::Value, collection: &str) -> Result<()> {
-        let mut data = self.data.write().await;
-        data.entry(collection.to_string())
-            .or_default()
-            .insert(key.to_string(), value);
-        Ok(())
-    }
-
-    async fn get(&self, key: &str, collection: &str) -> Result<Option<serde_json::Value>> {
-        let data = self.data.read().await;
-        Ok(data.get(collection).and_then(|coll| coll.get(key).cloned()))
-    }
-
-    async fn delete(&self, key: &str, collection: &str) -> Result<()> {
-        let mut data = self.data.write().await;
-        if let Some(coll) = data.get_mut(collection) {
-            coll.remove(key);
-        }
-        Ok(())
-    }
-
-    async fn collections(&self) -> Result<Vec<String>> {
-        let data = self.data.read().await;
-        Ok(data.keys().cloned().collect())
-    }
-
-    async fn keys(&self, collection: &str) -> Result<Vec<String>> {
-        let data = self.data.read().await;
-        Ok(data
-            .get(collection)
-            .map(|coll| coll.keys().cloned().collect())
-            .unwrap_or_default())
-    }
-
-    async fn get_many(
-        &self,
-        keys: &[String],
-        collection: &str,
-    ) -> Result<Vec<Option<serde_json::Value>>> {
-        let data = self.data.read().await;
-        let coll = data.get(collection);
-        Ok(keys
-            .iter()
-            .map(|k| coll.and_then(|c| c.get(k).cloned()))
-            .collect())
-    }
-}
-
-impl Default for MemoryStore {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-pub struct RedisStore {
-    client: redis::Client,
-    namespace: String,
-    collections_key: String,
-}
-
-impl RedisStore {
-    pub fn new(redis_url: &str) -> Result<Self> {
-        Self::with_namespace(redis_url, "mcpstore")
-    }
-
-    pub fn with_namespace(redis_url: &str, namespace: impl Into<String>) -> Result<Self> {
-        let client = redis::Client::open(redis_url)
-            .map_err(|e| CacheError::StoreError(format!("Redis connection config error: {e}")))?;
-        let namespace = namespace.into();
-        Ok(Self {
-            client,
-            collections_key: format!("{namespace}:__collections"),
-            namespace,
-        })
-    }
-
-    fn redis_key(collection: &str, key: &str) -> String {
-        format!("{collection}:{key}")
-    }
-
-    async fn connection(&self) -> Result<redis::aio::MultiplexedConnection> {
-        self.client
-            .get_multiplexed_async_connection()
-            .await
-            .map_err(|e| CacheError::StoreError(format!("Redis connection failed: {e}")))
-    }
-}
-
-#[async_trait::async_trait]
-impl KvStore for RedisStore {
-    async fn put(&self, key: &str, value: serde_json::Value, collection: &str) -> Result<()> {
-        let mut conn = self.connection().await?;
-        let redis_key = Self::redis_key(collection, key);
-        let payload = serde_json::to_string(&value)?;
-        let _: () = redis::cmd("SADD")
-            .arg(&self.collections_key)
-            .arg(collection)
-            .query_async(&mut conn)
-            .await
-            .map_err(|e| CacheError::StoreError(format!("Redis SADD failed: {e}")))?;
-        let _: () = redis::cmd("SET")
-            .arg(redis_key)
-            .arg(payload)
-            .query_async(&mut conn)
-            .await
-            .map_err(|e| CacheError::StoreError(format!("Redis SET failed: {e}")))?;
-        Ok(())
-    }
-
-    async fn get(&self, key: &str, collection: &str) -> Result<Option<serde_json::Value>> {
-        let mut conn = self.connection().await?;
-        let redis_key = Self::redis_key(collection, key);
-        let payload: Option<String> = redis::cmd("GET")
-            .arg(redis_key)
-            .query_async(&mut conn)
-            .await
-            .map_err(|e| CacheError::StoreError(format!("Redis GET failed: {e}")))?;
-        match payload {
-            Some(text) => Ok(Some(serde_json::from_str(&text)?)),
-            None => Ok(None),
-        }
-    }
-
-    async fn delete(&self, key: &str, collection: &str) -> Result<()> {
-        let mut conn = self.connection().await?;
-        let redis_key = Self::redis_key(collection, key);
-        let _: () = redis::cmd("DEL")
-            .arg(redis_key)
-            .query_async(&mut conn)
-            .await
-            .map_err(|e| CacheError::StoreError(format!("Redis DEL failed: {e}")))?;
-        Ok(())
-    }
-
-    async fn collections(&self) -> Result<Vec<String>> {
-        let mut conn = self.connection().await?;
-        let collections: Vec<String> = redis::cmd("SMEMBERS")
-            .arg(&self.collections_key)
-            .query_async(&mut conn)
-            .await
-            .map_err(|e| CacheError::StoreError(format!("Redis SMEMBERS failed: {e}")))?;
-        if !collections.is_empty() {
-            return Ok(collections);
-        }
-
-        let raw_keys: Vec<String> = redis::cmd("KEYS")
-            .arg(format!("{}:*", self.namespace))
-            .query_async(&mut conn)
-            .await
-            .map_err(|e| CacheError::StoreError(format!("Redis KEYS failed: {e}")))?;
-        let namespace_prefix = format!("{}:", self.namespace);
-        let mut collections = std::collections::HashSet::new();
-        for key in raw_keys {
-            let Some(rest) = key.strip_prefix(&namespace_prefix) else {
-                continue;
-            };
-            let mut parts = rest.splitn(3, ':');
-            let Some(layer) = parts.next() else { continue };
-            let Some(kind) = parts.next() else { continue };
-            if matches!(layer, "entity" | "relations" | "state" | "event") {
-                collections.insert(format!("{}:{}:{}", self.namespace, layer, kind));
-            }
-        }
-        Ok(collections.into_iter().collect())
-    }
-
-    async fn keys(&self, collection: &str) -> Result<Vec<String>> {
-        let mut conn = self.connection().await?;
-        let pattern = format!("{collection}:*");
-        let raw_keys: Vec<String> = redis::cmd("KEYS")
-            .arg(pattern)
-            .query_async(&mut conn)
-            .await
-            .map_err(|e| CacheError::StoreError(format!("Redis KEYS failed: {e}")))?;
-        let prefix = format!("{collection}:");
-        Ok(raw_keys
-            .into_iter()
-            .filter_map(|k| k.strip_prefix(&prefix).map(ToString::to_string))
-            .collect())
-    }
-
-    async fn get_many(
-        &self,
-        keys: &[String],
-        collection: &str,
-    ) -> Result<Vec<Option<serde_json::Value>>> {
-        if keys.is_empty() {
-            return Ok(Vec::new());
-        }
-        let mut conn = self.connection().await?;
-        let redis_keys: Vec<String> = keys
-            .iter()
-            .map(|k| Self::redis_key(collection, k))
-            .collect();
-        let payloads: Vec<Option<String>> = redis::cmd("MGET")
-            .arg(redis_keys)
-            .query_async(&mut conn)
-            .await
-            .map_err(|e| CacheError::StoreError(format!("Redis MGET failed: {e}")))?;
-        payloads
-            .into_iter()
-            .map(|p| match p {
-                Some(text) => serde_json::from_str(&text)
-                    .map(Some)
-                    .map_err(CacheError::Serialization),
-                None => Ok(None),
-            })
-            .collect()
-    }
-}
-
 // ==================== CacheLayerManager ====================
 
 /// Central cache manager with four logical layers over a single KV backend.
 pub struct CacheLayerManager {
-    store: AsyncRwLock<Arc<dyn KvStore>>,
+    store: AsyncRwLock<Arc<dyn CacheStore>>,
     namespace: SyncRwLock<String>,
     last_empty_log: AsyncRwLock<HashMap<String, Instant>>,
     last_state_snapshot: AsyncRwLock<HashMap<String, serde_json::Value>>,
@@ -307,7 +60,7 @@ pub struct CacheLayerManager {
 }
 
 impl CacheLayerManager {
-    pub fn new(store: Arc<dyn KvStore>, namespace: impl Into<String>) -> Self {
+    pub(crate) fn new(store: Arc<dyn CacheStore>, namespace: impl Into<String>) -> Self {
         Self {
             store: AsyncRwLock::new(store),
             namespace: SyncRwLock::new(namespace.into()),
@@ -373,24 +126,9 @@ impl CacheLayerManager {
         format!("{namespace}:event:{event_type}")
     }
 
-    pub async fn replace_store(&self, store: Arc<dyn KvStore>) {
-        let mut current = self.store.write().await;
-        *current = store;
-        self.last_state_snapshot.write().await.clear();
-    }
-
-    pub async fn replace_store_with_snapshot(
+    pub(crate) async fn replace_store_with_snapshot_and_namespace(
         &self,
-        store: Arc<dyn KvStore>,
-    ) -> Result<CacheSnapshot> {
-        let namespace = self.namespace();
-        self.replace_store_with_snapshot_and_namespace(store, namespace)
-            .await
-    }
-
-    pub async fn replace_store_with_snapshot_and_namespace(
-        &self,
-        store: Arc<dyn KvStore>,
+        store: Arc<dyn CacheStore>,
         namespace: impl Into<String>,
     ) -> Result<CacheSnapshot> {
         let current_namespace = self.namespace();
@@ -419,7 +157,7 @@ impl CacheLayerManager {
 
     async fn snapshot_from_store_with_namespace(
         &self,
-        store: &dyn KvStore,
+        store: &dyn CacheStore,
         namespace: &str,
     ) -> Result<CacheSnapshot> {
         let collections = store.collections().await?;
@@ -441,7 +179,7 @@ impl CacheLayerManager {
 
     async fn restore_to_store_with_namespace(
         &self,
-        store: &dyn KvStore,
+        store: &dyn CacheStore,
         snapshot: &CacheSnapshot,
         namespace: &str,
     ) -> Result<()> {
@@ -458,7 +196,7 @@ impl CacheLayerManager {
 
     async fn snapshot_layer_from_store(
         &self,
-        store: &dyn KvStore,
+        store: &dyn CacheStore,
         collections: &[String],
         namespace: &str,
         layer: &str,
@@ -485,7 +223,7 @@ impl CacheLayerManager {
 
     async fn restore_layer_to_store(
         &self,
-        store: &dyn KvStore,
+        store: &dyn CacheStore,
         namespace: &str,
         layer: &str,
         data: &HashMap<String, HashMap<String, serde_json::Value>>,
@@ -806,8 +544,8 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_memory_store_basic() {
-        let store = Arc::new(MemoryStore::new());
+    async fn test_openkeyv_memory_store_basic() {
+        let store = memory_cache_store();
         store
             .put("k1", serde_json::json!({"a": 1}), "c1")
             .await
@@ -818,7 +556,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_layer_manager_entity() {
-        let store = Arc::new(MemoryStore::new());
+        let store = memory_cache_store();
         let mgr = CacheLayerManager::new(store, "test");
 
         mgr.put_entity("services", "svc1", serde_json::json!({"url": "http://x"}))
@@ -830,7 +568,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_layer_rejects_removed_client_configs_entity() {
-        let store = Arc::new(MemoryStore::new());
+        let store = memory_cache_store();
         let mgr = CacheLayerManager::new(store, "test");
 
         let err = mgr
@@ -844,8 +582,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_replace_store_with_snapshot_migrates_all_layers() {
-        let first = Arc::new(MemoryStore::new());
-        let second = Arc::new(MemoryStore::new());
+        let first = memory_cache_store();
+        let second = memory_cache_store();
         let mgr = CacheLayerManager::new(first, "test");
 
         mgr.put_entity("services", "svc", serde_json::json!({"name": "svc"}))
@@ -869,7 +607,10 @@ mod tests {
         .await
         .unwrap();
 
-        let snapshot = mgr.replace_store_with_snapshot(second).await.unwrap();
+        let snapshot = mgr
+            .replace_store_with_snapshot_and_namespace(second, "test")
+            .await
+            .unwrap();
         assert_eq!(snapshot.entities["services"].len(), 1);
         assert_eq!(snapshot.relations["agent_services"].len(), 1);
         assert_eq!(snapshot.states["service_status"].len(), 1);
@@ -895,7 +636,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_agent() {
-        let store = Arc::new(MemoryStore::new());
+        let store = memory_cache_store();
         let mgr = CacheLayerManager::new(store, "test");
 
         mgr.create_agent("a1", 1234567890, false).await.unwrap();
