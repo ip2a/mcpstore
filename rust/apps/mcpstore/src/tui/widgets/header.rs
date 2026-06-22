@@ -22,7 +22,7 @@ pub struct HeaderStats {
     pub error: usize,
     pub connecting: usize,
     pub disconnected: usize,
-    pub backend: String,
+    pub cache_storage: String,
     pub namespace: String,
     pub config_path: String,
 }
@@ -105,8 +105,8 @@ fn render_stats(frame: &mut Frame, area: Rect, stats: &HeaderStats) {
             stats.total, stats.connected, stats.error, stats.connecting, stats.disconnected
         )),
         Line::from(format!(
-            "backend={}  namespace={}",
-            stats.backend, stats.namespace
+            "cache_storage={}  namespace={}",
+            stats.cache_storage, stats.namespace
         )),
         Line::from(format!("config={}", stats.config_path)),
     ];

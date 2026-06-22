@@ -114,8 +114,8 @@ fn status_lines(app: &TuiApp) -> Vec<Line<'static>> {
         ),
         kv_line(
             app.locale,
-            TextKey::SettingsBackend,
-            app.backend_label.clone(),
+            TextKey::SettingsCacheStorage,
+            app.cache_storage_label.clone(),
         ),
         kv_line(
             app.locale,

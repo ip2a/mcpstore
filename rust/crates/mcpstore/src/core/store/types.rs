@@ -85,7 +85,7 @@ pub enum SourceMode {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
-pub enum BackendKind {
+pub enum CacheStorage {
     #[default]
     Memory,
     Redis,
@@ -93,7 +93,7 @@ pub enum BackendKind {
     OpenKeyvRedis,
 }
 
-impl BackendKind {
+impl CacheStorage {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Memory => "memory",
@@ -104,11 +104,13 @@ impl BackendKind {
     }
 }
 
+pub type BackendKind = CacheStorage;
+
 #[derive(Clone, Debug)]
 pub struct StoreOptions {
     pub config_path: Option<String>,
     pub source_mode: SourceMode,
-    pub backend: Option<BackendKind>,
+    pub backend: Option<CacheStorage>,
     pub redis_url: Option<String>,
     pub namespace: Option<String>,
 }

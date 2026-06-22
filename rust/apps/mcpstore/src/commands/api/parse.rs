@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use mcpstore::{config::ServerConfig, BackendKind};
+use mcpstore::{config::ServerConfig, CacheStorage};
 use serde_json::{json, Value};
 
 use super::envelope::{ApiError, ApiResult};
@@ -22,8 +22,8 @@ pub(super) fn normalize_prefix(prefix: &str) -> String {
     normalized
 }
 
-pub(super) fn backend_label(backend: BackendKind) -> &'static str {
-    backend.as_str()
+pub(super) fn cache_storage_label(cache_storage: CacheStorage) -> &'static str {
+    cache_storage.as_str()
 }
 
 pub(super) fn parse_named_service_payload(
@@ -143,12 +143,12 @@ pub(super) fn parse_positive_usize(value: &str) -> ApiResult<usize> {
         .map_err(|_| ApiError::invalid_parameter(format!("无效的正整数: {value}"), Some("count")))
 }
 
-pub(super) fn parse_backend_kind(value: &str) -> ApiResult<BackendKind> {
+pub(super) fn parse_cache_storage(value: &str) -> ApiResult<CacheStorage> {
     match value {
-        "memory" => Ok(BackendKind::Memory),
-        "redis" => Ok(BackendKind::Redis),
-        "openkeyv_memory" => Ok(BackendKind::OpenKeyvMemory),
-        "openkeyv_redis" => Ok(BackendKind::OpenKeyvRedis),
+        "memory" => Ok(CacheStorage::Memory),
+        "redis" => Ok(CacheStorage::Redis),
+        "openkeyv_memory" => Ok(CacheStorage::OpenKeyvMemory),
+        "openkeyv_redis" => Ok(CacheStorage::OpenKeyvRedis),
         other => Err(ApiError::invalid_parameter(
             format!("不支持的 backend: {other}"),
             Some("backend"),
@@ -219,16 +219,16 @@ mod tests {
     }
 
     #[test]
-    fn parse_backend_kind_supports_known_values() {
+    fn parse_cache_storage_supports_known_values() {
         assert!(matches!(
-            parse_backend_kind("memory").unwrap(),
-            BackendKind::Memory
+            parse_cache_storage("memory").unwrap(),
+            CacheStorage::Memory
         ));
         assert!(matches!(
-            parse_backend_kind("openkeyv_redis").unwrap(),
-            BackendKind::OpenKeyvRedis
+            parse_cache_storage("openkeyv_redis").unwrap(),
+            CacheStorage::OpenKeyvRedis
         ));
-        assert!(parse_backend_kind("unknown").is_err());
+        assert!(parse_cache_storage("unknown").is_err());
     }
 
     #[test]
