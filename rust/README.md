@@ -6,14 +6,11 @@ Rust 工作区承载 MCPStore 的核心运行时、MCP 连接层、CLI 和 Pytho
 
 | 目录 | 职责 | 对接面 |
 |------|------|--------|
-| `crates/cache` | 缓存与序列化能力 | `core/cache/` |
-| `crates/config` | 配置读写、校验、路径解析 | `config/` |
-| `crates/events` | 异步事件总线 | `core/events/` |
-| `crates/registry` | 服务注册表与工具索引 | `core/registry/` |
-| `crates/transport` | 基于 `rmcp` 的 MCP 客户端连接 | Rust CLI / Python facade |
-| `crates/core` | Store 编排层 | Rust CLI / Python facade |
-| `apps/cli` | MCPStore CLI 二进制入口 | `mcpstore` |
+| `crates/mcpstore` | 核心库；内部按 `cache`、`config`、`core`、`events`、`registry`、`transport` 分层 | Rust CLI / Python facade |
+| `apps/mcpstore` | MCPStore CLI、HTTP API、MCP Server、Web UI、TUI、daemon | `mcpstore`、`mcpstore-tui` |
 | `bindings/python` | PyO3 绑定入口 | `mcpstore._rust` |
+
+当前保持单一核心 crate，优先在 crate 内拆清模块职责，再考虑是否需要恢复多 crate 拆分。这样可以保护 Python 绑定和 CLI 的公开接口稳定。
 
 ## 构建
 
