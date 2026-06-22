@@ -1,3 +1,4 @@
+pub(crate) mod codec;
 pub(crate) mod entity;
 pub(crate) mod event;
 pub(crate) mod inspect;
@@ -7,6 +8,7 @@ mod layer_tests;
 pub mod models;
 pub mod naming;
 pub(crate) mod projection;
+pub(crate) mod redis;
 pub(crate) mod relation;
 pub mod serializer;
 pub(crate) mod state;

@@ -1,14 +1,12 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use openkeyv::{
-    store::{memory::MemoryStore as OpenKeyvMemoryStore, redis::RedisStore as OpenKeyvRedisInner},
-    AsyncEnumerateCollections, AsyncEnumerateKeys, AsyncKeyValue,
+    store::memory::MemoryStore as OpenKeyvMemoryStore, AsyncEnumerateCollections,
+    AsyncEnumerateKeys, AsyncKeyValue,
 };
-use serde_json::{Map, Value};
-use tokio::sync::OnceCell;
+use serde_json::Value;
 
-use crate::cache::{CacheError, Result};
+use crate::cache::{codec, redis::LazyRedisStore, CacheError, Result};
 
 #[async_trait::async_trait]
 pub(crate) trait CacheStore: Send + Sync {
@@ -46,26 +44,6 @@ where
     }
 }
 
-struct LazyRedisStore {
-    redis_url: String,
-    inner: OnceCell<OpenKeyvRedisInner>,
-}
-
-impl LazyRedisStore {
-    fn new(redis_url: impl Into<String>) -> Self {
-        Self {
-            redis_url: redis_url.into(),
-            inner: OnceCell::new(),
-        }
-    }
-
-    async fn inner(&self) -> openkeyv::Result<&OpenKeyvRedisInner> {
-        self.inner
-            .get_or_try_init(|| async { OpenKeyvRedisInner::new(&self.redis_url).await })
-            .await
-    }
-}
-
 pub(crate) fn memory_cache_store() -> Arc<dyn CacheStore> {
     Arc::new(OpenKeyvCacheStore::new(OpenKeyvMemoryStore::new()))
 }
@@ -78,17 +56,6 @@ fn map_openkeyv_err(err: openkeyv::Error) -> CacheError {
     CacheError::StoreError(format!("openkeyv operation failed: {err}"))
 }
 
-fn value_to_object(value: Value) -> Result<HashMap<String, Value>> {
-    match value {
-        Value::Object(object) => Ok(object.into_iter().collect()),
-        other => Err(CacheError::NotAnObject(format!("value={other}"))),
-    }
-}
-
-fn object_to_value(value: HashMap<String, Value>) -> Value {
-    Value::Object(Map::from_iter(value))
-}
-
 #[async_trait::async_trait]
 impl<T> CacheStore for OpenKeyvCacheStore<T>
 where
@@ -96,7 +63,7 @@ where
 {
     async fn put(&self, key: &str, value: Value, collection: &str) -> Result<()> {
         self.inner
-            .put(key, value_to_object(value)?, Some(collection), None)
+            .put(key, codec::value_to_object(value)?, Some(collection), None)
             .await
             .map_err(map_openkeyv_err)
     }
@@ -105,7 +72,7 @@ where
         self.inner
             .get(key, Some(collection))
             .await
-            .map(|value| value.map(object_to_value))
+            .map(|value| value.map(codec::object_to_value))
             .map_err(map_openkeyv_err)
     }
 
@@ -135,98 +102,10 @@ where
             .map(|values| {
                 values
                     .into_iter()
-                    .map(|value| value.map(object_to_value))
+                    .map(|value| value.map(codec::object_to_value))
                     .collect()
             })
             .map_err(map_openkeyv_err)
-    }
-}
-
-#[async_trait::async_trait]
-impl AsyncKeyValue for LazyRedisStore {
-    async fn get(
-        &self,
-        key: &str,
-        collection: Option<&str>,
-    ) -> openkeyv::Result<Option<HashMap<String, Value>>> {
-        self.inner().await?.get(key, collection).await
-    }
-
-    async fn ttl(
-        &self,
-        key: &str,
-        collection: Option<&str>,
-    ) -> openkeyv::Result<Option<(HashMap<String, Value>, f64)>> {
-        self.inner().await?.ttl(key, collection).await
-    }
-
-    async fn put(
-        &self,
-        key: &str,
-        value: HashMap<String, Value>,
-        collection: Option<&str>,
-        ttl: Option<f64>,
-    ) -> openkeyv::Result<()> {
-        self.inner().await?.put(key, value, collection, ttl).await
-    }
-
-    async fn delete(&self, key: &str, collection: Option<&str>) -> openkeyv::Result<bool> {
-        self.inner().await?.delete(key, collection).await
-    }
-
-    async fn get_many(
-        &self,
-        keys: &[String],
-        collection: Option<&str>,
-    ) -> openkeyv::Result<Vec<Option<HashMap<String, Value>>>> {
-        self.inner().await?.get_many(keys, collection).await
-    }
-
-    async fn ttl_many(
-        &self,
-        keys: &[String],
-        collection: Option<&str>,
-    ) -> openkeyv::Result<Vec<Option<(HashMap<String, Value>, f64)>>> {
-        self.inner().await?.ttl_many(keys, collection).await
-    }
-
-    async fn put_many(
-        &self,
-        keys: &[String],
-        values: &[HashMap<String, Value>],
-        collection: Option<&str>,
-        ttl: Option<f64>,
-    ) -> openkeyv::Result<()> {
-        self.inner()
-            .await?
-            .put_many(keys, values, collection, ttl)
-            .await
-    }
-
-    async fn delete_many(
-        &self,
-        keys: &[String],
-        collection: Option<&str>,
-    ) -> openkeyv::Result<usize> {
-        self.inner().await?.delete_many(keys, collection).await
-    }
-}
-
-#[async_trait::async_trait]
-impl AsyncEnumerateKeys for LazyRedisStore {
-    async fn keys(
-        &self,
-        collection: Option<&str>,
-        limit: Option<usize>,
-    ) -> openkeyv::Result<Vec<String>> {
-        self.inner().await?.keys(collection, limit).await
-    }
-}
-
-#[async_trait::async_trait]
-impl AsyncEnumerateCollections for LazyRedisStore {
-    async fn collections(&self, limit: Option<usize>) -> openkeyv::Result<Vec<String>> {
-        self.inner().await?.collections(limit).await
     }
 }
 
