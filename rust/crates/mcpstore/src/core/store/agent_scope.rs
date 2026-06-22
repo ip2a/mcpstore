@@ -4,7 +4,7 @@ impl MCPStore {
     pub async fn assign_service_to_agent(&self, agent_id: &str, service_name: &str) -> Result<()> {
         if self.source_mode == SourceMode::Db {
             return self
-                .queue_onlydb_control_request(
+                .queue_control_request(
                     "ServiceAssignRequested",
                     serde_json::json!({
                         "agent_id": agent_id,
@@ -31,7 +31,7 @@ impl MCPStore {
     ) -> Result<()> {
         if self.source_mode == SourceMode::Db {
             return self
-                .queue_onlydb_control_request(
+                .queue_control_request(
                     "ServiceUnassignRequested",
                     serde_json::json!({
                         "agent_id": agent_id,

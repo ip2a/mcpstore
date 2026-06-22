@@ -35,7 +35,7 @@ pub use types::{
     ScopedServiceHealth, ScopedToolEntry, SourceMode, StoreOptions,
 };
 
-const ONLYDB_CONTROL_EVENT_TYPE: &str = "control_requests";
+const CONTROL_REQUEST_EVENT_TYPE: &str = "control_requests";
 static CONTROL_EVENT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 pub struct MCPStore {
@@ -262,7 +262,7 @@ mod tests {
             .is_none());
         let events = store
             .cache()
-            .get_all_events_async(ONLYDB_CONTROL_EVENT_TYPE)
+            .get_all_events_async(CONTROL_REQUEST_EVENT_TYPE)
             .await
             .unwrap();
         assert_eq!(events.len(), 1);
@@ -544,7 +544,7 @@ mod tests {
 
         let events = store
             .cache()
-            .get_all_events_async(ONLYDB_CONTROL_EVENT_TYPE)
+            .get_all_events_async(CONTROL_REQUEST_EVENT_TYPE)
             .await
             .unwrap();
         assert_eq!(events.len(), 10);
@@ -672,7 +672,7 @@ mod tests {
         assert_eq!(healthy.health_status, HealthStatus::Healthy);
 
         let failed = store
-            .mark_service_retryable_failure("svc", "onlydb local failure".to_string())
+            .mark_service_retryable_failure("svc", "control request local failure".to_string())
             .await
             .unwrap();
         assert!(matches!(
@@ -723,7 +723,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn local_source_processes_onlydb_control_requests() {
+    async fn local_source_processes_control_requests() {
         let path = temp_config_path();
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: Some(path.clone()),
@@ -736,7 +736,7 @@ mod tests {
         store
             .cache()
             .put_event(
-                ONLYDB_CONTROL_EVENT_TYPE,
+                CONTROL_REQUEST_EVENT_TYPE,
                 "evt-add",
                 serde_json::json!({
                     "id": "evt-add",
@@ -767,7 +767,7 @@ mod tests {
             .is_some());
         let event = store
             .cache()
-            .get_event(ONLYDB_CONTROL_EVENT_TYPE, "evt-add")
+            .get_event(CONTROL_REQUEST_EVENT_TYPE, "evt-add")
             .await
             .unwrap()
             .unwrap();

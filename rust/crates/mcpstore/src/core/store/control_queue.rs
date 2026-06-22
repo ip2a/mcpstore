@@ -10,7 +10,7 @@ impl MCPStore {
 
         let mut events = self
             .cache
-            .get_all_events_async(ONLYDB_CONTROL_EVENT_TYPE)
+            .get_all_events_async(CONTROL_REQUEST_EVENT_TYPE)
             .await?
             .into_iter()
             .collect::<Vec<_>>();
@@ -52,7 +52,7 @@ impl MCPStore {
                 }
             }
             self.cache
-                .put_event(ONLYDB_CONTROL_EVENT_TYPE, &key, event)
+                .put_event(CONTROL_REQUEST_EVENT_TYPE, &key, event)
                 .await?;
         }
 
@@ -66,7 +66,7 @@ impl MCPStore {
         agent_id: &str,
         config: &ServerConfig,
     ) -> Result<()> {
-        self.queue_onlydb_control_request(
+        self.queue_control_request(
             "ServiceAddRequested",
             serde_json::json!({
                 "service_name": name,
@@ -78,7 +78,7 @@ impl MCPStore {
         .await
     }
 
-    pub(super) async fn queue_onlydb_control_request(
+    pub(super) async fn queue_control_request(
         &self,
         request_type: &str,
         payload: serde_json::Value,
@@ -98,7 +98,7 @@ impl MCPStore {
             "status": "pending",
         });
         self.cache
-            .put_event(ONLYDB_CONTROL_EVENT_TYPE, &event_id, record)
+            .put_event(CONTROL_REQUEST_EVENT_TYPE, &event_id, record)
             .await?;
         self.event_bus
             .publish(
