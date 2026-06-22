@@ -1,5 +1,5 @@
 use clap::{Args, ValueEnum};
-use mcpstore::{BackendKind, MCPStore, SourceMode, StoreOptions};
+use mcpstore::{CacheStorage, MCPStore, SourceMode, StoreOptions};
 
 use crate::BoxErr;
 
@@ -19,7 +19,7 @@ impl SourceArg {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-pub enum BackendArg {
+pub enum CacheStorageArg {
     Memory,
     Redis,
     #[value(name = "openkeyv_memory", alias = "openkeyv-memory")]
@@ -28,13 +28,13 @@ pub enum BackendArg {
     OpenKeyvRedis,
 }
 
-impl BackendArg {
-    pub fn as_backend_kind(self) -> BackendKind {
+impl CacheStorageArg {
+    pub fn as_cache_storage(self) -> CacheStorage {
         match self {
-            Self::Memory => BackendKind::Memory,
-            Self::Redis => BackendKind::Redis,
-            Self::OpenKeyvMemory => BackendKind::OpenKeyvMemory,
-            Self::OpenKeyvRedis => BackendKind::OpenKeyvRedis,
+            Self::Memory => CacheStorage::Memory,
+            Self::Redis => CacheStorage::Redis,
+            Self::OpenKeyvMemory => CacheStorage::OpenKeyvMemory,
+            Self::OpenKeyvRedis => CacheStorage::OpenKeyvRedis,
         }
     }
 }
@@ -53,10 +53,13 @@ pub struct StoreSourceArgs {
     #[arg(
         long,
         value_enum,
-        help = "KV backend: memory, redis, openkeyv_memory, or openkeyv_redis"
+        help = "Cache storage: memory, redis, openkeyv_memory, or openkeyv_redis"
     )]
-    pub backend: Option<BackendArg>,
-    #[arg(long, help = "Redis URL; defaults to redis backend when provided")]
+    pub backend: Option<CacheStorageArg>,
+    #[arg(
+        long,
+        help = "Redis URL; defaults to redis cache storage when provided"
+    )]
     pub redis_url: Option<String>,
     #[arg(long, help = "KV namespace")]
     pub namespace: Option<String>,
@@ -66,8 +69,8 @@ impl StoreSourceArgs {
     pub fn to_store_options(&self) -> StoreOptions {
         let backend = self
             .backend
-            .map(BackendArg::as_backend_kind)
-            .or_else(|| self.redis_url.as_ref().map(|_| BackendKind::Redis));
+            .map(CacheStorageArg::as_cache_storage)
+            .or_else(|| self.redis_url.as_ref().map(|_| CacheStorage::Redis));
 
         StoreOptions {
             config_path: self.config_path.clone(),

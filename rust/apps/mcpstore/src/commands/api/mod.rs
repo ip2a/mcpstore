@@ -20,9 +20,9 @@ mod parse;
 
 use envelope::{success, ApiError, ApiResult};
 use parse::{
-    backend_label, ensure_json_object, extract_prompt_args, extract_prompt_name,
+    cache_storage_label, ensure_json_object, extract_prompt_args, extract_prompt_name,
     extract_resource_uri, extract_tool_args, extract_tool_name, normalize_prefix,
-    parse_backend_kind, parse_named_service_payload, parse_positive_u64, parse_positive_usize,
+    parse_cache_storage, parse_named_service_payload, parse_positive_u64, parse_positive_usize,
 };
 
 #[derive(Args)]
@@ -223,7 +223,7 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
 async fn health(State(state): State<Arc<ApiState>>) -> Json<Value> {
     Json(json!({
         "status": "ok",
-        "backend": backend_label(state.store.current_backend().await),
+        "backend": cache_storage_label(state.store.current_cache_storage().await),
     }))
 }
 
@@ -902,10 +902,10 @@ async fn cache_switch(
     State(state): State<Arc<ApiState>>,
     Json(payload): Json<CacheSwitchRequest>,
 ) -> ApiResult {
-    let backend = parse_backend_kind(&payload.backend)?;
+    let cache_storage = parse_cache_storage(&payload.backend)?;
     let snapshot = state
         .store
-        .switch_backend(backend, payload.redis_url, payload.namespace)
+        .switch_cache_storage(cache_storage, payload.redis_url, payload.namespace)
         .await
         .map_err(ApiError::from_store)?;
     let snapshot = serde_json::to_value(snapshot)

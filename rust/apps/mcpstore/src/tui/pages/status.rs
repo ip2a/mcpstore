@@ -104,7 +104,7 @@ fn overview_lines(app: &TuiApp) -> Vec<Line<'static>> {
     vec![
         kv("运行状态", "ready".to_string()),
         kv("配置来源", app.source_label.clone()),
-        kv("缓存后端", app.backend_label.clone()),
+        kv("缓存存储", app.cache_storage_label.clone()),
         kv("命名空间", app.namespace.clone()),
         kv("MCP配置", app.config_path.clone()),
         kv("服务总数", stats.total.to_string()),

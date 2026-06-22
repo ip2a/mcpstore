@@ -4,7 +4,7 @@ use axum::{
 };
 use maud::html;
 use mcpstore::registry::ConnectionStatus;
-use mcpstore::{BackendKind, MCPStore};
+use mcpstore::{CacheStorage, MCPStore};
 use std::{collections::HashMap, sync::Arc};
 
 use super::{
@@ -21,11 +21,11 @@ pub(super) async fn page_home(
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let agent_filter = params.get("agent").cloned().unwrap_or_default();
-    let backend_label = match store.current_backend().await {
-        BackendKind::Memory => "memory",
-        BackendKind::Redis => "redis",
-        BackendKind::OpenKeyvMemory => "openkeyv_memory",
-        BackendKind::OpenKeyvRedis => "openkeyv_redis",
+    let backend_label = match store.current_cache_storage().await {
+        CacheStorage::Memory => "memory",
+        CacheStorage::Redis => "redis",
+        CacheStorage::OpenKeyvMemory => "openkeyv_memory",
+        CacheStorage::OpenKeyvRedis => "openkeyv_redis",
     };
     let source_label = if store.is_db_source() { "db" } else { "local" };
 

@@ -23,5 +23,5 @@ pub use registry::{ConnectionStatus, ServiceEntry, ToolInfo};
 pub use transport::{ContentItem, ToolCallResult, ToolDescription};
 
 // Facade re-exports: core store
-pub use core::store::{BackendKind, MCPStore, SourceMode, StoreOptions};
+pub use core::store::{BackendKind, CacheStorage, MCPStore, SourceMode, StoreOptions};
 pub use core::{perspective, Result, StoreError};

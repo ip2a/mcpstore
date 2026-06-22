@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use mcpstore::MCPStore;
 
 use crate::{
-    store_args::{build_store, BackendArg, StoreSourceArgs},
+    store_args::{build_store, CacheStorageArg, StoreSourceArgs},
     BoxErr,
 };
 
@@ -541,9 +541,16 @@ pub struct CallToolArgs {
 pub struct MigrateBackendArgs {
     #[command(flatten)]
     pub store: StoreSourceArgs,
-    #[arg(long, value_enum, help = "Target KV backend: memory or redis")]
-    pub target_backend: BackendArg,
-    #[arg(long, help = "Target Redis URL; used when target backend is redis")]
+    #[arg(
+        long = "target-backend",
+        value_enum,
+        help = "Target cache storage: memory or redis"
+    )]
+    pub target_cache_storage: CacheStorageArg,
+    #[arg(
+        long,
+        help = "Target Redis URL; used when target cache storage is redis"
+    )]
     pub target_redis_url: Option<String>,
 }
 
@@ -620,9 +627,9 @@ pub async fn migrate_backend(a: MigrateBackendArgs) -> std::result::Result<(), B
     let store = build_store(&a.store)?;
     store.load_from_source().await?;
 
-    let target_backend = a.target_backend.as_backend_kind();
+    let target_cache_storage = a.target_cache_storage.as_cache_storage();
     let snapshot = store
-        .switch_backend(target_backend.clone(), a.target_redis_url, None)
+        .switch_cache_storage(target_cache_storage.clone(), a.target_redis_url, None)
         .await?;
     let total_entries: usize = snapshot.entities.values().map(HashMap::len).sum::<usize>()
         + snapshot.relations.values().map(HashMap::len).sum::<usize>()
@@ -630,8 +637,8 @@ pub async fn migrate_backend(a: MigrateBackendArgs) -> std::result::Result<(), B
         + snapshot.events.values().map(HashMap::len).sum::<usize>();
 
     println!(
-        "[Success] Backend hot migration completed: target={:?} entries={}",
-        target_backend, total_entries
+        "[Success] Cache storage hot migration completed: target={:?} entries={}",
+        target_cache_storage, total_entries
     );
     Ok(())
 }

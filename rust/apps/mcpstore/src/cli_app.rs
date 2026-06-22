@@ -285,7 +285,7 @@ mod tests {
                 assert_eq!(args.store.source, crate::store_args::SourceArg::Db);
                 assert_eq!(
                     args.store.backend,
-                    Some(crate::store_args::BackendArg::Redis)
+                    Some(crate::store_args::CacheStorageArg::Redis)
                 );
                 assert_eq!(
                     args.store.redis_url.as_deref(),
@@ -314,7 +314,10 @@ mod tests {
         match cli.command {
             Commands::MigrateBackend(args) => {
                 assert_eq!(args.store.source, crate::store_args::SourceArg::Local);
-                assert_eq!(args.target_backend, crate::store_args::BackendArg::Redis);
+                assert_eq!(
+                    args.target_cache_storage,
+                    crate::store_args::CacheStorageArg::Redis
+                );
                 assert_eq!(
                     args.target_redis_url.as_deref(),
                     Some("redis://127.0.0.1:6379/0")
