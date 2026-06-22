@@ -115,7 +115,7 @@ impl MCPStore {
     pub async fn connect_service(&self, name: &str) -> Result<()> {
         if self.source_mode == SourceMode::Db {
             return self
-                .queue_onlydb_control_request(
+                .queue_control_request(
                     "ServiceConnectRequested",
                     serde_json::json!({ "service_name": name }),
                 )
@@ -249,7 +249,7 @@ impl MCPStore {
     pub async fn remove_service(&self, name: &str) -> Result<()> {
         if self.source_mode == SourceMode::Db {
             return self
-                .queue_onlydb_control_request(
+                .queue_control_request(
                     "ServiceRemoveRequested",
                     serde_json::json!({ "service_name": name }),
                 )
@@ -280,7 +280,7 @@ impl MCPStore {
     pub async fn update_service(&self, name: &str, config: ServerConfig) -> Result<()> {
         if self.source_mode == SourceMode::Db {
             return self
-                .queue_onlydb_control_request(
+                .queue_control_request(
                     "ServiceUpdateRequested",
                     serde_json::json!({
                         "service_name": name,
@@ -312,7 +312,7 @@ impl MCPStore {
     pub async fn patch_service(&self, name: &str, updates: serde_json::Value) -> Result<()> {
         if self.source_mode == SourceMode::Db {
             return self
-                .queue_onlydb_control_request(
+                .queue_control_request(
                     "ServicePatchRequested",
                     serde_json::json!({
                         "service_name": name,
@@ -563,7 +563,7 @@ impl MCPStore {
     pub async fn disconnect_service(&self, name: &str) -> Result<()> {
         if self.source_mode == SourceMode::Db {
             return self
-                .queue_onlydb_control_request(
+                .queue_control_request(
                     "ServiceDisconnectRequested",
                     serde_json::json!({ "service_name": name }),
                 )
@@ -631,7 +631,7 @@ impl MCPStore {
     pub async fn reset_config(&self) -> Result<()> {
         if self.source_mode == SourceMode::Db {
             return self
-                .queue_onlydb_control_request("StoreResetRequested", serde_json::json!({}))
+                .queue_control_request("StoreResetRequested", serde_json::json!({}))
                 .await;
         }
 
@@ -699,7 +699,7 @@ impl MCPStore {
     pub async fn restart_service(&self, name: &str) -> Result<()> {
         if self.source_mode == SourceMode::Db {
             return self
-                .queue_onlydb_control_request(
+                .queue_control_request(
                     "ServiceRestartRequested",
                     serde_json::json!({ "service_name": name }),
                 )
