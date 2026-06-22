@@ -6,8 +6,8 @@
 //! - State Layer:     {namespace}:state:{type}     -> Connection/Health status
 //! - Event Layer:     {namespace}:event:{type}     -> Event storage
 //!
-//! P0 priority for Rust migration. Replaces py-key-value-aio with native Rust
-//! KV abstractions, using serde_json::Value as the universal value type.
+//! P0 priority for Rust migration. Uses openkeyv-backed storage with
+//! serde_json::Value as the universal business value type.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,7 +15,7 @@ use std::sync::RwLock as SyncRwLock;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock as AsyncRwLock;
 
-use crate::cache::{models, serializer, CacheStore};
+use crate::cache::CacheStore;
 
 // ==================== Error Type ====================
 
@@ -45,11 +45,11 @@ pub struct CacheSnapshot {
 
 /// Central cache manager with four logical layers over a single KV backend.
 pub struct CacheLayerManager {
-    store: AsyncRwLock<Arc<dyn CacheStore>>,
-    namespace: SyncRwLock<String>,
-    last_empty_log: AsyncRwLock<HashMap<String, Instant>>,
-    last_state_snapshot: AsyncRwLock<HashMap<String, serde_json::Value>>,
-    log_interval: Duration,
+    pub(in crate::cache) store: AsyncRwLock<Arc<dyn CacheStore>>,
+    pub(in crate::cache) namespace: SyncRwLock<String>,
+    pub(in crate::cache) last_empty_log: AsyncRwLock<HashMap<String, Instant>>,
+    pub(in crate::cache) last_state_snapshot: AsyncRwLock<HashMap<String, serde_json::Value>>,
+    pub(in crate::cache) log_interval: Duration,
 }
 
 impl CacheLayerManager {
@@ -72,15 +72,18 @@ impl CacheLayerManager {
             .clone()
     }
 
-    fn entity_collection(&self, entity_type: &str) -> String {
+    pub(in crate::cache) fn entity_collection(&self, entity_type: &str) -> String {
         Self::entity_collection_with_namespace(&self.namespace(), entity_type)
     }
 
-    fn entity_collection_with_namespace(namespace: &str, entity_type: &str) -> String {
+    pub(in crate::cache) fn entity_collection_with_namespace(
+        namespace: &str,
+        entity_type: &str,
+    ) -> String {
         format!("{namespace}:entity:{entity_type}")
     }
 
-    fn validate_entity_type(entity_type: &str) -> Result<()> {
+    pub(in crate::cache) fn validate_entity_type(entity_type: &str) -> Result<()> {
         const ENTITY_TYPES: &[&str] = &["agents", "clients", "services", "store", "tools"];
         if ENTITY_TYPES.contains(&entity_type) {
             return Ok(());
@@ -91,31 +94,43 @@ impl CacheLayerManager {
         )))
     }
 
-    fn invalid_entity_type_message(entity_type: &str, allowed: &str) -> String {
+    pub(in crate::cache) fn invalid_entity_type_message(
+        entity_type: &str,
+        allowed: &str,
+    ) -> String {
         format!("Unknown entity_type '{entity_type}'. Allowed entity types: {allowed}")
     }
 
-    fn relation_collection(&self, relation_type: &str) -> String {
+    pub(in crate::cache) fn relation_collection(&self, relation_type: &str) -> String {
         Self::relation_collection_with_namespace(&self.namespace(), relation_type)
     }
 
-    fn relation_collection_with_namespace(namespace: &str, relation_type: &str) -> String {
+    pub(in crate::cache) fn relation_collection_with_namespace(
+        namespace: &str,
+        relation_type: &str,
+    ) -> String {
         format!("{namespace}:relations:{relation_type}")
     }
 
-    fn state_collection(&self, state_type: &str) -> String {
+    pub(in crate::cache) fn state_collection(&self, state_type: &str) -> String {
         Self::state_collection_with_namespace(&self.namespace(), state_type)
     }
 
-    fn state_collection_with_namespace(namespace: &str, state_type: &str) -> String {
+    pub(in crate::cache) fn state_collection_with_namespace(
+        namespace: &str,
+        state_type: &str,
+    ) -> String {
         format!("{namespace}:state:{state_type}")
     }
 
-    fn event_collection(&self, event_type: &str) -> String {
+    pub(in crate::cache) fn event_collection(&self, event_type: &str) -> String {
         Self::event_collection_with_namespace(&self.namespace(), event_type)
     }
 
-    fn event_collection_with_namespace(namespace: &str, event_type: &str) -> String {
+    pub(in crate::cache) fn event_collection_with_namespace(
+        namespace: &str,
+        event_type: &str,
+    ) -> String {
         format!("{namespace}:event:{event_type}")
     }
 
@@ -232,7 +247,7 @@ impl CacheLayerManager {
 
     // ---------- Logging helpers ----------
 
-    async fn log_empty_collection(&self, collection: &str) {
+    pub(in crate::cache) async fn log_empty_collection(&self, collection: &str) {
         let now = Instant::now();
         let mut log = self.last_empty_log.write().await;
         match log.get(collection) {
@@ -247,7 +262,31 @@ impl CacheLayerManager {
         }
     }
 
-    async fn has_state_changed(&self, key: &str, value: &Option<serde_json::Value>) -> bool {
+    pub(in crate::cache) async fn get_all_from_collection(
+        &self,
+        collection: &str,
+    ) -> Result<HashMap<String, serde_json::Value>> {
+        let store = self.store.read().await;
+        let keys = store.keys(collection).await?;
+        if keys.is_empty() {
+            self.log_empty_collection(collection).await;
+            return Ok(HashMap::new());
+        }
+        let results = store.get_many(&keys, collection).await?;
+        let mut values = HashMap::with_capacity(keys.len());
+        for (index, key) in keys.iter().enumerate() {
+            if let Some(Some(value)) = results.get(index) {
+                values.insert(key.clone(), value.clone());
+            }
+        }
+        Ok(values)
+    }
+
+    pub(in crate::cache) async fn has_state_changed(
+        &self,
+        key: &str,
+        value: &Option<serde_json::Value>,
+    ) -> bool {
         let mut snapshot = self.last_state_snapshot.write().await;
         match snapshot.get(key) {
             Some(prev) if prev == value.as_ref().unwrap_or(&serde_json::Value::Null) => false,
@@ -260,274 +299,5 @@ impl CacheLayerManager {
                 true
             }
         }
-    }
-
-    // ---------- Entity layer ----------
-
-    pub async fn put_entity(
-        &self,
-        entity_type: &str,
-        key: &str,
-        value: serde_json::Value,
-    ) -> Result<()> {
-        if !value.is_object() {
-            return Err(CacheError::NotAnObject(format!(
-                "entity_type={entity_type}, key={key}"
-            )));
-        }
-        Self::validate_entity_type(entity_type)?;
-        let collection = self.entity_collection(entity_type);
-        self.store.read().await.put(key, value, &collection).await
-    }
-
-    pub async fn get_entity(
-        &self,
-        entity_type: &str,
-        key: &str,
-    ) -> Result<Option<serde_json::Value>> {
-        Self::validate_entity_type(entity_type)?;
-        let collection = self.entity_collection(entity_type);
-        self.store.read().await.get(key, &collection).await
-    }
-
-    pub async fn delete_entity(&self, entity_type: &str, key: &str) -> Result<()> {
-        Self::validate_entity_type(entity_type)?;
-        let collection = self.entity_collection(entity_type);
-        self.store.read().await.delete(key, &collection).await
-    }
-
-    pub async fn get_all_entities_async(
-        &self,
-        entity_type: &str,
-    ) -> Result<HashMap<String, serde_json::Value>> {
-        Self::validate_entity_type(entity_type)?;
-        let collection = self.entity_collection(entity_type);
-        let store = self.store.read().await;
-        let keys = store.keys(&collection).await?;
-        if keys.is_empty() {
-            self.log_empty_collection(&collection).await;
-            return Ok(HashMap::new());
-        }
-        let results = store.get_many(&keys, &collection).await?;
-        let mut entities = HashMap::with_capacity(keys.len());
-        for (i, key) in keys.iter().enumerate() {
-            if let Some(Some(value)) = results.get(i) {
-                entities.insert(key.clone(), value.clone());
-            }
-        }
-        Ok(entities)
-    }
-
-    // get_all_entities_sync is intentionally omitted from async Rust core;
-    // sync wrappers live in the PyO3 layer or caller bridges.
-
-    // ---------- Relation layer ----------
-
-    pub async fn put_relation(
-        &self,
-        relation_type: &str,
-        key: &str,
-        value: serde_json::Value,
-    ) -> Result<()> {
-        if !value.is_object() {
-            return Err(CacheError::NotAnObject(format!(
-                "relation_type={relation_type}, key={key}"
-            )));
-        }
-        let collection = self.relation_collection(relation_type);
-        self.store.read().await.put(key, value, &collection).await
-    }
-
-    pub async fn get_relation(
-        &self,
-        relation_type: &str,
-        key: &str,
-    ) -> Result<Option<serde_json::Value>> {
-        let collection = self.relation_collection(relation_type);
-        self.store.read().await.get(key, &collection).await
-    }
-
-    pub async fn delete_relation(&self, relation_type: &str, key: &str) -> Result<()> {
-        let collection = self.relation_collection(relation_type);
-        self.store.read().await.delete(key, &collection).await
-    }
-
-    pub async fn get_all_relations_async(
-        &self,
-        relation_type: &str,
-    ) -> Result<HashMap<String, serde_json::Value>> {
-        let collection = self.relation_collection(relation_type);
-        let store = self.store.read().await;
-        let keys = store.keys(&collection).await?;
-        if keys.is_empty() {
-            self.log_empty_collection(&collection).await;
-            return Ok(HashMap::new());
-        }
-        let results = store.get_many(&keys, &collection).await?;
-        let mut relations = HashMap::with_capacity(keys.len());
-        for (i, key) in keys.iter().enumerate() {
-            if let Some(Some(value)) = results.get(i) {
-                relations.insert(key.clone(), value.clone());
-            }
-        }
-        Ok(relations)
-    }
-
-    // ---------- State layer ----------
-
-    pub async fn put_state(
-        &self,
-        state_type: &str,
-        key: &str,
-        value: serde_json::Value,
-    ) -> Result<()> {
-        if !value.is_object() {
-            return Err(CacheError::NotAnObject(format!(
-                "state_type={state_type}, key={key}"
-            )));
-        }
-        let collection = self.state_collection(state_type);
-        let state_key = format!("{state_type}:{key}");
-        let changed = self
-            .has_state_changed(&state_key, &Some(value.clone()))
-            .await;
-        if changed {
-            tracing::debug!(
-                "[CACHE] [STATE] [PUT_VALUE] collection={collection}, key={key}, value={value}"
-            );
-        }
-        self.store.read().await.put(key, value, &collection).await
-    }
-
-    pub async fn get_state(
-        &self,
-        state_type: &str,
-        key: &str,
-    ) -> Result<Option<serde_json::Value>> {
-        let collection = self.state_collection(state_type);
-        let result = self.store.read().await.get(key, &collection).await?;
-        let state_key = format!("{state_type}:{key}");
-        let changed = self.has_state_changed(&state_key, &result).await;
-        if changed {
-            tracing::debug!(
-                "[CACHE] [STATE] [GET_RESULT] collection={collection}, key={key}, result={result:?}"
-            );
-        }
-        Ok(result)
-    }
-
-    pub async fn delete_state(&self, state_type: &str, key: &str) -> Result<()> {
-        let collection = self.state_collection(state_type);
-        self.store.read().await.delete(key, &collection).await
-    }
-
-    pub async fn get_all_states_async(
-        &self,
-        state_type: &str,
-    ) -> Result<HashMap<String, serde_json::Value>> {
-        let collection = self.state_collection(state_type);
-        let store = self.store.read().await;
-        let keys = store.keys(&collection).await?;
-        if keys.is_empty() {
-            self.log_empty_collection(&collection).await;
-            return Ok(HashMap::new());
-        }
-        let results = store.get_many(&keys, &collection).await?;
-        let mut states = HashMap::with_capacity(keys.len());
-        for (i, key) in keys.iter().enumerate() {
-            if let Some(Some(value)) = results.get(i) {
-                states.insert(key.clone(), value.clone());
-            }
-        }
-        Ok(states)
-    }
-
-    // ---------- Event layer ----------
-
-    pub async fn put_event(
-        &self,
-        event_type: &str,
-        key: &str,
-        value: serde_json::Value,
-    ) -> Result<()> {
-        if !value.is_object() {
-            return Err(CacheError::NotAnObject(format!(
-                "event_type={event_type}, key={key}"
-            )));
-        }
-        let collection = self.event_collection(event_type);
-        self.store.read().await.put(key, value, &collection).await
-    }
-
-    pub async fn get_event(
-        &self,
-        event_type: &str,
-        key: &str,
-    ) -> Result<Option<serde_json::Value>> {
-        let collection = self.event_collection(event_type);
-        self.store.read().await.get(key, &collection).await
-    }
-
-    pub async fn delete_event(&self, event_type: &str, key: &str) -> Result<()> {
-        let collection = self.event_collection(event_type);
-        self.store.read().await.delete(key, &collection).await
-    }
-
-    pub async fn get_all_events_async(
-        &self,
-        event_type: &str,
-    ) -> Result<HashMap<String, serde_json::Value>> {
-        let collection = self.event_collection(event_type);
-        let store = self.store.read().await;
-        let keys = store.keys(&collection).await?;
-        if keys.is_empty() {
-            self.log_empty_collection(&collection).await;
-            return Ok(HashMap::new());
-        }
-        let results = store.get_many(&keys, &collection).await?;
-        let mut events = HashMap::with_capacity(keys.len());
-        for (i, key) in keys.iter().enumerate() {
-            if let Some(Some(value)) = results.get(i) {
-                events.insert(key.clone(), value.clone());
-            }
-        }
-        Ok(events)
-    }
-
-    // ---------- Agent helpers ----------
-
-    pub async fn create_agent(
-        &self,
-        agent_id: &str,
-        created_time: i64,
-        is_global: bool,
-    ) -> Result<()> {
-        if agent_id.is_empty() {
-            return Err(CacheError::Validation("Agent ID cannot be empty".into()));
-        }
-        if self.get_entity("agents", agent_id).await?.is_some() {
-            return Err(CacheError::Validation(format!(
-                "Agent already exists: agent_id={agent_id}"
-            )));
-        }
-        let entity = models::AgentEntity {
-            agent_id: agent_id.to_string(),
-            created_time,
-            last_active: created_time,
-            is_global,
-        };
-        let value = serializer::to_value(&entity)?;
-        self.put_entity("agents", agent_id, value).await?;
-        tracing::info!(
-            "[CACHE] [AGENT] Created Agent entity: agent_id={agent_id}, is_global={is_global}"
-        );
-        Ok(())
-    }
-
-    pub async fn get_agent(&self, agent_id: &str) -> Result<Option<serde_json::Value>> {
-        if agent_id.is_empty() {
-            return Err(CacheError::Validation("Agent ID cannot be empty".into()));
-        }
-        self.get_entity("agents", agent_id).await
     }
 }
