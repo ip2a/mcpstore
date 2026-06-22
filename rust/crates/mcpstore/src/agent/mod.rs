@@ -1,4 +1,5 @@
-pub(crate) mod content;
+pub(crate) mod bindings;
+pub(crate) mod catalog;
 pub(crate) mod health;
 pub(crate) mod models;
 pub(crate) mod prompts;
