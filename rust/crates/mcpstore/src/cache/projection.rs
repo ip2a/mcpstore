@@ -1,7 +1,7 @@
-use super::*;
+use crate::store::prelude::*;
 
 impl MCPStore {
-    pub(super) async fn cache_service_added(
+    pub(crate) async fn cache_service_added(
         &self,
         name: &str,
         original_name: &str,
@@ -42,12 +42,12 @@ impl MCPStore {
         Ok(())
     }
 
-    pub(super) async fn cache_agent_scope(&self, agent_id: &str) -> Result<()> {
+    pub(crate) async fn cache_agent_scope(&self, agent_id: &str) -> Result<()> {
         let service_names = self.registry.list_agent_services(agent_id).await;
         self.cache_agent_scope_names(agent_id, service_names).await
     }
 
-    pub(super) async fn cache_agent_scope_names(
+    pub(crate) async fn cache_agent_scope_names(
         &self,
         agent_id: &str,
         service_names: Vec<String>,
@@ -114,7 +114,7 @@ impl MCPStore {
         Ok(())
     }
 
-    pub(super) async fn cached_agent_scope(&self, agent_id: &str) -> Result<Vec<String>> {
+    pub(crate) async fn cached_agent_scope(&self, agent_id: &str) -> Result<Vec<String>> {
         let value = self.cache.get_relation("agent_services", agent_id).await?;
         match value {
             Some(value) => {
@@ -132,7 +132,7 @@ impl MCPStore {
         }
     }
 
-    pub(super) async fn cache_service_connected(
+    pub(crate) async fn cache_service_connected(
         &self,
         name: &str,
         tools: &[crate::registry::ToolInfo],
@@ -210,7 +210,7 @@ impl MCPStore {
         Ok(())
     }
 
-    pub(super) async fn cache_service_removed(&self, name: &str) -> Result<()> {
+    pub(crate) async fn cache_service_removed(&self, name: &str) -> Result<()> {
         self.cache.delete_entity("services", name).await?;
         self.cache.delete_relation("service_tools", name).await?;
         self.cache.delete_state("service_status", name).await?;

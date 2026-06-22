@@ -4,6 +4,14 @@
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone)]
+pub struct EventCapabilityReport {
+    pub event_bus: bool,
+    pub history: bool,
+    pub history_capacity: usize,
+    pub cache_event_layer: bool,
+}
+
 /// Service lifecycle event kinds.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]

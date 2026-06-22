@@ -1,4 +1,4 @@
-use super::*;
+use crate::store::prelude::*;
 
 impl MCPStore {
     pub async fn health_check(&self, name: &str) -> Result<ServiceStatus> {
@@ -134,7 +134,7 @@ impl MCPStore {
         .await
     }
 
-    pub(super) async fn set_service_status(
+    pub(crate) async fn set_service_status(
         &self,
         name: &str,
         health_status: HealthStatus,
@@ -145,7 +145,7 @@ impl MCPStore {
         self.put_service_status_payload(&payload).await
     }
 
-    pub(super) async fn put_service_status_payload(&self, payload: &ServiceStatus) -> Result<()> {
+    pub(crate) async fn put_service_status_payload(&self, payload: &ServiceStatus) -> Result<()> {
         if self.source_mode == SourceMode::Db {
             return Ok(());
         }
@@ -160,7 +160,7 @@ impl MCPStore {
             .map_err(Into::into)
     }
 
-    pub(super) fn service_status_payload(
+    pub(crate) fn service_status_payload(
         &self,
         name: &str,
         health_status: HealthStatus,
@@ -185,11 +185,11 @@ impl MCPStore {
         }
     }
 
-    pub(super) fn now_timestamp() -> i64 {
+    pub(crate) fn now_timestamp() -> i64 {
         chrono::Utc::now().timestamp()
     }
 
-    pub(super) fn now_timestamp_f64() -> f64 {
+    pub(crate) fn now_timestamp_f64() -> f64 {
         Self::now_timestamp() as f64
     }
 
@@ -202,7 +202,7 @@ impl MCPStore {
         delay.min(self.runtime_config.retry_backoff_max_secs)
     }
 
-    pub(super) fn retry_wait_seconds(status: &ServiceStatus, now: f64) -> Option<i64> {
+    pub(crate) fn retry_wait_seconds(status: &ServiceStatus, now: f64) -> Option<i64> {
         if status.health_status != HealthStatus::CircuitOpen {
             return None;
         }
@@ -213,7 +213,7 @@ impl MCPStore {
         Some((retry_at - now).ceil() as i64)
     }
 
-    pub(super) fn retry_exhausted(status: &ServiceStatus, now: f64) -> bool {
+    pub(crate) fn retry_exhausted(status: &ServiceStatus, now: f64) -> bool {
         status.health_status == HealthStatus::Disconnected
             && status.current_error.is_some()
             && (status.connection_attempts >= status.max_connection_attempts
@@ -223,7 +223,7 @@ impl MCPStore {
                     .unwrap_or(false))
     }
 
-    pub(super) fn retry_poll_interval(status: &ServiceStatus) -> std::time::Duration {
+    pub(crate) fn retry_poll_interval(status: &ServiceStatus) -> std::time::Duration {
         let now = Self::now_timestamp_f64();
         if let Some(retry_at) = status.next_retry_time {
             if retry_at > now {
@@ -234,7 +234,7 @@ impl MCPStore {
         std::time::Duration::from_millis(300)
     }
 
-    pub(super) fn health_status_name(status: &HealthStatus) -> &'static str {
+    pub(crate) fn health_status_name(status: &HealthStatus) -> &'static str {
         match status {
             HealthStatus::Init => "init",
             HealthStatus::Startup => "startup",
@@ -256,7 +256,7 @@ impl MCPStore {
         }
     }
 
-    pub(super) async fn hydrate_service_status_from_cache(
+    pub(crate) async fn hydrate_service_status_from_cache(
         &self,
         service: &mut ServiceEntry,
     ) -> Result<()> {
@@ -302,7 +302,7 @@ impl MCPStore {
         Ok(statuses)
     }
 
-    pub(super) async fn mark_service_retryable_failure(
+    pub(crate) async fn mark_service_retryable_failure(
         &self,
         name: &str,
         error: String,
@@ -339,7 +339,7 @@ impl MCPStore {
         Ok(payload)
     }
 
-    pub(super) async fn sync_retry_window(&self, name: &str) -> Result<Option<ServiceStatus>> {
+    pub(crate) async fn sync_retry_window(&self, name: &str) -> Result<Option<ServiceStatus>> {
         let Some(mut status) = self.cached_service_status(name).await? else {
             return Ok(None);
         };
