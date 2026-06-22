@@ -1,13 +1,10 @@
-use std::sync::{atomic::AtomicU64, Arc, RwLock as SyncRwLock};
+use std::sync::{atomic::AtomicU64, RwLock as SyncRwLock};
 
 use crate::cache::models::{
     AgentServiceRelation, HealthStatus, ServiceEntity, ServiceRelationItem, ServiceStatus,
     ServiceToolRelation, ToolAvailability, ToolEntity, ToolRelationItem, ToolStatusItem,
 };
-use crate::cache::{
-    openkeyv_memory_backend, openkeyv_redis_backend, CacheLayerManager, CacheSnapshot, KvStore,
-    MemoryStore, RedisStore,
-};
+use crate::cache::CacheLayerManager;
 use crate::config::{CacheBackend, ConfigManager, ServerConfig};
 use crate::events::{Event, EventBus};
 use crate::registry::{ConnectionStatus, ServiceEntry, ServiceRegistry};
@@ -20,21 +17,18 @@ use crate::perspective::{
 };
 use crate::{Result, StoreError};
 
+mod cache_admin;
 mod control_queue;
 mod db_refresh;
 mod payload;
 mod types;
-use payload::wrap_cache_item;
 use types::StoreRuntimeConfig;
 
 pub use types::{
-    BackendKind, CacheHealthReport, EventCapabilityReport, ScopedServiceEntry, ScopedServiceHealth,
-    ScopedToolEntry, SourceMode, StoreOptions,
+    BackendKind, CacheHealthReport, CacheStorage, EventCapabilityReport, ScopedServiceEntry,
+    ScopedServiceHealth, ScopedToolEntry, SourceMode, StoreOptions,
 };
 
-const ENTITY_TYPES: &[&str] = &["agents", "clients", "services", "store", "tools"];
-const RELATION_TYPES: &[&str] = &["agent_services", "service_tools"];
-const STATE_TYPES: &[&str] = &["service_status", "service_metadata"];
 const ONLYDB_CONTROL_EVENT_TYPE: &str = "control_requests";
 static CONTROL_EVENT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -63,7 +57,7 @@ pub struct MCPStore {
     config_manager: ConfigManager,
     source_mode: SourceMode,
     runtime_config: StoreRuntimeConfig,
-    backend: tokio::sync::RwLock<BackendKind>,
+    cache_storage: tokio::sync::RwLock<CacheStorage>,
     redis_url: tokio::sync::RwLock<Option<String>>,
     namespace: SyncRwLock<String>,
     registry: ServiceRegistry,
@@ -92,33 +86,33 @@ impl MCPStore {
             .namespace
             .clone()
             .unwrap_or_else(|| app_config.cache.namespace.clone());
-        let backend_kind = options
+        let cache_storage = options
             .backend
             .clone()
             .unwrap_or(match &app_config.cache.backend {
-                CacheBackend::Redis => BackendKind::Redis,
-                CacheBackend::Memory => BackendKind::Memory,
-                CacheBackend::OpenKeyvMemory => BackendKind::OpenKeyvMemory,
-                CacheBackend::OpenKeyvRedis => BackendKind::OpenKeyvRedis,
+                CacheBackend::Redis => CacheStorage::Redis,
+                CacheBackend::Memory => CacheStorage::Memory,
+                CacheBackend::OpenKeyvMemory => CacheStorage::OpenKeyvMemory,
+                CacheBackend::OpenKeyvRedis => CacheStorage::OpenKeyvRedis,
             });
         let redis_url = options
             .redis_url
             .clone()
             .or_else(|| app_config.cache.redis_url.clone())
             .unwrap_or_else(|| "redis://127.0.0.1/".to_string());
-        let backend = Self::build_backend(&backend_kind, &redis_url, &namespace)?;
+        let cache_store = Self::build_backend(&cache_storage, &redis_url, &namespace)?;
 
         Ok(Self {
             config_manager,
             source_mode: options.source_mode,
             runtime_config,
-            backend: tokio::sync::RwLock::new(backend_kind),
+            cache_storage: tokio::sync::RwLock::new(cache_storage),
             redis_url: tokio::sync::RwLock::new(Some(redis_url)),
             namespace: SyncRwLock::new(namespace.clone()),
             registry: ServiceRegistry::new(),
             pool: ConnectionPool::new(),
             event_bus: EventBus::with_history(1000),
-            cache: CacheLayerManager::new(backend, namespace),
+            cache: CacheLayerManager::new(cache_store, namespace),
         })
     }
 
@@ -137,60 +131,12 @@ impl MCPStore {
             .clone()
     }
 
-    fn build_backend(
-        backend_kind: &BackendKind,
-        redis_url: &str,
-        namespace: &str,
-    ) -> Result<Arc<dyn KvStore>> {
-        match backend_kind {
-            BackendKind::Redis => Ok(Arc::new(RedisStore::with_namespace(redis_url, namespace)?)),
-            BackendKind::Memory => Ok(Arc::new(MemoryStore::new())),
-            BackendKind::OpenKeyvMemory => Ok(openkeyv_memory_backend()),
-            BackendKind::OpenKeyvRedis => Ok(openkeyv_redis_backend(redis_url)),
-        }
-    }
-
     pub fn source_mode(&self) -> SourceMode {
         self.source_mode
     }
 
     pub fn is_db_source(&self) -> bool {
         self.source_mode == SourceMode::Db
-    }
-
-    pub async fn current_backend(&self) -> BackendKind {
-        self.backend.read().await.clone()
-    }
-
-    pub async fn switch_backend(
-        &self,
-        backend_kind: BackendKind,
-        redis_url: Option<String>,
-        namespace: Option<String>,
-    ) -> Result<CacheSnapshot> {
-        let resolved_redis_url = match redis_url {
-            Some(url) => url,
-            None => self
-                .redis_url
-                .read()
-                .await
-                .clone()
-                .unwrap_or_else(|| "redis://127.0.0.1/".to_string()),
-        };
-        let resolved_namespace = namespace.unwrap_or_else(|| self.namespace());
-        let backend = Self::build_backend(&backend_kind, &resolved_redis_url, &resolved_namespace)?;
-        let snapshot = self
-            .cache
-            .replace_store_with_snapshot_and_namespace(backend, resolved_namespace.clone())
-            .await?;
-
-        *self.backend.write().await = backend_kind;
-        *self.redis_url.write().await = Some(resolved_redis_url);
-        *self
-            .namespace
-            .write()
-            .expect("store namespace lock poisoned") = resolved_namespace;
-        Ok(snapshot)
     }
 
     pub async fn add_service(&self, name: &str, config: ServerConfig) -> Result<()> {
@@ -1019,166 +965,6 @@ impl MCPStore {
             return Ok(None);
         };
         Ok(value.get("config").cloned())
-    }
-
-    pub async fn publish_event(
-        &self,
-        event_type: &str,
-        payload: serde_json::Value,
-        wait: bool,
-    ) -> Result<()> {
-        self.event_bus
-            .publish(Event::new(event_type, payload), wait)
-            .await;
-        Ok(())
-    }
-
-    pub async fn event_history(&self, count: usize) -> Vec<Event> {
-        self.event_bus.get_history(count).await
-    }
-
-    pub async fn event_capability_report(&self) -> serde_json::Value {
-        let report = self.event_capability_report_entry().await;
-        serde_json::json!({
-            "event_bus": report.event_bus,
-            "history": report.history,
-            "history_capacity": report.history_capacity,
-            "cache_event_layer": report.cache_event_layer,
-        })
-    }
-
-    pub async fn event_capability_report_entry(&self) -> EventCapabilityReport {
-        EventCapabilityReport {
-            event_bus: true,
-            history: true,
-            history_capacity: 1000,
-            cache_event_layer: true,
-        }
-    }
-
-    pub async fn cache_health_check(&self) -> Result<serde_json::Value> {
-        let report = self.cache_health_report().await?;
-        Ok(serde_json::json!({
-            "namespace": report.namespace,
-            "backend": report.backend,
-            "entities": report.entities,
-            "relations": report.relations,
-            "states": report.states,
-            "events": report.events,
-        }))
-    }
-
-    pub async fn cache_health_report(&self) -> Result<CacheHealthReport> {
-        let namespace = self.namespace();
-        let snapshot = self.cache.snapshot().await?;
-        Ok(CacheHealthReport {
-            namespace,
-            backend: self.current_backend().await.as_str().to_string(),
-            entities: snapshot.entities.keys().cloned().collect(),
-            relations: snapshot.relations.keys().cloned().collect(),
-            states: snapshot.states.keys().cloned().collect(),
-            events: snapshot.events.keys().cloned().collect(),
-        })
-    }
-
-    pub async fn cache_inspect(&self) -> Result<serde_json::Value> {
-        let namespace = self.namespace();
-        let snapshot = self.cache.snapshot().await?;
-        let mut collections = Vec::new();
-        let mut entities = Vec::new();
-        let mut relations = Vec::new();
-        let mut states = Vec::new();
-        let mut events = Vec::new();
-        let mut entity_counts = serde_json::Map::new();
-        let mut relation_counts = serde_json::Map::new();
-        let mut state_counts = serde_json::Map::new();
-        let mut event_counts = serde_json::Map::new();
-
-        for entity_type in ENTITY_TYPES {
-            let entries = snapshot
-                .entities
-                .get(*entity_type)
-                .cloned()
-                .unwrap_or_default();
-            collections.push(format!("{namespace}:entity:{entity_type}"));
-            entity_counts.insert((*entity_type).to_string(), serde_json::json!(entries.len()));
-            for (key, value) in entries {
-                entities.push(wrap_cache_item(
-                    &key,
-                    entity_type,
-                    &format!("{namespace}:entity:{entity_type}"),
-                    value,
-                ));
-            }
-        }
-        for relation_type in RELATION_TYPES {
-            let entries = snapshot
-                .relations
-                .get(*relation_type)
-                .cloned()
-                .unwrap_or_default();
-            collections.push(format!("{namespace}:relations:{relation_type}"));
-            relation_counts.insert(
-                (*relation_type).to_string(),
-                serde_json::json!(entries.len()),
-            );
-            for (key, value) in entries {
-                relations.push(wrap_cache_item(
-                    &key,
-                    relation_type,
-                    &format!("{namespace}:relations:{relation_type}"),
-                    value,
-                ));
-            }
-        }
-        for state_type in STATE_TYPES {
-            let entries = snapshot
-                .states
-                .get(*state_type)
-                .cloned()
-                .unwrap_or_default();
-            collections.push(format!("{namespace}:state:{state_type}"));
-            state_counts.insert((*state_type).to_string(), serde_json::json!(entries.len()));
-            for (key, value) in entries {
-                states.push(wrap_cache_item(
-                    &key,
-                    state_type,
-                    &format!("{namespace}:state:{state_type}"),
-                    value,
-                ));
-            }
-        }
-        for (event_type, entries) in snapshot.events {
-            collections.push(format!("{namespace}:event:{event_type}"));
-            event_counts.insert(event_type.clone(), serde_json::json!(entries.len()));
-            for (key, value) in entries {
-                events.push(wrap_cache_item(
-                    &key,
-                    &event_type,
-                    &format!("{namespace}:event:{event_type}"),
-                    value,
-                ));
-            }
-        }
-        collections.sort();
-        collections.dedup();
-
-        Ok(serde_json::json!({
-            "backend": self.current_backend().await.as_str(),
-            "namespace": namespace,
-            "scope": "global",
-            "counts": {
-                "entities": entity_counts,
-                "relations": relation_counts,
-                "states": state_counts,
-                "events": event_counts,
-            },
-            "collections": collections,
-            "entities": entities,
-            "relations": relations,
-            "states": states,
-            "events": events,
-        }))
     }
 
     pub async fn assign_service_to_agent(&self, agent_id: &str, service_name: &str) -> Result<()> {
@@ -2732,7 +2518,7 @@ mod tests {
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: Some(path.clone()),
             source_mode: SourceMode::Db,
-            backend: Some(BackendKind::Memory),
+            backend: Some(CacheStorage::Memory),
             redis_url: None,
             namespace: Some("test-db-source".to_string()),
         })
@@ -2764,7 +2550,7 @@ mod tests {
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: None,
             source_mode: SourceMode::Db,
-            backend: Some(BackendKind::Memory),
+            backend: Some(CacheStorage::Memory),
             redis_url: None,
             namespace: Some("test-db-source-refresh".to_string()),
         })
@@ -2848,7 +2634,7 @@ mod tests {
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: None,
             source_mode: SourceMode::Db,
-            backend: Some(BackendKind::Memory),
+            backend: Some(CacheStorage::Memory),
             redis_url: None,
             namespace: Some("test-db-source-public-reads".to_string()),
         })
@@ -2993,7 +2779,7 @@ mod tests {
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: Some(path.clone()),
             source_mode: SourceMode::Db,
-            backend: Some(BackendKind::Memory),
+            backend: Some(CacheStorage::Memory),
             redis_url: None,
             namespace: Some("test-db-source-queue-variants".to_string()),
         })
@@ -3112,7 +2898,7 @@ mod tests {
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: None,
             source_mode: SourceMode::Db,
-            backend: Some(BackendKind::Memory),
+            backend: Some(CacheStorage::Memory),
             redis_url: None,
             namespace: Some("test-db-source-runtime-read-only".to_string()),
         })
@@ -3215,7 +3001,7 @@ mod tests {
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: Some(path.clone()),
             source_mode: SourceMode::Local,
-            backend: Some(BackendKind::Memory),
+            backend: Some(CacheStorage::Memory),
             redis_url: None,
             namespace: Some("test-control-request-worker".to_string()),
         })
@@ -3289,7 +3075,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn switch_backend_migrates_runtime_cache() {
+    async fn switch_cache_storage_migrates_runtime_cache() {
         let path = temp_config_path();
         let store = MCPStore::setup(Some(&path)).unwrap();
         store.add_service("svc", stdio_config()).await.unwrap();
@@ -3299,7 +3085,7 @@ mod tests {
             .unwrap();
 
         let snapshot = store
-            .switch_backend(BackendKind::Memory, None, None)
+            .switch_cache_storage(CacheStorage::Memory, None, None)
             .await
             .unwrap();
         assert!(snapshot.entities["services"].contains_key("svc"));
@@ -3320,12 +3106,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn switch_backend_updates_namespace() {
+    async fn switch_cache_storage_updates_namespace() {
         let path = temp_config_path();
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: Some(path.clone()),
             source_mode: SourceMode::Local,
-            backend: Some(BackendKind::Memory),
+            backend: Some(CacheStorage::Memory),
             redis_url: None,
             namespace: Some("before-switch".to_string()),
         })
@@ -3333,7 +3119,7 @@ mod tests {
         store.add_service("svc", stdio_config()).await.unwrap();
 
         let snapshot = store
-            .switch_backend(BackendKind::Memory, None, Some("after-switch".to_string()))
+            .switch_cache_storage(CacheStorage::Memory, None, Some("after-switch".to_string()))
             .await
             .unwrap();
 
@@ -3359,7 +3145,7 @@ mod tests {
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: Some(path.clone()),
             source_mode: SourceMode::Local,
-            backend: Some(BackendKind::OpenKeyvMemory),
+            backend: Some(CacheStorage::OpenKeyvMemory),
             redis_url: None,
             namespace: Some("test-openkeyv-memory".to_string()),
         })
@@ -3367,7 +3153,10 @@ mod tests {
 
         store.add_service("svc", stdio_config()).await.unwrap();
 
-        assert_eq!(store.current_backend().await, BackendKind::OpenKeyvMemory);
+        assert_eq!(
+            store.current_cache_storage().await,
+            CacheStorage::OpenKeyvMemory
+        );
         assert!(store
             .cache()
             .get_entity("services", "svc")
@@ -3385,18 +3174,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn switch_backend_to_openkeyv_memory_migrates_runtime_cache() {
+    async fn switch_cache_storage_to_openkeyv_memory_migrates_runtime_cache() {
         let path = temp_config_path();
         let store = MCPStore::setup(Some(&path)).unwrap();
         store.add_service("svc", stdio_config()).await.unwrap();
 
         let snapshot = store
-            .switch_backend(BackendKind::OpenKeyvMemory, None, None)
+            .switch_cache_storage(CacheStorage::OpenKeyvMemory, None, None)
             .await
             .unwrap();
 
         assert!(snapshot.entities["services"].contains_key("svc"));
-        assert_eq!(store.current_backend().await, BackendKind::OpenKeyvMemory);
+        assert_eq!(
+            store.current_cache_storage().await,
+            CacheStorage::OpenKeyvMemory
+        );
         assert!(store
             .cache()
             .get_entity("services", "svc")
@@ -3413,7 +3205,7 @@ mod tests {
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: Some(path.clone()),
             source_mode: SourceMode::Local,
-            backend: Some(BackendKind::OpenKeyvMemory),
+            backend: Some(CacheStorage::OpenKeyvMemory),
             redis_url: None,
             namespace: Some("test-update-patch".to_string()),
         })
@@ -3440,7 +3232,7 @@ mod tests {
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: Some(path.clone()),
             source_mode: SourceMode::Local,
-            backend: Some(BackendKind::OpenKeyvMemory),
+            backend: Some(CacheStorage::OpenKeyvMemory),
             redis_url: None,
             namespace: Some("test-event-health".to_string()),
         })
@@ -3471,7 +3263,7 @@ mod tests {
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: Some(path.clone()),
             source_mode: SourceMode::Local,
-            backend: Some(BackendKind::OpenKeyvMemory),
+            backend: Some(CacheStorage::OpenKeyvMemory),
             redis_url: None,
             namespace: Some("test-list-tools-registry".to_string()),
         })
@@ -3490,7 +3282,7 @@ mod tests {
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: Some(path.clone()),
             source_mode: SourceMode::Local,
-            backend: Some(BackendKind::OpenKeyvMemory),
+            backend: Some(CacheStorage::OpenKeyvMemory),
             redis_url: None,
             namespace: Some("test-connect-failure-status".to_string()),
         })
@@ -3528,7 +3320,7 @@ mod tests {
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: Some(path.clone()),
             source_mode: SourceMode::Local,
-            backend: Some(BackendKind::OpenKeyvMemory),
+            backend: Some(CacheStorage::OpenKeyvMemory),
             redis_url: None,
             namespace: Some("test-retry-backoff".to_string()),
         })
@@ -3568,7 +3360,7 @@ mod tests {
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: Some(path.clone()),
             source_mode: SourceMode::Local,
-            backend: Some(BackendKind::OpenKeyvMemory),
+            backend: Some(CacheStorage::OpenKeyvMemory),
             redis_url: None,
             namespace: Some("test-retry-reset".to_string()),
         })
@@ -3600,7 +3392,7 @@ mod tests {
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: None,
             source_mode: SourceMode::Db,
-            backend: Some(BackendKind::OpenKeyvMemory),
+            backend: Some(CacheStorage::OpenKeyvMemory),
             redis_url: None,
             namespace: Some("test-db-load-readonly".to_string()),
         })

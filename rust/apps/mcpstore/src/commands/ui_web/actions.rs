@@ -4,7 +4,7 @@ use axum::{
 };
 use maud::html;
 use mcpstore::config::ServerConfig;
-use mcpstore::{BackendKind, MCPStore};
+use mcpstore::{CacheStorage, MCPStore};
 use std::{collections::HashMap, sync::Arc};
 
 use super::{
@@ -62,17 +62,17 @@ pub(super) async fn action_switch_backend(
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let target = params.get("target").map(String::as_str).unwrap_or("");
-    let kind = match target {
-        "memory" => BackendKind::Memory,
-        "redis" => BackendKind::Redis,
-        "openkeyv_memory" => BackendKind::OpenKeyvMemory,
-        "openkeyv_redis" => BackendKind::OpenKeyvRedis,
+    let cache_storage = match target {
+        "memory" => CacheStorage::Memory,
+        "redis" => CacheStorage::Redis,
+        "openkeyv_memory" => CacheStorage::OpenKeyvMemory,
+        "openkeyv_redis" => CacheStorage::OpenKeyvRedis,
         _ => {
             return Html(
                 layout(
                     "mcpstore - Error",
                     error_markup(
-                        "Target backend must be memory, redis, openkeyv_memory, or openkeyv_redis",
+                        "Target cache storage must be memory, redis, openkeyv_memory, or openkeyv_redis",
                     ),
                 )
                 .into_string(),
@@ -80,7 +80,7 @@ pub(super) async fn action_switch_backend(
             .into_response();
         }
     };
-    match store.switch_backend(kind, None, None).await {
+    match store.switch_cache_storage(cache_storage, None, None).await {
         Ok(_) => Redirect::to("/").into_response(),
         Err(e) => Html(layout("mcpstore - Error", error_markup(&e.to_string())).into_string())
             .into_response(),
@@ -88,12 +88,12 @@ pub(super) async fn action_switch_backend(
 }
 
 pub(super) async fn modal_switch_backend(State(store): State<Arc<MCPStore>>) -> impl IntoResponse {
-    let backend = store.current_backend().await;
-    let current_label = match backend {
-        BackendKind::Memory => "memory",
-        BackendKind::Redis => "redis",
-        BackendKind::OpenKeyvMemory => "openkeyv_memory",
-        BackendKind::OpenKeyvRedis => "openkeyv_redis",
+    let cache_storage = store.current_cache_storage().await;
+    let current_label = match cache_storage {
+        CacheStorage::Memory => "memory",
+        CacheStorage::Redis => "redis",
+        CacheStorage::OpenKeyvMemory => "openkeyv_memory",
+        CacheStorage::OpenKeyvRedis => "openkeyv_redis",
     };
     let content = html! {
         dialog open {
@@ -101,18 +101,18 @@ pub(super) async fn modal_switch_backend(State(store): State<Arc<MCPStore>>) -> 
                 header.modal-header {
                     div {
                         h3 { "Data hot migration" }
-                        p.hint { "Current backend: " code { (current_label) } }
+                        p.hint { "Current cache storage: " code { (current_label) } }
                     }
                     button.button.button-ghost type="button" onclick="closeModal()" { "Close" }
                 }
                 form.modal-form method="get" action="/action/switch-backend" {
                     div.field {
-                        label for="field-target" { "Target backend" }
+                        label for="field-target" { "Target cache storage" }
                         select id="field-target" name="target" {
-                            option value="memory" selected[backend == BackendKind::Memory] { "memory" }
-                            option value="redis" selected[backend == BackendKind::Redis] { "redis" }
-                            option value="openkeyv_memory" selected[backend == BackendKind::OpenKeyvMemory] { "openkeyv_memory" }
-                            option value="openkeyv_redis" selected[backend == BackendKind::OpenKeyvRedis] { "openkeyv_redis" }
+                            option value="memory" selected[cache_storage == CacheStorage::Memory] { "memory" }
+                            option value="redis" selected[cache_storage == CacheStorage::Redis] { "redis" }
+                            option value="openkeyv_memory" selected[cache_storage == CacheStorage::OpenKeyvMemory] { "openkeyv_memory" }
+                            option value="openkeyv_redis" selected[cache_storage == CacheStorage::OpenKeyvRedis] { "openkeyv_redis" }
                         }
                     }
                     footer {

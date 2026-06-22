@@ -694,7 +694,7 @@ pub struct TuiApp {
     pub should_quit: bool,
     pub tick_rate: Duration,
     pub source_label: String,
-    pub backend_label: String,
+    pub cache_storage_label: String,
     pub namespace: String,
     pub config_path: String,
     pub filter: FilterBarState,
@@ -735,7 +735,7 @@ impl TuiApp {
         tick_rate: Duration,
         locale: Locale,
         source_label: String,
-        backend_label: String,
+        cache_storage_label: String,
         namespace: String,
         config_path: String,
     ) -> Self {
@@ -763,7 +763,7 @@ impl TuiApp {
             should_quit: false,
             tick_rate,
             source_label,
-            backend_label,
+            cache_storage_label,
             namespace,
             config_path,
             filter: FilterBarState::default(),
@@ -1889,7 +1889,7 @@ impl TuiApp {
             error,
             connecting,
             disconnected,
-            backend: self.backend_label.clone(),
+            cache_storage: self.cache_storage_label.clone(),
             namespace: self.namespace.clone(),
             config_path: self.config_path.clone(),
         }
@@ -2379,7 +2379,8 @@ pub fn run(
     let locale = locale_override
         .or_else(|| Locale::from_config_value(&app_config.ui.language))
         .unwrap_or_default();
-    let backend_label = rt.block_on(async { store.current_backend().await.as_str().to_string() });
+    let cache_storage_label =
+        rt.block_on(async { store.current_cache_storage().await.as_str().to_string() });
     let namespace = store.namespace();
     let config_path = store.config_manager().mcp_path().display().to_string();
 
@@ -2388,7 +2389,7 @@ pub fn run(
         Duration::from_millis(tick_ms),
         locale,
         args.source.as_str().to_string(),
-        backend_label,
+        cache_storage_label,
         namespace,
         config_path,
     );
