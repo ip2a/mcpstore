@@ -1,4 +1,8 @@
 pub(crate) mod content;
+pub(crate) mod health;
 pub(crate) mod models;
+pub(crate) mod prompts;
+pub(crate) mod resources;
 pub(crate) mod scope;
-pub(crate) mod view;
+pub(crate) mod services;
+pub(crate) mod tools;
