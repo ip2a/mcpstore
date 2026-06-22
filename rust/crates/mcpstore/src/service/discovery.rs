@@ -1,6 +1,17 @@
 use crate::store::prelude::*;
 
 impl MCPStore {
+    pub(crate) async fn ensure_service_connected(&self, service_name: &str) -> Result<()> {
+        self.refresh_from_db_if_needed().await?;
+        if self.registry.find_service(service_name).await.is_none() {
+            return Err(StoreError::ServiceNotFound(service_name.to_string()));
+        }
+        if !self.pool.is_connected(service_name).await {
+            self.connect_service_internal(service_name, true).await?;
+        }
+        Ok(())
+    }
+
     pub async fn list_services(&self) -> Vec<ServiceEntry> {
         self.refresh_from_db_if_needed().await.ok();
         let mut services = self.registry.list_services().await;
