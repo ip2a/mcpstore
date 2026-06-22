@@ -2,16 +2,12 @@ use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
-    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
-use chrono::Utc;
 use clap::Args;
-use mcpstore::config::ServerConfig;
-use mcpstore::{perspective::GLOBAL_AGENT_STORE, BackendKind, MCPStore, StoreError};
-use serde::{Deserialize, Serialize};
+use mcpstore::{perspective::GLOBAL_AGENT_STORE, MCPStore};
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::{
@@ -19,7 +15,15 @@ use crate::{
     BoxErr,
 };
 
-const API_VERSION: &str = "1.0.0";
+mod envelope;
+mod parse;
+
+use envelope::{success, ApiError, ApiResult};
+use parse::{
+    backend_label, ensure_json_object, extract_prompt_args, extract_prompt_name,
+    extract_resource_uri, extract_tool_args, extract_tool_name, normalize_prefix,
+    parse_backend_kind, parse_named_service_payload, parse_positive_u64, parse_positive_usize,
+};
 
 #[derive(Args)]
 pub struct ApiArgs {
@@ -38,156 +42,12 @@ struct ApiState {
     store: Arc<MCPStore>,
 }
 
-#[derive(Serialize)]
-struct ApiMeta {
-    timestamp: String,
-    request_id: String,
-    execution_time_ms: i64,
-    api_version: &'static str,
-}
-
-#[derive(Serialize)]
-struct ApiErrorDetail {
-    code: String,
-    message: String,
-    field: Option<String>,
-    details: Option<Value>,
-}
-
-#[derive(Serialize)]
-struct ApiEnvelope {
-    success: bool,
-    message: String,
-    data: Option<Value>,
-    errors: Option<Vec<ApiErrorDetail>>,
-    meta: ApiMeta,
-    pagination: Option<Value>,
-}
-
-#[derive(Debug)]
-struct ApiError {
-    status: StatusCode,
-    code: String,
-    message: String,
-    field: Option<String>,
-    details: Option<Value>,
-}
-
 #[derive(Deserialize)]
 struct CacheSwitchRequest {
     backend: String,
     redis_url: Option<String>,
     namespace: Option<String>,
 }
-
-impl ApiError {
-    fn new(
-        status: StatusCode,
-        code: impl Into<String>,
-        message: impl Into<String>,
-        field: Option<&str>,
-        details: Option<Value>,
-    ) -> Self {
-        Self {
-            status,
-            code: code.into(),
-            message: message.into(),
-            field: field.map(ToString::to_string),
-            details,
-        }
-    }
-
-    fn missing_parameter(field: &'static str) -> Self {
-        Self::new(
-            StatusCode::BAD_REQUEST,
-            "MISSING_PARAMETER",
-            format!("缺少 {field}"),
-            Some(field),
-            None,
-        )
-    }
-
-    fn invalid_parameter(message: impl Into<String>, field: Option<&str>) -> Self {
-        Self::new(
-            StatusCode::BAD_REQUEST,
-            "INVALID_PARAMETER",
-            message,
-            field,
-            None,
-        )
-    }
-
-    fn invalid_request(message: impl Into<String>) -> Self {
-        Self::new(
-            StatusCode::BAD_REQUEST,
-            "INVALID_REQUEST",
-            message,
-            None,
-            None,
-        )
-    }
-
-    fn from_store(error: StoreError) -> Self {
-        match error {
-            StoreError::ServiceNotFound(name) => Self::new(
-                StatusCode::NOT_FOUND,
-                "SERVICE_NOT_FOUND",
-                format!("服务不存在: {name}"),
-                Some("service_name"),
-                Some(json!({ "service_name": name })),
-            ),
-            StoreError::Config(error) => Self::new(
-                StatusCode::BAD_REQUEST,
-                "CONFIG_INVALID",
-                error.to_string(),
-                None,
-                Some(json!({ "error_type": "ConfigError" })),
-            ),
-            StoreError::Transport(error) => Self::new(
-                StatusCode::BAD_GATEWAY,
-                "SERVICE_OPERATION_FAILED",
-                error.to_string(),
-                None,
-                Some(json!({ "error_type": "TransportError" })),
-            ),
-            StoreError::Cache(error) => Self::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "INTERNAL_ERROR",
-                error.to_string(),
-                None,
-                Some(json!({ "error_type": "CacheError" })),
-            ),
-            StoreError::Other(message) => Self::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "INTERNAL_ERROR",
-                message,
-                None,
-                None,
-            ),
-        }
-    }
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        let payload = ApiEnvelope {
-            success: false,
-            message: self.message.clone(),
-            data: None,
-            errors: Some(vec![ApiErrorDetail {
-                code: self.code,
-                message: self.message,
-                field: self.field,
-                details: self.details,
-            }]),
-            meta: api_meta(),
-            pagination: None,
-        };
-        (self.status, Json(payload)).into_response()
-    }
-}
-
-type ApiResult<T = Json<ApiEnvelope>> = Result<T, ApiError>;
 
 pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
     let store = build_store(&args.store)?;
@@ -1051,266 +911,4 @@ async fn cache_switch(
     let snapshot = serde_json::to_value(snapshot)
         .map_err(|error| ApiError::invalid_request(format!("缓存切换结果序列化失败: {error}")))?;
     Ok(success("缓存后端切换成功", snapshot))
-}
-
-fn success(message: impl Into<String>, data: Value) -> Json<ApiEnvelope> {
-    Json(ApiEnvelope {
-        success: true,
-        message: message.into(),
-        data: Some(data),
-        errors: None,
-        meta: api_meta(),
-        pagination: None,
-    })
-}
-
-fn api_meta() -> ApiMeta {
-    ApiMeta {
-        timestamp: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-        request_id: format!(
-            "req_{}",
-            Utc::now().timestamp_nanos_opt().unwrap_or_default()
-        ),
-        execution_time_ms: 0,
-        api_version: API_VERSION,
-    }
-}
-
-fn normalize_prefix(prefix: &str) -> String {
-    let trimmed = prefix.trim();
-    if trimmed.is_empty() || trimmed == "/" {
-        return String::new();
-    }
-
-    let mut normalized = if trimmed.starts_with('/') {
-        trimmed.to_string()
-    } else {
-        format!("/{trimmed}")
-    };
-    while normalized.ends_with('/') {
-        normalized.pop();
-    }
-    normalized
-}
-
-fn backend_label(backend: mcpstore::BackendKind) -> &'static str {
-    backend.as_str()
-}
-
-fn parse_named_service_payload(payload: Value) -> ApiResult<Vec<(String, ServerConfig)>> {
-    let object = payload
-        .as_object()
-        .ok_or_else(|| ApiError::invalid_request("服务配置必须是 JSON 对象"))?;
-
-    if let Some(servers) = object.get("mcpServers") {
-        let servers = servers.as_object().ok_or_else(|| {
-            ApiError::invalid_parameter("mcpServers 必须是对象", Some("mcpServers"))
-        })?;
-        let mut items = Vec::with_capacity(servers.len());
-        for (name, config_value) in servers {
-            let config: ServerConfig =
-                serde_json::from_value(config_value.clone()).map_err(|error| {
-                    ApiError::invalid_parameter(
-                        format!("服务配置解析失败: {error}"),
-                        Some(name.as_str()),
-                    )
-                })?;
-            items.push((name.clone(), config));
-        }
-        return Ok(items);
-    }
-
-    let name = object
-        .get("name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| ApiError::missing_parameter("name"))?;
-
-    let mut config_object = object.clone();
-    config_object.remove("name");
-    let config: ServerConfig =
-        serde_json::from_value(Value::Object(config_object)).map_err(|error| {
-            ApiError::invalid_parameter(format!("服务配置解析失败: {error}"), Some("name"))
-        })?;
-    Ok(vec![(name.to_string(), config)])
-}
-
-fn extract_tool_name(payload: &Value) -> ApiResult<String> {
-    let tool_name = payload
-        .get("tool_name")
-        .and_then(Value::as_str)
-        .or_else(|| payload.get("tool").and_then(Value::as_str))
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| ApiError::missing_parameter("tool_name"))?;
-    Ok(tool_name.to_string())
-}
-
-fn extract_tool_args(payload: &Value) -> ApiResult<Value> {
-    match payload.get("args") {
-        None | Some(Value::Null) => Ok(json!({})),
-        Some(Value::Object(_)) => Ok(payload.get("args").cloned().unwrap_or_else(|| json!({}))),
-        Some(_) => Err(ApiError::invalid_parameter(
-            "args 必须是 JSON 对象",
-            Some("args"),
-        )),
-    }
-}
-
-fn extract_resource_uri(params: &HashMap<String, String>) -> ApiResult<String> {
-    params
-        .get("uri")
-        .map(String::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| ApiError::missing_parameter("uri"))
-}
-
-fn extract_prompt_name(payload: &Value) -> ApiResult<String> {
-    payload
-        .get("prompt_name")
-        .and_then(Value::as_str)
-        .or_else(|| payload.get("prompt").and_then(Value::as_str))
-        .or_else(|| payload.get("name").and_then(Value::as_str))
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| ApiError::missing_parameter("prompt_name"))
-}
-
-fn extract_prompt_args(payload: &Value) -> ApiResult<Value> {
-    match payload.get("args") {
-        None | Some(Value::Null) => Ok(json!({})),
-        Some(Value::Object(_)) => Ok(payload.get("args").cloned().unwrap_or_else(|| json!({}))),
-        Some(_) => Err(ApiError::invalid_parameter(
-            "args 必须是 JSON 对象",
-            Some("args"),
-        )),
-    }
-}
-
-fn ensure_json_object(payload: Value, field: &'static str) -> ApiResult<Value> {
-    if payload.is_object() {
-        Ok(payload)
-    } else {
-        Err(ApiError::invalid_parameter(
-            "payload 必须是 JSON 对象",
-            Some(field),
-        ))
-    }
-}
-
-fn parse_positive_u64(value: &str) -> ApiResult<u64> {
-    value
-        .parse::<u64>()
-        .map_err(|_| ApiError::invalid_parameter(format!("无效的正整数: {value}"), Some("timeout")))
-}
-
-fn parse_positive_usize(value: &str) -> ApiResult<usize> {
-    value
-        .parse::<usize>()
-        .map_err(|_| ApiError::invalid_parameter(format!("无效的正整数: {value}"), Some("count")))
-}
-
-fn parse_backend_kind(value: &str) -> ApiResult<BackendKind> {
-    match value {
-        "memory" => Ok(BackendKind::Memory),
-        "redis" => Ok(BackendKind::Redis),
-        "openkeyv_memory" => Ok(BackendKind::OpenKeyvMemory),
-        "openkeyv_redis" => Ok(BackendKind::OpenKeyvRedis),
-        other => Err(ApiError::invalid_parameter(
-            format!("不支持的 backend: {other}"),
-            Some("backend"),
-        )),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn normalize_prefix_trims_empty_and_trailing_slash() {
-        assert_eq!(normalize_prefix(""), "");
-        assert_eq!(normalize_prefix("/"), "");
-        assert_eq!(normalize_prefix("mcp"), "/mcp");
-        assert_eq!(normalize_prefix("/mcp/"), "/mcp");
-    }
-
-    #[test]
-    fn parse_single_service_payload() {
-        let payload = json!({
-            "name": "svc",
-            "command": "echo",
-            "args": ["ok"],
-            "transport": "stdio",
-        });
-
-        let services = parse_named_service_payload(payload).unwrap();
-        assert_eq!(services.len(), 1);
-        assert_eq!(services[0].0, "svc");
-        assert_eq!(services[0].1.command.as_deref(), Some("echo"));
-    }
-
-    #[test]
-    fn parse_batch_service_payload() {
-        let payload = json!({
-            "mcpServers": {
-                "svc-a": {
-                    "command": "echo",
-                    "args": ["a"],
-                    "transport": "stdio"
-                },
-                "svc-b": {
-                    "url": "https://example.com/mcp",
-                    "transport": "http"
-                }
-            }
-        });
-
-        let mut services = parse_named_service_payload(payload).unwrap();
-        services.sort_by(|left, right| left.0.cmp(&right.0));
-        assert_eq!(services.len(), 2);
-        assert_eq!(services[0].0, "svc-a");
-        assert_eq!(services[1].0, "svc-b");
-        assert_eq!(
-            services[1].1.url.as_deref(),
-            Some("https://example.com/mcp")
-        );
-    }
-
-    #[test]
-    fn extract_tool_args_requires_object() {
-        let error = extract_tool_args(&json!({ "args": [] })).unwrap_err();
-        assert_eq!(error.status, StatusCode::BAD_REQUEST);
-        assert_eq!(error.code, "INVALID_PARAMETER");
-    }
-
-    #[test]
-    fn parse_backend_kind_supports_known_values() {
-        assert!(matches!(
-            parse_backend_kind("memory").unwrap(),
-            BackendKind::Memory
-        ));
-        assert!(matches!(
-            parse_backend_kind("openkeyv_redis").unwrap(),
-            BackendKind::OpenKeyvRedis
-        ));
-        assert!(parse_backend_kind("unknown").is_err());
-    }
-
-    #[test]
-    fn ensure_json_object_rejects_non_objects() {
-        assert!(ensure_json_object(json!({"ok": true}), "payload").is_ok());
-        let error = ensure_json_object(json!(["bad"]), "payload").unwrap_err();
-        assert_eq!(error.status, StatusCode::BAD_REQUEST);
-    }
-
-    #[test]
-    fn parse_positive_numbers_require_valid_integers() {
-        assert_eq!(parse_positive_u64("10").unwrap(), 10);
-        assert_eq!(parse_positive_usize("7").unwrap(), 7);
-        assert!(parse_positive_u64("oops").is_err());
-        assert!(parse_positive_usize("oops").is_err());
-    }
 }
