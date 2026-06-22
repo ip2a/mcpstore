@@ -20,10 +20,21 @@ pub fn router(store: Arc<MCPStore>) -> Router {
         .route("/action/restart/:name", get(actions::action_restart))
         .route("/action/remove/:name", get(actions::action_remove))
         .route(
-            "/action/switch-backend",
-            get(actions::action_switch_backend),
+            "/action/switch-cache-storage",
+            get(actions::action_switch_cache_storage),
         )
-        .route("/modal/switch-backend", get(actions::modal_switch_backend))
+        .route(
+            "/action/switch-backend",
+            get(actions::action_switch_cache_storage),
+        )
+        .route(
+            "/modal/switch-cache-storage",
+            get(actions::modal_switch_cache_storage),
+        )
+        .route(
+            "/modal/switch-backend",
+            get(actions::modal_switch_cache_storage),
+        )
         .route(
             "/modal/call-tool/:service/:tool",
             get(actions::modal_call_tool_form),
