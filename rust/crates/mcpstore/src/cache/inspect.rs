@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use crate::cache::{
-    openkeyv_memory_backend, openkeyv_redis_backend, CacheSnapshot, KvStore, MemoryStore,
-    RedisStore,
-};
+use crate::cache::{memory_cache_store, redis_cache_store, CacheSnapshot, CacheStore};
 use crate::events::Event;
 use crate::store::prelude::*;
 
@@ -15,13 +12,11 @@ impl MCPStore {
     pub(crate) fn build_backend(
         cache_storage: &CacheStorage,
         redis_url: &str,
-        namespace: &str,
-    ) -> Result<Arc<dyn KvStore>> {
+        _namespace: &str,
+    ) -> Result<Arc<dyn CacheStore>> {
         match cache_storage {
-            CacheStorage::Redis => Ok(Arc::new(RedisStore::with_namespace(redis_url, namespace)?)),
-            CacheStorage::Memory => Ok(Arc::new(MemoryStore::new())),
-            CacheStorage::OpenKeyvMemory => Ok(openkeyv_memory_backend()),
-            CacheStorage::OpenKeyvRedis => Ok(openkeyv_redis_backend(redis_url)),
+            CacheStorage::Memory | CacheStorage::OpenKeyvMemory => Ok(memory_cache_store()),
+            CacheStorage::Redis | CacheStorage::OpenKeyvRedis => Ok(redis_cache_store(redis_url)),
         }
     }
 

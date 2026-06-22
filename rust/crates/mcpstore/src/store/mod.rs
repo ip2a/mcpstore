@@ -873,7 +873,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn openkeyv_memory_backend_writes_cache_layers() {
+    async fn memory_cache_storage_writes_cache_layers_through_openkeyv() {
         let path = temp_config_path();
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: Some(path.clone()),
