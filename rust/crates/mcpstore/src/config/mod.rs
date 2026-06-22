@@ -6,12 +6,18 @@ use std::path::{Path, PathBuf};
 
 mod app_validation;
 mod defaults;
+mod examples;
+mod flatten;
 pub mod models;
 pub mod resolver;
 pub mod validator;
 
 use app_validation::validate_app_config;
 use defaults::*;
+#[cfg(test)]
+use examples::default_server_config;
+use examples::example_services;
+use flatten::flatten_config_value;
 
 pub const DEFAULT_SERVER_LOG_LEVEL: &str = "info";
 pub const DEFAULT_SERVER_URL_PREFIX: &str = "";
@@ -559,81 +565,6 @@ impl Default for ConfigManager {
     fn default() -> Self {
         Self::new()
     }
-}
-
-fn default_server_config() -> ServerConfig {
-    ServerConfig {
-        url: None,
-        command: None,
-        args: Vec::new(),
-        env: HashMap::new(),
-        headers: HashMap::new(),
-        transport: None,
-        working_dir: None,
-        description: None,
-    }
-}
-
-fn example_services() -> HashMap<String, ServerConfig> {
-    let mut services = HashMap::new();
-    services.insert(
-        "remote-http-service".to_string(),
-        ServerConfig {
-            url: Some("https://example.com/mcp".to_string()),
-            transport: Some("streamable-http".to_string()),
-            description: Some("Example remote HTTP MCP service".to_string()),
-            ..default_server_config()
-        },
-    );
-    services.insert(
-        "local-command-service".to_string(),
-        ServerConfig {
-            command: Some("python".to_string()),
-            args: vec!["-m".to_string(), "your_mcp_server".to_string()],
-            env: HashMap::new(),
-            working_dir: Some(".".to_string()),
-            description: Some("Example local command MCP service".to_string()),
-            ..default_server_config()
-        },
-    );
-    services.insert(
-        "npm-package-service".to_string(),
-        ServerConfig {
-            command: Some("npx".to_string()),
-            args: vec!["-y".to_string(), "some-mcp-package".to_string()],
-            transport: Some("stdio".to_string()),
-            description: Some("Example NPM package MCP service".to_string()),
-            ..default_server_config()
-        },
-    );
-    services
-}
-
-fn flatten_config_value(value: &Value) -> HashMap<String, Value> {
-    let mut out = HashMap::new();
-
-    fn visit(prefix: &str, value: &Value, out: &mut HashMap<String, Value>) {
-        match value {
-            Value::Object(map) => {
-                for (key, item) in map {
-                    let next = if prefix.is_empty() {
-                        key.clone()
-                    } else {
-                        format!("{prefix}.{key}")
-                    };
-                    visit(&next, item, out);
-                }
-            }
-            other => {
-                if !prefix.is_empty() {
-                    out.insert(prefix.to_string(), other.clone());
-                }
-            }
-        }
-    }
-
-    visit("", value, &mut out);
-    out
 }
 
 #[cfg(test)]
