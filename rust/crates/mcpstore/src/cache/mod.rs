@@ -1,5 +1,7 @@
 pub(crate) mod inspect;
 pub(crate) mod layer;
+#[cfg(test)]
+mod layer_tests;
 pub mod models;
 pub mod naming;
 pub(crate) mod projection;
