@@ -15,9 +15,11 @@ use std::sync::RwLock as SyncRwLock;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock as AsyncRwLock;
 
+pub(crate) mod inspect;
 pub mod models;
 pub mod naming;
 pub mod openkeyv_adapter;
+pub(crate) mod projection;
 pub mod serializer;
 
 pub use openkeyv_adapter::{

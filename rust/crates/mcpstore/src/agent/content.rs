@@ -1,7 +1,7 @@
-use super::*;
+use crate::store::prelude::*;
 
 impl MCPStore {
-    pub(super) async fn collect_store_tools_scoped(&self) -> Result<Vec<serde_json::Value>> {
+    pub(crate) async fn collect_store_tools_scoped(&self) -> Result<Vec<serde_json::Value>> {
         let mut services = self.list_services().await;
         services.sort_by(|left, right| left.name.cmp(&right.name));
 
@@ -25,7 +25,7 @@ impl MCPStore {
         Ok(tools)
     }
 
-    pub(super) async fn collect_store_tool_descriptions_scoped(
+    pub(crate) async fn collect_store_tool_descriptions_scoped(
         &self,
     ) -> Result<Vec<ScopedToolEntry>> {
         let mut services = self.list_services().await;
@@ -51,9 +51,7 @@ impl MCPStore {
         Ok(tools)
     }
 
-    pub(super) async fn collect_store_resources_scoped(
-        &self,
-    ) -> Result<Vec<serde_json::Value>> {
+    pub(crate) async fn collect_store_resources_scoped(&self) -> Result<Vec<serde_json::Value>> {
         let mut targets = self.scoped_service_bindings(None).await?;
         targets.sort();
 
@@ -74,7 +72,7 @@ impl MCPStore {
         Ok(resources)
     }
 
-    pub(super) async fn collect_agent_resources_scoped(
+    pub(crate) async fn collect_agent_resources_scoped(
         &self,
         agent_id: &str,
     ) -> Result<Vec<serde_json::Value>> {
@@ -98,7 +96,7 @@ impl MCPStore {
         Ok(resources)
     }
 
-    pub(super) async fn collect_store_resource_templates_scoped(
+    pub(crate) async fn collect_store_resource_templates_scoped(
         &self,
     ) -> Result<Vec<serde_json::Value>> {
         let mut targets = self.scoped_service_bindings(None).await?;
@@ -121,7 +119,7 @@ impl MCPStore {
         Ok(templates)
     }
 
-    pub(super) async fn collect_agent_resource_templates_scoped(
+    pub(crate) async fn collect_agent_resource_templates_scoped(
         &self,
         agent_id: &str,
     ) -> Result<Vec<serde_json::Value>> {
@@ -145,7 +143,7 @@ impl MCPStore {
         Ok(templates)
     }
 
-    pub(super) async fn collect_store_prompts_scoped(&self) -> Result<Vec<serde_json::Value>> {
+    pub(crate) async fn collect_store_prompts_scoped(&self) -> Result<Vec<serde_json::Value>> {
         let mut targets = self.scoped_service_bindings(None).await?;
         targets.sort();
 
@@ -169,7 +167,7 @@ impl MCPStore {
         Ok(prompts)
     }
 
-    pub(super) async fn collect_agent_prompts_scoped(
+    pub(crate) async fn collect_agent_prompts_scoped(
         &self,
         agent_id: &str,
     ) -> Result<Vec<serde_json::Value>> {
@@ -196,7 +194,7 @@ impl MCPStore {
         Ok(prompts)
     }
 
-    pub(super) async fn ensure_service_connected(&self, service_name: &str) -> Result<()> {
+    pub(crate) async fn ensure_service_connected(&self, service_name: &str) -> Result<()> {
         self.refresh_from_db_if_needed().await?;
         if self.registry.find_service(service_name).await.is_none() {
             return Err(StoreError::ServiceNotFound(service_name.to_string()));
@@ -238,7 +236,7 @@ impl MCPStore {
         }
     }
 
-    pub(super) async fn resolve_scoped_service_binding(
+    pub(crate) async fn resolve_scoped_service_binding(
         &self,
         agent_id: Option<&str>,
         service_name: &str,
@@ -265,7 +263,7 @@ impl MCPStore {
         }
     }
 
-    pub(super) async fn resolve_resource_service_binding(
+    pub(crate) async fn resolve_resource_service_binding(
         &self,
         agent_id: Option<&str>,
         uri: &str,
@@ -299,7 +297,7 @@ impl MCPStore {
         }
     }
 
-    pub(super) async fn resolve_prompt_binding(
+    pub(crate) async fn resolve_prompt_binding(
         &self,
         agent_id: Option<&str>,
         prompt_name: &str,
@@ -343,7 +341,7 @@ impl MCPStore {
         }
     }
 
-    pub(super) async fn collect_agent_tools_scoped(
+    pub(crate) async fn collect_agent_tools_scoped(
         &self,
         agent_id: &str,
     ) -> Result<Vec<serde_json::Value>> {
@@ -375,7 +373,7 @@ impl MCPStore {
         Ok(tools)
     }
 
-    pub(super) async fn collect_agent_tool_descriptions_scoped(
+    pub(crate) async fn collect_agent_tool_descriptions_scoped(
         &self,
         agent_id: &str,
     ) -> Result<Vec<ScopedToolEntry>> {

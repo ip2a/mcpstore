@@ -1,6 +1,6 @@
-use super::*;
+use crate::store::prelude::*;
 
-pub(super) fn wrap_cache_item(
+pub(crate) fn wrap_cache_item(
     key: &str,
     type_name: &str,
     collection: &str,
@@ -21,7 +21,7 @@ pub(super) fn wrap_cache_item(
 }
 
 impl MCPStore {
-    pub(super) fn scoped_service_entry(
+    pub(crate) fn scoped_service_entry(
         mut service: ServiceEntry,
         localize_for_agent: bool,
     ) -> ScopedServiceEntry {
@@ -45,7 +45,7 @@ impl MCPStore {
         }
     }
 
-    pub(super) fn service_payload_value(
+    pub(crate) fn service_payload_value(
         mut service: ServiceEntry,
         localize_for_agent: bool,
     ) -> serde_json::Value {
@@ -68,7 +68,7 @@ impl MCPStore {
         value
     }
 
-    pub(super) fn tool_payload_value(
+    pub(crate) fn tool_payload_value(
         displayed_name: String,
         original_name: String,
         service_name: String,
@@ -92,7 +92,7 @@ impl MCPStore {
         }))
     }
 
-    pub(super) fn scoped_tool_entry(
+    pub(crate) fn scoped_tool_entry(
         displayed_name: String,
         original_name: String,
         service_name: String,
@@ -116,7 +116,7 @@ impl MCPStore {
         })
     }
 
-    pub(super) fn resource_payload_value(
+    pub(crate) fn resource_payload_value(
         mut resource: serde_json::Value,
         service_name: String,
         global_service_name: String,
@@ -137,7 +137,7 @@ impl MCPStore {
         Ok(resource)
     }
 
-    pub(super) fn resource_template_payload_value(
+    pub(crate) fn resource_template_payload_value(
         mut template: serde_json::Value,
         service_name: String,
         global_service_name: String,
@@ -161,7 +161,7 @@ impl MCPStore {
         Ok(template)
     }
 
-    pub(super) fn prompt_payload_value(
+    pub(crate) fn prompt_payload_value(
         mut prompt: serde_json::Value,
         displayed_name: Option<String>,
         service_name: String,
@@ -189,14 +189,14 @@ impl MCPStore {
         Ok(prompt)
     }
 
-    pub(super) fn value_field<'a>(value: &'a serde_json::Value, field: &str) -> &'a str {
+    pub(crate) fn value_field<'a>(value: &'a serde_json::Value, field: &str) -> &'a str {
         value
             .get(field)
             .and_then(serde_json::Value::as_str)
             .unwrap_or("")
     }
 
-    pub(super) fn required_value_field(value: &serde_json::Value, field: &str) -> Result<String> {
+    pub(crate) fn required_value_field(value: &serde_json::Value, field: &str) -> Result<String> {
         value
             .get(field)
             .and_then(serde_json::Value::as_str)

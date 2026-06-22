@@ -5,6 +5,16 @@
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone)]
+pub struct CacheHealthReport {
+    pub namespace: String,
+    pub backend: String,
+    pub entities: Vec<String>,
+    pub relations: Vec<String>,
+    pub states: Vec<String>,
+    pub events: Vec<String>,
+}
+
 // ==================== Entity Layer Models ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

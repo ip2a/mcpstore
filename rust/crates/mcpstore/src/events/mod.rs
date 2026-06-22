@@ -19,6 +19,7 @@ pub mod bus;
 pub mod types;
 
 use bus::{EventHandler, SubscriberMap};
+pub use types::EventCapabilityReport;
 
 /// Generic event wrapper.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

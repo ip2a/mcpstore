@@ -1,54 +1,60 @@
 use std::sync::{atomic::AtomicU64, RwLock as SyncRwLock};
 
-use crate::cache::models::{
+pub(crate) use crate::cache::models::{
     AgentServiceRelation, HealthStatus, ServiceEntity, ServiceRelationItem, ServiceStatus,
     ServiceToolRelation, ToolAvailability, ToolEntity, ToolRelationItem, ToolStatusItem,
 };
-use crate::cache::CacheLayerManager;
-use crate::config::{CacheBackend, ConfigManager, ServerConfig};
-use crate::events::{Event, EventBus};
-use crate::registry::{ConnectionStatus, ServiceEntry, ServiceRegistry};
-use crate::transport::client::ConnectionPool;
-use crate::transport::ToolDescription;
+pub(crate) use crate::cache::CacheLayerManager;
+pub(crate) use crate::config::{CacheBackend, ConfigManager, ServerConfig};
+pub(crate) use crate::events::{Event, EventBus};
+pub(crate) use crate::registry::{ConnectionStatus, ServiceEntry, ServiceRegistry};
+pub(crate) use crate::transport::client::ConnectionPool;
+pub(crate) use crate::transport::ToolDescription;
 
-use crate::perspective::{
+pub(crate) use crate::perspective::{
     generate_tool_global_name, normalize_service_name, parse_agent_scoped, resolve_tool,
     AvailableTool, ToolResolution, GLOBAL_AGENT_STORE,
 };
-use crate::{Result, StoreError};
+pub(crate) use crate::{Result, StoreError};
 
-mod agent_scope;
-mod cache_admin;
-mod cache_projection;
-mod control_queue;
-mod db_refresh;
-mod health;
-mod payload;
-mod scoped_content;
-mod scoped_views;
-mod service_lifecycle;
-mod types;
-use types::StoreRuntimeConfig;
+mod options;
+pub(crate) mod payload;
+mod runtime;
+use runtime::StoreRuntimeConfig;
 
-pub use types::{
-    BackendKind, CacheHealthReport, CacheStorage, EventCapabilityReport, ScopedServiceEntry,
-    ScopedServiceHealth, ScopedToolEntry, SourceMode, StoreOptions,
-};
+pub use crate::agent::models::{ScopedServiceEntry, ScopedServiceHealth, ScopedToolEntry};
+pub use crate::cache::models::CacheHealthReport;
+pub use crate::events::EventCapabilityReport;
+pub use options::{BackendKind, CacheStorage, SourceMode, StoreOptions};
 
-const CONTROL_REQUEST_EVENT_TYPE: &str = "control_requests";
-static CONTROL_EVENT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+pub(crate) const CONTROL_REQUEST_EVENT_TYPE: &str = "control_requests";
+pub(crate) static CONTROL_EVENT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+pub(crate) mod prelude {
+    pub(crate) use crate::store::payload::wrap_cache_item;
+    pub(crate) use crate::store::{
+        generate_tool_global_name, normalize_service_name, parse_agent_scoped, resolve_tool,
+        AgentServiceRelation, AvailableTool, BackendKind, CacheHealthReport, CacheStorage,
+        ConnectionStatus, Event, EventCapabilityReport, HealthStatus, MCPStore, Result,
+        ScopedServiceEntry, ScopedServiceHealth, ScopedToolEntry, ServerConfig, ServiceEntity,
+        ServiceEntry, ServiceRelationItem, ServiceStatus, ServiceToolRelation, SourceMode,
+        StoreError, ToolAvailability, ToolDescription, ToolEntity, ToolRelationItem,
+        ToolResolution, ToolStatusItem, CONTROL_EVENT_SEQUENCE, CONTROL_REQUEST_EVENT_TYPE,
+        GLOBAL_AGENT_STORE,
+    };
+}
 
 pub struct MCPStore {
-    config_manager: ConfigManager,
-    source_mode: SourceMode,
-    runtime_config: StoreRuntimeConfig,
-    cache_storage: tokio::sync::RwLock<CacheStorage>,
-    redis_url: tokio::sync::RwLock<Option<String>>,
-    namespace: SyncRwLock<String>,
-    registry: ServiceRegistry,
-    pool: ConnectionPool,
-    event_bus: EventBus,
-    cache: CacheLayerManager,
+    pub(crate) config_manager: ConfigManager,
+    pub(crate) source_mode: SourceMode,
+    pub(crate) runtime_config: StoreRuntimeConfig,
+    pub(crate) cache_storage: tokio::sync::RwLock<CacheStorage>,
+    pub(crate) redis_url: tokio::sync::RwLock<Option<String>>,
+    pub(crate) namespace: SyncRwLock<String>,
+    pub(crate) registry: ServiceRegistry,
+    pub(crate) pool: ConnectionPool,
+    pub(crate) event_bus: EventBus,
+    pub(crate) cache: CacheLayerManager,
 }
 
 impl MCPStore {
