@@ -5,11 +5,16 @@ use std::path::PathBuf;
 mod app_validation;
 mod defaults;
 mod examples;
+mod field_validation;
 mod flatten;
+mod health_validation;
 mod manager;
 pub mod models;
+mod monitoring_validation;
 pub mod resolver;
 mod schema;
+mod server_validation;
+mod standalone_validation;
 pub mod validator;
 
 #[cfg(test)]
