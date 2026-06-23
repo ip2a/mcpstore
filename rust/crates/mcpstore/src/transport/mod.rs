@@ -5,7 +5,10 @@ pub mod client;
 mod content;
 mod http;
 mod pool;
+mod prompts;
+mod resources;
 mod stdio;
+mod tools;
 
 #[derive(Error, Debug)]
 pub enum TransportError {
