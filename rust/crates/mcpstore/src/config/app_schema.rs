@@ -1,16 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fmt;
 
+use super::cache_schema::CacheConfig;
 use super::defaults::*;
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct McpConfig {
-    #[serde(rename = "mcpServers", default)]
-    pub mcp_servers: HashMap<String, ServerConfig>,
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub agents: HashMap<String, Vec<String>>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -263,89 +254,6 @@ impl Default for StandaloneConfig {
             log_level: default_standalone_log_level(),
             log_format: default_standalone_log_format(),
             enable_debug: false,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-#[derive(Default)]
-pub enum CacheBackend {
-    #[default]
-    Memory,
-    Redis,
-    #[serde(rename = "openkeyv_memory", alias = "openkeyv-memory")]
-    OpenKeyvMemory,
-    #[serde(rename = "openkeyv_redis", alias = "openkeyv-redis")]
-    OpenKeyvRedis,
-}
-
-impl CacheBackend {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Memory => "memory",
-            Self::Redis => "redis",
-            Self::OpenKeyvMemory => "openkeyv_memory",
-            Self::OpenKeyvRedis => "openkeyv_redis",
-        }
-    }
-}
-
-impl fmt::Display for CacheBackend {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CacheConfig {
-    #[serde(default)]
-    pub backend: CacheBackend,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub redis_url: Option<String>,
-    #[serde(default = "default_namespace")]
-    pub namespace: String,
-}
-
-impl Default for CacheConfig {
-    fn default() -> Self {
-        Self {
-            backend: CacheBackend::Memory,
-            redis_url: None,
-            namespace: default_namespace(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServerConfig {
-    pub url: Option<String>,
-    pub command: Option<String>,
-    #[serde(default)]
-    pub args: Vec<String>,
-    #[serde(default)]
-    pub env: HashMap<String, String>,
-    #[serde(default)]
-    pub headers: HashMap<String, String>,
-    #[serde(default)]
-    pub transport: Option<String>,
-    #[serde(rename = "workingDir", default)]
-    pub working_dir: Option<String>,
-    #[serde(default)]
-    pub description: Option<String>,
-}
-
-impl ServerConfig {
-    pub fn infer_transport(&self) -> &str {
-        if let Some(ref transport) = self.transport {
-            return transport.as_str();
-        }
-        if self.url.is_some() {
-            "streamable-http"
-        } else if self.command.is_some() {
-            "stdio"
-        } else {
-            "unknown"
         }
     }
 }
