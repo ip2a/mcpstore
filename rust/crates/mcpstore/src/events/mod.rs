@@ -17,6 +17,7 @@ use tokio::sync::RwLock;
 
 pub mod bus;
 mod event;
+mod store;
 #[cfg(test)]
 mod tests;
 pub mod types;
