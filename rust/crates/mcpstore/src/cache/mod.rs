@@ -1,3 +1,4 @@
+pub(crate) mod agent_projection;
 pub(crate) mod codec;
 pub(crate) mod collections;
 pub(crate) mod entity;
@@ -8,10 +9,10 @@ pub(crate) mod layer;
 mod layer_tests;
 pub mod models;
 pub mod naming;
-pub(crate) mod projection;
 pub(crate) mod redis;
 pub(crate) mod relation;
 pub mod serializer;
+pub(crate) mod service_projection;
 pub(crate) mod snapshot;
 pub(crate) mod state;
 pub(crate) mod storage;
