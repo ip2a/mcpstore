@@ -3,6 +3,7 @@ use thiserror::Error;
 
 pub mod client;
 mod content;
+mod pool;
 
 #[derive(Error, Debug)]
 pub enum TransportError {
