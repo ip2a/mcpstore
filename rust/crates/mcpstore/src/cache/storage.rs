@@ -18,26 +18,26 @@ pub(crate) trait CacheStore: Send + Sync {
     async fn get_many(&self, keys: &[String], collection: &str) -> Result<Vec<Option<Value>>>;
 }
 
-trait OpenKeyvBackend:
+trait OpenKeyvStoreApi:
     AsyncKeyValue + AsyncEnumerateKeys + AsyncEnumerateCollections + Send + Sync
 {
 }
 
-impl<T> OpenKeyvBackend for T where
+impl<T> OpenKeyvStoreApi for T where
     T: AsyncKeyValue + AsyncEnumerateKeys + AsyncEnumerateCollections + Send + Sync
 {
 }
 
 struct OpenKeyvCacheStore<T>
 where
-    T: OpenKeyvBackend,
+    T: OpenKeyvStoreApi,
 {
     inner: T,
 }
 
 impl<T> OpenKeyvCacheStore<T>
 where
-    T: OpenKeyvBackend,
+    T: OpenKeyvStoreApi,
 {
     fn new(inner: T) -> Self {
         Self { inner }
@@ -59,7 +59,7 @@ fn map_openkeyv_err(err: openkeyv::Error) -> CacheError {
 #[async_trait::async_trait]
 impl<T> CacheStore for OpenKeyvCacheStore<T>
 where
-    T: OpenKeyvBackend,
+    T: OpenKeyvStoreApi,
 {
     async fn put(&self, key: &str, value: Value, collection: &str) -> Result<()> {
         self.inner

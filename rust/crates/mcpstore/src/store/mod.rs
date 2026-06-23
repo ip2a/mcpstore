@@ -90,7 +90,7 @@ impl MCPStore {
             .clone()
             .or_else(|| app_config.cache.redis_url.clone())
             .unwrap_or_else(|| "redis://127.0.0.1/".to_string());
-        let cache_store = Self::build_backend(&cache_storage, &redis_url, &namespace)?;
+        let cache_store = Self::build_cache_store(&cache_storage, &redis_url, &namespace)?;
 
         Ok(Self {
             config_manager,
