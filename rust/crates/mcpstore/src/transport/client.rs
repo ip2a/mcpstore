@@ -1,16 +1,14 @@
 use crate::config::ServerConfig;
 use crate::transport::content::content_item_from_rmcp;
+use crate::transport::{http as http_transport, stdio as stdio_transport};
 use crate::transport::{Result, ToolCallResult, ToolDescription, TransportError};
 
 pub use crate::transport::pool::ConnectionPool;
 
 use rmcp::model::{CallToolRequestParams, GetPromptRequestParams, ReadResourceRequestParams};
 use rmcp::service::{RoleClient, RunningService};
-use rmcp::transport::child_process::TokioChildProcess;
-use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
-use rmcp::transport::StreamableHttpClientTransport;
 
-type McpClient = RunningService<RoleClient, ()>;
+pub(super) type McpClient = RunningService<RoleClient, ()>;
 
 enum ActiveClient {
     Stdio(McpClient),
@@ -55,60 +53,14 @@ impl McpConnection {
     }
 
     async fn connect_stdio(&mut self) -> Result<()> {
-        let command = self.config.command.as_deref().ok_or_else(|| {
-            TransportError::ConnectionFailed(format!("Service {} missing command field", self.name))
-        })?;
-
-        let mut cmd = tokio::process::Command::new(command);
-        cmd.args(&self.config.args);
-        for (k, v) in &self.config.env {
-            cmd.env(k, v);
-        }
-        if let Some(ref wd) = self.config.working_dir {
-            cmd.current_dir(wd);
-        }
-
-        let transport = TokioChildProcess::new(cmd).map_err(|e| {
-            TransportError::ConnectionFailed(format!("Failed to spawn child process: {e}"))
-        })?;
-
-        let client = rmcp::service::serve_client((), transport)
-            .await
-            .map_err(|e| TransportError::ConnectionFailed(format!("MCP handshake failed: {e}")))?;
-
+        let client = stdio_transport::connect(&self.name, &self.config).await?;
         tracing::info!("[TRANSPORT] stdio connected: {}", self.name);
         self.client = Some(ActiveClient::Stdio(client));
         Ok(())
     }
 
     async fn connect_http(&mut self) -> Result<()> {
-        let url = self.config.url.as_deref().ok_or_else(|| {
-            TransportError::ConnectionFailed(format!("Service {} missing url field", self.name))
-        })?;
-
-        // Convert config.headers -> HashMap<HeaderName, HeaderValue>
-        let mut custom_headers = std::collections::HashMap::new();
-        for (k, v) in &self.config.headers {
-            let name = http::HeaderName::from_bytes(k.as_bytes()).map_err(|e| {
-                TransportError::ConnectionFailed(format!("Invalid HTTP header name '{}': {e}", k))
-            })?;
-            let value = http::HeaderValue::from_str(v).map_err(|e| {
-                TransportError::ConnectionFailed(format!("Invalid HTTP header value '{}': {e}", v))
-            })?;
-            custom_headers.insert(name, value);
-        }
-
-        let config = StreamableHttpClientTransportConfig::with_uri(url.to_string())
-            .custom_headers(custom_headers);
-
-        let transport = StreamableHttpClientTransport::from_config(config);
-
-        let client = rmcp::service::serve_client((), transport)
-            .await
-            .map_err(|e| {
-                TransportError::ConnectionFailed(format!("HTTP MCP handshake failed: {e}"))
-            })?;
-
+        let client = http_transport::connect(&self.name, &self.config).await?;
         tracing::info!("[TRANSPORT] HTTP connected: {}", self.name);
         self.client = Some(ActiveClient::Http(client));
         Ok(())

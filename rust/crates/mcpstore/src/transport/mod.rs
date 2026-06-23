@@ -3,7 +3,9 @@ use thiserror::Error;
 
 pub mod client;
 mod content;
+mod http;
 mod pool;
+mod stdio;
 
 #[derive(Error, Debug)]
 pub enum TransportError {
