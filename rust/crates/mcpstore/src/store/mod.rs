@@ -35,12 +35,11 @@ pub(crate) mod prelude {
     pub(crate) use crate::store::{
         generate_tool_global_name, normalize_service_name, parse_agent_scoped, resolve_tool,
         AgentServiceRelation, AvailableTool, BackendKind, CacheHealthReport, CacheStorage,
-        ConnectionStatus, Event, EventCapabilityReport, HealthStatus, MCPStore, Result,
-        ScopedServiceEntry, ScopedServiceHealth, ScopedToolEntry, ServerConfig, ServiceEntity,
-        ServiceEntry, ServiceRelationItem, ServiceStatus, ServiceToolRelation, SourceMode,
-        StoreError, ToolAvailability, ToolDescription, ToolEntity, ToolRelationItem,
-        ToolResolution, ToolStatusItem, CONTROL_EVENT_SEQUENCE, CONTROL_REQUEST_EVENT_TYPE,
-        GLOBAL_AGENT_STORE,
+        ConnectionStatus, Event, HealthStatus, MCPStore, Result, ScopedServiceEntry,
+        ScopedServiceHealth, ScopedToolEntry, ServerConfig, ServiceEntity, ServiceEntry,
+        ServiceRelationItem, ServiceStatus, ServiceToolRelation, SourceMode, StoreError,
+        ToolAvailability, ToolDescription, ToolEntity, ToolRelationItem, ToolResolution,
+        ToolStatusItem, CONTROL_EVENT_SEQUENCE, CONTROL_REQUEST_EVENT_TYPE, GLOBAL_AGENT_STORE,
     };
 }
 
