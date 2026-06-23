@@ -1,0 +1,46 @@
+use super::{field_validation::*, MonitoringConfig};
+
+pub(super) fn validate_monitoring_config(monitoring: &MonitoringConfig, errors: &mut Vec<String>) {
+    validate_range_i32(
+        "monitoring.reconnection_seconds",
+        monitoring.reconnection_seconds,
+        5,
+        1800,
+        errors,
+    );
+    validate_range_f64(
+        "monitoring.cleanup_hours",
+        monitoring.cleanup_hours,
+        0.1,
+        168.0,
+        errors,
+    );
+    validate_range_i32(
+        "monitoring.local_service_ping_timeout",
+        monitoring.local_service_ping_timeout,
+        1,
+        60,
+        errors,
+    );
+    validate_range_i32(
+        "monitoring.remote_service_ping_timeout",
+        monitoring.remote_service_ping_timeout,
+        1,
+        120,
+        errors,
+    );
+    validate_range_f64(
+        "monitoring.adaptive_timeout_multiplier",
+        monitoring.adaptive_timeout_multiplier,
+        1.0,
+        5.0,
+        errors,
+    );
+    validate_range_i32(
+        "monitoring.response_time_history_size",
+        monitoring.response_time_history_size,
+        5,
+        100,
+        errors,
+    );
+}
