@@ -11,6 +11,7 @@ pub mod models;
 pub mod naming;
 pub(crate) mod redis;
 pub(crate) mod relation;
+pub(crate) mod runtime;
 pub mod serializer;
 pub(crate) mod service_projection;
 pub(crate) mod snapshot;
