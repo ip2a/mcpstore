@@ -1,4 +1,5 @@
 pub(crate) mod codec;
+pub(crate) mod collections;
 pub(crate) mod entity;
 pub(crate) mod event;
 pub(crate) mod inspect;
