@@ -11,6 +11,7 @@ pub(crate) mod projection;
 pub(crate) mod redis;
 pub(crate) mod relation;
 pub mod serializer;
+pub(crate) mod snapshot;
 pub(crate) mod state;
 pub(crate) mod storage;
 
