@@ -9,26 +9,30 @@ mod defaults;
 mod examples;
 mod field_validation;
 mod flatten;
+mod health_schema;
 mod health_validation;
 mod manager;
 mod mcp_schema;
 pub mod models;
+mod monitoring_schema;
 mod monitoring_validation;
 pub mod resolver;
 mod server_validation;
 mod service_schema;
+mod standalone_schema;
 mod standalone_validation;
 pub mod validator;
 
-pub use app_schema::{
-    AppConfig, HealthCheckConfig, MonitoringConfig, ServerSettings, StandaloneConfig, UiConfig,
-};
+pub use app_schema::{AppConfig, ServerSettings, UiConfig};
 pub use cache_schema::{CacheBackend, CacheConfig};
 #[cfg(test)]
 use examples::default_server_config;
+pub use health_schema::HealthCheckConfig;
 pub use manager::ConfigManager;
 pub use mcp_schema::McpConfig;
+pub use monitoring_schema::MonitoringConfig;
 pub use service_schema::ServerConfig;
+pub use standalone_schema::StandaloneConfig;
 
 pub const DEFAULT_SERVER_LOG_LEVEL: &str = "info";
 pub const DEFAULT_SERVER_URL_PREFIX: &str = "";
