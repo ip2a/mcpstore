@@ -2,28 +2,33 @@
 use serde_json::Value;
 use std::path::PathBuf;
 
+mod app_schema;
 mod app_validation;
+mod cache_schema;
 mod defaults;
 mod examples;
 mod field_validation;
 mod flatten;
 mod health_validation;
 mod manager;
+mod mcp_schema;
 pub mod models;
 mod monitoring_validation;
 pub mod resolver;
-mod schema;
 mod server_validation;
+mod service_schema;
 mod standalone_validation;
 pub mod validator;
 
+pub use app_schema::{
+    AppConfig, HealthCheckConfig, MonitoringConfig, ServerSettings, StandaloneConfig, UiConfig,
+};
+pub use cache_schema::{CacheBackend, CacheConfig};
 #[cfg(test)]
 use examples::default_server_config;
 pub use manager::ConfigManager;
-pub use schema::{
-    AppConfig, CacheBackend, CacheConfig, HealthCheckConfig, McpConfig, MonitoringConfig,
-    ServerConfig, ServerSettings, StandaloneConfig, UiConfig,
-};
+pub use mcp_schema::McpConfig;
+pub use service_schema::ServerConfig;
 
 pub const DEFAULT_SERVER_LOG_LEVEL: &str = "info";
 pub const DEFAULT_SERVER_URL_PREFIX: &str = "";
