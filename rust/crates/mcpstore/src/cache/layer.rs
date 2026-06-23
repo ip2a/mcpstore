@@ -37,7 +37,7 @@ pub type Result<T> = std::result::Result<T, CacheError>;
 
 // ==================== CacheLayerManager ====================
 
-/// Central cache manager with four logical layers over a single KV backend.
+/// Central cache manager with four logical layers over a single openkeyv store.
 pub struct CacheLayerManager {
     pub(in crate::cache) store: AsyncRwLock<Arc<dyn CacheStore>>,
     pub(in crate::cache) namespace: SyncRwLock<String>,
