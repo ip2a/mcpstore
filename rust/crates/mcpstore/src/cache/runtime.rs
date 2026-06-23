@@ -4,7 +4,7 @@ use crate::cache::{memory_cache_store, redis_cache_store, CacheSnapshot, CacheSt
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub(crate) fn build_backend(
+    pub(crate) fn build_cache_store(
         cache_storage: &CacheStorage,
         redis_url: &str,
         _namespace: &str,
@@ -40,7 +40,7 @@ impl MCPStore {
         };
         let resolved_namespace = namespace.unwrap_or_else(|| self.namespace());
         let cache_store =
-            Self::build_backend(&cache_storage, &resolved_redis_url, &resolved_namespace)?;
+            Self::build_cache_store(&cache_storage, &resolved_redis_url, &resolved_namespace)?;
         let snapshot = self
             .cache
             .replace_store_with_snapshot_and_namespace(cache_store, resolved_namespace.clone())
@@ -57,11 +57,11 @@ impl MCPStore {
 
     pub async fn switch_backend(
         &self,
-        backend_kind: BackendKind,
+        cache_storage: BackendKind,
         redis_url: Option<String>,
         namespace: Option<String>,
     ) -> Result<CacheSnapshot> {
-        self.switch_cache_storage(backend_kind, redis_url, namespace)
+        self.switch_cache_storage(cache_storage, redis_url, namespace)
             .await
     }
 }
