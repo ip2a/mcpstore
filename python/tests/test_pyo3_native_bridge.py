@@ -89,6 +89,37 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(store.get_openapi_import("inventory")["spec_info"]["title"], "Inventory")
         self.assertEqual(len(store.list_openapi_imports()), 1)
 
+    def test_python_facade_imports_openapi_yaml_text_via_rust(self):
+        from mcpstore import MCPStore
+
+        workdir = Path(tempfile.mkdtemp(prefix="mcpstore-openapi-yaml-"))
+        store = MCPStore.setup_store(str(workdir / "mcp.json"))
+        context = store.for_store()
+        spec_text = """
+openapi: 3.0.0
+info:
+  title: YAML Facade
+  version: '2026.1'
+servers:
+  - url: https://yaml.example.test
+paths:
+  /items:
+    get:
+      operationId: listYamlItems
+      responses:
+        '200':
+          description: ok
+"""
+
+        result = context.import_openapi_service_from_spec(
+            "yaml-facade",
+            "memory://yaml-facade",
+            spec_text,
+        )
+
+        self.assertEqual(result["spec_info"]["title"], "YAML Facade")
+        self.assertEqual(result["component_types"]["resources"], 1)
+
     def test_python_facade_uses_native_bridge(self):
         from mcpstore import MCPStore
 
@@ -2472,6 +2503,9 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 }
 
             def import_openapi_service_from_spec(self, name, spec_url, spec, options=None):
+                return self.import_openapi_service(name, spec_url, options)
+
+            def import_openapi_service_from_spec_text(self, name, spec_url, spec_text, options=None):
                 return self.import_openapi_service(name, spec_url, options)
 
             def get_openapi_import(self, name):

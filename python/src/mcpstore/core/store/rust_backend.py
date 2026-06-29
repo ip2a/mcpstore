@@ -703,17 +703,27 @@ class RustStoreBackend:
         self,
         name: str,
         spec_url: str,
-        spec: Dict[str, Any],
+        spec: Any,
         *,
         headers: Optional[Dict[str, str]] = None,
         auth: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        options = self._openapi_import_options(headers, auth)
+        if isinstance(spec, str):
+            return _record_value(
+                self._inner.import_openapi_service_from_spec_text(
+                    name,
+                    spec_url,
+                    spec,
+                    options,
+                )
+            )
         return _record_value(
             self._inner.import_openapi_service_from_spec(
                 name,
                 spec_url,
                 self._normalize_config_dict(spec, "OpenAPI spec"),
-                self._openapi_import_options(headers, auth),
+                options,
             )
         )
 
@@ -2651,7 +2661,7 @@ class RustStoreContext:
         self,
         name: str,
         spec_url: str,
-        spec: Dict[str, Any],
+        spec: Any,
         *,
         headers: Optional[Dict[str, str]] = None,
         auth: Optional[Dict[str, Any]] = None,

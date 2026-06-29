@@ -94,6 +94,26 @@ pub struct OpenApiImportOptions {
     pub auth: Map<String, Value>,
 }
 
+pub fn parse_openapi_spec_text(spec_text: &str) -> Result<Value> {
+    serde_json::from_str::<Value>(spec_text)
+        .or_else(|json_err| {
+            serde_yaml_ng::from_str::<Value>(spec_text).map_err(|yaml_err| {
+                StoreError::Other(format!(
+                    "OpenAPI spec must be valid JSON or YAML: JSON error: {json_err}; YAML error: {yaml_err}"
+                ))
+            })
+        })
+        .and_then(|value| {
+            if value.is_object() {
+                Ok(value)
+            } else {
+                Err(StoreError::Other(
+                    "OpenAPI spec must parse to a JSON/YAML object".to_string(),
+                ))
+            }
+        })
+}
+
 pub fn analyze_openapi_spec(
     name: &str,
     spec_url: &str,

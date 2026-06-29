@@ -151,6 +151,7 @@ struct OpenApiImportRequest {
     name: Option<String>,
     spec_url: String,
     spec: Option<Value>,
+    spec_text: Option<String>,
     #[serde(default)]
     headers: HashMap<String, String>,
     #[serde(default)]
@@ -1269,7 +1270,15 @@ async fn store_import_openapi(
         headers: payload.headers,
         auth: payload.auth,
     };
-    store_import_openapi_impl(state, name, payload.spec_url, payload.spec, options).await
+    store_import_openapi_impl(
+        state,
+        name,
+        payload.spec_url,
+        payload.spec,
+        payload.spec_text,
+        options,
+    )
+    .await
 }
 
 async fn store_import_openapi_by_path(
@@ -1281,7 +1290,15 @@ async fn store_import_openapi_by_path(
         headers: payload.headers,
         auth: payload.auth,
     };
-    store_import_openapi_impl(state, name, payload.spec_url, payload.spec, options).await
+    store_import_openapi_impl(
+        state,
+        name,
+        payload.spec_url,
+        payload.spec,
+        payload.spec_text,
+        options,
+    )
+    .await
 }
 
 async fn store_import_openapi_impl(
@@ -1289,16 +1306,30 @@ async fn store_import_openapi_impl(
     name: String,
     spec_url: String,
     spec: Option<Value>,
+    spec_text: Option<String>,
     options: OpenApiImportOptions,
 ) -> ApiResult {
-    let import = match spec {
-        Some(spec) => {
+    let import = match (spec, payload_spec_text(spec_text)) {
+        (Some(_), Some(_)) => {
+            return Err(ApiError::invalid_request(
+                "spec and spec_text cannot both be provided",
+            ));
+        }
+        (Some(spec), None) => {
             state
                 .store
                 .import_openapi_service_from_spec_with_options(&name, &spec_url, spec, options)
                 .await
         }
-        None => {
+        (None, Some(spec_text)) => {
+            state
+                .store
+                .import_openapi_service_from_spec_text_with_options(
+                    &name, &spec_url, &spec_text, options,
+                )
+                .await
+        }
+        (None, None) => {
             state
                 .store
                 .import_openapi_service_with_options(&name, &spec_url, options)
@@ -1307,6 +1338,10 @@ async fn store_import_openapi_impl(
     }
     .map_err(ApiError::from_store)?;
     Ok(success("OpenAPI 导入成功", json!({ "import": import })))
+}
+
+fn payload_spec_text(spec_text: Option<String>) -> Option<String> {
+    spec_text.filter(|text| !text.trim().is_empty())
 }
 
 async fn store_list_resources(
