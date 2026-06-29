@@ -205,6 +205,7 @@ async fn execute_component(
 
     let args = args.as_object().cloned().unwrap_or_default();
     validate_required_arguments(component, &args)?;
+    validate_input_schema(component, &args)?;
     let mut path = component.endpoint.path.clone();
     let mut query = Vec::new();
     let mut request_headers = options.headers.clone();
@@ -346,6 +347,128 @@ fn validate_required_arguments(
 
 fn is_missing_argument(value: Option<&Value>) -> bool {
     matches!(value, None | Some(Value::Null))
+}
+
+fn validate_input_schema(component: &OpenApiComponent, args: &Map<String, Value>) -> Result<()> {
+    let Some(properties) = component
+        .input_schema
+        .get("properties")
+        .and_then(Value::as_object)
+    else {
+        return Ok(());
+    };
+
+    let mut errors = Vec::new();
+    for (name, value) in args {
+        let Some(schema) = properties.get(name) else {
+            continue;
+        };
+        validate_schema_value(schema, value, &argument_path(component, name), &mut errors);
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(StoreError::Other(format!(
+            "Invalid OpenAPI argument(s) for {}: {}",
+            component.name,
+            errors.join(", ")
+        )))
+    }
+}
+
+fn validate_schema_value(schema: &Value, value: &Value, path: &str, errors: &mut Vec<String>) {
+    if value.is_null()
+        && schema
+            .get("nullable")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    {
+        return;
+    }
+
+    if let Some(enum_values) = schema.get("enum").and_then(Value::as_array) {
+        if !enum_values.iter().any(|enum_value| enum_value == value) {
+            errors.push(format!("{path} must match one of the declared enum values"));
+            return;
+        }
+    }
+
+    let Some(schema_type) = schema_type(schema) else {
+        return;
+    };
+
+    match schema_type {
+        "object" => validate_object_schema(schema, value, path, errors),
+        "array" => validate_array_schema(schema, value, path, errors),
+        "string" if !value.is_string() => errors.push(format!("{path} must be a string")),
+        "number" if !value.is_number() => errors.push(format!("{path} must be a number")),
+        "integer" if !is_json_integer(value) => errors.push(format!("{path} must be an integer")),
+        "boolean" if !value.is_boolean() => errors.push(format!("{path} must be a boolean")),
+        _ => {}
+    }
+}
+
+fn validate_object_schema(schema: &Value, value: &Value, path: &str, errors: &mut Vec<String>) {
+    let Some(object) = value.as_object() else {
+        errors.push(format!("{path} must be an object"));
+        return;
+    };
+
+    let properties = schema.get("properties").and_then(Value::as_object);
+    if let Some(required) = schema.get("required").and_then(Value::as_array) {
+        for name in required.iter().filter_map(Value::as_str) {
+            if is_missing_argument(object.get(name)) {
+                errors.push(format!("{path}.{name} is required"));
+            }
+        }
+    }
+
+    let Some(properties) = properties else {
+        return;
+    };
+    for (name, child_value) in object {
+        if let Some(child_schema) = properties.get(name) {
+            validate_schema_value(child_schema, child_value, &format!("{path}.{name}"), errors);
+        }
+    }
+}
+
+fn validate_array_schema(schema: &Value, value: &Value, path: &str, errors: &mut Vec<String>) {
+    let Some(items) = value.as_array() else {
+        errors.push(format!("{path} must be an array"));
+        return;
+    };
+    let Some(item_schema) = schema.get("items") else {
+        return;
+    };
+    for (index, item) in items.iter().enumerate() {
+        validate_schema_value(item_schema, item, &format!("{path}[{index}]"), errors);
+    }
+}
+
+fn schema_type(schema: &Value) -> Option<&str> {
+    match schema.get("type")? {
+        Value::String(schema_type) => Some(schema_type),
+        Value::Array(types) => types.iter().find_map(Value::as_str),
+        _ => None,
+    }
+}
+
+fn argument_path(component: &OpenApiComponent, name: &str) -> String {
+    component
+        .endpoint
+        .parameters
+        .iter()
+        .filter_map(Value::as_object)
+        .find(|parameter| parameter.get("name").and_then(Value::as_str) == Some(name))
+        .and_then(|parameter| parameter.get("in").and_then(Value::as_str))
+        .map(|location| format!("{location}.{name}"))
+        .unwrap_or_else(|| name.to_string())
+}
+
+fn is_json_integer(value: &Value) -> bool {
+    value.as_i64().is_some() || value.as_u64().is_some()
 }
 
 fn apply_request_body(

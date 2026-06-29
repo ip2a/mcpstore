@@ -77,7 +77,9 @@ async fn spawn_openapi_http_fixture() -> String {
                     )
                 } else if first_line.starts_with("GET /plain ") {
                     ("plain inventory".to_string(), "text/plain; charset=utf-8")
-                } else if first_line.starts_with("POST /items ") {
+                } else if first_line.starts_with("POST /items ")
+                    || first_line.starts_with("POST /items?")
+                {
                     (
                         serde_json::json!({"created": true, "path": "/items"}).to_string(),
                         "application/json",
@@ -1314,6 +1316,90 @@ async fn openapi_tools_reject_missing_required_arguments_before_request() {
         .unwrap_err()
         .to_string();
     assert!(missing_body.contains("body"));
+}
+
+#[tokio::test]
+async fn openapi_tools_validate_input_schema_before_request() {
+    let base_url = spawn_openapi_http_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!(
+            "openapi-schema-validation-{}",
+            uuid::Uuid::new_v4()
+        )),
+    })
+    .unwrap();
+    let spec = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": { "title": "Validation", "version": "2026.1" },
+        "servers": [{ "url": base_url }],
+        "paths": {
+            "/items": {
+                "post": {
+                    "operationId": "createValidatedItem",
+                    "parameters": [
+                        { "name": "limit", "in": "query", "schema": { "type": "integer" } },
+                        { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["draft", "published"] } }
+                    ],
+                    "requestBody": {
+                        "required": true,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["name"],
+                                    "properties": {
+                                        "name": { "type": "string" },
+                                        "tags": { "type": "array", "items": { "type": "string" } }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    store
+        .import_openapi_service_from_spec("validation", "memory://validation", spec)
+        .await
+        .unwrap();
+
+    let invalid = store
+        .call_tool(
+            "validation",
+            "createValidatedItem",
+            serde_json::json!({
+                "limit": "ten",
+                "status": "archived",
+                "body": { "tags": ["ok", 1] }
+            }),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(invalid.contains("query.limit must be an integer"));
+    assert!(invalid.contains("query.status must match one of the declared enum values"));
+    assert!(invalid.contains("body.name is required"));
+    assert!(invalid.contains("body.tags[1] must be a string"));
+
+    let call_result = store
+        .call_tool(
+            "validation",
+            "createValidatedItem",
+            serde_json::json!({
+                "limit": 10,
+                "status": "draft",
+                "body": { "name": "apple", "tags": ["fruit"] }
+            }),
+        )
+        .await
+        .unwrap();
+    assert!(!call_result.is_error);
 }
 
 #[tokio::test]
