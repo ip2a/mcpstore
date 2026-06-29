@@ -122,6 +122,13 @@ struct OpenApiHttpResponse {
     body: Value,
 }
 
+#[derive(Clone)]
+struct QueryParameter {
+    name: String,
+    value: String,
+    allow_reserved: bool,
+}
+
 fn openapi_resource_uri(service_name: &str, component_name: &str) -> String {
     format!("openapi://{service_name}/{component_name}")
 }
@@ -247,7 +254,7 @@ async fn execute_component(
         }
     }
 
-    let url = build_url(&import.base_url, &path)?;
+    let url = build_url(&import.base_url, &path, &query)?;
     let method =
         reqwest::Method::from_bytes(component.endpoint.method.as_bytes()).map_err(|err| {
             StoreError::Other(format!(
@@ -256,7 +263,7 @@ async fn execute_component(
             ))
         })?;
     let client = reqwest::Client::new();
-    let mut request = client.request(method, url).query(&query);
+    let mut request = client.request(method, url);
     for (name, value) in request_headers {
         request = request.header(name, value);
     }
@@ -643,7 +650,7 @@ fn apply_security(
     component: &OpenApiComponent,
     options: &OpenApiImportOptions,
     request_headers: &mut HashMap<String, String>,
-    query: &mut Vec<(String, String)>,
+    query: &mut Vec<QueryParameter>,
 ) -> Result<()> {
     let requirements = effective_security(import, component);
     if requirements.is_empty() {
@@ -718,7 +725,7 @@ fn apply_security_scheme(
     scheme: &Value,
     auth: &Map<String, Value>,
     request_headers: &mut HashMap<String, String>,
-    query: &mut Vec<(String, String)>,
+    query: &mut Vec<QueryParameter>,
 ) -> std::result::Result<(), String> {
     let Some(scheme) = scheme.as_object() else {
         return Err(format!("{scheme_name}: security scheme must be an object"));
@@ -753,7 +760,11 @@ fn apply_security_scheme(
                     let credential = auth_string(auth_value).ok_or_else(|| {
                         format!("{scheme_name}: auth value must be a string or token")
                     })?;
-                    query.push((name.to_string(), credential));
+                    query.push(QueryParameter {
+                        name: name.to_string(),
+                        value: credential,
+                        allow_reserved: false,
+                    });
                     Ok(())
                 }
                 "cookie" => {
@@ -851,7 +862,7 @@ fn serialize_query_parameter(
     parameter: &Map<String, Value>,
     name: &str,
     value: &Value,
-) -> Result<Vec<(String, String)>> {
+) -> Result<Vec<QueryParameter>> {
     let style = parameter
         .get("style")
         .and_then(Value::as_str)
@@ -860,17 +871,30 @@ fn serialize_query_parameter(
         .get("explode")
         .and_then(Value::as_bool)
         .unwrap_or(style == "form");
+    let allow_reserved = parameter
+        .get("allowReserved")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
 
     match style {
-        "form" => Ok(serialize_form_parameter(name, value, explode)),
-        "spaceDelimited" => Ok(vec![(
-            name.to_string(),
-            serialize_array_or_scalar(value, " ", true),
-        )]),
-        "pipeDelimited" => Ok(vec![(
-            name.to_string(),
-            serialize_array_or_scalar(value, "|", true),
-        )]),
+        "form" => Ok(query_parameters(
+            serialize_form_parameter(name, value, explode),
+            allow_reserved,
+        )),
+        "spaceDelimited" => Ok(query_parameters(
+            vec![(
+                name.to_string(),
+                serialize_array_or_scalar(value, " ", true),
+            )],
+            allow_reserved,
+        )),
+        "pipeDelimited" => Ok(query_parameters(
+            vec![(
+                name.to_string(),
+                serialize_array_or_scalar(value, "|", true),
+            )],
+            allow_reserved,
+        )),
         "deepObject" => Err(StoreError::Other(format!(
             "Unsupported OpenAPI query parameter style for {name}: deepObject"
         ))),
@@ -878,6 +902,20 @@ fn serialize_query_parameter(
             "Unsupported OpenAPI query parameter style for {name}: {other}"
         ))),
     }
+}
+
+fn query_parameters(
+    parameters: Vec<(String, String)>,
+    allow_reserved: bool,
+) -> Vec<QueryParameter> {
+    parameters
+        .into_iter()
+        .map(|(name, value)| QueryParameter {
+            name,
+            value,
+            allow_reserved,
+        })
+        .collect()
 }
 
 fn serialize_form_parameter(name: &str, value: &Value, explode: bool) -> Vec<(String, String)> {
@@ -1008,17 +1046,38 @@ fn join_encoded_object(object: &Map<String, Value>, separator: &str, explode: bo
         .join(separator)
 }
 
-fn build_url(base_url: &str, path: &str) -> Result<String> {
+fn build_url(base_url: &str, path: &str, query: &[QueryParameter]) -> Result<String> {
     let base = base_url.trim_end_matches('/');
     let path = path.trim_start_matches('/');
-    let url = if path.is_empty() {
+    let mut url = if path.is_empty() {
         base.to_string()
     } else {
         format!("{base}/{path}")
     };
+    append_query_string(&mut url, query);
     reqwest::Url::parse(&url)
         .map(|url| url.to_string())
         .map_err(|err| StoreError::Other(format!("Invalid OpenAPI request URL {url}: {err}")))
+}
+
+fn append_query_string(url: &mut String, query: &[QueryParameter]) {
+    if query.is_empty() {
+        return;
+    }
+    url.push(if url.contains('?') { '&' } else { '?' });
+    url.push_str(
+        &query
+            .iter()
+            .map(|parameter| {
+                format!(
+                    "{}={}",
+                    percent_encode(&parameter.name),
+                    percent_encode_query_value(&parameter.value, parameter.allow_reserved)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("&"),
+    );
 }
 
 fn path_parameter_names(path: &str) -> Vec<String> {
@@ -1067,6 +1126,44 @@ fn percent_encode(value: &str) -> String {
         }
     }
     encoded
+}
+
+fn percent_encode_query_value(value: &str, allow_reserved: bool) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric()
+            || matches!(byte, b'-' | b'.' | b'_' | b'~')
+            || (allow_reserved && is_reserved_query_byte(byte))
+        {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
+}
+
+fn is_reserved_query_byte(byte: u8) -> bool {
+    matches!(
+        byte,
+        b':' | b'/'
+            | b'?'
+            | b'#'
+            | b'['
+            | b']'
+            | b'@'
+            | b'!'
+            | b'$'
+            | b'&'
+            | b'\''
+            | b'('
+            | b')'
+            | b'*'
+            | b'+'
+            | b','
+            | b';'
+            | b'='
+    )
 }
 
 fn percent_decode(value: &str) -> Result<String> {
