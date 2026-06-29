@@ -173,6 +173,20 @@ async fn spawn_openapi_http_fixture() -> String {
                             "application/json",
                         )
                     }
+                } else if first_line.starts_with("POST /deep?") {
+                    if first_line.contains("filter%5Bcolor%5D=red")
+                        && first_line.contains("filter%5Bsize%5D=large")
+                    {
+                        (
+                            serde_json::json!({"received": "deep-object"}).to_string(),
+                            "application/json",
+                        )
+                    } else {
+                        (
+                            serde_json::json!({"error": first_line}).to_string(),
+                            "application/json",
+                        )
+                    }
                 } else if first_line.starts_with("POST /styled/.red.blue/;id=sku-1;id=sku-2 ") {
                     (
                         serde_json::json!({"received": "styled-path"}).to_string(),
@@ -1408,6 +1422,61 @@ async fn openapi_query_parameters_honor_allow_reserved() {
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(text).unwrap()["received"],
         serde_json::json!("reserved")
+    );
+}
+
+#[tokio::test]
+async fn openapi_query_parameters_support_deep_object_style() {
+    let base_url = spawn_openapi_http_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-deep-object-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let spec = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": { "title": "Deep Object", "version": "2026.1" },
+        "servers": [{ "url": base_url }],
+        "paths": {
+            "/deep": {
+                "post": {
+                    "operationId": "sendDeepObjectQuery",
+                    "parameters": [
+                        { "name": "filter", "in": "query", "style": "deepObject", "explode": true, "schema": { "type": "object", "properties": { "color": { "type": "string" }, "size": { "type": "string" } } } }
+                    ]
+                }
+            }
+        }
+    });
+
+    store
+        .import_openapi_service_from_spec("deep", "memory://deep", spec)
+        .await
+        .unwrap();
+
+    let call_result = store
+        .call_tool(
+            "deep",
+            "sendDeepObjectQuery",
+            serde_json::json!({
+                "filter": {
+                    "color": "red",
+                    "size": "large"
+                }
+            }),
+        )
+        .await
+        .unwrap();
+    assert!(!call_result.is_error);
+    let crate::transport::ContentItem::Text { text, .. } = &call_result.content[0] else {
+        panic!("expected text content");
+    };
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(text).unwrap()["received"],
+        serde_json::json!("deep-object")
     );
 }
 
