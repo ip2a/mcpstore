@@ -159,6 +159,20 @@ async fn spawn_openapi_http_fixture() -> String {
                             "application/json",
                         )
                     }
+                } else if first_line.starts_with("POST /reserved?") {
+                    if first_line.contains("raw=https://example.com/a,b;c=1")
+                        && first_line.contains("encoded=https%3A%2F%2Fexample.com%2Fa%2Cb%3Bc%3D1")
+                    {
+                        (
+                            serde_json::json!({"received": "reserved"}).to_string(),
+                            "application/json",
+                        )
+                    } else {
+                        (
+                            serde_json::json!({"error": first_line}).to_string(),
+                            "application/json",
+                        )
+                    }
                 } else {
                     (
                         serde_json::json!({"error": first_line}).to_string(),
@@ -1335,6 +1349,60 @@ async fn openapi_tools_serialize_parameters_by_openapi_style() {
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(text).unwrap()["received"],
         serde_json::json!("parameters")
+    );
+}
+
+#[tokio::test]
+async fn openapi_query_parameters_honor_allow_reserved() {
+    let base_url = spawn_openapi_http_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-allow-reserved-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let spec = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": { "title": "Reserved", "version": "2026.1" },
+        "servers": [{ "url": base_url }],
+        "paths": {
+            "/reserved": {
+                "post": {
+                    "operationId": "sendReservedQuery",
+                    "parameters": [
+                        { "name": "raw", "in": "query", "allowReserved": true, "schema": { "type": "string" } },
+                        { "name": "encoded", "in": "query", "schema": { "type": "string" } }
+                    ]
+                }
+            }
+        }
+    });
+
+    store
+        .import_openapi_service_from_spec("reserved", "memory://reserved", spec)
+        .await
+        .unwrap();
+
+    let call_result = store
+        .call_tool(
+            "reserved",
+            "sendReservedQuery",
+            serde_json::json!({
+                "raw": "https://example.com/a,b;c=1",
+                "encoded": "https://example.com/a,b;c=1"
+            }),
+        )
+        .await
+        .unwrap();
+    assert!(!call_result.is_error);
+    let crate::transport::ContentItem::Text { text, .. } = &call_result.content[0] else {
+        panic!("expected text content");
+    };
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(text).unwrap()["received"],
+        serde_json::json!("reserved")
     );
 }
 
