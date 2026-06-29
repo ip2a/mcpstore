@@ -267,6 +267,10 @@ fn resolve_optional_value(spec: &Value, value: Option<&Value>) -> Result<Option<
         .transpose()
 }
 
+pub(crate) fn resolve_openapi_local_refs(spec: &Value, value: &Value) -> Result<Value> {
+    resolve_local_refs(spec, value, 0)
+}
+
 fn resolve_map_values(spec: &Value, values: &Map<String, Value>) -> Result<Map<String, Value>> {
     values
         .iter()
