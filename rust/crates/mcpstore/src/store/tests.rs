@@ -96,6 +96,16 @@ async fn spawn_openapi_http_fixture() -> String {
                     } else {
                         serde_json::json!({"error": "bad text body"}).to_string()
                     }
+                } else if first_line.starts_with("POST /search/a,b?") {
+                    if first_line.contains("tag=red")
+                        && first_line.contains("tag=blue")
+                        && first_line.contains("compact=one%2Ctwo")
+                        && request_lower.contains("x-flags: fast,safe")
+                    {
+                        serde_json::json!({"received": "parameters"}).to_string()
+                    } else {
+                        serde_json::json!({"error": first_line}).to_string()
+                    }
                 } else {
                     serde_json::json!({"error": first_line}).to_string()
                 };
@@ -1078,6 +1088,64 @@ async fn openapi_tools_support_common_request_body_media_types() {
         .unwrap_err()
         .to_string()
         .contains("multipart binary field"));
+}
+
+#[tokio::test]
+async fn openapi_tools_serialize_parameters_by_openapi_style() {
+    let base_url = spawn_openapi_http_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-parameter-style-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let spec = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": { "title": "Search", "version": "2026.1" },
+        "servers": [{ "url": base_url }],
+        "paths": {
+            "/search/{ids}": {
+                "post": {
+                    "operationId": "searchItems",
+                    "parameters": [
+                        { "name": "ids", "in": "path", "required": true, "schema": { "type": "array", "items": { "type": "string" } } },
+                        { "name": "tag", "in": "query", "style": "form", "explode": true, "schema": { "type": "array", "items": { "type": "string" } } },
+                        { "name": "compact", "in": "query", "style": "form", "explode": false, "schema": { "type": "array", "items": { "type": "string" } } },
+                        { "name": "x-flags", "in": "header", "schema": { "type": "array", "items": { "type": "string" } } }
+                    ]
+                }
+            }
+        }
+    });
+
+    store
+        .import_openapi_service_from_spec("search", "memory://search", spec)
+        .await
+        .unwrap();
+
+    let call_result = store
+        .call_tool(
+            "search",
+            "searchItems",
+            serde_json::json!({
+                "ids": ["a", "b"],
+                "tag": ["red", "blue"],
+                "compact": ["one", "two"],
+                "x-flags": ["fast", "safe"]
+            }),
+        )
+        .await
+        .unwrap();
+    assert!(!call_result.is_error);
+    let crate::transport::ContentItem::Text { text, .. } = &call_result.content[0] else {
+        panic!("expected text content");
+    };
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(text).unwrap()["received"],
+        serde_json::json!("parameters")
+    );
 }
 
 #[tokio::test]
