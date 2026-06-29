@@ -30,7 +30,7 @@ pub fn list_openapi_resources(import: &OpenApiImportResult) -> Vec<Value> {
                 "uri": openapi_resource_uri(&import.service_name, &component.name),
                 "name": component.name,
                 "description": component.description,
-                "mimeType": "application/json",
+                "mimeType": declared_response_mime_type(component),
             })
         })
         .collect()
@@ -46,7 +46,7 @@ pub fn list_openapi_resource_templates(import: &OpenApiImportResult) -> Vec<Valu
                 "uriTemplate": openapi_resource_template_uri(import, component),
                 "name": component.name,
                 "description": component.description,
-                "mimeType": "application/json",
+                "mimeType": declared_response_mime_type(component),
             })
         })
         .collect()
@@ -110,7 +110,7 @@ pub async fn read_openapi_resource(
     Ok(serde_json::json!({
         "contents": [{
             "uri": uri,
-            "mimeType": "application/json",
+            "mimeType": response.mime_type,
             "text": response_text(response.body),
         }]
     }))
@@ -118,6 +118,7 @@ pub async fn read_openapi_resource(
 
 struct OpenApiHttpResponse {
     status: reqwest::StatusCode,
+    mime_type: String,
     body: Value,
 }
 
@@ -262,17 +263,17 @@ async fn execute_component(
         .await
         .map_err(|err| StoreError::Other(format!("OpenAPI request failed: {err}")))?;
     let status = response.status();
-    let content_type = response
+    let mime_type = response
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
+        .and_then(normalize_mime_type)
+        .unwrap_or_else(|| declared_response_mime_type(component));
     let text = response
         .text()
         .await
         .map_err(|err| StoreError::Other(format!("OpenAPI response read failed: {err}")))?;
-    let body = if content_type.contains("json") {
+    let body = if is_json_mime_type(&mime_type) {
         match serde_json::from_str(&text) {
             Ok(body) => body,
             Err(err) if status.is_success() => {
@@ -285,7 +286,11 @@ async fn execute_component(
     } else {
         Value::String(text)
     };
-    Ok(OpenApiHttpResponse { status, body })
+    Ok(OpenApiHttpResponse {
+        status,
+        mime_type,
+        body,
+    })
 }
 
 fn validate_required_arguments(
@@ -389,6 +394,37 @@ fn request_body_media_type(component: &OpenApiComponent) -> Option<String> {
     .find(|media_type| content.contains_key(**media_type))
     .map(|media_type| (*media_type).to_string())
     .or_else(|| content.keys().next().cloned())
+}
+
+fn declared_response_mime_type(component: &OpenApiComponent) -> String {
+    for status in ["200", "201", "202", "204", "default"] {
+        if let Some(mime_type) = response_mime_type(component.endpoint.responses.get(status)) {
+            return mime_type;
+        }
+    }
+    component
+        .endpoint
+        .responses
+        .values()
+        .find_map(|response| response_mime_type(Some(response)))
+        .unwrap_or_else(|| "application/json".to_string())
+}
+
+fn response_mime_type(response: Option<&Value>) -> Option<String> {
+    response?
+        .get("content")?
+        .as_object()?
+        .keys()
+        .find_map(|mime_type| normalize_mime_type(mime_type))
+}
+
+fn normalize_mime_type(value: &str) -> Option<String> {
+    let mime_type = value.split(';').next()?.trim().to_ascii_lowercase();
+    (!mime_type.is_empty()).then_some(mime_type)
+}
+
+fn is_json_mime_type(mime_type: &str) -> bool {
+    mime_type == "application/json" || mime_type.ends_with("+json")
 }
 
 fn body_as_fields(body: &Value) -> Result<Vec<(String, String)>> {
