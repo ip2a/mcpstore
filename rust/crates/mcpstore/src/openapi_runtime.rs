@@ -203,6 +203,7 @@ async fn execute_component(
     }
 
     let args = args.as_object().cloned().unwrap_or_default();
+    validate_required_arguments(component, &args)?;
     let mut path = component.endpoint.path.clone();
     let mut query = Vec::new();
     let mut request_headers = options.headers.clone();
@@ -285,6 +286,61 @@ async fn execute_component(
         Value::String(text)
     };
     Ok(OpenApiHttpResponse { status, body })
+}
+
+fn validate_required_arguments(
+    component: &OpenApiComponent,
+    args: &Map<String, Value>,
+) -> Result<()> {
+    let mut missing = Vec::new();
+    for parameter in &component.endpoint.parameters {
+        let Some(parameter) = parameter.as_object() else {
+            continue;
+        };
+        if !parameter
+            .get("required")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let Some(name) = parameter.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        if is_missing_argument(args.get(name)) {
+            let location = parameter
+                .get("in")
+                .and_then(Value::as_str)
+                .unwrap_or("query");
+            missing.push(format!("{location}.{name}"));
+        }
+    }
+
+    if component
+        .endpoint
+        .request_body
+        .as_ref()
+        .and_then(|request_body| request_body.get("required"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        && is_missing_argument(args.get("body"))
+    {
+        missing.push("body".to_string());
+    }
+
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(StoreError::Other(format!(
+            "Missing required OpenAPI argument(s) for {}: {}",
+            component.name,
+            missing.join(", ")
+        )))
+    }
+}
+
+fn is_missing_argument(value: Option<&Value>) -> bool {
+    matches!(value, None | Some(Value::Null))
 }
 
 fn apply_request_body(
