@@ -1,5 +1,6 @@
 use crate::openapi::{
-    analyze_openapi_spec, resolve_openapi_local_refs, OpenApiImportOptions, OpenApiImportResult,
+    analyze_openapi_spec, parse_openapi_spec_text, resolve_openapi_local_refs,
+    OpenApiImportOptions, OpenApiImportResult,
 };
 use crate::openapi_runtime::openapi_tool_infos;
 use crate::store::prelude::*;
@@ -40,17 +41,17 @@ impl MCPStore {
         options: OpenApiImportOptions,
     ) -> Result<OpenApiImportResult> {
         let client = reqwest::Client::new();
-        let spec = client
+        let spec_text = client
             .get(spec_url)
             .send()
             .await
             .map_err(|err| StoreError::Other(format!("OpenAPI spec fetch failed: {err}")))?
             .error_for_status()
             .map_err(|err| StoreError::Other(format!("OpenAPI spec fetch failed: {err}")))?
-            .json::<serde_json::Value>()
+            .text()
             .await
-            .map_err(|err| StoreError::Other(format!("OpenAPI spec JSON decode failed: {err}")))?;
-        self.import_openapi_service_from_spec_with_options(name, spec_url, spec, options)
+            .map_err(|err| StoreError::Other(format!("OpenAPI spec body read failed: {err}")))?;
+        self.import_openapi_service_from_spec_text_with_options(name, spec_url, &spec_text, options)
             .await
     }
 
@@ -67,6 +68,33 @@ impl MCPStore {
             OpenApiImportOptions::default(),
         )
         .await
+    }
+
+    pub async fn import_openapi_service_from_spec_text(
+        &self,
+        name: &str,
+        spec_url: &str,
+        spec_text: &str,
+    ) -> Result<OpenApiImportResult> {
+        self.import_openapi_service_from_spec_text_with_options(
+            name,
+            spec_url,
+            spec_text,
+            OpenApiImportOptions::default(),
+        )
+        .await
+    }
+
+    pub async fn import_openapi_service_from_spec_text_with_options(
+        &self,
+        name: &str,
+        spec_url: &str,
+        spec_text: &str,
+        options: OpenApiImportOptions,
+    ) -> Result<OpenApiImportResult> {
+        let spec = parse_openapi_spec_text(spec_text)?;
+        self.import_openapi_service_from_spec_with_options(name, spec_url, spec, options)
+            .await
     }
 
     pub async fn import_openapi_service_from_spec_with_options(

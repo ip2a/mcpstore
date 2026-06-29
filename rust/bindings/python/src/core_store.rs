@@ -707,6 +707,34 @@ impl PyMCPStore {
         )
     }
 
+    #[pyo3(signature = (name, spec_url, spec_text, options=None))]
+    fn import_openapi_service_from_spec_text(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        spec_url: &str,
+        spec_text: &str,
+        options: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        let options = parse_openapi_import_options(options)?;
+        let result = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .import_openapi_service_from_spec_text_with_options(
+                        name, spec_url, spec_text, options,
+                    ),
+            )
+            .map_err(map_store_err)?;
+        serde_value_to_py(
+            py,
+            serde_json::to_value(result).map_err(|err| {
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "OpenAPI import result conversion failed: {err}"
+                ))
+            })?,
+        )
+    }
+
     fn get_openapi_import(&self, py: Python<'_>, name: &str) -> PyResult<Option<Py<PyAny>>> {
         let result = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.get_openapi_import(name))

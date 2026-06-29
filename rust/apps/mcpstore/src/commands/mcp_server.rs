@@ -874,7 +874,7 @@ fn openapi_schema(required: &[&str]) -> Map<String, Value> {
         "spec_url".to_string(),
         serde_json::json!({
             "type": "string",
-            "description": "OpenAPI spec URL. When spec is also provided, this is stored as source metadata."
+            "description": "OpenAPI spec URL. When spec or spec_text is also provided, this is stored as source metadata."
         }),
     );
     properties.insert(
@@ -882,6 +882,13 @@ fn openapi_schema(required: &[&str]) -> Map<String, Value> {
         serde_json::json!({
             "type": "object",
             "description": "Optional OpenAPI document. If omitted, MCPStore fetches spec_url."
+        }),
+    );
+    properties.insert(
+        "spec_text".to_string(),
+        serde_json::json!({
+            "type": "string",
+            "description": "Optional OpenAPI JSON or YAML document text. Mutually exclusive with spec."
         }),
     );
     properties.insert(
@@ -1062,15 +1069,33 @@ async fn call_openapi_tool(
             let name = required_argument_string(&arguments, "name")?.to_string();
             let spec_url = required_argument_string(&arguments, "spec_url")?.to_string();
             let options = openapi_import_options_from_arguments(&arguments)?;
-            let import = match arguments.get("spec").cloned() {
-                Some(spec) => {
+            let spec = arguments.get("spec").cloned();
+            let spec_text = arguments
+                .get("spec_text")
+                .and_then(Value::as_str)
+                .filter(|text| !text.trim().is_empty());
+            let import = match (spec, spec_text) {
+                (Some(_), Some(_)) => {
+                    return Err(ErrorData::invalid_params(
+                        "spec and spec_text cannot both be provided",
+                        None,
+                    ));
+                }
+                (Some(spec), None) => {
                     store
                         .import_openapi_service_from_spec_with_options(
                             &name, &spec_url, spec, options,
                         )
                         .await
                 }
-                None => {
+                (None, Some(spec_text)) => {
+                    store
+                        .import_openapi_service_from_spec_text_with_options(
+                            &name, &spec_url, spec_text, options,
+                        )
+                        .await
+                }
+                (None, None) => {
                     store
                         .import_openapi_service_with_options(&name, &spec_url, options)
                         .await
