@@ -173,6 +173,11 @@ async fn spawn_openapi_http_fixture() -> String {
                             "application/json",
                         )
                     }
+                } else if first_line.starts_with("POST /styled/.red.blue/;id=sku-1;id=sku-2 ") {
+                    (
+                        serde_json::json!({"received": "styled-path"}).to_string(),
+                        "application/json",
+                    )
                 } else {
                     (
                         serde_json::json!({"error": first_line}).to_string(),
@@ -1403,6 +1408,60 @@ async fn openapi_query_parameters_honor_allow_reserved() {
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(text).unwrap()["received"],
         serde_json::json!("reserved")
+    );
+}
+
+#[tokio::test]
+async fn openapi_path_parameters_support_label_and_matrix_styles() {
+    let base_url = spawn_openapi_http_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-path-style-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let spec = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": { "title": "Path Styles", "version": "2026.1" },
+        "servers": [{ "url": base_url }],
+        "paths": {
+            "/styled/{label}/{id}": {
+                "post": {
+                    "operationId": "sendStyledPath",
+                    "parameters": [
+                        { "name": "label", "in": "path", "required": true, "style": "label", "schema": { "type": "array", "items": { "type": "string" } } },
+                        { "name": "id", "in": "path", "required": true, "style": "matrix", "explode": true, "schema": { "type": "array", "items": { "type": "string" } } }
+                    ]
+                }
+            }
+        }
+    });
+
+    store
+        .import_openapi_service_from_spec("pathstyles", "memory://pathstyles", spec)
+        .await
+        .unwrap();
+
+    let call_result = store
+        .call_tool(
+            "pathstyles",
+            "sendStyledPath",
+            serde_json::json!({
+                "label": ["red", "blue"],
+                "id": ["sku-1", "sku-2"]
+            }),
+        )
+        .await
+        .unwrap();
+    assert!(!call_result.is_error);
+    let crate::transport::ContentItem::Text { text, .. } = &call_result.content[0] else {
+        panic!("expected text content");
+    };
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(text).unwrap()["received"],
+        serde_json::json!("styled-path")
     );
 }
 

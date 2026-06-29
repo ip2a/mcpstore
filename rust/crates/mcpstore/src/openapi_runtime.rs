@@ -950,6 +950,8 @@ fn serialize_path_parameter(parameter: &Map<String, Value>, value: &Value) -> Re
 
     match style {
         "simple" => Ok(serialize_simple_path_parameter(value, explode)),
+        "label" => Ok(serialize_label_path_parameter(value, explode)),
+        "matrix" => Ok(serialize_matrix_path_parameter(name, value, explode)),
         other => Err(StoreError::Other(format!(
             "Unsupported OpenAPI path parameter style for {name}: {other}"
         ))),
@@ -991,6 +993,56 @@ fn serialize_simple_path_parameter(value: &Value, explode: bool) -> String {
         Value::Array(items) => join_encoded_values(items.iter(), ","),
         Value::Object(object) => join_encoded_object(object, ",", explode),
         _ => percent_encode(&argument_as_string(value)),
+    }
+}
+
+fn serialize_label_path_parameter(value: &Value, explode: bool) -> String {
+    match value {
+        Value::Array(items) => format!(".{}", join_encoded_values(items.iter(), ".")),
+        Value::Object(object) => format!(".{}", join_encoded_object(object, ".", explode)),
+        _ => format!(".{}", percent_encode(&argument_as_string(value))),
+    }
+}
+
+fn serialize_matrix_path_parameter(name: &str, value: &Value, explode: bool) -> String {
+    match value {
+        Value::Array(items) if explode => items
+            .iter()
+            .map(|item| {
+                format!(
+                    ";{}={}",
+                    percent_encode(name),
+                    percent_encode(&argument_as_string(item))
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(""),
+        Value::Array(items) => format!(
+            ";{}={}",
+            percent_encode(name),
+            join_encoded_values(items.iter(), ",")
+        ),
+        Value::Object(object) if explode => object
+            .iter()
+            .map(|(key, value)| {
+                format!(
+                    ";{}={}",
+                    percent_encode(key),
+                    percent_encode(&argument_as_string(value))
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(""),
+        Value::Object(object) => format!(
+            ";{}={}",
+            percent_encode(name),
+            join_encoded_object(object, ",", false)
+        ),
+        _ => format!(
+            ";{}={}",
+            percent_encode(name),
+            percent_encode(&argument_as_string(value))
+        ),
     }
 }
 
