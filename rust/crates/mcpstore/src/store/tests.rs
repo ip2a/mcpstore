@@ -422,6 +422,79 @@ async fn spawn_openapi_spec_ref_fixture() -> (String, Arc<AtomicUsize>) {
     (base_url, components_requests)
 }
 
+async fn spawn_openapi_yaml_fixture() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let base_url = format!("http://{addr}");
+    let base_url_for_task = base_url.clone();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let base_url = base_url_for_task.clone();
+            tokio::spawn(async move {
+                let mut buffer = vec![0; 8192];
+                let Ok(size) = socket.read(&mut buffer).await else {
+                    return;
+                };
+                let request = String::from_utf8_lossy(&buffer[..size]);
+                let first_line = request.lines().next().unwrap_or_default();
+                let (status, body, content_type) = if first_line.starts_with("GET /openapi.yaml ") {
+                    (
+                        "200 OK",
+                        format!(
+                            r#"openapi: 3.0.0
+info:
+  title: YAML Inventory
+  version: '2026.1'
+servers:
+  - url: {base_url}
+paths:
+  /items:
+    get:
+      operationId: listYamlItems
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+"#
+                        )
+                        .into_bytes(),
+                        "application/yaml",
+                    )
+                } else if first_line.starts_with("GET /items ") {
+                    (
+                        "200 OK",
+                        serde_json::json!({"items": ["yaml"]})
+                            .to_string()
+                            .into_bytes(),
+                        "application/json",
+                    )
+                } else {
+                    (
+                        "404 Not Found",
+                        serde_json::json!({"error": first_line})
+                            .to_string()
+                            .into_bytes(),
+                        "application/json",
+                    )
+                };
+                let header = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = socket.write_all(header.as_bytes()).await;
+                let _ = socket.write_all(&body).await;
+            });
+        }
+    });
+    base_url
+}
+
 #[tokio::test]
 async fn add_service_writes_cache_layers() {
     let path = temp_config_path();
@@ -1216,6 +1289,93 @@ async fn openapi_import_bundles_external_http_refs() {
         serde_json::json!("sku-1")
     );
     assert_eq!(components_requests.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn openapi_import_parses_yaml_from_url() {
+    let base_url = spawn_openapi_yaml_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-yaml-url-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+
+    let result = store
+        .import_openapi_service("yaml", &format!("{base_url}/openapi.yaml"))
+        .await
+        .unwrap();
+
+    assert_eq!(result.spec_info.title.as_deref(), Some("YAML Inventory"));
+    assert_eq!(result.component_types.resources, 1);
+    let call_result = store
+        .read_resource("yaml", "openapi://yaml/listYamlItems")
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(
+            call_result["contents"][0]["text"].as_str().unwrap()
+        )
+        .unwrap()["items"][0],
+        serde_json::json!("yaml")
+    );
+}
+
+#[tokio::test]
+async fn openapi_import_parses_yaml_spec_text() {
+    let base_url = spawn_openapi_yaml_fixture().await;
+    let spec_text = format!(
+        r#"openapi: 3.0.0
+info:
+  title: YAML Text Inventory
+  version: '2026.1'
+servers:
+  - url: {base_url}
+paths:
+  /items:
+    get:
+      operationId: listYamlTextItems
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+"#
+    );
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-yaml-text-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+
+    let result = store
+        .import_openapi_service_from_spec_text("yaml-text", "memory://yaml-text", &spec_text)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        result.spec_info.title.as_deref(),
+        Some("YAML Text Inventory")
+    );
+    assert_eq!(result.component_types.resources, 1);
+    let call_result = store
+        .read_resource("yaml-text", "openapi://yaml-text/listYamlTextItems")
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(
+            call_result["contents"][0]["text"].as_str().unwrap()
+        )
+        .unwrap()["items"][0],
+        serde_json::json!("yaml")
+    );
 }
 
 #[tokio::test]

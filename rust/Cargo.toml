@@ -18,6 +18,7 @@ repository = "https://github.com/ip2a/mcpstore"
 tokio = { version = "1.40", features = ["rt-multi-thread", "sync", "macros", "time", "process", "io-util", "signal", "net"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml_ng = "0.10"
 toml = "0.8"
 thiserror = "2.0"
 tracing = "0.1"
