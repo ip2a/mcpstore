@@ -1,6 +1,8 @@
 use super::*;
 use base64::Engine;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -312,6 +314,112 @@ async fn spawn_openapi_auth_http_fixture() -> String {
         }
     });
     format!("http://{addr}")
+}
+
+async fn spawn_openapi_spec_ref_fixture() -> (String, Arc<AtomicUsize>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let base_url = format!("http://{addr}");
+    let components_requests = Arc::new(AtomicUsize::new(0));
+    let base_url_for_task = base_url.clone();
+    let components_requests_for_task = components_requests.clone();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let base_url = base_url_for_task.clone();
+            let components_requests = components_requests_for_task.clone();
+            tokio::spawn(async move {
+                let mut buffer = vec![0; 8192];
+                let Ok(size) = socket.read(&mut buffer).await else {
+                    return;
+                };
+                let request = String::from_utf8_lossy(&buffer[..size]);
+                let first_line = request.lines().next().unwrap_or_default();
+                let (status, body) = if first_line.starts_with("GET /openapi.json ") {
+                    (
+                        "200 OK",
+                        serde_json::json!({
+                            "openapi": "3.0.0",
+                            "info": { "title": "External Refs", "version": "2026.1" },
+                            "servers": [{ "url": base_url }],
+                            "paths": {
+                                "/items/{id}": {
+                                    "parameters": [{ "$ref": "components.json#/components/parameters/ItemId" }],
+                                    "get": {
+                                        "operationId": "getItemByExternalRef",
+                                        "parameters": [{ "$ref": "components.json#/components/parameters/Verbose" }],
+                                        "responses": {
+                                            "200": {
+                                                "description": "ok",
+                                                "content": {
+                                                    "application/json": { "schema": { "$ref": "components.json#/components/schemas/Item" } }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        })
+                        .to_string(),
+                    )
+                } else if first_line.starts_with("GET /components.json ") {
+                    components_requests.fetch_add(1, Ordering::SeqCst);
+                    (
+                        "200 OK",
+                        serde_json::json!({
+                            "components": {
+                                "parameters": {
+                                    "ItemId": {
+                                        "name": "id",
+                                        "in": "path",
+                                        "required": true,
+                                        "schema": { "$ref": "#/components/schemas/ItemId" }
+                                    },
+                                    "Verbose": {
+                                        "name": "verbose",
+                                        "in": "query",
+                                        "schema": { "type": "boolean" }
+                                    }
+                                },
+                                "schemas": {
+                                    "ItemId": { "type": "string", "description": "external item id" },
+                                    "Item": {
+                                        "type": "object",
+                                        "properties": {
+                                            "id": { "$ref": "#/components/schemas/ItemId" },
+                                            "name": { "type": "string" }
+                                        }
+                                    }
+                                }
+                            }
+                        })
+                        .to_string(),
+                    )
+                } else if first_line.starts_with("GET /items/sku-1 ")
+                    || first_line.starts_with("GET /items/sku-1?")
+                {
+                    (
+                        "200 OK",
+                        serde_json::json!({"id": "sku-1", "name": "apple"}).to_string(),
+                    )
+                } else {
+                    (
+                        "404 Not Found",
+                        serde_json::json!({"error": first_line}).to_string(),
+                    )
+                };
+                let header = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = socket.write_all(header.as_bytes()).await;
+                let _ = socket.write_all(body.as_bytes()).await;
+            });
+        }
+    });
+    (base_url, components_requests)
 }
 
 #[tokio::test]
@@ -1060,6 +1168,54 @@ async fn openapi_import_persists_shared_analysis_result() {
         serde_json::json!(1)
     );
     assert_eq!(inspect["counts"]["entities"]["tools"], serde_json::json!(1));
+}
+
+#[tokio::test]
+async fn openapi_import_bundles_external_http_refs() {
+    let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-external-ref-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+
+    let result = store
+        .import_openapi_service("external", &format!("{base_url}/openapi.json"))
+        .await
+        .unwrap();
+
+    assert_eq!(result.total_endpoints, 1);
+    assert_eq!(result.component_types.resource_templates, 1);
+    let component = &result.components[0];
+    assert_eq!(component.name, "getItemByExternalRef");
+    assert_eq!(
+        component.input_schema["properties"]["id"],
+        serde_json::json!({
+            "type": "string",
+            "description": "external item id",
+            "x_mcpstore_parameter_in": "path"
+        })
+    );
+    assert_eq!(
+        component.input_schema["properties"]["verbose"]["type"],
+        serde_json::json!("boolean")
+    );
+
+    let call_result = store
+        .read_resource("external", "openapi://external/getItemByExternalRef/sku-1")
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(
+            call_result["contents"][0]["text"].as_str().unwrap()
+        )
+        .unwrap()["id"],
+        serde_json::json!("sku-1")
+    );
+    assert_eq!(components_requests.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]

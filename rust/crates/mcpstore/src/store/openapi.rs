@@ -1,8 +1,15 @@
-use crate::openapi::{analyze_openapi_spec, OpenApiImportOptions, OpenApiImportResult};
+use crate::openapi::{
+    analyze_openapi_spec, resolve_openapi_local_refs, OpenApiImportOptions, OpenApiImportResult,
+};
 use crate::openapi_runtime::openapi_tool_infos;
 use crate::store::prelude::*;
 use std::collections::HashMap;
+use std::future::Future;
 use std::hash::{Hash, Hasher};
+use std::pin::Pin;
+use std::sync::Mutex;
+
+const MAX_EXTERNAL_REF_DEPTH: usize = 32;
 
 #[derive(Debug, Clone)]
 pub struct OpenApiImportInput {
@@ -32,7 +39,8 @@ impl MCPStore {
         spec_url: &str,
         options: OpenApiImportOptions,
     ) -> Result<OpenApiImportResult> {
-        let spec = reqwest::Client::new()
+        let client = reqwest::Client::new();
+        let spec = client
             .get(spec_url)
             .send()
             .await
@@ -68,6 +76,8 @@ impl MCPStore {
         spec: serde_json::Value,
         options: OpenApiImportOptions,
     ) -> Result<OpenApiImportResult> {
+        let client = reqwest::Client::new();
+        let spec = bundle_openapi_external_refs(&client, spec_url, spec).await?;
         let mut result = analyze_openapi_spec(name, spec_url, spec)?;
         result.runtime_executable = true;
         self.register_openapi_virtual_service(&result, &options)
@@ -259,6 +269,234 @@ impl MCPStore {
             auth,
         })
     }
+}
+
+async fn bundle_openapi_external_refs(
+    client: &reqwest::Client,
+    document_url: &str,
+    spec: serde_json::Value,
+) -> Result<serde_json::Value> {
+    let resolver = OpenApiExternalRefResolver::new(client);
+    resolver
+        .resolve_external_refs(document_url.to_string(), spec, 0, Vec::new())
+        .await
+}
+
+struct OpenApiExternalRefResolver<'a> {
+    client: &'a reqwest::Client,
+    documents: Mutex<HashMap<String, serde_json::Value>>,
+}
+
+impl<'a> OpenApiExternalRefResolver<'a> {
+    fn new(client: &'a reqwest::Client) -> Self {
+        Self {
+            client,
+            documents: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn resolve_external_refs(
+        &'a self,
+        document_url: String,
+        value: serde_json::Value,
+        depth: usize,
+        ref_stack: Vec<String>,
+    ) -> Pin<Box<dyn Future<Output = Result<serde_json::Value>> + Send + 'a>> {
+        Box::pin(async move {
+            if depth > MAX_EXTERNAL_REF_DEPTH {
+                return Err(StoreError::Other(
+                    "OpenAPI external $ref resolution exceeded maximum depth".to_string(),
+                ));
+            }
+
+            match value {
+                serde_json::Value::Object(map) => {
+                    if let Some(reference) = map
+                        .get("$ref")
+                        .and_then(serde_json::Value::as_str)
+                        .map(ToString::to_string)
+                    {
+                        if !reference.starts_with('#') {
+                            let mut resolved = self
+                                .fetch_external_ref(
+                                    &document_url,
+                                    &reference,
+                                    depth + 1,
+                                    ref_stack.clone(),
+                                )
+                                .await?;
+                            if let serde_json::Value::Object(resolved_map) = &mut resolved {
+                                for (key, sibling) in
+                                    map.into_iter().filter(|(key, _)| key != "$ref")
+                                {
+                                    resolved_map.insert(
+                                        key,
+                                        self.resolve_external_refs(
+                                            document_url.clone(),
+                                            sibling,
+                                            depth + 1,
+                                            ref_stack.clone(),
+                                        )
+                                        .await?,
+                                    );
+                                }
+                            }
+                            return Ok(resolved);
+                        }
+                    }
+
+                    let mut resolved = serde_json::Map::new();
+                    for (key, child) in map {
+                        resolved.insert(
+                            key,
+                            self.resolve_external_refs(
+                                document_url.clone(),
+                                child,
+                                depth + 1,
+                                ref_stack.clone(),
+                            )
+                            .await?,
+                        );
+                    }
+                    Ok(serde_json::Value::Object(resolved))
+                }
+                serde_json::Value::Array(items) => {
+                    let mut resolved = Vec::with_capacity(items.len());
+                    for item in items {
+                        resolved.push(
+                            self.resolve_external_refs(
+                                document_url.clone(),
+                                item,
+                                depth + 1,
+                                ref_stack.clone(),
+                            )
+                            .await?,
+                        );
+                    }
+                    Ok(serde_json::Value::Array(resolved))
+                }
+                other => Ok(other),
+            }
+        })
+    }
+
+    async fn fetch_external_ref(
+        &self,
+        document_url: &str,
+        reference: &str,
+        depth: usize,
+        ref_stack: Vec<String>,
+    ) -> Result<serde_json::Value> {
+        let (target_url, pointer) = split_external_ref(document_url, reference)?;
+        let ref_key = match &pointer {
+            Some(pointer) => format!("{target_url}#{pointer}"),
+            None => target_url.clone(),
+        };
+        if ref_stack.iter().any(|item| item == &ref_key) {
+            let mut cycle = ref_stack;
+            cycle.push(ref_key);
+            return Err(StoreError::Other(format!(
+                "OpenAPI external $ref cycle detected: {}",
+                cycle.join(" -> ")
+            )));
+        }
+
+        let mut next_stack = ref_stack;
+        next_stack.push(ref_key);
+        let document = self.fetch_external_document(&target_url).await?;
+        let bundled = self
+            .resolve_external_refs(target_url.clone(), document, depth, next_stack)
+            .await?;
+        let target = if let Some(pointer) = pointer {
+            bundled.pointer(&pointer).cloned().ok_or_else(|| {
+                StoreError::Other(format!(
+                    "OpenAPI external $ref target not found: {reference}"
+                ))
+            })?
+        } else {
+            bundled.clone()
+        };
+        resolve_openapi_local_refs(&bundled, &target)
+    }
+
+    async fn fetch_external_document(&self, target_url: &str) -> Result<serde_json::Value> {
+        if let Some(document) = self
+            .documents
+            .lock()
+            .map_err(|_| {
+                StoreError::Other("OpenAPI external $ref cache lock poisoned".to_string())
+            })?
+            .get(target_url)
+        {
+            return Ok(document.clone());
+        }
+
+        let document = self
+            .client
+            .get(target_url)
+            .send()
+            .await
+            .map_err(|err| {
+                StoreError::Other(format!(
+                    "OpenAPI external $ref fetch failed for {target_url}: {err}"
+                ))
+            })?
+            .error_for_status()
+            .map_err(|err| {
+                StoreError::Other(format!(
+                    "OpenAPI external $ref fetch failed for {target_url}: {err}"
+                ))
+            })?
+            .json::<serde_json::Value>()
+            .await
+            .map_err(|err| {
+                StoreError::Other(format!(
+                    "OpenAPI external $ref JSON decode failed for {target_url}: {err}"
+                ))
+            })?;
+        self.documents
+            .lock()
+            .map_err(|_| {
+                StoreError::Other("OpenAPI external $ref cache lock poisoned".to_string())
+            })?
+            .insert(target_url.to_string(), document.clone());
+        Ok(document)
+    }
+}
+
+fn split_external_ref(document_url: &str, reference: &str) -> Result<(String, Option<String>)> {
+    let (target, fragment) = reference.split_once('#').unwrap_or((reference, ""));
+    let target_url = if target.is_empty() {
+        document_url.to_string()
+    } else if target.starts_with("http://") || target.starts_with("https://") {
+        target.to_string()
+    } else {
+        let base = reqwest::Url::parse(document_url).map_err(|_| {
+            StoreError::Other(format!(
+                "OpenAPI relative external $ref requires an absolute HTTP(S) spec_url: {reference}"
+            ))
+        })?;
+        base.join(target)
+            .map_err(|err| {
+                StoreError::Other(format!("Invalid OpenAPI external $ref {reference}: {err}"))
+            })?
+            .to_string()
+    };
+    if !(target_url.starts_with("http://") || target_url.starts_with("https://")) {
+        return Err(StoreError::Other(format!(
+            "Unsupported OpenAPI external $ref URL: {reference}"
+        )));
+    }
+    let pointer = if fragment.is_empty() {
+        None
+    } else if fragment.starts_with('/') {
+        Some(fragment.to_string())
+    } else {
+        return Err(StoreError::Other(format!(
+            "Invalid OpenAPI external $ref fragment: {reference}"
+        )));
+    };
+    Ok((target_url, pointer))
 }
 
 fn openapi_config_value(
