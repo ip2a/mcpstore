@@ -895,13 +895,43 @@ fn serialize_query_parameter(
             )],
             allow_reserved,
         )),
-        "deepObject" => Err(StoreError::Other(format!(
-            "Unsupported OpenAPI query parameter style for {name}: deepObject"
-        ))),
+        "deepObject" => serialize_deep_object_query_parameter(name, value, explode, allow_reserved),
         other => Err(StoreError::Other(format!(
             "Unsupported OpenAPI query parameter style for {name}: {other}"
         ))),
     }
+}
+
+fn serialize_deep_object_query_parameter(
+    name: &str,
+    value: &Value,
+    explode: bool,
+    allow_reserved: bool,
+) -> Result<Vec<QueryParameter>> {
+    if !explode {
+        return Err(StoreError::Other(format!(
+            "Unsupported OpenAPI query parameter style for {name}: deepObject requires explode=true"
+        )));
+    }
+    let Some(object) = value.as_object() else {
+        return Err(StoreError::Other(format!(
+            "Unsupported OpenAPI query parameter style for {name}: deepObject requires an object value"
+        )));
+    };
+    let mut parameters = Vec::with_capacity(object.len());
+    for (key, value) in object {
+        if matches!(value, Value::Array(_) | Value::Object(_)) {
+            return Err(StoreError::Other(format!(
+                "Unsupported OpenAPI query parameter style for {name}: deepObject nested value {key} must be a scalar"
+            )));
+        }
+        parameters.push(QueryParameter {
+            name: format!("{name}[{key}]"),
+            value: argument_as_string(value),
+            allow_reserved,
+        });
+    }
+    Ok(parameters)
 }
 
 fn query_parameters(
