@@ -1,6 +1,7 @@
-
 use super::*;
 use std::collections::HashMap;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 
 fn temp_config_path() -> String {
     std::env::temp_dir()
@@ -33,6 +34,136 @@ fn broken_stdio_config() -> ServerConfig {
         working_dir: None,
         description: Some("broken".to_string()),
     }
+}
+
+fn hanging_stdio_config() -> ServerConfig {
+    ServerConfig {
+        url: None,
+        command: Some("sh".to_string()),
+        args: vec!["-c".to_string(), "sleep 60".to_string()],
+        env: HashMap::new(),
+        headers: HashMap::new(),
+        transport: Some("stdio".to_string()),
+        working_dir: None,
+        description: Some("hanging".to_string()),
+    }
+}
+
+async fn spawn_openapi_http_fixture() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            tokio::spawn(async move {
+                let mut buffer = vec![0; 8192];
+                let Ok(size) = socket.read(&mut buffer).await else {
+                    return;
+                };
+                let request = String::from_utf8_lossy(&buffer[..size]);
+                let first_line = request.lines().next().unwrap_or_default();
+                let request_lower = request.to_ascii_lowercase();
+                let body = if first_line.starts_with("GET /items ") {
+                    serde_json::json!({"items": ["apple", "pear"]}).to_string()
+                } else if first_line.starts_with("GET /items/sku-1 ") {
+                    serde_json::json!({"sku": "sku-1", "name": "apple"}).to_string()
+                } else if first_line.starts_with("POST /items ") {
+                    serde_json::json!({"created": true, "path": "/items"}).to_string()
+                } else if first_line.starts_with("POST /forms/urlencoded ") {
+                    if request_lower.contains("content-type: application/x-www-form-urlencoded")
+                        && request.contains("name=apple")
+                    {
+                        serde_json::json!({"received": "urlencoded"}).to_string()
+                    } else {
+                        serde_json::json!({"error": "bad urlencoded body"}).to_string()
+                    }
+                } else if first_line.starts_with("POST /forms/multipart ") {
+                    if request_lower.contains("content-type: multipart/form-data")
+                        && request.contains("name=\"name\"")
+                        && request.contains("apple")
+                    {
+                        serde_json::json!({"received": "multipart"}).to_string()
+                    } else {
+                        serde_json::json!({"error": "bad multipart body"}).to_string()
+                    }
+                } else if first_line.starts_with("POST /forms/text ") {
+                    if request_lower.contains("content-type: text/plain")
+                        && request.contains("plain-body")
+                    {
+                        serde_json::json!({"received": "text"}).to_string()
+                    } else {
+                        serde_json::json!({"error": "bad text body"}).to_string()
+                    }
+                } else {
+                    serde_json::json!({"error": first_line}).to_string()
+                };
+                let status = if body.contains("error") {
+                    "404 Not Found"
+                } else {
+                    "200 OK"
+                };
+                let response = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+            });
+        }
+    });
+    format!("http://{addr}")
+}
+
+async fn spawn_openapi_auth_http_fixture() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            tokio::spawn(async move {
+                let mut buffer = vec![0; 8192];
+                let Ok(size) = socket.read(&mut buffer).await else {
+                    return;
+                };
+                let request = String::from_utf8_lossy(&buffer[..size]);
+                let first_line = request.lines().next().unwrap_or_default();
+                let authorized = request.lines().any(|line| {
+                    line.split_once(':')
+                        .map(|(name, value)| {
+                            name.eq_ignore_ascii_case("x-api-key") && value.trim() == "secret"
+                        })
+                        .unwrap_or(false)
+                });
+                let (status, body) = if !authorized {
+                    (
+                        "401 Unauthorized",
+                        serde_json::json!({"error": "missing api key"}).to_string(),
+                    )
+                } else if first_line.starts_with("GET /secure/items ") {
+                    (
+                        "200 OK",
+                        serde_json::json!({"items": ["secured"]}).to_string(),
+                    )
+                } else if first_line.starts_with("POST /secure/items ") {
+                    ("200 OK", serde_json::json!({"created": true}).to_string())
+                } else {
+                    (
+                        "404 Not Found",
+                        serde_json::json!({"error": first_line}).to_string(),
+                    )
+                };
+                let response = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+            });
+        }
+    });
+    format!("http://{addr}")
 }
 
 #[tokio::test]
@@ -595,6 +726,480 @@ async fn db_source_runtime_use_does_not_write_shared_runtime_state() {
 }
 
 #[tokio::test]
+async fn db_source_queues_tool_change_refresh_without_writing_runtime_tools() {
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Db,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some("test-db-source-tool-change-queue".to_string()),
+    })
+    .unwrap();
+
+    store
+        .cache()
+        .put_entity(
+            "services",
+            "svc",
+            serde_json::to_value(ServiceEntity {
+                service_global_name: "svc".to_string(),
+                service_original_name: "svc".to_string(),
+                source_agent: GLOBAL_AGENT_STORE.to_string(),
+                config: serde_json::to_value(stdio_config()).unwrap(),
+                added_time: 111,
+            })
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let summary = store
+        .list_changed_tools_scoped(None, Some("svc"), true)
+        .await
+        .unwrap();
+
+    assert!(!summary.changed);
+    assert_eq!(summary.trigger, "queued_manual_force");
+    assert_eq!(summary.details["queued"], serde_json::json!(true));
+    assert_eq!(
+        summary.details["queued_services"],
+        serde_json::json!(["svc"])
+    );
+    assert!(store
+        .cache()
+        .get_relation("service_tools", "svc")
+        .await
+        .unwrap()
+        .is_none());
+
+    let events = store
+        .cache()
+        .get_all_events_async(CONTROL_REQUEST_EVENT_TYPE)
+        .await
+        .unwrap();
+    let event = events
+        .values()
+        .find(|event| event["type"] == serde_json::json!("ServiceRefreshToolsRequested"))
+        .unwrap();
+    assert_eq!(event["payload"]["service_name"], serde_json::json!("svc"));
+    assert_eq!(event["payload"]["force_refresh"], serde_json::json!(true));
+}
+
+#[tokio::test]
+async fn openapi_import_persists_shared_analysis_result() {
+    let base_url = spawn_openapi_http_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-import-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let spec = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": { "title": "Inventory", "version": "2026.1" },
+        "servers": [{ "url": base_url }],
+        "paths": {
+            "/items": {
+                "get": { "operationId": "listItems", "summary": "List items" },
+                "post": { "operationId": "createItem", "requestBody": { "required": true } }
+            },
+            "/items/{sku}": {
+                "get": {
+                    "parameters": [{ "name": "sku", "in": "path", "required": true, "schema": { "type": "string" } }]
+                }
+            }
+        }
+    });
+
+    let result = store
+        .import_openapi_service_from_spec("inventory", "memory://inventory", spec)
+        .await
+        .unwrap();
+
+    assert_eq!(result.service_name, "inventory");
+    assert_eq!(result.total_endpoints, 3);
+    assert_eq!(result.component_types.tools, 1);
+    assert_eq!(result.component_types.resources, 1);
+    assert_eq!(result.component_types.resource_templates, 1);
+    assert!(result.runtime_executable);
+
+    let service = store.find_service("inventory").await.unwrap();
+    assert_eq!(service.transport, "openapi");
+    assert_eq!(service.status, ConnectionStatus::Connected);
+
+    let tools = store.list_tools("inventory").await.unwrap();
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0].name, "createItem");
+
+    let call_result = store
+        .call_tool(
+            "inventory",
+            "createItem",
+            serde_json::json!({"body": {"sku": "sku-1", "name": "apple"}}),
+        )
+        .await
+        .unwrap();
+    assert!(!call_result.is_error);
+    let crate::transport::ContentItem::Text { text, .. } = &call_result.content[0] else {
+        panic!("expected text content");
+    };
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(text).unwrap()["created"],
+        serde_json::json!(true)
+    );
+
+    let resources = store.list_resources("inventory").await.unwrap();
+    assert_eq!(
+        resources[0]["uri"],
+        serde_json::json!("openapi://inventory/listItems")
+    );
+    let resource = store
+        .read_resource("inventory", "openapi://inventory/listItems")
+        .await
+        .unwrap();
+    assert!(resource["contents"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("apple"));
+
+    let templates = store.list_resource_templates("inventory").await.unwrap();
+    assert_eq!(
+        templates[0]["uriTemplate"],
+        serde_json::json!("openapi://inventory/get_items_sku/{sku}")
+    );
+    let templated = store
+        .read_resource("inventory", "openapi://inventory/get_items_sku/sku-1")
+        .await
+        .unwrap();
+    assert!(templated["contents"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("sku-1"));
+    assert!(store
+        .read_resource("inventory", "openapi://inventory/get_items_sku")
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("expected 1 path parameter"));
+    assert!(store
+        .read_resource("inventory", "openapi://inventory/get_items_sku/sku-1/extra")
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("expected 1 path parameter"));
+
+    let persisted = store
+        .get_openapi_import("inventory")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(persisted.spec_info.title.as_deref(), Some("Inventory"));
+    assert_eq!(store.list_openapi_imports().await.unwrap().len(), 1);
+
+    let inspect = store.cache_inspect().await.unwrap();
+    assert_eq!(
+        inspect["counts"]["states"]["openapi_imports"],
+        serde_json::json!(1)
+    );
+    assert_eq!(
+        inspect["counts"]["events"]["openapi_imports"],
+        serde_json::json!(1)
+    );
+    assert_eq!(
+        inspect["counts"]["entities"]["services"],
+        serde_json::json!(1)
+    );
+    assert_eq!(inspect["counts"]["entities"]["tools"], serde_json::json!(1));
+}
+
+#[tokio::test]
+async fn openapi_tool_http_error_returns_tool_error_without_marking_service_failed() {
+    let base_url = spawn_openapi_http_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-http-error-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let spec = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": { "title": "Inventory", "version": "2026.1" },
+        "servers": [{ "url": base_url }],
+        "paths": {
+            "/items/reject": {
+                "post": { "operationId": "rejectItem", "requestBody": { "required": true } }
+            }
+        }
+    });
+
+    store
+        .import_openapi_service_from_spec("inventory", "memory://inventory", spec)
+        .await
+        .unwrap();
+
+    let call_result = store
+        .call_tool(
+            "inventory",
+            "rejectItem",
+            serde_json::json!({"body": {"sku": "sku-1"}}),
+        )
+        .await
+        .unwrap();
+    assert!(call_result.is_error);
+    let crate::transport::ContentItem::Text { text, .. } = &call_result.content[0] else {
+        panic!("expected text content");
+    };
+    let payload = serde_json::from_str::<serde_json::Value>(text).unwrap();
+    assert_eq!(payload["status"], serde_json::json!(404));
+    assert!(payload["body"]["error"]
+        .as_str()
+        .unwrap()
+        .contains("POST /items/reject"));
+
+    let service = store.find_service("inventory").await.unwrap();
+    assert_ne!(service.status, ConnectionStatus::Error);
+}
+
+#[tokio::test]
+async fn openapi_tools_support_common_request_body_media_types() {
+    let base_url = spawn_openapi_http_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-body-media-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let spec = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": { "title": "Forms", "version": "2026.1" },
+        "servers": [{ "url": base_url }],
+        "paths": {
+            "/forms/urlencoded": {
+                "post": {
+                    "operationId": "submitUrlencoded",
+                    "requestBody": {
+                        "required": true,
+                        "content": {
+                            "application/x-www-form-urlencoded": {
+                                "schema": { "type": "object", "properties": { "name": { "type": "string" } } }
+                            }
+                        }
+                    }
+                }
+            },
+            "/forms/multipart": {
+                "post": {
+                    "operationId": "submitMultipart",
+                    "requestBody": {
+                        "required": true,
+                        "content": {
+                            "multipart/form-data": {
+                                "schema": { "type": "object", "properties": { "name": { "type": "string" } } }
+                            }
+                        }
+                    }
+                }
+            },
+            "/forms/text": {
+                "post": {
+                    "operationId": "submitText",
+                    "requestBody": {
+                        "required": true,
+                        "content": {
+                            "text/plain": { "schema": { "type": "string" } }
+                        }
+                    }
+                }
+            },
+            "/forms/file": {
+                "post": {
+                    "operationId": "submitFile",
+                    "requestBody": {
+                        "required": true,
+                        "content": {
+                            "multipart/form-data": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": { "file": { "type": "string", "format": "binary" } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    store
+        .import_openapi_service_from_spec("forms", "memory://forms", spec)
+        .await
+        .unwrap();
+
+    for (tool_name, body, expected) in [
+        (
+            "submitUrlencoded",
+            serde_json::json!({"name": "apple"}),
+            "urlencoded",
+        ),
+        (
+            "submitMultipart",
+            serde_json::json!({"name": "apple"}),
+            "multipart",
+        ),
+        ("submitText", serde_json::json!("plain-body"), "text"),
+    ] {
+        let call_result = store
+            .call_tool("forms", tool_name, serde_json::json!({"body": body}))
+            .await
+            .unwrap();
+        assert!(!call_result.is_error);
+        let crate::transport::ContentItem::Text { text, .. } = &call_result.content[0] else {
+            panic!("expected text content");
+        };
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(text).unwrap()["received"],
+            serde_json::json!(expected)
+        );
+    }
+
+    assert!(store
+        .call_tool(
+            "forms",
+            "submitFile",
+            serde_json::json!({"body": {"file": "ignored"}}),
+        )
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("multipart binary field"));
+}
+
+#[tokio::test]
+async fn openapi_import_options_apply_security_to_tools_and_resources() {
+    let base_url = spawn_openapi_auth_http_fixture().await;
+    let spec = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": { "title": "Secure Inventory", "version": "2026.1" },
+        "servers": [{ "url": base_url }],
+        "components": {
+            "securitySchemes": {
+                "ApiKeyAuth": { "type": "apiKey", "in": "header", "name": "x-api-key" }
+            }
+        },
+        "security": [{ "ApiKeyAuth": [] }],
+        "paths": {
+            "/secure/items": {
+                "get": { "operationId": "listSecureItems", "summary": "List secure items" },
+                "post": { "operationId": "createSecureItem", "requestBody": { "required": true } }
+            }
+        }
+    });
+
+    let missing_auth_store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-auth-missing-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    missing_auth_store
+        .import_openapi_service_from_spec("secure", "memory://secure", spec.clone())
+        .await
+        .unwrap();
+    assert!(missing_auth_store
+        .call_tool(
+            "secure",
+            "createSecureItem",
+            serde_json::json!({"body": {"sku": "sku-1"}}),
+        )
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("missing auth value"));
+
+    let header_store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-auth-header-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    header_store
+        .import_openapi_service_from_spec_with_options(
+            "secure",
+            "memory://secure",
+            spec.clone(),
+            crate::openapi::OpenApiImportOptions {
+                headers: HashMap::from([("x-api-key".to_string(), "secret".to_string())]),
+                auth: serde_json::Map::new(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(header_store
+        .call_tool(
+            "secure",
+            "createSecureItem",
+            serde_json::json!({"body": {"sku": "sku-1"}}),
+        )
+        .await
+        .is_ok());
+
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-auth-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let result = store
+        .import_openapi_service_from_spec_with_options(
+            "secure",
+            "memory://secure",
+            spec,
+            crate::openapi::OpenApiImportOptions {
+                headers: HashMap::new(),
+                auth: serde_json::json!({ "ApiKeyAuth": "secret" })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(result.security_schemes.contains_key("ApiKeyAuth"));
+    assert_eq!(result.security.len(), 1);
+
+    let call_result = store
+        .call_tool(
+            "secure",
+            "createSecureItem",
+            serde_json::json!({"body": {"sku": "sku-1"}}),
+        )
+        .await
+        .unwrap();
+    assert!(!call_result.is_error);
+
+    let resource = store
+        .read_resource("secure", "openapi://secure/listSecureItems")
+        .await
+        .unwrap();
+    assert!(resource["contents"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("secured"));
+}
+
+#[tokio::test]
 async fn local_source_processes_control_requests() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
@@ -739,6 +1344,122 @@ async fn switch_cache_storage_updates_namespace() {
 }
 
 #[tokio::test]
+async fn cache_inspect_includes_session_collections() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some("inspect-sessions".to_string()),
+    })
+    .unwrap();
+    let session_key = "store:global:s1";
+
+    store
+        .cache()
+        .put_entity(
+            "sessions",
+            session_key,
+            serde_json::json!({
+                "session_key": session_key,
+                "session_id": "s1",
+                "scope": "store",
+                "agent_id": null,
+                "created_at": 100,
+                "updated_at": 100,
+                "last_active": 100,
+                "lease_seconds": null,
+                "expires_at": null,
+                "version": 1,
+                "metadata": {}
+            }),
+        )
+        .await
+        .unwrap();
+    store
+        .cache()
+        .put_relation(
+            "session_services",
+            session_key,
+            serde_json::json!({
+                "session_key": session_key,
+                "services": [],
+                "updated_at": 100,
+                "version": 1
+            }),
+        )
+        .await
+        .unwrap();
+    store
+        .cache()
+        .put_relation(
+            "session_tools",
+            session_key,
+            serde_json::json!({
+                "session_key": session_key,
+                "mode": "allowlist",
+                "tools": [],
+                "updated_at": 100,
+                "version": 1
+            }),
+        )
+        .await
+        .unwrap();
+    store
+        .cache()
+        .put_state(
+            "session_status",
+            session_key,
+            serde_json::json!({
+                "session_key": session_key,
+                "status": "active",
+                "updated_at": 100,
+                "version": 1,
+                "reason": null
+            }),
+        )
+        .await
+        .unwrap();
+    store
+        .cache()
+        .put_event(
+            "session_events",
+            "store:global:s1:0001",
+            serde_json::json!({
+                "session_key": session_key,
+                "event_type": "create",
+                "occurred_at": 100,
+                "payload": {}
+            }),
+        )
+        .await
+        .unwrap();
+
+    let inspect = store.cache_inspect().await.unwrap();
+    assert_eq!(inspect["counts"]["entities"]["sessions"], 1);
+    assert_eq!(inspect["counts"]["relations"]["session_services"], 1);
+    assert_eq!(inspect["counts"]["relations"]["session_tools"], 1);
+    assert_eq!(inspect["counts"]["states"]["session_status"], 1);
+    assert_eq!(inspect["counts"]["events"]["session_events"], 1);
+    let collections = inspect["collections"].as_array().unwrap();
+    for suffix in [
+        "entity:sessions",
+        "relations:session_services",
+        "relations:session_tools",
+        "state:session_status",
+        "event:session_events",
+    ] {
+        let expected = format!("inspect-sessions:{suffix}");
+        assert!(collections
+            .iter()
+            .any(|value| value.as_str() == Some(expected.as_str())));
+    }
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
 async fn memory_cache_storage_writes_cache_layers_through_openkeyv() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
@@ -876,6 +1597,91 @@ async fn list_tools_uses_registry_without_transport_connection() {
 }
 
 #[tokio::test]
+async fn tool_transform_rules_are_rust_backed_and_affect_scoped_tools() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::OpenKeyvMemory),
+        redis_url: None,
+        namespace: Some("test-tool-transform".to_string()),
+    })
+    .unwrap();
+    store.add_service("svc", stdio_config()).await.unwrap();
+    let mut service = store.registry.find_service("svc").await.unwrap();
+    service.status = ConnectionStatus::Connected;
+    service.tools = vec![crate::registry::ToolInfo {
+        name: "echo".to_string(),
+        description: "Technical echo".to_string(),
+        schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "Raw text"},
+                "debug": {"type": "boolean"}
+            },
+            "required": ["text", "debug"]
+        }),
+    }];
+    store.registry.register(service).await;
+
+    let rule = store
+        .set_tool_transform(
+            "svc",
+            "echo",
+            crate::ToolTransformPatch {
+                display_name: Some("say".to_string()),
+                description: Some("Say text".to_string()),
+                arguments: vec![
+                    crate::cache::models::ToolArgumentTransform {
+                        original_name: "text".to_string(),
+                        new_name: Some("message".to_string()),
+                        hidden: false,
+                        default_value: None,
+                        description: Some("Message to say".to_string()),
+                    },
+                    crate::cache::models::ToolArgumentTransform {
+                        original_name: "debug".to_string(),
+                        new_name: None,
+                        hidden: true,
+                        default_value: Some(serde_json::json!(false)),
+                        description: None,
+                    },
+                ],
+                tags: vec!["llm-friendly".to_string()],
+                enabled: Some(true),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(rule.tool_global_name, "svc_echo");
+    assert!(store
+        .cache()
+        .get_state("tool_transforms", "svc_echo")
+        .await
+        .unwrap()
+        .is_some());
+
+    let tools = store.list_tool_entries_scoped(None, None).await.unwrap();
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0].name, "say");
+    assert_eq!(tools[0].original_name, "echo");
+    assert_eq!(tools[0].description, "Say text");
+    assert!(tools[0].schema["properties"].get("debug").is_none());
+    assert!(tools[0].schema["properties"].get("message").is_some());
+    assert_eq!(tools[0].schema["required"], serde_json::json!(["message"]));
+
+    let resolution = store
+        .resolve_tool_for_agent(GLOBAL_AGENT_STORE, "say")
+        .await
+        .unwrap();
+    assert_eq!(resolution.global_service_name, "svc");
+    assert_eq!(resolution.canonical_tool_name, "echo");
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
 async fn connect_service_failure_opens_circuit_and_schedules_retry() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
@@ -911,6 +1717,47 @@ async fn connect_service_failure_opens_circuit_and_schedules_retry() {
     assert_eq!(service.status, ConnectionStatus::Error);
 
     std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
+async fn connect_service_times_out_hanging_stdio_startup() {
+    let path = temp_config_path();
+    let app_path = std::path::Path::new(&path)
+        .parent()
+        .unwrap()
+        .join("config.toml");
+    std::fs::write(&app_path, "[health_check]\nstartup_timeout = 1\n").unwrap();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::OpenKeyvMemory),
+        redis_url: None,
+        namespace: Some("test-connect-timeout-status".to_string()),
+    })
+    .unwrap();
+    store
+        .add_service("hanging", hanging_stdio_config())
+        .await
+        .unwrap();
+
+    let err = store
+        .connect_service("hanging")
+        .await
+        .unwrap_err()
+        .to_string();
+    let status = store
+        .cached_service_status("hanging")
+        .await
+        .unwrap()
+        .unwrap();
+    let service = store.find_service("hanging").await.unwrap();
+
+    assert!(err.contains("Service connection timed out"));
+    assert_eq!(status.health_status, HealthStatus::CircuitOpen);
+    assert_eq!(service.status, ConnectionStatus::Error);
+
+    std::fs::remove_file(path).ok();
+    std::fs::remove_file(app_path).ok();
 }
 
 #[tokio::test]
@@ -1044,4 +1891,40 @@ async fn db_load_does_not_rewrite_cached_agent_relations() {
     let relation: AgentServiceRelation = serde_json::from_value(relation).unwrap();
     assert_eq!(relation.services[0].established_time, 111);
     assert_eq!(relation.services[0].last_access, Some(222));
+}
+
+#[tokio::test]
+async fn tool_change_diff_reports_added_removed_and_updated_tools() {
+    let old_tools = vec![
+        crate::registry::ToolInfo {
+            name: "keep".to_string(),
+            description: "old description".to_string(),
+            schema: serde_json::json!({"type": "object"}),
+        },
+        crate::registry::ToolInfo {
+            name: "remove".to_string(),
+            description: String::new(),
+            schema: serde_json::json!({"type": "object"}),
+        },
+    ];
+    let new_tools = vec![
+        crate::registry::ToolInfo {
+            name: "add".to_string(),
+            description: String::new(),
+            schema: serde_json::json!({"type": "object"}),
+        },
+        crate::registry::ToolInfo {
+            name: "keep".to_string(),
+            description: "new description".to_string(),
+            schema: serde_json::json!({"type": "object"}),
+        },
+    ];
+
+    let (added, removed, updated, count) =
+        MCPStore::diff_tool_infos_for_test(&old_tools, &new_tools);
+
+    assert_eq!(added, vec!["add"]);
+    assert_eq!(removed, vec!["remove"]);
+    assert_eq!(updated, vec!["keep"]);
+    assert_eq!(count, 3);
 }

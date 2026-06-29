@@ -48,6 +48,29 @@ pub struct AgentEntity {
     pub is_global: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SessionEntity {
+    pub session_key: String,
+    pub session_id: String,
+    pub scope: SessionScope,
+    pub agent_id: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub last_active: i64,
+    pub lease_seconds: Option<i64>,
+    pub expires_at: Option<i64>,
+    pub version: u64,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionScope {
+    Store,
+    Agent,
+}
+
 // ==================== Relationship Layer Models ====================
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -77,6 +100,46 @@ pub struct ServiceToolRelation {
     pub source_agent: String,
     #[serde(default)]
     pub tools: Vec<ToolRelationItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SessionServiceRelation {
+    pub session_key: String,
+    #[serde(default)]
+    pub services: Vec<SessionServiceItem>,
+    pub updated_at: i64,
+    pub version: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SessionServiceItem {
+    pub service_global_name: String,
+    pub service_original_name: String,
+    pub source_agent: String,
+    pub bound_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SessionToolVisibility {
+    pub session_key: String,
+    pub mode: ToolVisibilityMode,
+    #[serde(default)]
+    pub tools: Vec<SessionToolItem>,
+    pub updated_at: i64,
+    pub version: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SessionToolItem {
+    pub service_global_name: String,
+    pub tool_global_name: String,
+    pub tool_original_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolVisibilityMode {
+    Allowlist,
 }
 
 // ==================== State Layer Models ====================
@@ -125,4 +188,81 @@ pub enum HealthStatus {
     CircuitOpen,
     HalfOpen,
     Disconnected,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SessionStatusState {
+    pub session_key: String,
+    pub status: SessionStatus,
+    pub updated_at: i64,
+    pub version: u64,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SessionStateData {
+    pub session_key: String,
+    #[serde(default)]
+    pub values: serde_json::Map<String, serde_json::Value>,
+    pub updated_at: i64,
+    pub version: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ToolTransformRule {
+    pub tool_global_name: String,
+    pub service_global_name: String,
+    pub original_tool_name: String,
+    pub display_name: Option<String>,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub arguments: Vec<ToolArgumentTransform>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub enabled: bool,
+    pub updated_at: i64,
+    pub version: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ToolArgumentTransform {
+    pub original_name: String,
+    pub new_name: Option<String>,
+    pub hidden: bool,
+    pub default_value: Option<serde_json::Value>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionStatus {
+    Active,
+    Closed,
+    Expired,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SessionEvent {
+    pub session_key: String,
+    pub event_type: SessionEventType,
+    pub occurred_at: i64,
+    #[serde(default)]
+    pub payload: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionEventType {
+    Create,
+    BindService,
+    UnbindService,
+    SetToolVisibility,
+    SetState,
+    DeleteState,
+    ClearState,
+    UpdateMetadata,
+    Extend,
+    Close,
+    Expire,
+    CallDenied,
 }

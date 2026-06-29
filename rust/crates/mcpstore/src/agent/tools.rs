@@ -12,13 +12,23 @@ impl MCPStore {
                 let tools = self.list_tools(service_name).await?;
                 let mut payload = Vec::with_capacity(tools.len());
                 for tool in tools {
+                    let original_name = tool.name.clone();
+                    let transformed = self
+                        .apply_tool_transform(
+                            service_name,
+                            &original_name,
+                            tool.name,
+                            tool.description,
+                            tool.input_schema,
+                        )
+                        .await?;
                     payload.push(Self::tool_payload_value(
-                        tool.name.clone(),
-                        tool.name,
+                        transformed.display_name,
+                        original_name,
                         service_name.to_string(),
                         service_name.to_string(),
-                        tool.description,
-                        tool.input_schema,
+                        transformed.description,
+                        transformed.schema,
                     )?);
                 }
                 Ok(payload)
@@ -35,13 +45,23 @@ impl MCPStore {
                 let tools = self.list_tools(&global_service_name).await?;
                 let mut payload = Vec::with_capacity(tools.len());
                 for tool in tools {
+                    let original_name = tool.name.clone();
+                    let transformed = self
+                        .apply_tool_transform(
+                            &global_service_name,
+                            &original_name,
+                            tool.name,
+                            tool.description,
+                            tool.input_schema,
+                        )
+                        .await?;
                     payload.push(Self::tool_payload_value(
-                        tool.name.clone(),
-                        tool.name,
+                        transformed.display_name,
+                        original_name,
                         service.original_name.clone(),
                         global_service_name.clone(),
-                        tool.description,
-                        tool.input_schema,
+                        transformed.description,
+                        transformed.schema,
                     )?);
                 }
                 Ok(payload)
@@ -60,19 +80,28 @@ impl MCPStore {
             (None, Some(service_name)) => {
                 let mut tools = self.list_tools(service_name).await?;
                 tools.sort_by(|left, right| left.name.cmp(&right.name));
-                tools
-                    .into_iter()
-                    .map(|tool| {
-                        Self::scoped_tool_entry(
-                            tool.name.clone(),
+                let mut entries = Vec::with_capacity(tools.len());
+                for tool in tools {
+                    let original_name = tool.name.clone();
+                    let transformed = self
+                        .apply_tool_transform(
+                            service_name,
+                            &original_name,
                             tool.name,
-                            service_name.to_string(),
-                            service_name.to_string(),
                             tool.description,
                             tool.input_schema,
                         )
-                    })
-                    .collect()
+                        .await?;
+                    entries.push(Self::scoped_tool_entry(
+                        transformed.display_name,
+                        original_name,
+                        service_name.to_string(),
+                        service_name.to_string(),
+                        transformed.description,
+                        transformed.schema,
+                    )?);
+                }
+                Ok(entries)
             }
             (None, None) => self.collect_store_tool_descriptions_scoped().await,
             (Some(agent_id), Some(service_name)) => {
@@ -85,19 +114,28 @@ impl MCPStore {
                     .ok_or_else(|| StoreError::ServiceNotFound(global_service_name.clone()))?;
                 let mut tools = self.list_tools(&global_service_name).await?;
                 tools.sort_by(|left, right| left.name.cmp(&right.name));
-                tools
-                    .into_iter()
-                    .map(|tool| {
-                        Self::scoped_tool_entry(
-                            tool.name.clone(),
+                let mut entries = Vec::with_capacity(tools.len());
+                for tool in tools {
+                    let original_name = tool.name.clone();
+                    let transformed = self
+                        .apply_tool_transform(
+                            &global_service_name,
+                            &original_name,
                             tool.name,
-                            service.original_name.clone(),
-                            global_service_name.clone(),
                             tool.description,
                             tool.input_schema,
                         )
-                    })
-                    .collect()
+                        .await?;
+                    entries.push(Self::scoped_tool_entry(
+                        transformed.display_name,
+                        original_name,
+                        service.original_name.clone(),
+                        global_service_name.clone(),
+                        transformed.description,
+                        transformed.schema,
+                    )?);
+                }
+                Ok(entries)
             }
             (Some(agent_id), None) => self.collect_agent_tool_descriptions_scoped(agent_id).await,
         }

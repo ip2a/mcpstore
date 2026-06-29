@@ -19,6 +19,27 @@ impl CacheLayerManager {
         self.store.read().await.put(key, value, &collection).await
     }
 
+    pub async fn compare_and_put_entity(
+        &self,
+        entity_type: &str,
+        key: &str,
+        expected_version: Option<u64>,
+        value: serde_json::Value,
+    ) -> Result<()> {
+        if !value.is_object() {
+            return Err(CacheError::NotAnObject(format!(
+                "entity_type={entity_type}, key={key}"
+            )));
+        }
+        Self::validate_entity_type(entity_type)?;
+        let collection = self.entity_collection(entity_type);
+        self.store
+            .read()
+            .await
+            .compare_and_put(key, expected_version, value, &collection)
+            .await
+    }
+
     pub async fn get_entity(
         &self,
         entity_type: &str,

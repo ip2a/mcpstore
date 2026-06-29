@@ -75,7 +75,9 @@ async fn api_command_serves_store_and_agent_routes_with_url_prefix(
     let pythonpath = format!(
         "{}:{}",
         repo_root.join("python/src").display(),
-        repo_root.join("rust/apps/cli/tests/fixtures").display()
+        repo_root
+            .join("rust/apps/mcpstore/tests/fixtures")
+            .display()
     );
     let fixture = fixture_script();
     let port = reserve_local_port();
@@ -243,6 +245,75 @@ async fn api_command_serves_store_and_agent_routes_with_url_prefix(
     assert!(call.status().is_success());
     let call_payload = call.json::<Value>().await?;
     assert_eq!(call_payload["data"]["content"][0]["text"], "Hello, API!");
+
+    let session_create = client
+        .post(format!("{base_url}/sessions/create"))
+        .json(&json!({
+            "session_id": "api-session",
+            "lease_seconds": 60,
+            "metadata": {"owner": "api-flow"},
+        }))
+        .send()
+        .await?;
+    assert!(session_create.status().is_success());
+    let session_create_payload = session_create.json::<Value>().await?;
+    let session_key = session_create_payload["data"]["session"]["session_key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(session_key, "store:global:api-session");
+
+    let session_bind = client
+        .post(format!("{base_url}/sessions/bind_service/{session_key}"))
+        .json(&json!({"service_name": "demo"}))
+        .send()
+        .await?;
+    assert!(session_bind.status().is_success());
+
+    let session_tools = client
+        .get(format!("{base_url}/sessions/list_tools/{session_key}"))
+        .send()
+        .await?;
+    assert!(session_tools.status().is_success());
+    let session_tools_payload = session_tools.json::<Value>().await?;
+    assert_eq!(session_tools_payload["data"]["total"], 1);
+    assert_eq!(
+        session_tools_payload["data"]["tools"][0]["name"],
+        "demo_greet"
+    );
+
+    let session_call = client
+        .post(format!("{base_url}/sessions/call_tool/{session_key}"))
+        .json(&json!({
+            "tool_name": "demo_greet",
+            "args": {"name": "Session API"},
+        }))
+        .send()
+        .await?;
+    assert!(session_call.status().is_success());
+    let session_call_payload = session_call.json::<Value>().await?;
+    assert_eq!(
+        session_call_payload["data"]["content"][0]["text"],
+        "Hello, Session API!"
+    );
+
+    let session_list = client
+        .get(format!("{base_url}/sessions/list"))
+        .query(&[("scope", "store")])
+        .send()
+        .await?;
+    assert!(session_list.status().is_success());
+    let session_list_payload = session_list.json::<Value>().await?;
+    assert_eq!(session_list_payload["data"]["total"], 1);
+
+    let session_close = client
+        .post(format!("{base_url}/sessions/close/{session_key}"))
+        .json(&json!({"reason": "done"}))
+        .send()
+        .await?;
+    assert!(session_close.status().is_success());
+    let session_close_payload = session_close.json::<Value>().await?;
+    assert_eq!(session_close_payload["data"]["status"]["status"], "closed");
 
     let assign = client
         .post(format!("{base_url}/for_agent/agent-a/assign_service/demo"))

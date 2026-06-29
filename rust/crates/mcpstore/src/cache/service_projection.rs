@@ -1,4 +1,5 @@
 use crate::store::prelude::*;
+use std::hash::{Hash, Hasher};
 
 impl MCPStore {
     pub(crate) async fn cache_service_added(
@@ -70,7 +71,7 @@ impl MCPStore {
                 description: tool.description.clone(),
                 input_schema: tool.schema.clone(),
                 created_time: now,
-                tool_hash: format!("{}:{}:{}", name, tool.name, now),
+                tool_hash: Self::tool_content_hash(name, tool),
             };
             self.cache
                 .put_entity(
@@ -138,5 +139,16 @@ impl MCPStore {
             )
             .await?;
         Ok(())
+    }
+
+    fn tool_content_hash(name: &str, tool: &crate::registry::ToolInfo) -> String {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        name.hash(&mut hasher);
+        tool.name.hash(&mut hasher);
+        tool.description.hash(&mut hasher);
+        serde_json::to_string(&tool.schema)
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        format!("{:016x}", hasher.finish())
     }
 }

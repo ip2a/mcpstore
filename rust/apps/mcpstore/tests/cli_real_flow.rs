@@ -63,7 +63,9 @@ fn cli_binary_completes_real_stdio_service_flow() {
     let pythonpath = format!(
         "{}:{}",
         repo_root.join("python/src").display(),
-        repo_root.join("rust/apps/cli/tests/fixtures").display()
+        repo_root
+            .join("rust/apps/mcpstore/tests/fixtures")
+            .display()
     );
     let fixture = fixture_script();
 

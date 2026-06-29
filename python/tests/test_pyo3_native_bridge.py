@@ -2,6 +2,9 @@ import tempfile
 import unittest
 import importlib.util
 import json
+import os
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 from unittest.mock import patch
@@ -39,6 +42,52 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertIsInstance(services[0], dict)
         self.assertEqual(services[0]["name"], "demo")
         self.assertIsInstance(store.show_config(), dict)
+
+    def test_rust_binding_imports_openapi_spec_as_shared_analysis(self):
+        from mcpstore._rust import MCPStore
+
+        workdir = Path(tempfile.mkdtemp(prefix="mcpstore-openapi-native-"))
+        store = MCPStore.setup_with_options(
+            str(workdir / "mcp.json"),
+            "local",
+            "memory",
+            None,
+            "openapi-native",
+        )
+        spec = {
+            "openapi": "3.0.0",
+            "info": {"title": "Inventory", "version": "2026.1"},
+            "servers": [{"url": "https://inventory.example.test"}],
+            "paths": {
+                "/items": {
+                    "get": {"operationId": "listItems", "summary": "List items"},
+                    "post": {"operationId": "createItem", "requestBody": {"required": True}},
+                },
+                "/items/{sku}": {
+                    "get": {
+                        "parameters": [
+                            {
+                                "name": "sku",
+                                "in": "path",
+                                "required": True,
+                                "schema": {"type": "string"},
+                            }
+                        ]
+                    }
+                },
+            },
+        }
+
+        result = store.import_openapi_service_from_spec("inventory", "memory://inventory", spec)
+
+        self.assertEqual(result["service_name"], "inventory")
+        self.assertEqual(result["total_endpoints"], 3)
+        self.assertEqual(result["component_types"]["tools"], 1)
+        self.assertEqual(result["component_types"]["resources"], 1)
+        self.assertEqual(result["component_types"]["resource_templates"], 1)
+        self.assertTrue(result["runtime_executable"])
+        self.assertEqual(store.get_openapi_import("inventory")["spec_info"]["title"], "Inventory")
+        self.assertEqual(len(store.list_openapi_imports()), 1)
 
     def test_python_facade_uses_native_bridge(self):
         from mcpstore import MCPStore
@@ -93,6 +142,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(record.working_dir, "/tmp/demo")
         self.assertEqual(record.workingDir, "/tmp/demo")
         self.assertIn("args", record)
+        self.assertEqual(record.to_dict()["config"]["args"], ["-c", "print(1)"])
 
         missing = RustRecordView({"name": "demo"})
         self.assertNotIn("args", missing)
@@ -194,10 +244,32 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(written, exported)
         self.assertEqual(json.loads(backup.read_text(encoding="utf-8")), exported)
 
+        session = store.for_store().create_session("export-session")
+        session.bind_service("demo")
         output_backup = workdir / "output-backup.json"
-        with self.assertRaises(NotImplementedError):
-            asyncio.run(store.export_to_json(output_path=output_backup, include_sessions=True))
-        self.assertFalse(output_backup.exists())
+        session_export = asyncio.run(
+            store.export_to_json(output_path=output_backup, include_sessions=True)
+        )
+        self.assertIn("sessions", session_export)
+        self.assertIn("store:global:export-session", session_export["sessions"]["entities"])
+        self.assertIn(
+            "store:global:export-session",
+            session_export["sessions"]["relations"]["session_services"],
+        )
+        self.assertIn(
+            "store:global:export-session",
+            session_export["sessions"]["states"]["session_status"],
+        )
+        self.assertTrue(session_export["sessions"]["events"])
+        self.assertEqual(json.loads(output_backup.read_text(encoding="utf-8")), session_export)
+
+        restored = MCPStore.setup_store(str(workdir / "restored-mcp.json"))
+        self.assertTrue(asyncio.run(restored.import_from_json(str(output_backup))))
+        restored_sessions = restored.for_store().list_sessions()
+        self.assertEqual(len(restored_sessions), 1)
+        self.assertEqual(restored_sessions[0].session_id, "export-session")
+        self.assertEqual(restored_sessions[0].status, "active")
+        self.assertEqual(restored_sessions[0].list_services()[0].name, "demo")
 
         filepath_backup = workdir / "filepath-backup.json"
         written = asyncio.run(store.exportjson(filepath=filepath_backup))
@@ -498,9 +570,10 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertEqual(tool.call_history(limit=5)[0].arguments.text, "history")
         self.assertEqual(tool.call_tool({"text": "ok"}, return_extracted=True), "ok")
         self.assertEqual(tool.call_tool({"text": "ok"}).text_output, "ok")
+        self.assertEqual(tool.call_tool({"text": "ok"}).to_dict()["content"][0]["text"], "ok")
         with self.assertRaisesRegex(ValueError, "timeout"):
             tool.call_tool({"text": "ok"}, timeout=10)
-        self.assertFalse(hasattr(tool, "test_call"))
+        self.assertEqual(tool.test_call({"text": "probe"}).text_output, "probe")
         self.assertEqual(context.use_tool("echo", {"text": "alias"}, return_extracted=True), "alias")
         with self.assertRaisesRegex(ValueError, "timeout"):
             context.call_tool("echo", {"text": "alias"}, timeout=10)
@@ -520,6 +593,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertTrue(service.disconnect_service())
         self.assertTrue(service.refresh_content())
         self.assertTrue(service.restart_service())
+        self.assertTrue(service.remove_service())
         self.assertEqual(context.event_history(2)[1].event_type, "TEST")
         self.assertTrue(context.event_capability_report().event_bus)
         self.assertEqual(context.show_config("client").clients["client-a"].service, "demo")
@@ -552,7 +626,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             ],
         )
         self.assertEqual(inner.restarted, ["demo", "demo", "demo"])
-        self.assertEqual(inner.removed, ["demo"])
+        self.assertEqual(inner.removed, ["demo", "demo"])
 
     def test_add_service_accepts_public_config_shapes_through_rust(self):
         from mcpstore.core.store.rust_backend import RustStoreBackend
@@ -711,6 +785,33 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         class FakeInner:
             def __init__(self):
                 self.calls = []
+                self.sessions = {}
+
+            def find_session(self, session_id, scope="store", agent_id=None):
+                return self.sessions.get(session_id)
+
+            def create_session(self, session_id, scope="store", agent_id=None, lease_seconds=None, metadata=None):
+                session = {
+                    "session_key": f"{scope}:{agent_id or 'global'}:{session_id}",
+                    "session_id": session_id,
+                    "scope": scope,
+                    "agent_id": agent_id,
+                    "metadata": metadata or {},
+                }
+                self.sessions[session_id] = session
+                return session
+
+            def get_session_status(self, session_key):
+                return {"session_key": session_key, "status": "active"}
+
+            def list_session_services(self, session_key):
+                return []
+
+            def list_tools_in_session(self, session_key):
+                return self.list_tools_scoped()
+
+            def call_tool_in_session(self, session_key, tool_name, args):
+                return self.call_tool("demo", tool_name, args)
 
             def list_tools_scoped(self, agent_id=None, service_name=None):
                 return [{"name": "echo", "service_name": service_name or "demo"}]
@@ -780,6 +881,150 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         from mcpstore.core.store.rust_backend import RustStoreBackend, RustStoreContext
 
         class FakeBackend:
+            def __init__(self):
+                self.sessions = {}
+                self.bindings = {}
+                self.session_states = {}
+
+            def find_session(self, session_id, scope="store", agent_id=None):
+                return self.sessions.get((scope, agent_id, session_id))
+
+            def get_session(self, session_key):
+                for entity in self.sessions.values():
+                    if entity["session_key"] == session_key:
+                        return entity
+                return None
+
+            def find_session_by_user_session_id(self, user_session_id):
+                for entity in self.sessions.values():
+                    if entity["metadata"].get("user_session_id") == user_session_id:
+                        return entity
+                return None
+
+            def update_session_metadata(self, session_key, metadata):
+                entity = self.get_session(session_key)
+                if entity is None:
+                    return None
+                entity["metadata"] = metadata
+                return entity
+
+            def create_session(self, session_id, scope="store", agent_id=None, lease_seconds=None, metadata=None):
+                entity = {
+                    "session_key": f"{scope}:{agent_id or 'global'}:{session_id}",
+                    "session_id": session_id,
+                    "scope": scope,
+                    "agent_id": agent_id,
+                    "metadata": metadata or {},
+                    "lease_seconds": lease_seconds,
+                    "expires_at": None,
+                    "version": 1,
+                }
+                self.sessions[(scope, agent_id, session_id)] = entity
+                return entity
+
+            def list_sessions(self, scope=None, agent_id=None):
+                return [
+                    entity
+                    for (saved_scope, saved_agent_id, _), entity in self.sessions.items()
+                    if (scope is None or saved_scope == scope)
+                    and (agent_id is None or saved_agent_id == agent_id)
+                ]
+
+            def get_session_status(self, session_key):
+                return {"session_key": session_key, "status": "active"}
+
+            def extend_session(self, session_key, seconds):
+                for entity in self.sessions.values():
+                    if entity["session_key"] == session_key:
+                        entity["lease_seconds"] = seconds
+                        entity["version"] += 1
+                        return entity
+                raise RuntimeError("missing session")
+
+            def extend_session_with_retry(self, session_key, seconds, max_attempts=3, delay_millis=0):
+                return self.extend_session(session_key, seconds)
+
+            def close_session(self, session_key, reason=None):
+                return {"session_key": session_key, "status": "closed", "reason": reason}
+
+            def bind_service_to_session(self, session_key, service_name):
+                services = self.bindings.setdefault(session_key, [])
+                if service_name not in services:
+                    services.append(service_name)
+                return {"session_key": session_key, "services": services}
+
+            def bind_service_to_session_with_retry(self, session_key, service_name, max_attempts=3, delay_millis=0):
+                return self.bind_service_to_session(session_key, service_name)
+
+            def unbind_service_from_session(self, session_key, service_name):
+                self.bindings.setdefault(session_key, []).remove(service_name)
+                return {"session_key": session_key, "services": self.bindings[session_key]}
+
+            def unbind_service_from_session_with_retry(self, session_key, service_name, max_attempts=3, delay_millis=0):
+                return self.unbind_service_from_session(session_key, service_name)
+
+            def list_session_services(self, session_key):
+                return [
+                    {
+                        "service_global_name": service,
+                        "service_original_name": service,
+                        "source_agent": "global_agent_store",
+                    }
+                    for service in self.bindings.get(session_key, [])
+                ]
+
+            def get_session_state_value(self, session_key, key):
+                return self.session_states.get(session_key, {}).get("values", {}).get(key)
+
+            def list_session_state(self, session_key):
+                return self.session_states.setdefault(
+                    session_key,
+                    {
+                        "session_key": session_key,
+                        "values": {},
+                        "updated_at": 0,
+                        "version": 0,
+                    },
+                )
+
+            def set_session_state(self, session_key, key, value):
+                state = self.list_session_state(session_key)
+                state["values"][key] = value
+                state["version"] += 1
+                return state
+
+            def set_session_state_with_retry(self, session_key, key, value, max_attempts=3, delay_millis=0):
+                return self.set_session_state(session_key, key, value)
+
+            def delete_session_state(self, session_key, key):
+                state = self.list_session_state(session_key)
+                state["values"].pop(key, None)
+                state["version"] += 1
+                return state
+
+            def delete_session_state_with_retry(self, session_key, key, max_attempts=3, delay_millis=0):
+                return self.delete_session_state(session_key, key)
+
+            def clear_session_state(self, session_key):
+                state = self.list_session_state(session_key)
+                state["values"].clear()
+                state["version"] += 1
+                return state
+
+            def list_tools_in_session(self, session_key):
+                services = self.bindings.get(session_key) or ["browser", "search"]
+                tools = []
+                for service in services:
+                    tools.extend(self.list_tools_scoped(service_name=service))
+                return tools
+
+            def call_tool_in_session(self, session_key, tool_name, args):
+                for tool in self.list_tools_in_session(session_key):
+                    if tool["name"] == tool_name:
+                        service_name = tool["service_name"]
+                        return self.call_tool(service_name, tool_name, args)
+                raise RuntimeError("missing tool")
+
             def list_services_scoped(self, agent_id=None):
                 return [
                     {"name": "browser", "transport": "stdio"},
@@ -832,10 +1077,21 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             self.assertEqual(active.use_tool("browser_navigate", {}, return_extracted=True), "browser:browser_navigate")
             with self.assertRaisesRegex(ValueError, "timeout"):
                 active.use_tool("browser_navigate", {}, timeout=10)
-            with self.assertRaises(NotImplementedError):
-                active.extend_session()
-            with self.assertRaises(NotImplementedError):
-                active.clear_cache()
+            self.assertIs(active.extend_session(), active)
+            self.assertIs(active.extend_session_with_retry(max_attempts=2, delay_millis=0), active)
+            self.assertEqual(active.session_info().lease_seconds, 3600)
+            self.assertIs(active.bind_service_with_retry("search", max_attempts=2, delay_millis=0), active)
+            self.assertEqual(active.service_count, 2)
+            self.assertIs(active.unbind_service_with_retry("search", max_attempts=2, delay_millis=0), active)
+            self.assertEqual(active.service_count, 1)
+            self.assertIs(active.set_state("cursor", {"page": 2}), active)
+            self.assertEqual(active.get_state("cursor").page, 2)
+            self.assertIs(active.set_state_with_retry("answer", 42, max_attempts=2), active)
+            self.assertEqual(active.state_values().answer, 42)
+            self.assertIs(active.delete_state_with_retry("cursor", max_attempts=2), active)
+            self.assertIsNone(active.get_state("cursor"))
+            self.assertTrue(active.clear_cache())
+            self.assertEqual(active.state_values(), {})
 
             fresh_context = RustStoreContext(backend)
             self.assertEqual(fresh_context.active_session.session_id, "browser_task")
@@ -844,14 +1100,394 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertIsNone(context.active_session)
         context.session_auto("auto_browser")
         self.assertEqual(context.active_session.session_id, "auto_browser")
-        with self.assertRaisesRegex(TypeError, "default_timeout"):
-            context.session_auto(default_timeout=1)
-        with self.assertRaisesRegex(TypeError, "auto_cleanup"):
-            context.session_auto(auto_cleanup=True)
-        with self.assertRaisesRegex(TypeError, "session_prefix"):
-            context.session_auto(session_prefix="legacy_")
+        self.assertEqual(context.active_session.session_info().lease_seconds, 720000)
+        self.assertEqual(context.active_session.metadata.created_by, "python_session_auto")
+        context.session_manual()
+
+        context.session_auto(default_timeout=1, auto_cleanup=True, session_prefix="legacy_")
+        self.assertEqual(context.active_session.session_id, "legacy_session_default")
+        self.assertEqual(context.active_session.session_info().lease_seconds, 1)
+        self.assertTrue(context.active_session.metadata.auto_cleanup)
+        self.assertEqual(context.active_session.metadata.session_prefix, "legacy_")
         context.session_manual()
         self.assertIsNone(context.active_session)
+
+    def test_pyo3_session_bridge_exposes_rust_core_session_methods(self):
+        from mcpstore._rust import MCPStore
+
+        workdir = Path(tempfile.mkdtemp(prefix="mcpstore-pyo3-session-"))
+        config_path = str(workdir / "mcp.json")
+        store = MCPStore.setup_with_options(config_path, "local", "memory", None, "session-smoke")
+
+        created = store.create_session("shared", "store", None, 30, {"owner": "test"})
+
+        self.assertEqual(created["session_key"], "store:global:shared")
+        self.assertEqual(store.find_session("shared", "store", None)["session_key"], created["session_key"])
+        self.assertEqual(store.get_session_status(created["session_key"])["status"], "active")
+        extended = store.extend_session(created["session_key"], 60)
+        self.assertEqual(extended["lease_seconds"], 60)
+        self.assertEqual(store.find_session("shared", "store", None)["lease_seconds"], 60)
+        state = store.set_session_state(created["session_key"], "cursor", {"page": 2})
+        self.assertEqual(state["values"]["cursor"]["page"], 2)
+        self.assertEqual(store.get_session_state_value(created["session_key"], "cursor")["page"], 2)
+        state = store.set_session_state_with_retry(
+            created["session_key"],
+            "answer",
+            42,
+            max_attempts=2,
+            delay_millis=0,
+        )
+        self.assertEqual(state["values"]["answer"], 42)
+        state = store.delete_session_state_with_retry(
+            created["session_key"],
+            "cursor",
+            max_attempts=2,
+            delay_millis=0,
+        )
+        self.assertNotIn("cursor", state["values"])
+        self.assertEqual(store.clear_session_state(created["session_key"])["values"], {})
+        self.assertEqual(store.close_session(created["session_key"], "done")["status"], "closed")
+
+    def test_pyo3_session_bridge_shares_redis_backend_namespace_when_available(self):
+        redis_url = os.getenv("MCPSTORE_TEST_REDIS_URL")
+        if not redis_url:
+            self.skipTest("MCPSTORE_TEST_REDIS_URL is not set")
+
+        from mcpstore._rust import MCPStore
+
+        workdir = Path(tempfile.mkdtemp(prefix="mcpstore-pyo3-redis-session-"))
+        config_path = str(workdir / "mcp.json")
+        namespace = f"session-redis-{os.getpid()}"
+        first = MCPStore.setup_with_options(config_path, "local", "redis", redis_url, namespace)
+        second = MCPStore.setup_with_options(config_path, "local", "redis", redis_url, namespace)
+
+        created = first.create_session("shared", "store", None, 30, {"owner": "test"})
+
+        self.assertEqual(second.find_session("shared", "store", None)["session_key"], created["session_key"])
+        second.extend_session(created["session_key"], 60)
+        self.assertEqual(first.find_session("shared", "store", None)["lease_seconds"], 60)
+
+    def test_python_and_rust_session_share_redis_backend_across_processes_when_available(self):
+        redis_url = os.getenv("MCPSTORE_TEST_REDIS_URL")
+        if not redis_url:
+            self.skipTest("MCPSTORE_TEST_REDIS_URL is not set")
+
+        from mcpstore import MCPStore
+        from mcpstore.config import RedisConfig
+
+        workdir = Path(tempfile.mkdtemp(prefix="mcpstore-py-rust-redis-session-"))
+        namespace = f"session-cross-process-{os.getpid()}"
+        config_path = str(workdir / "mcp.json")
+        python_store = MCPStore.setup_store(
+            config_path,
+            cache=RedisConfig(url=redis_url, namespace=namespace),
+            cache_mode="shared",
+        )
+        python_session = python_store.for_store().create_session("py-created")
+        python_session.extend_session(45)
+
+        child = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                """
+import json
+import sys
+from mcpstore._rust import MCPStore
+
+config_path, redis_url, namespace = sys.argv[1:4]
+store = MCPStore.setup_with_options(config_path, "local", "redis", redis_url, namespace)
+seen = store.find_session("py-created", "store", None)
+created = store.create_session("rust-created", "store", None, 90, {"owner": "rust-child"})
+store.extend_session(seen["session_key"], 120)
+print(json.dumps({
+    "seen_key": seen["session_key"],
+    "seen_lease_seconds": store.find_session("py-created", "store", None)["lease_seconds"],
+    "created_key": created["session_key"],
+}))
+""",
+                config_path,
+                redis_url,
+                namespace,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(child.stdout)
+
+        self.assertEqual(payload["seen_key"], python_session.session_key)
+        self.assertEqual(payload["seen_lease_seconds"], 120)
+        self.assertEqual(
+            python_store.for_store().find_session("py-created").session_info().lease_seconds,
+            120,
+        )
+        rust_session = python_store.for_store().find_session("rust-created")
+        self.assertIsNotNone(rust_session)
+        self.assertEqual(rust_session.metadata["owner"], "rust-child")
+
+    def test_switch_cache_to_redis_migrates_session_for_other_process_when_available(self):
+        redis_url = os.getenv("MCPSTORE_TEST_REDIS_URL")
+        if not redis_url:
+            self.skipTest("MCPSTORE_TEST_REDIS_URL is not set")
+
+        from mcpstore import MCPStore
+        from mcpstore.config import RedisConfig
+
+        workdir = Path(tempfile.mkdtemp(prefix="mcpstore-session-migrate-redis-"))
+        namespace = f"session-migrate-{os.getpid()}"
+        config_path = str(workdir / "mcp.json")
+        store = MCPStore.setup_store(config_path)
+        session = store.for_store().create_session("migrated")
+        session.extend_session(75)
+        session.set_state("cursor", {"page": 3})
+        store.switch_cache(RedisConfig(url=redis_url, namespace=namespace))
+
+        child = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                """
+import json
+import sys
+from mcpstore._rust import MCPStore
+
+config_path, redis_url, namespace = sys.argv[1:4]
+store = MCPStore.setup_with_options(config_path, "local", "redis", redis_url, namespace)
+seen = store.find_session("migrated", "store", None)
+cursor = store.get_session_state_value(seen["session_key"], "cursor")
+print(json.dumps({
+    "session_key": seen["session_key"],
+    "lease_seconds": seen["lease_seconds"],
+    "cursor_page": cursor["page"],
+}))
+""",
+                config_path,
+                redis_url,
+                namespace,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(child.stdout)
+
+        self.assertEqual(payload["session_key"], session.session_key)
+        self.assertEqual(payload["lease_seconds"], 75)
+        self.assertEqual(payload["cursor_page"], 3)
+
+    def test_redis_session_concurrent_bind_extend_converges_across_processes_when_available(self):
+        redis_url = os.getenv("MCPSTORE_TEST_REDIS_URL")
+        if not redis_url:
+            self.skipTest("MCPSTORE_TEST_REDIS_URL is not set")
+
+        from mcpstore._rust import MCPStore
+
+        workdir = Path(tempfile.mkdtemp(prefix="mcpstore-session-concurrent-redis-"))
+        namespace = f"session-concurrent-{os.getpid()}"
+        config_path = str(workdir / "mcp.json")
+        go_path = workdir / "go"
+        store = MCPStore.setup_with_options(config_path, "local", "redis", redis_url, namespace)
+        session = store.create_session("shared-concurrent", "store", None, 30, {})
+
+        child_code = """
+import json
+import os
+import sys
+import time
+from mcpstore._rust import MCPStore
+
+config_path, redis_url, namespace, session_key, service_name, go_path, lease_base = sys.argv[1:8]
+lease_base = int(lease_base)
+store = MCPStore.setup_with_options(config_path, "local", "redis", redis_url, namespace)
+store.add_service(service_name, {
+    "command": sys.executable,
+    "args": ["-c", "print(1)"],
+    "env": {},
+    "headers": {},
+    "transport": "stdio",
+})
+deadline = time.time() + 10
+while not os.path.exists(go_path):
+    if time.time() > deadline:
+        print(json.dumps({"service": service_name, "success": False, "error": "start barrier timed out"}))
+        sys.exit(1)
+    time.sleep(0.01)
+
+try:
+    store.bind_service_to_session_with_retry(session_key, service_name, max_attempts=80, delay_millis=10)
+    for offset in range(20):
+        store.extend_session_with_retry(session_key, lease_base + offset, max_attempts=80, delay_millis=10)
+    print(json.dumps({
+        "service": service_name,
+        "success": True,
+    }))
+except Exception as exc:
+    print(json.dumps({
+        "service": service_name,
+        "success": False,
+        "error": str(exc),
+    }))
+    sys.exit(1)
+"""
+        children = [
+            subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    child_code,
+                    config_path,
+                    redis_url,
+                    namespace,
+                    session["session_key"],
+                    f"svc{index}",
+                    str(go_path),
+                    str(100 + index * 100),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for index in range(4)
+        ]
+        go_path.write_text("go", encoding="utf-8")
+        results = []
+        for child in children:
+            stdout, stderr = child.communicate(timeout=30)
+            self.assertEqual(child.returncode, 0, stderr or stdout)
+            results.append(json.loads(stdout))
+
+        self.assertTrue(all(result["success"] for result in results))
+        services = store.list_session_services(session["session_key"])
+        self.assertEqual(
+            {service["service_global_name"] for service in services},
+            {"svc0", "svc1", "svc2", "svc3"},
+        )
+        final = store.find_session("shared-concurrent", "store", None)
+        self.assertIn(final["lease_seconds"], {119, 219, 319, 419})
+
+    def test_python_and_rust_session_state_share_redis_backend_across_processes_when_available(self):
+        redis_url = os.getenv("MCPSTORE_TEST_REDIS_URL")
+        if not redis_url:
+            self.skipTest("MCPSTORE_TEST_REDIS_URL is not set")
+
+        from mcpstore import MCPStore
+        from mcpstore.config import RedisConfig
+
+        workdir = Path(tempfile.mkdtemp(prefix="mcpstore-py-rust-redis-session-state-"))
+        namespace = f"session-state-cross-process-{os.getpid()}"
+        config_path = str(workdir / "mcp.json")
+        python_store = MCPStore.setup_store(
+            config_path,
+            cache=RedisConfig(url=redis_url, namespace=namespace),
+            cache_mode="shared",
+        )
+        python_session = python_store.for_store().create_session("state-shared")
+        python_session.set_state("cursor", {"page": 1})
+        python_session.set_state("answer", 42)
+
+        child = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                """
+import json
+import sys
+from mcpstore._rust import MCPStore
+
+config_path, redis_url, namespace = sys.argv[1:4]
+store = MCPStore.setup_with_options(config_path, "local", "redis", redis_url, namespace)
+seen = store.find_session("state-shared", "store", None)
+cursor_before = store.get_session_state_value(seen["session_key"], "cursor")
+answer_before = store.get_session_state_value(seen["session_key"], "answer")
+store.set_session_state_with_retry(
+    seen["session_key"],
+    "cursor",
+    {"page": 2},
+    max_attempts=5,
+    delay_millis=5,
+)
+store.delete_session_state_with_retry(
+    seen["session_key"],
+    "answer",
+    max_attempts=5,
+    delay_millis=5,
+)
+state = store.set_session_state(seen["session_key"], "child", {"ok": True})
+print(json.dumps({
+    "session_key": seen["session_key"],
+    "cursor_before": cursor_before,
+    "answer_before": answer_before,
+    "values": state["values"],
+}))
+""",
+                config_path,
+                redis_url,
+                namespace,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(child.stdout)
+
+        self.assertEqual(payload["session_key"], python_session.session_key)
+        self.assertEqual(payload["cursor_before"], {"page": 1})
+        self.assertEqual(payload["answer_before"], 42)
+        self.assertEqual(python_session.get_state("cursor").page, 2)
+        self.assertIsNone(python_session.get_state("answer"))
+        self.assertTrue(python_session.get_state("child").ok)
+
+        python_session.clear_cache()
+        child = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                """
+import json
+import sys
+from mcpstore._rust import MCPStore
+
+config_path, redis_url, namespace, session_key = sys.argv[1:5]
+store = MCPStore.setup_with_options(config_path, "local", "redis", redis_url, namespace)
+print(json.dumps(store.list_session_state(session_key)["values"]))
+""",
+                config_path,
+                redis_url,
+                namespace,
+                python_session.session_key,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(json.loads(child.stdout), {})
+
+    def test_python_facade_session_state_comes_from_rust_core(self):
+        from mcpstore._rust import MCPStore as RustMCPStore
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        workdir = Path(tempfile.mkdtemp(prefix="mcpstore-python-session-core-"))
+        config_path = str(workdir / "mcp.json")
+        rust = RustMCPStore.setup_with_options(config_path, "local", "memory", None, "python-session")
+        first = RustStoreBackend(rust)
+        second = RustStoreBackend(rust)
+
+        first_session = first.for_store().create_session("shared")
+        second_session = second.for_store().find_session("shared")
+
+        self.assertIsNotNone(second_session)
+        self.assertEqual(second_session.session_key, first_session.session_key)
+        second_session.extend_session(120)
+        self.assertEqual(first.for_store().find_session("shared").session_info().lease_seconds, 120)
+        first_session.set_state("cursor", {"page": 1})
+        self.assertEqual(second_session.get_state("cursor").page, 1)
+        second_session.set_state_with_retry("cursor", {"page": 2}, max_attempts=2)
+        self.assertEqual(first_session.get_state("cursor").page, 2)
+        second_session.clear_cache()
+        self.assertEqual(first_session.state_values(), {})
+        second_session.close_session()
+        self.assertFalse(first.for_store().find_session("shared").is_active)
 
     def test_python_facade_keeps_agent_tool_set_management_shape(self):
         from mcpstore.core.store.rust_backend import RustStoreBackend, RustStoreContext
@@ -977,6 +1613,7 @@ class PyO3NativeBridgeTest(unittest.TestCase):
 
         autogen_tools = AutoGenAdapter(context).list_tools()
         self.assertEqual(autogen_tools[0](text="auto"), "auto")
+        self.assertEqual(AutoGenAdapter(context).get_functions()[0](text="auto2"), "auto2")
 
     def test_adapters_preserve_non_text_tool_content(self):
         from mcpstore.adapters.autogen_adapter import AutoGenAdapter
@@ -1285,42 +1922,37 @@ class PyO3NativeBridgeTest(unittest.TestCase):
         self.assertNotIn("--port", cmd)
         self.assertNotIn("--path", cmd)
 
-    def test_switch_cache_rebuilds_rust_store(self):
+    def test_switch_cache_uses_rust_runtime_migration(self):
         from mcpstore.config import RedisConfig
         from mcpstore.core.store.rust_backend import RustStoreBackend
 
         class FakeRustInner:
             def __init__(self):
-                self.loaded = False
+                self.switched = None
 
-            def load_from_config(self):
-                self.loaded = True
+            def switch_cache_storage(self, backend, redis_url, namespace):
+                self.switched = (backend, redis_url, namespace)
+                return {"entities": {}, "relations": {}, "states": {}, "events": {}}
 
-        class FakeRustStore:
-            called = None
+        inner = FakeRustInner()
+        store = RustStoreBackend(inner)
+        store._sessions[("store", "s1")] = object()
+        store._active_sessions["store"] = object()
+        store._auto_sessions["store"] = object()
 
-            @staticmethod
-            def setup_with_options(config_path, source_mode, backend, redis_url, namespace):
-                FakeRustStore.called = (config_path, source_mode, backend, redis_url, namespace)
-                return FakeRustInner()
-
-        fake_module = type("FakeRustModule", (), {"MCPStore": FakeRustStore})
-        store = RustStoreBackend(object())
-        store._config_path = "mcp.json"
-        store._only_db = True
-
-        with patch("mcpstore.core.store.rust_backend.importlib.import_module", return_value=fake_module):
-            context = store.for_store()
-            self.assertIs(
-                context.switch_cache(RedisConfig(url="redis://localhost:6379/0", namespace="switched")),
-                context,
-            )
+        context = store.for_store()
+        self.assertIs(
+            context.switch_cache(RedisConfig(url="redis://localhost:6379/0", namespace="switched")),
+            context,
+        )
 
         self.assertEqual(
-            FakeRustStore.called,
-            ("mcp.json", "db", "redis", "redis://localhost:6379/0", "switched"),
+            inner.switched,
+            ("redis", "redis://localhost:6379/0", "switched"),
         )
-        self.assertTrue(store._inner.loaded)
+        self.assertEqual(store._sessions, {})
+        self.assertEqual(store._active_sessions, {})
+        self.assertEqual(store._auto_sessions, {})
 
     def test_registry_facade_delegates_to_rust_cache_surface(self):
         import asyncio
@@ -1464,6 +2096,510 @@ class PyO3NativeBridgeTest(unittest.TestCase):
             return ResponseBuilder.success()
 
         self.assertIn("elapsed_ms", handler()["meta"])
+
+    def test_top_level_python_sdk_compatibility_exports(self):
+        from mcpstore import (
+            APIResponse,
+            ClientIDGenerator,
+            ErrorCode,
+            ErrorDetail,
+            MCPStoreException,
+            Pagination,
+            ResponseBuilder,
+            ResponseMeta,
+            ServiceConnectionState,
+            ServiceInfo,
+            ServiceNotFoundException,
+            ToolExecutionError,
+            ToolExecutionRequest,
+            ToolInfo,
+            ValidationException,
+            timed_response,
+        )
+
+        service = ServiceInfo(
+            name="weather",
+            transport_type="stdio",
+            status=ServiceConnectionState.READY,
+            tool_count=1,
+            keep_alive=True,
+            command="python",
+            args=["-m", "weather"],
+            config={"command": "python"},
+        )
+        self.assertEqual(service.name, "weather")
+        self.assertEqual(service.transport_type.value, "stdio")
+
+        tool = ToolInfo(
+            name="weather_get",
+            tool_original_name="get",
+            service_original_name="weather",
+            service_global_name="weather",
+            service_name="weather",
+            description="Get weather",
+            inputSchema={"type": "object"},
+        )
+        self.assertEqual(tool.tool_original_name, "get")
+
+        request = ToolExecutionRequest(tool_name="get", service_name="weather", args={"city": "SZ"})
+        self.assertEqual(request.args["city"], "SZ")
+
+        meta = ResponseMeta(timestamp="2026-06-27T00:00:00Z", request_id="req_1234567890123456", execution_time_ms=3)
+        pagination = Pagination(page=1, page_size=10, total=1, total_pages=1, has_next=False, has_prev=False)
+        response = APIResponse(success=False, message="failed", errors=[ErrorDetail(code="X", message="x")], meta=meta, pagination=pagination)
+        self.assertFalse(response.success)
+        self.assertEqual(response.errors[0].code, "X")
+
+        self.assertEqual(ErrorCode.MISSING_PARAMETER.value, "missing_parameter")
+        self.assertIsInstance(ResponseBuilder.success(message="ok"), dict)
+        self.assertFalse(ResponseBuilder.error(code=ErrorCode.MISSING_PARAMETER)["success"])
+
+        @timed_response
+        def handler():
+            return ResponseBuilder.success()
+
+        self.assertIn("elapsed_ms", handler()["meta"])
+
+        client_id = ClientIDGenerator.generate_deterministic_id(
+            "store",
+            "weather",
+            {"command": "python"},
+            "store",
+        )
+        self.assertTrue(ClientIDGenerator.is_deterministic_format(client_id))
+        self.assertEqual(ClientIDGenerator.parse_client_id(client_id)["type"], "store")
+
+        self.assertIsInstance(MCPStoreException("boom").to_dict()["error_id"], str)
+        self.assertEqual(ServiceNotFoundException("weather").to_dict()["field"], "service_name")
+        self.assertEqual(ToolExecutionError("get", "bad").to_dict()["details"]["reason"], "bad")
+        self.assertEqual(ValidationException("bad", field="name").to_dict()["field"], "name")
+
+    def test_python_context_compatibility_exports_are_rust_backed(self):
+        import asyncio
+
+        from mcpstore import MCPStoreContext, Session, SessionContext
+        from mcpstore.core.context import (
+            AgentServiceMapper,
+            AgentStatisticsMixin,
+            AgentProxy,
+            AdvancedFeaturesMixin,
+            AsyncSafeServiceManagement,
+            AsyncSafeServiceManagementFactory,
+            AddServiceWaitStrategy,
+            CacheProxy,
+            CallToolResultProtocol,
+            ContextType,
+            MCPStoreContext as ContextMCPStoreContext,
+            ResourcesPromptsMixin,
+            ServiceOperationsMixin,
+            ServiceProxy,
+            Session as ContextSession,
+            SessionContext as ContextSessionContext,
+            SessionManagementMixin,
+            StoreProxy,
+            ToolCallResult,
+            ToolOperationsMixin,
+            ToolProxy,
+            ToolTransformConfig,
+            ToolTransformer,
+            ArgumentTransform,
+            UpdateServiceAuthHelper,
+        )
+        from mcpstore.core.context.advanced_features import AdvancedFeaturesMixin as AdvancedFeaturesModuleExport
+        from mcpstore.core.context.agent_service_mapper import AgentServiceMapper as MapperModuleExport
+        from mcpstore.core.context.agent_statistics import AgentStatisticsMixin as AgentStatisticsModuleExport
+        from mcpstore.core.context.agent_proxy import AgentProxy as AgentProxyModuleExport
+        from mcpstore.core.context.async_safe_service_management import AsyncSafeServiceManagement as AsyncSafeModuleExport
+        from mcpstore.core.context.base_context import MCPStoreContext as BaseContextExport
+        from mcpstore.core.context.cache_proxy import CacheProxy as CacheProxyModuleExport
+        from mcpstore.core.context.resources_prompts import ResourcesPromptsMixin as ResourcesPromptsModuleExport
+        from mcpstore.core.context.service_operations import AddServiceWaitStrategy as WaitStrategyModuleExport
+        from mcpstore.core.context.service_operations import ServiceOperationsMixin as ServiceOperationsModuleExport
+        from mcpstore.core.context.service_management import UpdateServiceAuthHelper as AuthHelperModuleExport
+        from mcpstore.core.context.service_proxy import ServiceProxy as ServiceProxyModuleExport
+        from mcpstore.core.context.session import Session as SessionModuleExport
+        from mcpstore.core.context.session_management import SessionManagementMixin as SessionManagementModuleExport
+        from mcpstore.core.context.store_proxy import StoreProxy as StoreProxyModuleExport
+        from mcpstore.core.context.tool_operations import ToolOperationsMixin as ToolOperationsModuleExport
+        from mcpstore.core.context.tool_proxy_annotations import CallToolResultProtocol as ToolProtocolModuleExport
+        from mcpstore.core.context.tool_proxy import ToolCallResult as ToolCallResultModuleExport
+        from mcpstore.core.context.tool_proxy import ToolProxy as ToolProxyModuleExport
+        from mcpstore.core.context.tool_transformation import ToolTransformer as ToolTransformerModuleExport
+        from mcpstore.core.context.types import ContextType as ContextTypeModuleExport
+        from mcpstore.core.store import (
+            CacheProxy as StoreCacheProxy,
+            MCPStoreContext as StoreMCPStoreContext,
+            RustCacheProxy,
+            RustServiceProxy,
+            RustSession,
+            RustStoreBackend,
+            RustStoreContext,
+            RustToolProxy,
+            ServiceProxy as StoreServiceProxy,
+            Session as StoreSession,
+            SessionContext as StoreSessionContext,
+            ToolProxy as StoreToolProxy,
+        )
+
+        self.assertIs(MCPStoreContext, RustStoreContext)
+        self.assertIs(Session, RustSession)
+        self.assertIs(SessionContext, RustSession)
+        self.assertIs(ContextMCPStoreContext, RustStoreContext)
+        self.assertIs(ContextSession, RustSession)
+        self.assertIs(ContextSessionContext, RustSession)
+        self.assertIs(ServiceProxy, RustServiceProxy)
+        self.assertIs(ToolProxy, RustToolProxy)
+        self.assertIs(CacheProxy, RustCacheProxy)
+        self.assertIs(BaseContextExport, RustStoreContext)
+        self.assertIs(SessionModuleExport, RustSession)
+        self.assertIs(ServiceProxyModuleExport, RustServiceProxy)
+        self.assertIs(ToolProxyModuleExport, RustToolProxy)
+        self.assertIs(CacheProxyModuleExport, RustCacheProxy)
+        self.assertIs(MapperModuleExport, AgentServiceMapper)
+        self.assertIs(StoreProxyModuleExport, StoreProxy)
+        self.assertIs(AgentProxyModuleExport, AgentProxy)
+        self.assertIs(AgentStatisticsModuleExport, AgentStatisticsMixin)
+        self.assertIs(AdvancedFeaturesModuleExport, AdvancedFeaturesMixin)
+        self.assertIs(AsyncSafeModuleExport, AsyncSafeServiceManagement)
+        self.assertIs(WaitStrategyModuleExport, AddServiceWaitStrategy)
+        self.assertIs(ServiceOperationsModuleExport, ServiceOperationsMixin)
+        self.assertIs(ToolOperationsModuleExport, ToolOperationsMixin)
+        self.assertIs(SessionManagementModuleExport, SessionManagementMixin)
+        self.assertIs(ToolProtocolModuleExport, CallToolResultProtocol)
+        self.assertIsNotNone(AsyncSafeServiceManagementFactory)
+        self.assertIs(ResourcesPromptsModuleExport, ResourcesPromptsMixin)
+        self.assertIs(AuthHelperModuleExport, UpdateServiceAuthHelper)
+        self.assertIs(ToolCallResultModuleExport, ToolCallResult)
+        self.assertIs(ToolTransformerModuleExport, ToolTransformer)
+        self.assertIs(ContextTypeModuleExport, ContextType)
+        self.assertIs(StoreMCPStoreContext, RustStoreContext)
+        self.assertIs(StoreSession, RustSession)
+        self.assertIs(StoreSessionContext, RustSession)
+        self.assertIs(StoreServiceProxy, RustServiceProxy)
+        self.assertIs(StoreToolProxy, RustToolProxy)
+        self.assertIs(StoreCacheProxy, RustCacheProxy)
+
+        class FakeBackend:
+            def __init__(self):
+                self.sessions = {}
+                self.state = {}
+                self.transforms = {}
+
+            def find_session(self, session_id, scope, agent_id):
+                return self.sessions.get((scope, agent_id, session_id))
+
+            def create_session(self, session_id, scope, agent_id, lease_seconds, metadata):
+                entity = {
+                    "session_id": session_id,
+                    "session_key": f"{scope}:{agent_id or 'store'}:{session_id}",
+                    "scope": scope,
+                    "agent_id": agent_id,
+                    "metadata": metadata,
+                    "lease_seconds": lease_seconds or 3600,
+                }
+                self.sessions[(scope, agent_id, session_id)] = entity
+                return entity
+
+            def get_session_status(self, session_key):
+                return {"status": "active"}
+
+            def get_session(self, session_key):
+                for entity in self.sessions.values():
+                    if entity["session_key"] == session_key:
+                        return entity
+                return None
+
+            def find_session_by_user_session_id(self, user_session_id):
+                for entity in self.sessions.values():
+                    if entity["metadata"].get("user_session_id") == user_session_id:
+                        return entity
+                return None
+
+            def update_session_metadata(self, session_key, metadata):
+                entity = self.get_session(session_key)
+                if entity is None:
+                    return None
+                entity["metadata"] = metadata
+                return entity
+
+            def set_session_state(self, session_key, key, value):
+                record = self.state.setdefault(
+                    session_key,
+                    {"session_key": session_key, "values": {}, "version": 0},
+                )
+                record["values"][key] = value
+                record["version"] += 1
+                return record
+
+            def get_session_state_value(self, session_key, key):
+                return self.state.get(session_key, {"values": {}})["values"].get(key)
+
+            def list_session_state(self, session_key):
+                return self.state.get(session_key, {"session_key": session_key, "values": {}, "version": 0})
+
+            def clear_session_state(self, session_key):
+                record = self.state.setdefault(
+                    session_key,
+                    {"session_key": session_key, "values": {}, "version": 0},
+                )
+                record["values"] = {}
+                record["version"] += 1
+                return record
+
+            def resolve_service_name_for_agent(self, agent_id, service_name):
+                return service_name
+
+            def set_tool_transform(self, service_name, tool_name, transform):
+                key = (service_name, tool_name)
+                record = {
+                    "tool_global_name": f"{service_name}_{tool_name}",
+                    "service_global_name": service_name,
+                    "original_tool_name": tool_name,
+                    **transform,
+                    "updated_at": 1,
+                    "version": 1,
+                }
+                self.transforms[key] = record
+                return record
+
+            def get_tool_transform(self, service_name, tool_name):
+                return self.transforms.get((service_name, tool_name))
+
+            def list_tool_transforms(self):
+                return list(self.transforms.values())
+
+            def list_resources_scoped(self, agent_id, service_name=None):
+                return [{"uri": "memory://doc", "service_name": service_name, "agent_id": agent_id}]
+
+            def list_resource_templates_scoped(self, agent_id, service_name=None):
+                return [{"uriTemplate": "memory://{name}", "service_name": service_name, "agent_id": agent_id}]
+
+            def read_resource_scoped(self, agent_id, uri, service_name=None):
+                return {"uri": uri, "text": "body", "service_name": service_name, "agent_id": agent_id}
+
+            def list_prompts_scoped(self, agent_id, service_name=None):
+                return [{"name": "summarize", "service_name": service_name, "agent_id": agent_id}]
+
+            def get_prompt_scoped(self, agent_id, prompt_name, arguments, service_name=None):
+                return {
+                    "name": prompt_name,
+                    "arguments": arguments,
+                    "service_name": service_name,
+                    "agent_id": agent_id,
+                }
+
+            def list_sessions(self, scope, agent_id):
+                return [
+                    entity
+                    for (stored_scope, stored_agent_id, _), entity in self.sessions.items()
+                    if stored_scope == scope and stored_agent_id == agent_id
+                ]
+
+            def list_services_scoped(self, agent_id=None):
+                return [{"name": "svc", "transport": "stdio", "agent_id": agent_id}]
+
+            def list_tools_scoped(self, agent_id=None, service_name=None):
+                return [{"name": "echo", "service_name": service_name or "svc", "agent_id": agent_id}]
+
+            def list_changed_tools_scoped(self, agent_id=None, service_name=None, *, force_refresh=False):
+                return {
+                    "changed": True,
+                    "services": [service_name or "svc"],
+                    "trigger": "manual_force" if force_refresh else "manual",
+                    "timestamp": 1,
+                    "details": {
+                        "service_results": [
+                            {
+                                "service_name": service_name or "svc",
+                                "client_id": service_name or "svc",
+                                "added_tools": ["echo"],
+                                "removed_tools": [],
+                                "updated_tools": [],
+                                "changes_count": 1,
+                                "changed": True,
+                                "agent_id": agent_id,
+                            }
+                        ]
+                    },
+                }
+
+            def check_services_scoped(self, agent_id=None):
+                return {"svc": "connected"}
+
+            def find_service(self, name):
+                return {"name": name, "transport": "stdio"}
+
+            def service_status_scoped(self, agent_id, service_name):
+                return {"status": "connected", "service_name": service_name, "agent_id": agent_id}
+
+            def wait_service_ready(self, name, timeout=10.0):
+                return {"service_global_name": name, "health_status": "ready"}
+
+            def list_agents(self):
+                return [{"agent_id": "agent_a"}]
+
+            def check_services_scoped(self, agent_id=None):
+                return {"svc": "connected"}
+
+            def event_history(self, count=100):
+                return []
+
+            def namespace(self):
+                return "test"
+
+            def current_backend(self):
+                return "memory"
+
+            def resolve_tool_for_agent(self, agent_id, user_input):
+                return {"global_service_name": "svc", "canonical_tool_name": "echo"}
+
+            def call_tool(self, service_name, tool_name, args):
+                return {"content": [{"type": "text", "text": args["text"]}], "is_error": False}
+
+            def import_openapi_service(self, name, spec_url, options=None):
+                return {
+                    "service_name": name,
+                    "spec_url": spec_url,
+                    "base_url": "https://example.test",
+                    "spec_info": {"title": "Example", "version": "1.0", "description": None},
+                    "security_schemes": {},
+                    "security": [],
+                    "components": [{"name": "listItems", "type": "resource", "service_name": name}],
+                    "total_endpoints": 1,
+                    "component_types": {"tools": 0, "resources": 1, "resource_templates": 0},
+                    "runtime_executable": True,
+                    "options": options or {},
+                }
+
+            def import_openapi_service_from_spec(self, name, spec_url, spec, options=None):
+                return self.import_openapi_service(name, spec_url, options)
+
+            def get_openapi_import(self, name):
+                return None
+
+            def list_openapi_imports(self):
+                return []
+
+        backend = RustStoreBackend(FakeBackend())
+        context = MCPStoreContext(backend)
+        store_proxy = StoreProxy(context)
+        agent_proxy = AgentProxy(context, "agent_a")
+
+        self.assertIs(store_proxy.get_context(), context)
+        self.assertEqual(store_proxy.get_id(), "global_agent_store")
+        self.assertEqual(store_proxy.list_prompts("svc")[0].name, "summarize")
+        self.assertEqual(store_proxy.find_agent("agent_a").get_id(), "agent_a")
+        self.assertEqual(agent_proxy.get_context().agent_id, "agent_a")
+        self.assertEqual(agent_proxy.get_id(), "agent_a")
+        self.assertEqual(agent_proxy.map_global("svc"), "svc_byagent_agent_a")
+        self.assertEqual(agent_proxy.map_local("svc_byagent_agent_a"), "svc")
+
+        class ContextOperationsCompat(
+            ServiceOperationsMixin,
+            ToolOperationsMixin,
+            SessionManagementMixin,
+            AdvancedFeaturesMixin,
+            AgentStatisticsMixin,
+        ):
+            def __init__(self, rust_context):
+                self._context = rust_context
+
+        operations = ContextOperationsCompat(context)
+        wait_strategy = AddServiceWaitStrategy()
+        self.assertEqual(wait_strategy.parse_wait_parameter("2500"), 2.5)
+        self.assertEqual(wait_strategy.get_service_wait_timeout({"url": "https://example.test"}), 2.0)
+        self.assertEqual(operations.list_services()[0].name, "svc")
+        self.assertEqual(operations.list_tools()[0].name, "echo")
+        self.assertEqual(operations.call_tool("echo", {"text": "mix"}).text_output, "mix")
+        self.assertEqual(operations.wait_service("svc").health_status, "ready")
+        self.assertEqual(operations.get_agents_summary().total_agents, 1)
+        self.assertEqual(operations.create_shared_session("shared", "user-1").metadata.user_session_id, "user-1")
+        self.assertEqual(operations.find_user_session("user-1").session_id, "shared")
+        self.assertTrue(operations.register_session_globally("shared", "user-2"))
+        self.assertEqual(operations.find_user_session("user-2").session_id, "shared")
+        self.assertIs(operations.import_api("https://example.test/openapi.json", "example"), operations)
+        self.assertEqual(operations.last_openapi_import().service_name, "example")
+        self.assertTrue(operations.last_openapi_import().runtime_executable)
+        self.assertIs(
+            operations.import_api(
+                "https://example.test/secure-openapi.json",
+                "secure",
+                auth={"ApiKeyAuth": "secret"},
+            ),
+            operations,
+        )
+        self.assertEqual(
+            operations.last_openapi_import().options["auth"]["ApiKeyAuth"],
+            "secret",
+        )
+
+        session = context.with_session("compat")
+
+        self.assertIsInstance(session, Session)
+        self.assertIsInstance(session, ContextSession)
+        self.assertIs(session.set_state("cursor", {"page": 7}), session)
+        self.assertEqual(session.get_state("cursor").page, 7)
+        self.assertEqual(session.state_values().cursor.page, 7)
+        self.assertTrue(session.clear_cache())
+        self.assertEqual(session.state_values(), {})
+
+        mapper = AgentServiceMapper("agent_a")
+        self.assertEqual(mapper.to_global_name("svc"), "svc_byagent_agent_a")
+        self.assertEqual(mapper.to_local_name("svc_byagent_agent_a"), "svc")
+        self.assertEqual(AgentServiceMapper.parse_agent_service_name("svc_byagent_agent_a"), ("agent_a", "svc"))
+        self.assertEqual(ContextType.STORE.value, "store")
+
+        class ResourcePromptCompat(ResourcesPromptsMixin):
+            def __init__(self, rust_context):
+                self._context = rust_context
+
+        resource_prompt = ResourcePromptCompat(context)
+        self.assertEqual(resource_prompt.list_resources("svc")[0].uri, "memory://doc")
+        self.assertEqual(
+            resource_prompt.list_resource_templates("svc")[0].uriTemplate,
+            "memory://{name}",
+        )
+        self.assertEqual(resource_prompt.read_resource("memory://doc", "svc").text, "body")
+        self.assertEqual(resource_prompt.list_prompts("svc")[0].name, "summarize")
+        self.assertEqual(resource_prompt.get_prompt("summarize", {"topic": "rust"}, "svc").arguments.topic, "rust")
+        self.assertEqual(asyncio.run(resource_prompt.list_prompts_async("svc"))[0].name, "summarize")
+        changed_tools = resource_prompt.list_changed_tools("svc", force_refresh=True)
+        self.assertTrue(changed_tools.changed)
+        self.assertEqual(changed_tools.trigger, "manual_force")
+        self.assertEqual(changed_tools.details.service_results[0].added_tools, ["echo"])
+
+        result = ToolCallResult(
+            {"content": [{"type": "text", "text": "ok"}], "is_error": False},
+            "echo",
+            {"text": "ok"},
+        )
+        self.assertEqual(result.text_output, "ok")
+        self.assertFalse(result.to_dict()["is_error"])
+
+        transformer = ToolTransformer(context, service_name="svc")
+        transformed_name = transformer.create_parameter_renamed_tool(
+            "echo",
+            {"text": "message"},
+            new_tool_name="say",
+        )
+        self.assertEqual(transformed_name, "say")
+        rule = context.get_tool_transform("svc", "echo")
+        self.assertEqual(rule.display_name, "say")
+        self.assertEqual(rule.arguments[0].original_name, "text")
+        self.assertEqual(rule.arguments[0].new_name, "message")
+        config = ToolTransformConfig(
+            original_tool_name="echo",
+            new_tool_name="hidden_echo",
+            argument_transforms={
+                "debug": ArgumentTransform("debug", hidden=True, default_value=False)
+            },
+        )
+        self.assertEqual(transformer.register_transformation(config), "hidden_echo")
+        with self.assertRaisesRegex(NotImplementedError, "Callable"):
+            ToolTransformConfig(
+                original_tool_name="echo",
+                pre_execution_hooks=[lambda name, args: args],
+            ).to_rust_payload()
 
     def test_top_level_adapter_import_errors_are_not_silenced(self):
         import builtins

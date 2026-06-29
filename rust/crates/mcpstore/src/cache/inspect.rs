@@ -1,8 +1,23 @@
 use crate::store::prelude::*;
 
-const ENTITY_TYPES: &[&str] = &["agents", "clients", "services", "store", "tools"];
-const RELATION_TYPES: &[&str] = &["agent_services", "service_tools"];
-const STATE_TYPES: &[&str] = &["service_status", "service_metadata"];
+const ENTITY_TYPES: &[&str] = &[
+    "agents", "clients", "services", "sessions", "store", "tools",
+];
+const RELATION_TYPES: &[&str] = &[
+    "agent_services",
+    "service_tools",
+    "session_services",
+    "session_tools",
+];
+const STATE_TYPES: &[&str] = &[
+    "service_status",
+    "service_metadata",
+    "session_status",
+    "session_state",
+    "tool_transforms",
+    "openapi_imports",
+];
+const EVENT_TYPES: &[&str] = &["session_events", "openapi_imports"];
 
 impl MCPStore {
     pub async fn cache_inspect(&self) -> Result<serde_json::Value> {
@@ -72,7 +87,27 @@ impl MCPStore {
                 ));
             }
         }
+        for event_type in EVENT_TYPES {
+            let entries = snapshot
+                .events
+                .get(*event_type)
+                .cloned()
+                .unwrap_or_default();
+            collections.push(format!("{namespace}:event:{event_type}"));
+            event_counts.insert((*event_type).to_string(), serde_json::json!(entries.len()));
+            for (key, value) in entries {
+                events.push(wrap_cache_item(
+                    &key,
+                    event_type,
+                    &format!("{namespace}:event:{event_type}"),
+                    value,
+                ));
+            }
+        }
         for (event_type, entries) in snapshot.events {
+            if EVENT_TYPES.contains(&event_type.as_str()) {
+                continue;
+            }
             collections.push(format!("{namespace}:event:{event_type}"));
             event_counts.insert(event_type.clone(), serde_json::json!(entries.len()));
             for (key, value) in entries {

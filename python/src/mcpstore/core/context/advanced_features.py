@@ -1,0 +1,59 @@
+"""Rust-backed compatibility helpers for historical advanced features."""
+
+from __future__ import annotations
+
+
+class AdvancedFeaturesMixin:
+    """Compatibility mixin for advanced context methods."""
+
+    def import_api(self, api_url: str, api_name: str = None, *, headers: dict = None, auth: dict = None):
+        import time
+
+        name = api_name or f"api_{int(time.time())}"
+        result = self._rust_context().import_openapi_service(
+            name,
+            api_url,
+            headers=headers,
+            auth=auth,
+        )
+        self._last_openapi_import = result
+        return self
+
+    async def import_api_async(self, api_url: str, api_name: str = None, *, headers: dict = None, auth: dict = None):
+        return self.import_api(api_url, api_name, headers=headers, auth=auth)
+
+    def import_api_from_spec(
+        self,
+        spec: dict,
+        api_name: str,
+        spec_url: str = "memory://openapi",
+        *,
+        headers: dict = None,
+        auth: dict = None,
+    ):
+        result = self._rust_context().import_openapi_service_from_spec(
+            api_name,
+            spec_url,
+            spec,
+            headers=headers,
+            auth=auth,
+        )
+        self._last_openapi_import = result
+        return self
+
+    def last_openapi_import(self):
+        return getattr(self, "_last_openapi_import", None)
+
+    def reset_mcp_json_file(self) -> bool:
+        return self._rust_context().reset_config()
+
+    async def reset_mcp_json_file_async(self, scope: str = "all") -> bool:
+        if scope not in (None, "all"):
+            raise NotImplementedError("Scoped MCP JSON reset is not exposed by the Rust-backed facade")
+        return self.reset_mcp_json_file()
+
+    def _rust_context(self):
+        return getattr(self, "_context", self)
+
+
+__all__ = ["AdvancedFeaturesMixin"]

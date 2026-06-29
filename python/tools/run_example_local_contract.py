@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,8 @@ PYTHON_SRC = ROOT / "python" / "src"
 LOCAL_EXTENSION = PYTHON_SRC / "mcpstore" / "_rust.abi3.so"
 WHEEL_OUT = ROOT / "target" / "example_local_wheels"
 REPORT_DIR = ROOT / "logs" / "example_local"
+RUST_WORKSPACE = ROOT / "rust"
+CLI_BINARY = RUST_WORKSPACE / "target" / "debug" / ("mcpstore.exe" if os.name == "nt" else "mcpstore")
 
 DEFAULT_EXAMPLES = [
     "quick_start.py",
@@ -29,6 +32,13 @@ DEFAULT_EXAMPLES = [
     "for_store/proxy_object/basic_flow_with_service_proxy.py",
     "for_store/proxy_object/basic_flow_with_agent_proxy.py",
 ]
+ALL_SKIP_PARTS = {
+    "__pycache__",
+    "routes",
+}
+ALL_SKIP_FILES = {
+    "example_utils.py",
+}
 EXPANDED_SKIP_PARTS = {
     "__pycache__",
     "api",
@@ -123,6 +133,24 @@ def refresh_pyo3_extension() -> Path:
     return wheel
 
 
+def build_rust_cli() -> Path:
+    build = run_command(
+        [
+            "cargo",
+            "build",
+            "--manifest-path",
+            "rust/Cargo.toml",
+            "-p",
+            "mcpstore-cli",
+        ]
+    )
+    if build.returncode != 0:
+        raise RuntimeError(build.stdout + "\n" + build.stderr)
+    if not CLI_BINARY.exists():
+        raise RuntimeError(f"cargo build finished but CLI binary is missing: {CLI_BINARY}")
+    return CLI_BINARY
+
+
 def classify_failure(output: str) -> tuple[str, str]:
     text = output.strip()
     lowered = text.lower()
@@ -157,47 +185,161 @@ def text_value(value: str | bytes | None) -> str:
     return value
 
 
-def expanded_examples() -> list[Path]:
+def is_expected_blocking_example(output: str) -> bool:
+    markers = (
+        "[MCP] Starting streamable-http",
+        "[MCP] Starting stdio",
+        "[API] Starting at",
+        "Uvicorn running on http://",
+    )
+    return any(marker in output for marker in markers)
+
+
+def skip_reason(output: str) -> str | None:
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[skip]"):
+            return stripped[6:].strip() or "skipped"
+    return None
+
+
+def discovered_examples(
+    *,
+    skip_parts: set[str],
+    skip_markers: tuple[str, ...] = (),
+    skip_files: set[str],
+    skip_content_markers: tuple[str, ...] = (),
+) -> list[Path]:
     paths: list[Path] = []
     for path in sorted(EXAMPLE_ROOT.rglob("*.py")):
         relative = path.relative_to(EXAMPLE_ROOT).as_posix()
-        if any(part in EXPANDED_SKIP_PARTS for part in path.relative_to(EXAMPLE_ROOT).parts):
+        if any(part in skip_parts for part in path.relative_to(EXAMPLE_ROOT).parts):
             continue
-        if path.name in EXPANDED_SKIP_FILES:
+        if path.name in skip_files:
             continue
-        if any(marker in relative for marker in EXPANDED_SKIP_MARKERS):
+        if any(marker in relative for marker in skip_markers):
             continue
+        if skip_content_markers:
+            text = path.read_text(encoding="utf-8", errors="ignore").lower()
+            if any(marker in text for marker in skip_content_markers):
+                continue
         paths.append(path)
     return paths
 
 
-def example_targets(selected: Iterable[str] | None, preset: str) -> list[Path]:
+def expanded_examples() -> list[Path]:
+    return discovered_examples(
+        skip_parts=EXPANDED_SKIP_PARTS,
+        skip_markers=EXPANDED_SKIP_MARKERS,
+        skip_files=EXPANDED_SKIP_FILES,
+    )
+
+
+def all_examples() -> list[Path]:
+    return discovered_examples(
+        skip_parts=ALL_SKIP_PARTS,
+        skip_files=ALL_SKIP_FILES,
+    )
+
+
+def example_targets(
+    selected: Iterable[str] | None,
+    preset: str,
+    prefixes: Iterable[str] | None = None,
+    skip_markers: Iterable[str] | None = None,
+    skip_content_markers: Iterable[str] | None = None,
+) -> list[Path]:
+    normalized_prefixes = tuple(prefixes or ())
     if selected:
-        return [EXAMPLE_ROOT / item for item in selected]
-    if preset == "expanded":
-        return expanded_examples()
-    return [EXAMPLE_ROOT / item for item in DEFAULT_EXAMPLES]
+        targets = [EXAMPLE_ROOT / item for item in selected]
+    elif preset == "expanded":
+        targets = expanded_examples()
+    elif preset == "all":
+        targets = all_examples()
+    else:
+        targets = [EXAMPLE_ROOT / item for item in DEFAULT_EXAMPLES]
+
+    if not normalized_prefixes:
+        filtered = targets
+    else:
+        filtered = [
+            path for path in targets
+            if path.relative_to(EXAMPLE_ROOT).as_posix().startswith(normalized_prefixes)
+        ]
+
+    normalized_skip_markers = tuple(skip_markers or ())
+    normalized_content_markers = tuple(marker.lower() for marker in (skip_content_markers or ()))
+    if normalized_skip_markers:
+        filtered = [
+            path for path in filtered
+            if not any(marker in path.relative_to(EXAMPLE_ROOT).as_posix() for marker in normalized_skip_markers)
+        ]
+    if normalized_content_markers:
+        filtered = [
+            path for path in filtered
+            if not any(
+                marker in path.read_text(encoding="utf-8", errors="ignore").lower()
+                for marker in normalized_content_markers
+            )
+        ]
+    return filtered
 
 
-def run_example(path: Path, *, timeout: int) -> ExampleResult:
+def run_example(path: Path, *, timeout: int, rust_cli: Path | None = None) -> ExampleResult:
     started = datetime.now()
-    pythonpath_parts = [str(path.parent), str(EXAMPLE_ROOT), str(PYTHON_SRC)]
+    pythonpath_parts = [str(ROOT / "python"), str(path.parent), str(EXAMPLE_ROOT), str(PYTHON_SRC)]
     existing_pythonpath = os.environ.get("PYTHONPATH")
     if existing_pythonpath:
         pythonpath_parts.append(existing_pythonpath)
     env = os.environ.copy()
     env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+    env["PYTHONUNBUFFERED"] = "1"
+    if rust_cli is not None:
+        env["MCPSTORE_RUST_BIN"] = str(rust_cli)
     relative = path.relative_to(EXAMPLE_ROOT).as_posix()
     print(f"[running] {relative}", flush=True)
+    process = subprocess.Popen(
+        [repo_python(), str(path)],
+        cwd=str(ROOT),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        start_new_session=(os.name != "nt"),
+    )
     try:
-        proc = run_command([repo_python(), str(path)], timeout=timeout, env=env)
+        stdout, stderr = process.communicate(timeout=timeout)
+        proc = subprocess.CompletedProcess(
+            args=process.args,
+            returncode=process.returncode,
+            stdout=stdout,
+            stderr=stderr,
+        )
         timed_out = False
     except subprocess.TimeoutExpired as error:
+        if os.name != "nt":
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        else:
+            process.terminate()
+        try:
+            stdout, stderr = process.communicate(timeout=3)
+        except subprocess.TimeoutExpired:
+            if os.name != "nt":
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            else:
+                process.kill()
+            stdout, stderr = process.communicate()
         proc = subprocess.CompletedProcess(
-            args=error.cmd,
+            args=process.args,
             returncode=124,
-            stdout=text_value(error.stdout),
-            stderr=text_value(error.stderr) + f"\nTimed out after {timeout} seconds",
+            stdout=text_value(error.stdout) + text_value(stdout),
+            stderr=text_value(error.stderr) + text_value(stderr) + f"\nTimed out after {timeout} seconds",
         )
         timed_out = True
     duration = (datetime.now() - started).total_seconds()
@@ -210,6 +352,20 @@ def run_example(path: Path, *, timeout: int) -> ExampleResult:
     if stderr:
         output = output + ("\n" if output else "") + stderr
     log_path.write_text(output, encoding="utf-8")
+
+    reason = skip_reason(output)
+    if proc.returncode == 0 and reason is not None:
+        result = ExampleResult(
+            example=relative,
+            status="passed",
+            category="skipped",
+            returncode=0,
+            duration_secs=duration,
+            summary=reason,
+            log_path=str(log_path.relative_to(ROOT)),
+        )
+        print(f"[passed] {relative} category=skipped duration={duration:.2f}s summary={reason}", flush=True)
+        return result
 
     if proc.returncode == 0:
         result = ExampleResult(
@@ -225,13 +381,26 @@ def run_example(path: Path, *, timeout: int) -> ExampleResult:
         return result
 
     if timed_out:
+        summary = f"Timed out after {timeout} seconds"
+        if is_expected_blocking_example(output):
+            result = ExampleResult(
+                example=relative,
+                status="passed",
+                category="expected_blocking",
+                returncode=0,
+                duration_secs=duration,
+                summary="server started and blocked as expected",
+                log_path=str(log_path.relative_to(ROOT)),
+            )
+            print(f"[passed] {relative} category=expected_blocking duration={duration:.2f}s", flush=True)
+            return result
         result = ExampleResult(
             example=relative,
             status="failed",
             category="timeout",
             returncode=proc.returncode,
             duration_secs=duration,
-            summary=f"Timed out after {timeout} seconds",
+            summary=summary,
             log_path=str(log_path.relative_to(ROOT)),
         )
         print(f"[failed] {relative} category=timeout duration={duration:.2f}s", flush=True)
@@ -260,25 +429,56 @@ def main() -> int:
         help="Relative path under python/example_local. Repeatable.",
     )
     parser.add_argument(
+        "--prefix",
+        action="append",
+        dest="prefixes",
+        help="Restrict selected preset targets to relative path prefixes under python/example_local.",
+    )
+    parser.add_argument(
+        "--skip-marker",
+        action="append",
+        dest="skip_markers",
+        help="Skip examples whose relative path contains this marker. Repeatable.",
+    )
+    parser.add_argument(
+        "--skip-content-marker",
+        action="append",
+        dest="skip_content_markers",
+        help="Skip examples whose source contains this marker. Repeatable.",
+    )
+    parser.add_argument(
         "--preset",
-        choices=("core", "expanded"),
+        choices=("core", "expanded", "all"),
         default="core",
         help="Example selection preset when --example is not provided.",
+    )
+    parser.add_argument(
+        "--build-cli",
+        action="store_true",
+        help="Build the Rust CLI before running examples and expose it via MCPSTORE_RUST_BIN.",
     )
     parser.add_argument("--timeout", type=int, default=90, help="Per-example timeout in seconds.")
     args = parser.parse_args()
 
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     wheel = refresh_pyo3_extension()
-    targets = example_targets(args.examples, args.preset)
+    rust_cli = build_rust_cli() if args.build_cli else None
+    targets = example_targets(
+        args.examples,
+        args.preset,
+        args.prefixes,
+        args.skip_markers,
+        args.skip_content_markers,
+    )
 
-    results = [run_example(path, timeout=args.timeout) for path in targets]
+    results = [run_example(path, timeout=args.timeout, rust_cli=rust_cli) for path in targets]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     report_path = REPORT_DIR / f"contract_report_{timestamp}.json"
     payload = {
         "generated_at": timestamp,
         "wheel": str(wheel.relative_to(ROOT)),
         "extension": str(LOCAL_EXTENSION.relative_to(ROOT)),
+        "rust_cli": str(rust_cli.relative_to(ROOT)) if rust_cli is not None else None,
         "python": repo_python(),
         "preset": args.preset,
         "results": [asdict(item) for item in results],
@@ -287,6 +487,8 @@ def main() -> int:
 
     print(f"wheel: {payload['wheel']}")
     print(f"extension: {payload['extension']}")
+    if payload["rust_cli"]:
+        print(f"rust_cli: {payload['rust_cli']}")
     print(f"report: {report_path.relative_to(ROOT)}")
     for item in results:
         print(
