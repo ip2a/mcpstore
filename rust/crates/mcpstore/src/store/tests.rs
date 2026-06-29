@@ -1,4 +1,5 @@
 use super::*;
+use base64::Engine;
 use std::collections::HashMap;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -8,6 +9,12 @@ fn temp_config_path() -> String {
         .join(format!("mcpstore-store-{}.json", uuid::Uuid::new_v4()))
         .to_string_lossy()
         .to_string()
+}
+
+fn write_temp_file(contents: &str) -> String {
+    let path = std::env::temp_dir().join(format!("mcpstore-file-{}.txt", uuid::Uuid::new_v4()));
+    std::fs::write(&path, contents).unwrap();
+    path.to_string_lossy().to_string()
 }
 
 fn stdio_config() -> ServerConfig {
@@ -126,6 +133,22 @@ async fn spawn_openapi_http_fixture() -> String {
                     } else {
                         (
                             serde_json::json!({"error": "bad multipart body"}).to_string(),
+                            "application/json",
+                        )
+                    }
+                } else if first_line.starts_with("POST /forms/file ") {
+                    if request_lower.contains("content-type: multipart/form-data")
+                        && request.contains("name=\"file\"; filename=\"apple.txt\"")
+                        && request_lower.contains("content-type: text/plain")
+                        && request.contains("apple-bytes")
+                    {
+                        (
+                            serde_json::json!({"received": "file"}).to_string(),
+                            "application/json",
+                        )
+                    } else {
+                        (
+                            serde_json::json!({"error": "bad multipart file body"}).to_string(),
                             "application/json",
                         )
                     }
@@ -1301,16 +1324,37 @@ async fn openapi_tools_support_common_request_body_media_types() {
         );
     }
 
-    assert!(store
-        .call_tool(
-            "forms",
-            "submitFile",
-            serde_json::json!({"body": {"file": "ignored"}}),
-        )
-        .await
-        .unwrap_err()
-        .to_string()
-        .contains("multipart binary field"));
+    let file_path = write_temp_file("apple-bytes");
+    for file in [
+        serde_json::json!({
+            "bytes": base64::engine::general_purpose::STANDARD.encode("apple-bytes"),
+            "filename": "apple.txt",
+            "mimeType": "text/plain"
+        }),
+        serde_json::json!({
+            "path": file_path.clone(),
+            "filename": "apple.txt",
+            "mimeType": "text/plain"
+        }),
+    ] {
+        let call_result = store
+            .call_tool(
+                "forms",
+                "submitFile",
+                serde_json::json!({"body": {"file": file}}),
+            )
+            .await
+            .unwrap();
+        assert!(!call_result.is_error);
+        let crate::transport::ContentItem::Text { text, .. } = &call_result.content[0] else {
+            panic!("expected text content");
+        };
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(text).unwrap()["received"],
+            serde_json::json!("file")
+        );
+    }
+    std::fs::remove_file(file_path).ok();
 }
 
 #[tokio::test]
