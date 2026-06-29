@@ -225,13 +225,16 @@ async fn execute_component(
             "path" => {
                 path = path.replace(
                     &format!("{{{name}}}"),
-                    &percent_encode(&argument_as_string(value)),
+                    &serialize_path_parameter(parameter, value)?,
                 );
             }
             "header" => {
-                request_headers.insert(name.to_string(), argument_as_string(value));
+                request_headers.insert(
+                    name.to_string(),
+                    serialize_header_parameter(parameter, value)?,
+                );
             }
-            "query" => query.push((name.to_string(), argument_as_string(value))),
+            "query" => query.extend(serialize_query_parameter(parameter, name, value)?),
             _ => {}
         }
     }
@@ -582,6 +585,167 @@ fn append_cookie(request_headers: &mut HashMap<String, String>, name: &str, valu
     entry.push_str(name);
     entry.push('=');
     entry.push_str(value);
+}
+
+fn serialize_query_parameter(
+    parameter: &Map<String, Value>,
+    name: &str,
+    value: &Value,
+) -> Result<Vec<(String, String)>> {
+    let style = parameter
+        .get("style")
+        .and_then(Value::as_str)
+        .unwrap_or("form");
+    let explode = parameter
+        .get("explode")
+        .and_then(Value::as_bool)
+        .unwrap_or(style == "form");
+
+    match style {
+        "form" => Ok(serialize_form_parameter(name, value, explode)),
+        "spaceDelimited" => Ok(vec![(
+            name.to_string(),
+            serialize_array_or_scalar(value, " ", true),
+        )]),
+        "pipeDelimited" => Ok(vec![(
+            name.to_string(),
+            serialize_array_or_scalar(value, "|", true),
+        )]),
+        "deepObject" => Err(StoreError::Other(format!(
+            "Unsupported OpenAPI query parameter style for {name}: deepObject"
+        ))),
+        other => Err(StoreError::Other(format!(
+            "Unsupported OpenAPI query parameter style for {name}: {other}"
+        ))),
+    }
+}
+
+fn serialize_form_parameter(name: &str, value: &Value, explode: bool) -> Vec<(String, String)> {
+    match value {
+        Value::Array(items) if explode => items
+            .iter()
+            .map(|item| (name.to_string(), argument_as_string(item)))
+            .collect(),
+        Value::Array(items) => vec![(name.to_string(), join_values(items.iter(), ","))],
+        Value::Object(object) if explode => object
+            .iter()
+            .map(|(key, value)| (key.clone(), argument_as_string(value)))
+            .collect(),
+        Value::Object(object) => vec![(name.to_string(), join_object(object, ",", false))],
+        _ => vec![(name.to_string(), argument_as_string(value))],
+    }
+}
+
+fn serialize_path_parameter(parameter: &Map<String, Value>, value: &Value) -> Result<String> {
+    let name = parameter
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("parameter");
+    let style = parameter
+        .get("style")
+        .and_then(Value::as_str)
+        .unwrap_or("simple");
+    let explode = parameter
+        .get("explode")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    match style {
+        "simple" => Ok(serialize_simple_path_parameter(value, explode)),
+        other => Err(StoreError::Other(format!(
+            "Unsupported OpenAPI path parameter style for {name}: {other}"
+        ))),
+    }
+}
+
+fn serialize_header_parameter(parameter: &Map<String, Value>, value: &Value) -> Result<String> {
+    let name = parameter
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("parameter");
+    let style = parameter
+        .get("style")
+        .and_then(Value::as_str)
+        .unwrap_or("simple");
+    let explode = parameter
+        .get("explode")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    match style {
+        "simple" => Ok(serialize_simple_parameter(value, explode)),
+        other => Err(StoreError::Other(format!(
+            "Unsupported OpenAPI header parameter style for {name}: {other}"
+        ))),
+    }
+}
+
+fn serialize_simple_parameter(value: &Value, explode: bool) -> String {
+    match value {
+        Value::Array(items) => join_values(items.iter(), ","),
+        Value::Object(object) => join_object(object, ",", explode),
+        _ => argument_as_string(value),
+    }
+}
+
+fn serialize_simple_path_parameter(value: &Value, explode: bool) -> String {
+    match value {
+        Value::Array(items) => join_encoded_values(items.iter(), ","),
+        Value::Object(object) => join_encoded_object(object, ",", explode),
+        _ => percent_encode(&argument_as_string(value)),
+    }
+}
+
+fn serialize_array_or_scalar(value: &Value, separator: &str, scalar_passthrough: bool) -> String {
+    match value {
+        Value::Array(items) => join_values(items.iter(), separator),
+        _ if scalar_passthrough => argument_as_string(value),
+        _ => String::new(),
+    }
+}
+
+fn join_values<'a>(items: impl Iterator<Item = &'a Value>, separator: &str) -> String {
+    items
+        .map(argument_as_string)
+        .collect::<Vec<_>>()
+        .join(separator)
+}
+
+fn join_object(object: &Map<String, Value>, separator: &str, explode: bool) -> String {
+    object
+        .iter()
+        .flat_map(|(key, value)| {
+            if explode {
+                vec![format!("{key}={}", argument_as_string(value))]
+            } else {
+                vec![key.clone(), argument_as_string(value)]
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(separator)
+}
+
+fn join_encoded_values<'a>(items: impl Iterator<Item = &'a Value>, separator: &str) -> String {
+    items
+        .map(|item| percent_encode(&argument_as_string(item)))
+        .collect::<Vec<_>>()
+        .join(separator)
+}
+
+fn join_encoded_object(object: &Map<String, Value>, separator: &str, explode: bool) -> String {
+    object
+        .iter()
+        .flat_map(|(key, value)| {
+            let key = percent_encode(key);
+            let value = percent_encode(&argument_as_string(value));
+            if explode {
+                vec![format!("{key}={value}")]
+            } else {
+                vec![key, value]
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(separator)
 }
 
 fn build_url(base_url: &str, path: &str) -> Result<String> {
