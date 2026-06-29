@@ -13,7 +13,9 @@ impl CacheLayerManager {
     }
 
     pub(in crate::cache) fn validate_entity_type(entity_type: &str) -> Result<()> {
-        const ENTITY_TYPES: &[&str] = &["agents", "clients", "services", "store", "tools"];
+        const ENTITY_TYPES: &[&str] = &[
+            "agents", "clients", "services", "sessions", "store", "tools",
+        ];
         if ENTITY_TYPES.contains(&entity_type) {
             return Ok(());
         }

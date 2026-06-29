@@ -1,4 +1,5 @@
 use openkeyv::{AsyncEnumerateCollections, AsyncEnumerateKeys, AsyncKeyValue};
+use tokio::sync::Mutex;
 
 use crate::cache::storage::CacheStore;
 use crate::cache::{codec, CacheError, Result};
@@ -18,6 +19,7 @@ where
     T: OpenKeyvStoreApi,
 {
     inner: T,
+    compare_and_put_lock: Mutex<()>,
 }
 
 impl<T> OpenKeyvCacheStore<T>
@@ -25,8 +27,15 @@ where
     T: OpenKeyvStoreApi,
 {
     pub(in crate::cache) fn new(inner: T) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            compare_and_put_lock: Mutex::new(()),
+        }
     }
+}
+
+fn value_version(value: &serde_json::Value) -> Option<u64> {
+    value.get("version").and_then(serde_json::Value::as_u64)
 }
 
 fn map_openkeyv_err(err: openkeyv::Error) -> CacheError {
@@ -39,6 +48,36 @@ where
     T: OpenKeyvStoreApi,
 {
     async fn put(&self, key: &str, value: serde_json::Value, collection: &str) -> Result<()> {
+        self.inner
+            .put(key, codec::value_to_object(value)?, Some(collection), None)
+            .await
+            .map_err(map_openkeyv_err)
+    }
+
+    async fn compare_and_put(
+        &self,
+        key: &str,
+        expected_version: Option<u64>,
+        value: serde_json::Value,
+        collection: &str,
+    ) -> Result<()> {
+        let _guard = self.compare_and_put_lock.lock().await;
+        let current = self
+            .inner
+            .get(key, Some(collection))
+            .await
+            .map(|value| value.map(codec::object_to_value))
+            .map_err(map_openkeyv_err)?;
+        let current_version = current.as_ref().and_then(value_version);
+        let matches_expected = match expected_version {
+            Some(expected) => current_version == Some(expected),
+            None => current.is_none(),
+        };
+        if !matches_expected {
+            return Err(CacheError::Conflict(format!(
+                "collection={collection}, key={key}, expected_version={expected_version:?}, current_version={current_version:?}"
+            )));
+        }
         self.inner
             .put(key, codec::value_to_object(value)?, Some(collection), None)
             .await
@@ -152,6 +191,55 @@ mod tests {
         store.delete("svc", "services").await.unwrap();
 
         assert_eq!(store.get("svc", "services").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn openkeyv_memory_adapter_compare_and_put_rejects_stale_version() {
+        let store = OpenKeyvCacheStore::new(OpenKeyvMemoryStore::new());
+        store
+            .compare_and_put(
+                "s1",
+                None,
+                serde_json::json!({"session_key": "s1", "version": 1}),
+                "sessions",
+            )
+            .await
+            .unwrap();
+
+        let err = store
+            .compare_and_put(
+                "s1",
+                Some(0),
+                serde_json::json!({"session_key": "s1", "version": 2}),
+                "sessions",
+            )
+            .await;
+
+        assert!(matches!(err, Err(CacheError::Conflict(_))));
+        assert_eq!(
+            store.get("s1", "sessions").await.unwrap(),
+            Some(serde_json::json!({"session_key": "s1", "version": 1}))
+        );
+    }
+
+    #[tokio::test]
+    async fn openkeyv_memory_adapter_compare_and_put_rejects_duplicate_create() {
+        let store = OpenKeyvCacheStore::new(OpenKeyvMemoryStore::new());
+        store
+            .put("s1", serde_json::json!({"session_key": "s1"}), "sessions")
+            .await
+            .unwrap();
+
+        let err = store
+            .compare_and_put(
+                "s1",
+                None,
+                serde_json::json!({"session_key": "s1", "version": 1}),
+                "sessions",
+            )
+            .await;
+
+        assert!(matches!(err, Err(CacheError::Conflict(_))));
     }
 
     #[tokio::test]

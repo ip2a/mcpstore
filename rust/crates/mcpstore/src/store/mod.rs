@@ -17,15 +17,20 @@ pub(crate) use crate::perspective::{
 };
 pub(crate) use crate::{Result, StoreError};
 
+mod openapi;
 mod options;
 pub(crate) mod payload;
 mod runtime;
+mod tool_changes;
 use runtime::StoreRuntimeConfig;
 
 pub use crate::agent::models::{ScopedServiceEntry, ScopedServiceHealth, ScopedToolEntry};
 pub use crate::cache::models::CacheHealthReport;
 pub use crate::events::EventCapabilityReport;
+pub use crate::openapi::{OpenApiImportOptions, OpenApiImportResult};
+pub use openapi::{OpenApiImportInput, OpenApiImportSource};
 pub use options::{BackendKind, CacheStorage, SourceMode, StoreOptions};
+pub use tool_changes::{ToolChangeServiceResult, ToolChangeSummary};
 
 pub(crate) const CONTROL_REQUEST_EVENT_TYPE: &str = "control_requests";
 pub(crate) static CONTROL_EVENT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -38,8 +43,9 @@ pub(crate) mod prelude {
         ConnectionStatus, Event, HealthStatus, MCPStore, Result, ScopedServiceEntry,
         ScopedServiceHealth, ScopedToolEntry, ServerConfig, ServiceEntity, ServiceEntry,
         ServiceRelationItem, ServiceStatus, ServiceToolRelation, SourceMode, StoreError,
-        ToolAvailability, ToolDescription, ToolEntity, ToolRelationItem, ToolResolution,
-        ToolStatusItem, CONTROL_EVENT_SEQUENCE, CONTROL_REQUEST_EVENT_TYPE, GLOBAL_AGENT_STORE,
+        ToolAvailability, ToolChangeServiceResult, ToolChangeSummary, ToolDescription, ToolEntity,
+        ToolRelationItem, ToolResolution, ToolStatusItem, CONTROL_EVENT_SEQUENCE,
+        CONTROL_REQUEST_EVENT_TYPE, GLOBAL_AGENT_STORE,
     };
 }
 

@@ -18,6 +18,26 @@ impl CacheLayerManager {
         self.store.read().await.put(key, value, &collection).await
     }
 
+    pub async fn compare_and_put_event(
+        &self,
+        event_type: &str,
+        key: &str,
+        expected_version: Option<u64>,
+        value: serde_json::Value,
+    ) -> Result<()> {
+        if !value.is_object() {
+            return Err(CacheError::NotAnObject(format!(
+                "event_type={event_type}, key={key}"
+            )));
+        }
+        let collection = self.event_collection(event_type);
+        self.store
+            .read()
+            .await
+            .compare_and_put(key, expected_version, value, &collection)
+            .await
+    }
+
     pub async fn get_event(
         &self,
         event_type: &str,

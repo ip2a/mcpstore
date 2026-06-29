@@ -6,10 +6,21 @@ impl MCPStore {
         if self.registry.find_service(service_name).await.is_none() {
             return Err(StoreError::ServiceNotFound(service_name.to_string()));
         }
+        if self.is_openapi_virtual_service(service_name).await? {
+            self.connect_service_internal(service_name, true).await?;
+            return Ok(());
+        }
         if !self.pool.is_connected(service_name).await {
             self.connect_service_internal(service_name, true).await?;
         }
         Ok(())
+    }
+
+    pub(crate) async fn is_openapi_virtual_service(&self, service_name: &str) -> Result<bool> {
+        let Some(service) = self.registry.find_service(service_name).await else {
+            return Ok(false);
+        };
+        Ok(service.transport == "openapi")
     }
 
     pub async fn list_services(&self) -> Vec<ServiceEntry> {
@@ -108,8 +119,12 @@ impl MCPStore {
             };
             for tool in service.tools {
                 let global_tool_name = generate_tool_global_name(&service.name, &tool.name)?;
+                let fallback_name = format!("{}_{}", local_service_name, tool.name);
+                let display_name = self
+                    .transformed_available_tool(&service.name, &tool.name, fallback_name)
+                    .await?;
                 available.push(AvailableTool {
-                    name: format!("{}_{}", local_service_name, tool.name),
+                    name: display_name,
                     original_name: Some(tool.name),
                     service_name: Some(local_service_name.clone()),
                     global_service_name: Some(service.name.clone()),

@@ -33,7 +33,7 @@ impl MCPStore {
         Ok(())
     }
 
-    pub(in crate::cache) async fn upsert_agent_service_relation(
+    pub(crate) async fn upsert_agent_service_relation(
         &self,
         agent_id: &str,
         service_name: &str,

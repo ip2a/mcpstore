@@ -79,6 +79,9 @@ class RustRecordView(dict):
     def __hash__(self) -> int:
         return hash(_freeze_record_value(dict(self)))
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {key: _plain_record_value(value) for key, value in self.items()}
+
     def _config_field_value(self, name: str) -> Any:
         config_key = self._CONFIG_FIELD_ALIASES.get(name)
         if not config_key or not super().__contains__("config"):
@@ -109,6 +112,14 @@ def _freeze_record_value(value: Any) -> Any:
         return tuple(_freeze_record_value(item) for item in value)
     if isinstance(value, set):
         return tuple(sorted(_freeze_record_value(item) for item in value))
+    return value
+
+
+def _plain_record_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _plain_record_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_plain_record_value(item) for item in value]
     return value
 
 
@@ -657,6 +668,71 @@ class RustStoreBackend:
             raise ValueError(f"Rust core 当前不支持工具过滤器: {filter}")
         return _record_value(self._inner.list_tools_scoped(agent_id, service_name))
 
+    def list_changed_tools_scoped(
+        self,
+        agent_id: Optional[str] = None,
+        service_name: Optional[str] = None,
+        *,
+        force_refresh: bool = False,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._inner.list_changed_tools_scoped(
+                agent_id,
+                service_name,
+                force_refresh=bool(force_refresh),
+            )
+        )
+
+    def import_openapi_service(
+        self,
+        name: str,
+        spec_url: str,
+        *,
+        headers: Optional[Dict[str, str]] = None,
+        auth: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._inner.import_openapi_service(
+                name,
+                spec_url,
+                self._openapi_import_options(headers, auth),
+            )
+        )
+
+    def import_openapi_service_from_spec(
+        self,
+        name: str,
+        spec_url: str,
+        spec: Dict[str, Any],
+        *,
+        headers: Optional[Dict[str, str]] = None,
+        auth: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._inner.import_openapi_service_from_spec(
+                name,
+                spec_url,
+                self._normalize_config_dict(spec, "OpenAPI spec"),
+                self._openapi_import_options(headers, auth),
+            )
+        )
+
+    def _openapi_import_options(
+        self,
+        headers: Optional[Dict[str, str]],
+        auth: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        return {
+            "headers": dict(headers or {}),
+            "auth": dict(auth or {}),
+        }
+
+    def get_openapi_import(self, name: str) -> Optional[Dict[str, Any]]:
+        return _record_value(self._inner.get_openapi_import(name))
+
+    def list_openapi_imports(self) -> List[Dict[str, Any]]:
+        return _record_value(self._inner.list_openapi_imports())
+
     def call_tool(
         self,
         service_name: str,
@@ -676,6 +752,30 @@ class RustStoreBackend:
 
     def resolve_tool_for_agent(self, agent_id: str, user_input: str) -> Dict[str, Any]:
         return _record_value(self._inner.resolve_tool_for_agent(agent_id, user_input))
+
+    def set_tool_transform(
+        self,
+        service_name: str,
+        tool_name: str,
+        transform: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._inner.set_tool_transform(
+                service_name,
+                tool_name,
+                self._normalize_config_dict(transform, "Tool transform"),
+            )
+        )
+
+    def get_tool_transform(self, service_name: str, tool_name: str) -> Optional[Dict[str, Any]]:
+        return _record_value(self._inner.get_tool_transform(service_name, tool_name))
+
+    def list_tool_transforms(self) -> List[Dict[str, Any]]:
+        return _record_value(self._inner.list_tool_transforms())
+
+    def delete_tool_transform(self, service_name: str, tool_name: str) -> bool:
+        self._inner.delete_tool_transform(service_name, tool_name)
+        return True
 
     def resolve_service_name_for_agent(self, agent_id: str, service_name: str) -> str:
         return self._inner.resolve_service_name_for_agent(agent_id, service_name)
@@ -716,11 +816,12 @@ class RustStoreBackend:
         *,
         include_sessions: bool = False,
     ) -> Dict[str, Any]:
-        if include_sessions:
-            raise NotImplementedError("Rust core does not expose serializable session state")
         path = filepath
         path = os.fspath(path) if path is not None else None
         config = self.get_json_config()
+        if include_sessions:
+            config = dict(config)
+            config["sessions"] = _record_value(self._inner.export_sessions_snapshot())
         if path:
             with open(path, "w", encoding="utf-8") as file:
                 json.dump(config, file, ensure_ascii=False, indent=2)
@@ -741,6 +842,9 @@ class RustStoreBackend:
         with open(path, "r", encoding="utf-8") as file:
             config = json.load(file)
         self.add_service(config)
+        sessions = config.get("sessions")
+        if sessions is not None:
+            self._inner.import_sessions_snapshot(sessions)
         return True
 
     async def cleanup(self) -> bool:
@@ -761,17 +865,14 @@ class RustStoreBackend:
         return True
 
     def switch_cache(self, cache_config: Any) -> bool:
-        rust_mod = importlib.import_module("mcpstore._rust")
         backend, redis_url, namespace = self._cache_options(cache_config)
-        self._inner = rust_mod.MCPStore.setup_with_options(
-            self._config_path,
-            "db" if self._only_db else "local",
-            backend,
-            redis_url,
-            namespace,
-        )
+        if backend is None:
+            backend = "memory"
+        self._inner.switch_cache_storage(backend, redis_url, namespace)
         self._cache_config = cache_config
-        self.load_from_config()
+        self._sessions.clear()
+        self._active_sessions.clear()
+        self._auto_sessions.clear()
         return True
 
     def wait_service_ready(self, name: str, timeout: float = 10.0) -> Dict[str, Any]:
@@ -885,17 +986,49 @@ class RustStoreBackend:
     def session_key(self, agent_id: Optional[str]) -> str:
         return agent_id or "global_agent_store"
 
+    @staticmethod
+    def _session_scope(context: "RustStoreContext") -> str:
+        return "agent" if context.agent_id else "store"
+
+    @staticmethod
+    def _session_agent_id(context: "RustStoreContext") -> Optional[str]:
+        return context.agent_id
+
+    def _wrap_session(
+        self,
+        context: "RustStoreContext",
+        entity: Dict[str, Any],
+    ) -> "RustSession":
+        session_id = str(entity["session_id"])
+        key = (context.get_id(), session_id)
+        session = self._sessions.get(key)
+        if session is None:
+            session = RustSession(context, entity)
+            self._sessions[key] = session
+        else:
+            session._refresh_entity(entity)
+        return session
+
     def get_session(
         self,
         context: "RustStoreContext",
         session_id: str,
+        *,
+        lease_seconds: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> "RustSession":
-        key = (context.get_id(), session_id)
-        session = self._sessions.get(key)
-        if session is None or not session.is_active:
-            session = RustSession(context, session_id)
-            self._sessions[key] = session
-        return session
+        scope = self._session_scope(context)
+        agent_id = self._session_agent_id(context)
+        entity = self._inner.find_session(session_id, scope, agent_id)
+        if entity is None:
+            entity = self._inner.create_session(
+                session_id,
+                scope,
+                agent_id,
+                lease_seconds,
+                metadata or {},
+            )
+        return self._wrap_session(context, _record_value(entity))
 
     def find_session(
         self,
@@ -905,10 +1038,198 @@ class RustStoreBackend:
         context_id = context.get_id()
         if session_id is None:
             return self._auto_sessions.get(context_id) or self._active_sessions.get(context_id)
-        session = self._sessions.get((context_id, session_id))
-        if session is not None and session.is_active:
-            return session
-        return None
+        entity = self._inner.find_session(
+            session_id,
+            self._session_scope(context),
+            self._session_agent_id(context),
+        )
+        if entity is None:
+            return None
+        return self._wrap_session(context, _record_value(entity))
+
+    def find_session_by_user_session_id(
+        self,
+        context: "RustStoreContext",
+        user_session_id: str,
+    ) -> Optional["RustSession"]:
+        entity = self._inner.find_session_by_user_session_id(user_session_id)
+        if entity is None:
+            return None
+        return self._wrap_session(context, _record_value(entity))
+
+    def update_session_metadata(
+        self,
+        session: "RustSession",
+        metadata: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        entity = self._inner.update_session_metadata(
+            session.session_key,
+            self._normalize_config_dict(metadata, "Session metadata"),
+        )
+        session._refresh_entity(_record_value(entity))
+        return _record_value(entity)
+
+    def list_sessions(self, context: "RustStoreContext") -> List["RustSession"]:
+        sessions = self._inner.list_sessions(
+            self._session_scope(context),
+            self._session_agent_id(context),
+        )
+        return [self._wrap_session(context, _record_value(entity)) for entity in sessions]
+
+    def get_session_status(self, session: "RustSession") -> Dict[str, Any]:
+        status = self._inner.get_session_status(session.session_key)
+        return _record_value(status or {})
+
+    def get_session_entity(self, session: "RustSession") -> Dict[str, Any]:
+        entity = self._inner.get_session(session.session_key)
+        if entity:
+            session._refresh_entity(_record_value(entity))
+        return _record_value(entity or {})
+
+    def extend_session(self, session: "RustSession", seconds: int) -> Dict[str, Any]:
+        entity = self._inner.extend_session(session.session_key, int(seconds))
+        session._refresh_entity(_record_value(entity))
+        return _record_value(entity)
+
+    def extend_session_with_retry(
+        self,
+        session: "RustSession",
+        seconds: int,
+        *,
+        max_attempts: int = 3,
+        delay_millis: int = 0,
+    ) -> Dict[str, Any]:
+        entity = self._inner.extend_session_with_retry(
+            session.session_key,
+            int(seconds),
+            int(max_attempts),
+            int(delay_millis),
+        )
+        session._refresh_entity(_record_value(entity))
+        return _record_value(entity)
+
+    def close_session(self, session: "RustSession", reason: Optional[str] = None) -> Dict[str, Any]:
+        status = self._inner.close_session(session.session_key, reason)
+        context_id = session._context.get_id()
+        if self._active_sessions.get(context_id) is session:
+            self._active_sessions.pop(context_id, None)
+        if self._auto_sessions.get(context_id) is session:
+            self._auto_sessions.pop(context_id, None)
+        return _record_value(status)
+
+    def bind_service_to_session(self, session: "RustSession", service_name: str) -> Dict[str, Any]:
+        relation = self._inner.bind_service_to_session(session.session_key, service_name)
+        return _record_value(relation)
+
+    def bind_service_to_session_with_retry(
+        self,
+        session: "RustSession",
+        service_name: str,
+        *,
+        max_attempts: int = 3,
+        delay_millis: int = 0,
+    ) -> Dict[str, Any]:
+        relation = self._inner.bind_service_to_session_with_retry(
+            session.session_key,
+            service_name,
+            int(max_attempts),
+            int(delay_millis),
+        )
+        return _record_value(relation)
+
+    def unbind_service_from_session(self, session: "RustSession", service_name: str) -> Dict[str, Any]:
+        relation = self._inner.unbind_service_from_session(session.session_key, service_name)
+        return _record_value(relation)
+
+    def unbind_service_from_session_with_retry(
+        self,
+        session: "RustSession",
+        service_name: str,
+        *,
+        max_attempts: int = 3,
+        delay_millis: int = 0,
+    ) -> Dict[str, Any]:
+        relation = self._inner.unbind_service_from_session_with_retry(
+            session.session_key,
+            service_name,
+            int(max_attempts),
+            int(delay_millis),
+        )
+        return _record_value(relation)
+
+    def list_session_services(self, session: "RustSession") -> List[Dict[str, Any]]:
+        return _record_value(self._inner.list_session_services(session.session_key))
+
+    def list_tools_in_session(self, session: "RustSession") -> List[Dict[str, Any]]:
+        return _record_value(self._inner.list_tools_in_session(session.session_key))
+
+    def get_session_state_value(self, session: "RustSession", key: str) -> Any:
+        return _record_value(self._inner.get_session_state_value(session.session_key, key))
+
+    def list_session_state(self, session: "RustSession") -> Dict[str, Any]:
+        return _record_value(self._inner.list_session_state(session.session_key))
+
+    def set_session_state(self, session: "RustSession", key: str, value: Any) -> Dict[str, Any]:
+        return _record_value(self._inner.set_session_state(session.session_key, key, value))
+
+    def set_session_state_with_retry(
+        self,
+        session: "RustSession",
+        key: str,
+        value: Any,
+        *,
+        max_attempts: int = 3,
+        delay_millis: int = 0,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._inner.set_session_state_with_retry(
+                session.session_key,
+                key,
+                value,
+                int(max_attempts),
+                int(delay_millis),
+            )
+        )
+
+    def delete_session_state(self, session: "RustSession", key: str) -> Dict[str, Any]:
+        return _record_value(self._inner.delete_session_state(session.session_key, key))
+
+    def delete_session_state_with_retry(
+        self,
+        session: "RustSession",
+        key: str,
+        *,
+        max_attempts: int = 3,
+        delay_millis: int = 0,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._inner.delete_session_state_with_retry(
+                session.session_key,
+                key,
+                int(max_attempts),
+                int(delay_millis),
+            )
+        )
+
+    def clear_session_state(self, session: "RustSession") -> Dict[str, Any]:
+        return _record_value(self._inner.clear_session_state(session.session_key))
+
+    def call_tool_in_session(
+        self,
+        session: "RustSession",
+        tool_name: str,
+        args: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        try:
+            return _tool_result_value(
+                self._inner.call_tool_in_session(
+                    session.session_key,
+                    tool_name,
+                    self._normalize_optional_dict(args, "Tool arguments"),
+                )
+            )
+        except Exception as error:
+            return _tool_error_result(session.session_key, tool_name, args or {}, error)
 
     def set_active_session(
         self,
@@ -1102,6 +1423,9 @@ class RustServiceProxy:
     def delete_service(self) -> bool:
         return self._context.delete_service(self._service_name)
 
+    def remove_service(self) -> bool:
+        return self.delete_service()
+
 
 class RustToolProxy:
     def __init__(
@@ -1244,6 +1568,37 @@ class RustToolProxy:
         )
         return self
 
+    def transform(
+        self,
+        *,
+        display_name: Optional[str] = None,
+        description: Optional[str] = None,
+        arguments: Optional[List[Dict[str, Any]]] = None,
+        tags: Optional[List[str]] = None,
+        enabled: bool = True,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        _reject_unsupported_kwargs("RustToolProxy.transform", kwargs)
+        info = self.tool_info()
+        service_name = (
+            self._service_name
+            or info.get("service_name")
+            or info.get("global_service_name")
+            or info.get("service_global_name")
+        )
+        if not service_name:
+            raise ValueError("Tool transform requires a service_name")
+        tool_name = info.get("original_name") or info.get("tool_original_name") or self._tool_name
+        return self._context.set_tool_transform(
+            str(service_name),
+            str(tool_name),
+            display_name=display_name,
+            description=description,
+            arguments=arguments,
+            tags=tags,
+            enabled=enabled,
+        )
+
     def call_tool(
         self,
         args: Optional[Dict[str, Any]] = None,
@@ -1255,12 +1610,7 @@ class RustToolProxy:
         if self._service_name:
             info = self.tool_info()
             service_name = self._context._resolve_service_name(self._service_name)
-            tool_name = (
-                info.get("original_name")
-                or info.get("tool_original_name")
-                or info.get("name")
-                or self._tool_name
-            )
+            tool_name = info.get("name") or self._tool_name
             result = self._context._backend.call_tool(service_name, tool_name, args)
         else:
             result = self._context.call_tool(self._tool_name, args)
@@ -1269,6 +1619,14 @@ class RustToolProxy:
         return _extract_text_result(result)
 
     async def call_tool_async(
+        self,
+        args: Optional[Dict[str, Any]] = None,
+        *,
+        return_extracted: bool = False,
+    ) -> Any:
+        return self.call_tool(args, return_extracted=return_extracted)
+
+    def test_call(
         self,
         args: Optional[Dict[str, Any]] = None,
         *,
@@ -1465,30 +1823,47 @@ class RustRegistryFacade:
 
 
 class RustSession:
-    def __init__(self, context: "RustStoreContext", session_id: str):
+    def __init__(self, context: "RustStoreContext", entity: Dict[str, Any]):
         self._context = context
-        self._session_id = session_id
-        self._is_active = True
-        self._bound_services: List[str] = []
+        self._entity: Dict[str, Any] = {}
+        self._refresh_entity(entity)
+
+    def _refresh_entity(self, entity: Dict[str, Any]) -> None:
+        self._entity = _record_value(entity)
 
     @property
     def session_id(self) -> str:
-        return self._session_id
+        return str(self._entity["session_id"])
+
+    @property
+    def session_key(self) -> str:
+        return str(self._entity["session_key"])
+
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        self._context._backend.get_session_entity(self)
+        return _record_value(self._entity.get("metadata") or {})
+
+    @property
+    def status(self) -> str:
+        return str(self._context._backend.get_session_status(self).get("status") or "active")
 
     @property
     def is_active(self) -> bool:
-        return self._is_active
+        return self.status == "active"
+
+    def _bound_services(self) -> List[Dict[str, Any]]:
+        return self._context._backend.list_session_services(self)
 
     @property
     def service_count(self) -> int:
-        return len(self._bound_services) if self._bound_services else len(self.list_services())
+        return len(self.list_services())
 
     @property
     def tool_count(self) -> int:
         return len(self.list_tools())
 
     def __enter__(self) -> "RustSession":
-        self._is_active = True
         self._context._backend.set_active_session(self._context, self)
         return self
 
@@ -1503,32 +1878,75 @@ class RustSession:
 
     def bind_service(self, service_name: str) -> "RustSession":
         resolved = self._context._resolve_service_name(service_name)
-        if resolved not in self._bound_services:
-            self._bound_services.append(resolved)
+        self._context._backend.bind_service_to_session(self, resolved)
+        return self
+
+    def bind_service_with_retry(
+        self,
+        service_name: str,
+        *,
+        max_attempts: int = 3,
+        delay_millis: int = 0,
+    ) -> "RustSession":
+        resolved = self._context._resolve_service_name(service_name)
+        self._context._backend.bind_service_to_session_with_retry(
+            self,
+            resolved,
+            max_attempts=max_attempts,
+            delay_millis=delay_millis,
+        )
+        return self
+
+    def unbind_service(self, service_name: str) -> "RustSession":
+        resolved = self._context._resolve_service_name(service_name)
+        self._context._backend.unbind_service_from_session(self, resolved)
+        return self
+
+    def unbind_service_with_retry(
+        self,
+        service_name: str,
+        *,
+        max_attempts: int = 3,
+        delay_millis: int = 0,
+    ) -> "RustSession":
+        resolved = self._context._resolve_service_name(service_name)
+        self._context._backend.unbind_service_from_session_with_retry(
+            self,
+            resolved,
+            max_attempts=max_attempts,
+            delay_millis=delay_millis,
+        )
         return self
 
     async def bind_service_async(self, service_name: str) -> "RustSession":
         return self.bind_service(service_name)
 
+    async def unbind_service_async(self, service_name: str) -> "RustSession":
+        return self.unbind_service(service_name)
+
     def list_services(self) -> List[Dict[str, Any]]:
-        if not self._bound_services:
+        bindings = self._bound_services()
+        if not bindings:
             return self._context.list_services()
         services = []
-        for name in self._bound_services:
-            info = self._context.get_service_info(name)
+        for binding in bindings:
+            name = binding.get("service_global_name") or binding.get("service_original_name")
+            info = self._context.get_service_info(str(name)) if name else None
             if info:
                 services.append(info)
         return _record_value(services)
 
     def list_tools(self, service_name: Optional[str] = None) -> List[Dict[str, Any]]:
         if service_name is not None:
-            return self._context._list_tools_direct(service_name=service_name)
-        if not self._bound_services:
-            return self._context._list_tools_direct()
-        tools: List[Dict[str, Any]] = []
-        for name in self._bound_services:
-            tools.extend(self._context._list_tools_direct(service_name=name))
-        return _record_value(tools)
+            resolved = self._context._resolve_service_name(service_name)
+            return [
+                tool
+                for tool in self._context._backend.list_tools_in_session(self)
+                if tool.get("service_name") == resolved
+                or tool.get("global_service_name") == resolved
+                or tool.get("service_global_name") == resolved
+            ]
+        return _record_value(self._context._backend.list_tools_in_session(self))
 
     def use_tool(
         self,
@@ -1539,7 +1957,7 @@ class RustSession:
         **kwargs,
     ) -> Any:
         _reject_unsupported_kwargs("RustSession.use_tool", kwargs)
-        result = self._context.call_tool(tool_name, arguments)
+        result = self._context._backend.call_tool_in_session(self, tool_name, arguments)
         if not return_extracted:
             return result
         content = result.get("content", []) if isinstance(result, dict) else []
@@ -1566,43 +1984,117 @@ class RustSession:
         )
 
     def session_info(self) -> Dict[str, Any]:
+        self._context._backend.get_session_entity(self)
+        status = self._context._backend.get_session_status(self)
+        services = self._bound_services()
         return _record_value(
             {
-                "session_id": self._session_id,
-                "is_active": self._is_active,
+                **dict(self._entity),
+                "status": status.get("status"),
+                "is_active": status.get("status") == "active",
                 "agent_id": self._context.agent_id,
-                "services": list(self._bound_services),
+                "services": services,
                 "service_count": self.service_count,
                 "tool_count": self.tool_count,
             }
         )
 
     def connection_status(self) -> Dict[str, Any]:
+        services = self._bound_services()
         return _record_value(
             {
-                "session_id": self._session_id,
-                "is_active": self._is_active,
+                "session_id": self.session_id,
+                "session_key": self.session_key,
+                "is_active": self.is_active,
                 "services": {
-                    service: "bound"
-                    for service in self._bound_services
+                    service.get("service_global_name"): "bound"
+                    for service in services
                 },
             }
         )
 
+    def set_state(self, key: str, value: Any) -> "RustSession":
+        self._context._backend.set_session_state(self, key, value)
+        return self
+
+    def set_state_with_retry(
+        self,
+        key: str,
+        value: Any,
+        *,
+        max_attempts: int = 3,
+        delay_millis: int = 0,
+    ) -> "RustSession":
+        self._context._backend.set_session_state_with_retry(
+            self,
+            key,
+            value,
+            max_attempts=max_attempts,
+            delay_millis=delay_millis,
+        )
+        return self
+
+    def get_state(self, key: str, default: Any = None) -> Any:
+        value = self._context._backend.get_session_state_value(self, key)
+        return default if value is None else value
+
+    def list_state(self) -> Dict[str, Any]:
+        return self._context._backend.list_session_state(self)
+
+    def state_values(self) -> Dict[str, Any]:
+        return _record_value(self.list_state().get("values") or {})
+
+    def delete_state(self, key: str) -> "RustSession":
+        self._context._backend.delete_session_state(self, key)
+        return self
+
+    def delete_state_with_retry(
+        self,
+        key: str,
+        *,
+        max_attempts: int = 3,
+        delay_millis: int = 0,
+    ) -> "RustSession":
+        self._context._backend.delete_session_state_with_retry(
+            self,
+            key,
+            max_attempts=max_attempts,
+            delay_millis=delay_millis,
+        )
+        return self
+
     def restart_session(self) -> "RustSession":
-        for service_name in list(self._bound_services):
-            self._context.restart_service(service_name)
+        for service in self._bound_services():
+            service_name = service.get("service_global_name")
+            if service_name:
+                self._context.restart_service(str(service_name))
         return self
 
     def extend_session(self, seconds: int = 3600) -> "RustSession":
-        raise NotImplementedError("Rust core does not expose session lease extension")
+        self._context._backend.extend_session(self, seconds)
+        return self
+
+    def extend_session_with_retry(
+        self,
+        seconds: int = 3600,
+        *,
+        max_attempts: int = 3,
+        delay_millis: int = 0,
+    ) -> "RustSession":
+        self._context._backend.extend_session_with_retry(
+            self,
+            seconds,
+            max_attempts=max_attempts,
+            delay_millis=delay_millis,
+        )
+        return self
 
     def clear_cache(self) -> bool:
-        raise NotImplementedError("Rust core does not expose session-scoped cache clearing")
+        self._context._backend.clear_session_state(self)
+        return True
 
     def close_session(self) -> bool:
-        self._is_active = False
-        self._context._backend.set_active_session(self._context, None)
+        self._context._backend.close_session(self)
         return True
 
 
@@ -1673,7 +2165,7 @@ class RustStoreContext:
 
     def list_tools(self, service_name: Optional[str] = None, *, filter: str = "available") -> List[Dict[str, Any]]:
         active = self.active_session
-        if service_name is None and active is not None and active._bound_services:
+        if service_name is None and active is not None:
             return active.list_tools()
         return self._list_tools_direct(service_name, filter=filter)
 
@@ -1826,8 +2318,20 @@ class RustStoreContext:
     def create_session(
         self,
         session_id: str,
+        *,
+        lease_seconds: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> RustSession:
-        return self._backend.get_session(self, session_id)
+        normalized_metadata = self._backend._normalize_optional_dict(
+            metadata,
+            "Session metadata",
+        )
+        return self._backend.get_session(
+            self,
+            session_id,
+            lease_seconds=lease_seconds,
+            metadata=normalized_metadata,
+        )
 
     def find_session(
         self,
@@ -1835,16 +2339,23 @@ class RustStoreContext:
     ) -> Optional[RustSession]:
         return self._backend.find_session(self, session_id)
 
+    def find_user_session(self, user_session_id: str) -> Optional[RustSession]:
+        return self._backend.find_session_by_user_session_id(self, user_session_id)
+
+    def register_session_globally(self, session_id: str, global_id: str) -> bool:
+        session = self.find_session(session_id)
+        if session is None:
+            return False
+        metadata = dict(session.metadata)
+        metadata["user_session_id"] = global_id
+        self._backend.update_session_metadata(session, metadata)
+        return True
+
     def get_session(self, session_id: str) -> RustSession:
         return self.create_session(session_id)
 
     def list_sessions(self) -> List[RustSession]:
-        context_id = self.get_id()
-        return [
-            session
-            for (cached_context_id, _), session in self._backend._sessions.items()
-            if cached_context_id == context_id and session.is_active
-        ]
+        return self._backend.list_sessions(self)
 
     def with_session(self, session_id: str) -> RustSession:
         return self.create_session(session_id)
@@ -1854,10 +2365,22 @@ class RustStoreContext:
 
     def session_auto(
         self,
-        session_id: str = "auto_session_default",
+        session_id: Optional[str] = None,
+        default_timeout: int = 720000,
+        auto_cleanup: bool = False,
+        session_prefix: str = "auto_",
     ) -> "RustStoreContext":
-        session = self.create_session(session_id)
-        session._is_active = True
+        resolved_session_id = session_id if session_id is not None else f"{session_prefix}session_default"
+        metadata = {
+            "created_by": "python_session_auto",
+            "auto_cleanup": bool(auto_cleanup),
+            "session_prefix": session_prefix,
+        }
+        session = self.create_session(
+            resolved_session_id,
+            lease_seconds=int(default_timeout),
+            metadata=metadata,
+        )
         self._backend.enable_auto_session(self, session)
         return self
 
@@ -1933,6 +2456,19 @@ class RustStoreContext:
     def list_resources(self, service_name: Optional[str] = None) -> List[Dict[str, Any]]:
         return _record_value(
             self._backend.list_resources_scoped(self._agent_id, service_name)
+        )
+
+    def list_changed_tools(
+        self,
+        service_name: Optional[str] = None,
+        force_refresh: bool = False,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._backend.list_changed_tools_scoped(
+                self._agent_id,
+                service_name,
+                force_refresh=force_refresh,
+            )
         )
 
     def list_resource_templates(
@@ -2063,6 +2599,81 @@ class RustStoreContext:
     def _call_tool_direct(self, tool_name: str, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         service_name, original_tool = self._resolve_tool(tool_name)
         return self._backend.call_tool(service_name, original_tool, args)
+
+    def set_tool_transform(
+        self,
+        service_name: str,
+        tool_name: str,
+        *,
+        display_name: Optional[str] = None,
+        description: Optional[str] = None,
+        arguments: Optional[List[Dict[str, Any]]] = None,
+        tags: Optional[List[str]] = None,
+        enabled: bool = True,
+    ) -> Dict[str, Any]:
+        resolved_service = self._resolve_service_name(service_name)
+        payload = {
+            "display_name": display_name,
+            "description": description,
+            "arguments": arguments or [],
+            "tags": tags or [],
+            "enabled": enabled,
+        }
+        return self._backend.set_tool_transform(resolved_service, tool_name, payload)
+
+    def get_tool_transform(self, service_name: str, tool_name: str) -> Optional[Dict[str, Any]]:
+        return self._backend.get_tool_transform(self._resolve_service_name(service_name), tool_name)
+
+    def list_tool_transforms(self) -> List[Dict[str, Any]]:
+        return self._backend.list_tool_transforms()
+
+    def delete_tool_transform(self, service_name: str, tool_name: str) -> bool:
+        return self._backend.delete_tool_transform(self._resolve_service_name(service_name), tool_name)
+
+    def import_openapi_service(
+        self,
+        name: str,
+        spec_url: str,
+        *,
+        headers: Optional[Dict[str, str]] = None,
+        auth: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        result = self._backend.import_openapi_service(
+            name,
+            spec_url,
+            headers=headers,
+            auth=auth,
+        )
+        self._last_openapi_import = result
+        return result
+
+    def import_openapi_service_from_spec(
+        self,
+        name: str,
+        spec_url: str,
+        spec: Dict[str, Any],
+        *,
+        headers: Optional[Dict[str, str]] = None,
+        auth: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        result = self._backend.import_openapi_service_from_spec(
+            name,
+            spec_url,
+            spec,
+            headers=headers,
+            auth=auth,
+        )
+        self._last_openapi_import = result
+        return result
+
+    def get_openapi_import(self, name: str) -> Optional[Dict[str, Any]]:
+        return self._backend.get_openapi_import(name)
+
+    def list_openapi_imports(self) -> List[Dict[str, Any]]:
+        return self._backend.list_openapi_imports()
+
+    def last_openapi_import(self) -> Optional[Dict[str, Any]]:
+        return getattr(self, "_last_openapi_import", None)
 
     def call_tool(
         self,
@@ -2315,8 +2926,11 @@ class RustStoreContext:
 
     def _resolve_tool(self, tool_name: str) -> tuple[str, str]:
         active = self.active_session
-        if active is not None and active._bound_services:
-            for service_name in active._bound_services:
+        if active is not None:
+            for service in active.list_services():
+                service_name = str(service.get("name") or service.get("service_global_name") or "")
+                if not service_name:
+                    continue
                 for tool in self._list_tools_direct(service_name=service_name):
                     names = {
                         tool.get("name"),

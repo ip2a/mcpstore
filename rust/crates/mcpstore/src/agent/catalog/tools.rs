@@ -11,14 +11,24 @@ impl MCPStore {
             service_tools.sort_by(|left, right| left.name.cmp(&right.name));
             for tool in service_tools {
                 let original_name = tool.name.clone();
-                let displayed_name = generate_tool_global_name(&service.name, &original_name)?;
+                let fallback_display_name =
+                    generate_tool_global_name(&service.name, &original_name)?;
+                let transformed = self
+                    .apply_tool_transform(
+                        &service.name,
+                        &original_name,
+                        fallback_display_name,
+                        tool.description,
+                        tool.schema,
+                    )
+                    .await?;
                 tools.push(Self::tool_payload_value(
-                    displayed_name,
+                    transformed.display_name,
                     original_name,
                     service.name.clone(),
                     service.name.clone(),
-                    tool.description,
-                    tool.schema,
+                    transformed.description,
+                    transformed.schema,
                 )?);
             }
         }
@@ -37,14 +47,24 @@ impl MCPStore {
             service_tools.sort_by(|left, right| left.name.cmp(&right.name));
             for tool in service_tools {
                 let original_name = tool.name.clone();
-                let displayed_name = generate_tool_global_name(&service.name, &original_name)?;
+                let fallback_display_name =
+                    generate_tool_global_name(&service.name, &original_name)?;
+                let transformed = self
+                    .apply_tool_transform(
+                        &service.name,
+                        &original_name,
+                        fallback_display_name,
+                        tool.description,
+                        tool.schema,
+                    )
+                    .await?;
                 tools.push(Self::scoped_tool_entry(
-                    displayed_name,
+                    transformed.display_name,
                     original_name,
                     service.name.clone(),
                     service.name.clone(),
-                    tool.description,
-                    tool.schema,
+                    transformed.description,
+                    transformed.schema,
                 )?);
             }
         }
@@ -69,14 +89,23 @@ impl MCPStore {
             service_tools.sort_by(|left, right| left.name.cmp(&right.name));
             for tool in service_tools {
                 let original_name = tool.name.clone();
-                let displayed_name = format!("{}_{}", local_service_name, original_name);
+                let fallback_display_name = format!("{}_{}", local_service_name, original_name);
+                let transformed = self
+                    .apply_tool_transform(
+                        &global_service_name,
+                        &original_name,
+                        fallback_display_name,
+                        tool.description,
+                        tool.input_schema,
+                    )
+                    .await?;
                 tools.push(Self::tool_payload_value(
-                    displayed_name,
+                    transformed.display_name,
                     original_name,
                     local_service_name.clone(),
                     global_service_name.clone(),
-                    tool.description,
-                    tool.input_schema,
+                    transformed.description,
+                    transformed.schema,
                 )?);
             }
         }
@@ -100,14 +129,23 @@ impl MCPStore {
             service_tools.sort_by(|left, right| left.name.cmp(&right.name));
             for tool in service_tools {
                 let original_name = tool.name.clone();
-                let displayed_name = format!("{}_{}", service.original_name, original_name);
+                let fallback_display_name = format!("{}_{}", service.original_name, original_name);
+                let transformed = self
+                    .apply_tool_transform(
+                        &global_service_name,
+                        &original_name,
+                        fallback_display_name,
+                        tool.description,
+                        tool.input_schema,
+                    )
+                    .await?;
                 tools.push(Self::scoped_tool_entry(
-                    displayed_name,
+                    transformed.display_name,
                     original_name,
                     service.original_name.clone(),
                     global_service_name.clone(),
-                    tool.description,
-                    tool.input_schema,
+                    transformed.description,
+                    transformed.schema,
                 )?);
             }
         }
