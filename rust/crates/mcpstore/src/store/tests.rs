@@ -77,6 +77,22 @@ async fn spawn_openapi_http_fixture() -> String {
                     )
                 } else if first_line.starts_with("GET /plain ") {
                     ("plain inventory".to_string(), "text/plain; charset=utf-8")
+                } else if first_line.starts_with("GET /negotiated ") {
+                    if request_lower.contains("accept: ")
+                        && request_lower.contains("application/json")
+                        && request_lower.contains("text/plain")
+                        && !request_lower.contains("image/png")
+                    {
+                        (
+                            serde_json::json!({"received": "accept"}).to_string(),
+                            "application/json",
+                        )
+                    } else {
+                        (
+                            serde_json::json!({"error": "bad accept header"}).to_string(),
+                            "application/json",
+                        )
+                    }
                 } else if first_line.starts_with("POST /items ")
                     || first_line.starts_with("POST /items?")
                 {
@@ -1087,6 +1103,64 @@ async fn openapi_resources_preserve_response_mime_type() {
     assert_eq!(
         json_resource["contents"][0]["mimeType"],
         serde_json::json!("application/json")
+    );
+}
+
+#[tokio::test]
+async fn openapi_runtime_sends_accept_for_supported_response_media_types() {
+    let base_url = spawn_openapi_http_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-response-accept-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let spec = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": { "title": "Negotiated", "version": "2026.1" },
+        "servers": [{ "url": base_url }],
+        "paths": {
+            "/negotiated": {
+                "get": {
+                    "operationId": "getNegotiatedInventory",
+                    "responses": {
+                        "200": {
+                            "description": "Negotiated response",
+                            "content": {
+                                "image/png": { "schema": { "type": "string", "format": "binary" } },
+                                "application/json": { "schema": { "type": "object" } },
+                                "text/plain": { "schema": { "type": "string" } }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    store
+        .import_openapi_service_from_spec("negotiated", "memory://negotiated", spec)
+        .await
+        .unwrap();
+
+    let resources = store.list_resources("negotiated").await.unwrap();
+    assert_eq!(
+        resources[0]["mimeType"],
+        serde_json::json!("application/json")
+    );
+
+    let resource = store
+        .read_resource("negotiated", "openapi://negotiated/getNegotiatedInventory")
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(
+            resource["contents"][0]["text"].as_str().unwrap()
+        )
+        .unwrap()["received"],
+        serde_json::json!("accept")
     );
 }
 
