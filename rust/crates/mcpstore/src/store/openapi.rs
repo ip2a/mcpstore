@@ -459,7 +459,7 @@ impl<'a> OpenApiExternalRefResolver<'a> {
             return Ok(document.clone());
         }
 
-        let document = self
+        let document_text = self
             .client
             .get(target_url)
             .send()
@@ -475,13 +475,18 @@ impl<'a> OpenApiExternalRefResolver<'a> {
                     "OpenAPI external $ref fetch failed for {target_url}: {err}"
                 ))
             })?
-            .json::<serde_json::Value>()
+            .text()
             .await
             .map_err(|err| {
                 StoreError::Other(format!(
-                    "OpenAPI external $ref JSON decode failed for {target_url}: {err}"
+                    "OpenAPI external $ref body read failed for {target_url}: {err}"
                 ))
             })?;
+        let document = parse_openapi_spec_text(&document_text).map_err(|err| {
+            StoreError::Other(format!(
+                "OpenAPI external $ref document decode failed for {target_url}: {err}"
+            ))
+        })?;
         self.documents
             .lock()
             .map_err(|_| {
