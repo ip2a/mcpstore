@@ -68,19 +68,20 @@ pub async fn call_openapi_tool(
         .ok_or_else(|| StoreError::Other(format!("OpenAPI tool not found: {tool_name}")))?;
     let response = execute_component(import, component, args, options).await?;
     let is_error = !response.status.is_success();
-    let text = if is_error {
-        response_error_text(response.status, response.body)
-    } else {
-        response_text(response.body)
-    };
-    Ok(ToolCallResult {
-        content: vec![ContentItem::Text {
-            text,
+    let content = if is_error {
+        vec![ContentItem::Text {
+            text: response_error_text(response.status, response.mime_type, response.body),
             annotations: None,
             meta: None,
-        }],
-        is_error,
-    })
+        }]
+    } else {
+        vec![response_content_item(
+            openapi_response_uri(&import.service_name, &component.name),
+            response.mime_type,
+            response.body,
+        )]
+    };
+    Ok(ToolCallResult { content, is_error })
 }
 
 pub async fn read_openapi_resource(
@@ -105,22 +106,24 @@ pub async fn read_openapi_resource(
         return Err(StoreError::Other(format!(
             "OpenAPI resource request failed with status {}: {}",
             response.status,
-            response_text(response.body)
+            response_error_text(response.status, response.mime_type, response.body)
         )));
     }
     Ok(serde_json::json!({
-        "contents": [{
-            "uri": uri,
-            "mimeType": response.mime_type,
-            "text": response_text(response.body),
-        }]
+        "contents": [response_resource_content(uri.to_string(), response.mime_type, response.body)]
     }))
 }
 
 struct OpenApiHttpResponse {
     status: reqwest::StatusCode,
     mime_type: String,
-    body: Value,
+    body: OpenApiResponseBody,
+}
+
+enum OpenApiResponseBody {
+    Json(Value),
+    Text(String),
+    Bytes(Vec<u8>),
 }
 
 #[derive(Clone)]
@@ -132,6 +135,10 @@ struct QueryParameter {
 
 fn openapi_resource_uri(service_name: &str, component_name: &str) -> String {
     format!("openapi://{service_name}/{component_name}")
+}
+
+fn openapi_response_uri(service_name: &str, component_name: &str) -> String {
+    format!("openapi://{service_name}/{component_name}/response")
 }
 
 fn openapi_resource_template_uri(
@@ -283,22 +290,32 @@ async fn execute_component(
         .and_then(|value| value.to_str().ok())
         .and_then(normalize_mime_type)
         .unwrap_or_else(|| declared_response_mime_type(component));
-    let text = response
-        .text()
-        .await
-        .map_err(|err| StoreError::Other(format!("OpenAPI response read failed: {err}")))?;
-    let body = if is_json_mime_type(&mime_type) {
-        match serde_json::from_str(&text) {
-            Ok(body) => body,
-            Err(err) if status.is_success() => {
-                return Err(StoreError::Other(format!(
-                    "OpenAPI JSON response decode failed: {err}"
-                )));
-            }
-            Err(_) => Value::String(text),
-        }
+    let body = if is_binary_response(component, &mime_type) {
+        OpenApiResponseBody::Bytes(
+            response
+                .bytes()
+                .await
+                .map_err(|err| StoreError::Other(format!("OpenAPI response read failed: {err}")))?
+                .to_vec(),
+        )
     } else {
-        Value::String(text)
+        let text = response
+            .text()
+            .await
+            .map_err(|err| StoreError::Other(format!("OpenAPI response read failed: {err}")))?;
+        if is_json_mime_type(&mime_type) {
+            match serde_json::from_str(&text) {
+                Ok(body) => OpenApiResponseBody::Json(body),
+                Err(err) if status.is_success() => {
+                    return Err(StoreError::Other(format!(
+                        "OpenAPI JSON response decode failed: {err}"
+                    )));
+                }
+                Err(_) => OpenApiResponseBody::Text(text),
+            }
+        } else {
+            OpenApiResponseBody::Text(text)
+        }
     };
     Ok(OpenApiHttpResponse {
         status,
@@ -585,11 +602,13 @@ fn collect_supported_response_media_types(response: Option<&Value>, media_types:
     else {
         return;
     };
-    for media_type in content
-        .keys()
-        .filter_map(|media_type| normalize_mime_type(media_type))
-    {
-        if is_supported_response_mime_type(&media_type) && !media_types.contains(&media_type) {
+    for (declared_media_type, media) in content {
+        let Some(media_type) = normalize_mime_type(declared_media_type) else {
+            continue;
+        };
+        if is_supported_response_media_type(&media_type, Some(media))
+            && !media_types.contains(&media_type)
+        {
             media_types.push(media_type);
         }
     }
@@ -598,9 +617,13 @@ fn collect_supported_response_media_types(response: Option<&Value>, media_types:
 fn response_mime_type(response: Option<&Value>) -> Option<String> {
     let content = response?.get("content")?.as_object()?;
     content
-        .keys()
-        .filter_map(|mime_type| normalize_mime_type(mime_type))
-        .find(is_supported_response_mime_type)
+        .iter()
+        .filter_map(|(mime_type, media)| {
+            normalize_mime_type(mime_type).map(|mime_type| (mime_type, media))
+        })
+        .find_map(|(mime_type, media)| {
+            is_supported_response_media_type(&mime_type, Some(media)).then_some(mime_type)
+        })
         .or_else(|| {
             content
                 .keys()
@@ -617,8 +640,41 @@ fn is_json_mime_type(mime_type: &str) -> bool {
     mime_type == "application/json" || mime_type.ends_with("+json")
 }
 
-fn is_supported_response_mime_type(mime_type: &String) -> bool {
-    is_json_mime_type(mime_type) || mime_type.starts_with("text/")
+fn is_binary_mime_type(mime_type: &str) -> bool {
+    mime_type.starts_with("image/")
+        || mime_type.starts_with("audio/")
+        || matches!(mime_type, "application/octet-stream" | "application/pdf")
+}
+
+fn is_supported_response_media_type(mime_type: &str, media: Option<&Value>) -> bool {
+    is_json_mime_type(mime_type)
+        || mime_type.starts_with("text/")
+        || is_binary_mime_type(mime_type)
+        || media.is_some_and(media_type_has_binary_schema)
+}
+
+fn is_binary_response(component: &OpenApiComponent, mime_type: &str) -> bool {
+    is_binary_mime_type(mime_type) || response_media_has_binary_schema(component, mime_type)
+}
+
+fn response_media_has_binary_schema(component: &OpenApiComponent, mime_type: &str) -> bool {
+    component.endpoint.responses.values().any(|response| {
+        response
+            .get("content")
+            .and_then(Value::as_object)
+            .and_then(|content| find_media_type(content, mime_type))
+            .is_some_and(media_type_has_binary_schema)
+    })
+}
+
+fn find_media_type<'a>(content: &'a Map<String, Value>, mime_type: &str) -> Option<&'a Value> {
+    content.iter().find_map(|(declared, media)| {
+        (normalize_mime_type(declared).as_deref() == Some(mime_type)).then_some(media)
+    })
+}
+
+fn media_type_has_binary_schema(media: &Value) -> bool {
+    media.get("schema").is_some_and(is_binary_string_schema)
 }
 
 fn body_as_fields(body: &Value) -> Result<Vec<(String, String)>> {
@@ -1314,19 +1370,85 @@ fn argument_as_string(value: &Value) -> String {
         .unwrap_or_else(|| value.to_string())
 }
 
-fn response_text(value: Value) -> String {
+fn response_text(value: OpenApiResponseBody) -> String {
     match value {
-        Value::String(text) => text,
-        other => serde_json::to_string(&other).unwrap_or_else(|_| "null".to_string()),
+        OpenApiResponseBody::Text(text) => text,
+        OpenApiResponseBody::Json(value) => {
+            serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string())
+        }
+        OpenApiResponseBody::Bytes(bytes) => {
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        }
     }
 }
 
-fn response_error_text(status: reqwest::StatusCode, body: Value) -> String {
-    response_text(serde_json::json!({
+fn response_resource_content(uri: String, mime_type: String, body: OpenApiResponseBody) -> Value {
+    match body {
+        OpenApiResponseBody::Bytes(bytes) => serde_json::json!({
+            "uri": uri,
+            "mimeType": mime_type,
+            "blob": base64::engine::general_purpose::STANDARD.encode(bytes),
+        }),
+        body => serde_json::json!({
+            "uri": uri,
+            "mimeType": mime_type,
+            "text": response_text(body),
+        }),
+    }
+}
+
+fn response_content_item(uri: String, mime_type: String, body: OpenApiResponseBody) -> ContentItem {
+    match body {
+        OpenApiResponseBody::Bytes(bytes) if mime_type.starts_with("image/") => {
+            ContentItem::Image {
+                data: base64::engine::general_purpose::STANDARD.encode(bytes),
+                mime_type,
+                annotations: None,
+                meta: None,
+            }
+        }
+        OpenApiResponseBody::Bytes(bytes) if mime_type.starts_with("audio/") => {
+            ContentItem::Audio {
+                data: base64::engine::general_purpose::STANDARD.encode(bytes),
+                mime_type,
+                annotations: None,
+            }
+        }
+        OpenApiResponseBody::Bytes(bytes) => ContentItem::Resource {
+            resource: serde_json::json!({
+                "uri": uri,
+                "mimeType": mime_type,
+                "blob": base64::engine::general_purpose::STANDARD.encode(bytes),
+            }),
+            annotations: None,
+            meta: None,
+        },
+        other => ContentItem::Text {
+            text: response_text(other),
+            annotations: None,
+            meta: None,
+        },
+    }
+}
+
+fn response_error_text(
+    status: reqwest::StatusCode,
+    mime_type: String,
+    body: OpenApiResponseBody,
+) -> String {
+    let body = match body {
+        OpenApiResponseBody::Bytes(bytes) => serde_json::json!({
+            "mimeType": mime_type,
+            "blob": base64::engine::general_purpose::STANDARD.encode(bytes),
+        }),
+        OpenApiResponseBody::Json(value) => value,
+        OpenApiResponseBody::Text(text) => Value::String(text),
+    };
+    response_text(OpenApiResponseBody::Json(serde_json::json!({
         "status": status.as_u16(),
         "reason": status.canonical_reason().unwrap_or_default(),
         "body": body,
-    }))
+    })))
 }
 
 fn percent_encode(value: &str) -> String {
