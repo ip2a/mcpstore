@@ -701,11 +701,27 @@ async fn multipart_form(
     let binary_fields = multipart_binary_fields(component);
     let mut form = reqwest::multipart::Form::new();
     for (name, value) in object {
-        if binary_fields.contains(name) {
+        if matches!(binary_fields.get(name), Some(MultipartBinaryField::File)) {
             form = form.part(
                 name.clone(),
                 multipart_file_part(component, name, value).await?,
             );
+        } else if matches!(
+            binary_fields.get(name),
+            Some(MultipartBinaryField::FileArray)
+        ) {
+            let Some(files) = value.as_array() else {
+                return Err(StoreError::Other(format!(
+                    "OpenAPI multipart binary field for {}.{name} must be an array of file objects",
+                    component.name
+                )));
+            };
+            for file in files {
+                form = form.part(
+                    name.clone(),
+                    multipart_file_part(component, name, file).await?,
+                );
+            }
         } else {
             form = form.text(name.clone(), argument_as_string(value));
         }
@@ -713,7 +729,13 @@ async fn multipart_form(
     Ok(form)
 }
 
-fn multipart_binary_fields(component: &OpenApiComponent) -> Vec<String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MultipartBinaryField {
+    File,
+    FileArray,
+}
+
+fn multipart_binary_fields(component: &OpenApiComponent) -> HashMap<String, MultipartBinaryField> {
     let Some(schema) = component
         .endpoint
         .request_body
@@ -723,15 +745,22 @@ fn multipart_binary_fields(component: &OpenApiComponent) -> Vec<String> {
         .and_then(|media| media.get("schema"))
         .and_then(Value::as_object)
     else {
-        return Vec::new();
+        return HashMap::new();
     };
     let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
-        return Vec::new();
+        return HashMap::new();
     };
     properties
         .iter()
-        .filter(|(_, property)| is_binary_string_schema(property))
-        .map(|(name, _)| name.clone())
+        .filter_map(|(name, property)| {
+            if is_binary_string_schema(property) {
+                Some((name.clone(), MultipartBinaryField::File))
+            } else if is_binary_string_array_schema(property) {
+                Some((name.clone(), MultipartBinaryField::FileArray))
+            } else {
+                None
+            }
+        })
         .collect()
 }
 
@@ -822,6 +851,14 @@ fn is_binary_string_schema(schema: &Value) -> bool {
             .get("format")
             .and_then(Value::as_str)
             .map(|format| format.eq_ignore_ascii_case("binary"))
+            .unwrap_or(false)
+}
+
+fn is_binary_string_array_schema(schema: &Value) -> bool {
+    schema_type(schema) == Some("array")
+        && schema
+            .get("items")
+            .map(is_binary_string_schema)
             .unwrap_or(false)
 }
 
