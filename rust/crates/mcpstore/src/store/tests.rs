@@ -1149,6 +1149,60 @@ async fn openapi_tools_serialize_parameters_by_openapi_style() {
 }
 
 #[tokio::test]
+async fn openapi_tools_reject_missing_required_arguments_before_request() {
+    let base_url = spawn_openapi_http_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-required-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let spec = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": { "title": "Required", "version": "2026.1" },
+        "servers": [{ "url": base_url }],
+        "paths": {
+            "/items/{sku}": {
+                "post": {
+                    "operationId": "updateItem",
+                    "parameters": [{ "name": "sku", "in": "path", "required": true, "schema": { "type": "string" } }],
+                    "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } }
+                }
+            }
+        }
+    });
+
+    store
+        .import_openapi_service_from_spec("required", "memory://required", spec)
+        .await
+        .unwrap();
+
+    let missing_path = store
+        .call_tool(
+            "required",
+            "updateItem",
+            serde_json::json!({"body": {"name": "apple"}}),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(missing_path.contains("path.sku"));
+
+    let missing_body = store
+        .call_tool(
+            "required",
+            "updateItem",
+            serde_json::json!({"sku": "sku-1"}),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(missing_body.contains("body"));
+}
+
+#[tokio::test]
 async fn openapi_import_options_apply_security_to_tools_and_resources() {
     let base_url = spawn_openapi_auth_http_fixture().await;
     let spec = serde_json::json!({
