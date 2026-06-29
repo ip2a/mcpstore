@@ -174,6 +174,25 @@ async fn spawn_openapi_http_fixture() -> String {
                             "application/json",
                         )
                     }
+                } else if first_line.starts_with("POST /forms/files ") {
+                    if request_lower.contains("content-type: multipart/form-data")
+                        && request.contains("name=\"files\"; filename=\"apple.txt\"")
+                        && request.contains("name=\"files\"; filename=\"pear.txt\"")
+                        && request.contains("apple-bytes")
+                        && request.contains("pear-bytes")
+                    {
+                        (
+                            "200 OK",
+                            json_bytes(serde_json::json!({"received": "files"})),
+                            "application/json",
+                        )
+                    } else {
+                        (
+                            "404 Not Found",
+                            json_bytes(serde_json::json!({"error": "bad multipart files body"})),
+                            "application/json",
+                        )
+                    }
                 } else if first_line.starts_with("POST /forms/text ") {
                     if request_lower.contains("content-type: text/plain")
                         && request.contains("plain-body")
@@ -1850,6 +1869,27 @@ async fn openapi_tools_support_common_request_body_media_types() {
                         }
                     }
                 }
+            },
+            "/forms/files": {
+                "post": {
+                    "operationId": "submitFiles",
+                    "requestBody": {
+                        "required": true,
+                        "content": {
+                            "multipart/form-data": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "files": {
+                                            "type": "array",
+                                            "items": { "type": "string", "format": "binary" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     });
@@ -1858,6 +1898,21 @@ async fn openapi_tools_support_common_request_body_media_types() {
         .import_openapi_service_from_spec("forms", "memory://forms", spec)
         .await
         .unwrap();
+
+    let tools = store.list_tools("forms").await.unwrap();
+    let submit_files = tools
+        .iter()
+        .find(|tool| tool.name == "submitFiles")
+        .unwrap();
+    assert_eq!(
+        submit_files.input_schema["properties"]["body"]["properties"]["files"]["type"],
+        serde_json::json!("array")
+    );
+    assert_eq!(
+        submit_files.input_schema["properties"]["body"]["properties"]["files"]["items"]
+            ["x_mcpstore_file"],
+        serde_json::json!(true)
+    );
 
     for (tool_name, body, expected) in [
         (
@@ -1917,6 +1972,45 @@ async fn openapi_tools_support_common_request_body_media_types() {
         );
     }
     std::fs::remove_file(file_path).ok();
+
+    let call_result = store
+        .call_tool(
+            "forms",
+            "submitFiles",
+            serde_json::json!({"body": {"files": [
+                {
+                    "bytes": base64::engine::general_purpose::STANDARD.encode("apple-bytes"),
+                    "filename": "apple.txt",
+                    "mimeType": "text/plain"
+                },
+                {
+                    "bytes": base64::engine::general_purpose::STANDARD.encode("pear-bytes"),
+                    "filename": "pear.txt",
+                    "mimeType": "text/plain"
+                }
+            ]}}),
+        )
+        .await
+        .unwrap();
+    assert!(!call_result.is_error);
+    let crate::transport::ContentItem::Text { text, .. } = &call_result.content[0] else {
+        panic!("expected text content");
+    };
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(text).unwrap()["received"],
+        serde_json::json!("files")
+    );
+
+    let invalid_files = store
+        .call_tool(
+            "forms",
+            "submitFiles",
+            serde_json::json!({"body": {"files": ["not-a-file"]}}),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(invalid_files.contains("body.files[0]"));
 }
 
 #[tokio::test]

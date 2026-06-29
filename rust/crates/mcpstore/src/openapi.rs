@@ -505,6 +505,10 @@ fn expose_binary_file_arguments(schema: Value) -> Value {
                     *value = converted;
                 }
             }
+            if let Some(items) = object.get_mut("items") {
+                let converted = expose_binary_file_arguments(std::mem::take(items));
+                *items = converted;
+            }
             Value::Object(object)
         }
         other => other,
