@@ -7,9 +7,18 @@ use mcpstore::core::store::{
     ScopedServiceHealth, ScopedToolEntry, SourceMode, StoreOptions,
 };
 use mcpstore::{
-    cache::models::{HealthStatus, ServiceStatus, ToolAvailability, ToolStatusItem},
+    cache::models::{
+        HealthStatus, ServiceStatus, SessionEntity, SessionScope, SessionServiceItem,
+        SessionServiceRelation, SessionStateData, SessionStatus, SessionStatusState,
+        SessionToolItem, SessionToolVisibility, ToolAvailability, ToolStatusItem,
+        ToolTransformRule,
+    },
     ConnectionStatus, ContentItem, Event, ServiceEntry, StoreError, ToolCallResult,
     ToolDescription, ToolInfo,
+};
+use mcpstore::{
+    CreateSessionRequest, OpenApiImportOptions, SessionRetryPolicy, SessionToolSelection,
+    ToolTransformPatch,
 };
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
@@ -23,6 +32,21 @@ pub struct PyMCPStore {
 
 fn map_store_err(err: StoreError) -> PyErr {
     pyo3::exceptions::PyRuntimeError::new_err(err.to_string())
+}
+
+fn parse_openapi_import_options(
+    options: Option<&Bound<'_, PyAny>>,
+) -> PyResult<OpenApiImportOptions> {
+    let Some(options) = options else {
+        return Ok(OpenApiImportOptions::default());
+    };
+    if options.is_none() {
+        return Ok(OpenApiImportOptions::default());
+    }
+    let value = py_to_serde_value(options, "OpenAPI import options")?;
+    serde_json::from_value(value).map_err(|err| {
+        pyo3::exceptions::PyValueError::new_err(format!("Invalid OpenAPI import options: {err}"))
+    })
 }
 
 fn parse_source_mode(source_mode: Option<&str>) -> PyResult<SourceMode> {
@@ -45,6 +69,31 @@ fn parse_backend(backend: Option<&str>) -> PyResult<Option<BackendKind>> {
         Some(other) => Err(pyo3::exceptions::PyValueError::new_err(format!(
             "Unsupported backend: {other}"
         ))),
+    }
+}
+
+fn parse_session_scope(scope: Option<&str>) -> PyResult<SessionScope> {
+    match scope {
+        Some("store") | None => Ok(SessionScope::Store),
+        Some("agent") => Ok(SessionScope::Agent),
+        Some(other) => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Unsupported session scope: {other}"
+        ))),
+    }
+}
+
+fn session_scope_as_str(scope: &SessionScope) -> &'static str {
+    match scope {
+        SessionScope::Store => "store",
+        SessionScope::Agent => "agent",
+    }
+}
+
+fn session_status_as_str(status: &SessionStatus) -> &'static str {
+    match status {
+        SessionStatus::Active => "active",
+        SessionStatus::Closed => "closed",
+        SessionStatus::Expired => "expired",
     }
 }
 
@@ -390,6 +439,105 @@ fn scoped_service_health_to_py(
     Ok(dict.into_any().unbind())
 }
 
+fn session_entity_to_py(py: Python<'_>, session: &SessionEntity) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("session_key", &session.session_key)?;
+    dict.set_item("session_id", &session.session_id)?;
+    dict.set_item("scope", session_scope_as_str(&session.scope))?;
+    dict.set_item("agent_id", session.agent_id.as_deref())?;
+    dict.set_item("created_at", session.created_at)?;
+    dict.set_item("updated_at", session.updated_at)?;
+    dict.set_item("last_active", session.last_active)?;
+    dict.set_item("lease_seconds", session.lease_seconds)?;
+    dict.set_item("expires_at", session.expires_at)?;
+    dict.set_item("version", session.version)?;
+    dict.set_item("metadata", serde_value_to_py(py, session.metadata.clone())?)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn session_status_to_py(py: Python<'_>, status: &SessionStatusState) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("session_key", &status.session_key)?;
+    dict.set_item("status", session_status_as_str(&status.status))?;
+    dict.set_item("updated_at", status.updated_at)?;
+    dict.set_item("version", status.version)?;
+    dict.set_item("reason", status.reason.as_deref())?;
+    Ok(dict.into_any().unbind())
+}
+
+fn session_state_to_py(py: Python<'_>, state: &SessionStateData) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("session_key", &state.session_key)?;
+    dict.set_item(
+        "values",
+        serde_value_to_py(py, serde_json::Value::Object(state.values.clone()))?,
+    )?;
+    dict.set_item("updated_at", state.updated_at)?;
+    dict.set_item("version", state.version)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn session_service_item_to_py(py: Python<'_>, service: &SessionServiceItem) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("service_global_name", &service.service_global_name)?;
+    dict.set_item("service_original_name", &service.service_original_name)?;
+    dict.set_item("source_agent", &service.source_agent)?;
+    dict.set_item("bound_at", service.bound_at)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn session_service_relation_to_py(
+    py: Python<'_>,
+    relation: &SessionServiceRelation,
+) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    let services = PyList::empty(py);
+    for service in &relation.services {
+        services.append(session_service_item_to_py(py, service)?)?;
+    }
+    dict.set_item("session_key", &relation.session_key)?;
+    dict.set_item("services", services)?;
+    dict.set_item("updated_at", relation.updated_at)?;
+    dict.set_item("version", relation.version)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn session_tool_item_to_py(py: Python<'_>, tool: &SessionToolItem) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("service_global_name", &tool.service_global_name)?;
+    dict.set_item("tool_global_name", &tool.tool_global_name)?;
+    dict.set_item("tool_original_name", &tool.tool_original_name)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn session_tool_visibility_to_py(
+    py: Python<'_>,
+    visibility: &SessionToolVisibility,
+) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    let tools = PyList::empty(py);
+    for tool in &visibility.tools {
+        tools.append(session_tool_item_to_py(py, tool)?)?;
+    }
+    dict.set_item("session_key", &visibility.session_key)?;
+    dict.set_item("mode", "allowlist")?;
+    dict.set_item("tools", tools)?;
+    dict.set_item("updated_at", visibility.updated_at)?;
+    dict.set_item("version", visibility.version)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn tool_transform_rule_to_py(py: Python<'_>, rule: &ToolTransformRule) -> PyResult<Py<PyAny>> {
+    serde_value_to_py(
+        py,
+        serde_json::to_value(rule).map_err(|err| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "Tool transform conversion failed: {err}"
+            ))
+        })?,
+    )
+}
+
 #[pymethods]
 impl PyMCPStore {
     #[staticmethod]
@@ -507,6 +655,95 @@ impl PyMCPStore {
             .map_err(map_store_err)
     }
 
+    #[pyo3(signature = (name, spec_url, options=None))]
+    fn import_openapi_service(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        spec_url: &str,
+        options: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        let options = parse_openapi_import_options(options)?;
+        let result = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .import_openapi_service_with_options(name, spec_url, options),
+            )
+            .map_err(map_store_err)?;
+        serde_value_to_py(
+            py,
+            serde_json::to_value(result).map_err(|err| {
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "OpenAPI import result conversion failed: {err}"
+                ))
+            })?,
+        )
+    }
+
+    #[pyo3(signature = (name, spec_url, spec, options=None))]
+    fn import_openapi_service_from_spec(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        spec_url: &str,
+        spec: &Bound<'_, PyAny>,
+        options: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        let spec = py_to_serde_value(spec, "OpenAPI spec")?;
+        let options = parse_openapi_import_options(options)?;
+        let result = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .import_openapi_service_from_spec_with_options(name, spec_url, spec, options),
+            )
+            .map_err(map_store_err)?;
+        serde_value_to_py(
+            py,
+            serde_json::to_value(result).map_err(|err| {
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "OpenAPI import result conversion failed: {err}"
+                ))
+            })?,
+        )
+    }
+
+    fn get_openapi_import(&self, py: Python<'_>, name: &str) -> PyResult<Option<Py<PyAny>>> {
+        let result = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.get_openapi_import(name))
+            .map_err(map_store_err)?;
+        result
+            .map(|result| {
+                serde_value_to_py(
+                    py,
+                    serde_json::to_value(result).map_err(|err| {
+                        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                            "OpenAPI import result conversion failed: {err}"
+                        ))
+                    })?,
+                )
+            })
+            .transpose()
+    }
+
+    fn list_openapi_imports(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+        let imports = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_openapi_imports())
+            .map_err(map_store_err)?;
+        imports
+            .into_iter()
+            .map(|result| {
+                serde_value_to_py(
+                    py,
+                    serde_json::to_value(result).map_err(|err| {
+                        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                            "OpenAPI import result conversion failed: {err}"
+                        ))
+                    })?,
+                )
+            })
+            .collect()
+    }
+
     fn find_service(&self, py: Python<'_>, name: &str) -> PyResult<Option<Py<PyAny>>> {
         let service =
             pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.find_service(name));
@@ -568,6 +805,447 @@ impl PyMCPStore {
         tool_call_result_to_py(py, &result)
     }
 
+    fn set_tool_transform(
+        &self,
+        py: Python<'_>,
+        service_name: &str,
+        tool_name: &str,
+        transform: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyAny>> {
+        let value = py_to_serde_value(transform, "Tool transform")?;
+        let patch: ToolTransformPatch = serde_json::from_value(value).map_err(|err| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "Tool transform conversion failed: {err}"
+            ))
+        })?;
+        let rule = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .set_tool_transform(service_name, tool_name, patch),
+            )
+            .map_err(map_store_err)?;
+        tool_transform_rule_to_py(py, &rule)
+    }
+
+    fn get_tool_transform(
+        &self,
+        py: Python<'_>,
+        service_name: &str,
+        tool_name: &str,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        let rule = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.get_tool_transform(service_name, tool_name))
+            .map_err(map_store_err)?;
+        rule.as_ref()
+            .map(|rule| tool_transform_rule_to_py(py, rule))
+            .transpose()
+    }
+
+    fn list_tool_transforms(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+        let rules = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_tool_transforms())
+            .map_err(map_store_err)?;
+        rules
+            .iter()
+            .map(|rule| tool_transform_rule_to_py(py, rule))
+            .collect()
+    }
+
+    fn delete_tool_transform(&self, service_name: &str, tool_name: &str) -> PyResult<()> {
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.delete_tool_transform(service_name, tool_name))
+            .map_err(map_store_err)
+    }
+
+    #[pyo3(signature = (session_id, scope=None, agent_id=None, lease_seconds=None, metadata=None))]
+    fn create_session(
+        &self,
+        py: Python<'_>,
+        session_id: &str,
+        scope: Option<String>,
+        agent_id: Option<String>,
+        lease_seconds: Option<i64>,
+        metadata: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        let request = CreateSessionRequest {
+            session_id: session_id.to_string(),
+            scope: parse_session_scope(scope.as_deref())?,
+            agent_id,
+            lease_seconds,
+            metadata: match metadata {
+                Some(value) => py_to_serde_value(value, "Session metadata")?,
+                None => serde_json::json!({}),
+            },
+        };
+        let session = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.create_session(request))
+            .map_err(map_store_err)?;
+        session_entity_to_py(py, &session)
+    }
+
+    fn get_session(&self, py: Python<'_>, session_key: &str) -> PyResult<Option<Py<PyAny>>> {
+        let session = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.get_session(session_key))
+            .map_err(map_store_err)?;
+        session
+            .as_ref()
+            .map(|session| session_entity_to_py(py, session))
+            .transpose()
+    }
+
+    #[pyo3(signature = (session_id, scope=None, agent_id=None))]
+    fn find_session(
+        &self,
+        py: Python<'_>,
+        session_id: &str,
+        scope: Option<String>,
+        agent_id: Option<String>,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        let session = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.find_session(
+                parse_session_scope(scope.as_deref())?,
+                agent_id.as_deref(),
+                session_id,
+            ))
+            .map_err(map_store_err)?;
+        session
+            .as_ref()
+            .map(|session| session_entity_to_py(py, session))
+            .transpose()
+    }
+
+    #[pyo3(signature = (scope=None, agent_id=None))]
+    fn list_sessions(
+        &self,
+        py: Python<'_>,
+        scope: Option<String>,
+        agent_id: Option<String>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let scope = match scope {
+            Some(value) => Some(parse_session_scope(Some(value.as_str()))?),
+            None => None,
+        };
+        let sessions = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_sessions(scope, agent_id.as_deref()))
+            .map_err(map_store_err)?;
+        sessions
+            .iter()
+            .map(|session| session_entity_to_py(py, session))
+            .collect()
+    }
+
+    fn find_session_by_user_session_id(
+        &self,
+        py: Python<'_>,
+        user_session_id: &str,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        let session = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.find_session_by_user_session_id(user_session_id))
+            .map_err(map_store_err)?;
+        session
+            .as_ref()
+            .map(|session| session_entity_to_py(py, session))
+            .transpose()
+    }
+
+    fn update_session_metadata(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+        metadata: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyAny>> {
+        let metadata = py_to_serde_value(metadata, "Session metadata")?;
+        let session = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.update_session_metadata(session_key, metadata))
+            .map_err(map_store_err)?;
+        session_entity_to_py(py, &session)
+    }
+
+    fn get_session_status(&self, py: Python<'_>, session_key: &str) -> PyResult<Option<Py<PyAny>>> {
+        let status = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.get_session_status(session_key))
+            .map_err(map_store_err)?;
+        status
+            .as_ref()
+            .map(|status| session_status_to_py(py, status))
+            .transpose()
+    }
+
+    #[pyo3(signature = (session_key, reason=None))]
+    fn close_session(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+        reason: Option<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let status = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.close_session(session_key, reason))
+            .map_err(map_store_err)?;
+        session_status_to_py(py, &status)
+    }
+
+    fn extend_session(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+        lease_seconds: i64,
+    ) -> PyResult<Py<PyAny>> {
+        let session = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.extend_session(session_key, lease_seconds))
+            .map_err(map_store_err)?;
+        session_entity_to_py(py, &session)
+    }
+
+    #[pyo3(signature = (session_key, lease_seconds, max_attempts=3, delay_millis=0))]
+    fn extend_session_with_retry(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+        lease_seconds: i64,
+        max_attempts: usize,
+        delay_millis: u64,
+    ) -> PyResult<Py<PyAny>> {
+        let policy = SessionRetryPolicy::new(max_attempts).delay_millis(delay_millis);
+        let session = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .extend_session_with_retry(session_key, lease_seconds, policy),
+            )
+            .map_err(map_store_err)?;
+        session_entity_to_py(py, &session)
+    }
+
+    fn bind_service_to_session(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+        service_name: &str,
+    ) -> PyResult<Py<PyAny>> {
+        let relation = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .bind_service_to_session(session_key, service_name),
+            )
+            .map_err(map_store_err)?;
+        session_service_relation_to_py(py, &relation)
+    }
+
+    #[pyo3(signature = (session_key, service_name, max_attempts=3, delay_millis=0))]
+    fn bind_service_to_session_with_retry(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+        service_name: &str,
+        max_attempts: usize,
+        delay_millis: u64,
+    ) -> PyResult<Py<PyAny>> {
+        let policy = SessionRetryPolicy::new(max_attempts).delay_millis(delay_millis);
+        let relation = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.bind_service_to_session_with_retry(
+                session_key,
+                service_name,
+                policy,
+            ))
+            .map_err(map_store_err)?;
+        session_service_relation_to_py(py, &relation)
+    }
+
+    fn unbind_service_from_session(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+        service_name: &str,
+    ) -> PyResult<Py<PyAny>> {
+        let relation = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .unbind_service_from_session(session_key, service_name),
+            )
+            .map_err(map_store_err)?;
+        session_service_relation_to_py(py, &relation)
+    }
+
+    #[pyo3(signature = (session_key, service_name, max_attempts=3, delay_millis=0))]
+    fn unbind_service_from_session_with_retry(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+        service_name: &str,
+        max_attempts: usize,
+        delay_millis: u64,
+    ) -> PyResult<Py<PyAny>> {
+        let policy = SessionRetryPolicy::new(max_attempts).delay_millis(delay_millis);
+        let relation = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.unbind_service_from_session_with_retry(
+                session_key,
+                service_name,
+                policy,
+            ))
+            .map_err(map_store_err)?;
+        session_service_relation_to_py(py, &relation)
+    }
+
+    fn list_session_services(&self, py: Python<'_>, session_key: &str) -> PyResult<Vec<Py<PyAny>>> {
+        let services = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_session_services(session_key))
+            .map_err(map_store_err)?;
+        services
+            .iter()
+            .map(|service| session_service_item_to_py(py, service))
+            .collect()
+    }
+
+    fn set_session_tool_visibility(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+        selections: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyAny>> {
+        let values = py_to_serde_value(selections, "Session tool selections")?;
+        let selections: Vec<SessionToolSelection> =
+            serde_json::from_value(values).map_err(|err| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "Session tool selections conversion failed: {err}"
+                ))
+            })?;
+        let visibility = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .set_session_tool_visibility(session_key, selections),
+            )
+            .map_err(map_store_err)?;
+        session_tool_visibility_to_py(py, &visibility)
+    }
+
+    fn list_session_tools(&self, py: Python<'_>, session_key: &str) -> PyResult<Vec<Py<PyAny>>> {
+        let tools = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_session_tools(session_key))
+            .map_err(map_store_err)?;
+        tools
+            .iter()
+            .map(|tool| session_tool_item_to_py(py, tool))
+            .collect()
+    }
+
+    fn get_session_state_value(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+        key: &str,
+    ) -> PyResult<Py<PyAny>> {
+        let value = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.get_session_state_value(session_key, key))
+            .map_err(map_store_err)?;
+        serde_value_to_py(py, value.unwrap_or(serde_json::Value::Null))
+    }
+
+    fn list_session_state(&self, py: Python<'_>, session_key: &str) -> PyResult<Py<PyAny>> {
+        let state = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_session_state(session_key))
+            .map_err(map_store_err)?;
+        session_state_to_py(py, &state)
+    }
+
+    fn set_session_state(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+        key: &str,
+        value: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyAny>> {
+        let value = py_to_serde_value(value, "Session state value")?;
+        let state = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.set_session_state(session_key, key, value))
+            .map_err(map_store_err)?;
+        session_state_to_py(py, &state)
+    }
+
+    #[pyo3(signature = (session_key, key, value, max_attempts=3, delay_millis=0))]
+    fn set_session_state_with_retry(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+        key: &str,
+        value: &Bound<'_, PyAny>,
+        max_attempts: usize,
+        delay_millis: u64,
+    ) -> PyResult<Py<PyAny>> {
+        let value = py_to_serde_value(value, "Session state value")?;
+        let policy = SessionRetryPolicy::new(max_attempts).delay_millis(delay_millis);
+        let state = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .set_session_state_with_retry(session_key, key, value, policy),
+            )
+            .map_err(map_store_err)?;
+        session_state_to_py(py, &state)
+    }
+
+    fn delete_session_state(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+        key: &str,
+    ) -> PyResult<Py<PyAny>> {
+        let state = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.delete_session_state(session_key, key))
+            .map_err(map_store_err)?;
+        session_state_to_py(py, &state)
+    }
+
+    #[pyo3(signature = (session_key, key, max_attempts=3, delay_millis=0))]
+    fn delete_session_state_with_retry(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+        key: &str,
+        max_attempts: usize,
+        delay_millis: u64,
+    ) -> PyResult<Py<PyAny>> {
+        let policy = SessionRetryPolicy::new(max_attempts).delay_millis(delay_millis);
+        let state = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .delete_session_state_with_retry(session_key, key, policy),
+            )
+            .map_err(map_store_err)?;
+        session_state_to_py(py, &state)
+    }
+
+    fn clear_session_state(&self, py: Python<'_>, session_key: &str) -> PyResult<Py<PyAny>> {
+        let state = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.clear_session_state(session_key))
+            .map_err(map_store_err)?;
+        session_state_to_py(py, &state)
+    }
+
+    fn list_tools_in_session(&self, py: Python<'_>, session_key: &str) -> PyResult<Vec<Py<PyAny>>> {
+        let tools = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_tools_in_session(session_key))
+            .map_err(map_store_err)?;
+        tools
+            .iter()
+            .map(|tool| scoped_tool_entry_to_py(py, tool))
+            .collect()
+    }
+
+    fn call_tool_in_session(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+        tool_name: &str,
+        args: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyAny>> {
+        let args = py_to_serde_value(args, "Tool arguments")?;
+        let result = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .call_tool_in_session(session_key, tool_name, args),
+            )
+            .map_err(map_store_err)?;
+        tool_call_result_to_py(py, &result)
+    }
+
     fn resolve_tool_for_agent(
         &self,
         py: Python<'_>,
@@ -625,6 +1303,31 @@ impl PyMCPStore {
             .iter()
             .map(|tool| scoped_tool_entry_to_py(py, tool))
             .collect()
+    }
+
+    #[pyo3(signature = (agent_id=None, service_name=None, force_refresh=false))]
+    fn list_changed_tools_scoped(
+        &self,
+        py: Python<'_>,
+        agent_id: Option<String>,
+        service_name: Option<String>,
+        force_refresh: bool,
+    ) -> PyResult<Py<PyAny>> {
+        let changes = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.list_changed_tools_scoped(
+                agent_id.as_deref(),
+                service_name.as_deref(),
+                force_refresh,
+            ))
+            .map_err(map_store_err)?;
+        serde_value_to_py(
+            py,
+            serde_json::to_value(changes).map_err(|err| {
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "Tool change summary conversion failed: {err}"
+                ))
+            })?,
+        )
     }
 
     #[pyo3(signature = (agent_id=None))]
@@ -770,6 +1473,58 @@ impl PyMCPStore {
             .block_on(self.inner.cache_inspect())
             .map_err(map_store_err)?;
         serde_value_to_py(py, inspect)
+    }
+
+    fn export_sessions_snapshot(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let snapshot = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.export_sessions_snapshot())
+            .map_err(map_store_err)?;
+        serde_value_to_py(py, snapshot)
+    }
+
+    fn import_sessions_snapshot(
+        &self,
+        py: Python<'_>,
+        snapshot: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyAny>> {
+        let snapshot = py_to_serde_value(snapshot, "Session snapshot")?;
+        let report = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.import_sessions_snapshot(snapshot))
+            .map_err(map_store_err)?;
+        serde_value_to_py(
+            py,
+            serde_json::to_value(report).map_err(|err| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!(
+                    "Session import report conversion failed: {err}"
+                ))
+            })?,
+        )
+    }
+
+    #[pyo3(signature = (backend, redis_url=None, namespace=None))]
+    fn switch_cache_storage(
+        &self,
+        py: Python<'_>,
+        backend: &str,
+        redis_url: Option<String>,
+        namespace: Option<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let backend = parse_backend(Some(backend))?
+            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("backend is required"))?;
+        let snapshot = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .switch_cache_storage(backend, redis_url, namespace),
+            )
+            .map_err(map_store_err)?;
+        serde_value_to_py(
+            py,
+            serde_json::to_value(snapshot).map_err(|err| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!(
+                    "Cache migration snapshot conversion failed: {err}"
+                ))
+            })?,
+        )
     }
 
     fn reset_config(&self) -> PyResult<()> {

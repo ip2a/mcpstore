@@ -21,6 +21,31 @@ impl MCPStore {
         if self.registry.find_service(name).await.is_none() {
             return Err(StoreError::ServiceNotFound(name.to_string()));
         }
+        if self.is_openapi_virtual_service(name).await? {
+            let import = self
+                .get_openapi_import(name)
+                .await?
+                .ok_or_else(|| StoreError::Other(format!("OpenAPI import not found: {name}")))?;
+            let tools = crate::openapi_runtime::openapi_tool_infos(&import);
+            let tool_count = tools.len();
+            if let Some(mut entry) = self.registry.find_service(name).await {
+                entry.tools = tools;
+                entry.status = ConnectionStatus::Connected;
+                self.registry.register(entry).await;
+            }
+            self.event_bus
+                .publish(
+                    Event::new(
+                        "SERVICE_CONNECTED",
+                        serde_json::json!({
+                            "name": name, "tools_count": tool_count, "transport": "openapi"
+                        }),
+                    ),
+                    true,
+                )
+                .await;
+            return Ok(());
+        }
         if self.pool.is_connected(name).await {
             self.registry
                 .update_status(name, ConnectionStatus::Connected)
@@ -73,7 +98,21 @@ impl MCPStore {
             )
             .await;
 
-        if let Err(error) = self.pool.connect(name).await {
+        let connect_timeout = std::time::Duration::from_secs(
+            self.runtime_config
+                .connect_timeout_secs
+                .try_into()
+                .unwrap_or(1),
+        );
+        let connect_result: Result<()> =
+            match tokio::time::timeout(connect_timeout, self.pool.connect(name)).await {
+                Ok(result) => result.map_err(Into::into),
+                Err(_) => Err(StoreError::Other(format!(
+                    "Service connection timed out: {name}, timeout={}s",
+                    self.runtime_config.connect_timeout_secs
+                ))),
+            };
+        if let Err(error) = connect_result {
             let message = format!("Connection failed: {error}");
             self.pool.disconnect(name).await.ok();
             self.registry

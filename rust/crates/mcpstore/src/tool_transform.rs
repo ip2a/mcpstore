@@ -1,0 +1,413 @@
+use std::collections::{HashMap, HashSet};
+
+use serde::{Deserialize, Serialize};
+
+use crate::cache::models::{ToolArgumentTransform, ToolTransformRule};
+use crate::store::prelude::*;
+
+const TOOL_TRANSFORMS_STATE_TYPE: &str = "tool_transforms";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct ToolTransformPatch {
+    pub display_name: Option<String>,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub arguments: Vec<ToolArgumentTransform>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AppliedToolTransform {
+    pub display_name: String,
+    pub description: String,
+    pub schema: serde_json::Value,
+}
+
+impl MCPStore {
+    pub async fn set_tool_transform(
+        &self,
+        service_name: &str,
+        tool_name: &str,
+        patch: ToolTransformPatch,
+    ) -> Result<ToolTransformRule> {
+        self.refresh_from_db_if_needed().await?;
+        let (service_global_name, original_tool_name) = self
+            .resolve_tool_transform_target(service_name, tool_name)
+            .await?;
+        Self::validate_tool_transform_patch(&patch)?;
+        let tool_global_name =
+            generate_tool_global_name(&service_global_name, &original_tool_name)?;
+        let loaded = self.load_tool_transform(&tool_global_name).await?;
+        let expected_version = loaded.as_ref().map(|rule| rule.version);
+        let now = Self::now_timestamp();
+        let mut rule = loaded.unwrap_or_else(|| ToolTransformRule {
+            tool_global_name: tool_global_name.clone(),
+            service_global_name: service_global_name.clone(),
+            original_tool_name: original_tool_name.clone(),
+            display_name: None,
+            description: None,
+            arguments: Vec::new(),
+            tags: Vec::new(),
+            enabled: true,
+            updated_at: now,
+            version: 0,
+        });
+
+        rule.service_global_name = service_global_name;
+        rule.original_tool_name = original_tool_name;
+        rule.display_name = patch.display_name.filter(|value| !value.trim().is_empty());
+        rule.description = patch.description;
+        rule.arguments = patch.arguments;
+        rule.tags = patch.tags;
+        rule.enabled = patch.enabled.unwrap_or(true);
+        rule.updated_at = now;
+        rule.version += 1;
+        self.store_tool_transform(&rule, expected_version).await?;
+        Ok(rule)
+    }
+
+    pub async fn get_tool_transform(
+        &self,
+        service_name: &str,
+        tool_name: &str,
+    ) -> Result<Option<ToolTransformRule>> {
+        self.refresh_from_db_if_needed().await?;
+        let (service_global_name, original_tool_name) = self
+            .resolve_tool_transform_target(service_name, tool_name)
+            .await?;
+        let tool_global_name =
+            generate_tool_global_name(&service_global_name, &original_tool_name)?;
+        self.load_tool_transform(&tool_global_name).await
+    }
+
+    pub async fn delete_tool_transform(&self, service_name: &str, tool_name: &str) -> Result<()> {
+        self.refresh_from_db_if_needed().await?;
+        let (service_global_name, original_tool_name) = self
+            .resolve_tool_transform_target(service_name, tool_name)
+            .await?;
+        let tool_global_name =
+            generate_tool_global_name(&service_global_name, &original_tool_name)?;
+        self.cache
+            .delete_state(TOOL_TRANSFORMS_STATE_TYPE, &tool_global_name)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_tool_transforms(&self) -> Result<Vec<ToolTransformRule>> {
+        self.refresh_from_db_if_needed().await?;
+        let mut rules = Vec::new();
+        for (key, value) in self
+            .cache
+            .get_all_states_async(TOOL_TRANSFORMS_STATE_TYPE)
+            .await?
+        {
+            let rule: ToolTransformRule = serde_json::from_value(value).map_err(|err| {
+                StoreError::Other(format!(
+                    "Tool transform deserialization failed for {key}: {err}"
+                ))
+            })?;
+            rules.push(rule);
+        }
+        rules.sort_by(|left, right| left.tool_global_name.cmp(&right.tool_global_name));
+        Ok(rules)
+    }
+
+    pub(crate) async fn apply_tool_transform(
+        &self,
+        service_global_name: &str,
+        original_tool_name: &str,
+        fallback_display_name: String,
+        description: String,
+        schema: serde_json::Value,
+    ) -> Result<AppliedToolTransform> {
+        let Some(rule) = self
+            .load_enabled_tool_transform(service_global_name, original_tool_name)
+            .await?
+        else {
+            return Ok(AppliedToolTransform {
+                display_name: fallback_display_name,
+                description,
+                schema,
+            });
+        };
+        Ok(AppliedToolTransform {
+            display_name: rule.display_name.unwrap_or(fallback_display_name),
+            description: rule.description.unwrap_or(description),
+            schema: Self::transform_input_schema(schema, &rule.arguments),
+        })
+    }
+
+    pub(crate) async fn resolve_transformed_tool_call(
+        &self,
+        service_name: &str,
+        tool_name: &str,
+        args: serde_json::Value,
+    ) -> Result<(String, String, serde_json::Value)> {
+        let service = self
+            .find_service(service_name)
+            .await
+            .ok_or_else(|| StoreError::ServiceNotFound(service_name.to_string()))?;
+        let original_tool_name = self
+            .resolve_original_tool_name_for_service(&service.name, tool_name)
+            .await?;
+        let args = match self
+            .load_enabled_tool_transform(&service.name, &original_tool_name)
+            .await?
+        {
+            Some(rule) => Self::transform_call_arguments(args, &rule.arguments),
+            None => args,
+        };
+        Ok((service.name, original_tool_name, args))
+    }
+
+    pub(crate) async fn transformed_available_tool(
+        &self,
+        service_global_name: &str,
+        original_tool_name: &str,
+        fallback_display_name: String,
+    ) -> Result<String> {
+        Ok(self
+            .load_enabled_tool_transform(service_global_name, original_tool_name)
+            .await?
+            .and_then(|rule| rule.display_name)
+            .unwrap_or(fallback_display_name))
+    }
+
+    async fn resolve_tool_transform_target(
+        &self,
+        service_name: &str,
+        tool_name: &str,
+    ) -> Result<(String, String)> {
+        let service = self
+            .find_service(service_name)
+            .await
+            .ok_or_else(|| StoreError::ServiceNotFound(service_name.to_string()))?;
+        let original_tool_name = self
+            .resolve_original_tool_name_for_service(&service.name, tool_name)
+            .await?;
+        Ok((service.name, original_tool_name))
+    }
+
+    async fn resolve_original_tool_name_for_service(
+        &self,
+        service_global_name: &str,
+        tool_name: &str,
+    ) -> Result<String> {
+        let service = self
+            .find_service(service_global_name)
+            .await
+            .ok_or_else(|| StoreError::ServiceNotFound(service_global_name.to_string()))?;
+        if service.tools.iter().any(|tool| tool.name == tool_name) {
+            return Ok(tool_name.to_string());
+        }
+        for tool in &service.tools {
+            if let Some(rule) = self
+                .load_enabled_tool_transform(&service.name, &tool.name)
+                .await?
+            {
+                if rule.display_name.as_deref() == Some(tool_name) {
+                    return Ok(tool.name.clone());
+                }
+            }
+        }
+        Err(StoreError::Other(format!(
+            "Tool '{tool_name}' not found in service '{service_global_name}'"
+        )))
+    }
+
+    async fn load_enabled_tool_transform(
+        &self,
+        service_global_name: &str,
+        original_tool_name: &str,
+    ) -> Result<Option<ToolTransformRule>> {
+        let tool_global_name = generate_tool_global_name(service_global_name, original_tool_name)?;
+        Ok(self
+            .load_tool_transform(&tool_global_name)
+            .await?
+            .filter(|rule| rule.enabled))
+    }
+
+    async fn load_tool_transform(
+        &self,
+        tool_global_name: &str,
+    ) -> Result<Option<ToolTransformRule>> {
+        self.cache
+            .get_state(TOOL_TRANSFORMS_STATE_TYPE, tool_global_name)
+            .await?
+            .map(|value| {
+                serde_json::from_value(value).map_err(|err| {
+                    StoreError::Other(format!("Tool transform deserialization failed: {err}"))
+                })
+            })
+            .transpose()
+    }
+
+    async fn store_tool_transform(
+        &self,
+        rule: &ToolTransformRule,
+        expected_version: Option<u64>,
+    ) -> Result<()> {
+        self.cache
+            .compare_and_put_state(
+                TOOL_TRANSFORMS_STATE_TYPE,
+                &rule.tool_global_name,
+                expected_version,
+                serde_json::to_value(rule).map_err(|err| StoreError::Other(err.to_string()))?,
+            )
+            .await?;
+        Ok(())
+    }
+
+    fn validate_tool_transform_patch(patch: &ToolTransformPatch) -> Result<()> {
+        let mut original_names = HashSet::new();
+        let mut exposed_names = HashSet::new();
+        for arg in &patch.arguments {
+            if arg.original_name.trim().is_empty() {
+                return Err(StoreError::Other(
+                    "Tool transform argument original_name cannot be empty".to_string(),
+                ));
+            }
+            if !original_names.insert(arg.original_name.clone()) {
+                return Err(StoreError::Other(format!(
+                    "Duplicate tool transform argument: {}",
+                    arg.original_name
+                )));
+            }
+            if let Some(new_name) = arg.new_name.as_deref() {
+                if new_name.trim().is_empty() {
+                    return Err(StoreError::Other(
+                        "Tool transform argument new_name cannot be empty".to_string(),
+                    ));
+                }
+                if !arg.hidden && !exposed_names.insert(new_name.to_string()) {
+                    return Err(StoreError::Other(format!(
+                        "Duplicate exposed tool argument: {new_name}"
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn transform_input_schema(
+        mut schema: serde_json::Value,
+        arguments: &[ToolArgumentTransform],
+    ) -> serde_json::Value {
+        let transforms = arguments
+            .iter()
+            .map(|arg| (arg.original_name.as_str(), arg))
+            .collect::<HashMap<_, _>>();
+        if let Some(properties) = schema
+            .get_mut("properties")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            let original = std::mem::take(properties);
+            for (name, mut property) in original {
+                let Some(transform) = transforms.get(name.as_str()) else {
+                    properties.insert(name, property);
+                    continue;
+                };
+                if transform.hidden {
+                    continue;
+                }
+                if let Some(description) = transform.description.as_ref() {
+                    if let serde_json::Value::Object(property_object) = &mut property {
+                        property_object.insert(
+                            "description".to_string(),
+                            serde_json::Value::String(description.clone()),
+                        );
+                    }
+                }
+                properties.insert(transform.new_name.clone().unwrap_or(name), property);
+            }
+        }
+        if let Some(required) = schema
+            .get_mut("required")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            let mut rewritten = Vec::new();
+            for value in std::mem::take(required) {
+                let Some(name) = value.as_str() else {
+                    rewritten.push(value);
+                    continue;
+                };
+                match transforms.get(name) {
+                    Some(transform) if transform.hidden => {}
+                    Some(transform) => rewritten.push(serde_json::Value::String(
+                        transform
+                            .new_name
+                            .clone()
+                            .unwrap_or_else(|| name.to_string()),
+                    )),
+                    None => rewritten.push(value),
+                }
+            }
+            *required = rewritten;
+        }
+        schema
+    }
+
+    fn transform_call_arguments(
+        args: serde_json::Value,
+        arguments: &[ToolArgumentTransform],
+    ) -> serde_json::Value {
+        let serde_json::Value::Object(mut input) = args else {
+            return args;
+        };
+        for transform in arguments {
+            if transform.hidden {
+                input.remove(&transform.original_name);
+                if let Some(new_name) = transform.new_name.as_deref() {
+                    input.remove(new_name);
+                }
+                if let Some(default_value) = transform.default_value.clone() {
+                    input.insert(transform.original_name.clone(), default_value);
+                }
+                continue;
+            }
+            if let Some(new_name) = transform.new_name.as_deref() {
+                if let Some(value) = input.remove(new_name) {
+                    input.insert(transform.original_name.clone(), value);
+                }
+            }
+        }
+        serde_json::Value::Object(input)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transform_call_arguments_renames_and_injects_hidden_defaults() {
+        let args = serde_json::json!({"message": "hi", "debug": true, "extra": 1});
+        let transformed = MCPStore::transform_call_arguments(
+            args,
+            &[
+                ToolArgumentTransform {
+                    original_name: "text".to_string(),
+                    new_name: Some("message".to_string()),
+                    hidden: false,
+                    default_value: None,
+                    description: None,
+                },
+                ToolArgumentTransform {
+                    original_name: "debug".to_string(),
+                    new_name: None,
+                    hidden: true,
+                    default_value: Some(serde_json::json!(false)),
+                    description: None,
+                },
+            ],
+        );
+
+        assert_eq!(
+            transformed,
+            serde_json::json!({"text": "hi", "debug": false, "extra": 1})
+        );
+    }
+}

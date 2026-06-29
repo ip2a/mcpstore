@@ -79,6 +79,21 @@ impl MCPStore {
         .await
     }
 
+    pub(crate) async fn queue_service_refresh_tools_request(
+        &self,
+        name: &str,
+        force_refresh: bool,
+    ) -> Result<()> {
+        self.queue_control_request(
+            "ServiceRefreshToolsRequested",
+            serde_json::json!({
+                "service_name": name,
+                "force_refresh": force_refresh,
+            }),
+        )
+        .await
+    }
+
     pub(crate) async fn queue_control_request(
         &self,
         request_type: &str,

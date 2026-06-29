@@ -57,6 +57,15 @@ impl MCPStore {
                 let service_name = request::required_string(payload, "service_name")?;
                 self.connect_service_internal(&service_name, false).await?;
             }
+            "ServiceRefreshToolsRequested" => {
+                let service_name = request::required_string(payload, "service_name")?;
+                let force_refresh = payload
+                    .get("force_refresh")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
+                self.refresh_service_tools_with_diff(&service_name, force_refresh)
+                    .await?;
+            }
             "ServiceDisconnectRequested" => {
                 let service_name = request::required_string(payload, "service_name")?;
                 self.disconnect_service(&service_name).await?;

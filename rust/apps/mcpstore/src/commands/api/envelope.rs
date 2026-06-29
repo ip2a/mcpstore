@@ -92,6 +92,15 @@ impl ApiError {
         )
     }
 
+    pub(super) fn not_found(
+        code: impl Into<String>,
+        message: impl Into<String>,
+        field: Option<&str>,
+        details: Option<Value>,
+    ) -> Self {
+        Self::new(StatusCode::NOT_FOUND, code, message, field, details)
+    }
+
     pub(super) fn from_store(error: StoreError) -> Self {
         match error {
             StoreError::ServiceNotFound(name) => Self::new(
@@ -121,6 +130,20 @@ impl ApiError {
                 error.to_string(),
                 None,
                 Some(json!({ "error_type": "CacheError" })),
+            ),
+            StoreError::Other(message) if message.contains("Session not found") => Self::new(
+                StatusCode::NOT_FOUND,
+                "SESSION_NOT_FOUND",
+                message,
+                Some("session_key"),
+                None,
+            ),
+            StoreError::Other(message) if message.contains("Session is not active") => Self::new(
+                StatusCode::CONFLICT,
+                "SESSION_NOT_ACTIVE",
+                message,
+                Some("session_key"),
+                None,
             ),
             StoreError::Other(message) => Self::new(
                 StatusCode::INTERNAL_SERVER_ERROR,

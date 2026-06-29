@@ -1,5 +1,6 @@
 use crate::cache::models::HealthStatus;
 use crate::registry::ServiceEntry;
+use serde::Serialize;
 
 #[derive(Debug, Clone)]
 pub struct ScopedServiceEntry {
@@ -9,7 +10,7 @@ pub struct ScopedServiceEntry {
     pub client_id: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ScopedToolEntry {
     pub name: String,
     pub original_name: String,
@@ -23,7 +24,7 @@ pub struct ScopedToolEntry {
     pub client_id: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ScopedServiceHealth {
     pub service_name: String,
     pub health_status: HealthStatus,

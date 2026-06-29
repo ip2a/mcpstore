@@ -29,6 +29,8 @@ pub enum CacheError {
     StoreError(String),
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+    #[error("cache write conflict: {0}")]
+    Conflict(String),
     #[error("{0}")]
     Validation(String),
 }

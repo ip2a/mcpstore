@@ -35,3 +35,9 @@ class AutoGenAdapter:
             attach_signature_from_schema(fn, args_schema)
             tools.append(fn)
         return tools
+
+    def get_functions(self) -> List[Callable[..., Any]]:
+        return self.list_tools()
+
+    async def get_functions_async(self) -> List[Callable[..., Any]]:
+        return await self.list_tools_async()

@@ -1,6 +1,7 @@
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rmcp::{
     model::{
@@ -14,6 +15,8 @@ use rmcp::{
     ServiceExt,
 };
 use tokio::io::AsyncReadExt;
+
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -75,17 +78,34 @@ fn assert_success(output: &Output, step: &str) -> String {
     String::from_utf8_lossy(&output.stdout).to_string()
 }
 
+async fn run_test_with_timeout<F>(name: &str, future: F) -> TestResult
+where
+    F: Future<Output = TestResult>,
+{
+    tokio::time::timeout(Duration::from_secs(20), future)
+        .await
+        .map_err(|_| format!("{name} timed out after 20s"))?
+}
+
 #[tokio::test]
-#[ignore = "integration test: stdio transport environment variance causes hangs in debug builds"]
-async fn mcp_server_command_exposes_store_tools_over_stdio(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn mcp_server_command_exposes_store_tools_over_stdio() -> TestResult {
+    run_test_with_timeout(
+        "mcp_server_command_exposes_store_tools_over_stdio",
+        mcp_server_command_exposes_store_tools_over_stdio_inner(),
+    )
+    .await
+}
+
+async fn mcp_server_command_exposes_store_tools_over_stdio_inner() -> TestResult {
     let repo_root = repo_root();
     let temp_dir = unique_temp_dir();
     let config_path = temp_dir.join("mcp.json");
     let pythonpath = format!(
         "{}:{}",
         repo_root.join("python/src").display(),
-        repo_root.join("rust/apps/cli/tests/fixtures").display()
+        repo_root
+            .join("rust/apps/mcpstore/tests/fixtures")
+            .display()
     );
     let fixture = fixture_script();
 
@@ -197,16 +217,24 @@ async fn mcp_server_command_exposes_store_tools_over_stdio(
 }
 
 #[tokio::test]
-#[ignore = "integration test: stdio transport environment variance causes hangs in debug builds"]
-async fn mcp_server_command_exposes_agent_scope_over_stdio(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn mcp_server_command_exposes_agent_scope_over_stdio() -> TestResult {
+    run_test_with_timeout(
+        "mcp_server_command_exposes_agent_scope_over_stdio",
+        mcp_server_command_exposes_agent_scope_over_stdio_inner(),
+    )
+    .await
+}
+
+async fn mcp_server_command_exposes_agent_scope_over_stdio_inner() -> TestResult {
     let repo_root = repo_root();
     let temp_dir = unique_temp_dir();
     let config_path = temp_dir.join("mcp.json");
     let pythonpath = format!(
         "{}:{}",
         repo_root.join("python/src").display(),
-        repo_root.join("rust/apps/cli/tests/fixtures").display()
+        repo_root
+            .join("rust/apps/mcpstore/tests/fixtures")
+            .display()
     );
     let fixture = fixture_script();
 
@@ -302,16 +330,24 @@ async fn mcp_server_command_exposes_agent_scope_over_stdio(
 }
 
 #[tokio::test]
-#[ignore = "integration test: streamable-http transport requires running server; flaky in debug builds"]
-async fn mcp_server_command_exposes_store_tools_over_streamable_http(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn mcp_server_command_exposes_store_tools_over_streamable_http() -> TestResult {
+    run_test_with_timeout(
+        "mcp_server_command_exposes_store_tools_over_streamable_http",
+        mcp_server_command_exposes_store_tools_over_streamable_http_inner(),
+    )
+    .await
+}
+
+async fn mcp_server_command_exposes_store_tools_over_streamable_http_inner() -> TestResult {
     let repo_root = repo_root();
     let temp_dir = unique_temp_dir();
     let config_path = temp_dir.join("mcp.json");
     let pythonpath = format!(
         "{}:{}",
         repo_root.join("python/src").display(),
-        repo_root.join("rust/apps/cli/tests/fixtures").display()
+        repo_root
+            .join("rust/apps/mcpstore/tests/fixtures")
+            .display()
     );
     let fixture = fixture_script();
     let port = reserve_local_port();
@@ -347,6 +383,7 @@ async fn mcp_server_command_exposes_store_tools_over_streamable_http(
         .arg("--config-path")
         .arg(config_path.display().to_string())
         .current_dir(rust_root())
+        .kill_on_drop(true)
         .stderr(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
         .spawn()?;

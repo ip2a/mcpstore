@@ -7,3 +7,4 @@ pub(crate) mod mutation;
 pub(crate) mod prompts;
 pub(crate) mod resources;
 pub(crate) mod session;
+pub(crate) mod tool_changes;

@@ -245,9 +245,10 @@ def _json_schema_type(annotation: Any) -> str:
 
 def _serve_stdio(app: FastMCP) -> None:
     while True:
-        request = _read_message()
-        if request is None:
+        incoming = _read_message()
+        if incoming is None:
             return
+        request, framing = incoming
 
         if "id" not in request:
             continue
@@ -260,7 +261,8 @@ def _serve_stdio(app: FastMCP) -> None:
                     "jsonrpc": "2.0",
                     "id": request_id,
                     "result": result,
-                }
+                },
+                framing,
             )
         except Exception as error:  # noqa: BLE001 - 测试夹具直接返回协议错误
             _write_message(
@@ -271,12 +273,25 @@ def _serve_stdio(app: FastMCP) -> None:
                         "code": -32603,
                         "message": str(error),
                     },
-                }
+                },
+                framing,
             )
 
 
-def _read_message() -> dict[str, Any] | None:
+def _read_message() -> tuple[dict[str, Any], str] | None:
     headers: dict[str, str] = {}
+    first_line = sys.stdin.buffer.readline()
+    if not first_line:
+        return None
+    stripped = first_line.strip()
+    if stripped.startswith(b"{"):
+        return json.loads(stripped.decode("utf-8")), "json-line"
+
+    text = first_line.decode("utf-8").strip()
+    if ":" in text:
+        key, value = text.split(":", 1)
+        headers[key.strip().lower()] = value.strip()
+
     while True:
         line = sys.stdin.buffer.readline()
         if not line:
@@ -291,11 +306,16 @@ def _read_message() -> dict[str, Any] | None:
 
     content_length = int(headers["content-length"])
     payload = sys.stdin.buffer.read(content_length)
-    return json.loads(payload.decode("utf-8"))
+    return json.loads(payload.decode("utf-8")), "content-length"
 
 
-def _write_message(message: dict[str, Any]) -> None:
+def _write_message(message: dict[str, Any], framing: str) -> None:
     payload = json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if framing == "json-line":
+        sys.stdout.buffer.write(payload + b"\n")
+        sys.stdout.buffer.flush()
+        return
+
     sys.stdout.buffer.write(f"Content-Length: {len(payload)}\r\n\r\n".encode("ascii"))
     sys.stdout.buffer.write(payload)
     sys.stdout.buffer.flush()

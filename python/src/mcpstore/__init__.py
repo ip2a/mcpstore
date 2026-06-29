@@ -21,6 +21,16 @@ def __getattr__(name: str):
         })
         return globals()[name]
 
+    if name in ("MCPStoreContext", "Session", "SessionContext"):
+        from mcpstore.core.context import MCPStoreContext, Session, SessionContext
+
+        globals().update({
+            "MCPStoreContext": MCPStoreContext,
+            "Session": Session,
+            "SessionContext": SessionContext,
+        })
+        return globals()[name]
+
     # Cache config classes
     if name in ("MemoryConfig", "RedisConfig", "OpenKeyvMemoryConfig"):
         from mcpstore.config import (
@@ -41,6 +51,33 @@ def __getattr__(name: str):
 
         globals()["PerspectiveResolver"] = PerspectiveResolver
         return PerspectiveResolver
+
+    # Compatibility models and helpers for the Python SDK surface. Store
+    # behavior remains delegated to the Rust/PyO3 core.
+    models = {
+        "APIResponse",
+        "ClientIDGenerator",
+        "ErrorCode",
+        "ErrorDetail",
+        "MCPStoreException",
+        "Pagination",
+        "ResponseBuilder",
+        "ResponseMeta",
+        "ServiceConnectionState",
+        "ServiceInfo",
+        "ToolExecutionError",
+        "ToolExecutionRequest",
+        "ToolInfo",
+        "ServiceNotFoundException",
+        "ValidationException",
+        "timed_response",
+    }
+    if name in models:
+        from mcpstore.core import models as core_models
+
+        value = getattr(core_models, name)
+        globals()[name] = value
+        return value
 
     # Adapter common utilities
     if name in ("call_tool_response_helper", "ToolCallView"):
@@ -77,6 +114,9 @@ def __getattr__(name: str):
 __all__ = [
     # Core Classes
     "MCPStore",
+    "MCPStoreContext",
+    "Session",
+    "SessionContext",
     "LoggingConfig",
 
     # Cache Config
@@ -86,6 +126,22 @@ __all__ = [
 
     # Utilities
     "PerspectiveResolver",
+    "ServiceInfo",
+    "ServiceConnectionState",
+    "ToolInfo",
+    "ToolExecutionRequest",
+    "APIResponse",
+    "ErrorDetail",
+    "ResponseMeta",
+    "Pagination",
+    "ResponseBuilder",
+    "timed_response",
+    "ErrorCode",
+    "ClientIDGenerator",
+    "MCPStoreException",
+    "ServiceNotFoundException",
+    "ToolExecutionError",
+    "ValidationException",
 
     # Adapter Utilities
     "call_tool_response_helper",
