@@ -241,6 +241,11 @@ async fn execute_component(
             _ => {}
         }
     }
+    if !contains_header(&request_headers, "accept") {
+        if let Some(accept) = response_accept_header(component) {
+            request_headers.insert("accept".to_string(), accept);
+        }
+    }
 
     let url = build_url(&import.base_url, &path)?;
     let method =
@@ -533,12 +538,48 @@ fn declared_response_mime_type(component: &OpenApiComponent) -> String {
         .unwrap_or_else(|| "application/json".to_string())
 }
 
-fn response_mime_type(response: Option<&Value>) -> Option<String> {
-    response?
-        .get("content")?
-        .as_object()?
+fn response_accept_header(component: &OpenApiComponent) -> Option<String> {
+    let mut media_types = Vec::new();
+    for status in ["200", "201", "202", "204", "default"] {
+        collect_supported_response_media_types(
+            component.endpoint.responses.get(status),
+            &mut media_types,
+        );
+    }
+    for response in component.endpoint.responses.values() {
+        collect_supported_response_media_types(Some(response), &mut media_types);
+    }
+    (!media_types.is_empty()).then(|| media_types.join(", "))
+}
+
+fn collect_supported_response_media_types(response: Option<&Value>, media_types: &mut Vec<String>) {
+    let Some(content) = response
+        .and_then(|response| response.get("content"))
+        .and_then(Value::as_object)
+    else {
+        return;
+    };
+    for media_type in content
         .keys()
-        .find_map(|mime_type| normalize_mime_type(mime_type))
+        .filter_map(|media_type| normalize_mime_type(media_type))
+    {
+        if is_supported_response_mime_type(&media_type) && !media_types.contains(&media_type) {
+            media_types.push(media_type);
+        }
+    }
+}
+
+fn response_mime_type(response: Option<&Value>) -> Option<String> {
+    let content = response?.get("content")?.as_object()?;
+    content
+        .keys()
+        .filter_map(|mime_type| normalize_mime_type(mime_type))
+        .find(is_supported_response_mime_type)
+        .or_else(|| {
+            content
+                .keys()
+                .find_map(|mime_type| normalize_mime_type(mime_type))
+        })
 }
 
 fn normalize_mime_type(value: &str) -> Option<String> {
@@ -548,6 +589,10 @@ fn normalize_mime_type(value: &str) -> Option<String> {
 
 fn is_json_mime_type(mime_type: &str) -> bool {
     mime_type == "application/json" || mime_type.ends_with("+json")
+}
+
+fn is_supported_response_mime_type(mime_type: &String) -> bool {
+    is_json_mime_type(mime_type) || mime_type.starts_with("text/")
 }
 
 fn body_as_fields(body: &Value) -> Result<Vec<(String, String)>> {
