@@ -32,6 +32,7 @@ redis = { workspace = true }
 http = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
 base64 = "0.22"
+regex = "1.11"
 
 [dev-dependencies]
 tokio-test = "0.4"

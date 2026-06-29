@@ -438,10 +438,87 @@ fn validate_schema_value(schema: &Value, value: &Value, path: &str, errors: &mut
             validate_binary_file_argument(value, path, errors)
         }
         "string" if !value.is_string() => errors.push(format!("{path} must be a string")),
+        "string" => validate_string_constraints(schema, value, path, errors),
         "number" if !value.is_number() => errors.push(format!("{path} must be a number")),
+        "number" => validate_numeric_constraints(schema, value, path, errors),
         "integer" if !is_json_integer(value) => errors.push(format!("{path} must be an integer")),
+        "integer" => validate_numeric_constraints(schema, value, path, errors),
         "boolean" if !value.is_boolean() => errors.push(format!("{path} must be a boolean")),
         _ => {}
+    }
+}
+
+fn validate_string_constraints(
+    schema: &Value,
+    value: &Value,
+    path: &str,
+    errors: &mut Vec<String>,
+) {
+    let Some(text) = value.as_str() else {
+        return;
+    };
+    let length = text.chars().count();
+    if let Some(min_length) = schema.get("minLength").and_then(Value::as_u64) {
+        if length < min_length as usize {
+            errors.push(format!("{path} length must be at least {min_length}"));
+        }
+    }
+    if let Some(max_length) = schema.get("maxLength").and_then(Value::as_u64) {
+        if length > max_length as usize {
+            errors.push(format!("{path} length must be at most {max_length}"));
+        }
+    }
+    if let Some(pattern) = schema.get("pattern").and_then(Value::as_str) {
+        match regex::Regex::new(pattern) {
+            Ok(regex) if !regex.is_match(text) => {
+                errors.push(format!("{path} must match pattern {pattern}"));
+            }
+            Ok(_) => {}
+            Err(err) => errors.push(format!("{path} has invalid pattern {pattern}: {err}")),
+        }
+    }
+}
+
+fn validate_numeric_constraints(
+    schema: &Value,
+    value: &Value,
+    path: &str,
+    errors: &mut Vec<String>,
+) {
+    let Some(number) = value.as_f64() else {
+        return;
+    };
+    let has_boolean_exclusive_minimum = schema
+        .get("exclusiveMinimum")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let has_boolean_exclusive_maximum = schema
+        .get("exclusiveMaximum")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if !has_boolean_exclusive_minimum {
+        if let Some(minimum) = schema_number(schema, "minimum") {
+            if number < minimum {
+                errors.push(format!("{path} must be greater than or equal to {minimum}"));
+            }
+        }
+    }
+    if !has_boolean_exclusive_maximum {
+        if let Some(maximum) = schema_number(schema, "maximum") {
+            if number > maximum {
+                errors.push(format!("{path} must be less than or equal to {maximum}"));
+            }
+        }
+    }
+    if let Some(exclusive_minimum) = exclusive_limit(schema, "exclusiveMinimum") {
+        if number <= exclusive_minimum {
+            errors.push(format!("{path} must be greater than {exclusive_minimum}"));
+        }
+    }
+    if let Some(exclusive_maximum) = exclusive_limit(schema, "exclusiveMaximum") {
+        if number >= exclusive_maximum {
+            errors.push(format!("{path} must be less than {exclusive_maximum}"));
+        }
     }
 }
 
@@ -475,6 +552,16 @@ fn validate_array_schema(schema: &Value, value: &Value, path: &str, errors: &mut
         errors.push(format!("{path} must be an array"));
         return;
     };
+    if let Some(min_items) = schema.get("minItems").and_then(Value::as_u64) {
+        if items.len() < min_items as usize {
+            errors.push(format!("{path} must contain at least {min_items} item(s)"));
+        }
+    }
+    if let Some(max_items) = schema.get("maxItems").and_then(Value::as_u64) {
+        if items.len() > max_items as usize {
+            errors.push(format!("{path} must contain at most {max_items} item(s)"));
+        }
+    }
     let Some(item_schema) = schema.get("items") else {
         return;
     };
@@ -506,6 +593,19 @@ fn schema_type(schema: &Value) -> Option<&str> {
     match schema.get("type")? {
         Value::String(schema_type) => Some(schema_type),
         Value::Array(types) => types.iter().find_map(Value::as_str),
+        _ => None,
+    }
+}
+
+fn schema_number(schema: &Value, name: &str) -> Option<f64> {
+    schema.get(name)?.as_f64()
+}
+
+fn exclusive_limit(schema: &Value, name: &str) -> Option<f64> {
+    match schema.get(name)? {
+        Value::Bool(true) if name == "exclusiveMinimum" => schema_number(schema, "minimum"),
+        Value::Bool(true) if name == "exclusiveMaximum" => schema_number(schema, "maximum"),
+        Value::Number(number) => number.as_f64(),
         _ => None,
     }
 }
