@@ -3,6 +3,8 @@ use serde_json::{Map, Value};
 
 use crate::{Result, StoreError};
 
+const MAX_LOCAL_REF_DEPTH: usize = 32;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum OpenApiComponentType {
@@ -163,6 +165,7 @@ fn analyze_endpoints(spec: &Value) -> Result<Vec<OpenApiEndpoint>> {
         let Some(operations) = path_item.as_object() else {
             continue;
         };
+        let path_parameters = resolve_parameter_list(spec, operations.get("parameters"))?;
         for (method, operation) in operations {
             let method_upper = method.to_ascii_uppercase();
             if !matches!(
@@ -177,6 +180,7 @@ fn analyze_endpoints(spec: &Value) -> Result<Vec<OpenApiEndpoint>> {
                 ))
             })?;
             let security_defined = operation.contains_key("security");
+            let operation_parameters = resolve_parameter_list(spec, operation.get("parameters"))?;
             endpoints.push(OpenApiEndpoint {
                 path: path.clone(),
                 method: method_upper,
@@ -202,16 +206,13 @@ fn analyze_endpoints(spec: &Value) -> Result<Vec<OpenApiEndpoint>> {
                             .collect()
                     })
                     .unwrap_or_default(),
-                parameters: operation
-                    .get("parameters")
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default(),
-                request_body: operation.get("requestBody").cloned(),
+                parameters: merge_parameters(path_parameters.clone(), operation_parameters),
+                request_body: resolve_optional_value(spec, operation.get("requestBody"))?,
                 responses: operation
                     .get("responses")
                     .and_then(Value::as_object)
-                    .cloned()
+                    .map(|responses| resolve_map_values(spec, responses))
+                    .transpose()?
                     .unwrap_or_default(),
                 security: operation
                     .get("security")
@@ -223,6 +224,105 @@ fn analyze_endpoints(spec: &Value) -> Result<Vec<OpenApiEndpoint>> {
         }
     }
     Ok(endpoints)
+}
+
+fn resolve_parameter_list(spec: &Value, parameters: Option<&Value>) -> Result<Vec<Value>> {
+    let Some(parameters) = parameters.and_then(Value::as_array) else {
+        return Ok(Vec::new());
+    };
+    parameters
+        .iter()
+        .map(|parameter| resolve_local_refs(spec, parameter, 0))
+        .collect()
+}
+
+fn merge_parameters(path_parameters: Vec<Value>, operation_parameters: Vec<Value>) -> Vec<Value> {
+    let mut parameters = path_parameters;
+    for operation_parameter in operation_parameters {
+        if let Some(operation_key) = parameter_key(&operation_parameter) {
+            if let Some(existing) = parameters
+                .iter()
+                .position(|parameter| parameter_key(parameter).as_ref() == Some(&operation_key))
+            {
+                parameters[existing] = operation_parameter;
+                continue;
+            }
+        }
+        parameters.push(operation_parameter);
+    }
+    parameters
+}
+
+fn parameter_key(parameter: &Value) -> Option<(String, String)> {
+    let parameter = parameter.as_object()?;
+    Some((
+        parameter.get("name")?.as_str()?.to_string(),
+        parameter.get("in")?.as_str()?.to_string(),
+    ))
+}
+
+fn resolve_optional_value(spec: &Value, value: Option<&Value>) -> Result<Option<Value>> {
+    value
+        .map(|value| resolve_local_refs(spec, value, 0))
+        .transpose()
+}
+
+fn resolve_map_values(spec: &Value, values: &Map<String, Value>) -> Result<Map<String, Value>> {
+    values
+        .iter()
+        .map(|(key, value)| Ok((key.clone(), resolve_local_refs(spec, value, 0)?)))
+        .collect()
+}
+
+fn resolve_local_refs(spec: &Value, value: &Value, depth: usize) -> Result<Value> {
+    if depth > MAX_LOCAL_REF_DEPTH {
+        return Err(StoreError::Other(
+            "OpenAPI local $ref resolution exceeded maximum depth".to_string(),
+        ));
+    }
+
+    match value {
+        Value::Object(map) => {
+            if let Some(reference) = map.get("$ref").and_then(Value::as_str) {
+                let mut resolved = resolve_local_ref(spec, reference, depth + 1)?;
+                if let Value::Object(resolved_map) = &mut resolved {
+                    for (key, sibling) in map.iter().filter(|(key, _)| key.as_str() != "$ref") {
+                        resolved_map
+                            .insert(key.clone(), resolve_local_refs(spec, sibling, depth + 1)?);
+                    }
+                }
+                return Ok(resolved);
+            }
+
+            map.iter()
+                .map(|(key, value)| Ok((key.clone(), resolve_local_refs(spec, value, depth + 1)?)))
+                .collect::<Result<Map<String, Value>>>()
+                .map(Value::Object)
+        }
+        Value::Array(items) => items
+            .iter()
+            .map(|item| resolve_local_refs(spec, item, depth + 1))
+            .collect::<Result<Vec<_>>>()
+            .map(Value::Array),
+        _ => Ok(value.clone()),
+    }
+}
+
+fn resolve_local_ref(spec: &Value, reference: &str, depth: usize) -> Result<Value> {
+    let Some(pointer) = reference.strip_prefix('#') else {
+        return Err(StoreError::Other(format!(
+            "Unsupported OpenAPI $ref outside current document: {reference}"
+        )));
+    };
+    if !pointer.starts_with('/') {
+        return Err(StoreError::Other(format!(
+            "Invalid OpenAPI local $ref: {reference}"
+        )));
+    }
+    let target = spec.pointer(pointer).ok_or_else(|| {
+        StoreError::Other(format!("OpenAPI local $ref target not found: {reference}"))
+    })?;
+    resolve_local_refs(spec, target, depth)
 }
 
 fn is_false(value: &bool) -> bool {
@@ -449,6 +549,99 @@ mod tests {
         assert_eq!(
             templated.input_schema["required"],
             serde_json::json!(["id"])
+        );
+    }
+
+    #[test]
+    fn analyzes_path_parameters_and_local_refs() {
+        let spec = serde_json::json!({
+            "openapi": "3.0.0",
+            "info": { "title": "Demo", "version": "1.0" },
+            "servers": [{ "url": "https://api.example.test" }],
+            "components": {
+                "parameters": {
+                    "TenantId": {
+                        "name": "tenant_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "$ref": "#/components/schemas/TenantId" }
+                    },
+                    "Verbose": {
+                        "name": "verbose",
+                        "in": "query",
+                        "schema": { "type": "boolean" }
+                    }
+                },
+                "requestBodies": {
+                    "CreateItem": {
+                        "required": true,
+                        "content": {
+                            "application/json": {
+                                "schema": { "$ref": "#/components/schemas/NewItem" }
+                            }
+                        }
+                    }
+                },
+                "schemas": {
+                    "TenantId": { "type": "string", "description": "tenant" },
+                    "NewItem": {
+                        "type": "object",
+                        "properties": { "name": { "type": "string" } },
+                        "required": ["name"]
+                    }
+                }
+            },
+            "paths": {
+                "/tenants/{tenant_id}/items": {
+                    "parameters": [{ "$ref": "#/components/parameters/TenantId" }],
+                    "get": {
+                        "operationId": "listTenantItems",
+                        "parameters": [{ "$ref": "#/components/parameters/Verbose" }]
+                    },
+                    "post": {
+                        "operationId": "createTenantItem",
+                        "parameters": [{ "name": "tenant_id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+                        "requestBody": { "$ref": "#/components/requestBodies/CreateItem" }
+                    }
+                }
+            }
+        });
+
+        let result = analyze_openapi_spec("tenant", "memory://spec", spec).unwrap();
+        let list = result
+            .components
+            .iter()
+            .find(|component| component.name == "listTenantItems")
+            .unwrap();
+        assert_eq!(
+            list.input_schema["properties"]["tenant_id"],
+            serde_json::json!({
+                "type": "string",
+                "description": "tenant",
+                "x_mcpstore_parameter_in": "path"
+            })
+        );
+        assert_eq!(
+            list.input_schema["properties"]["verbose"]["type"],
+            serde_json::json!("boolean")
+        );
+
+        let create = result
+            .components
+            .iter()
+            .find(|component| component.name == "createTenantItem")
+            .unwrap();
+        assert_eq!(
+            create.input_schema["properties"]["tenant_id"]["type"],
+            serde_json::json!("integer")
+        );
+        assert_eq!(
+            create.input_schema["properties"]["body"]["properties"]["name"]["type"],
+            serde_json::json!("string")
+        );
+        assert_eq!(
+            create.input_schema["required"],
+            serde_json::json!(["tenant_id", "body"])
         );
     }
 }
