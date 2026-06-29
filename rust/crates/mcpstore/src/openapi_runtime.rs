@@ -6,6 +6,7 @@ use crate::{Result, StoreError};
 use base64::Engine;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
+use std::path::Path;
 
 pub fn openapi_tool_infos(import: &OpenApiImportResult) -> Vec<crate::registry::ToolInfo> {
     import
@@ -268,7 +269,7 @@ async fn execute_component(
         request = request.header(name, value);
     }
     if let Some(body) = args.get("body") {
-        request = apply_request_body(request, component, body)?;
+        request = apply_request_body(request, component, body).await?;
     }
 
     let response = request
@@ -411,8 +412,14 @@ fn validate_schema_value(schema: &Value, value: &Value, path: &str, errors: &mut
     };
 
     match schema_type {
+        "object" if is_file_argument_schema(schema) => {
+            validate_binary_file_argument(value, path, errors)
+        }
         "object" => validate_object_schema(schema, value, path, errors),
         "array" => validate_array_schema(schema, value, path, errors),
+        "string" if is_binary_string_schema(schema) => {
+            validate_binary_file_argument(value, path, errors)
+        }
         "string" if !value.is_string() => errors.push(format!("{path} must be a string")),
         "number" if !value.is_number() => errors.push(format!("{path} must be a number")),
         "integer" if !is_json_integer(value) => errors.push(format!("{path} must be an integer")),
@@ -459,6 +466,25 @@ fn validate_array_schema(schema: &Value, value: &Value, path: &str, errors: &mut
     }
 }
 
+fn validate_binary_file_argument(value: &Value, path: &str, errors: &mut Vec<String>) {
+    let Some(object) = value.as_object() else {
+        errors.push(format!("{path} must be a file object with bytes or path"));
+        return;
+    };
+    let bytes = object.get("bytes").filter(|value| value.is_string());
+    let file_path = object.get("path").filter(|value| value.is_string());
+    if bytes.is_some() == file_path.is_some() {
+        errors.push(format!(
+            "{path} must provide exactly one string field: bytes or path"
+        ));
+    }
+    for name in ["filename", "mimeType", "mime_type"] {
+        if object.get(name).is_some_and(|value| !value.is_string()) {
+            errors.push(format!("{path}.{name} must be a string"));
+        }
+    }
+}
+
 fn schema_type(schema: &Value) -> Option<&str> {
     match schema.get("type")? {
         Value::String(schema_type) => Some(schema_type),
@@ -483,7 +509,7 @@ fn is_json_integer(value: &Value) -> bool {
     value.as_i64().is_some() || value.as_u64().is_some()
 }
 
-fn apply_request_body(
+async fn apply_request_body(
     request: reqwest::RequestBuilder,
     component: &OpenApiComponent,
     body: &Value,
@@ -494,14 +520,7 @@ fn apply_request_body(
     match media_type.as_str() {
         media_type if media_type.contains("json") => Ok(request.json(body)),
         "application/x-www-form-urlencoded" => Ok(request.form(&body_as_fields(body)?)),
-        "multipart/form-data" => {
-            reject_multipart_binary_fields(component)?;
-            let mut form = reqwest::multipart::Form::new();
-            for (name, value) in body_as_fields(body)? {
-                form = form.text(name, value);
-            }
-            Ok(request.multipart(form))
-        }
+        "multipart/form-data" => Ok(request.multipart(multipart_form(component, body).await?)),
         "text/plain" => Ok(request
             .header(reqwest::header::CONTENT_TYPE, "text/plain")
             .body(argument_as_string(body))),
@@ -614,7 +633,31 @@ fn body_as_fields(body: &Value) -> Result<Vec<(String, String)>> {
         .collect())
 }
 
-fn reject_multipart_binary_fields(component: &OpenApiComponent) -> Result<()> {
+async fn multipart_form(
+    component: &OpenApiComponent,
+    body: &Value,
+) -> Result<reqwest::multipart::Form> {
+    let Some(object) = body.as_object() else {
+        return Err(StoreError::Other(
+            "OpenAPI multipart request body must be an object".to_string(),
+        ));
+    };
+    let binary_fields = multipart_binary_fields(component);
+    let mut form = reqwest::multipart::Form::new();
+    for (name, value) in object {
+        if binary_fields.contains(name) {
+            form = form.part(
+                name.clone(),
+                multipart_file_part(component, name, value).await?,
+            );
+        } else {
+            form = form.text(name.clone(), argument_as_string(value));
+        }
+    }
+    Ok(form)
+}
+
+fn multipart_binary_fields(component: &OpenApiComponent) -> Vec<String> {
     let Some(schema) = component
         .endpoint
         .request_body
@@ -624,25 +667,113 @@ fn reject_multipart_binary_fields(component: &OpenApiComponent) -> Result<()> {
         .and_then(|media| media.get("schema"))
         .and_then(Value::as_object)
     else {
-        return Ok(());
+        return Vec::new();
     };
     let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
-        return Ok(());
+        return Vec::new();
     };
-    for (name, property) in properties {
-        let is_binary = property
+    properties
+        .iter()
+        .filter(|(_, property)| is_binary_string_schema(property))
+        .map(|(name, _)| name.clone())
+        .collect()
+}
+
+async fn multipart_file_part(
+    component: &OpenApiComponent,
+    field_name: &str,
+    value: &Value,
+) -> Result<reqwest::multipart::Part> {
+    let Some(object) = value.as_object() else {
+        return Err(StoreError::Other(format!(
+            "OpenAPI multipart binary field for {}.{field_name} must be an object with bytes or path",
+            component.name
+        )));
+    };
+    let bytes_value = object.get("bytes");
+    let path_value = object.get("path");
+    if bytes_value.is_some() == path_value.is_some() {
+        return Err(StoreError::Other(format!(
+            "OpenAPI multipart binary field for {}.{field_name} must provide exactly one of bytes or path",
+            component.name
+        )));
+    }
+
+    let (bytes, derived_filename) = if let Some(value) = bytes_value {
+        let encoded = value.as_str().ok_or_else(|| {
+            StoreError::Other(format!(
+                "OpenAPI multipart binary field for {}.{field_name} bytes must be a base64 string",
+                component.name
+            ))
+        })?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|err| {
+                StoreError::Other(format!(
+                    "OpenAPI multipart binary field for {}.{field_name} bytes is not valid base64: {err}",
+                    component.name
+                ))
+            })?;
+        (bytes, None)
+    } else {
+        let path = path_value.and_then(Value::as_str).ok_or_else(|| {
+            StoreError::Other(format!(
+                "OpenAPI multipart binary field for {}.{field_name} path must be a string",
+                component.name
+            ))
+        })?;
+        let bytes = tokio::fs::read(path).await.map_err(|err| {
+            StoreError::Other(format!(
+                "OpenAPI multipart binary field for {}.{field_name} could not read path {path}: {err}",
+                component.name
+            ))
+        })?;
+        let filename = Path::new(path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(ToString::to_string);
+        (bytes, filename)
+    };
+
+    let filename = object
+        .get("filename")
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+        .or(derived_filename)
+        .unwrap_or_else(|| field_name.to_string());
+    let mut part = reqwest::multipart::Part::bytes(bytes).file_name(filename);
+    if let Some(mime_type) = file_mime_type(object) {
+        part = part.mime_str(mime_type).map_err(|err| {
+            StoreError::Other(format!(
+                "OpenAPI multipart binary field for {}.{field_name} has invalid mimeType {mime_type}: {err}",
+                component.name
+            ))
+        })?;
+    }
+    Ok(part)
+}
+
+fn file_mime_type(object: &Map<String, Value>) -> Option<&str> {
+    object
+        .get("mimeType")
+        .or_else(|| object.get("mime_type"))
+        .and_then(Value::as_str)
+}
+
+fn is_binary_string_schema(schema: &Value) -> bool {
+    schema_type(schema) == Some("string")
+        && schema
             .get("format")
             .and_then(Value::as_str)
             .map(|format| format.eq_ignore_ascii_case("binary"))
-            .unwrap_or(false);
-        if is_binary {
-            return Err(StoreError::Other(format!(
-                "Unsupported OpenAPI multipart binary field for {}: {name}",
-                component.name
-            )));
-        }
-    }
-    Ok(())
+            .unwrap_or(false)
+}
+
+fn is_file_argument_schema(schema: &Value) -> bool {
+    schema
+        .get("x_mcpstore_file")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 fn apply_security(
