@@ -2311,7 +2311,7 @@ async fn openapi_tools_validate_input_schema_before_request() {
                 "post": {
                     "operationId": "createValidatedItem",
                     "parameters": [
-                        { "name": "limit", "in": "query", "schema": { "type": "integer" } },
+                        { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 20 } },
                         { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["draft", "published"] } }
                     ],
                     "requestBody": {
@@ -2322,8 +2322,11 @@ async fn openapi_tools_validate_input_schema_before_request() {
                                     "type": "object",
                                     "required": ["name"],
                                     "properties": {
-                                        "name": { "type": "string" },
-                                        "tags": { "type": "array", "items": { "type": "string" } }
+                                        "name": { "type": "string", "minLength": 3, "pattern": "^item-[0-9]+$" },
+                                        "code": { "type": "string", "maxLength": 4 },
+                                        "price": { "type": "number", "minimum": 0, "exclusiveMinimum": true },
+                                        "discount": { "type": "number", "exclusiveMaximum": 1 },
+                                        "tags": { "type": "array", "minItems": 1, "maxItems": 2, "items": { "type": "string", "minLength": 2 } }
                                     }
                                 }
                             }
@@ -2357,6 +2360,44 @@ async fn openapi_tools_validate_input_schema_before_request() {
     assert!(invalid.contains("body.name is required"));
     assert!(invalid.contains("body.tags[1] must be a string"));
 
+    let invalid_constraints = store
+        .call_tool(
+            "validation",
+            "createValidatedItem",
+            serde_json::json!({
+                "limit": 0,
+                "status": "draft",
+                "body": { "name": "x", "code": "abcde", "price": 0, "discount": 1, "tags": [] }
+            }),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(invalid_constraints.contains("query.limit must be greater than or equal to 1"));
+    assert!(invalid_constraints.contains("body.name length must be at least 3"));
+    assert!(invalid_constraints.contains("body.name must match pattern ^item-[0-9]+$"));
+    assert!(invalid_constraints.contains("body.code length must be at most 4"));
+    assert!(invalid_constraints.contains("body.price must be greater than 0"));
+    assert!(invalid_constraints.contains("body.discount must be less than 1"));
+    assert!(invalid_constraints.contains("body.tags must contain at least 1 item(s)"));
+
+    let too_many_items = store
+        .call_tool(
+            "validation",
+            "createValidatedItem",
+            serde_json::json!({
+                "limit": 21,
+                "status": "draft",
+                "body": { "name": "item-123", "code": "abcd", "price": 1, "discount": 0.5, "tags": ["a", "bb", "cc"] }
+            }),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(too_many_items.contains("query.limit must be less than or equal to 20"));
+    assert!(too_many_items.contains("body.tags must contain at most 2 item(s)"));
+    assert!(too_many_items.contains("body.tags[0] length must be at least 2"));
+
     let call_result = store
         .call_tool(
             "validation",
@@ -2364,7 +2405,7 @@ async fn openapi_tools_validate_input_schema_before_request() {
             serde_json::json!({
                 "limit": 10,
                 "status": "draft",
-                "body": { "name": "apple", "tags": ["fruit"] }
+                "body": { "name": "item-123", "code": "abcd", "price": 1.5, "discount": 0.5, "tags": ["fruit"] }
             }),
         )
         .await
