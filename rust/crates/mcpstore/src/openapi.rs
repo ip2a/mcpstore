@@ -434,7 +434,7 @@ fn input_schema_for_endpoint(endpoint: &OpenApiEndpoint) -> Value {
 }
 
 fn request_body_schema(request_body: &Value) -> Value {
-    request_body
+    let schema = request_body
         .get("content")
         .and_then(Value::as_object)
         .and_then(|content| {
@@ -444,7 +444,73 @@ fn request_body_schema(request_body: &Value) -> Value {
         })
         .and_then(|media| media.get("schema"))
         .cloned()
-        .unwrap_or_else(|| serde_json::json!({ "type": "object" }))
+        .unwrap_or_else(|| serde_json::json!({ "type": "object" }));
+    expose_binary_file_arguments(schema)
+}
+
+fn expose_binary_file_arguments(schema: Value) -> Value {
+    match schema {
+        Value::Object(mut object) if is_binary_string_schema(&object) => {
+            if let Some(description) = object.remove("description") {
+                serde_json::json!({
+                    "type": "object",
+                    "description": description,
+                    "x_mcpstore_file": true,
+                    "properties": file_argument_properties(),
+                    "oneOf": [
+                        { "required": ["bytes"] },
+                        { "required": ["path"] }
+                    ]
+                })
+            } else {
+                serde_json::json!({
+                    "type": "object",
+                    "x_mcpstore_file": true,
+                    "properties": file_argument_properties(),
+                    "oneOf": [
+                        { "required": ["bytes"] },
+                        { "required": ["path"] }
+                    ]
+                })
+            }
+        }
+        Value::Object(mut object) => {
+            if let Some(Value::Object(properties)) = object.get_mut("properties") {
+                for value in properties.values_mut() {
+                    let converted = expose_binary_file_arguments(std::mem::take(value));
+                    *value = converted;
+                }
+            }
+            Value::Object(object)
+        }
+        other => other,
+    }
+}
+
+fn file_argument_properties() -> Value {
+    serde_json::json!({
+        "bytes": {
+            "type": "string",
+            "contentEncoding": "base64",
+            "description": "Base64-encoded file bytes. Use this for cross-process calls."
+        },
+        "path": {
+            "type": "string",
+            "description": "Local filesystem path readable by the Rust runtime process."
+        },
+        "filename": { "type": "string" },
+        "mimeType": { "type": "string" },
+        "mime_type": { "type": "string" }
+    })
+}
+
+fn is_binary_string_schema(schema: &Map<String, Value>) -> bool {
+    schema.get("type").and_then(Value::as_str) == Some("string")
+        && schema
+            .get("format")
+            .and_then(Value::as_str)
+            .map(|format| format.eq_ignore_ascii_case("binary"))
+            .unwrap_or(false)
 }
 
 fn spec_info(spec: &Value) -> OpenApiSpecInfo {
@@ -514,6 +580,20 @@ mod tests {
                             "required": true,
                             "content": { "application/json": { "schema": { "type": "object" } } }
                         }
+                    },
+                    "put": {
+                        "operationId": "uploadPetPhoto",
+                        "requestBody": {
+                            "required": true,
+                            "content": {
+                                "multipart/form-data": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": { "file": { "type": "string", "format": "binary" } }
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 "/pets/{id}": {
@@ -528,8 +608,8 @@ mod tests {
 
         assert_eq!(result.service_name, "petstore");
         assert_eq!(result.base_url, "https://api.example.test");
-        assert_eq!(result.total_endpoints, 3);
-        assert_eq!(result.component_types.tools, 1);
+        assert_eq!(result.total_endpoints, 4);
+        assert_eq!(result.component_types.tools, 2);
         assert_eq!(result.component_types.resources, 1);
         assert_eq!(result.component_types.resource_templates, 1);
         assert!(!result.runtime_executable);
@@ -541,6 +621,25 @@ mod tests {
             .components
             .iter()
             .any(|component| component.name == "create_pet"));
+        let upload = result
+            .components
+            .iter()
+            .find(|component| component.name == "uploadPetPhoto")
+            .unwrap();
+        assert_eq!(
+            upload.input_schema["properties"]["body"]["properties"]["file"]["x_mcpstore_file"],
+            serde_json::json!(true)
+        );
+        assert!(
+            upload.input_schema["properties"]["body"]["properties"]["file"]["properties"]
+                .get("bytes")
+                .is_some()
+        );
+        assert!(
+            upload.input_schema["properties"]["body"]["properties"]["file"]["properties"]
+                .get("path")
+                .is_some()
+        );
         let templated = result
             .components
             .iter()
