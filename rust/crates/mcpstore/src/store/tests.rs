@@ -72,39 +72,53 @@ async fn spawn_openapi_http_fixture() -> String {
                 let request = String::from_utf8_lossy(&buffer[..size]);
                 let first_line = request.lines().next().unwrap_or_default();
                 let request_lower = request.to_ascii_lowercase();
-                let (body, content_type) = if first_line.starts_with("GET /items ") {
+                let json_bytes = |value: serde_json::Value| value.to_string().into_bytes();
+                let (status, body, content_type) = if first_line.starts_with("GET /items ") {
                     (
-                        serde_json::json!({"items": ["apple", "pear"]}).to_string(),
+                        "200 OK",
+                        json_bytes(serde_json::json!({"items": ["apple", "pear"]})),
                         "application/json",
                     )
                 } else if first_line.starts_with("GET /items/sku-1 ") {
                     (
-                        serde_json::json!({"sku": "sku-1", "name": "apple"}).to_string(),
+                        "200 OK",
+                        json_bytes(serde_json::json!({"sku": "sku-1", "name": "apple"})),
                         "application/json",
                     )
                 } else if first_line.starts_with("GET /plain ") {
-                    ("plain inventory".to_string(), "text/plain; charset=utf-8")
+                    (
+                        "200 OK",
+                        b"plain inventory".to_vec(),
+                        "text/plain; charset=utf-8",
+                    )
+                } else if first_line.starts_with("GET /document ") {
+                    ("200 OK", b"%PDF fixture".to_vec(), "application/pdf")
                 } else if first_line.starts_with("GET /negotiated ") {
                     if request_lower.contains("accept: ")
                         && request_lower.contains("application/json")
                         && request_lower.contains("text/plain")
-                        && !request_lower.contains("image/png")
+                        && request_lower.contains("image/png")
                     {
                         (
-                            serde_json::json!({"received": "accept"}).to_string(),
+                            "200 OK",
+                            json_bytes(serde_json::json!({"received": "accept"})),
                             "application/json",
                         )
                     } else {
                         (
-                            serde_json::json!({"error": "bad accept header"}).to_string(),
+                            "404 Not Found",
+                            json_bytes(serde_json::json!({"error": "bad accept header"})),
                             "application/json",
                         )
                     }
+                } else if first_line.starts_with("POST /image ") {
+                    ("200 OK", b"png-bytes".to_vec(), "image/png")
                 } else if first_line.starts_with("POST /items ")
                     || first_line.starts_with("POST /items?")
                 {
                     (
-                        serde_json::json!({"created": true, "path": "/items"}).to_string(),
+                        "200 OK",
+                        json_bytes(serde_json::json!({"created": true, "path": "/items"})),
                         "application/json",
                     )
                 } else if first_line.starts_with("POST /forms/urlencoded ") {
@@ -112,12 +126,14 @@ async fn spawn_openapi_http_fixture() -> String {
                         && request.contains("name=apple")
                     {
                         (
-                            serde_json::json!({"received": "urlencoded"}).to_string(),
+                            "200 OK",
+                            json_bytes(serde_json::json!({"received": "urlencoded"})),
                             "application/json",
                         )
                     } else {
                         (
-                            serde_json::json!({"error": "bad urlencoded body"}).to_string(),
+                            "404 Not Found",
+                            json_bytes(serde_json::json!({"error": "bad urlencoded body"})),
                             "application/json",
                         )
                     }
@@ -127,12 +143,14 @@ async fn spawn_openapi_http_fixture() -> String {
                         && request.contains("apple")
                     {
                         (
-                            serde_json::json!({"received": "multipart"}).to_string(),
+                            "200 OK",
+                            json_bytes(serde_json::json!({"received": "multipart"})),
                             "application/json",
                         )
                     } else {
                         (
-                            serde_json::json!({"error": "bad multipart body"}).to_string(),
+                            "404 Not Found",
+                            json_bytes(serde_json::json!({"error": "bad multipart body"})),
                             "application/json",
                         )
                     }
@@ -143,12 +161,14 @@ async fn spawn_openapi_http_fixture() -> String {
                         && request.contains("apple-bytes")
                     {
                         (
-                            serde_json::json!({"received": "file"}).to_string(),
+                            "200 OK",
+                            json_bytes(serde_json::json!({"received": "file"})),
                             "application/json",
                         )
                     } else {
                         (
-                            serde_json::json!({"error": "bad multipart file body"}).to_string(),
+                            "404 Not Found",
+                            json_bytes(serde_json::json!({"error": "bad multipart file body"})),
                             "application/json",
                         )
                     }
@@ -157,12 +177,14 @@ async fn spawn_openapi_http_fixture() -> String {
                         && request.contains("plain-body")
                     {
                         (
-                            serde_json::json!({"received": "text"}).to_string(),
+                            "200 OK",
+                            json_bytes(serde_json::json!({"received": "text"})),
                             "application/json",
                         )
                     } else {
                         (
-                            serde_json::json!({"error": "bad text body"}).to_string(),
+                            "404 Not Found",
+                            json_bytes(serde_json::json!({"error": "bad text body"})),
                             "application/json",
                         )
                     }
@@ -173,12 +195,14 @@ async fn spawn_openapi_http_fixture() -> String {
                         && request_lower.contains("x-flags: fast,safe")
                     {
                         (
-                            serde_json::json!({"received": "parameters"}).to_string(),
+                            "200 OK",
+                            json_bytes(serde_json::json!({"received": "parameters"})),
                             "application/json",
                         )
                     } else {
                         (
-                            serde_json::json!({"error": first_line}).to_string(),
+                            "404 Not Found",
+                            json_bytes(serde_json::json!({"error": first_line})),
                             "application/json",
                         )
                     }
@@ -187,12 +211,14 @@ async fn spawn_openapi_http_fixture() -> String {
                         && first_line.contains("encoded=https%3A%2F%2Fexample.com%2Fa%2Cb%3Bc%3D1")
                     {
                         (
-                            serde_json::json!({"received": "reserved"}).to_string(),
+                            "200 OK",
+                            json_bytes(serde_json::json!({"received": "reserved"})),
                             "application/json",
                         )
                     } else {
                         (
-                            serde_json::json!({"error": first_line}).to_string(),
+                            "404 Not Found",
+                            json_bytes(serde_json::json!({"error": first_line})),
                             "application/json",
                         )
                     }
@@ -201,36 +227,36 @@ async fn spawn_openapi_http_fixture() -> String {
                         && first_line.contains("filter%5Bsize%5D=large")
                     {
                         (
-                            serde_json::json!({"received": "deep-object"}).to_string(),
+                            "200 OK",
+                            json_bytes(serde_json::json!({"received": "deep-object"})),
                             "application/json",
                         )
                     } else {
                         (
-                            serde_json::json!({"error": first_line}).to_string(),
+                            "404 Not Found",
+                            json_bytes(serde_json::json!({"error": first_line})),
                             "application/json",
                         )
                     }
                 } else if first_line.starts_with("POST /styled/.red.blue/;id=sku-1;id=sku-2 ") {
                     (
-                        serde_json::json!({"received": "styled-path"}).to_string(),
+                        "200 OK",
+                        json_bytes(serde_json::json!({"received": "styled-path"})),
                         "application/json",
                     )
                 } else {
                     (
-                        serde_json::json!({"error": first_line}).to_string(),
+                        "404 Not Found",
+                        json_bytes(serde_json::json!({"error": first_line})),
                         "application/json",
                     )
                 };
-                let status = if body.contains("error") {
-                    "404 Not Found"
-                } else {
-                    "200 OK"
-                };
-                let response = format!(
-                    "HTTP/1.1 {status}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                let header = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
                     body.len()
                 );
-                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.write_all(header.as_bytes()).await;
+                let _ = socket.write_all(&body).await;
             });
         }
     });
@@ -1218,6 +1244,115 @@ async fn openapi_runtime_sends_accept_for_supported_response_media_types() {
         .unwrap()["received"],
         serde_json::json!("accept")
     );
+}
+
+#[tokio::test]
+async fn openapi_tool_returns_image_content_for_binary_image_response() {
+    let base_url = spawn_openapi_http_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-image-response-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let spec = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": { "title": "Images", "version": "2026.1" },
+        "servers": [{ "url": base_url }],
+        "paths": {
+            "/image": {
+                "post": {
+                    "operationId": "renderImage",
+                    "responses": {
+                        "200": {
+                            "description": "PNG response",
+                            "content": { "image/png": { "schema": { "type": "string", "format": "binary" } } }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    store
+        .import_openapi_service_from_spec("images", "memory://images", spec)
+        .await
+        .unwrap();
+
+    let call_result = store
+        .call_tool("images", "renderImage", serde_json::json!({}))
+        .await
+        .unwrap();
+    assert!(!call_result.is_error);
+    let crate::transport::ContentItem::Image {
+        data, mime_type, ..
+    } = &call_result.content[0]
+    else {
+        panic!("expected image content");
+    };
+    assert_eq!(mime_type, "image/png");
+    assert_eq!(
+        data,
+        &base64::engine::general_purpose::STANDARD.encode("png-bytes")
+    );
+}
+
+#[tokio::test]
+async fn openapi_resource_returns_blob_for_binary_response() {
+    let base_url = spawn_openapi_http_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-blob-response-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let spec = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": { "title": "Documents", "version": "2026.1" },
+        "servers": [{ "url": base_url }],
+        "paths": {
+            "/document": {
+                "get": {
+                    "operationId": "getDocument",
+                    "responses": {
+                        "200": {
+                            "description": "PDF response",
+                            "content": { "application/pdf": { "schema": { "type": "string", "format": "binary" } } }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    store
+        .import_openapi_service_from_spec("documents", "memory://documents", spec)
+        .await
+        .unwrap();
+
+    let resources = store.list_resources("documents").await.unwrap();
+    assert_eq!(
+        resources[0]["mimeType"],
+        serde_json::json!("application/pdf")
+    );
+
+    let resource = store
+        .read_resource("documents", "openapi://documents/getDocument")
+        .await
+        .unwrap();
+    assert_eq!(
+        resource["contents"][0]["mimeType"],
+        serde_json::json!("application/pdf")
+    );
+    assert_eq!(
+        resource["contents"][0]["blob"],
+        serde_json::json!(base64::engine::general_purpose::STANDARD.encode("%PDF fixture"))
+    );
+    assert!(resource["contents"][0].get("text").is_none());
 }
 
 #[tokio::test]
