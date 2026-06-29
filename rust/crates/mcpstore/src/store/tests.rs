@@ -65,36 +65,65 @@ async fn spawn_openapi_http_fixture() -> String {
                 let request = String::from_utf8_lossy(&buffer[..size]);
                 let first_line = request.lines().next().unwrap_or_default();
                 let request_lower = request.to_ascii_lowercase();
-                let body = if first_line.starts_with("GET /items ") {
-                    serde_json::json!({"items": ["apple", "pear"]}).to_string()
+                let (body, content_type) = if first_line.starts_with("GET /items ") {
+                    (
+                        serde_json::json!({"items": ["apple", "pear"]}).to_string(),
+                        "application/json",
+                    )
                 } else if first_line.starts_with("GET /items/sku-1 ") {
-                    serde_json::json!({"sku": "sku-1", "name": "apple"}).to_string()
+                    (
+                        serde_json::json!({"sku": "sku-1", "name": "apple"}).to_string(),
+                        "application/json",
+                    )
+                } else if first_line.starts_with("GET /plain ") {
+                    ("plain inventory".to_string(), "text/plain; charset=utf-8")
                 } else if first_line.starts_with("POST /items ") {
-                    serde_json::json!({"created": true, "path": "/items"}).to_string()
+                    (
+                        serde_json::json!({"created": true, "path": "/items"}).to_string(),
+                        "application/json",
+                    )
                 } else if first_line.starts_with("POST /forms/urlencoded ") {
                     if request_lower.contains("content-type: application/x-www-form-urlencoded")
                         && request.contains("name=apple")
                     {
-                        serde_json::json!({"received": "urlencoded"}).to_string()
+                        (
+                            serde_json::json!({"received": "urlencoded"}).to_string(),
+                            "application/json",
+                        )
                     } else {
-                        serde_json::json!({"error": "bad urlencoded body"}).to_string()
+                        (
+                            serde_json::json!({"error": "bad urlencoded body"}).to_string(),
+                            "application/json",
+                        )
                     }
                 } else if first_line.starts_with("POST /forms/multipart ") {
                     if request_lower.contains("content-type: multipart/form-data")
                         && request.contains("name=\"name\"")
                         && request.contains("apple")
                     {
-                        serde_json::json!({"received": "multipart"}).to_string()
+                        (
+                            serde_json::json!({"received": "multipart"}).to_string(),
+                            "application/json",
+                        )
                     } else {
-                        serde_json::json!({"error": "bad multipart body"}).to_string()
+                        (
+                            serde_json::json!({"error": "bad multipart body"}).to_string(),
+                            "application/json",
+                        )
                     }
                 } else if first_line.starts_with("POST /forms/text ") {
                     if request_lower.contains("content-type: text/plain")
                         && request.contains("plain-body")
                     {
-                        serde_json::json!({"received": "text"}).to_string()
+                        (
+                            serde_json::json!({"received": "text"}).to_string(),
+                            "application/json",
+                        )
                     } else {
-                        serde_json::json!({"error": "bad text body"}).to_string()
+                        (
+                            serde_json::json!({"error": "bad text body"}).to_string(),
+                            "application/json",
+                        )
                     }
                 } else if first_line.starts_with("POST /search/a,b?") {
                     if first_line.contains("tag=red")
@@ -102,12 +131,21 @@ async fn spawn_openapi_http_fixture() -> String {
                         && first_line.contains("compact=one%2Ctwo")
                         && request_lower.contains("x-flags: fast,safe")
                     {
-                        serde_json::json!({"received": "parameters"}).to_string()
+                        (
+                            serde_json::json!({"received": "parameters"}).to_string(),
+                            "application/json",
+                        )
                     } else {
-                        serde_json::json!({"error": first_line}).to_string()
+                        (
+                            serde_json::json!({"error": first_line}).to_string(),
+                            "application/json",
+                        )
                     }
                 } else {
-                    serde_json::json!({"error": first_line}).to_string()
+                    (
+                        serde_json::json!({"error": first_line}).to_string(),
+                        "application/json",
+                    )
                 };
                 let status = if body.contains("error") {
                     "404 Not Found"
@@ -115,7 +153,7 @@ async fn spawn_openapi_http_fixture() -> String {
                     "200 OK"
                 };
                 let response = format!(
-                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 {status}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                     body.len()
                 );
                 let _ = socket.write_all(response.as_bytes()).await;
@@ -972,6 +1010,82 @@ async fn openapi_tool_http_error_returns_tool_error_without_marking_service_fail
 
     let service = store.find_service("inventory").await.unwrap();
     assert_ne!(service.status, ConnectionStatus::Error);
+}
+
+#[tokio::test]
+async fn openapi_resources_preserve_response_mime_type() {
+    let base_url = spawn_openapi_http_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-response-mime-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let spec = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": { "title": "Inventory", "version": "2026.1" },
+        "servers": [{ "url": base_url }],
+        "paths": {
+            "/plain": {
+                "get": {
+                    "operationId": "getPlainInventory",
+                    "responses": {
+                        "200": {
+                            "description": "Plain response",
+                            "content": { "text/plain": { "schema": { "type": "string" } } }
+                        }
+                    }
+                }
+            },
+            "/items": {
+                "get": {
+                    "operationId": "listItems",
+                    "responses": {
+                        "200": {
+                            "description": "JSON response",
+                            "content": { "application/json": { "schema": { "type": "object" } } }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    store
+        .import_openapi_service_from_spec("inventory", "memory://inventory", spec)
+        .await
+        .unwrap();
+
+    let resources = store.list_resources("inventory").await.unwrap();
+    let plain = resources
+        .iter()
+        .find(|resource| resource["name"] == serde_json::json!("getPlainInventory"))
+        .unwrap();
+    assert_eq!(plain["mimeType"], serde_json::json!("text/plain"));
+
+    let resource = store
+        .read_resource("inventory", "openapi://inventory/getPlainInventory")
+        .await
+        .unwrap();
+    assert_eq!(
+        resource["contents"][0]["mimeType"],
+        serde_json::json!("text/plain")
+    );
+    assert_eq!(
+        resource["contents"][0]["text"],
+        serde_json::json!("plain inventory")
+    );
+
+    let json_resource = store
+        .read_resource("inventory", "openapi://inventory/listItems")
+        .await
+        .unwrap();
+    assert_eq!(
+        json_resource["contents"][0]["mimeType"],
+        serde_json::json!("application/json")
+    );
 }
 
 #[tokio::test]
