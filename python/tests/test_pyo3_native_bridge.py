@@ -2925,6 +2925,51 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         )
         self.assertEqual(store._sessions, {})
 
+    def test_session_snapshot_facade_delegates_to_rust_core(self):
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        snapshot = {
+            "entities": {
+                "store:s1": {
+                    "session_key": "store:s1",
+                    "session_id": "s1",
+                }
+            },
+            "relations": {"session_services": {}, "session_tools": {}},
+            "states": {
+                "session_status": {},
+                "session_state": {},
+                "session_context": {},
+            },
+            "events": {},
+        }
+
+        class FakeRustInner:
+            def __init__(self):
+                self.imported = None
+
+            def export_sessions_snapshot(self):
+                return snapshot
+
+            def import_sessions_snapshot(self, value):
+                self.imported = value
+                return {
+                    "sessions_imported": len(value["entities"]),
+                    "sessions_unchanged": 0,
+                }
+
+        inner = FakeRustInner()
+        store = RustStoreBackend(inner)
+
+        self.assertEqual(store.export_sessions_snapshot().entities["store:s1"].session_id, "s1")
+        report = store.for_store().import_sessions_snapshot(snapshot)
+
+        self.assertEqual(inner.imported, snapshot)
+        self.assertEqual(report.sessions_imported, 1)
+
+        with self.assertRaisesRegex(ValueError, "Session snapshot 必须是 dict"):
+            store.import_sessions_snapshot("{}")
+
     def test_agent_scoped_config_requires_rust_core_scope_api(self):
         from mcpstore.core.store.rust_backend import RustStoreBackend
 
@@ -3759,6 +3804,27 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 self.restarted_session_scopes.append((scope, agent_id))
                 return {"restarted_services": ["svc"]}
 
+            def export_sessions_snapshot(self):
+                return {
+                    "entities": {
+                        entity["session_key"]: entity
+                        for entity in self.sessions.values()
+                    },
+                    "relations": {"session_services": {}, "session_tools": {}},
+                    "states": {
+                        "session_status": {},
+                        "session_state": {},
+                        "session_context": {},
+                    },
+                    "events": {},
+                }
+
+            def import_sessions_snapshot(self, snapshot):
+                return {
+                    "sessions_imported": len(snapshot.get("entities", {})),
+                    "sessions_unchanged": 0,
+                }
+
             def close_session(self, session_key, reason=None):
                 return {"status": "closed", "session_key": session_key, "reason": reason}
 
@@ -3996,6 +4062,10 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertEqual(fake_backend.cleaned_session_scopes[-1], ("store", None))
         self.assertIs(operations.restart_sessions(), context)
         self.assertEqual(fake_backend.restarted_session_scopes[-1], ("store", None))
+        session_snapshot = operations.export_sessions_snapshot()
+        self.assertIn(shared_session_key, session_snapshot.entities)
+        session_import_report = operations.import_sessions_snapshot(session_snapshot)
+        self.assertEqual(session_import_report.sessions_imported, 2)
         self.assertIs(operations.close_all_sessions(), context)
         self.assertEqual(fake_backend.closed_session_scopes[-1], ("store", None, None))
         with self.assertRaisesRegex(ValueError, "Session not found"):

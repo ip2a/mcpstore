@@ -64,6 +64,12 @@ class SessionManagementMixin:
     def restart_sessions(self):
         return self._rust_context().restart_sessions()
 
+    def export_sessions_snapshot(self):
+        return self._rust_context().export_sessions_snapshot()
+
+    def import_sessions_snapshot(self, snapshot):
+        return self._rust_context().import_sessions_snapshot(snapshot)
+
     def create_shared_session(self, session_id: str, shared_id: str):
         return self.create_session(session_id, user_session_id=shared_id)
 

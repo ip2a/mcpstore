@@ -26,7 +26,9 @@ pub use cache::{CacheLayerManager, CacheSnapshot};
 // Facade re-exports: OpenAPI runtime imports
 pub use openapi::{
     OpenApiBundleArtifact, OpenApiBundleDependency, OpenApiBundleDiagnostic, OpenApiBundleDocument,
-    OpenApiBundleOptions, OpenApiImportOptions, OpenApiImportResult, OpenApiRefCachePolicy,
+    OpenApiBundleOptions, OpenApiComponent, OpenApiComponentCounts, OpenApiComponentType,
+    OpenApiEndpoint, OpenApiImportOptions, OpenApiImportResult, OpenApiRefCachePolicy,
+    OpenApiSpecInfo,
 };
 
 // Facade re-exports: event bus
@@ -43,7 +45,7 @@ pub use cache::models::{
 };
 pub use session::{
     CreateSessionRequest, SessionBuilder, SessionCleanupReport, SessionContext,
-    SessionRestartReport, SessionRetryPolicy, SessionToolSelection,
+    SessionImportReport, SessionRestartReport, SessionRetryPolicy, SessionToolSelection,
 };
 
 // Facade re-exports: transport
@@ -52,6 +54,7 @@ pub use transport::{ContentItem, ToolCallResult, ToolDescription};
 // Facade re-exports: core store
 pub use core::{Result, StoreError};
 pub use store::{
-    BackendKind, CacheStorage, MCPStore, SourceMode, StoreOptions, ToolVisibilityFilter,
+    BackendKind, CacheStorage, MCPStore, OpenApiImportInput, OpenApiImportSource, SourceMode,
+    StoreOptions, ToolVisibilityFilter,
 };
 pub use tool_transform::ToolTransformPatch;

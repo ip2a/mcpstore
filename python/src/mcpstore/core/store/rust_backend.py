@@ -1187,8 +1187,15 @@ class RustStoreBackend:
         self.add_service(config)
         sessions = config.get("sessions")
         if sessions is not None:
-            self._inner.import_sessions_snapshot(sessions)
+            self.import_sessions_snapshot(sessions)
         return True
+
+    def export_sessions_snapshot(self) -> Dict[str, Any]:
+        return _record_value(self._inner.export_sessions_snapshot())
+
+    def import_sessions_snapshot(self, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+        normalized = self._normalize_config_dict(snapshot, "Session snapshot")
+        return _record_value(self._inner.import_sessions_snapshot(normalized))
 
     async def cleanup(self) -> bool:
         return self.reset_config()
@@ -3925,6 +3932,12 @@ class RustStoreContext:
 
     def get_data_space_info(self) -> Dict[str, Any]:
         return self._backend.get_data_space_info()
+
+    def export_sessions_snapshot(self) -> Dict[str, Any]:
+        return self._backend.export_sessions_snapshot()
+
+    def import_sessions_snapshot(self, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+        return self._backend.import_sessions_snapshot(snapshot)
 
     def setup_config(self) -> Dict[str, Any]:
         return _record_value(
