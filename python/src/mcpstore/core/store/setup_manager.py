@@ -108,6 +108,12 @@ class StoreSetupManager:
         if mode not in {"auto", "local", "shared"}:
             raise ValueError(f"Rust core 当前不支持 cache_mode={cache_mode!r}")
 
+        if mode == "shared":
+            cache_type_value = getattr(cache, "cache_type", None)
+            cache_type = getattr(cache_type_value, "value", cache_type_value)
+            if cache_type not in {"redis", "openkeyv_redis"}:
+                raise ValueError("cache_mode='shared' 需要 RedisConfig；memory 后端无法跨进程共享 session")
+
         resolved_only_db = False if mode == "local" else only_db or mode == "shared"
         if mode == "local" and cache is None:
             return None, resolved_only_db

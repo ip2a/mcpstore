@@ -6,10 +6,13 @@ from __future__ import annotations
 def __getattr__(name: str):
     if name in {
         "CacheType",
+        "DataSourceStrategy",
         "BaseCacheConfig",
         "MemoryConfig",
         "RedisConfig",
         "OpenKeyvMemoryConfig",
+        "get_namespace",
+        "detect_strategy",
     }:
         from . import cache_config as _cache_config
 
@@ -17,7 +20,7 @@ def __getattr__(name: str):
         globals()[name] = value
         return value
 
-    if name == "LoggingConfig":
+    if name in {"LoggingConfig", "load_app_config"}:
         from . import config as _config
 
         value = getattr(_config, name)
@@ -29,9 +32,13 @@ def __getattr__(name: str):
 
 __all__ = [
     "LoggingConfig",
+    "load_app_config",
     "CacheType",
+    "DataSourceStrategy",
     "BaseCacheConfig",
     "MemoryConfig",
     "RedisConfig",
     "OpenKeyvMemoryConfig",
+    "get_namespace",
+    "detect_strategy",
 ]

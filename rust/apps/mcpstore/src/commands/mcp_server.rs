@@ -3,7 +3,8 @@ use std::sync::Arc;
 
 use clap::{Args, ValueEnum};
 use mcpstore::{
-    perspective::GLOBAL_AGENT_STORE, MCPStore, OpenApiImportOptions, ToolTransformPatch,
+    perspective::GLOBAL_AGENT_STORE, MCPStore, OpenApiBundleOptions, OpenApiImportOptions,
+    OpenApiRefCachePolicy, ToolTransformPatch,
 };
 use rmcp::{
     model::{
@@ -937,6 +938,20 @@ fn openapi_schema(
             }),
         );
     }
+    if include_spec_input {
+        properties.insert(
+            "ref_cache".to_string(),
+            serde_json::json!({
+                "type": "object",
+                "description": "Optional external $ref shared document cache policy.",
+                "properties": {
+                    "enabled": { "type": "boolean" },
+                    "ttl_seconds": { "type": "integer", "minimum": 0 }
+                },
+                "additionalProperties": false
+            }),
+        );
+    }
 
     let mut schema = Map::new();
     schema.insert("type".to_string(), Value::String("object".to_string()));
@@ -1137,6 +1152,7 @@ async fn call_openapi_tool(
         }
         OPENAPI_BUNDLE_TOOL => {
             let spec_url = required_argument_string(&arguments, "spec_url")?.to_string();
+            let options = openapi_bundle_options_from_arguments(&arguments)?;
             let spec = arguments.get("spec").cloned();
             let spec_text = arguments
                 .get("spec_text")
@@ -1149,19 +1165,28 @@ async fn call_openapi_tool(
                         None,
                     ));
                 }
-                (Some(spec), None) => store.bundle_openapi_spec_from_value(&spec_url, spec).await,
-                (None, Some(spec_text)) => {
+                (Some(spec), None) => {
                     store
-                        .bundle_openapi_spec_from_text(&spec_url, spec_text)
+                        .bundle_openapi_spec_from_value_with_options(&spec_url, spec, options)
                         .await
                 }
-                (None, None) => store.bundle_openapi_spec(&spec_url).await,
+                (None, Some(spec_text)) => {
+                    store
+                        .bundle_openapi_spec_from_text_with_options(&spec_url, spec_text, options)
+                        .await
+                }
+                (None, None) => {
+                    store
+                        .bundle_openapi_spec_with_options(&spec_url, options)
+                        .await
+                }
             }
             .map_err(map_store_error)?;
             serde_json::json!({"bundle": bundle})
         }
         OPENAPI_BUNDLE_ARTIFACT_TOOL => {
             let spec_url = required_argument_string(&arguments, "spec_url")?.to_string();
+            let options = openapi_bundle_options_from_arguments(&arguments)?;
             let spec = arguments.get("spec").cloned();
             let spec_text = arguments
                 .get("spec_text")
@@ -1176,15 +1201,21 @@ async fn call_openapi_tool(
                 }
                 (Some(spec), None) => {
                     store
-                        .bundle_openapi_artifact_from_value(&spec_url, spec)
+                        .bundle_openapi_artifact_from_value_with_options(&spec_url, spec, options)
                         .await
                 }
                 (None, Some(spec_text)) => {
                     store
-                        .bundle_openapi_artifact_from_text(&spec_url, spec_text)
+                        .bundle_openapi_artifact_from_text_with_options(
+                            &spec_url, spec_text, options,
+                        )
                         .await
                 }
-                (None, None) => store.bundle_openapi_artifact(&spec_url).await,
+                (None, None) => {
+                    store
+                        .bundle_openapi_artifact_with_options(&spec_url, options)
+                        .await
+                }
             }
             .map_err(map_store_error)?;
             serde_json::json!({"artifact": artifact})
@@ -1243,7 +1274,30 @@ fn openapi_import_options_from_arguments(
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
-    Ok(OpenApiImportOptions { headers, auth })
+    Ok(OpenApiImportOptions {
+        headers,
+        auth,
+        ref_cache: openapi_ref_cache_policy_from_arguments(arguments)?,
+    })
+}
+
+fn openapi_bundle_options_from_arguments(
+    arguments: &Map<String, Value>,
+) -> Result<OpenApiBundleOptions, ErrorData> {
+    Ok(OpenApiBundleOptions {
+        ref_cache: openapi_ref_cache_policy_from_arguments(arguments)?,
+    })
+}
+
+fn openapi_ref_cache_policy_from_arguments(
+    arguments: &Map<String, Value>,
+) -> Result<OpenApiRefCachePolicy, ErrorData> {
+    match arguments.get("ref_cache") {
+        Some(value) => serde_json::from_value(value.clone()).map_err(|err| {
+            ErrorData::invalid_params(format!("OpenAPI ref_cache is invalid: {err}"), None)
+        }),
+        None => Ok(OpenApiRefCachePolicy::default()),
+    }
 }
 
 fn extract_business_session_key(
@@ -1856,6 +1910,15 @@ mod tests {
         assert!(tool_names.contains(&OPENAPI_IMPORT_SET_TOOL.to_string()));
         assert!(tool_names.contains(&OPENAPI_BUNDLE_TOOL.to_string()));
         assert!(tool_names.contains(&OPENAPI_BUNDLE_ARTIFACT_TOOL.to_string()));
+        let bundle_tool = server
+            .tools
+            .iter()
+            .find(|tool| tool.name.as_ref() == OPENAPI_BUNDLE_ARTIFACT_TOOL)
+            .unwrap();
+        assert!(bundle_tool.input_schema["properties"]
+            .as_object()
+            .unwrap()
+            .contains_key("ref_cache"));
 
         let fixture_dir = std::env::temp_dir().join(format!("mcpstore-mcp-{}", unique_namespace()));
         std::fs::create_dir_all(&fixture_dir).unwrap();
@@ -1875,6 +1938,7 @@ mod tests {
 
         let bundle_args = serde_json::json!({
             "spec_url": fixture_dir.join("openapi.json").to_string_lossy(),
+            "ref_cache": {"enabled": false},
             "spec": {
                 "openapi": "3.0.0",
                 "info": {"title": "Inventory", "version": "1.0.0"},
@@ -1913,6 +1977,7 @@ mod tests {
 
         let artifact_args = serde_json::json!({
             "spec_url": fixture_dir.join("openapi.json").to_string_lossy(),
+            "ref_cache": {"ttl_seconds": 19},
             "spec": {
                 "openapi": "3.0.0",
                 "info": {"title": "Inventory", "version": "1.0.0"},
@@ -1955,6 +2020,14 @@ mod tests {
             "./schemas.json#/Item"
         );
         assert_eq!(artifact["diagnostics"].as_array().unwrap().len(), 0);
+        let ref_cache_states = store
+            .cache()
+            .get_all_states_async("openapi_ref_documents")
+            .await
+            .unwrap();
+        assert_eq!(ref_cache_states.len(), 1);
+        let cached = ref_cache_states.values().next().unwrap();
+        assert_eq!(cached["ttl_seconds"], serde_json::json!(19));
         assert!(store.list_openapi_imports().await.unwrap().is_empty());
 
         let spec = serde_json::json!({

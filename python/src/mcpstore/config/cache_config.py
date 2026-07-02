@@ -18,6 +18,18 @@ class CacheType(Enum):
     OPENKEYV_REDIS = "openkeyv_redis"
 
 
+class DataSourceStrategy(Enum):
+    """Compatibility strategy labels for Python callers.
+
+    The Rust core owns the actual source-mode implementation. These labels keep
+    the old Python configuration surface usable for code that only needs to
+    inspect or describe setup behavior.
+    """
+
+    LOCAL_DB = "local_db"
+    ONLY_DB = "only_db"
+
+
 @dataclass
 class BaseCacheConfig:
     """Base cache configuration class with common attributes."""
@@ -95,3 +107,29 @@ class RedisConfig(BaseCacheConfig):
                 f"max_connections must be positive, got: {self.max_connections}. "
                 "Example: RedisConfig(url='redis://localhost:6379/0', max_connections=50)"
             )
+
+
+def get_namespace(config: object, default: str = "mcpstore") -> str:
+    """Return the configured cache namespace, or the MCPStore default."""
+
+    return getattr(config, "namespace", None) or default
+
+
+def detect_strategy(
+    cache_config: Optional[BaseCacheConfig],
+    json_path: Optional[str],
+    *,
+    only_db: bool = False,
+) -> DataSourceStrategy:
+    """Describe the Rust source-mode strategy for compatibility callers.
+
+    The current implementation no longer runs a Python cache wrapper. It maps
+    the legacy strategy names onto the Rust setup semantics: normal setup uses
+    local config plus the selected cache backend, while ``only_db`` uses only
+    the cache backend.
+    """
+
+    _ = cache_config, json_path
+    if only_db:
+        return DataSourceStrategy.ONLY_DB
+    return DataSourceStrategy.LOCAL_DB
