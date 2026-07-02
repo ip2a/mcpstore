@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::cache::models::{ToolArgumentTransform, ToolTransformRule};
+use crate::openapi_runtime::validate_json_schema_value;
 use crate::store::prelude::*;
 
 const TOOL_TRANSFORMS_STATE_TYPE: &str = "tool_transforms";
@@ -157,7 +158,11 @@ impl MCPStore {
             .load_enabled_tool_transform(&service.name, &original_tool_name)
             .await?
         {
-            Some(rule) => Self::transform_call_arguments(args, &rule.arguments),
+            Some(rule) => {
+                let args = Self::transform_call_arguments(args, &rule.arguments);
+                Self::validate_transformed_call_arguments(&args, &rule.arguments)?;
+                args
+            }
             None => args,
         };
         Ok((service.name, original_tool_name, args))
@@ -288,6 +293,12 @@ impl MCPStore {
                     )));
                 }
             }
+            if matches!(arg.validation_schema.as_ref(), Some(schema) if !schema.is_object()) {
+                return Err(StoreError::Other(format!(
+                    "Tool transform validation_schema for {} must be a JSON object",
+                    arg.original_name
+                )));
+            }
         }
         Ok(())
     }
@@ -319,6 +330,17 @@ impl MCPStore {
                             "description".to_string(),
                             serde_json::Value::String(description.clone()),
                         );
+                    }
+                }
+                if let Some(validation_schema) = transform.validation_schema.as_ref() {
+                    if let (
+                        serde_json::Value::Object(property_object),
+                        serde_json::Value::Object(validation_object),
+                    ) = (&mut property, validation_schema)
+                    {
+                        for (key, value) in validation_object {
+                            property_object.insert(key.clone(), value.clone());
+                        }
                     }
                 }
                 properties.insert(transform.new_name.clone().unwrap_or(name), property);
@@ -376,6 +398,38 @@ impl MCPStore {
         }
         serde_json::Value::Object(input)
     }
+
+    fn validate_transformed_call_arguments(
+        args: &serde_json::Value,
+        arguments: &[ToolArgumentTransform],
+    ) -> Result<()> {
+        let serde_json::Value::Object(input) = args else {
+            return Ok(());
+        };
+        let mut errors = Vec::new();
+        for transform in arguments {
+            let Some(schema) = transform.validation_schema.as_ref() else {
+                continue;
+            };
+            let Some(value) = input.get(&transform.original_name) else {
+                continue;
+            };
+            validate_json_schema_value(
+                schema,
+                value,
+                &format!("arguments.{}", transform.original_name),
+                &mut errors,
+            );
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(StoreError::Other(format!(
+                "Tool transform validation failed: {}",
+                errors.join("; ")
+            )))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -394,6 +448,7 @@ mod tests {
                     hidden: false,
                     default_value: None,
                     description: None,
+                    validation_schema: None,
                 },
                 ToolArgumentTransform {
                     original_name: "debug".to_string(),
@@ -401,6 +456,7 @@ mod tests {
                     hidden: true,
                     default_value: Some(serde_json::json!(false)),
                     description: None,
+                    validation_schema: None,
                 },
             ],
         );
@@ -409,5 +465,37 @@ mod tests {
             transformed,
             serde_json::json!({"text": "hi", "debug": false, "extra": 1})
         );
+    }
+
+    #[test]
+    fn transformed_arguments_validate_declarative_schema() {
+        let args = MCPStore::transform_call_arguments(
+            serde_json::json!({"message": "hi"}),
+            &[ToolArgumentTransform {
+                original_name: "text".to_string(),
+                new_name: Some("message".to_string()),
+                hidden: false,
+                default_value: None,
+                description: None,
+                validation_schema: Some(serde_json::json!({"type": "string", "minLength": 3})),
+            }],
+        );
+
+        let err = MCPStore::validate_transformed_call_arguments(
+            &args,
+            &[ToolArgumentTransform {
+                original_name: "text".to_string(),
+                new_name: Some("message".to_string()),
+                hidden: false,
+                default_value: None,
+                description: None,
+                validation_schema: Some(serde_json::json!({"type": "string", "minLength": 3})),
+            }],
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("Tool transform validation failed"));
+        assert!(err.contains("arguments.text length must be at least 3"));
     }
 }

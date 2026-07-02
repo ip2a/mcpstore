@@ -23,6 +23,7 @@ class ArgumentTransform:
     hidden: bool = False
     default_value: Any = None
     description: Optional[str] = None
+    validation_schema: Optional[Dict[str, Any]] = None
     validation_fn: Optional[Callable] = None
     transform_fn: Optional[Callable] = None
 
@@ -38,6 +39,7 @@ class ArgumentTransform:
             "hidden": self.hidden,
             "default_value": self.default_value,
             "description": self.description,
+            "validation_schema": self.validation_schema,
         }
         return payload
 
@@ -145,11 +147,31 @@ class ToolTransformer:
             )
         return self.register_transformation(config, service_name=service_name)
 
-    def create_validated_tool(self, *args, **kwargs) -> str:
-        raise NotImplementedError(
-            "Callable validation rules are not cross-process serializable; "
-            "implement validation in the MCP service or a future Rust policy layer."
+    def create_validated_tool(
+        self,
+        original_tool_name: str,
+        validation_rules: Dict[str, Any],
+        new_tool_name: Optional[str] = None,
+        service_name: Optional[str] = None,
+    ) -> str:
+        config = ToolTransformConfig(
+            original_tool_name=original_tool_name,
+            new_tool_name=new_tool_name or f"{original_tool_name}_validated",
+            tags=["validated", "safe"],
         )
+        for param_name, validation_rule in validation_rules.items():
+            if callable(validation_rule):
+                raise NotImplementedError(
+                    "Callable validation rules are not cross-process serializable; "
+                    "use JSON-schema validation rules for Rust-backed transforms."
+                )
+            if not isinstance(validation_rule, dict):
+                raise TypeError("Tool validation rules must be JSON-schema dictionaries")
+            config.argument_transforms[param_name] = ArgumentTransform(
+                original_name=param_name,
+                validation_schema=dict(validation_rule),
+            )
+        return self.register_transformation(config, service_name=service_name)
 
     def get_transformation_config(
         self,

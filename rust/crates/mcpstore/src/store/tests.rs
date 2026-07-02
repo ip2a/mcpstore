@@ -4338,6 +4338,10 @@ async fn tool_transform_rules_are_rust_backed_and_affect_scoped_tools() {
                         hidden: false,
                         default_value: None,
                         description: Some("Message to say".to_string()),
+                        validation_schema: Some(serde_json::json!({
+                            "type": "string",
+                            "minLength": 3
+                        })),
                     },
                     crate::cache::models::ToolArgumentTransform {
                         original_name: "debug".to_string(),
@@ -4345,6 +4349,7 @@ async fn tool_transform_rules_are_rust_backed_and_affect_scoped_tools() {
                         hidden: true,
                         default_value: Some(serde_json::json!(false)),
                         description: None,
+                        validation_schema: None,
                     },
                 ],
                 tags: vec!["llm-friendly".to_string()],
@@ -4369,7 +4374,12 @@ async fn tool_transform_rules_are_rust_backed_and_affect_scoped_tools() {
     assert_eq!(tools[0].description, "Say text");
     assert!(tools[0].schema["properties"].get("debug").is_none());
     assert!(tools[0].schema["properties"].get("message").is_some());
+    assert_eq!(tools[0].schema["properties"]["message"]["minLength"], 3);
     assert_eq!(tools[0].schema["required"], serde_json::json!(["message"]));
+    assert_eq!(
+        rule.arguments[0].validation_schema,
+        Some(serde_json::json!({"type": "string", "minLength": 3}))
+    );
 
     let resolution = store
         .resolve_tool_for_agent(GLOBAL_AGENT_STORE, "say")
