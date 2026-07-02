@@ -124,6 +124,31 @@ impl MCPStore {
         Ok(result)
     }
 
+    pub async fn bundle_openapi_spec(&self, spec_url: &str) -> Result<serde_json::Value> {
+        let client = reqwest::Client::new();
+        let spec_text = fetch_openapi_spec_text(&client, spec_url).await?;
+        self.bundle_openapi_spec_from_text(spec_url, &spec_text)
+            .await
+    }
+
+    pub async fn bundle_openapi_spec_from_text(
+        &self,
+        spec_url: &str,
+        spec_text: &str,
+    ) -> Result<serde_json::Value> {
+        let spec = parse_openapi_spec_text(spec_text)?;
+        self.bundle_openapi_spec_from_value(spec_url, spec).await
+    }
+
+    pub async fn bundle_openapi_spec_from_value(
+        &self,
+        spec_url: &str,
+        spec: serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        let client = reqwest::Client::new();
+        bundle_openapi_external_refs(&client, spec_url, spec).await
+    }
+
     pub(crate) async fn register_openapi_virtual_service(
         &self,
         result: &OpenApiImportResult,
