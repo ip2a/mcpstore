@@ -2560,6 +2560,62 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         )
         self.assertEqual(store._sessions, {})
 
+    def test_agent_scoped_config_requires_rust_core_scope_api(self):
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        class FakeInner:
+            def show_config(self):
+                return {
+                    "mcpServers": {"agent-demo": {"transport": "stdio"}},
+                    "agents": {"agent-a": ["agent-demo"]},
+                    "clients": {},
+                }
+
+        store = RustStoreBackend(FakeInner())
+
+        self.assertEqual(set(store.show_config("mcp")["mcpServers"]), {"agent-demo"})
+        with self.assertRaises(AttributeError):
+            store.show_config_scoped("agent-a")
+
+    def test_config_reset_methods_require_current_rust_core_apis(self):
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        class FakeInner:
+            def __init__(self):
+                self.calls = []
+
+            def reset_cache_request_metrics(self):
+                self.calls.append(("reset_cache_request_metrics",))
+
+            def reset_agent_config(self, agent_id):
+                self.calls.append(("reset_agent_config", agent_id))
+
+            def reset_mcp_json_scope(self, scope=None):
+                self.calls.append(("reset_mcp_json_scope", scope))
+
+        inner = FakeInner()
+        store = RustStoreBackend(inner)
+
+        self.assertTrue(store.reset_cache_request_metrics())
+        self.assertTrue(store.reset_agent_config("agent-a"))
+        self.assertTrue(store.reset_mcp_json_scope("agents"))
+        self.assertEqual(
+            inner.calls,
+            [
+                ("reset_cache_request_metrics",),
+                ("reset_agent_config", "agent-a"),
+                ("reset_mcp_json_scope", "agents"),
+            ],
+        )
+
+        missing = RustStoreBackend(object())
+        with self.assertRaises(AttributeError):
+            missing.reset_cache_request_metrics()
+        with self.assertRaises(AttributeError):
+            missing.reset_agent_config("agent-a")
+        with self.assertRaises(AttributeError):
+            missing.reset_mcp_json_scope("agents")
+
     def test_registry_facade_delegates_to_rust_cache_surface(self):
         import asyncio
 
