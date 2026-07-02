@@ -1952,6 +1952,12 @@ class RustCacheProxy:
     def dump_all(self) -> Dict[str, Any]:
         return self.inspect()
 
+    async def dump_all_async(self) -> Dict[str, Any]:
+        return self.dump_all()
+
+    async def inspect_async(self) -> Dict[str, Any]:
+        return self.inspect()
+
     def _read_collection(
         self,
         collection_name: str,
@@ -1973,6 +1979,13 @@ class RustCacheProxy:
     ) -> List[Dict[str, Any]]:
         return self._read_collection("entities", type_name, key)
 
+    async def read_entity_async(
+        self,
+        type_name: Optional[str] = None,
+        key: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self.read_entity(type_name, key)
+
     def read_relation(
         self,
         type_name: Optional[str] = None,
@@ -1980,12 +1993,40 @@ class RustCacheProxy:
     ) -> List[Dict[str, Any]]:
         return self._read_collection("relations", type_name, key)
 
+    async def read_relation_async(
+        self,
+        type_name: Optional[str] = None,
+        key: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self.read_relation(type_name, key)
+
     def read_state(
         self,
         type_name: Optional[str] = None,
         key: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         return self._read_collection("states", type_name, key)
+
+    async def read_state_async(
+        self,
+        type_name: Optional[str] = None,
+        key: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self.read_state(type_name, key)
+
+    def read_event(
+        self,
+        type_name: Optional[str] = None,
+        key: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self._read_collection("events", type_name, key)
+
+    async def read_event_async(
+        self,
+        type_name: Optional[str] = None,
+        key: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self.read_event(type_name, key)
 
 
 class RustRegistryFacade:
@@ -2644,6 +2685,33 @@ class RustStoreContext:
             }
         )
 
+    def get_tools_with_stats(self) -> Dict[str, Any]:
+        tools = self.list_tools()
+        tools_by_service: Dict[str, int] = {}
+        for tool in tools:
+            service_name = str(
+                tool.get("service_name")
+                or tool.get("serviceName")
+                or tool.get("global_service_name")
+                or ""
+            )
+            if not service_name:
+                continue
+            tools_by_service[service_name] = tools_by_service.get(service_name, 0) + 1
+        return _record_value(
+            {
+                "tools": tools,
+                "metadata": {
+                    "total_tools": len(tools),
+                    "services_count": len(tools_by_service),
+                    "tools_by_service": tools_by_service,
+                },
+            }
+        )
+
+    def get_system_stats(self) -> Dict[str, Any]:
+        return self.get_stats()
+
     def create_session(
         self,
         session_id: str,
@@ -2853,6 +2921,34 @@ class RustStoreContext:
                 "total_tool_executions": len(history),
                 "is_active": bool(services) or self.active_session is not None or bool(self.list_sessions()),
                 "last_activity": last_activity,
+            }
+        )
+
+    def get_agents_summary(self) -> Dict[str, Any]:
+        agents = []
+        total_services = 0
+        total_tools = 0
+        active_agents = 0
+        for item in self.list_agents():
+            agent_id = item.get("agent_id") or item.get("id")
+            if not agent_id:
+                continue
+            stats = self.find_agent(str(agent_id)).get_stats()
+            agents.append(stats)
+            total_services += int(stats.get("service_count") or 0)
+            total_tools += int(stats.get("tool_count") or 0)
+            if stats.get("is_active"):
+                active_agents += 1
+        store_stats = self.get_stats()
+        return _record_value(
+            {
+                "total_agents": len(agents),
+                "active_agents": active_agents,
+                "total_services": total_services,
+                "total_tools": total_tools,
+                "store_services": store_stats.get("service_count", 0),
+                "store_tools": store_stats.get("tool_count", 0),
+                "agents": agents,
             }
         )
 
