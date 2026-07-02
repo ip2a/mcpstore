@@ -319,6 +319,7 @@ async fn execute_component(
         }
     };
     let body = filter_write_only_response_fields(component, status, &mime_type, body);
+    validate_response_schema(component, status, &mime_type, &body)?;
     Ok(OpenApiHttpResponse {
         status,
         mime_type,
@@ -1149,6 +1150,40 @@ fn filter_write_only_response_fields(
     OpenApiResponseBody::Json(value)
 }
 
+fn validate_response_schema(
+    component: &OpenApiComponent,
+    status: reqwest::StatusCode,
+    mime_type: &str,
+    body: &OpenApiResponseBody,
+) -> Result<()> {
+    if !status.is_success() {
+        return Ok(());
+    }
+    let OpenApiResponseBody::Json(value) = body else {
+        return Ok(());
+    };
+    let Some(schema) = response_body_schema_for_validation(component, status, mime_type) else {
+        return Ok(());
+    };
+
+    let mut schema = schema.clone();
+    if remove_write_only_schema_fields(&mut schema) {
+        schema = serde_json::json!({});
+    }
+
+    let mut errors = Vec::new();
+    validate_schema_value(&schema, value, "response", &mut errors);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(StoreError::Other(format!(
+            "Invalid OpenAPI response for {}: {}",
+            component.name,
+            errors.join(", ")
+        )))
+    }
+}
+
 fn response_body_schema_for_validation<'a>(
     component: &'a OpenApiComponent,
     status: reqwest::StatusCode,
@@ -1258,6 +1293,64 @@ fn remove_write_only_response_fields(schema: &Value, value: &mut Value) -> bool 
                     object.remove(&name);
                 }
             }
+        }
+    }
+
+    false
+}
+
+fn remove_write_only_schema_fields(schema: &mut Value) -> bool {
+    if schema
+        .get("writeOnly")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    for name in ["allOf", "anyOf", "oneOf"] {
+        if let Some(schemas) = schema.get_mut(name).and_then(Value::as_array_mut) {
+            schemas.retain_mut(|child_schema| !remove_write_only_schema_fields(child_schema));
+        }
+    }
+
+    let write_only_required = schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .map(|properties| {
+            properties
+                .iter()
+                .filter_map(|(name, child_schema)| {
+                    child_schema
+                        .get("writeOnly")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                        .then_some(name.clone())
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if let Some(required) = schema.get_mut("required").and_then(Value::as_array_mut) {
+        required.retain(|name| {
+            name.as_str()
+                .map(|name| !write_only_required.iter().any(|required| required == name))
+                .unwrap_or(true)
+        });
+    }
+
+    if let Some(properties) = schema.get_mut("properties").and_then(Value::as_object_mut) {
+        properties.retain(|_, child_schema| !remove_write_only_schema_fields(child_schema));
+    }
+
+    if let Some(item_schema) = schema.get_mut("items") {
+        if remove_write_only_schema_fields(item_schema) {
+            *item_schema = serde_json::json!({});
+        }
+    }
+
+    if let Some(additional_schema) = schema.get_mut("additionalProperties") {
+        if additional_schema.is_object() && remove_write_only_schema_fields(additional_schema) {
+            *additional_schema = Value::Bool(true);
         }
     }
 

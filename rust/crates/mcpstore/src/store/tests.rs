@@ -107,6 +107,16 @@ async fn spawn_openapi_http_fixture() -> String {
                         })),
                         "application/json",
                     )
+                } else if first_line.starts_with("GET /invalid-profile ") {
+                    (
+                        "200 OK",
+                        json_bytes(serde_json::json!({
+                            "id": 123,
+                            "metadata": {},
+                            "tags": []
+                        })),
+                        "application/json",
+                    )
                 } else if first_line.starts_with("GET /negotiated ") {
                     if request_lower.contains("accept: ")
                         && request_lower.contains("application/json")
@@ -144,6 +154,16 @@ async fn spawn_openapi_http_fixture() -> String {
                             "password": "server-secret",
                             "tokens": ["token-1", "token-2"],
                             "metadata": { "public": "visible", "secret": "hidden" }
+                        })),
+                        "application/json",
+                    )
+                } else if first_line.starts_with("POST /invalid-profile ") {
+                    (
+                        "200 OK",
+                        json_bytes(serde_json::json!({
+                            "id": 123,
+                            "metadata": {},
+                            "tags": []
                         })),
                         "application/json",
                     )
@@ -1753,6 +1773,93 @@ async fn openapi_json_responses_filter_write_only_fields() {
     assert!(body.get("password").is_none());
     assert_eq!(body["tokens"], serde_json::json!([]));
     assert_eq!(body["metadata"], serde_json::json!({ "public": "visible" }));
+}
+
+#[tokio::test]
+async fn openapi_json_responses_validate_declared_schema() {
+    let base_url = spawn_openapi_http_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-response-schema-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let profile_schema = serde_json::json!({
+        "type": "object",
+        "required": ["id", "username", "metadata"],
+        "properties": {
+            "id": { "type": "string" },
+            "username": { "type": "string", "minLength": 1 },
+            "metadata": {
+                "type": "object",
+                "required": ["public"],
+                "properties": { "public": { "type": "string" } },
+                "additionalProperties": false
+            },
+            "tags": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+        }
+    });
+    let spec = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": { "title": "Invalid Profiles", "version": "2026.1" },
+        "servers": [{ "url": base_url }],
+        "paths": {
+            "/invalid-profile": {
+                "get": {
+                    "operationId": "getInvalidProfile",
+                    "responses": {
+                        "200": {
+                            "description": "Invalid profile response",
+                            "content": { "application/json": { "schema": profile_schema.clone() } }
+                        }
+                    }
+                },
+                "post": {
+                    "operationId": "createInvalidProfile",
+                    "requestBody": { "content": { "application/json": { "schema": { "type": "object" } } } },
+                    "responses": {
+                        "200": {
+                            "description": "Invalid profile response",
+                            "content": { "application/json": { "schema": profile_schema } }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    store
+        .import_openapi_service_from_spec("invalid-profiles", "memory://invalid-profiles", spec)
+        .await
+        .unwrap();
+
+    let tool_error = store
+        .call_tool(
+            "invalid-profiles",
+            "createInvalidProfile",
+            serde_json::json!({ "body": {} }),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(tool_error.contains("Invalid OpenAPI response for createInvalidProfile"));
+    assert!(tool_error.contains("response.id must be a string"));
+    assert!(tool_error.contains("response.username is required"));
+    assert!(tool_error.contains("response.metadata.public is required"));
+    assert!(tool_error.contains("response.tags must contain at least 1 item(s)"));
+
+    let resource_error = store
+        .read_resource(
+            "invalid-profiles",
+            "openapi://invalid-profiles/getInvalidProfile",
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(resource_error.contains("Invalid OpenAPI response for getInvalidProfile"));
+    assert!(resource_error.contains("response.id must be a string"));
 }
 
 #[tokio::test]
