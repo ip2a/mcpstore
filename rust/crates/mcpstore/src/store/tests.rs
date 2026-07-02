@@ -2337,6 +2337,8 @@ async fn openapi_tools_validate_input_schema_before_request() {
                                         "host": { "type": "string", "format": "hostname" },
                                         "ipv4": { "type": "string", "format": "ipv4" },
                                         "ipv6": { "type": "string", "format": "ipv6" },
+                                        "pointer": { "type": "string", "format": "json-pointer" },
+                                        "relative_pointer": { "type": "string", "format": "relative-json-pointer" },
                                         "composed": { "allOf": [{ "type": "string", "minLength": 3 }, { "type": "string", "pattern": "^ok-" }] },
                                         "choice": { "anyOf": [{ "type": "string", "enum": ["alpha"] }, { "type": "integer", "minimum": 10 }] },
                                         "exclusive": { "oneOf": [{ "type": "string", "minLength": 2 }, { "type": "string", "pattern": "^a" }] },
@@ -2393,7 +2395,7 @@ async fn openapi_tools_validate_input_schema_before_request() {
                 "status": "draft",
                 "request_id": "not-a-uuid",
                 "filter_pattern": "[",
-                "body": { "name": "x", "code": "abcde", "price": 0, "discount": 1, "quantity": 7, "publish_date": "2026-02-30", "updated_at": "2026-01-01 10:00:00", "callback": "ftp://example.test/hook", "resource_uri": "not a uri", "contact": "not-email", "host": "-bad.example", "ipv4": "999.0.0.1", "ipv6": "not-ipv6", "composed": "no", "choice": true, "exclusive": "abc", "blocked": "forbidden", "tags": [], "metadata": { "extra": true }, "labels": { "color": "r" } }
+                "body": { "name": "x", "code": "abcde", "price": 0, "discount": 1, "quantity": 7, "publish_date": "2026-02-30", "updated_at": "2026-01-01 10:00:00", "callback": "ftp://example.test/hook", "resource_uri": "not a uri", "contact": "not-email", "host": "-bad.example", "ipv4": "999.0.0.1", "ipv6": "not-ipv6", "pointer": "/items/~2bad", "relative_pointer": "01/name", "composed": "no", "choice": true, "exclusive": "abc", "blocked": "forbidden", "tags": [], "metadata": { "extra": true }, "labels": { "color": "r" } }
             }),
         )
         .await
@@ -2416,6 +2418,10 @@ async fn openapi_tools_validate_input_schema_before_request() {
     assert!(invalid_constraints.contains("body.host must be a valid hostname"));
     assert!(invalid_constraints.contains("body.ipv4 must be a valid IPv4 address"));
     assert!(invalid_constraints.contains("body.ipv6 must be a valid IPv6 address"));
+    assert!(invalid_constraints.contains("body.pointer must be a valid JSON Pointer"));
+    assert!(
+        invalid_constraints.contains("body.relative_pointer must be a valid relative JSON Pointer")
+    );
     assert!(invalid_constraints.contains("body.composed length must be at least 3"));
     assert!(invalid_constraints.contains("body.composed must match pattern ^ok-"));
     assert!(invalid_constraints.contains("body.choice must match at least one anyOf schema"));
@@ -2434,7 +2440,7 @@ async fn openapi_tools_validate_input_schema_before_request() {
                 "status": "draft",
                 "request_id": "550e8400-e29b-41d4-a716-446655440000",
                 "filter_pattern": "^item-[0-9]+$",
-                "body": { "name": "item-123", "code": "abcd", "price": 1, "discount": 0.5, "quantity": 10, "publish_date": "2026-01-01", "updated_at": "2026-01-01T10:00:00Z", "callback": "https://example.test/hook", "resource_uri": "mcpstore://items/123", "contact": "ops@example.test", "host": "api.example.test", "ipv4": "192.0.2.1", "ipv6": "2001:db8::1", "composed": "ok-ready", "choice": "alpha", "exclusive": "zz", "blocked": "allowed", "tags": ["a", "bb", "cc"] }
+                "body": { "name": "item-123", "code": "abcd", "price": 1, "discount": 0.5, "quantity": 10, "publish_date": "2026-01-01", "updated_at": "2026-01-01T10:00:00Z", "callback": "https://example.test/hook", "resource_uri": "mcpstore://items/123", "contact": "ops@example.test", "host": "api.example.test", "ipv4": "192.0.2.1", "ipv6": "2001:db8::1", "pointer": "/items/0/name", "relative_pointer": "0#", "composed": "ok-ready", "choice": "alpha", "exclusive": "zz", "blocked": "allowed", "tags": ["a", "bb", "cc"] }
             }),
         )
         .await
@@ -2453,7 +2459,7 @@ async fn openapi_tools_validate_input_schema_before_request() {
                 "status": "draft",
                 "request_id": "550e8400-e29b-41d4-a716-446655440000",
                 "filter_pattern": "^item-[0-9]+$",
-                "body": { "name": "item-123", "code": "abcd", "price": 1, "discount": 0.5, "quantity": 10, "publish_date": "2026-01-01", "updated_at": "2026-01-01T10:00:00Z", "callback": "https://example.test/hook", "resource_uri": "mcpstore://items/123", "contact": "ops@example.test", "host": "api.example.test", "ipv4": "192.0.2.1", "ipv6": "2001:db8::1", "composed": "ok-ready", "choice": "alpha", "exclusive": "zz", "blocked": "allowed", "tags": ["bb", "bb"] }
+                "body": { "name": "item-123", "code": "abcd", "price": 1, "discount": 0.5, "quantity": 10, "publish_date": "2026-01-01", "updated_at": "2026-01-01T10:00:00Z", "callback": "https://example.test/hook", "resource_uri": "mcpstore://items/123", "contact": "ops@example.test", "host": "api.example.test", "ipv4": "192.0.2.1", "ipv6": "2001:db8::1", "pointer": "/items/0/name", "relative_pointer": "1/items/0", "composed": "ok-ready", "choice": "alpha", "exclusive": "zz", "blocked": "allowed", "tags": ["bb", "bb"] }
             }),
         )
         .await
@@ -2470,7 +2476,7 @@ async fn openapi_tools_validate_input_schema_before_request() {
                 "status": "draft",
                 "request_id": "550e8400-e29b-41d4-a716-446655440000",
                 "filter_pattern": "^item-[0-9]+$",
-                "body": { "name": "item-123", "code": "abcd", "price": 1.5, "discount": 0.5, "quantity": 10, "publish_date": "2026-01-01", "updated_at": "2026-01-01T10:00:00Z", "callback": "https://example.test/hook", "resource_uri": "mcpstore://items/123", "contact": "ops@example.test", "host": "api.example.test", "ipv4": "192.0.2.1", "ipv6": "2001:db8::1", "composed": "ok-ready", "choice": 10, "exclusive": "zz", "blocked": "allowed", "tags": ["fruit"], "metadata": { "owner": "ops" }, "labels": { "color": "red" } }
+                "body": { "name": "item-123", "code": "abcd", "price": 1.5, "discount": 0.5, "quantity": 10, "publish_date": "2026-01-01", "updated_at": "2026-01-01T10:00:00Z", "callback": "https://example.test/hook", "resource_uri": "mcpstore://items/123", "contact": "ops@example.test", "host": "api.example.test", "ipv4": "192.0.2.1", "ipv6": "2001:db8::1", "pointer": "/items/0/~1escaped~0name", "relative_pointer": "0/items/0", "composed": "ok-ready", "choice": 10, "exclusive": "zz", "blocked": "allowed", "tags": ["fruit"], "metadata": { "owner": "ops" }, "labels": { "color": "red" } }
             }),
         )
         .await
