@@ -2994,6 +2994,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             ResponseMeta,
             ServiceConnectionState,
             ServiceInfo,
+            LoggingConfig,
             ServiceNotFoundException,
             ToolExecutionError,
             ToolExecutionRequest,
@@ -3014,6 +3015,10 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         )
         self.assertEqual(service.name, "weather")
         self.assertEqual(service.transport_type.value, "stdio")
+        LoggingConfig.enable_debug()
+        self.assertTrue(LoggingConfig.is_debug_enabled())
+        LoggingConfig.disable_debug()
+        self.assertFalse(LoggingConfig.is_debug_enabled())
 
         tool = ToolInfo(
             name="weather_get",
