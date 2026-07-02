@@ -491,6 +491,16 @@ paths:
         )
         self.assertEqual(json.loads(session_text)["created"], True)
 
+        session_resources = session.list_resources()
+        self.assertEqual(session_resources[0].uri, "openapi://inventory-exec/listItems")
+        session_resource = session.read_resource("openapi://inventory-exec/listItems")
+        self.assertIn("pear", session_resource.contents[0].text)
+        session_templates = session.list_resource_templates()
+        self.assertEqual(
+            session_templates[0].uriTemplate,
+            "openapi://inventory-exec/get_items_sku/{sku}",
+        )
+
         resources = context.list_resources("inventory-exec")
         self.assertEqual(resources[0].uri, "openapi://inventory-exec/listItems")
         resource = context.read_resource(
@@ -1674,6 +1684,54 @@ paths:
                         return self.call_tool(service_name, tool_name, args)
                 raise RuntimeError("missing tool")
 
+            def list_resources_in_session(self, session_key):
+                return [
+                    {
+                        "uri": f"memory://{service}/doc",
+                        "name": f"{service} doc",
+                        "service_name": service,
+                    }
+                    for service in self.bindings.get(session_key, [])
+                ]
+
+            def list_resource_templates_in_session(self, session_key):
+                return [
+                    {
+                        "uriTemplate": f"memory://{service}/{{name}}",
+                        "name": f"{service} template",
+                        "service_name": service,
+                    }
+                    for service in self.bindings.get(session_key, [])
+                ]
+
+            def read_resource_in_session(self, session_key, uri, service_name=None):
+                services = self.bindings.get(session_key, [])
+                if service_name is not None and service_name not in services:
+                    raise RuntimeError(f"Service not found: {service_name}")
+                return {
+                    "uri": uri,
+                    "contents": [{"type": "text", "text": f"resource:{uri}"}],
+                }
+
+            def list_prompts_in_session(self, session_key):
+                return [
+                    {
+                        "name": f"{service}_summarize",
+                        "service_name": service,
+                    }
+                    for service in self.bindings.get(session_key, [])
+                ]
+
+            def get_prompt_in_session(self, session_key, prompt_name, arguments, service_name=None):
+                services = self.bindings.get(session_key, [])
+                if service_name is not None and service_name not in services:
+                    raise RuntimeError(f"Service not found: {service_name}")
+                return {
+                    "name": prompt_name,
+                    "arguments": arguments,
+                    "service_name": service_name or (services[0] if services else None),
+                }
+
             def list_services_scoped(self, agent_id=None):
                 return [
                     {"name": "browser", "transport": "stdio"},
@@ -1735,6 +1793,13 @@ paths:
             self.assertEqual(active.service_count, 1)
             self.assertEqual(active.list_tools()[0].name, "browser_navigate")
             self.assertEqual(active.use_tool("browser_navigate", {}, return_extracted=True), "browser:browser_navigate")
+            self.assertEqual(active.list_resources()[0].uri, "memory://browser/doc")
+            self.assertEqual(active.list_resource_templates()[0].uriTemplate, "memory://browser/{name}")
+            self.assertEqual(active.read_resource("memory://browser/doc").contents[0].text, "resource:memory://browser/doc")
+            self.assertEqual(active.list_prompts()[0].name, "browser_summarize")
+            self.assertEqual(active.get_prompt("browser_summarize", {"topic": "rust"}).arguments.topic, "rust")
+            with self.assertRaisesRegex(ValueError, "不再接受 JSON 字符串参数"):
+                active.get_prompt("browser_summarize", "")
             with self.assertRaisesRegex(ValueError, "timeout"):
                 active.use_tool("browser_navigate", {}, timeout=10)
             self.assertIs(active.extend_session(), active)

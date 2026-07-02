@@ -1902,6 +1902,101 @@ impl PyMCPStore {
         tool_call_result_to_py(py, &result)
     }
 
+    fn list_resources_in_session(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let resources = py
+            .allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime()
+                    .block_on(self.inner.list_resources_in_session(session_key))
+            })
+            .map_err(map_store_err)?;
+        resources
+            .into_iter()
+            .map(|resource| serde_value_to_py(py, resource))
+            .collect()
+    }
+
+    fn list_resource_templates_in_session(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let templates = py
+            .allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime()
+                    .block_on(self.inner.list_resource_templates_in_session(session_key))
+            })
+            .map_err(map_store_err)?;
+        templates
+            .into_iter()
+            .map(|template| serde_value_to_py(py, template))
+            .collect()
+    }
+
+    #[pyo3(signature = (session_key, uri, service_name=None))]
+    fn read_resource_in_session(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+        uri: &str,
+        service_name: Option<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let resource = py
+            .allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime().block_on(
+                    self.inner
+                        .read_resource_in_session(session_key, uri, service_name.as_deref()),
+                )
+            })
+            .map_err(map_store_err)?;
+        serde_value_to_py(py, resource)
+    }
+
+    fn list_prompts_in_session(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let prompts = py
+            .allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime()
+                    .block_on(self.inner.list_prompts_in_session(session_key))
+            })
+            .map_err(map_store_err)?;
+        prompts
+            .into_iter()
+            .map(|prompt| serde_value_to_py(py, prompt))
+            .collect()
+    }
+
+    #[pyo3(signature = (session_key, prompt_name, arguments, service_name=None))]
+    fn get_prompt_in_session(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+        prompt_name: &str,
+        arguments: &Bound<'_, PyAny>,
+        service_name: Option<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let arguments = py_to_serde_value(arguments, "Prompt arguments")?;
+        let prompt = py
+            .allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime().block_on(
+                    self.inner.get_prompt_in_session(
+                        session_key,
+                        prompt_name,
+                        arguments,
+                        service_name.as_deref(),
+                    ),
+                )
+            })
+            .map_err(map_store_err)?;
+        serde_value_to_py(py, prompt)
+    }
+
     fn resolve_tool_for_agent(
         &self,
         py: Python<'_>,
