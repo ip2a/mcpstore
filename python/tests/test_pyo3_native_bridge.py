@@ -1059,6 +1059,8 @@ paths:
                 self.sessions = {}
                 self.bindings = {}
                 self.session_states = {}
+                self.session_statuses = {}
+                self.restarted_services = []
 
             def find_session(self, session_id, scope="store", agent_id=None):
                 return self.sessions.get((scope, agent_id, session_id))
@@ -1105,7 +1107,10 @@ paths:
                 ]
 
             def get_session_status(self, session_key):
-                return {"session_key": session_key, "status": "active"}
+                return self.session_statuses.get(
+                    session_key,
+                    {"session_key": session_key, "status": "active"},
+                )
 
             def extend_session(self, session_key, seconds):
                 for entity in self.sessions.values():
@@ -1119,7 +1124,9 @@ paths:
                 return self.extend_session(session_key, seconds)
 
             def close_session(self, session_key, reason=None):
-                return {"session_key": session_key, "status": "closed", "reason": reason}
+                status = {"session_key": session_key, "status": "closed", "reason": reason}
+                self.session_statuses[session_key] = status
+                return status
 
             def bind_service_to_session(self, session_key, service_name):
                 services = self.bindings.setdefault(session_key, [])
@@ -1232,16 +1239,24 @@ paths:
                     "is_error": False,
                 }
 
+            def restart_service(self, name):
+                self.restarted_services.append(name)
+
         backend = RustStoreBackend(FakeBackend())
         context = RustStoreContext(backend)
         session = context.create_session("browser_task")
         self.assertEqual(session.session_id, "browser_task")
         self.assertTrue(session.is_active)
         self.assertEqual(context.find_session("browser_task"), session)
-        with self.assertRaisesRegex(TypeError, "user_session_id"):
-            context.create_session("browser_task", user_session_id="legacy")
-        with self.assertRaisesRegex(TypeError, "is_user_session_id"):
-            context.find_session("browser_task", is_user_session_id=True)
+        shared = context.create_session("shared_task", user_session_id="legacy")
+        self.assertEqual(shared.metadata.user_session_id, "legacy")
+        self.assertEqual(context.find_session("legacy", is_user_session_id=True), shared)
+        with self.assertRaisesRegex(ValueError, "conflicts"):
+            context.create_session(
+                "conflicting_shared_task",
+                user_session_id="legacy",
+                metadata={"user_session_id": "different"},
+            )
 
         with context.with_session("browser_task") as active:
             active.bind_service("browser")
@@ -1273,18 +1288,26 @@ paths:
 
         self.assertIsNone(context.active_session)
         context.session_auto("auto_browser")
+        self.assertTrue(context.is_session_auto())
         self.assertEqual(context.active_session.session_id, "auto_browser")
         self.assertEqual(context.active_session.session_info().lease_seconds, 720000)
         self.assertEqual(context.active_session.metadata.created_by, "python_session_auto")
         context.session_manual()
+        self.assertFalse(context.is_session_auto())
 
         context.session_auto(default_timeout=1, auto_cleanup=True, session_prefix="legacy_")
         self.assertEqual(context.active_session.session_id, "legacy_session_default")
         self.assertEqual(context.active_session.session_info().lease_seconds, 1)
         self.assertTrue(context.active_session.metadata.auto_cleanup)
         self.assertEqual(context.active_session.metadata.session_prefix, "legacy_")
+        self.assertIs(context.cleanup_sessions(), context)
         context.session_manual()
         self.assertIsNone(context.active_session)
+
+        context.with_session("restartable").bind_service("browser")
+        self.assertIs(context.restart_sessions(), context)
+        self.assertIs(context.close_all_sessions(), context)
+        self.assertFalse(context.find_session("restartable").is_active)
 
     def test_pyo3_session_bridge_exposes_rust_core_session_methods(self):
         from mcpstore._rust import MCPStore
