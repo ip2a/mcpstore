@@ -754,11 +754,13 @@ impl PyMCPStore {
         options: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
         let options = parse_openapi_import_options(options)?;
-        let result = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .import_openapi_service_with_options(name, spec_url, options),
-            )
+        let result = py
+            .allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime().block_on(
+                    self.inner
+                        .import_openapi_service_with_options(name, spec_url, options),
+                )
+            })
             .map_err(map_store_err)?;
         serde_value_to_py(
             py,
@@ -781,11 +783,14 @@ impl PyMCPStore {
     ) -> PyResult<Py<PyAny>> {
         let spec = py_to_serde_value(spec, "OpenAPI spec")?;
         let options = parse_openapi_import_options(options)?;
-        let result = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .import_openapi_service_from_spec_with_options(name, spec_url, spec, options),
-            )
+        let result = py
+            .allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime().block_on(
+                    self.inner.import_openapi_service_from_spec_with_options(
+                        name, spec_url, spec, options,
+                    ),
+                )
+            })
             .map_err(map_store_err)?;
         serde_value_to_py(
             py,
@@ -807,13 +812,15 @@ impl PyMCPStore {
         options: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
         let options = parse_openapi_import_options(options)?;
-        let result = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .import_openapi_service_from_spec_text_with_options(
-                        name, spec_url, spec_text, options,
-                    ),
-            )
+        let result = py
+            .allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime().block_on(
+                    self.inner
+                        .import_openapi_service_from_spec_text_with_options(
+                            name, spec_url, spec_text, options,
+                        ),
+                )
+            })
             .map_err(map_store_err)?;
         serde_value_to_py(
             py,
@@ -833,11 +840,13 @@ impl PyMCPStore {
         options: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
         let options = parse_openapi_bundle_options(options)?;
-        let result = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .bundle_openapi_spec_with_options(spec_url, options),
-            )
+        let result = py
+            .allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime().block_on(
+                    self.inner
+                        .bundle_openapi_spec_with_options(spec_url, options),
+                )
+            })
             .map_err(map_store_err)?;
         serde_value_to_py(py, result)
     }
@@ -852,20 +861,22 @@ impl PyMCPStore {
     ) -> PyResult<Py<PyAny>> {
         let options = parse_openapi_bundle_options(options)?;
         let result = if let Ok(spec_text) = spec.extract::<String>() {
-            pyo3_async_runtimes::tokio::get_runtime()
-                .block_on(
+            py.allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime().block_on(
                     self.inner
                         .bundle_openapi_spec_from_text_with_options(spec_url, &spec_text, options),
                 )
-                .map_err(map_store_err)?
+            })
+            .map_err(map_store_err)?
         } else {
             let spec = py_to_serde_value(spec, "OpenAPI spec")?;
-            pyo3_async_runtimes::tokio::get_runtime()
-                .block_on(
+            py.allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime().block_on(
                     self.inner
                         .bundle_openapi_spec_from_value_with_options(spec_url, spec, options),
                 )
-                .map_err(map_store_err)?
+            })
+            .map_err(map_store_err)?
         };
         serde_value_to_py(py, result)
     }
@@ -878,11 +889,13 @@ impl PyMCPStore {
         options: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
         let options = parse_openapi_bundle_options(options)?;
-        let result = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .bundle_openapi_artifact_with_options(spec_url, options),
-            )
+        let result = py
+            .allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime().block_on(
+                    self.inner
+                        .bundle_openapi_artifact_with_options(spec_url, options),
+                )
+            })
             .map_err(map_store_err)?;
         serde_value_to_py(
             py,
@@ -904,21 +917,23 @@ impl PyMCPStore {
     ) -> PyResult<Py<PyAny>> {
         let options = parse_openapi_bundle_options(options)?;
         let result = if let Ok(spec_text) = spec.extract::<String>() {
-            pyo3_async_runtimes::tokio::get_runtime()
-                .block_on(
+            py.allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime().block_on(
                     self.inner.bundle_openapi_artifact_from_text_with_options(
                         spec_url, &spec_text, options,
                     ),
                 )
-                .map_err(map_store_err)?
+            })
+            .map_err(map_store_err)?
         } else {
             let spec = py_to_serde_value(spec, "OpenAPI spec")?;
-            pyo3_async_runtimes::tokio::get_runtime()
-                .block_on(
+            py.allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime().block_on(
                     self.inner
                         .bundle_openapi_artifact_from_value_with_options(spec_url, spec, options),
                 )
-                .map_err(map_store_err)?
+            })
+            .map_err(map_store_err)?
         };
         serde_value_to_py(
             py,
@@ -1040,8 +1055,14 @@ impl PyMCPStore {
         args: &Bound<'_, PyAny>,
     ) -> PyResult<Py<PyAny>> {
         let args = py_to_serde_value(args, "Tool arguments")?;
-        let result = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.call_tool(service_name, tool_name, args))
+        let result = py
+            .allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.call_tool(
+                    service_name,
+                    tool_name,
+                    args,
+                ))
+            })
             .map_err(map_store_err)?;
         tool_call_result_to_py(py, &result)
     }
@@ -1869,11 +1890,14 @@ impl PyMCPStore {
         args: &Bound<'_, PyAny>,
     ) -> PyResult<Py<PyAny>> {
         let args = py_to_serde_value(args, "Tool arguments")?;
-        let result = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .call_tool_in_session(session_key, tool_name, args),
-            )
+        let result = py
+            .allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.call_tool_in_session(
+                    session_key,
+                    tool_name,
+                    args,
+                ))
+            })
             .map_err(map_store_err)?;
         tool_call_result_to_py(py, &result)
     }
@@ -2039,12 +2063,14 @@ impl PyMCPStore {
         uri: &str,
         service_name: Option<String>,
     ) -> PyResult<Py<PyAny>> {
-        let resource = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.read_resource_scoped(
-                agent_id.as_deref(),
-                uri,
-                service_name.as_deref(),
-            ))
+        let resource = py
+            .allow_threads(|| {
+                pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.read_resource_scoped(
+                    agent_id.as_deref(),
+                    uri,
+                    service_name.as_deref(),
+                ))
+            })
             .map_err(map_store_err)?;
         serde_value_to_py(py, resource)
     }
