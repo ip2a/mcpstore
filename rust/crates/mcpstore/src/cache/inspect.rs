@@ -18,6 +18,7 @@ const STATE_TYPES: &[&str] = &[
     "context_tool_visibility",
     "tool_preferences",
     "tool_transforms",
+    "openapi_import_context",
     "openapi_imports",
 ];
 const EVENT_TYPES: &[&str] = &["session_events", "openapi_imports"];

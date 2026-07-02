@@ -18,14 +18,13 @@ class AdvancedFeaturesMixin:
         import time
 
         name = api_name or f"api_{int(time.time())}"
-        result = self._rust_context().import_openapi_service(
+        self._rust_context().import_openapi_service(
             name,
             api_url,
             headers=headers,
             auth=auth,
             ref_cache=ref_cache,
         )
-        self._last_openapi_import = result
         return self
 
     async def import_api_async(
@@ -49,7 +48,7 @@ class AdvancedFeaturesMixin:
         auth: dict = None,
         ref_cache: dict = None,
     ):
-        result = self._rust_context().import_openapi_service_from_spec(
+        self._rust_context().import_openapi_service_from_spec(
             api_name,
             spec_url,
             spec,
@@ -57,11 +56,10 @@ class AdvancedFeaturesMixin:
             auth=auth,
             ref_cache=ref_cache,
         )
-        self._last_openapi_import = result
         return self
 
     def last_openapi_import(self):
-        return getattr(self, "_last_openapi_import", None)
+        return self._rust_context().last_openapi_import()
 
     def reset_mcp_json_file(self) -> bool:
         return self._rust_context().reset_mcp_json_scope("all")

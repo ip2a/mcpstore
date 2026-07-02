@@ -1,9 +1,10 @@
 use super::layer::*;
 use crate::cache::memory_cache_store;
 use crate::cache::models::{
-    ContextToolVisibilityState, SessionContextState, SessionEntity, SessionEvent, SessionEventType,
-    SessionScope, SessionServiceItem, SessionServiceRelation, SessionStatus, SessionStatusState,
-    SessionToolItem, SessionToolVisibility, ToolPreferenceState, ToolVisibilityMode,
+    ContextToolVisibilityState, OpenApiImportContextState, SessionContextState, SessionEntity,
+    SessionEvent, SessionEventType, SessionScope, SessionServiceItem, SessionServiceRelation,
+    SessionStatus, SessionStatusState, SessionToolItem, SessionToolVisibility, ToolPreferenceState,
+    ToolVisibilityMode,
 };
 
 #[tokio::test]
@@ -262,6 +263,18 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
     )
     .await
     .unwrap();
+    mgr.put_state(
+        "openapi_import_context",
+        "global",
+        serde_json::to_value(OpenApiImportContextState {
+            last_service_name: "inventory".to_string(),
+            updated_at: 105,
+            version: 1,
+        })
+        .unwrap(),
+    )
+    .await
+    .unwrap();
     mgr.put_event(
         "session_events",
         "store:global:s1:0001",
@@ -288,6 +301,7 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
     assert_eq!(snapshot.states["session_context"].len(), 1);
     assert_eq!(snapshot.states["context_tool_visibility"].len(), 1);
     assert_eq!(snapshot.states["tool_preferences"].len(), 1);
+    assert_eq!(snapshot.states["openapi_import_context"].len(), 1);
     assert_eq!(snapshot.events["session_events"].len(), 1);
     assert!(mgr
         .get_entity("sessions", session_key)
@@ -316,6 +330,11 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
         .is_some());
     assert!(mgr
         .get_state("tool_preferences", "store:global:store.svc.echo")
+        .await
+        .unwrap()
+        .is_some());
+    assert!(mgr
+        .get_state("openapi_import_context", "global")
         .await
         .unwrap()
         .is_some());

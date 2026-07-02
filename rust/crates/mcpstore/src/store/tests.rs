@@ -1634,9 +1634,15 @@ async fn openapi_import_persists_shared_analysis_result() {
         .unwrap()
         .unwrap();
     assert_eq!(persisted.spec_info.title.as_deref(), Some("Inventory"));
+    let last_import = store.last_openapi_import().await.unwrap().unwrap();
+    assert_eq!(last_import.service_name, "inventory");
     assert_eq!(store.list_openapi_imports().await.unwrap().len(), 1);
 
     let inspect = store.cache_inspect().await.unwrap();
+    assert_eq!(
+        inspect["counts"]["states"]["openapi_import_context"],
+        serde_json::json!(1)
+    );
     assert_eq!(
         inspect["counts"]["states"]["openapi_imports"],
         serde_json::json!(1)
@@ -1650,6 +1656,60 @@ async fn openapi_import_persists_shared_analysis_result() {
         serde_json::json!(1)
     );
     assert_eq!(inspect["counts"]["entities"]["tools"], serde_json::json!(1));
+}
+
+#[tokio::test]
+async fn openapi_last_import_tracks_latest_successful_import() {
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-last-import-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+
+    assert!(store.last_openapi_import().await.unwrap().is_none());
+
+    let spec = |title: &str| {
+        serde_json::json!({
+            "openapi": "3.0.0",
+            "info": {"title": title, "version": "1.0"},
+            "paths": {
+                "/ping": {
+                    "get": {"operationId": "ping"}
+                }
+            }
+        })
+    };
+
+    store
+        .import_openapi_service_from_spec("alpha", "memory://alpha", spec("Alpha"))
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .last_openapi_import()
+            .await
+            .unwrap()
+            .unwrap()
+            .service_name,
+        "alpha"
+    );
+
+    store
+        .import_openapi_service_from_spec("beta", "memory://beta", spec("Beta"))
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .last_openapi_import()
+            .await
+            .unwrap()
+            .unwrap()
+            .service_name,
+        "beta"
+    );
 }
 
 #[tokio::test]
