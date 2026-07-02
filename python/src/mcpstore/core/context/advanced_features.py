@@ -6,7 +6,15 @@ from __future__ import annotations
 class AdvancedFeaturesMixin:
     """Compatibility mixin for advanced context methods."""
 
-    def import_api(self, api_url: str, api_name: str = None, *, headers: dict = None, auth: dict = None):
+    def import_api(
+        self,
+        api_url: str,
+        api_name: str = None,
+        *,
+        headers: dict = None,
+        auth: dict = None,
+        ref_cache: dict = None,
+    ):
         import time
 
         name = api_name or f"api_{int(time.time())}"
@@ -15,12 +23,21 @@ class AdvancedFeaturesMixin:
             api_url,
             headers=headers,
             auth=auth,
+            ref_cache=ref_cache,
         )
         self._last_openapi_import = result
         return self
 
-    async def import_api_async(self, api_url: str, api_name: str = None, *, headers: dict = None, auth: dict = None):
-        return self.import_api(api_url, api_name, headers=headers, auth=auth)
+    async def import_api_async(
+        self,
+        api_url: str,
+        api_name: str = None,
+        *,
+        headers: dict = None,
+        auth: dict = None,
+        ref_cache: dict = None,
+    ):
+        return self.import_api(api_url, api_name, headers=headers, auth=auth, ref_cache=ref_cache)
 
     def import_api_from_spec(
         self,
@@ -30,6 +47,7 @@ class AdvancedFeaturesMixin:
         *,
         headers: dict = None,
         auth: dict = None,
+        ref_cache: dict = None,
     ):
         result = self._rust_context().import_openapi_service_from_spec(
             api_name,
@@ -37,6 +55,7 @@ class AdvancedFeaturesMixin:
             spec,
             headers=headers,
             auth=auth,
+            ref_cache=ref_cache,
         )
         self._last_openapi_import = result
         return self

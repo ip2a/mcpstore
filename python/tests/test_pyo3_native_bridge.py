@@ -1833,6 +1833,19 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertIsNone(cache)
         self.assertFalse(only_db)
 
+        with self.assertRaisesRegex(ValueError, "cache_mode='shared'.*RedisConfig"):
+            StoreSetupManager._normalize_cache_options(
+                cache=None,
+                cache_mode="shared",
+                only_db=False,
+            )
+        with self.assertRaisesRegex(ValueError, "memory 后端无法跨进程共享 session"):
+            StoreSetupManager._normalize_cache_options(
+                cache=memory,
+                cache_mode="shared",
+                only_db=False,
+            )
+
         with self.assertRaisesRegex(ValueError, "cache_mode='hybrid'"):
             StoreSetupManager._normalize_cache_options(
                 cache=redis,
@@ -2209,6 +2222,32 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             return ResponseBuilder.success()
 
         self.assertIn("elapsed_ms", handler()["meta"])
+
+    def test_python_config_compatibility_exports_are_data_only(self):
+        from mcpstore.config import (
+            DataSourceStrategy,
+            MemoryConfig,
+            RedisConfig,
+            detect_strategy,
+            get_namespace,
+            load_app_config,
+        )
+
+        redis = RedisConfig(url="redis://localhost:6379/0", namespace="team")
+        self.assertEqual(get_namespace(redis), "team")
+        self.assertEqual(get_namespace(MemoryConfig()), "mcpstore")
+        self.assertEqual(
+            detect_strategy(redis, "mcp.json"),
+            DataSourceStrategy.LOCAL_DB,
+        )
+        self.assertEqual(
+            detect_strategy(redis, None, only_db=True),
+            DataSourceStrategy.ONLY_DB,
+        )
+
+        app_config = load_app_config()
+        self.assertEqual(app_config["streamable_http_endpoint"], "/mcp")
+        self.assertIn("heartbeat_interval", app_config)
 
     def test_top_level_python_sdk_compatibility_exports(self):
         from mcpstore import (
@@ -2590,6 +2629,18 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             def import_openapi_service_from_spec_text(self, name, spec_url, spec_text, options=None):
                 return self.import_openapi_service(name, spec_url, options)
 
+            def bundle_openapi_spec(self, spec_url, options=None):
+                return {"spec_url": spec_url, "options": options or {}}
+
+            def bundle_openapi_spec_from_spec(self, spec_url, spec, options=None):
+                return {"spec_url": spec_url, "spec": spec, "options": options or {}}
+
+            def bundle_openapi_artifact(self, spec_url, options=None):
+                return {"spec_url": spec_url, "options": options or {}, "bundle": {}}
+
+            def bundle_openapi_artifact_from_spec(self, spec_url, spec, options=None):
+                return {"spec_url": spec_url, "spec": spec, "options": options or {}, "bundle": {}}
+
             def get_openapi_import(self, name):
                 return None
 
@@ -2647,6 +2698,25 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertEqual(
             operations.last_openapi_import().options["auth"]["ApiKeyAuth"],
             "secret",
+        )
+        self.assertIs(
+            operations.import_api(
+                "https://example.test/cache-openapi.json",
+                "cache",
+                ref_cache={"ttl_seconds": 21},
+            ),
+            operations,
+        )
+        self.assertEqual(
+            operations.last_openapi_import().options["ref_cache"]["ttl_seconds"],
+            21,
+        )
+        self.assertEqual(
+            store_proxy.bundle_openapi_artifact(
+                "memory://bundle",
+                ref_cache={"enabled": False},
+            )["options"]["ref_cache"]["enabled"],
+            False,
         )
 
         session = context.with_session("compat")

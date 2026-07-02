@@ -1947,6 +1947,86 @@ async fn openapi_bundle_writes_external_ref_document_cache() {
 }
 
 #[tokio::test]
+async fn openapi_bundle_ref_cache_policy_sets_ttl() {
+    let (base_url, _components_requests) = spawn_openapi_spec_ref_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-ref-cache-policy-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+
+    let root_url = format!("{base_url}/openapi.json");
+    store
+        .bundle_openapi_artifact_with_options(
+            &root_url,
+            crate::openapi::OpenApiBundleOptions {
+                ref_cache: crate::openapi::OpenApiRefCachePolicy {
+                    enabled: true,
+                    ttl_seconds: 42,
+                },
+            },
+        )
+        .await
+        .unwrap();
+
+    let states = store
+        .cache()
+        .get_all_states_async("openapi_ref_documents")
+        .await
+        .unwrap();
+    assert_eq!(states.len(), 1);
+    let cached = states.values().next().unwrap();
+    assert_eq!(cached["ttl_seconds"], serde_json::json!(42));
+    assert_eq!(
+        cached["expires_at"].as_i64().unwrap() - cached["fetched_at"].as_i64().unwrap(),
+        42
+    );
+}
+
+#[tokio::test]
+async fn openapi_bundle_ref_cache_policy_can_disable_shared_cache() {
+    let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!(
+            "openapi-ref-cache-disabled-{}",
+            uuid::Uuid::new_v4()
+        )),
+    })
+    .unwrap();
+    let options = crate::openapi::OpenApiBundleOptions {
+        ref_cache: crate::openapi::OpenApiRefCachePolicy {
+            enabled: false,
+            ttl_seconds: 300,
+        },
+    };
+
+    let root_url = format!("{base_url}/openapi.json");
+    store
+        .bundle_openapi_artifact_with_options(&root_url, options.clone())
+        .await
+        .unwrap();
+    store
+        .bundle_openapi_artifact_with_options(&root_url, options)
+        .await
+        .unwrap();
+
+    assert_eq!(components_requests.load(Ordering::SeqCst), 2);
+    let states = store
+        .cache()
+        .get_all_states_async("openapi_ref_documents")
+        .await
+        .unwrap();
+    assert!(states.is_empty());
+}
+
+#[tokio::test]
 async fn openapi_bundle_revalidates_expired_http_ref_cache_with_etag() {
     let (base_url, components_requests, conditional_requests) =
         spawn_openapi_conditional_ref_fixture().await;
@@ -3457,6 +3537,7 @@ async fn openapi_import_options_apply_security_to_tools_and_resources() {
             crate::openapi::OpenApiImportOptions {
                 headers: HashMap::from([("x-api-key".to_string(), "secret".to_string())]),
                 auth: serde_json::Map::new(),
+                ..Default::default()
             },
         )
         .await
@@ -3489,6 +3570,7 @@ async fn openapi_import_options_apply_security_to_tools_and_resources() {
                     .as_object()
                     .unwrap()
                     .clone(),
+                ..Default::default()
             },
         )
         .await

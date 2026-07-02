@@ -26,7 +26,7 @@ pub use cache::{CacheLayerManager, CacheSnapshot};
 // Facade re-exports: OpenAPI runtime imports
 pub use openapi::{
     OpenApiBundleArtifact, OpenApiBundleDependency, OpenApiBundleDiagnostic, OpenApiBundleDocument,
-    OpenApiImportOptions, OpenApiImportResult,
+    OpenApiBundleOptions, OpenApiImportOptions, OpenApiImportResult, OpenApiRefCachePolicy,
 };
 
 // Facade re-exports: event bus

@@ -690,12 +690,13 @@ class RustStoreBackend:
         *,
         headers: Optional[Dict[str, str]] = None,
         auth: Optional[Dict[str, Any]] = None,
+        ref_cache: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         return _record_value(
             self._inner.import_openapi_service(
                 name,
                 spec_url,
-                self._openapi_import_options(headers, auth),
+                self._openapi_import_options(headers, auth, ref_cache),
             )
         )
 
@@ -707,8 +708,9 @@ class RustStoreBackend:
         *,
         headers: Optional[Dict[str, str]] = None,
         auth: Optional[Dict[str, Any]] = None,
+        ref_cache: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        options = self._openapi_import_options(headers, auth)
+        options = self._openapi_import_options(headers, auth, ref_cache)
         if isinstance(spec, str):
             return _record_value(
                 self._inner.import_openapi_service_from_spec_text(
@@ -731,35 +733,93 @@ class RustStoreBackend:
         self,
         headers: Optional[Dict[str, str]],
         auth: Optional[Dict[str, Any]],
+        ref_cache: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         return {
             "headers": dict(headers or {}),
             "auth": dict(auth or {}),
+            "ref_cache": dict(ref_cache or {}),
         }
 
-    def bundle_openapi_spec(self, spec_url: str) -> Dict[str, Any]:
-        return _record_value(self._inner.bundle_openapi_spec(spec_url))
+    def _openapi_bundle_options(
+        self,
+        ref_cache: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return {"ref_cache": dict(ref_cache or {})}
 
-    def bundle_openapi_spec_from_spec(self, spec_url: str, spec: Any) -> Dict[str, Any]:
-        if isinstance(spec, str):
-            return _record_value(self._inner.bundle_openapi_spec_from_spec(spec_url, spec))
+    def bundle_openapi_spec(
+        self,
+        spec_url: str,
+        *,
+        ref_cache: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        if ref_cache is None:
+            return _record_value(self._inner.bundle_openapi_spec(spec_url))
         return _record_value(
-            self._inner.bundle_openapi_spec_from_spec(
+            self._inner.bundle_openapi_spec(
                 spec_url,
-                self._normalize_config_dict(spec, "OpenAPI spec"),
+                self._openapi_bundle_options(ref_cache),
             )
         )
 
-    def bundle_openapi_artifact(self, spec_url: str) -> Dict[str, Any]:
-        return _record_value(self._inner.bundle_openapi_artifact(spec_url))
-
-    def bundle_openapi_artifact_from_spec(self, spec_url: str, spec: Any) -> Dict[str, Any]:
+    def bundle_openapi_spec_from_spec(
+        self,
+        spec_url: str,
+        spec: Any,
+        *,
+        ref_cache: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        options = self._openapi_bundle_options(ref_cache) if ref_cache is not None else None
         if isinstance(spec, str):
-            return _record_value(self._inner.bundle_openapi_artifact_from_spec(spec_url, spec))
+            if options is None:
+                return _record_value(self._inner.bundle_openapi_spec_from_spec(spec_url, spec))
+            return _record_value(self._inner.bundle_openapi_spec_from_spec(spec_url, spec, options))
+        normalized = self._normalize_config_dict(spec, "OpenAPI spec")
+        if options is None:
+            return _record_value(self._inner.bundle_openapi_spec_from_spec(spec_url, normalized))
+        return _record_value(
+            self._inner.bundle_openapi_spec_from_spec(
+                spec_url,
+                normalized,
+                options,
+            )
+        )
+
+    def bundle_openapi_artifact(
+        self,
+        spec_url: str,
+        *,
+        ref_cache: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        if ref_cache is None:
+            return _record_value(self._inner.bundle_openapi_artifact(spec_url))
+        return _record_value(
+            self._inner.bundle_openapi_artifact(
+                spec_url,
+                self._openapi_bundle_options(ref_cache),
+            )
+        )
+
+    def bundle_openapi_artifact_from_spec(
+        self,
+        spec_url: str,
+        spec: Any,
+        *,
+        ref_cache: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        options = self._openapi_bundle_options(ref_cache) if ref_cache is not None else None
+        if isinstance(spec, str):
+            if options is None:
+                return _record_value(self._inner.bundle_openapi_artifact_from_spec(spec_url, spec))
+            return _record_value(self._inner.bundle_openapi_artifact_from_spec(spec_url, spec, options))
+        normalized = self._normalize_config_dict(spec, "OpenAPI spec")
+        if options is None:
+            return _record_value(self._inner.bundle_openapi_artifact_from_spec(spec_url, normalized))
         return _record_value(
             self._inner.bundle_openapi_artifact_from_spec(
                 spec_url,
-                self._normalize_config_dict(spec, "OpenAPI spec"),
+                normalized,
+                options,
             )
         )
 
@@ -2673,12 +2733,14 @@ class RustStoreContext:
         *,
         headers: Optional[Dict[str, str]] = None,
         auth: Optional[Dict[str, Any]] = None,
+        ref_cache: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         result = self._backend.import_openapi_service(
             name,
             spec_url,
             headers=headers,
             auth=auth,
+            ref_cache=ref_cache,
         )
         self._last_openapi_import = result
         return result
@@ -2691,6 +2753,7 @@ class RustStoreContext:
         *,
         headers: Optional[Dict[str, str]] = None,
         auth: Optional[Dict[str, Any]] = None,
+        ref_cache: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         result = self._backend.import_openapi_service_from_spec(
             name,
@@ -2698,6 +2761,7 @@ class RustStoreContext:
             spec,
             headers=headers,
             auth=auth,
+            ref_cache=ref_cache,
         )
         self._last_openapi_import = result
         return result
@@ -2711,17 +2775,43 @@ class RustStoreContext:
     def last_openapi_import(self) -> Optional[Dict[str, Any]]:
         return getattr(self, "_last_openapi_import", None)
 
-    def bundle_openapi_spec(self, spec_url: str) -> Dict[str, Any]:
-        return self._backend.bundle_openapi_spec(spec_url)
+    def bundle_openapi_spec(
+        self,
+        spec_url: str,
+        *,
+        ref_cache: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return self._backend.bundle_openapi_spec(spec_url, ref_cache=ref_cache)
 
-    def bundle_openapi_spec_from_spec(self, spec_url: str, spec: Any) -> Dict[str, Any]:
-        return self._backend.bundle_openapi_spec_from_spec(spec_url, spec)
+    def bundle_openapi_spec_from_spec(
+        self,
+        spec_url: str,
+        spec: Any,
+        *,
+        ref_cache: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return self._backend.bundle_openapi_spec_from_spec(spec_url, spec, ref_cache=ref_cache)
 
-    def bundle_openapi_artifact(self, spec_url: str) -> Dict[str, Any]:
-        return self._backend.bundle_openapi_artifact(spec_url)
+    def bundle_openapi_artifact(
+        self,
+        spec_url: str,
+        *,
+        ref_cache: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return self._backend.bundle_openapi_artifact(spec_url, ref_cache=ref_cache)
 
-    def bundle_openapi_artifact_from_spec(self, spec_url: str, spec: Any) -> Dict[str, Any]:
-        return self._backend.bundle_openapi_artifact_from_spec(spec_url, spec)
+    def bundle_openapi_artifact_from_spec(
+        self,
+        spec_url: str,
+        spec: Any,
+        *,
+        ref_cache: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return self._backend.bundle_openapi_artifact_from_spec(
+            spec_url,
+            spec,
+            ref_cache=ref_cache,
+        )
 
     def call_tool(
         self,

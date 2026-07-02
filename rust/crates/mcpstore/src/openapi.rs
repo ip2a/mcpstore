@@ -4,6 +4,15 @@ use serde_json::{Map, Value};
 use crate::{Result, StoreError};
 
 const MAX_LOCAL_REF_DEPTH: usize = 32;
+pub const DEFAULT_OPENAPI_REF_CACHE_TTL_SECONDS: u32 = 300;
+
+fn default_openapi_ref_cache_enabled() -> bool {
+    true
+}
+
+fn default_openapi_ref_cache_ttl_seconds() -> u32 {
+    DEFAULT_OPENAPI_REF_CACHE_TTL_SECONDS
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -123,11 +132,46 @@ pub struct OpenApiBundleDiagnostic {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct OpenApiBundleOptions {
+    #[serde(default)]
+    pub ref_cache: OpenApiRefCachePolicy,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OpenApiRefCachePolicy {
+    #[serde(default = "default_openapi_ref_cache_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_openapi_ref_cache_ttl_seconds")]
+    pub ttl_seconds: u32,
+}
+
+impl Default for OpenApiRefCachePolicy {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            ttl_seconds: DEFAULT_OPENAPI_REF_CACHE_TTL_SECONDS,
+        }
+    }
+}
+
+impl OpenApiRefCachePolicy {
+    pub fn is_enabled(&self) -> bool {
+        self.enabled && self.ttl_seconds > 0
+    }
+
+    pub fn ttl_seconds_i64(&self) -> i64 {
+        i64::from(self.ttl_seconds)
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct OpenApiImportOptions {
     #[serde(default)]
     pub headers: std::collections::HashMap<String, String>,
     #[serde(default)]
     pub auth: Map<String, Value>,
+    #[serde(default)]
+    pub ref_cache: OpenApiRefCachePolicy,
 }
 
 pub fn parse_openapi_spec_text(spec_text: &str) -> Result<Value> {
