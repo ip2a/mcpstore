@@ -1068,6 +1068,91 @@ impl PyMCPStore {
         tool_transform_rule_to_py(py, &rule)
     }
 
+    #[pyo3(signature = (service_name, tool_name, friendly_name=None, description=None, hide_technical_params=true, add_safety_policy=true))]
+    fn create_llm_friendly_tool_transform(
+        &self,
+        py: Python<'_>,
+        service_name: &str,
+        tool_name: &str,
+        friendly_name: Option<&str>,
+        description: Option<&str>,
+        hide_technical_params: bool,
+        add_safety_policy: bool,
+    ) -> PyResult<Py<PyAny>> {
+        let rule = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.create_llm_friendly_tool_transform(
+                service_name,
+                tool_name,
+                friendly_name,
+                description,
+                hide_technical_params,
+                add_safety_policy,
+            ))
+            .map_err(map_store_err)?;
+        tool_transform_rule_to_py(py, &rule)
+    }
+
+    #[pyo3(signature = (service_name, tool_name, parameter_mapping, new_tool_name=None))]
+    fn create_parameter_renamed_tool_transform(
+        &self,
+        py: Python<'_>,
+        service_name: &str,
+        tool_name: &str,
+        parameter_mapping: &Bound<'_, PyAny>,
+        new_tool_name: Option<&str>,
+    ) -> PyResult<Py<PyAny>> {
+        let value = py_to_serde_value(parameter_mapping, "Parameter mapping")?;
+        let mapping = value.as_object().ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err("Parameter mapping must be a dictionary")
+        })?;
+        let mut pairs = Vec::with_capacity(mapping.len());
+        for (original, renamed) in mapping {
+            let Some(renamed) = renamed.as_str() else {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Parameter mapping values must be strings",
+                ));
+            };
+            pairs.push((original.as_str(), renamed));
+        }
+        let rule = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.create_parameter_renamed_tool_transform(
+                service_name,
+                tool_name,
+                new_tool_name,
+                &pairs,
+            ))
+            .map_err(map_store_err)?;
+        tool_transform_rule_to_py(py, &rule)
+    }
+
+    #[pyo3(signature = (service_name, tool_name, validation_rules, new_tool_name=None))]
+    fn create_validated_tool_transform(
+        &self,
+        py: Python<'_>,
+        service_name: &str,
+        tool_name: &str,
+        validation_rules: &Bound<'_, PyAny>,
+        new_tool_name: Option<&str>,
+    ) -> PyResult<Py<PyAny>> {
+        let value = py_to_serde_value(validation_rules, "Validation rules")?;
+        let rules = value.as_object().ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err("Validation rules must be a dictionary")
+        })?;
+        let pairs: Vec<(&str, serde_json::Value)> = rules
+            .iter()
+            .map(|(param, schema)| (param.as_str(), schema.clone()))
+            .collect();
+        let rule = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.create_validated_tool_transform(
+                service_name,
+                tool_name,
+                new_tool_name,
+                &pairs,
+            ))
+            .map_err(map_store_err)?;
+        tool_transform_rule_to_py(py, &rule)
+    }
+
     fn get_tool_transform(
         &self,
         py: Python<'_>,

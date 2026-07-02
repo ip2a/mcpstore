@@ -112,22 +112,19 @@ class ToolTransformer:
         add_safety_checks: bool = True,
         service_name: Optional[str] = None,
     ) -> str:
-        config = ToolTransformConfig(
-            original_tool_name=original_tool_name,
-            new_tool_name=friendly_name or f"{original_tool_name}_simple",
-            new_description=simplified_description,
-            tags=["llm-friendly", "simplified"],
+        context = self._require_context()
+        resolved_service = service_name or self._service_name
+        if not resolved_service:
+            raise ValueError("Tool transformation registration requires service_name")
+        rule = context.create_llm_friendly_tool_transform(
+            resolved_service,
+            original_tool_name,
+            friendly_name=friendly_name,
+            description=simplified_description,
+            hide_technical_params=hide_technical_params,
+            add_safety_policy=add_safety_checks,
         )
-        if add_safety_checks:
-            config.safety_policy = self._default_safety_policy()
-        if hide_technical_params:
-            for param in ["timeout", "retry_count", "debug", "verbose", "raw_output"]:
-                config.argument_transforms[param] = ArgumentTransform(
-                    original_name=param,
-                    hidden=True,
-                    default_value=self._get_default_for_param(param),
-                )
-        return self.register_transformation(config, service_name=service_name)
+        return str(rule.get("display_name") or friendly_name or f"{original_tool_name}_simple")
 
     @staticmethod
     def _default_safety_policy() -> Dict[str, Any]:
@@ -150,17 +147,17 @@ class ToolTransformer:
         new_tool_name: Optional[str] = None,
         service_name: Optional[str] = None,
     ) -> str:
-        config = ToolTransformConfig(
-            original_tool_name=original_tool_name,
-            new_tool_name=new_tool_name or f"{original_tool_name}_renamed",
-            tags=["parameter-renamed"],
+        context = self._require_context()
+        resolved_service = service_name or self._service_name
+        if not resolved_service:
+            raise ValueError("Tool transformation registration requires service_name")
+        rule = context.create_parameter_renamed_tool_transform(
+            resolved_service,
+            original_tool_name,
+            parameter_mapping,
+            new_tool_name=new_tool_name,
         )
-        for original_param, new_param in parameter_mapping.items():
-            config.argument_transforms[original_param] = ArgumentTransform(
-                original_name=original_param,
-                new_name=new_param,
-            )
-        return self.register_transformation(config, service_name=service_name)
+        return str(rule.get("display_name") or new_tool_name or f"{original_tool_name}_renamed")
 
     def create_validated_tool(
         self,
@@ -169,11 +166,6 @@ class ToolTransformer:
         new_tool_name: Optional[str] = None,
         service_name: Optional[str] = None,
     ) -> str:
-        config = ToolTransformConfig(
-            original_tool_name=original_tool_name,
-            new_tool_name=new_tool_name or f"{original_tool_name}_validated",
-            tags=["validated", "safe"],
-        )
         for param_name, validation_rule in validation_rules.items():
             if callable(validation_rule):
                 raise NotImplementedError(
@@ -182,11 +174,17 @@ class ToolTransformer:
                 )
             if not isinstance(validation_rule, dict):
                 raise TypeError("Tool validation rules must be JSON-schema dictionaries")
-            config.argument_transforms[param_name] = ArgumentTransform(
-                original_name=param_name,
-                validation_schema=dict(validation_rule),
-            )
-        return self.register_transformation(config, service_name=service_name)
+        context = self._require_context()
+        resolved_service = service_name or self._service_name
+        if not resolved_service:
+            raise ValueError("Tool transformation registration requires service_name")
+        rule = context.create_validated_tool_transform(
+            resolved_service,
+            original_tool_name,
+            validation_rules,
+            new_tool_name=new_tool_name,
+        )
+        return str(rule.get("display_name") or new_tool_name or f"{original_tool_name}_validated")
 
     def get_transformation_config(
         self,
