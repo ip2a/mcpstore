@@ -13,6 +13,7 @@ from .rust_backend import (
     RustStoreContext,
     RustToolProxy,
 )
+from .client_manager import ClientManager
 from .setup_manager import StoreSetupManager
 
 MCPStore.setup_store = staticmethod(StoreSetupManager.setup_store)
@@ -29,6 +30,7 @@ SessionContext = RustSession
 
 __all__ = [
     "MCPStore",
+    "ClientManager",
     "RustStoreBackend",
     "RustStoreContext",
     "RustSession",
