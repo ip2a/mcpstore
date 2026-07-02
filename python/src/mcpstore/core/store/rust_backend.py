@@ -824,12 +824,19 @@ class RustStoreBackend:
         auth: Optional[Dict[str, Any]] = None,
         ref_cache: Optional[Dict[str, Any]] = None,
         timeout_millis: Optional[int] = None,
+        fetch_timeout_millis: Optional[int] = None,
     ) -> Dict[str, Any]:
         return _record_value(
             self._inner.import_openapi_service(
                 name,
                 spec_url,
-                self._openapi_import_options(headers, auth, ref_cache, timeout_millis),
+                self._openapi_import_options(
+                    headers,
+                    auth,
+                    ref_cache,
+                    timeout_millis,
+                    fetch_timeout_millis,
+                ),
             )
         )
 
@@ -843,8 +850,15 @@ class RustStoreBackend:
         auth: Optional[Dict[str, Any]] = None,
         ref_cache: Optional[Dict[str, Any]] = None,
         timeout_millis: Optional[int] = None,
+        fetch_timeout_millis: Optional[int] = None,
     ) -> Dict[str, Any]:
-        options = self._openapi_import_options(headers, auth, ref_cache, timeout_millis)
+        options = self._openapi_import_options(
+            headers,
+            auth,
+            ref_cache,
+            timeout_millis,
+            fetch_timeout_millis,
+        )
         if isinstance(spec, str):
             return _record_value(
                 self._inner.import_openapi_service_from_spec_text(
@@ -869,6 +883,7 @@ class RustStoreBackend:
         auth: Optional[Dict[str, Any]],
         ref_cache: Optional[Dict[str, Any]] = None,
         timeout_millis: Optional[int] = None,
+        fetch_timeout_millis: Optional[int] = None,
     ) -> Dict[str, Any]:
         options = {
             "headers": dict(headers or {}),
@@ -877,26 +892,33 @@ class RustStoreBackend:
         }
         if timeout_millis is not None:
             options["timeout_millis"] = int(timeout_millis)
+        if fetch_timeout_millis is not None:
+            options["fetch_timeout_millis"] = int(fetch_timeout_millis)
         return options
 
     def _openapi_bundle_options(
         self,
         ref_cache: Optional[Dict[str, Any]] = None,
+        timeout_millis: Optional[int] = None,
     ) -> Dict[str, Any]:
-        return {"ref_cache": dict(ref_cache or {})}
+        options = {"ref_cache": dict(ref_cache or {})}
+        if timeout_millis is not None:
+            options["timeout_millis"] = int(timeout_millis)
+        return options
 
     def bundle_openapi_spec(
         self,
         spec_url: str,
         *,
         ref_cache: Optional[Dict[str, Any]] = None,
+        timeout_millis: Optional[int] = None,
     ) -> Dict[str, Any]:
-        if ref_cache is None:
+        if ref_cache is None and timeout_millis is None:
             return _record_value(self._inner.bundle_openapi_spec(spec_url))
         return _record_value(
             self._inner.bundle_openapi_spec(
                 spec_url,
-                self._openapi_bundle_options(ref_cache),
+                self._openapi_bundle_options(ref_cache, timeout_millis),
             )
         )
 
@@ -906,8 +928,13 @@ class RustStoreBackend:
         spec: Any,
         *,
         ref_cache: Optional[Dict[str, Any]] = None,
+        timeout_millis: Optional[int] = None,
     ) -> Dict[str, Any]:
-        options = self._openapi_bundle_options(ref_cache) if ref_cache is not None else None
+        options = (
+            self._openapi_bundle_options(ref_cache, timeout_millis)
+            if ref_cache is not None or timeout_millis is not None
+            else None
+        )
         if isinstance(spec, str):
             if options is None:
                 return _record_value(self._inner.bundle_openapi_spec_from_spec(spec_url, spec))
@@ -928,13 +955,14 @@ class RustStoreBackend:
         spec_url: str,
         *,
         ref_cache: Optional[Dict[str, Any]] = None,
+        timeout_millis: Optional[int] = None,
     ) -> Dict[str, Any]:
-        if ref_cache is None:
+        if ref_cache is None and timeout_millis is None:
             return _record_value(self._inner.bundle_openapi_artifact(spec_url))
         return _record_value(
             self._inner.bundle_openapi_artifact(
                 spec_url,
-                self._openapi_bundle_options(ref_cache),
+                self._openapi_bundle_options(ref_cache, timeout_millis),
             )
         )
 
@@ -944,8 +972,13 @@ class RustStoreBackend:
         spec: Any,
         *,
         ref_cache: Optional[Dict[str, Any]] = None,
+        timeout_millis: Optional[int] = None,
     ) -> Dict[str, Any]:
-        options = self._openapi_bundle_options(ref_cache) if ref_cache is not None else None
+        options = (
+            self._openapi_bundle_options(ref_cache, timeout_millis)
+            if ref_cache is not None or timeout_millis is not None
+            else None
+        )
         if isinstance(spec, str):
             if options is None:
                 return _record_value(self._inner.bundle_openapi_artifact_from_spec(spec_url, spec))
@@ -3604,6 +3637,7 @@ class RustStoreContext:
         auth: Optional[Dict[str, Any]] = None,
         ref_cache: Optional[Dict[str, Any]] = None,
         timeout_millis: Optional[int] = None,
+        fetch_timeout_millis: Optional[int] = None,
     ) -> Dict[str, Any]:
         result = self._backend.import_openapi_service(
             name,
@@ -3612,6 +3646,7 @@ class RustStoreContext:
             auth=auth,
             ref_cache=ref_cache,
             timeout_millis=timeout_millis,
+            fetch_timeout_millis=fetch_timeout_millis,
         )
         return result
 
@@ -3624,6 +3659,7 @@ class RustStoreContext:
         auth: Optional[Dict[str, Any]] = None,
         ref_cache: Optional[Dict[str, Any]] = None,
         timeout_millis: Optional[int] = None,
+        fetch_timeout_millis: Optional[int] = None,
     ) -> "RustStoreContext":
         import time
 
@@ -3635,6 +3671,7 @@ class RustStoreContext:
             auth=auth,
             ref_cache=ref_cache,
             timeout_millis=timeout_millis,
+            fetch_timeout_millis=fetch_timeout_millis,
         )
         return self
 
@@ -3648,6 +3685,7 @@ class RustStoreContext:
         auth: Optional[Dict[str, Any]] = None,
         ref_cache: Optional[Dict[str, Any]] = None,
         timeout_millis: Optional[int] = None,
+        fetch_timeout_millis: Optional[int] = None,
     ) -> Dict[str, Any]:
         result = self._backend.import_openapi_service_from_spec(
             name,
@@ -3657,6 +3695,7 @@ class RustStoreContext:
             auth=auth,
             ref_cache=ref_cache,
             timeout_millis=timeout_millis,
+            fetch_timeout_millis=fetch_timeout_millis,
         )
         return result
 
@@ -3670,6 +3709,7 @@ class RustStoreContext:
         auth: Optional[Dict[str, Any]] = None,
         ref_cache: Optional[Dict[str, Any]] = None,
         timeout_millis: Optional[int] = None,
+        fetch_timeout_millis: Optional[int] = None,
     ) -> "RustStoreContext":
         self.import_openapi_service_from_spec(
             api_name,
@@ -3679,6 +3719,7 @@ class RustStoreContext:
             auth=auth,
             ref_cache=ref_cache,
             timeout_millis=timeout_millis,
+            fetch_timeout_millis=fetch_timeout_millis,
         )
         return self
 
@@ -3696,8 +3737,13 @@ class RustStoreContext:
         spec_url: str,
         *,
         ref_cache: Optional[Dict[str, Any]] = None,
+        timeout_millis: Optional[int] = None,
     ) -> Dict[str, Any]:
-        return self._backend.bundle_openapi_spec(spec_url, ref_cache=ref_cache)
+        return self._backend.bundle_openapi_spec(
+            spec_url,
+            ref_cache=ref_cache,
+            timeout_millis=timeout_millis,
+        )
 
     def bundle_openapi_spec_from_spec(
         self,
@@ -3705,16 +3751,27 @@ class RustStoreContext:
         spec: Any,
         *,
         ref_cache: Optional[Dict[str, Any]] = None,
+        timeout_millis: Optional[int] = None,
     ) -> Dict[str, Any]:
-        return self._backend.bundle_openapi_spec_from_spec(spec_url, spec, ref_cache=ref_cache)
+        return self._backend.bundle_openapi_spec_from_spec(
+            spec_url,
+            spec,
+            ref_cache=ref_cache,
+            timeout_millis=timeout_millis,
+        )
 
     def bundle_openapi_artifact(
         self,
         spec_url: str,
         *,
         ref_cache: Optional[Dict[str, Any]] = None,
+        timeout_millis: Optional[int] = None,
     ) -> Dict[str, Any]:
-        return self._backend.bundle_openapi_artifact(spec_url, ref_cache=ref_cache)
+        return self._backend.bundle_openapi_artifact(
+            spec_url,
+            ref_cache=ref_cache,
+            timeout_millis=timeout_millis,
+        )
 
     def bundle_openapi_artifact_from_spec(
         self,
@@ -3722,11 +3779,13 @@ class RustStoreContext:
         spec: Any,
         *,
         ref_cache: Optional[Dict[str, Any]] = None,
+        timeout_millis: Optional[int] = None,
     ) -> Dict[str, Any]:
         return self._backend.bundle_openapi_artifact_from_spec(
             spec_url,
             spec,
             ref_cache=ref_cache,
+            timeout_millis=timeout_millis,
         )
 
     def call_tool(

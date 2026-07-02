@@ -131,10 +131,27 @@ pub struct OpenApiBundleDiagnostic {
     pub reference: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OpenApiBundleOptions {
     #[serde(default)]
     pub ref_cache: OpenApiRefCachePolicy,
+    #[serde(default = "default_openapi_fetch_timeout_millis")]
+    pub timeout_millis: u64,
+}
+
+impl Default for OpenApiBundleOptions {
+    fn default() -> Self {
+        Self {
+            ref_cache: OpenApiRefCachePolicy::default(),
+            timeout_millis: DEFAULT_OPENAPI_FETCH_TIMEOUT_MILLIS,
+        }
+    }
+}
+
+impl OpenApiBundleOptions {
+    pub fn default_timeout_millis() -> u64 {
+        DEFAULT_OPENAPI_FETCH_TIMEOUT_MILLIS
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -174,9 +191,12 @@ pub struct OpenApiImportOptions {
     pub ref_cache: OpenApiRefCachePolicy,
     #[serde(default = "default_openapi_runtime_timeout_millis")]
     pub timeout_millis: u64,
+    #[serde(default = "default_openapi_fetch_timeout_millis")]
+    pub fetch_timeout_millis: u64,
 }
 
 const DEFAULT_OPENAPI_RUNTIME_TIMEOUT_MILLIS: u64 = 30_000;
+const DEFAULT_OPENAPI_FETCH_TIMEOUT_MILLIS: u64 = 30_000;
 
 impl Default for OpenApiImportOptions {
     fn default() -> Self {
@@ -185,6 +205,7 @@ impl Default for OpenApiImportOptions {
             auth: Map::new(),
             ref_cache: OpenApiRefCachePolicy::default(),
             timeout_millis: DEFAULT_OPENAPI_RUNTIME_TIMEOUT_MILLIS,
+            fetch_timeout_millis: DEFAULT_OPENAPI_FETCH_TIMEOUT_MILLIS,
         }
     }
 }
@@ -193,10 +214,18 @@ impl OpenApiImportOptions {
     pub fn default_timeout_millis() -> u64 {
         DEFAULT_OPENAPI_RUNTIME_TIMEOUT_MILLIS
     }
+
+    pub fn default_fetch_timeout_millis() -> u64 {
+        DEFAULT_OPENAPI_FETCH_TIMEOUT_MILLIS
+    }
 }
 
 fn default_openapi_runtime_timeout_millis() -> u64 {
     DEFAULT_OPENAPI_RUNTIME_TIMEOUT_MILLIS
+}
+
+fn default_openapi_fetch_timeout_millis() -> u64 {
+    DEFAULT_OPENAPI_FETCH_TIMEOUT_MILLIS
 }
 
 pub fn parse_openapi_spec_text(spec_text: &str) -> Result<Value> {

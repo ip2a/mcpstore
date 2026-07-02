@@ -4033,6 +4033,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 "cache",
                 ref_cache={"ttl_seconds": 21},
                 timeout_millis=1234,
+                fetch_timeout_millis=2345,
             ),
             operations,
         )
@@ -4045,11 +4046,23 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             1234,
         )
         self.assertEqual(
+            operations.last_openapi_import().options["fetch_timeout_millis"],
+            2345,
+        )
+        self.assertEqual(
             store_proxy.bundle_openapi_artifact(
                 "memory://bundle",
                 ref_cache={"enabled": False},
+                timeout_millis=3456,
             )["options"]["ref_cache"]["enabled"],
             False,
+        )
+        self.assertEqual(
+            store_proxy.bundle_openapi_artifact(
+                "memory://bundle",
+                timeout_millis=3456,
+            )["options"]["timeout_millis"],
+            3456,
         )
         self.assertTrue(operations.reset_mcp_json_file())
         self.assertTrue(asyncio.run(operations.reset_mcp_json_file_async("agent_a")))
