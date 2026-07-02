@@ -29,6 +29,40 @@ def __getattr__(name: str):
         globals()[name] = value
         return value
 
+    if name in {
+        "initialize_config_system",
+        "ensure_config_directory",
+        "create_default_config_if_not_exists",
+        "get_user_config_path",
+        "get_user_data_dir",
+        "get_user_default_mcp_path",
+    }:
+        from . import path_utils as _path_utils
+
+        value = getattr(_path_utils, name)
+        globals()[name] = value
+        return value
+
+    if name in {
+        "RedisConnectionFailure",
+        "mask_password_in_url",
+        "get_connection_info",
+        "handle_redis_connection_error",
+        "test_redis_connection",
+    }:
+        from . import redis_errors as _redis_errors
+
+        value = getattr(_redis_errors, name)
+        globals()[name] = value
+        return value
+
+    if name in {"RedisHealthCheck", "start_health_check"}:
+        from . import health_check as _health_check
+
+        value = getattr(_health_check, name)
+        globals()[name] = value
+        return value
+
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 
@@ -45,4 +79,17 @@ __all__ = [
     "detect_strategy",
     "create_kv_store",
     "create_kv_store_async",
+    "RedisHealthCheck",
+    "start_health_check",
+    "RedisConnectionFailure",
+    "mask_password_in_url",
+    "get_connection_info",
+    "handle_redis_connection_error",
+    "test_redis_connection",
+    "initialize_config_system",
+    "ensure_config_directory",
+    "create_default_config_if_not_exists",
+    "get_user_config_path",
+    "get_user_data_dir",
+    "get_user_default_mcp_path",
 ]
