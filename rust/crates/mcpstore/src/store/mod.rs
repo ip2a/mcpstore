@@ -25,6 +25,7 @@ mod tool_changes;
 use runtime::StoreRuntimeConfig;
 
 pub use crate::agent::models::{ScopedServiceEntry, ScopedServiceHealth, ScopedToolEntry};
+pub use crate::agent::tool_visibility::ToolVisibilityFilter;
 pub use crate::cache::models::CacheHealthReport;
 pub use crate::events::EventCapabilityReport;
 pub use crate::openapi::{
