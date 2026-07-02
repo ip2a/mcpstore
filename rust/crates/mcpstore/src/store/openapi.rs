@@ -421,6 +421,12 @@ struct OpenApiBundleDocumentMetadata {
     content_length: usize,
 }
 
+#[derive(Debug, Clone)]
+struct OpenApiFileDocumentFingerprint {
+    file_size: u64,
+    file_modified_unix_millis: i64,
+}
+
 impl<'a> OpenApiExternalRefResolver<'a> {
     fn new(
         client: &'a reqwest::Client,
@@ -628,6 +634,16 @@ impl<'a> OpenApiExternalRefResolver<'a> {
             return Ok(document.clone());
         }
 
+        let file_path = if target_url.starts_with("file://") {
+            Some(path_from_file_target(target_url)?)
+        } else {
+            None
+        };
+
+        let mut file_metadata = None;
+        let mut file_fingerprint = None;
+        let mut file_document_text = None;
+
         if is_http_url(target_url) {
             if let Some((document, metadata)) = self.cached_http_document(target_url).await? {
                 self.record_loaded_document(target_url)?;
@@ -635,13 +651,28 @@ impl<'a> OpenApiExternalRefResolver<'a> {
                 self.record_document(target_url, document.clone())?;
                 return Ok(document);
             }
+        } else if let Some(path) = &file_path {
+            let document_text = read_openapi_document_file(path, target_url)?;
+            let metadata = document_metadata_from_bytes(document_text.as_bytes());
+            let fingerprint = file_document_fingerprint(path, target_url)?;
+            if let Some((document, metadata)) = self
+                .cached_file_document(target_url, &metadata, &fingerprint)
+                .await?
+            {
+                self.record_loaded_document(target_url)?;
+                self.record_document_metadata(target_url, metadata)?;
+                self.record_document(target_url, document.clone())?;
+                return Ok(document);
+            }
+            file_metadata = Some(metadata);
+            file_fingerprint = Some(fingerprint);
+            file_document_text = Some(document_text);
         }
 
         let document_text = if is_http_url(target_url) {
             self.fetch_http_external_document_text(target_url).await?
-        } else if target_url.starts_with("file://") {
-            let path = path_from_file_target(target_url)?;
-            read_openapi_document_file(&path, target_url)?
+        } else if let Some(document_text) = file_document_text {
+            document_text
         } else {
             return Err(StoreError::Other(format!(
                 "Unsupported OpenAPI external $ref URL: {target_url}"
@@ -652,12 +683,20 @@ impl<'a> OpenApiExternalRefResolver<'a> {
                 "OpenAPI external $ref document decode failed for {target_url}: {err}"
             ))
         })?;
-        let metadata = document_metadata_from_bytes(document_text.as_bytes());
+        let metadata = file_metadata
+            .clone()
+            .unwrap_or_else(|| document_metadata_from_bytes(document_text.as_bytes()));
         self.record_loaded_document(target_url)?;
         self.record_document_metadata(target_url, metadata.clone())?;
         self.record_document(target_url, document.clone())?;
         if is_http_url(target_url) {
             self.store_cached_http_document(target_url, &document, &metadata)
+                .await?;
+        } else if let Some(path) = &file_path {
+            let fingerprint = file_fingerprint.as_ref().ok_or_else(|| {
+                StoreError::Other(format!("OpenAPI file fingerprint missing for {target_url}"))
+            })?;
+            self.store_cached_file_document(target_url, path, fingerprint, &document, &metadata)
                 .await?;
         }
         Ok(document)
@@ -773,6 +812,110 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         Ok(())
     }
 
+    async fn cached_file_document(
+        &self,
+        target_url: &str,
+        current_metadata: &OpenApiBundleDocumentMetadata,
+        current_fingerprint: &OpenApiFileDocumentFingerprint,
+    ) -> Result<Option<(serde_json::Value, OpenApiBundleDocumentMetadata)>> {
+        let key = openapi_ref_document_cache_key(target_url);
+        let Some(value) = self
+            .cache
+            .get_state(OPENAPI_REF_DOCUMENT_CACHE_STATE_TYPE, &key)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let Some(object) = value.as_object() else {
+            return Ok(None);
+        };
+        if object
+            .get("cache_version")
+            .and_then(serde_json::Value::as_u64)
+            != Some(OPENAPI_REF_DOCUMENT_CACHE_VERSION)
+        {
+            return Ok(None);
+        }
+        if object.get("url").and_then(serde_json::Value::as_str) != Some(target_url) {
+            return Ok(None);
+        }
+        if object.get("source").and_then(serde_json::Value::as_str) != Some("file") {
+            return Ok(None);
+        }
+        if object.get("file_size").and_then(serde_json::Value::as_u64)
+            != Some(current_fingerprint.file_size)
+        {
+            return Ok(None);
+        }
+        if object
+            .get("file_modified_unix_millis")
+            .and_then(serde_json::Value::as_i64)
+            != Some(current_fingerprint.file_modified_unix_millis)
+        {
+            return Ok(None);
+        }
+        let Some(document) = object.get("document").cloned() else {
+            return Ok(None);
+        };
+        let Some(content_hash) = object
+            .get("content_hash")
+            .and_then(serde_json::Value::as_str)
+        else {
+            return Ok(None);
+        };
+        if content_hash != current_metadata.content_hash.as_str() {
+            return Ok(None);
+        }
+        let Some(content_length) = object
+            .get("content_length")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+        else {
+            return Ok(None);
+        };
+        if content_length != current_metadata.content_length {
+            return Ok(None);
+        }
+        Ok(Some((
+            document,
+            OpenApiBundleDocumentMetadata {
+                content_hash: content_hash.to_string(),
+                content_length,
+            },
+        )))
+    }
+
+    async fn store_cached_file_document(
+        &self,
+        target_url: &str,
+        path: &Path,
+        fingerprint: &OpenApiFileDocumentFingerprint,
+        document: &serde_json::Value,
+        metadata: &OpenApiBundleDocumentMetadata,
+    ) -> Result<()> {
+        let key = openapi_ref_document_cache_key(target_url);
+        let fetched_at = chrono::Utc::now().timestamp();
+        self.cache
+            .put_state(
+                OPENAPI_REF_DOCUMENT_CACHE_STATE_TYPE,
+                &key,
+                serde_json::json!({
+                    "cache_version": OPENAPI_REF_DOCUMENT_CACHE_VERSION,
+                    "url": target_url,
+                    "source": "file",
+                    "path": path.to_string_lossy(),
+                    "fetched_at": fetched_at,
+                    "content_hash": metadata.content_hash,
+                    "content_length": metadata.content_length,
+                    "file_size": fingerprint.file_size,
+                    "file_modified_unix_millis": fingerprint.file_modified_unix_millis,
+                    "document": document,
+                }),
+            )
+            .await?;
+        Ok(())
+    }
+
     fn record_dependency(
         &self,
         source_document: &str,
@@ -855,6 +998,35 @@ fn document_metadata_from_bytes(bytes: &[u8]) -> OpenApiBundleDocumentMetadata {
         content_hash: format!("blake3:{}", blake3::hash(bytes).to_hex()),
         content_length: bytes.len(),
     }
+}
+
+fn file_document_fingerprint(path: &Path, label: &str) -> Result<OpenApiFileDocumentFingerprint> {
+    let metadata = std::fs::metadata(path).map_err(|err| {
+        StoreError::Other(format!(
+            "OpenAPI file metadata read failed for {label}: {err}"
+        ))
+    })?;
+    let modified = metadata.modified().map_err(|err| {
+        StoreError::Other(format!(
+            "OpenAPI file modified time read failed for {label}: {err}"
+        ))
+    })?;
+    let duration = modified
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|err| {
+            StoreError::Other(format!(
+                "OpenAPI file modified time is before Unix epoch for {label}: {err}"
+            ))
+        })?;
+    let millis = i64::try_from(duration.as_millis()).map_err(|_| {
+        StoreError::Other(format!(
+            "OpenAPI file modified time is too large for {label}"
+        ))
+    })?;
+    Ok(OpenApiFileDocumentFingerprint {
+        file_size: metadata.len(),
+        file_modified_unix_millis: millis,
+    })
 }
 
 fn split_external_ref(document_url: &str, reference: &str) -> Result<(String, Option<String>)> {
