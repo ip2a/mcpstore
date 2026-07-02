@@ -126,6 +126,7 @@ impl MCPStore {
             "backend": self.current_cache_storage().await.as_str(),
             "namespace": namespace,
             "scope": "global",
+            "request_metrics": self.cache.request_metrics_snapshot(),
             "counts": {
                 "entities": entity_counts,
                 "relations": relation_counts,
@@ -138,5 +139,10 @@ impl MCPStore {
             "states": states,
             "events": events,
         }))
+    }
+
+    pub async fn reset_cache_request_metrics(&self) -> Result<()> {
+        self.cache.reset_request_metrics();
+        Ok(())
     }
 }

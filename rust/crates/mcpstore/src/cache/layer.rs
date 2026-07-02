@@ -15,6 +15,7 @@ use std::sync::RwLock as SyncRwLock;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock as AsyncRwLock;
 
+use crate::cache::metrics::{CacheRequestMetrics, CacheRequestMetricsSnapshot};
 use crate::cache::CacheStore;
 
 pub use crate::cache::snapshot::CacheSnapshot;
@@ -45,6 +46,7 @@ pub struct CacheLayerManager {
     pub(in crate::cache) namespace: SyncRwLock<String>,
     pub(in crate::cache) last_empty_log: AsyncRwLock<HashMap<String, Instant>>,
     pub(in crate::cache) last_state_snapshot: AsyncRwLock<HashMap<String, serde_json::Value>>,
+    pub(in crate::cache) metrics: CacheRequestMetrics,
     pub(in crate::cache) log_interval: Duration,
 }
 
@@ -55,6 +57,7 @@ impl CacheLayerManager {
             namespace: SyncRwLock::new(namespace.into()),
             last_empty_log: AsyncRwLock::new(HashMap::new()),
             last_state_snapshot: AsyncRwLock::new(HashMap::new()),
+            metrics: CacheRequestMetrics::default(),
             log_interval: Duration::from_secs(60),
         }
     }
@@ -64,6 +67,23 @@ impl CacheLayerManager {
             .read()
             .expect("cache namespace lock poisoned")
             .clone()
+    }
+
+    pub fn request_metrics_snapshot(&self) -> CacheRequestMetricsSnapshot {
+        self.metrics.snapshot()
+    }
+
+    pub fn reset_request_metrics(&self) {
+        self.metrics.reset();
+    }
+
+    pub(in crate::cache) fn record_request(
+        &self,
+        started_at: Instant,
+        hit: Option<bool>,
+        success: bool,
+    ) {
+        self.metrics.record(started_at.elapsed(), hit, !success);
     }
 
     // ---------- Logging helpers ----------
@@ -88,12 +108,32 @@ impl CacheLayerManager {
         collection: &str,
     ) -> Result<HashMap<String, serde_json::Value>> {
         let store = self.store.read().await;
-        let keys = store.keys(collection).await?;
+        let started_at = Instant::now();
+        let keys = match store.keys(collection).await {
+            Ok(keys) => {
+                self.record_request(started_at, None, true);
+                keys
+            }
+            Err(err) => {
+                self.record_request(started_at, None, false);
+                return Err(err);
+            }
+        };
         if keys.is_empty() {
             self.log_empty_collection(collection).await;
             return Ok(HashMap::new());
         }
-        let results = store.get_many(&keys, collection).await?;
+        let started_at = Instant::now();
+        let results = match store.get_many(&keys, collection).await {
+            Ok(results) => {
+                self.record_request(started_at, None, true);
+                results
+            }
+            Err(err) => {
+                self.record_request(started_at, None, false);
+                return Err(err);
+            }
+        };
         let mut values = HashMap::with_capacity(keys.len());
         for (index, key) in keys.iter().enumerate() {
             if let Some(Some(value)) = results.get(index) {
