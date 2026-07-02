@@ -37,8 +37,8 @@ pub use registry::{ConnectionStatus, ServiceEntry, ToolInfo};
 
 // Facade re-exports: business sessions
 pub use cache::models::{
-    SessionEntity, SessionScope, SessionServiceItem, SessionServiceRelation, SessionStateData,
-    SessionStatus, SessionStatusState, SessionToolItem, SessionToolVisibility,
+    SessionContextState, SessionEntity, SessionScope, SessionServiceItem, SessionServiceRelation,
+    SessionStateData, SessionStatus, SessionStatusState, SessionToolItem, SessionToolVisibility,
     ToolArgumentTransform, ToolTransformRule,
 };
 pub use session::{

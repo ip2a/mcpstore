@@ -8,10 +8,10 @@ use mcpstore::core::store::{
 };
 use mcpstore::{
     cache::models::{
-        HealthStatus, ServiceStatus, SessionEntity, SessionScope, SessionServiceItem,
-        SessionServiceRelation, SessionStateData, SessionStatus, SessionStatusState,
-        SessionToolItem, SessionToolVisibility, ToolAvailability, ToolStatusItem,
-        ToolTransformRule,
+        HealthStatus, ServiceStatus, SessionContextState, SessionEntity, SessionScope,
+        SessionServiceItem, SessionServiceRelation, SessionStateData, SessionStatus,
+        SessionStatusState, SessionToolItem, SessionToolVisibility, ToolAvailability,
+        ToolStatusItem, ToolTransformRule,
     },
     ConnectionStatus, ContentItem, Event, ServiceEntry, StoreError, ToolCallResult,
     ToolDescription, ToolInfo,
@@ -487,6 +487,16 @@ fn session_state_to_py(py: Python<'_>, state: &SessionStateData) -> PyResult<Py<
         "values",
         serde_value_to_py(py, serde_json::Value::Object(state.values.clone()))?,
     )?;
+    dict.set_item("updated_at", state.updated_at)?;
+    dict.set_item("version", state.version)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn session_context_state_to_py(py: Python<'_>, state: &SessionContextState) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("context_key", &state.context_key)?;
+    dict.set_item("active_session_key", state.active_session_key.as_deref())?;
+    dict.set_item("auto_session_key", state.auto_session_key.as_deref())?;
     dict.set_item("updated_at", state.updated_at)?;
     dict.set_item("version", state.version)?;
     Ok(dict.into_any().unbind())
@@ -1365,6 +1375,110 @@ impl PyMCPStore {
             .block_on(self.inner.clear_session_state(session_key))
             .map_err(map_store_err)?;
         session_state_to_py(py, &state)
+    }
+
+    #[pyo3(signature = (scope=None, agent_id=None))]
+    fn get_session_context_state(
+        &self,
+        py: Python<'_>,
+        scope: Option<String>,
+        agent_id: Option<String>,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        let state = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.get_session_context_state(
+                parse_session_scope(scope.as_deref())?,
+                agent_id.as_deref(),
+            ))
+            .map_err(map_store_err)?;
+        state
+            .as_ref()
+            .map(|state| session_context_state_to_py(py, state))
+            .transpose()
+    }
+
+    #[pyo3(signature = (session_key=None, scope=None, agent_id=None))]
+    fn set_active_session_for_context(
+        &self,
+        py: Python<'_>,
+        session_key: Option<String>,
+        scope: Option<String>,
+        agent_id: Option<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let state = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.set_active_session_for_context(
+                parse_session_scope(scope.as_deref())?,
+                agent_id.as_deref(),
+                session_key.as_deref(),
+            ))
+            .map_err(map_store_err)?;
+        session_context_state_to_py(py, &state)
+    }
+
+    #[pyo3(signature = (scope=None, agent_id=None))]
+    fn get_active_session_for_context(
+        &self,
+        py: Python<'_>,
+        scope: Option<String>,
+        agent_id: Option<String>,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        let session = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.get_active_session_for_context(
+                parse_session_scope(scope.as_deref())?,
+                agent_id.as_deref(),
+            ))
+            .map_err(map_store_err)?;
+        session
+            .as_ref()
+            .map(|session| session_entity_to_py(py, session))
+            .transpose()
+    }
+
+    #[pyo3(signature = (session_key, scope=None, agent_id=None))]
+    fn enable_auto_session_for_context(
+        &self,
+        py: Python<'_>,
+        session_key: &str,
+        scope: Option<String>,
+        agent_id: Option<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let state = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.enable_auto_session_for_context(
+                parse_session_scope(scope.as_deref())?,
+                agent_id.as_deref(),
+                session_key,
+            ))
+            .map_err(map_store_err)?;
+        session_context_state_to_py(py, &state)
+    }
+
+    #[pyo3(signature = (scope=None, agent_id=None))]
+    fn disable_auto_session_for_context(
+        &self,
+        py: Python<'_>,
+        scope: Option<String>,
+        agent_id: Option<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let state = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.disable_auto_session_for_context(
+                parse_session_scope(scope.as_deref())?,
+                agent_id.as_deref(),
+            ))
+            .map_err(map_store_err)?;
+        session_context_state_to_py(py, &state)
+    }
+
+    #[pyo3(signature = (scope=None, agent_id=None))]
+    fn is_auto_session_enabled_for_context(
+        &self,
+        scope: Option<String>,
+        agent_id: Option<String>,
+    ) -> PyResult<bool> {
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.is_auto_session_enabled_for_context(
+                parse_session_scope(scope.as_deref())?,
+                agent_id.as_deref(),
+            ))
+            .map_err(map_store_err)
     }
 
     fn list_tools_in_session(&self, py: Python<'_>, session_key: &str) -> PyResult<Vec<Py<PyAny>>> {

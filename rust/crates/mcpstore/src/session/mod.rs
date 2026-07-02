@@ -1,12 +1,16 @@
-use std::{collections::HashSet, future::Future, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    future::Future,
+    time::Duration,
+};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::cache::models::{
-    SessionEntity, SessionEvent, SessionEventType, SessionScope, SessionServiceItem,
-    SessionServiceRelation, SessionStateData, SessionStatus, SessionStatusState, SessionToolItem,
-    SessionToolVisibility, ToolVisibilityMode,
+    SessionContextState, SessionEntity, SessionEvent, SessionEventType, SessionScope,
+    SessionServiceItem, SessionServiceRelation, SessionStateData, SessionStatus,
+    SessionStatusState, SessionToolItem, SessionToolVisibility, ToolVisibilityMode,
 };
 use crate::cache::CacheError;
 use crate::store::prelude::*;
@@ -18,6 +22,7 @@ const SESSION_SERVICES_RELATION_TYPE: &str = "session_services";
 const SESSION_TOOLS_RELATION_TYPE: &str = "session_tools";
 const SESSION_STATUS_STATE_TYPE: &str = "session_status";
 const SESSION_STATE_TYPE: &str = "session_state";
+const SESSION_CONTEXT_STATE_TYPE: &str = "session_context";
 const SESSION_EVENT_TYPE: &str = "session_events";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -37,12 +42,14 @@ pub struct SessionImportReport {
     pub session_tool_relations_imported: usize,
     pub session_status_states_imported: usize,
     pub session_state_records_imported: usize,
+    pub session_context_states_imported: usize,
     pub session_events_imported: usize,
     pub sessions_unchanged: usize,
     pub session_service_relations_unchanged: usize,
     pub session_tool_relations_unchanged: usize,
     pub session_status_states_unchanged: usize,
     pub session_state_records_unchanged: usize,
+    pub session_context_states_unchanged: usize,
     pub session_events_unchanged: usize,
 }
 
@@ -81,6 +88,7 @@ struct ValidatedSessionSnapshot {
     tool_relations: Vec<(String, SessionToolVisibility, serde_json::Value)>,
     status_states: Vec<(String, SessionStatusState, serde_json::Value)>,
     session_states: Vec<(String, SessionStateData, serde_json::Value)>,
+    context_states: Vec<(String, SessionContextState, serde_json::Value)>,
     events: Vec<(String, SessionEvent, serde_json::Value)>,
 }
 
@@ -528,6 +536,110 @@ impl MCPStore {
         self.get_session(&session_key).await
     }
 
+    pub fn build_session_context_key(
+        scope: &SessionScope,
+        agent_id: Option<&str>,
+    ) -> Result<String> {
+        match scope {
+            SessionScope::Store => {
+                if agent_id.is_some() {
+                    return Err(StoreError::Other(
+                        "store-scoped session context must not include agent_id".to_string(),
+                    ));
+                }
+                Ok("store:global".to_string())
+            }
+            SessionScope::Agent => {
+                let agent_id = agent_id.ok_or_else(|| {
+                    StoreError::Other("agent-scoped session context requires agent_id".to_string())
+                })?;
+                Self::validate_session_id(agent_id)?;
+                Ok(format!("agent:{agent_id}"))
+            }
+        }
+    }
+
+    pub async fn get_session_context_state(
+        &self,
+        scope: SessionScope,
+        agent_id: Option<&str>,
+    ) -> Result<Option<SessionContextState>> {
+        let context_key = Self::build_session_context_key(&scope, agent_id)?;
+        self.load_session_context_state(&context_key).await
+    }
+
+    pub async fn set_active_session_for_context(
+        &self,
+        scope: SessionScope,
+        agent_id: Option<&str>,
+        session_key: Option<&str>,
+    ) -> Result<SessionContextState> {
+        if let Some(session_key) = session_key {
+            self.ensure_session_matches_context(&scope, agent_id, session_key)
+                .await?;
+        }
+        self.update_session_context_state(scope, agent_id, |state| {
+            state.active_session_key = session_key.map(ToOwned::to_owned);
+        })
+        .await
+    }
+
+    pub async fn get_active_session_for_context(
+        &self,
+        scope: SessionScope,
+        agent_id: Option<&str>,
+    ) -> Result<Option<SessionEntity>> {
+        let Some(state) = self.get_session_context_state(scope, agent_id).await? else {
+            return Ok(None);
+        };
+        if let Some(session_key) = state.active_session_key {
+            if let Some(session) = self.get_active_session_entity(&session_key).await? {
+                return Ok(Some(session));
+            }
+        }
+        if let Some(session_key) = state.auto_session_key {
+            return self.get_active_session_entity(&session_key).await;
+        }
+        Ok(None)
+    }
+
+    pub async fn enable_auto_session_for_context(
+        &self,
+        scope: SessionScope,
+        agent_id: Option<&str>,
+        session_key: &str,
+    ) -> Result<SessionContextState> {
+        self.ensure_session_matches_context(&scope, agent_id, session_key)
+            .await?;
+        self.update_session_context_state(scope, agent_id, |state| {
+            state.auto_session_key = Some(session_key.to_string());
+        })
+        .await
+    }
+
+    pub async fn disable_auto_session_for_context(
+        &self,
+        scope: SessionScope,
+        agent_id: Option<&str>,
+    ) -> Result<SessionContextState> {
+        self.update_session_context_state(scope, agent_id, |state| {
+            state.auto_session_key = None;
+        })
+        .await
+    }
+
+    pub async fn is_auto_session_enabled_for_context(
+        &self,
+        scope: SessionScope,
+        agent_id: Option<&str>,
+    ) -> Result<bool> {
+        Ok(self
+            .get_session_context_state(scope, agent_id)
+            .await?
+            .and_then(|state| state.auto_session_key)
+            .is_some())
+    }
+
     pub async fn list_sessions(
         &self,
         scope: Option<SessionScope>,
@@ -599,7 +711,7 @@ impl MCPStore {
         session_key: &str,
         reason: Option<String>,
     ) -> Result<SessionStatusState> {
-        self.require_session(session_key).await?;
+        let session = self.require_session(session_key).await?;
         let now = Self::now_timestamp();
         let mut status = self
             .load_session_status(session_key)
@@ -621,6 +733,8 @@ impl MCPStore {
             serde_json::json!({ "reason": reason }),
         )
         .await?;
+        self.clear_session_context_references(&session, session_key)
+            .await?;
         Ok(status)
     }
 
@@ -1007,6 +1121,17 @@ impl MCPStore {
             )
             .map_err(|e| StoreError::Other(e.to_string()))?,
         );
+        states.insert(
+            SESSION_CONTEXT_STATE_TYPE.to_string(),
+            serde_json::to_value(
+                snapshot
+                    .states
+                    .get(SESSION_CONTEXT_STATE_TYPE)
+                    .cloned()
+                    .unwrap_or_default(),
+            )
+            .map_err(|e| StoreError::Other(e.to_string()))?,
+        );
         Ok(serde_json::json!({
             "entities": snapshot.entities.get(SESSION_ENTITY_TYPE).cloned().unwrap_or_default(),
             "relations": relations,
@@ -1026,6 +1151,7 @@ impl MCPStore {
         let mut unchanged_tool_relations = HashSet::new();
         let mut unchanged_status_states = HashSet::new();
         let mut unchanged_session_states = HashSet::new();
+        let mut unchanged_context_states = HashSet::new();
         let mut unchanged_events = HashSet::new();
 
         for (key, _, value) in &snapshot.entities {
@@ -1088,6 +1214,20 @@ impl MCPStore {
                 None => {}
             }
         }
+        for (key, _, value) in &snapshot.context_states {
+            match self
+                .cache
+                .get_state(SESSION_CONTEXT_STATE_TYPE, key)
+                .await?
+            {
+                Some(current) if current == *value => {
+                    unchanged_context_states.insert(key.clone());
+                    report.session_context_states_unchanged += 1;
+                }
+                Some(_) => return Err(Self::session_import_conflict("context state", key)),
+                None => {}
+            }
+        }
         for (key, _, value) in &snapshot.events {
             match self.cache.get_event(SESSION_EVENT_TYPE, key).await? {
                 Some(current) if current == *value => {
@@ -1143,6 +1283,15 @@ impl MCPStore {
                 .compare_and_put_state(SESSION_STATE_TYPE, &key, None, value)
                 .await?;
             report.session_state_records_imported += 1;
+        }
+        for (key, _, value) in snapshot.context_states {
+            if unchanged_context_states.contains(&key) {
+                continue;
+            }
+            self.cache
+                .compare_and_put_state(SESSION_CONTEXT_STATE_TYPE, &key, None, value)
+                .await?;
+            report.session_context_states_imported += 1;
         }
         for (key, _, value) in snapshot.events {
             if unchanged_events.contains(&key) {
@@ -1598,6 +1747,127 @@ impl MCPStore {
         })
     }
 
+    async fn ensure_session_matches_context(
+        &self,
+        scope: &SessionScope,
+        agent_id: Option<&str>,
+        session_key: &str,
+    ) -> Result<()> {
+        let session = self.require_session(session_key).await?;
+        if &session.scope != scope || session.agent_id.as_deref() != agent_id {
+            return Err(StoreError::Other(format!(
+                "Session does not belong to requested context: session_key={session_key}"
+            )));
+        }
+        Ok(())
+    }
+
+    async fn get_active_session_entity(&self, session_key: &str) -> Result<Option<SessionEntity>> {
+        let Some(session) = self.get_session(session_key).await? else {
+            return Ok(None);
+        };
+        let Some(status) = self.get_session_status(session_key).await? else {
+            return Ok(None);
+        };
+        if status.status == SessionStatus::Active {
+            Ok(Some(session))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn clear_session_context_references(
+        &self,
+        session: &SessionEntity,
+        session_key: &str,
+    ) -> Result<()> {
+        let scope = session.scope.clone();
+        let agent_id = session.agent_id.as_deref();
+        let Some(state) = self
+            .get_session_context_state(scope.clone(), agent_id)
+            .await?
+        else {
+            return Ok(());
+        };
+        if state.active_session_key.as_deref() != Some(session_key)
+            && state.auto_session_key.as_deref() != Some(session_key)
+        {
+            return Ok(());
+        }
+        self.update_session_context_state(scope, agent_id, |state| {
+            if state.active_session_key.as_deref() == Some(session_key) {
+                state.active_session_key = None;
+            }
+            if state.auto_session_key.as_deref() == Some(session_key) {
+                state.auto_session_key = None;
+            }
+        })
+        .await?;
+        Ok(())
+    }
+
+    async fn load_session_context_state(
+        &self,
+        context_key: &str,
+    ) -> Result<Option<SessionContextState>> {
+        match self
+            .cache
+            .get_state(SESSION_CONTEXT_STATE_TYPE, context_key)
+            .await?
+        {
+            Some(value) => serde_json::from_value(value)
+                .map(Some)
+                .map_err(|e| StoreError::Other(e.to_string())),
+            None => Ok(None),
+        }
+    }
+
+    async fn update_session_context_state<F>(
+        &self,
+        scope: SessionScope,
+        agent_id: Option<&str>,
+        mut update: F,
+    ) -> Result<SessionContextState>
+    where
+        F: FnMut(&mut SessionContextState),
+    {
+        let context_key = Self::build_session_context_key(&scope, agent_id)?;
+        for _ in 0..3 {
+            let now = Self::now_timestamp();
+            let current = self.load_session_context_state(&context_key).await?;
+            let expected_version = current.as_ref().map(|state| state.version);
+            let mut state = current.unwrap_or_else(|| SessionContextState {
+                context_key: context_key.clone(),
+                active_session_key: None,
+                auto_session_key: None,
+                updated_at: now,
+                version: 0,
+            });
+            update(&mut state);
+            state.updated_at = now;
+            state.version += 1;
+            let value =
+                serde_json::to_value(&state).map_err(|e| StoreError::Other(e.to_string()))?;
+            match self
+                .cache
+                .compare_and_put_state(
+                    SESSION_CONTEXT_STATE_TYPE,
+                    &context_key,
+                    expected_version,
+                    value,
+                )
+                .await
+            {
+                Ok(()) => return Ok(state),
+                Err(CacheError::Conflict(_)) => continue,
+                Err(error) => return Err(StoreError::Cache(error)),
+            }
+        }
+        Err(StoreError::Cache(CacheError::Conflict(format!(
+            "session context state conflict after retries: context_key={context_key}"
+        ))))
+    }
+
     async fn touch_session(&self, session_key: &str, now: i64) -> Result<()> {
         for _ in 0..3 {
             let mut session = self.require_session(session_key).await?;
@@ -1824,9 +2094,11 @@ impl MCPStore {
         let tool_relations_map = Self::required_object(relations_map, SESSION_TOOLS_RELATION_TYPE)?;
         let status_states_map = Self::required_object(states_map, SESSION_STATUS_STATE_TYPE)?;
         let session_states_map = Self::optional_object(states_map, SESSION_STATE_TYPE)?;
+        let context_states_map = Self::optional_object(states_map, SESSION_CONTEXT_STATE_TYPE)?;
         let events_map = Self::required_object(root, "events")?;
 
         let mut session_keys = HashSet::with_capacity(entities_map.len());
+        let mut session_entities = HashMap::with_capacity(entities_map.len());
         let mut entities = Vec::with_capacity(entities_map.len());
         for (key, value) in entities_map {
             let entity: SessionEntity = Self::decode_import_value("session entity", key, value)?;
@@ -1848,6 +2120,7 @@ impl MCPStore {
             }
             Self::validate_lease_seconds(entity.lease_seconds)?;
             session_keys.insert(key.clone());
+            session_entities.insert(key.clone(), entity.clone());
             entities.push((
                 key.clone(),
                 entity.clone(),
@@ -1929,6 +2202,27 @@ impl MCPStore {
             }
         }
 
+        let mut context_states =
+            Vec::with_capacity(context_states_map.map_or(0, |items| items.len()));
+        if let Some(context_states_map) = context_states_map {
+            for (key, value) in context_states_map {
+                let state: SessionContextState =
+                    Self::decode_import_value("session context state", key, value)?;
+                if state.context_key != *key {
+                    return Err(StoreError::Other(format!(
+                        "session context state key mismatch: key={key}, context_key={}",
+                        state.context_key
+                    )));
+                }
+                Self::validate_session_context_state_references(&session_entities, key, &state)?;
+                context_states.push((
+                    key.clone(),
+                    state.clone(),
+                    Self::canonical_value("session context state", key, &state)?,
+                ));
+            }
+        }
+
         let mut events = Vec::with_capacity(events_map.len());
         for (key, value) in events_map {
             let event: SessionEvent = Self::decode_import_value("session event", key, value)?;
@@ -1958,8 +2252,57 @@ impl MCPStore {
             tool_relations,
             status_states,
             session_states,
+            context_states,
             events,
         })
+    }
+
+    fn validate_session_context_state_references(
+        session_entities: &HashMap<String, SessionEntity>,
+        key: &str,
+        state: &SessionContextState,
+    ) -> Result<()> {
+        if let Some(session_key) = state.active_session_key.as_deref() {
+            Self::validate_session_context_key_reference(
+                session_entities,
+                key,
+                session_key,
+                "session context active session",
+                state,
+            )?;
+        }
+        if let Some(session_key) = state.auto_session_key.as_deref() {
+            Self::validate_session_context_key_reference(
+                session_entities,
+                key,
+                session_key,
+                "session context auto session",
+                state,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn validate_session_context_key_reference(
+        session_entities: &HashMap<String, SessionEntity>,
+        key: &str,
+        session_key: &str,
+        kind: &str,
+        state: &SessionContextState,
+    ) -> Result<()> {
+        let session = session_entities.get(session_key).ok_or_else(|| {
+            StoreError::Other(format!(
+                "{kind} references missing session: key={key}, session_key={session_key}"
+            ))
+        })?;
+        let expected_context_key =
+            Self::build_session_context_key(&session.scope, session.agent_id.as_deref())?;
+        if expected_context_key != state.context_key {
+            return Err(StoreError::Other(format!(
+                "{kind} references session outside context: key={key}, session_key={session_key}, expected_context_key={expected_context_key}"
+            )));
+        }
+        Ok(())
     }
 
     fn required_object<'a>(
