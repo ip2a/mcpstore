@@ -15,6 +15,7 @@ logging.addLevelName(DEGRADED, "DEGRADED")
 class LoggingConfig:
     """Logging configuration manager"""
 
+    _debug_enabled = False
     _configured = False
     _current_level: int = DEGRADED
     _use_rich: bool = False
@@ -111,6 +112,7 @@ class LoggingConfig:
         # Set specific module log levels
         cls._configure_module_loggers(level, propagate=True)
 
+        cls._debug_enabled = level <= logging.DEBUG
         cls._current_level = level
         cls._use_rich = use_rich
         cls._rich_traceback = rich_traceback
@@ -146,6 +148,7 @@ class LoggingConfig:
         # Update specific module log levels
         cls._configure_module_loggers(level, propagate=True)
 
+        cls._debug_enabled = level <= logging.DEBUG
         cls._current_level = level
 
     @classmethod
@@ -164,6 +167,25 @@ class LoggingConfig:
             # 清空子 logger 自带的 handler，避免重复输出
             for h in module_logger.handlers[:]:
                 module_logger.removeHandler(h)
+
+    @classmethod
+    def is_debug_enabled(cls) -> bool:
+        """Return whether MCPStore debug logging is enabled."""
+        return cls._debug_enabled
+
+    @classmethod
+    def enable_debug(cls):
+        """Enable MCPStore debug logging."""
+        cls.setup_logging(debug=True, force_reconfigure=True)
+        for name in ("asyncio", "watchfiles", "uvicorn", "httpx", "httpcore"):
+            logging.getLogger(name).setLevel(DEGRADED)
+
+    @classmethod
+    def disable_debug(cls):
+        """Disable MCPStore debug logging."""
+        cls.setup_logging(debug=False, force_reconfigure=True)
+        for name in ("asyncio", "watchfiles", "uvicorn", "httpx", "httpcore"):
+            logging.getLogger(name).setLevel(DEGRADED)
 
 
 HEARTBEAT_INTERVAL_SECONDS = 30
