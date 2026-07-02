@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::cache::models::{ToolArgumentTransform, ToolTransformRule};
+use crate::cache::models::{ToolArgumentTransform, ToolTransformRule, ToolTransformSafetyPolicy};
 use crate::openapi_runtime::validate_json_schema_value;
 use crate::store::prelude::*;
 
@@ -14,6 +14,8 @@ pub struct ToolTransformPatch {
     pub description: Option<String>,
     #[serde(default)]
     pub arguments: Vec<ToolArgumentTransform>,
+    #[serde(default)]
+    pub safety_policy: Option<ToolTransformSafetyPolicy>,
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
@@ -51,6 +53,7 @@ impl MCPStore {
             display_name: None,
             description: None,
             arguments: Vec::new(),
+            safety_policy: None,
             tags: Vec::new(),
             enabled: true,
             updated_at: now,
@@ -62,6 +65,7 @@ impl MCPStore {
         rule.display_name = patch.display_name.filter(|value| !value.trim().is_empty());
         rule.description = patch.description;
         rule.arguments = patch.arguments;
+        rule.safety_policy = patch.safety_policy;
         rule.tags = patch.tags;
         rule.enabled = patch.enabled.unwrap_or(true);
         rule.updated_at = now;
@@ -160,6 +164,7 @@ impl MCPStore {
         {
             Some(rule) => {
                 let args = Self::transform_call_arguments(args, &rule.arguments);
+                Self::apply_transform_safety_policy(&args, rule.safety_policy.as_ref())?;
                 Self::validate_transformed_call_arguments(&args, &rule.arguments)?;
                 args
             }
@@ -300,6 +305,23 @@ impl MCPStore {
                 )));
             }
         }
+        if let Some(policy) = patch.safety_policy.as_ref() {
+            Self::validate_transform_safety_policy(policy)?;
+        }
+        Ok(())
+    }
+
+    fn validate_transform_safety_policy(policy: &ToolTransformSafetyPolicy) -> Result<()> {
+        if policy.reject_dangerous_argument_names
+            && policy
+                .dangerous_argument_name_patterns
+                .iter()
+                .any(|pattern| pattern.trim().is_empty())
+        {
+            return Err(StoreError::Other(
+                "Tool transform safety policy patterns cannot be empty".to_string(),
+            ));
+        }
         Ok(())
     }
 
@@ -430,6 +452,36 @@ impl MCPStore {
             )))
         }
     }
+
+    fn apply_transform_safety_policy(
+        args: &serde_json::Value,
+        policy: Option<&ToolTransformSafetyPolicy>,
+    ) -> Result<()> {
+        let Some(policy) = policy else {
+            return Ok(());
+        };
+        if !policy.reject_dangerous_argument_names {
+            return Ok(());
+        }
+        let serde_json::Value::Object(input) = args else {
+            return Err(StoreError::Other(
+                "Tool transform safety policy requires object arguments".to_string(),
+            ));
+        };
+        for argument_name in input.keys() {
+            let normalized = argument_name.to_lowercase();
+            if let Some(pattern) = policy
+                .dangerous_argument_name_patterns
+                .iter()
+                .find(|pattern| normalized.contains(&pattern.to_lowercase()))
+            {
+                return Err(StoreError::Other(format!(
+                    "Tool transform safety policy rejected argument '{argument_name}' matching '{pattern}'"
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -497,5 +549,23 @@ mod tests {
 
         assert!(err.contains("Tool transform validation failed"));
         assert!(err.contains("arguments.text length must be at least 3"));
+    }
+
+    #[test]
+    fn transform_safety_policy_rejects_dangerous_argument_names() {
+        MCPStore::apply_transform_safety_policy(
+            &serde_json::json!({"city": "Paris"}),
+            Some(&ToolTransformSafetyPolicy::default()),
+        )
+        .unwrap();
+
+        let err = MCPStore::apply_transform_safety_policy(
+            &serde_json::json!({"__import__": "os"}),
+            Some(&ToolTransformSafetyPolicy::default()),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("Tool transform safety policy rejected argument '__import__'"));
     }
 }
