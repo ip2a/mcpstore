@@ -339,6 +339,10 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
             "/for_store/openapi_imports/bundle",
             post(store_bundle_openapi),
         )
+        .route(
+            "/for_store/openapi_imports/bundle_artifact",
+            post(store_bundle_openapi_artifact),
+        )
         .route("/for_store/list_resources", get(store_list_resources))
         .route(
             "/for_store/list_resource_templates",
@@ -1370,6 +1374,37 @@ async fn store_bundle_openapi(
     }
     .map_err(ApiError::from_store)?;
     Ok(success("OpenAPI 规范打包成功", json!({ "bundle": bundle })))
+}
+
+async fn store_bundle_openapi_artifact(
+    State(state): State<Arc<ApiState>>,
+    Json(payload): Json<OpenApiImportRequest>,
+) -> ApiResult {
+    let artifact = match (payload.spec, payload_spec_text(payload.spec_text)) {
+        (Some(_), Some(_)) => {
+            return Err(ApiError::invalid_request(
+                "spec and spec_text cannot both be provided",
+            ));
+        }
+        (Some(spec), None) => {
+            state
+                .store
+                .bundle_openapi_artifact_from_value(&payload.spec_url, spec)
+                .await
+        }
+        (None, Some(spec_text)) => {
+            state
+                .store
+                .bundle_openapi_artifact_from_text(&payload.spec_url, &spec_text)
+                .await
+        }
+        (None, None) => state.store.bundle_openapi_artifact(&payload.spec_url).await,
+    }
+    .map_err(ApiError::from_store)?;
+    Ok(success(
+        "OpenAPI 规范打包产物获取成功",
+        json!({ "artifact": artifact }),
+    ))
 }
 
 fn payload_spec_text(spec_text: Option<String>) -> Option<String> {
@@ -2460,6 +2495,95 @@ mod tests {
                 ["content"]["application/json"]["schema"]["properties"]["id"]["type"],
             "string"
         );
+
+        let list_response = client
+            .get(format!("{base_url}/for_store/openapi_imports"))
+            .send()
+            .await
+            .unwrap();
+        assert!(list_response.status().is_success());
+        let list_payload = list_response.json::<Value>().await.unwrap();
+        assert_eq!(list_payload["data"]["total"], 0);
+
+        handle.abort();
+        std::fs::remove_dir_all(&fixture_dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn store_route_bundles_openapi_artifact_without_importing() {
+        let store = MCPStore::setup_with_options(StoreOptions {
+            config_path: None,
+            source_mode: SourceMode::Db,
+            backend: Some(CacheStorage::Memory),
+            redis_url: None,
+            namespace: Some(unique_namespace()),
+        })
+        .unwrap();
+        let (addr, handle) = spawn_test_api(store).await;
+        let client = reqwest::Client::new();
+        let base_url = format!("http://{addr}");
+        let fixture_dir = std::env::temp_dir().join(format!("mcpstore-api-{}", unique_namespace()));
+        std::fs::create_dir_all(&fixture_dir).unwrap();
+        let schemas_path = fixture_dir.join("schemas.json");
+        std::fs::write(
+            &schemas_path,
+            serde_json::to_vec(&json!({
+                "Item": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}},
+                    "required": ["id"]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let artifact_response = client
+            .post(format!(
+                "{base_url}/for_store/openapi_imports/bundle_artifact"
+            ))
+            .json(&json!({
+                "spec_url": fixture_dir.join("openapi.json").to_string_lossy(),
+                "spec": {
+                    "openapi": "3.0.0",
+                    "info": {"title": "Inventory", "version": "1.0.0"},
+                    "paths": {
+                        "/items": {
+                            "get": {
+                                "operationId": "listItems",
+                                "responses": {
+                                    "200": {
+                                        "description": "ok",
+                                        "content": {
+                                            "application/json": {
+                                                "schema": {"$ref": "./schemas.json#/Item"}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert!(artifact_response.status().is_success());
+        let artifact_payload = artifact_response.json::<Value>().await.unwrap();
+        let artifact = &artifact_payload["data"]["artifact"];
+        assert_eq!(
+            artifact["bundle"]["paths"]["/items"]["get"]["responses"]["200"]["content"]
+                ["application/json"]["schema"]["properties"]["id"]["type"],
+            "string"
+        );
+        assert_eq!(artifact["documents"].as_array().unwrap().len(), 2);
+        assert_eq!(artifact["dependencies"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            artifact["dependencies"][0]["source_ref"],
+            "./schemas.json#/Item"
+        );
+        assert_eq!(artifact["diagnostics"].as_array().unwrap().len(), 0);
 
         let list_response = client
             .get(format!("{base_url}/for_store/openapi_imports"))

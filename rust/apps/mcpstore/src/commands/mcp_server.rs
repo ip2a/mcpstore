@@ -104,6 +104,7 @@ const OPENAPI_IMPORT_LIST_TOOL: &str = "mcpstore_openapi_import_list";
 const OPENAPI_IMPORT_GET_TOOL: &str = "mcpstore_openapi_import_get";
 const OPENAPI_IMPORT_SET_TOOL: &str = "mcpstore_openapi_import";
 const OPENAPI_BUNDLE_TOOL: &str = "mcpstore_openapi_bundle";
+const OPENAPI_BUNDLE_ARTIFACT_TOOL: &str = "mcpstore_openapi_bundle_artifact";
 
 #[derive(Clone)]
 struct ToolBinding {
@@ -845,6 +846,12 @@ fn build_openapi_tools() -> HashMap<String, Tool> {
             openapi_schema(&["spec_url"], false, true, false),
             true,
         ),
+        openapi_tool(
+            OPENAPI_BUNDLE_ARTIFACT_TOOL,
+            "Bundle an OpenAPI spec and return dependency metadata without importing or registering a virtual service.",
+            openapi_schema(&["spec_url"], false, true, false),
+            true,
+        ),
     ]
     .into_iter()
     .map(|tool| (tool.name.as_ref().to_string(), tool))
@@ -862,11 +869,14 @@ fn openapi_tool(
         .destructive(false)
         .idempotent(matches!(
             name,
-            OPENAPI_IMPORT_LIST_TOOL | OPENAPI_IMPORT_GET_TOOL | OPENAPI_BUNDLE_TOOL
+            OPENAPI_IMPORT_LIST_TOOL
+                | OPENAPI_IMPORT_GET_TOOL
+                | OPENAPI_BUNDLE_TOOL
+                | OPENAPI_BUNDLE_ARTIFACT_TOOL
         ))
         .open_world(matches!(
             name,
-            OPENAPI_IMPORT_SET_TOOL | OPENAPI_BUNDLE_TOOL
+            OPENAPI_IMPORT_SET_TOOL | OPENAPI_BUNDLE_TOOL | OPENAPI_BUNDLE_ARTIFACT_TOOL
         ));
     Tool::new(name, description, Arc::new(schema)).with_annotations(annotations)
 }
@@ -1149,6 +1159,35 @@ async fn call_openapi_tool(
             }
             .map_err(map_store_error)?;
             serde_json::json!({"bundle": bundle})
+        }
+        OPENAPI_BUNDLE_ARTIFACT_TOOL => {
+            let spec_url = required_argument_string(&arguments, "spec_url")?.to_string();
+            let spec = arguments.get("spec").cloned();
+            let spec_text = arguments
+                .get("spec_text")
+                .and_then(Value::as_str)
+                .filter(|text| !text.trim().is_empty());
+            let artifact = match (spec, spec_text) {
+                (Some(_), Some(_)) => {
+                    return Err(ErrorData::invalid_params(
+                        "spec and spec_text cannot both be provided",
+                        None,
+                    ));
+                }
+                (Some(spec), None) => {
+                    store
+                        .bundle_openapi_artifact_from_value(&spec_url, spec)
+                        .await
+                }
+                (None, Some(spec_text)) => {
+                    store
+                        .bundle_openapi_artifact_from_text(&spec_url, spec_text)
+                        .await
+                }
+                (None, None) => store.bundle_openapi_artifact(&spec_url).await,
+            }
+            .map_err(map_store_error)?;
+            serde_json::json!({"artifact": artifact})
         }
         _ => {
             return Err(ErrorData::invalid_params(
@@ -1816,6 +1855,7 @@ mod tests {
         assert!(tool_names.contains(&OPENAPI_IMPORT_GET_TOOL.to_string()));
         assert!(tool_names.contains(&OPENAPI_IMPORT_SET_TOOL.to_string()));
         assert!(tool_names.contains(&OPENAPI_BUNDLE_TOOL.to_string()));
+        assert!(tool_names.contains(&OPENAPI_BUNDLE_ARTIFACT_TOOL.to_string()));
 
         let fixture_dir = std::env::temp_dir().join(format!("mcpstore-mcp-{}", unique_namespace()));
         std::fs::create_dir_all(&fixture_dir).unwrap();
@@ -1869,6 +1909,52 @@ mod tests {
                 ["type"],
             "string"
         );
+        assert!(store.list_openapi_imports().await.unwrap().is_empty());
+
+        let artifact_args = serde_json::json!({
+            "spec_url": fixture_dir.join("openapi.json").to_string_lossy(),
+            "spec": {
+                "openapi": "3.0.0",
+                "info": {"title": "Inventory", "version": "1.0.0"},
+                "paths": {
+                    "/items": {
+                        "get": {
+                            "operationId": "listItems",
+                            "responses": {
+                                "200": {
+                                    "description": "ok",
+                                    "content": {
+                                        "application/json": {
+                                            "schema": {"$ref": "./schemas.json#/Item"}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+        let artifact_result =
+            call_openapi_tool(&store, OPENAPI_BUNDLE_ARTIFACT_TOOL, artifact_args)
+                .await
+                .unwrap();
+        let artifact = &artifact_result.structured_content.as_ref().unwrap()["artifact"];
+        assert_eq!(
+            artifact["bundle"]["paths"]["/items"]["get"]["responses"]["200"]["content"]
+                ["application/json"]["schema"]["properties"]["id"]["type"],
+            "string"
+        );
+        assert_eq!(artifact["documents"].as_array().unwrap().len(), 2);
+        assert_eq!(artifact["dependencies"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            artifact["dependencies"][0]["source_ref"],
+            "./schemas.json#/Item"
+        );
+        assert_eq!(artifact["diagnostics"].as_array().unwrap().len(), 0);
         assert!(store.list_openapi_imports().await.unwrap().is_empty());
 
         let spec = serde_json::json!({
