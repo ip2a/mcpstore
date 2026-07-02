@@ -778,6 +778,10 @@ async fn remove_service_clears_service_cache() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
     store.add_service("svc", stdio_config()).await.unwrap();
+    store
+        .assign_service_to_agent("agent-a", "svc")
+        .await
+        .unwrap();
     store.remove_service("svc").await.unwrap();
 
     let entity = store.cache().get_entity("services", "svc").await.unwrap();
@@ -789,6 +793,10 @@ async fn remove_service_clears_service_cache() {
         .await
         .unwrap();
     assert!(status.is_none());
+
+    let config = store.show_config().await.unwrap();
+    assert!(config["mcpServers"].get("svc").is_none());
+    assert!(config["agents"].get("agent-a").is_none());
 
     std::fs::remove_file(path).ok();
 }
@@ -1094,6 +1102,7 @@ async fn db_source_queues_control_requests_for_mutation_variants() {
     store.connect_service("svc-connect").await.unwrap();
     store.disconnect_service("svc-disconnect").await.unwrap();
     store.restart_service("svc-restart").await.unwrap();
+    store.reset_agent_config("agent-a").await.unwrap();
     store.reset_config().await.unwrap();
 
     let events = store
@@ -1101,7 +1110,7 @@ async fn db_source_queues_control_requests_for_mutation_variants() {
         .get_all_events_async(CONTROL_REQUEST_EVENT_TYPE)
         .await
         .unwrap();
-    assert_eq!(events.len(), 10);
+    assert_eq!(events.len(), 11);
 
     let queued_add = events
         .values()
@@ -1159,6 +1168,16 @@ async fn db_source_queues_control_requests_for_mutation_variants() {
         assert_eq!(event["source"], serde_json::json!("onlydb"));
     }
 
+    let agent_reset = events
+        .values()
+        .find(|event| event["type"] == serde_json::json!("AgentResetRequested"))
+        .unwrap();
+    assert_eq!(
+        agent_reset["payload"]["agent_id"],
+        serde_json::json!("agent-a")
+    );
+    assert_eq!(agent_reset["status"], serde_json::json!("pending"));
+
     assert!(!std::path::Path::new(&path).exists());
     assert!(store
         .cache()
@@ -1172,6 +1191,86 @@ async fn db_source_queues_control_requests_for_mutation_variants() {
         .await
         .unwrap()
         .is_none());
+}
+
+#[tokio::test]
+async fn agent_scoped_config_view_and_reset_do_not_clear_store_services() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some("test-agent-scoped-config-reset".to_string()),
+    })
+    .unwrap();
+
+    store.add_service("alpha", stdio_config()).await.unwrap();
+    store.add_service("beta", stdio_config()).await.unwrap();
+    store
+        .assign_service_to_agent("agent-a", "alpha")
+        .await
+        .unwrap();
+    store
+        .assign_service_to_agent("agent-b", "beta")
+        .await
+        .unwrap();
+
+    let scoped = store.show_config_scoped(Some("agent-a")).await.unwrap();
+    assert!(scoped["mcpServers"].get("alpha").is_some());
+    assert!(scoped["mcpServers"].get("beta").is_none());
+    assert_eq!(scoped["agents"]["agent-a"], serde_json::json!(["alpha"]));
+    assert!(scoped["agents"].get("agent-b").is_none());
+
+    let persisted_before_reset = store.show_config().await.unwrap();
+    assert_eq!(
+        persisted_before_reset["agents"]["agent-a"],
+        serde_json::json!(["alpha"])
+    );
+    assert_eq!(
+        persisted_before_reset["agents"]["agent-b"],
+        serde_json::json!(["beta"])
+    );
+
+    store.reset_agent_config("agent-a").await.unwrap();
+    assert!(store.find_service("alpha").await.is_some());
+    assert!(store.find_service("beta").await.is_some());
+    assert!(store
+        .list_agent_service_names("agent-a")
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        store.list_agent_service_names("agent-b").await.unwrap(),
+        vec!["beta".to_string()]
+    );
+    assert!(store
+        .cache()
+        .get_relation("agent_services", "agent-a")
+        .await
+        .unwrap()
+        .is_none());
+
+    let persisted_after_reset = store.show_config().await.unwrap();
+    assert!(persisted_after_reset["mcpServers"].get("alpha").is_some());
+    assert!(persisted_after_reset["mcpServers"].get("beta").is_some());
+    assert!(persisted_after_reset["agents"].get("agent-a").is_none());
+    assert_eq!(
+        persisted_after_reset["agents"]["agent-b"],
+        serde_json::json!(["beta"])
+    );
+
+    let scoped_after_reset = store.show_config_scoped(Some("agent-a")).await.unwrap();
+    assert!(scoped_after_reset["mcpServers"]
+        .as_object()
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        scoped_after_reset["agents"]["agent-a"],
+        serde_json::json!([])
+    );
+
+    std::fs::remove_file(path).ok();
 }
 
 #[tokio::test]

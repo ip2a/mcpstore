@@ -426,6 +426,10 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
             get(agent_service_status),
         )
         .route("/for_agent/:agent_id/show_config", get(agent_show_config))
+        .route(
+            "/for_agent/:agent_id/reset_config",
+            post(agent_reset_config),
+        )
         .route("/cache/health", get(cache_health))
         .route("/cache/inspect", get(cache_inspect))
         .route("/cache/switch", post(cache_switch))
@@ -1894,14 +1898,26 @@ async fn agent_service_status(
 
 async fn agent_show_config(
     State(state): State<Arc<ApiState>>,
-    Path(_agent_id): Path<String>,
+    Path(agent_id): Path<String>,
 ) -> ApiResult {
     let config = state
         .store
-        .show_config()
+        .show_config_scoped(Some(&agent_id))
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("Agent 配置获取成功", config))
+}
+
+async fn agent_reset_config(
+    State(state): State<Arc<ApiState>>,
+    Path(agent_id): Path<String>,
+) -> ApiResult {
+    state
+        .store
+        .reset_agent_config(&agent_id)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success("Agent 配置重置成功", json!({ "status": "ok" })))
 }
 
 async fn cache_inspect(State(state): State<Arc<ApiState>>) -> ApiResult {
@@ -1947,7 +1963,14 @@ mod tests {
         },
         CacheStorage, ServerConfig, SourceMode, StoreOptions,
     };
-    use std::{collections::HashMap, net::SocketAddr, time::SystemTime};
+    use std::{
+        collections::HashMap,
+        net::SocketAddr,
+        sync::atomic::{AtomicUsize, Ordering},
+        time::SystemTime,
+    };
+
+    static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
     fn unique_namespace() -> String {
         let nanos = SystemTime::now()
@@ -1955,6 +1978,15 @@ mod tests {
             .expect("system time before unix epoch")
             .as_nanos();
         format!("api-session-test-{nanos}")
+    }
+
+    fn unique_temp_dir_path(prefix: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("system time before unix epoch")
+            .as_nanos();
+        let count = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!("{prefix}-{}-{nanos}-{count}", std::process::id()))
     }
 
     fn stdio_config() -> ServerConfig {
@@ -2474,7 +2506,7 @@ mod tests {
         let (addr, handle) = spawn_test_api(store).await;
         let client = reqwest::Client::new();
         let base_url = format!("http://{addr}");
-        let fixture_dir = std::env::temp_dir().join(format!("mcpstore-api-{}", unique_namespace()));
+        let fixture_dir = unique_temp_dir_path("mcpstore-api");
         std::fs::create_dir_all(&fixture_dir).unwrap();
         let schemas_path = fixture_dir.join("schemas.json");
         std::fs::write(
@@ -2537,7 +2569,7 @@ mod tests {
         assert_eq!(list_payload["data"]["total"], 0);
 
         handle.abort();
-        std::fs::remove_dir_all(&fixture_dir).unwrap();
+        std::fs::remove_dir_all(&fixture_dir).ok();
     }
 
     #[tokio::test]
@@ -2553,7 +2585,7 @@ mod tests {
         let (addr, handle, state) = spawn_test_api_with_state(store).await;
         let client = reqwest::Client::new();
         let base_url = format!("http://{addr}");
-        let fixture_dir = std::env::temp_dir().join(format!("mcpstore-api-{}", unique_namespace()));
+        let fixture_dir = unique_temp_dir_path("mcpstore-api");
         std::fs::create_dir_all(&fixture_dir).unwrap();
         let schemas_path = fixture_dir.join("schemas.json");
         std::fs::write(
@@ -2636,6 +2668,6 @@ mod tests {
         assert_eq!(list_payload["data"]["total"], 0);
 
         handle.abort();
-        std::fs::remove_dir_all(&fixture_dir).unwrap();
+        std::fs::remove_dir_all(&fixture_dir).ok();
     }
 }

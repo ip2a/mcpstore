@@ -888,6 +888,60 @@ class RustStoreBackend:
             return _record_value({"clients": config.get("clients", {})})
         raise ValueError(f"Rust core 当前不支持 show_config scope={scope!r}")
 
+    def show_config_scoped(
+        self,
+        agent_id: Optional[str] = None,
+        scope: str = "all",
+    ) -> Dict[str, Any]:
+        if agent_id is None:
+            return self.show_config(scope)
+        if not hasattr(self._inner, "show_config_scoped"):
+            return self._filter_config_for_agent(self.show_config(scope), agent_id, scope)
+        config = _record_value(self._inner.show_config_scoped(agent_id))
+        return self._filter_config_scope(config, scope)
+
+    def _filter_config_scope(self, config: Dict[str, Any], scope: str = "all") -> Dict[str, Any]:
+        if scope in (None, "all"):
+            return config
+        if scope in ("mcp", "mcpServers"):
+            return _record_value({"mcpServers": config.get("mcpServers", {})})
+        if scope in ("agents", "agent"):
+            return _record_value({"agents": config.get("agents", {})})
+        if scope in ("clients", "client"):
+            return _record_value({"clients": config.get("clients", {})})
+        raise ValueError(f"Rust core 当前不支持 show_config scope={scope!r}")
+
+    def _filter_config_for_agent(
+        self,
+        config: Dict[str, Any],
+        agent_id: str,
+        scope: str = "all",
+    ) -> Dict[str, Any]:
+        agents = config.get("agents", {}) or {}
+        service_names = list(agents.get(agent_id, []) or [])
+        if scope in ("agents", "agent"):
+            return _record_value({"agents": {agent_id: service_names}})
+        if scope in ("mcp", "mcpServers"):
+            mcp_servers = config.get("mcpServers", {}) or {}
+            return _record_value(
+                {
+                    "mcpServers": {
+                        name: value
+                        for name, value in mcp_servers.items()
+                        if name in service_names
+                    }
+                }
+            )
+        if scope in ("clients", "client"):
+            return _record_value({"clients": config.get("clients", {}) or {}})
+        if scope in (None, "all"):
+            scoped = self._filter_config_for_agent(config, agent_id, "mcp")
+            scoped["agents"] = {agent_id: service_names}
+            if "clients" in config:
+                scoped["clients"] = config.get("clients", {}) or {}
+            return _record_value(scoped)
+        raise ValueError(f"Rust core 当前不支持 show_config scope={scope!r}")
+
     def show_mcpjson(self) -> Dict[str, Any]:
         return self.show_config("mcp")
 
@@ -954,6 +1008,12 @@ class RustStoreBackend:
 
     def reset_config(self) -> bool:
         self._inner.reset_config()
+        return True
+
+    def reset_agent_config(self, agent_id: str) -> bool:
+        if not hasattr(self._inner, "reset_agent_config"):
+            raise NotImplementedError("Rust core does not expose agent-scoped config reset")
+        self._inner.reset_agent_config(agent_id)
         return True
 
     def load_from_config(self) -> bool:
@@ -3045,36 +3105,9 @@ class RustStoreContext:
         return default
 
     def show_config(self, scope: str = "all") -> Dict[str, Any]:
-        config = self._backend.show_config(scope)
-        if not self._agent_id:
-            return config
-        return self._agent_scoped_config(config, scope)
-
-    def _agent_scoped_config(self, config: Dict[str, Any], scope: str = "all") -> Dict[str, Any]:
-        agents = config.get("agents", {}) or {}
-        service_names = list(agents.get(self._agent_id, []) or [])
-        if scope in ("agents", "agent"):
-            return _record_value({"agents": {self._agent_id: service_names}})
-        if scope in ("mcp", "mcpServers"):
-            mcp_servers = config.get("mcpServers", {}) or {}
-            return _record_value(
-                {
-                    "mcpServers": {
-                        name: value
-                        for name, value in mcp_servers.items()
-                        if name in service_names
-                    }
-                }
-            )
-        if scope in ("clients", "client"):
-            return _record_value({"clients": config.get("clients", {}) or {}})
-        if scope in (None, "all"):
-            scoped = self._agent_scoped_config(config, "mcp")
-            scoped["agents"] = {self._agent_id: service_names}
-            if "clients" in config:
-                scoped["clients"] = config.get("clients", {}) or {}
-            return _record_value(scoped)
-        return config
+        if self._agent_id:
+            return self._backend.show_config_scoped(self._agent_id, scope)
+        return self._backend.show_config(scope)
 
     def show_mcpjson(self) -> Dict[str, Any]:
         return self._backend.show_mcpjson()
@@ -3138,6 +3171,8 @@ class RustStoreContext:
         )
 
     def reset_config(self) -> bool:
+        if self._agent_id:
+            return self._backend.reset_agent_config(self._agent_id)
         return self._backend.reset_config()
 
     def get_id(self) -> str:

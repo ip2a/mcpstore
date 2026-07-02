@@ -21,6 +21,14 @@ impl MCPStore {
             .add_to_agent_scope(agent_id, service_name)
             .await;
         self.cache_agent_scope(agent_id).await?;
+        if self.source_mode == SourceMode::Local {
+            let mut cfg = self.config_manager.load_or_default();
+            let services = cfg.agents.entry(agent_id.to_string()).or_default();
+            if !services.iter().any(|name| name == service_name) {
+                services.push(service_name.to_string());
+            }
+            self.config_manager.save(&cfg)?;
+        }
         Ok(())
     }
 
@@ -48,6 +56,16 @@ impl MCPStore {
             self.registry.add_to_agent_scope(agent_id, name).await;
         }
         self.cache_agent_scope_names(agent_id, services).await?;
+        if self.source_mode == SourceMode::Local {
+            let mut cfg = self.config_manager.load_or_default();
+            if let Some(config_services) = cfg.agents.get_mut(agent_id) {
+                config_services.retain(|name| name != service_name);
+                if config_services.is_empty() {
+                    cfg.agents.remove(agent_id);
+                }
+            }
+            self.config_manager.save(&cfg)?;
+        }
         Ok(())
     }
 
