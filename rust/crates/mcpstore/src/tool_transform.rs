@@ -22,6 +22,83 @@ pub struct ToolTransformPatch {
     pub enabled: Option<bool>,
 }
 
+impl ToolTransformPatch {
+    pub fn with_display_name(mut self, display_name: impl Into<String>) -> Self {
+        self.display_name = Some(display_name.into());
+        self
+    }
+
+    pub fn with_description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+
+    pub fn with_argument(mut self, argument: ToolArgumentTransform) -> Self {
+        self.arguments.push(argument);
+        self
+    }
+
+    pub fn rename_argument(
+        self,
+        original_name: impl Into<String>,
+        new_name: impl Into<String>,
+    ) -> Self {
+        self.with_argument(ToolArgumentTransform {
+            original_name: original_name.into(),
+            new_name: Some(new_name.into()),
+            hidden: false,
+            default_value: None,
+            description: None,
+            validation_schema: None,
+        })
+    }
+
+    pub fn hide_argument(
+        self,
+        original_name: impl Into<String>,
+        default_value: impl Into<serde_json::Value>,
+    ) -> Self {
+        self.with_argument(ToolArgumentTransform {
+            original_name: original_name.into(),
+            new_name: None,
+            hidden: true,
+            default_value: Some(default_value.into()),
+            description: None,
+            validation_schema: None,
+        })
+    }
+
+    pub fn validate_argument(
+        self,
+        original_name: impl Into<String>,
+        validation_schema: serde_json::Value,
+    ) -> Self {
+        self.with_argument(ToolArgumentTransform {
+            original_name: original_name.into(),
+            new_name: None,
+            hidden: false,
+            default_value: None,
+            description: None,
+            validation_schema: Some(validation_schema),
+        })
+    }
+
+    pub fn with_default_safety_policy(mut self) -> Self {
+        self.safety_policy = Some(ToolTransformSafetyPolicy::default());
+        self
+    }
+
+    pub fn with_tag(mut self, tag: impl Into<String>) -> Self {
+        self.tags.push(tag.into());
+        self
+    }
+
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = Some(enabled);
+        self
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct AppliedToolTransform {
     pub display_name: String,
@@ -30,6 +107,83 @@ pub(crate) struct AppliedToolTransform {
 }
 
 impl MCPStore {
+    pub async fn create_llm_friendly_tool_transform(
+        &self,
+        service_name: &str,
+        tool_name: &str,
+        friendly_name: Option<&str>,
+        description: Option<&str>,
+        hide_technical_params: bool,
+        add_safety_policy: bool,
+    ) -> Result<ToolTransformRule> {
+        let mut patch = ToolTransformPatch::default()
+            .with_display_name(
+                friendly_name
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("{tool_name}_simple")),
+            )
+            .with_tag("llm-friendly")
+            .with_tag("simplified");
+        if let Some(description) = description {
+            patch = patch.with_description(description);
+        }
+        if hide_technical_params {
+            for param in ["timeout", "retry_count", "debug", "verbose", "raw_output"] {
+                if let Some(default_value) = Self::default_transform_value_for_param(param) {
+                    patch = patch.hide_argument(param, default_value);
+                }
+            }
+        }
+        if add_safety_policy {
+            patch = patch.with_default_safety_policy().with_tag("safe");
+        }
+        self.set_tool_transform(service_name, tool_name, patch)
+            .await
+    }
+
+    pub async fn create_parameter_renamed_tool_transform(
+        &self,
+        service_name: &str,
+        tool_name: &str,
+        new_tool_name: Option<&str>,
+        parameter_mapping: &[(&str, &str)],
+    ) -> Result<ToolTransformRule> {
+        let mut patch = ToolTransformPatch::default()
+            .with_display_name(
+                new_tool_name
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("{tool_name}_renamed")),
+            )
+            .with_tag("parameter-renamed");
+        for (original_param, new_param) in parameter_mapping {
+            patch = patch.rename_argument(*original_param, *new_param);
+        }
+        self.set_tool_transform(service_name, tool_name, patch)
+            .await
+    }
+
+    pub async fn create_validated_tool_transform(
+        &self,
+        service_name: &str,
+        tool_name: &str,
+        new_tool_name: Option<&str>,
+        validation_rules: &[(&str, serde_json::Value)],
+    ) -> Result<ToolTransformRule> {
+        let mut patch = ToolTransformPatch::default()
+            .with_display_name(
+                new_tool_name
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("{tool_name}_validated")),
+            )
+            .with_tag("validated")
+            .with_tag("safe");
+        for (param_name, validation_schema) in validation_rules {
+            patch = patch.validate_argument(*param_name, validation_schema.clone());
+        }
+        self.set_tool_transform(service_name, tool_name, patch)
+            .await
+    }
+
     pub async fn set_tool_transform(
         &self,
         service_name: &str,
@@ -323,6 +477,15 @@ impl MCPStore {
             ));
         }
         Ok(())
+    }
+
+    fn default_transform_value_for_param(param_name: &str) -> Option<serde_json::Value> {
+        match param_name {
+            "timeout" => Some(serde_json::json!(30.0)),
+            "retry_count" => Some(serde_json::json!(3)),
+            "debug" | "verbose" | "raw_output" => Some(serde_json::json!(false)),
+            _ => None,
+        }
     }
 
     fn transform_input_schema(
