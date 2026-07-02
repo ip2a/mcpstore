@@ -532,6 +532,15 @@ async def agent_show_config(agent_id: str, scope: str = Query("all")):
     return ResponseBuilder.success(message="Agent config returned", data=result)
 
 
+@api_agent_router.post("/{agent_id}/reset_config")
+@timed_response
+async def agent_reset_config(agent_id: str):
+    validate_agent_id(agent_id)
+    context = get_store().for_agent(agent_id)
+    ok = await _execute(context, context.reset_config_async())
+    return ResponseBuilder.success(message="Agent config reset", data={"status": "ok", "ok": ok})
+
+
 @api_agent_router.post("/{agent_id}/wait_service")
 @timed_response
 async def agent_wait_service(agent_id: str, body: Dict[str, Any] = Body(...)):

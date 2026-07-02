@@ -43,6 +43,27 @@ impl MCPStore {
         Ok(self.config_manager.load_or_default())
     }
 
+    pub async fn show_config_scoped(&self, agent_id: Option<&str>) -> Result<serde_json::Value> {
+        let mut config = self.show_config_entry().await?;
+        let Some(agent_id) = agent_id else {
+            return serde_json::to_value(config)
+                .map_err(|e| StoreError::Other(format!("Config serialization failed: {e}")));
+        };
+
+        let service_names = config.agents.get(agent_id).cloned().unwrap_or_default();
+        let service_set = service_names
+            .iter()
+            .collect::<std::collections::HashSet<_>>();
+        config
+            .mcp_servers
+            .retain(|service_name, _| service_set.contains(service_name));
+        config.agents.clear();
+        config.agents.insert(agent_id.to_string(), service_names);
+
+        serde_json::to_value(config)
+            .map_err(|e| StoreError::Other(format!("Config serialization failed: {e}")))
+    }
+
     pub async fn reset_config(&self) -> Result<()> {
         if self.source_mode == SourceMode::Db {
             return self
@@ -77,6 +98,28 @@ impl MCPStore {
         if self.source_mode == SourceMode::Local {
             self.config_manager
                 .save(&crate::config::McpConfig::default())?;
+        }
+        Ok(())
+    }
+
+    pub async fn reset_agent_config(&self, agent_id: &str) -> Result<()> {
+        if self.source_mode == SourceMode::Db {
+            return self
+                .queue_control_request(
+                    "AgentResetRequested",
+                    serde_json::json!({ "agent_id": agent_id }),
+                )
+                .await;
+        }
+
+        self.registry.clear_agent_scope(agent_id).await;
+        self.cache
+            .delete_relation("agent_services", agent_id)
+            .await?;
+        if self.source_mode == SourceMode::Local {
+            let mut cfg = self.config_manager.load_or_default();
+            cfg.agents.remove(agent_id);
+            self.config_manager.save(&cfg)?;
         }
         Ok(())
     }
