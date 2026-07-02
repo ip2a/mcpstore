@@ -494,10 +494,37 @@ fn validate_string_format(schema: &Value, text: &str, path: &str, errors: &mut V
         "uuid" if uuid::Uuid::parse_str(text).is_err() => {
             errors.push(format!("{path} must be a valid UUID"));
         }
+        "hostname" if !is_valid_hostname(text) => {
+            errors.push(format!("{path} must be a valid hostname"));
+        }
+        "ipv4" if text.parse::<std::net::Ipv4Addr>().is_err() => {
+            errors.push(format!("{path} must be a valid IPv4 address"));
+        }
+        "ipv6" if text.parse::<std::net::Ipv6Addr>().is_err() => {
+            errors.push(format!("{path} must be a valid IPv6 address"));
+        }
         "uri" => validate_uri_format(text, path, errors),
         "url" => validate_url_format(text, path, errors),
         _ => {}
     }
+}
+
+fn is_valid_hostname(text: &str) -> bool {
+    let hostname = text.strip_suffix('.').unwrap_or(text);
+    if hostname.is_empty() || hostname.len() > 253 || !hostname.is_ascii() {
+        return false;
+    }
+    hostname.split('.').all(is_valid_hostname_label)
+}
+
+fn is_valid_hostname_label(label: &str) -> bool {
+    !label.is_empty()
+        && label.len() <= 63
+        && !label.starts_with('-')
+        && !label.ends_with('-')
+        && label
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
 }
 
 fn validate_uri_format(text: &str, path: &str, errors: &mut Vec<String>) {
