@@ -3408,10 +3408,28 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             original_tool_name="echo",
             new_tool_name="hidden_echo",
             argument_transforms={
-                "debug": ArgumentTransform("debug", hidden=True, default_value=False)
+                "debug": ArgumentTransform("debug", hidden=True, default_value=False),
+                "text": ArgumentTransform(
+                    "text",
+                    validation_schema={"type": "string", "minLength": 3},
+                ),
             },
         )
         self.assertEqual(transformer.register_transformation(config), "hidden_echo")
+        rule = context.get_tool_transform("svc", "echo")
+        self.assertEqual(rule.arguments[1].validation_schema.minLength, 3)
+        self.assertEqual(
+            transformer.create_validated_tool(
+                "echo",
+                {"text": {"type": "string", "minLength": 2}},
+                new_tool_name="validated_echo",
+            ),
+            "validated_echo",
+        )
+        rule = context.get_tool_transform("svc", "echo")
+        self.assertEqual(rule.arguments[0].validation_schema.minLength, 2)
+        with self.assertRaisesRegex(NotImplementedError, "Callable validation"):
+            transformer.create_validated_tool("echo", {"text": lambda value: True})
         with self.assertRaisesRegex(NotImplementedError, "Callable"):
             ToolTransformConfig(
                 original_tool_name="echo",

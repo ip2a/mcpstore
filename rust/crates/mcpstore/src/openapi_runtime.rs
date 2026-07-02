@@ -397,7 +397,7 @@ fn validate_input_schema(component: &OpenApiComponent, args: &Map<String, Value>
         let Some(schema) = properties.get(name) else {
             continue;
         };
-        validate_schema_value(schema, value, &argument_path(component, name), &mut errors);
+        validate_json_schema_value(schema, value, &argument_path(component, name), &mut errors);
     }
 
     if errors.is_empty() {
@@ -521,7 +521,12 @@ fn collect_read_only_request_fields(
     }
 }
 
-fn validate_schema_value(schema: &Value, value: &Value, path: &str, errors: &mut Vec<String>) {
+pub(crate) fn validate_json_schema_value(
+    schema: &Value,
+    value: &Value,
+    path: &str,
+    errors: &mut Vec<String>,
+) {
     if value.is_null()
         && schema
             .get("nullable")
@@ -587,7 +592,7 @@ fn validate_all_of_schema(schema: &Value, value: &Value, path: &str, errors: &mu
         return;
     };
     for child_schema in schemas {
-        validate_schema_value(child_schema, value, path, errors);
+        validate_json_schema_value(child_schema, value, path, errors);
     }
 }
 
@@ -639,7 +644,7 @@ fn validate_not_schema(schema: &Value, value: &Value, path: &str, errors: &mut V
 
 fn schema_matches(schema: &Value, value: &Value) -> bool {
     let mut errors = Vec::new();
-    validate_schema_value(schema, value, "value", &mut errors);
+    validate_json_schema_value(schema, value, "value", &mut errors);
     errors.is_empty()
 }
 
@@ -872,11 +877,16 @@ fn validate_object_schema(schema: &Value, value: &Value, path: &str, errors: &mu
     let additional_properties = schema.get("additionalProperties");
     for (name, child_value) in object {
         if let Some(child_schema) = properties.and_then(|properties| properties.get(name)) {
-            validate_schema_value(child_schema, child_value, &format!("{path}.{name}"), errors);
+            validate_json_schema_value(
+                child_schema,
+                child_value,
+                &format!("{path}.{name}"),
+                errors,
+            );
         } else if additional_properties == Some(&Value::Bool(false)) {
             errors.push(format!("{path}.{name} is not allowed"));
         } else if let Some(child_schema) = additional_properties.and_then(Value::as_object) {
-            validate_schema_value(
+            validate_json_schema_value(
                 &Value::Object(child_schema.clone()),
                 child_value,
                 &format!("{path}.{name}"),
@@ -913,7 +923,7 @@ fn validate_array_schema(schema: &Value, value: &Value, path: &str, errors: &mut
         return;
     };
     for (index, item) in items.iter().enumerate() {
-        validate_schema_value(item_schema, item, &format!("{path}[{index}]"), errors);
+        validate_json_schema_value(item_schema, item, &format!("{path}[{index}]"), errors);
     }
 }
 
@@ -1172,7 +1182,7 @@ fn validate_response_schema(
     }
 
     let mut errors = Vec::new();
-    validate_schema_value(&schema, value, "response", &mut errors);
+    validate_json_schema_value(&schema, value, "response", &mut errors);
     if errors.is_empty() {
         Ok(())
     } else {
