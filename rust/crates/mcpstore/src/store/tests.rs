@@ -1590,6 +1590,132 @@ paths:
 }
 
 #[tokio::test]
+async fn openapi_bundle_caches_file_ref_documents_with_fingerprint() {
+    let base_url = spawn_openapi_http_fixture().await;
+    let fixture_dir = std::env::temp_dir().join(format!(
+        "mcpstore-openapi-file-cache-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(fixture_dir.join("components")).unwrap();
+    let spec_path = fixture_dir.join("openapi.yaml");
+    let components_path = fixture_dir.join("components").join("shared.yaml");
+    std::fs::write(
+        &components_path,
+        r#"components:
+  schemas:
+    ItemId:
+      type: string
+      description: local file item id
+    Item:
+      type: object
+      properties:
+        sku:
+          $ref: '#/components/schemas/ItemId'
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        &spec_path,
+        format!(
+            r#"openapi: 3.0.0
+info:
+  title: Local File Cache Refs
+  version: '2026.1'
+servers:
+  - url: {base_url}
+paths:
+  /items/{{id}}:
+    get:
+      operationId: getItemByCachedLocalFileRef
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: components/shared.yaml#/components/schemas/Item
+"#
+        ),
+    )
+    .unwrap();
+
+    let file_url = reqwest::Url::from_file_path(&spec_path)
+        .unwrap()
+        .to_string();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!(
+            "openapi-file-ref-document-cache-{}",
+            uuid::Uuid::new_v4()
+        )),
+    })
+    .unwrap();
+
+    let first_artifact = store.bundle_openapi_artifact(&file_url).await.unwrap();
+    let first_description = &first_artifact.bundle["paths"]["/items/{id}"]["get"]["responses"]
+        ["200"]["content"]["application/json"]["schema"]["properties"]["sku"]["description"];
+    assert_eq!(first_description, &serde_json::json!("local file item id"));
+
+    let states = store
+        .cache()
+        .get_all_states_async("openapi_ref_documents")
+        .await
+        .unwrap();
+    assert_eq!(states.len(), 1);
+    let cached = states.values().next().unwrap();
+    assert_eq!(cached["cache_version"], serde_json::json!(1));
+    assert_eq!(cached["source"], serde_json::json!("file"));
+    assert!(cached["url"].as_str().unwrap().starts_with("file://"));
+    assert!(cached["content_hash"]
+        .as_str()
+        .unwrap()
+        .starts_with("blake3:"));
+    assert!(cached["content_length"].as_u64().unwrap() > 0);
+    assert!(cached["file_size"].as_u64().unwrap() > 0);
+    assert!(cached["file_modified_unix_millis"].as_i64().unwrap() > 0);
+    let first_hash = cached["content_hash"].as_str().unwrap().to_string();
+
+    std::fs::write(
+        &components_path,
+        r#"components:
+  schemas:
+    ItemId:
+      type: string
+      description: updated local file item id after cache invalidation
+    Item:
+      type: object
+      properties:
+        sku:
+          $ref: '#/components/schemas/ItemId'
+"#,
+    )
+    .unwrap();
+
+    let second_artifact = store.bundle_openapi_artifact(&file_url).await.unwrap();
+    let second_description = &second_artifact.bundle["paths"]["/items/{id}"]["get"]["responses"]
+        ["200"]["content"]["application/json"]["schema"]["properties"]["sku"]["description"];
+    assert_eq!(
+        second_description,
+        &serde_json::json!("updated local file item id after cache invalidation")
+    );
+    let updated_states = store
+        .cache()
+        .get_all_states_async("openapi_ref_documents")
+        .await
+        .unwrap();
+    let updated_cached = updated_states.values().next().unwrap();
+    assert_ne!(
+        updated_cached["content_hash"],
+        serde_json::json!(first_hash)
+    );
+
+    let _ = std::fs::remove_dir_all(fixture_dir);
+}
+
+#[tokio::test]
 async fn openapi_bundle_spec_returns_external_refs_without_importing() {
     let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
