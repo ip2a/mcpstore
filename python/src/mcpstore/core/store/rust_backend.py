@@ -737,6 +737,19 @@ class RustStoreBackend:
             "auth": dict(auth or {}),
         }
 
+    def bundle_openapi_spec(self, spec_url: str) -> Dict[str, Any]:
+        return _record_value(self._inner.bundle_openapi_spec(spec_url))
+
+    def bundle_openapi_spec_from_spec(self, spec_url: str, spec: Any) -> Dict[str, Any]:
+        if isinstance(spec, str):
+            return _record_value(self._inner.bundle_openapi_spec_from_spec(spec_url, spec))
+        return _record_value(
+            self._inner.bundle_openapi_spec_from_spec(
+                spec_url,
+                self._normalize_config_dict(spec, "OpenAPI spec"),
+            )
+        )
+
     def get_openapi_import(self, name: str) -> Optional[Dict[str, Any]]:
         return _record_value(self._inner.get_openapi_import(name))
 
@@ -2684,6 +2697,12 @@ class RustStoreContext:
 
     def last_openapi_import(self) -> Optional[Dict[str, Any]]:
         return getattr(self, "_last_openapi_import", None)
+
+    def bundle_openapi_spec(self, spec_url: str) -> Dict[str, Any]:
+        return self._backend.bundle_openapi_spec(spec_url)
+
+    def bundle_openapi_spec_from_spec(self, spec_url: str, spec: Any) -> Dict[str, Any]:
+        return self._backend.bundle_openapi_spec_from_spec(spec_url, spec)
 
     def call_tool(
         self,

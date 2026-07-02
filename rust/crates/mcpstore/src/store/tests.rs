@@ -1590,6 +1590,43 @@ paths:
 }
 
 #[tokio::test]
+async fn openapi_bundle_spec_returns_external_refs_without_importing() {
+    let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-bundle-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+
+    let bundled = store
+        .bundle_openapi_spec(&format!("{base_url}/openapi.json"))
+        .await
+        .unwrap();
+
+    assert_eq!(bundled["info"]["title"], serde_json::json!("External Refs"));
+    assert_eq!(
+        bundled["paths"]["/items/{id}"]["parameters"][0]["schema"],
+        serde_json::json!({
+            "type": "string",
+            "description": "external item id"
+        })
+    );
+    assert_eq!(
+        bundled["paths"]["/items/{id}"]["get"]["responses"]["200"]["content"]["application/json"]
+            ["schema"]["properties"]["id"],
+        serde_json::json!({
+            "type": "string",
+            "description": "external item id"
+        })
+    );
+    assert_eq!(components_requests.load(Ordering::SeqCst), 1);
+    assert!(store.list_openapi_imports().await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn openapi_import_parses_yaml_from_url() {
     let base_url = spawn_openapi_yaml_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
