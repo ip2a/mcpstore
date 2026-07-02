@@ -1499,8 +1499,14 @@ class RustServiceProxy:
     def update_service(self, config: Any) -> bool:
         return self._context.update_service(self._service_name, config)
 
+    def update_config(self, config: Any) -> bool:
+        return self.update_service(config)
+
     def patch_service(self, updates: Any) -> bool:
         return self._context.patch_service(self._service_name, updates)
+
+    def patch_config(self, updates: Any) -> bool:
+        return self.patch_service(updates)
 
     def restart_service(self) -> bool:
         return self._context.restart_service(self._service_name)
@@ -1521,6 +1527,50 @@ class RustServiceProxy:
 
     def remove_service(self) -> bool:
         return self.delete_service()
+
+    def call_tool(
+        self,
+        tool_name: str,
+        args: Optional[Dict[str, Any]] = None,
+        *,
+        return_extracted: bool = False,
+        **kwargs,
+    ) -> Any:
+        return self.find_tool(tool_name).call_tool(
+            args,
+            return_extracted=return_extracted,
+            **kwargs,
+        )
+
+    async def call_tool_async(
+        self,
+        tool_name: str,
+        args: Optional[Dict[str, Any]] = None,
+        *,
+        return_extracted: bool = False,
+        **kwargs,
+    ) -> Any:
+        return self.call_tool(
+            tool_name,
+            args,
+            return_extracted=return_extracted,
+            **kwargs,
+        )
+
+    def _service_hub_not_supported(self) -> None:
+        raise NotImplementedError(
+            "Rust MCP server does not yet support service-scoped hub exposure; "
+            "use the store or agent context hub, or add Rust service-scope support first"
+        )
+
+    def hub_http(self, *args, **kwargs) -> Any:
+        self._service_hub_not_supported()
+
+    def hub_sse(self, *args, **kwargs) -> Any:
+        self._service_hub_not_supported()
+
+    def hub_stdio(self, *args, **kwargs) -> Any:
+        self._service_hub_not_supported()
 
 
 class RustToolProxy:
