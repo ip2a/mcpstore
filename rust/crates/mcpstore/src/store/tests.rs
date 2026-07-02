@@ -1669,6 +1669,95 @@ async fn openapi_bundle_artifact_reports_dependencies_without_importing() {
 }
 
 #[tokio::test]
+async fn openapi_bundle_writes_external_ref_document_cache() {
+    let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!(
+            "openapi-ref-document-cache-{}",
+            uuid::Uuid::new_v4()
+        )),
+    })
+    .unwrap();
+
+    let root_url = format!("{base_url}/openapi.json");
+    let artifact = store.bundle_openapi_artifact(&root_url).await.unwrap();
+
+    assert_eq!(components_requests.load(Ordering::SeqCst), 1);
+    assert!(artifact.documents.iter().any(|document| {
+        document.url == format!("{base_url}/components.json") && document.role == "external"
+    }));
+    let states = store
+        .cache()
+        .get_all_states_async("openapi_ref_documents")
+        .await
+        .unwrap();
+    assert_eq!(states.len(), 1);
+    let cached = states.values().next().unwrap();
+    assert_eq!(cached["cache_version"], serde_json::json!(1));
+    assert_eq!(cached["url"], format!("{base_url}/components.json"));
+    assert_eq!(cached["source"], serde_json::json!("http"));
+    assert!(cached["content_hash"]
+        .as_str()
+        .unwrap()
+        .starts_with("blake3:"));
+    assert!(cached["content_length"].as_u64().unwrap() > 0);
+    assert!(cached["expires_at"].as_i64().unwrap() > cached["fetched_at"].as_i64().unwrap());
+    assert_eq!(
+        cached["document"]["components"]["schemas"]["ItemId"]["description"],
+        serde_json::json!("external item id")
+    );
+
+    let second_artifact = store.bundle_openapi_artifact(&root_url).await.unwrap();
+    assert_eq!(components_requests.load(Ordering::SeqCst), 1);
+    assert!(second_artifact.documents.iter().any(|document| {
+        document.url == format!("{base_url}/components.json") && document.role == "external"
+    }));
+    assert!(store.list_openapi_imports().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn redis_backend_reuses_openapi_ref_document_cache_between_store_instances_when_available() {
+    let Ok(redis_url) = std::env::var("MCPSTORE_TEST_REDIS_URL") else {
+        return;
+    };
+    let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
+    let namespace = format!("openapi-ref-document-cache-{}", uuid::Uuid::new_v4());
+    let first = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Redis),
+        redis_url: Some(redis_url.clone()),
+        namespace: Some(namespace.clone()),
+    })
+    .unwrap();
+    let second = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Redis),
+        redis_url: Some(redis_url),
+        namespace: Some(namespace),
+    })
+    .unwrap();
+    let root_url = format!("{base_url}/openapi.json");
+
+    let first_artifact = first.bundle_openapi_artifact(&root_url).await.unwrap();
+    assert_eq!(components_requests.load(Ordering::SeqCst), 1);
+    assert!(first_artifact.documents.iter().any(|document| {
+        document.url == format!("{base_url}/components.json") && document.role == "external"
+    }));
+
+    let second_artifact = second.bundle_openapi_artifact(&root_url).await.unwrap();
+    assert_eq!(components_requests.load(Ordering::SeqCst), 1);
+    assert!(second_artifact.documents.iter().any(|document| {
+        document.url == format!("{base_url}/components.json") && document.role == "external"
+    }));
+}
+
+#[tokio::test]
 async fn openapi_import_parses_yaml_from_url() {
     let base_url = spawn_openapi_yaml_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {

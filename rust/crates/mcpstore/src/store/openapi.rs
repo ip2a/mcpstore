@@ -5,6 +5,7 @@ use crate::openapi::{
 };
 use crate::openapi_runtime::openapi_tool_infos;
 use crate::store::prelude::*;
+use crate::store::CacheLayerManager;
 use std::collections::HashMap;
 use std::future::Future;
 use std::hash::{Hash, Hasher};
@@ -13,6 +14,9 @@ use std::pin::Pin;
 use std::sync::Mutex;
 
 const MAX_EXTERNAL_REF_DEPTH: usize = 32;
+const OPENAPI_REF_DOCUMENT_CACHE_STATE_TYPE: &str = "openapi_ref_documents";
+const OPENAPI_REF_DOCUMENT_CACHE_TTL_SECONDS: i64 = 300;
+const OPENAPI_REF_DOCUMENT_CACHE_VERSION: u64 = 1;
 
 #[derive(Debug, Clone)]
 pub struct OpenApiImportInput {
@@ -98,7 +102,7 @@ impl MCPStore {
         options: OpenApiImportOptions,
     ) -> Result<OpenApiImportResult> {
         let client = reqwest::Client::new();
-        let spec = bundle_openapi_external_refs(&client, spec_url, spec).await?;
+        let spec = bundle_openapi_external_refs(&client, &self.cache, spec_url, spec).await?;
         let mut result = analyze_openapi_spec(name, spec_url, spec)?;
         result.runtime_executable = true;
         self.register_openapi_virtual_service(&result, &options)
@@ -147,7 +151,7 @@ impl MCPStore {
         spec: serde_json::Value,
     ) -> Result<serde_json::Value> {
         let client = reqwest::Client::new();
-        bundle_openapi_external_refs(&client, spec_url, spec).await
+        bundle_openapi_external_refs(&client, &self.cache, spec_url, spec).await
     }
 
     pub async fn bundle_openapi_artifact(&self, spec_url: &str) -> Result<OpenApiBundleArtifact> {
@@ -165,7 +169,8 @@ impl MCPStore {
         let spec = parse_openapi_spec_text(spec_text)?;
         let client = reqwest::Client::new();
         let root_metadata = document_metadata_from_bytes(spec_text.as_bytes());
-        bundle_openapi_external_ref_artifact(&client, spec_url, spec, root_metadata).await
+        bundle_openapi_external_ref_artifact(&client, &self.cache, spec_url, spec, root_metadata)
+            .await
     }
 
     pub async fn bundle_openapi_artifact_from_value(
@@ -175,7 +180,8 @@ impl MCPStore {
     ) -> Result<OpenApiBundleArtifact> {
         let client = reqwest::Client::new();
         let root_metadata = document_metadata_from_value(&spec)?;
-        bundle_openapi_external_ref_artifact(&client, spec_url, spec, root_metadata).await
+        bundle_openapi_external_ref_artifact(&client, &self.cache, spec_url, spec, root_metadata)
+            .await
     }
 
     pub(crate) async fn register_openapi_virtual_service(
@@ -347,12 +353,13 @@ impl MCPStore {
 
 async fn bundle_openapi_external_refs(
     client: &reqwest::Client,
+    cache: &CacheLayerManager,
     document_url: &str,
     spec: serde_json::Value,
 ) -> Result<serde_json::Value> {
     let root_metadata = document_metadata_from_value(&spec)?;
     Ok(
-        bundle_openapi_external_ref_artifact(client, document_url, spec, root_metadata)
+        bundle_openapi_external_ref_artifact(client, cache, document_url, spec, root_metadata)
             .await?
             .bundle,
     )
@@ -360,12 +367,14 @@ async fn bundle_openapi_external_refs(
 
 async fn bundle_openapi_external_ref_artifact(
     client: &reqwest::Client,
+    cache: &CacheLayerManager,
     document_url: &str,
     spec: serde_json::Value,
     root_metadata: OpenApiBundleDocumentMetadata,
 ) -> Result<OpenApiBundleArtifact> {
     let root_document = document_label(document_url);
-    let resolver = OpenApiExternalRefResolver::new(client, root_document.clone(), root_metadata);
+    let resolver =
+        OpenApiExternalRefResolver::new(client, cache, root_document.clone(), root_metadata);
     let bundle = resolver
         .resolve_external_refs(document_url.to_string(), spec, 0, Vec::new())
         .await?;
@@ -398,6 +407,7 @@ async fn fetch_openapi_spec_text(client: &reqwest::Client, spec_url: &str) -> Re
 
 struct OpenApiExternalRefResolver<'a> {
     client: &'a reqwest::Client,
+    cache: &'a CacheLayerManager,
     documents: Mutex<HashMap<String, serde_json::Value>>,
     document_metadata: Mutex<HashMap<String, OpenApiBundleDocumentMetadata>>,
     loaded_documents: Mutex<Vec<String>>,
@@ -414,6 +424,7 @@ struct OpenApiBundleDocumentMetadata {
 impl<'a> OpenApiExternalRefResolver<'a> {
     fn new(
         client: &'a reqwest::Client,
+        cache: &'a CacheLayerManager,
         root_document: String,
         root_metadata: OpenApiBundleDocumentMetadata,
     ) -> Self {
@@ -421,6 +432,7 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         document_metadata.insert(root_document.clone(), root_metadata);
         Self {
             client,
+            cache,
             documents: Mutex::new(HashMap::new()),
             document_metadata: Mutex::new(document_metadata),
             loaded_documents: Mutex::new(vec![root_document]),
@@ -616,29 +628,17 @@ impl<'a> OpenApiExternalRefResolver<'a> {
             return Ok(document.clone());
         }
 
+        if is_http_url(target_url) {
+            if let Some((document, metadata)) = self.cached_http_document(target_url).await? {
+                self.record_loaded_document(target_url)?;
+                self.record_document_metadata(target_url, metadata)?;
+                self.record_document(target_url, document.clone())?;
+                return Ok(document);
+            }
+        }
+
         let document_text = if is_http_url(target_url) {
-            self.client
-                .get(target_url)
-                .send()
-                .await
-                .map_err(|err| {
-                    StoreError::Other(format!(
-                        "OpenAPI external $ref fetch failed for {target_url}: {err}"
-                    ))
-                })?
-                .error_for_status()
-                .map_err(|err| {
-                    StoreError::Other(format!(
-                        "OpenAPI external $ref fetch failed for {target_url}: {err}"
-                    ))
-                })?
-                .text()
-                .await
-                .map_err(|err| {
-                    StoreError::Other(format!(
-                        "OpenAPI external $ref body read failed for {target_url}: {err}"
-                    ))
-                })?
+            self.fetch_http_external_document_text(target_url).await?
         } else if target_url.starts_with("file://") {
             let path = path_from_file_target(target_url)?;
             read_openapi_document_file(&path, target_url)?
@@ -652,18 +652,125 @@ impl<'a> OpenApiExternalRefResolver<'a> {
                 "OpenAPI external $ref document decode failed for {target_url}: {err}"
             ))
         })?;
+        let metadata = document_metadata_from_bytes(document_text.as_bytes());
         self.record_loaded_document(target_url)?;
-        self.record_document_metadata(
-            target_url,
-            document_metadata_from_bytes(document_text.as_bytes()),
-        )?;
-        self.documents
-            .lock()
-            .map_err(|_| {
-                StoreError::Other("OpenAPI external $ref cache lock poisoned".to_string())
-            })?
-            .insert(target_url.to_string(), document.clone());
+        self.record_document_metadata(target_url, metadata.clone())?;
+        self.record_document(target_url, document.clone())?;
+        if is_http_url(target_url) {
+            self.store_cached_http_document(target_url, &document, &metadata)
+                .await?;
+        }
         Ok(document)
+    }
+
+    async fn fetch_http_external_document_text(&self, target_url: &str) -> Result<String> {
+        self.client
+            .get(target_url)
+            .send()
+            .await
+            .map_err(|err| {
+                StoreError::Other(format!(
+                    "OpenAPI external $ref fetch failed for {target_url}: {err}"
+                ))
+            })?
+            .error_for_status()
+            .map_err(|err| {
+                StoreError::Other(format!(
+                    "OpenAPI external $ref fetch failed for {target_url}: {err}"
+                ))
+            })?
+            .text()
+            .await
+            .map_err(|err| {
+                StoreError::Other(format!(
+                    "OpenAPI external $ref body read failed for {target_url}: {err}"
+                ))
+            })
+    }
+
+    async fn cached_http_document(
+        &self,
+        target_url: &str,
+    ) -> Result<Option<(serde_json::Value, OpenApiBundleDocumentMetadata)>> {
+        let key = openapi_ref_document_cache_key(target_url);
+        let Some(value) = self
+            .cache
+            .get_state(OPENAPI_REF_DOCUMENT_CACHE_STATE_TYPE, &key)
+            .await?
+        else {
+            return Ok(None);
+        };
+
+        let Some(object) = value.as_object() else {
+            return Ok(None);
+        };
+        if object
+            .get("cache_version")
+            .and_then(serde_json::Value::as_u64)
+            != Some(OPENAPI_REF_DOCUMENT_CACHE_VERSION)
+        {
+            return Ok(None);
+        }
+        if object.get("url").and_then(serde_json::Value::as_str) != Some(target_url) {
+            return Ok(None);
+        }
+        let Some(expires_at) = object.get("expires_at").and_then(serde_json::Value::as_i64) else {
+            return Ok(None);
+        };
+        if expires_at <= chrono::Utc::now().timestamp() {
+            return Ok(None);
+        }
+        let Some(document) = object.get("document").cloned() else {
+            return Ok(None);
+        };
+        let Some(content_hash) = object
+            .get("content_hash")
+            .and_then(serde_json::Value::as_str)
+        else {
+            return Ok(None);
+        };
+        let Some(content_length) = object
+            .get("content_length")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+        else {
+            return Ok(None);
+        };
+        Ok(Some((
+            document,
+            OpenApiBundleDocumentMetadata {
+                content_hash: content_hash.to_string(),
+                content_length,
+            },
+        )))
+    }
+
+    async fn store_cached_http_document(
+        &self,
+        target_url: &str,
+        document: &serde_json::Value,
+        metadata: &OpenApiBundleDocumentMetadata,
+    ) -> Result<()> {
+        let key = openapi_ref_document_cache_key(target_url);
+        let fetched_at = chrono::Utc::now().timestamp();
+        let source = openapi_ref_document_source(target_url);
+        self.cache
+            .put_state(
+                OPENAPI_REF_DOCUMENT_CACHE_STATE_TYPE,
+                &key,
+                serde_json::json!({
+                    "cache_version": OPENAPI_REF_DOCUMENT_CACHE_VERSION,
+                    "url": target_url,
+                    "source": source,
+                    "fetched_at": fetched_at,
+                    "expires_at": fetched_at + OPENAPI_REF_DOCUMENT_CACHE_TTL_SECONDS,
+                    "content_hash": metadata.content_hash,
+                    "content_length": metadata.content_length,
+                    "document": document,
+                }),
+            )
+            .await?;
+        Ok(())
     }
 
     fn record_dependency(
@@ -710,6 +817,26 @@ impl<'a> OpenApiExternalRefResolver<'a> {
             .insert(target_url.to_string(), metadata);
         Ok(())
     }
+
+    fn record_document(&self, target_url: &str, document: serde_json::Value) -> Result<()> {
+        self.documents
+            .lock()
+            .map_err(|_| {
+                StoreError::Other("OpenAPI external $ref cache lock poisoned".to_string())
+            })?
+            .insert(target_url.to_string(), document);
+        Ok(())
+    }
+}
+
+fn openapi_ref_document_cache_key(target_url: &str) -> String {
+    format!("blake3:{}", blake3::hash(target_url.as_bytes()).to_hex())
+}
+
+fn openapi_ref_document_source(target_url: &str) -> String {
+    reqwest::Url::parse(target_url)
+        .map(|url| url.scheme().to_string())
+        .unwrap_or_else(|_| "http".to_string())
 }
 
 fn document_metadata_from_value(
