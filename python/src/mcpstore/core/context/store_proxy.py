@@ -2,10 +2,23 @@
 
 from typing import Any
 
+from .advanced_features import AdvancedFeaturesMixin
+from .agent_statistics import AgentStatisticsMixin
+from .resources_prompts import ResourcesPromptsMixin
+from .service_operations import ServiceOperationsMixin
+from .session_management import SessionManagementMixin
+from .tool_operations import ToolOperationsMixin
 from mcpstore.core.store.rust_backend import RustStoreContext
 
 
-class StoreProxy:
+class StoreProxy(
+    ServiceOperationsMixin,
+    ToolOperationsMixin,
+    SessionManagementMixin,
+    AdvancedFeaturesMixin,
+    AgentStatisticsMixin,
+    ResourcesPromptsMixin,
+):
     """Object-style store handle that delegates to ``RustStoreContext``.
 
     The historical Python implementation carried registry orchestration here.
