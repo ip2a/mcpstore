@@ -592,6 +592,12 @@ fn validate_string_format(schema: &Value, text: &str, path: &str, errors: &mut V
         "regex" if regex::Regex::new(text).is_err() => {
             errors.push(format!("{path} must be a valid regular expression"));
         }
+        "json-pointer" if !is_valid_json_pointer(text) => {
+            errors.push(format!("{path} must be a valid JSON Pointer"));
+        }
+        "relative-json-pointer" if !is_valid_relative_json_pointer(text) => {
+            errors.push(format!("{path} must be a valid relative JSON Pointer"));
+        }
         _ => {}
     }
 }
@@ -627,6 +633,50 @@ fn validate_url_format(text: &str, path: &str, errors: &mut Vec<String>) {
             if matches!(uri.scheme_str(), Some("http" | "https")) && uri.authority().is_some() => {}
         _ => errors.push(format!("{path} must be a valid HTTP(S) URL")),
     }
+}
+
+fn is_valid_json_pointer(text: &str) -> bool {
+    text.is_empty()
+        || text
+            .strip_prefix('/')
+            .map(tokens_have_valid_json_pointer_escapes)
+            .unwrap_or(false)
+}
+
+fn is_valid_relative_json_pointer(text: &str) -> bool {
+    let Some((offset, tail)) = split_relative_json_pointer_offset(text) else {
+        return false;
+    };
+    if offset.len() > 1 && offset.starts_with('0') {
+        return false;
+    }
+    tail.is_empty()
+        || tail == "#"
+        || tail
+            .strip_prefix('/')
+            .map(tokens_have_valid_json_pointer_escapes)
+            .unwrap_or(false)
+}
+
+fn split_relative_json_pointer_offset(text: &str) -> Option<(&str, &str)> {
+    let split_at = text
+        .char_indices()
+        .find_map(|(index, ch)| (!ch.is_ascii_digit()).then_some(index))
+        .unwrap_or(text.len());
+    if split_at == 0 {
+        return None;
+    }
+    Some(text.split_at(split_at))
+}
+
+fn tokens_have_valid_json_pointer_escapes(tokens: &str) -> bool {
+    let mut chars = tokens.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '~' && !matches!(chars.next(), Some('0' | '1')) {
+            return false;
+        }
+    }
+    true
 }
 
 fn validate_numeric_constraints(
