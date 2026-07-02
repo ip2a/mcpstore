@@ -945,6 +945,58 @@ class RustStoreBackend:
             )
         )
 
+    def create_llm_friendly_tool_transform(
+        self,
+        service_name: str,
+        tool_name: str,
+        friendly_name: Optional[str] = None,
+        description: Optional[str] = None,
+        hide_technical_params: bool = True,
+        add_safety_policy: bool = True,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._inner.create_llm_friendly_tool_transform(
+                service_name,
+                tool_name,
+                friendly_name,
+                description,
+                hide_technical_params,
+                add_safety_policy,
+            )
+        )
+
+    def create_parameter_renamed_tool_transform(
+        self,
+        service_name: str,
+        tool_name: str,
+        parameter_mapping: Dict[str, str],
+        new_tool_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._inner.create_parameter_renamed_tool_transform(
+                service_name,
+                tool_name,
+                self._normalize_config_dict(parameter_mapping, "Parameter mapping"),
+                new_tool_name,
+            )
+        )
+
+    def create_validated_tool_transform(
+        self,
+        service_name: str,
+        tool_name: str,
+        validation_rules: Dict[str, Any],
+        new_tool_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._inner.create_validated_tool_transform(
+                service_name,
+                tool_name,
+                self._normalize_config_dict(validation_rules, "Validation rules"),
+                new_tool_name,
+            )
+        )
+
     def get_tool_transform(self, service_name: str, tool_name: str) -> Optional[Dict[str, Any]]:
         return _record_value(self._inner.get_tool_transform(service_name, tool_name))
 
@@ -3304,6 +3356,52 @@ class RustStoreContext:
             "enabled": enabled,
         }
         return self._backend.set_tool_transform(resolved_service, tool_name, payload)
+
+    def create_llm_friendly_tool_transform(
+        self,
+        service_name: str,
+        tool_name: str,
+        friendly_name: Optional[str] = None,
+        description: Optional[str] = None,
+        hide_technical_params: bool = True,
+        add_safety_policy: bool = True,
+    ) -> Dict[str, Any]:
+        return self._backend.create_llm_friendly_tool_transform(
+            self._resolve_service_name(service_name),
+            tool_name,
+            friendly_name,
+            description,
+            hide_technical_params,
+            add_safety_policy,
+        )
+
+    def create_parameter_renamed_tool_transform(
+        self,
+        service_name: str,
+        tool_name: str,
+        parameter_mapping: Dict[str, str],
+        new_tool_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return self._backend.create_parameter_renamed_tool_transform(
+            self._resolve_service_name(service_name),
+            tool_name,
+            parameter_mapping,
+            new_tool_name,
+        )
+
+    def create_validated_tool_transform(
+        self,
+        service_name: str,
+        tool_name: str,
+        validation_rules: Dict[str, Any],
+        new_tool_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return self._backend.create_validated_tool_transform(
+            self._resolve_service_name(service_name),
+            tool_name,
+            validation_rules,
+            new_tool_name,
+        )
 
     def get_tool_transform(self, service_name: str, tool_name: str) -> Optional[Dict[str, Any]]:
         return self._backend.get_tool_transform(self._resolve_service_name(service_name), tool_name)
