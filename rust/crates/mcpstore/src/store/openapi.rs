@@ -7,6 +7,7 @@ use crate::store::prelude::*;
 use std::collections::HashMap;
 use std::future::Future;
 use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Mutex;
 
@@ -41,16 +42,7 @@ impl MCPStore {
         options: OpenApiImportOptions,
     ) -> Result<OpenApiImportResult> {
         let client = reqwest::Client::new();
-        let spec_text = client
-            .get(spec_url)
-            .send()
-            .await
-            .map_err(|err| StoreError::Other(format!("OpenAPI spec fetch failed: {err}")))?
-            .error_for_status()
-            .map_err(|err| StoreError::Other(format!("OpenAPI spec fetch failed: {err}")))?
-            .text()
-            .await
-            .map_err(|err| StoreError::Other(format!("OpenAPI spec body read failed: {err}")))?;
+        let spec_text = fetch_openapi_spec_text(&client, spec_url).await?;
         self.import_openapi_service_from_spec_text_with_options(name, spec_url, &spec_text, options)
             .await
     }
@@ -310,6 +302,30 @@ async fn bundle_openapi_external_refs(
         .await
 }
 
+async fn fetch_openapi_spec_text(client: &reqwest::Client, spec_url: &str) -> Result<String> {
+    if is_http_url(spec_url) {
+        return client
+            .get(spec_url)
+            .send()
+            .await
+            .map_err(|err| StoreError::Other(format!("OpenAPI spec fetch failed: {err}")))?
+            .error_for_status()
+            .map_err(|err| StoreError::Other(format!("OpenAPI spec fetch failed: {err}")))?
+            .text()
+            .await
+            .map_err(|err| StoreError::Other(format!("OpenAPI spec body read failed: {err}")));
+    }
+
+    if spec_url.starts_with("file://") || reqwest::Url::parse(spec_url).is_err() {
+        let path = path_from_file_target(spec_url)?;
+        return read_openapi_document_file(&path, spec_url);
+    }
+
+    Err(StoreError::Other(format!(
+        "Unsupported OpenAPI spec URL: {spec_url}"
+    )))
+}
+
 struct OpenApiExternalRefResolver<'a> {
     client: &'a reqwest::Client,
     documents: Mutex<HashMap<String, serde_json::Value>>,
@@ -459,29 +475,37 @@ impl<'a> OpenApiExternalRefResolver<'a> {
             return Ok(document.clone());
         }
 
-        let document_text = self
-            .client
-            .get(target_url)
-            .send()
-            .await
-            .map_err(|err| {
-                StoreError::Other(format!(
-                    "OpenAPI external $ref fetch failed for {target_url}: {err}"
-                ))
-            })?
-            .error_for_status()
-            .map_err(|err| {
-                StoreError::Other(format!(
-                    "OpenAPI external $ref fetch failed for {target_url}: {err}"
-                ))
-            })?
-            .text()
-            .await
-            .map_err(|err| {
-                StoreError::Other(format!(
-                    "OpenAPI external $ref body read failed for {target_url}: {err}"
-                ))
-            })?;
+        let document_text = if is_http_url(target_url) {
+            self.client
+                .get(target_url)
+                .send()
+                .await
+                .map_err(|err| {
+                    StoreError::Other(format!(
+                        "OpenAPI external $ref fetch failed for {target_url}: {err}"
+                    ))
+                })?
+                .error_for_status()
+                .map_err(|err| {
+                    StoreError::Other(format!(
+                        "OpenAPI external $ref fetch failed for {target_url}: {err}"
+                    ))
+                })?
+                .text()
+                .await
+                .map_err(|err| {
+                    StoreError::Other(format!(
+                        "OpenAPI external $ref body read failed for {target_url}: {err}"
+                    ))
+                })?
+        } else if target_url.starts_with("file://") {
+            let path = path_from_file_target(target_url)?;
+            read_openapi_document_file(&path, target_url)?
+        } else {
+            return Err(StoreError::Other(format!(
+                "Unsupported OpenAPI external $ref URL: {target_url}"
+            )));
+        };
         let document = parse_openapi_spec_text(&document_text).map_err(|err| {
             StoreError::Other(format!(
                 "OpenAPI external $ref document decode failed for {target_url}: {err}"
@@ -500,26 +524,18 @@ impl<'a> OpenApiExternalRefResolver<'a> {
 fn split_external_ref(document_url: &str, reference: &str) -> Result<(String, Option<String>)> {
     let (target, fragment) = reference.split_once('#').unwrap_or((reference, ""));
     let target_url = if target.is_empty() {
-        document_url.to_string()
-    } else if target.starts_with("http://") || target.starts_with("https://") {
+        normalize_document_target(document_url)?
+    } else if is_http_url(target) {
         target.to_string()
-    } else {
-        let base = reqwest::Url::parse(document_url).map_err(|_| {
-            StoreError::Other(format!(
-                "OpenAPI relative external $ref requires an absolute HTTP(S) spec_url: {reference}"
-            ))
-        })?;
-        base.join(target)
-            .map_err(|err| {
-                StoreError::Other(format!("Invalid OpenAPI external $ref {reference}: {err}"))
-            })?
-            .to_string()
-    };
-    if !(target_url.starts_with("http://") || target_url.starts_with("https://")) {
+    } else if target.starts_with("file://") || Path::new(target).is_absolute() {
+        normalize_file_document_target(target)?
+    } else if reqwest::Url::parse(target).is_ok() {
         return Err(StoreError::Other(format!(
             "Unsupported OpenAPI external $ref URL: {reference}"
         )));
-    }
+    } else {
+        join_external_ref_target(document_url, target, reference)?
+    };
     let pointer = if fragment.is_empty() {
         None
     } else if fragment.starts_with('/') {
@@ -530,6 +546,95 @@ fn split_external_ref(document_url: &str, reference: &str) -> Result<(String, Op
         )));
     };
     Ok((target_url, pointer))
+}
+
+fn is_http_url(value: &str) -> bool {
+    value.starts_with("http://") || value.starts_with("https://")
+}
+
+fn normalize_document_target(document_url: &str) -> Result<String> {
+    if is_http_url(document_url) {
+        Ok(document_url.to_string())
+    } else if document_url.starts_with("file://") || reqwest::Url::parse(document_url).is_err() {
+        normalize_file_document_target(document_url)
+    } else {
+        Err(StoreError::Other(format!(
+            "Unsupported OpenAPI external $ref URL: {document_url}"
+        )))
+    }
+}
+
+fn join_external_ref_target(document_url: &str, target: &str, reference: &str) -> Result<String> {
+    if let Ok(base) = reqwest::Url::parse(document_url) {
+        match base.scheme() {
+            "http" | "https" => base.join(target).map(|url| url.to_string()).map_err(|err| {
+                StoreError::Other(format!("Invalid OpenAPI external $ref {reference}: {err}"))
+            }),
+            "file" => {
+                let joined = base.join(target).map_err(|err| {
+                    StoreError::Other(format!("Invalid OpenAPI external $ref {reference}: {err}"))
+                })?;
+                normalize_file_document_target(joined.as_str())
+            }
+            _ => Err(StoreError::Other(format!(
+                "OpenAPI relative external $ref requires an absolute HTTP(S) or file spec_url: {reference}"
+            ))),
+        }
+    } else {
+        let base_path = absolute_path(Path::new(document_url))?;
+        let base_dir = base_path.parent().ok_or_else(|| {
+            StoreError::Other(format!(
+                "OpenAPI relative external $ref has no parent document path: {reference}"
+            ))
+        })?;
+        file_url_from_path(&base_dir.join(target))
+    }
+}
+
+fn normalize_file_document_target(target: &str) -> Result<String> {
+    let path = path_from_file_target(target)?;
+    file_url_from_path(&path)
+}
+
+fn path_from_file_target(target: &str) -> Result<PathBuf> {
+    if target.starts_with("file://") {
+        let url = reqwest::Url::parse(target).map_err(|err| {
+            StoreError::Other(format!("Invalid OpenAPI file URL {target}: {err}"))
+        })?;
+        if url.scheme() != "file" {
+            return Err(StoreError::Other(format!(
+                "Unsupported OpenAPI file URL: {target}"
+            )));
+        }
+        url.to_file_path()
+            .map_err(|_| StoreError::Other(format!("Invalid OpenAPI file URL path: {target}")))
+    } else {
+        absolute_path(Path::new(target))
+    }
+}
+
+fn absolute_path(path: &Path) -> Result<PathBuf> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        std::env::current_dir()
+            .map(|current_dir| current_dir.join(path))
+            .map_err(|err| StoreError::Other(format!("OpenAPI current dir read failed: {err}")))
+    }
+}
+
+fn file_url_from_path(path: &Path) -> Result<String> {
+    let absolute = absolute_path(path)?;
+    reqwest::Url::from_file_path(&absolute)
+        .map(|url| url.to_string())
+        .map_err(|_| {
+            StoreError::Other(format!("Invalid OpenAPI file path: {}", absolute.display()))
+        })
+}
+
+fn read_openapi_document_file(path: &Path, label: &str) -> Result<String> {
+    std::fs::read_to_string(path)
+        .map_err(|err| StoreError::Other(format!("OpenAPI file read failed for {label}: {err}")))
 }
 
 fn openapi_config_value(
