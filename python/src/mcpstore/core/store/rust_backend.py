@@ -1029,8 +1029,6 @@ class RustStoreBackend:
     ) -> Dict[str, Any]:
         if agent_id is None:
             return self.show_config(scope)
-        if not hasattr(self._inner, "show_config_scoped"):
-            return self._filter_config_for_agent(self.show_config(scope), agent_id, scope)
         config = _record_value(self._inner.show_config_scoped(agent_id))
         return self._filter_config_scope(config, scope)
 
@@ -1043,37 +1041,6 @@ class RustStoreBackend:
             return _record_value({"agents": config.get("agents", {})})
         if scope in ("clients", "client"):
             return _record_value({"clients": config.get("clients", {})})
-        raise ValueError(f"Rust core 当前不支持 show_config scope={scope!r}")
-
-    def _filter_config_for_agent(
-        self,
-        config: Dict[str, Any],
-        agent_id: str,
-        scope: str = "all",
-    ) -> Dict[str, Any]:
-        agents = config.get("agents", {}) or {}
-        service_names = list(agents.get(agent_id, []) or [])
-        if scope in ("agents", "agent"):
-            return _record_value({"agents": {agent_id: service_names}})
-        if scope in ("mcp", "mcpServers"):
-            mcp_servers = config.get("mcpServers", {}) or {}
-            return _record_value(
-                {
-                    "mcpServers": {
-                        name: value
-                        for name, value in mcp_servers.items()
-                        if name in service_names
-                    }
-                }
-            )
-        if scope in ("clients", "client"):
-            return _record_value({"clients": config.get("clients", {}) or {}})
-        if scope in (None, "all"):
-            scoped = self._filter_config_for_agent(config, agent_id, "mcp")
-            scoped["agents"] = {agent_id: service_names}
-            if "clients" in config:
-                scoped["clients"] = config.get("clients", {}) or {}
-            return _record_value(scoped)
         raise ValueError(f"Rust core 当前不支持 show_config scope={scope!r}")
 
     def show_mcpjson(self) -> Dict[str, Any]:
@@ -1141,8 +1108,6 @@ class RustStoreBackend:
         return _record_value(self._inner.cache_inspect())
 
     def reset_cache_request_metrics(self) -> bool:
-        if not hasattr(self._inner, "reset_cache_request_metrics"):
-            raise NotImplementedError("Rust core does not expose resettable cache request metrics")
         self._inner.reset_cache_request_metrics()
         return True
 
@@ -1151,14 +1116,10 @@ class RustStoreBackend:
         return True
 
     def reset_agent_config(self, agent_id: str) -> bool:
-        if not hasattr(self._inner, "reset_agent_config"):
-            raise NotImplementedError("Rust core does not expose agent-scoped config reset")
         self._inner.reset_agent_config(agent_id)
         return True
 
     def reset_mcp_json_scope(self, scope: Optional[str] = None) -> bool:
-        if not hasattr(self._inner, "reset_mcp_json_scope"):
-            raise NotImplementedError("Rust core does not expose scoped MCP JSON reset")
         self._inner.reset_mcp_json_scope(scope)
         return True
 
