@@ -243,6 +243,65 @@ async fn redis_backend_shares_session_state_between_store_instances_when_availab
 }
 
 #[tokio::test]
+async fn redis_backend_shares_session_bindings_and_tool_visibility_when_available() {
+    let Ok(redis_url) = std::env::var("MCPSTORE_TEST_REDIS_URL") else {
+        return;
+    };
+    let namespace = format!("session-business-e2e-{}", uuid::Uuid::new_v4());
+    let first_path = temp_config_path();
+    let second_path = temp_config_path();
+    let first = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(first_path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Redis),
+        redis_url: Some(redis_url.clone()),
+        namespace: Some(namespace.clone()),
+    })
+    .unwrap();
+    let second = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(second_path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Redis),
+        redis_url: Some(redis_url),
+        namespace: Some(namespace),
+    })
+    .unwrap();
+    register_tool_service(&first, "alpha", &["echo", "search"]).await;
+    register_tool_service(&second, "alpha", &["echo", "search"]).await;
+
+    let created = first.session("shared-tools").create().await.unwrap();
+    first
+        .bind_service_to_session(created.session_key(), "alpha")
+        .await
+        .unwrap();
+    first
+        .set_session_tool_visibility(
+            created.session_key(),
+            vec![SessionToolSelection {
+                service_name: "alpha".to_string(),
+                tool_name: "search".to_string(),
+            }],
+        )
+        .await
+        .unwrap();
+
+    let seen = second.session("shared-tools").get().await.unwrap().unwrap();
+    assert_eq!(seen.session_key(), created.session_key());
+    assert_eq!(seen.list_services().await.unwrap().len(), 1);
+    assert_eq!(seen.list_session_tools().await.unwrap().len(), 1);
+    assert_eq!(seen.list_tools().await.unwrap()[0].name, "alpha_search");
+
+    second
+        .unbind_service_from_session(created.session_key(), "alpha")
+        .await
+        .unwrap();
+    assert!(first.list_session_services(created.session_key()).await.unwrap().is_empty());
+
+    std::fs::remove_file(first_path).ok();
+    std::fs::remove_file(second_path).ok();
+}
+
+#[tokio::test]
 async fn session_context_state_tracks_active_and_auto_session_pointers() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();

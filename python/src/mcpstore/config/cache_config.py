@@ -7,7 +7,7 @@ Non-sensitive configuration is loaded from MCPStoreConfig, sensitive configurati
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Literal
+from typing import Any, Optional, Literal
 
 
 class CacheType(Enum):
@@ -66,6 +66,10 @@ class RedisConfig(BaseCacheConfig):
     password: Optional[str] = None
     namespace: Optional[str] = None
 
+    # Kept for old Python API shape only. Rust-backed stores cannot reuse a
+    # Python Redis client object across processes or runtimes.
+    client: Optional[Any] = None
+
     # Connection pool configuration
     max_connections: int = 50
     retry_on_timeout: bool = True
@@ -81,9 +85,9 @@ class RedisConfig(BaseCacheConfig):
 
     def __post_init__(self):
         """Validate configuration parameters."""
-        if not self.allow_partial and not self.url and not self.host:
+        if self.client is None and not self.allow_partial and not self.url and not self.host:
             raise ValueError(
-                "Redis configuration requires either 'url' or 'host'. "
+                "Redis configuration requires either 'client', 'url', or 'host'. "
                 "Example: RedisConfig(url='redis://localhost:6379/0') or "
                 "RedisConfig(host='localhost', port=6379)"
             )
@@ -133,3 +137,25 @@ def detect_strategy(
     if only_db:
         return DataSourceStrategy.ONLY_DB
     return DataSourceStrategy.LOCAL_DB
+
+
+def create_kv_store(*args, **kwargs):
+    """Compatibility placeholder for the removed Python key_value backend."""
+
+    _ = args, kwargs
+    raise NotImplementedError(
+        "create_kv_store no longer creates Python key_value stores. "
+        "Use MCPStore.setup_store(..., cache=...) or store.switch_cache(...) so "
+        "Python and Rust runtimes share the Rust-backed cache implementation."
+    )
+
+
+async def create_kv_store_async(*args, **kwargs):
+    """Async compatibility placeholder for the removed Python key_value backend."""
+
+    _ = args, kwargs
+    raise NotImplementedError(
+        "create_kv_store_async no longer creates Python key_value stores. "
+        "Use MCPStore.setup_store_async(..., cache=...) or store.switch_cache(...) so "
+        "Python and Rust runtimes share the Rust-backed cache implementation."
+    )

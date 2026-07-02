@@ -356,6 +356,11 @@ class RustStoreBackend:
         if cache_value == "memory":
             return "memory", None, namespace
         if cache_value == "redis":
+            if getattr(cache_config, "client", None) is not None:
+                raise ValueError(
+                    "Rust core 不支持 Python Redis client 对象；请使用 RedisConfig(url=...) "
+                    "或 RedisConfig(host=..., port=...)，这样 Rust/Python/跨进程实例可以共享同一个后端"
+                )
             redis_url = cls._redis_url(cache_config)
             if not redis_url:
                 raise ValueError("Redis 缓存配置缺少 url 或 host，Rust core 不会使用隐式默认 Redis 地址")
@@ -363,6 +368,11 @@ class RustStoreBackend:
         if cache_value == "openkeyv_memory":
             return "openkeyv_memory", None, namespace
         if cache_value == "openkeyv_redis":
+            if getattr(cache_config, "client", None) is not None:
+                raise ValueError(
+                    "Rust core 不支持 Python Redis client 对象；请使用 RedisConfig(url=...) "
+                    "或 RedisConfig(host=..., port=...)，这样 Rust/Python/跨进程实例可以共享同一个后端"
+                )
             redis_url = cls._redis_url(cache_config)
             if not redis_url:
                 raise ValueError("OpenKeyvRedisConfig 缺少 url 或 host，Rust core 不会使用隐式默认 Redis 地址")
