@@ -2187,11 +2187,27 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 return {
                     "backend": "memory",
                     "namespace": "test",
+                    "request_metrics": {
+                        "available": True,
+                        "scope": "process",
+                        "total_requests": 4,
+                        "hits": 2,
+                        "misses": 1,
+                        "errors": 1,
+                        "hit_rate": 2 / 3,
+                        "avg_latency_ms": 0.5,
+                        "p50_latency_ms": 0.4,
+                        "p95_latency_ms": 0.8,
+                        "p99_latency_ms": 0.9,
+                    },
                     "entities": [{"name": "svc"}],
                     "relations": [],
                     "states": [{"status": "ready"}],
                     "events": [],
                 }
+
+            def reset_cache_request_metrics(self):
+                self.metrics_reset = True
 
             def reset_config(self):
                 self.reset = True
@@ -2203,15 +2219,19 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertTrue(asyncio.run(store.registry.ping()))
         stats = asyncio.run(store.registry.get_cache_statistics())
         self.assertEqual(stats.backend, "memory")
-        self.assertFalse(stats.request_metrics_available)
-        self.assertIsNone(stats.total_requests)
-        self.assertIsNone(stats.hit_rate)
+        self.assertTrue(stats.request_metrics_available)
+        self.assertEqual(stats.request_metrics_scope, "process")
+        self.assertEqual(stats.total_requests, 4)
+        self.assertEqual(stats.hits, 2)
+        self.assertEqual(stats.misses, 1)
+        self.assertEqual(stats.errors, 1)
+        self.assertEqual(stats.hit_rate, 2 / 3)
         self.assertEqual(stats.entity_count, 1)
         self.assertEqual(stats.state_count, 1)
         self.assertTrue(asyncio.run(store.registry.clear_all()))
         self.assertTrue(store._inner.reset)
-        with self.assertRaises(NotImplementedError):
-            asyncio.run(store.registry.reset_cache_statistics())
+        self.assertTrue(asyncio.run(store.registry.reset_cache_statistics()))
+        self.assertTrue(store._inner.metrics_reset)
         self.assertTrue(asyncio.run(store.registry.switch_backend(MemoryConfig())))
         self.assertEqual(switched[0].cache_type.value, "memory")
 

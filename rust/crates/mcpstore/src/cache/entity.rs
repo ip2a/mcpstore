@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Instant;
 
 use crate::cache::{models, serializer, CacheError, CacheLayerManager, Result};
 
@@ -16,7 +17,10 @@ impl CacheLayerManager {
         }
         Self::validate_entity_type(entity_type)?;
         let collection = self.entity_collection(entity_type);
-        self.store.read().await.put(key, value, &collection).await
+        let started_at = Instant::now();
+        let result = self.store.read().await.put(key, value, &collection).await;
+        self.record_request(started_at, None, result.is_ok());
+        result
     }
 
     pub async fn compare_and_put_entity(
@@ -33,11 +37,15 @@ impl CacheLayerManager {
         }
         Self::validate_entity_type(entity_type)?;
         let collection = self.entity_collection(entity_type);
-        self.store
+        let started_at = Instant::now();
+        let result = self
+            .store
             .read()
             .await
             .compare_and_put(key, expected_version, value, &collection)
-            .await
+            .await;
+        self.record_request(started_at, None, result.is_ok());
+        result
     }
 
     pub async fn get_entity(
@@ -47,13 +55,20 @@ impl CacheLayerManager {
     ) -> Result<Option<serde_json::Value>> {
         Self::validate_entity_type(entity_type)?;
         let collection = self.entity_collection(entity_type);
-        self.store.read().await.get(key, &collection).await
+        let started_at = Instant::now();
+        let result = self.store.read().await.get(key, &collection).await;
+        let hit = result.as_ref().ok().map(|value| value.is_some());
+        self.record_request(started_at, hit, result.is_ok());
+        result
     }
 
     pub async fn delete_entity(&self, entity_type: &str, key: &str) -> Result<()> {
         Self::validate_entity_type(entity_type)?;
         let collection = self.entity_collection(entity_type);
-        self.store.read().await.delete(key, &collection).await
+        let started_at = Instant::now();
+        let result = self.store.read().await.delete(key, &collection).await;
+        self.record_request(started_at, None, result.is_ok());
+        result
     }
 
     pub async fn get_all_entities_async(

@@ -1631,6 +1631,12 @@ impl PyMCPStore {
         serde_value_to_py(py, inspect)
     }
 
+    fn reset_cache_request_metrics(&self) -> PyResult<()> {
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.reset_cache_request_metrics())
+            .map_err(map_store_err)
+    }
+
     fn export_sessions_snapshot(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let snapshot = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.export_sessions_snapshot())
