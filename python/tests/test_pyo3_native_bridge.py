@@ -3126,7 +3126,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 return {"content": [{"type": "text", "text": args["text"]}], "is_error": False}
 
             def import_openapi_service(self, name, spec_url, options=None):
-                return {
+                result = {
                     "service_name": name,
                     "spec_url": spec_url,
                     "base_url": "https://example.test",
@@ -3139,6 +3139,8 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                     "runtime_executable": True,
                     "options": options or {},
                 }
+                self._last_openapi_import = result
+                return result
 
             def import_openapi_service_from_spec(self, name, spec_url, spec, options=None):
                 return self.import_openapi_service(name, spec_url, options)
@@ -3163,6 +3165,9 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
 
             def list_openapi_imports(self):
                 return []
+
+            def last_openapi_import(self):
+                return getattr(self, "_last_openapi_import", None)
 
         fake_backend = FakeBackend()
         install_fake_session_context_api(fake_backend)

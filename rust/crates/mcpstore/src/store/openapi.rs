@@ -17,6 +17,9 @@ use std::sync::Mutex;
 const MAX_EXTERNAL_REF_DEPTH: usize = 32;
 const OPENAPI_REF_DOCUMENT_CACHE_STATE_TYPE: &str = "openapi_ref_documents";
 const OPENAPI_REF_DOCUMENT_CACHE_VERSION: u64 = 1;
+const OPENAPI_IMPORT_CONTEXT_STATE_TYPE: &str = "openapi_import_context";
+const OPENAPI_IMPORT_CONTEXT_KEY: &str = "global";
+const OPENAPI_IMPORT_CONTEXT_VERSION: u64 = 1;
 
 #[derive(Debug, Clone)]
 pub struct OpenApiImportInput {
@@ -117,6 +120,22 @@ impl MCPStore {
             StoreError::Other(format!("OpenAPI import result serialization failed: {err}"))
         })?;
         self.cache.put_state("openapi_imports", name, value).await?;
+        let context = OpenApiImportContextState {
+            last_service_name: name.to_string(),
+            updated_at: now,
+            version: OPENAPI_IMPORT_CONTEXT_VERSION,
+        };
+        self.cache
+            .put_state(
+                OPENAPI_IMPORT_CONTEXT_STATE_TYPE,
+                OPENAPI_IMPORT_CONTEXT_KEY,
+                serde_json::to_value(context).map_err(|err| {
+                    StoreError::Other(format!(
+                        "OpenAPI import context serialization failed: {err}"
+                    ))
+                })?,
+            )
+            .await?;
         self.cache
             .put_event(
                 "openapi_imports",
@@ -416,6 +435,25 @@ impl MCPStore {
         }
         imports.sort_by(|left, right| left.service_name.cmp(&right.service_name));
         Ok(imports)
+    }
+
+    pub async fn last_openapi_import(&self) -> Result<Option<OpenApiImportResult>> {
+        let Some(value) = self
+            .cache
+            .get_state(
+                OPENAPI_IMPORT_CONTEXT_STATE_TYPE,
+                OPENAPI_IMPORT_CONTEXT_KEY,
+            )
+            .await?
+        else {
+            return Ok(None);
+        };
+        let context: OpenApiImportContextState = serde_json::from_value(value).map_err(|err| {
+            StoreError::Other(format!(
+                "OpenAPI import context deserialization failed: {err}"
+            ))
+        })?;
+        self.get_openapi_import(&context.last_service_name).await
     }
 }
 

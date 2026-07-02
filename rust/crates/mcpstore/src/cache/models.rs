@@ -160,6 +160,13 @@ pub struct ToolPreferenceState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OpenApiImportContextState {
+    pub last_service_name: String,
+    pub updated_at: i64,
+    pub version: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolVisibilityMode {
     Allowlist,
