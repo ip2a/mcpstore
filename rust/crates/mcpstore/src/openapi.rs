@@ -86,6 +86,40 @@ pub struct OpenApiImportResult {
     pub runtime_executable: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OpenApiBundleArtifact {
+    pub spec_url: String,
+    pub bundle: Value,
+    #[serde(default)]
+    pub documents: Vec<OpenApiBundleDocument>,
+    #[serde(default)]
+    pub dependencies: Vec<OpenApiBundleDependency>,
+    #[serde(default)]
+    pub diagnostics: Vec<OpenApiBundleDiagnostic>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OpenApiBundleDocument {
+    pub url: String,
+    pub role: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OpenApiBundleDependency {
+    pub source_document: String,
+    pub source_ref: String,
+    pub target_document: String,
+    pub pointer: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OpenApiBundleDiagnostic {
+    pub level: String,
+    pub message: String,
+    pub document: Option<String>,
+    pub reference: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct OpenApiImportOptions {
     #[serde(default)]

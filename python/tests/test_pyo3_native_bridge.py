@@ -177,6 +177,28 @@ paths:
             {"type": "string", "description": "bundled local item id"},
         )
 
+        artifact = store.for_store().bundle_openapi_artifact(spec_path.as_posix())
+        artifact_schema = artifact["bundle"]["paths"]["/items"]["get"]["responses"]["200"][
+            "content"
+        ]["application/json"]["schema"]
+        self.assertEqual(artifact_schema, schema)
+        self.assertEqual(artifact["spec_url"], spec_path.as_posix())
+        self.assertEqual(artifact["diagnostics"], [])
+        self.assertTrue(
+            any(
+                document["role"] == "root" and document["url"].endswith("/openapi.yaml")
+                for document in artifact["documents"]
+            )
+        )
+        self.assertTrue(
+            any(
+                dependency["source_ref"] == "components/shared.yaml#/components/schemas/Item"
+                and dependency["target_document"].endswith("/components/shared.yaml")
+                and dependency["pointer"] == "/components/schemas/Item"
+                for dependency in artifact["dependencies"]
+            )
+        )
+
     def test_python_facade_uses_native_bridge(self):
         from mcpstore import MCPStore
 
