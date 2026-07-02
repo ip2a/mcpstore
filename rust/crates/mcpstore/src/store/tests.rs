@@ -543,6 +543,107 @@ paths:
     (base_url, components_requests)
 }
 
+async fn spawn_openapi_conditional_ref_fixture() -> (String, Arc<AtomicUsize>, Arc<AtomicUsize>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let base_url = format!("http://{addr}");
+    let components_requests = Arc::new(AtomicUsize::new(0));
+    let conditional_requests = Arc::new(AtomicUsize::new(0));
+    let base_url_for_task = base_url.clone();
+    let components_requests_for_task = components_requests.clone();
+    let conditional_requests_for_task = conditional_requests.clone();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let base_url = base_url_for_task.clone();
+            let components_requests = components_requests_for_task.clone();
+            let conditional_requests = conditional_requests_for_task.clone();
+            tokio::spawn(async move {
+                let mut buffer = vec![0; 8192];
+                let Ok(size) = socket.read(&mut buffer).await else {
+                    return;
+                };
+                let request = String::from_utf8_lossy(&buffer[..size]);
+                let first_line = request.lines().next().unwrap_or_default();
+                if first_line.starts_with("GET /openapi.json ") {
+                    let body = serde_json::json!({
+                        "openapi": "3.0.0",
+                        "info": { "title": "Conditional External Refs", "version": "2026.1" },
+                        "servers": [{ "url": base_url }],
+                        "paths": {
+                            "/items/{id}": {
+                                "get": {
+                                    "operationId": "getItemByConditionalExternalRef",
+                                    "responses": {
+                                        "200": {
+                                            "description": "ok",
+                                            "content": {
+                                                "application/json": { "schema": { "$ref": "components.json#/components/schemas/Item" } }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    })
+                    .to_string();
+                    let header = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = socket.write_all(header.as_bytes()).await;
+                    let _ = socket.write_all(body.as_bytes()).await;
+                    return;
+                }
+
+                if first_line.starts_with("GET /components.json ") {
+                    components_requests.fetch_add(1, Ordering::SeqCst);
+                    if request.contains("if-none-match: \"components-v1\"")
+                        || request.contains("If-None-Match: \"components-v1\"")
+                    {
+                        conditional_requests.fetch_add(1, Ordering::SeqCst);
+                        let response = "HTTP/1.1 304 Not Modified\r\netag: \"components-v1\"\r\nlast-modified: Tue, 01 Jan 2030 00:00:00 GMT\r\ncontent-length: 0\r\nconnection: close\r\n\r\n";
+                        let _ = socket.write_all(response.as_bytes()).await;
+                        return;
+                    }
+
+                    let body = serde_json::json!({
+                        "components": {
+                            "schemas": {
+                                "ItemId": { "type": "string", "description": "conditional external item id" },
+                                "Item": {
+                                    "type": "object",
+                                    "properties": {
+                                        "id": { "$ref": "#/components/schemas/ItemId" }
+                                    }
+                                }
+                            }
+                        }
+                    })
+                    .to_string();
+                    let header = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\netag: \"components-v1\"\r\nlast-modified: Tue, 01 Jan 2030 00:00:00 GMT\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = socket.write_all(header.as_bytes()).await;
+                    let _ = socket.write_all(body.as_bytes()).await;
+                    return;
+                }
+
+                let body = serde_json::json!({"error": first_line}).to_string();
+                let response = format!(
+                    "HTTP/1.1 404 Not Found\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+            });
+        }
+    });
+    (base_url, components_requests, conditional_requests)
+}
+
 async fn spawn_openapi_yaml_fixture() -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -1843,6 +1944,78 @@ async fn openapi_bundle_writes_external_ref_document_cache() {
         document.url == format!("{base_url}/components.json") && document.role == "external"
     }));
     assert!(store.list_openapi_imports().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn openapi_bundle_revalidates_expired_http_ref_cache_with_etag() {
+    let (base_url, components_requests, conditional_requests) =
+        spawn_openapi_conditional_ref_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!(
+            "openapi-ref-document-revalidate-{}",
+            uuid::Uuid::new_v4()
+        )),
+    })
+    .unwrap();
+    let root_url = format!("{base_url}/openapi.json");
+
+    let first_artifact = store.bundle_openapi_artifact(&root_url).await.unwrap();
+    assert_eq!(components_requests.load(Ordering::SeqCst), 1);
+    assert_eq!(conditional_requests.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        first_artifact.bundle["paths"]["/items/{id}"]["get"]["responses"]["200"]["content"]
+            ["application/json"]["schema"]["properties"]["id"]["description"],
+        serde_json::json!("conditional external item id")
+    );
+
+    let states = store
+        .cache()
+        .get_all_states_async("openapi_ref_documents")
+        .await
+        .unwrap();
+    assert_eq!(states.len(), 1);
+    let (cache_key, cached) = states.into_iter().next().unwrap();
+    assert_eq!(cached["etag"], serde_json::json!("\"components-v1\""));
+    assert_eq!(
+        cached["last_modified"],
+        serde_json::json!("Tue, 01 Jan 2030 00:00:00 GMT")
+    );
+    let original_expires_at = cached["expires_at"].as_i64().unwrap();
+    let mut expired = cached.as_object().unwrap().clone();
+    expired.insert(
+        "expires_at".to_string(),
+        serde_json::json!(chrono::Utc::now().timestamp() - 1),
+    );
+    store
+        .cache()
+        .put_state(
+            "openapi_ref_documents",
+            &cache_key,
+            serde_json::Value::Object(expired),
+        )
+        .await
+        .unwrap();
+
+    let second_artifact = store.bundle_openapi_artifact(&root_url).await.unwrap();
+    assert_eq!(components_requests.load(Ordering::SeqCst), 2);
+    assert_eq!(conditional_requests.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        second_artifact.bundle["paths"]["/items/{id}"]["get"]["responses"]["200"]["content"]
+            ["application/json"]["schema"]["properties"]["id"]["description"],
+        serde_json::json!("conditional external item id")
+    );
+    let refreshed = store
+        .cache()
+        .get_state("openapi_ref_documents", &cache_key)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(refreshed["expires_at"].as_i64().unwrap() >= original_expires_at);
+    assert_eq!(refreshed["etag"], serde_json::json!("\"components-v1\""));
 }
 
 #[tokio::test]

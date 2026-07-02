@@ -6,6 +6,7 @@ use crate::openapi::{
 use crate::openapi_runtime::openapi_tool_infos;
 use crate::store::prelude::*;
 use crate::store::CacheLayerManager;
+use reqwest::header::{ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED};
 use std::collections::HashMap;
 use std::future::Future;
 use std::hash::{Hash, Hasher};
@@ -427,6 +428,26 @@ struct OpenApiFileDocumentFingerprint {
     file_modified_unix_millis: i64,
 }
 
+#[derive(Debug, Clone)]
+struct OpenApiCachedHttpDocument {
+    document: serde_json::Value,
+    metadata: OpenApiBundleDocumentMetadata,
+    expires_at: i64,
+    etag: Option<String>,
+    last_modified: Option<String>,
+}
+
+struct OpenApiHttpDocumentResponse {
+    text: String,
+    etag: Option<String>,
+    last_modified: Option<String>,
+}
+
+enum OpenApiHttpDocumentFetch {
+    Modified(OpenApiHttpDocumentResponse),
+    NotModified,
+}
+
 impl<'a> OpenApiExternalRefResolver<'a> {
     fn new(
         client: &'a reqwest::Client,
@@ -644,12 +665,39 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         let mut file_fingerprint = None;
         let mut file_document_text = None;
 
+        let mut http_response = None;
+
         if is_http_url(target_url) {
-            if let Some((document, metadata)) = self.cached_http_document(target_url).await? {
-                self.record_loaded_document(target_url)?;
-                self.record_document_metadata(target_url, metadata)?;
-                self.record_document(target_url, document.clone())?;
-                return Ok(document);
+            let cached_http_document = self.cached_http_document(target_url).await?;
+            if let Some(cached) = cached_http_document.as_ref() {
+                if cached.expires_at > chrono::Utc::now().timestamp() {
+                    self.record_loaded_document(target_url)?;
+                    self.record_document_metadata(target_url, cached.metadata.clone())?;
+                    self.record_document(target_url, cached.document.clone())?;
+                    return Ok(cached.document.clone());
+                }
+            }
+
+            match self
+                .fetch_http_external_document(target_url, cached_http_document.as_ref())
+                .await?
+            {
+                OpenApiHttpDocumentFetch::NotModified => {
+                    let cached = cached_http_document.as_ref().ok_or_else(|| {
+                        StoreError::Other(format!(
+                            "OpenAPI external $ref cache missing for 304 response: {target_url}"
+                        ))
+                    })?;
+                    self.refresh_cached_http_document(target_url, cached)
+                        .await?;
+                    self.record_loaded_document(target_url)?;
+                    self.record_document_metadata(target_url, cached.metadata.clone())?;
+                    self.record_document(target_url, cached.document.clone())?;
+                    return Ok(cached.document.clone());
+                }
+                OpenApiHttpDocumentFetch::Modified(response) => {
+                    http_response = Some(response);
+                }
             }
         } else if let Some(path) = &file_path {
             let document_text = read_openapi_document_file(path, target_url)?;
@@ -669,8 +717,8 @@ impl<'a> OpenApiExternalRefResolver<'a> {
             file_document_text = Some(document_text);
         }
 
-        let document_text = if is_http_url(target_url) {
-            self.fetch_http_external_document_text(target_url).await?
+        let document_text = if let Some(response) = &http_response {
+            response.text.clone()
         } else if let Some(document_text) = file_document_text {
             document_text
         } else {
@@ -690,7 +738,10 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         self.record_document_metadata(target_url, metadata.clone())?;
         self.record_document(target_url, document.clone())?;
         if is_http_url(target_url) {
-            self.store_cached_http_document(target_url, &document, &metadata)
+            let response = http_response.as_ref().ok_or_else(|| {
+                StoreError::Other(format!("OpenAPI HTTP response missing for {target_url}"))
+            })?;
+            self.store_cached_http_document(target_url, &document, &metadata, response)
                 .await?;
         } else if let Some(path) = &file_path {
             let fingerprint = file_fingerprint.as_ref().ok_or_else(|| {
@@ -702,35 +753,61 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         Ok(document)
     }
 
-    async fn fetch_http_external_document_text(&self, target_url: &str) -> Result<String> {
-        self.client
-            .get(target_url)
-            .send()
-            .await
-            .map_err(|err| {
-                StoreError::Other(format!(
-                    "OpenAPI external $ref fetch failed for {target_url}: {err}"
-                ))
-            })?
-            .error_for_status()
-            .map_err(|err| {
-                StoreError::Other(format!(
-                    "OpenAPI external $ref fetch failed for {target_url}: {err}"
-                ))
-            })?
-            .text()
-            .await
-            .map_err(|err| {
-                StoreError::Other(format!(
-                    "OpenAPI external $ref body read failed for {target_url}: {err}"
-                ))
-            })
+    async fn fetch_http_external_document(
+        &self,
+        target_url: &str,
+        cached: Option<&OpenApiCachedHttpDocument>,
+    ) -> Result<OpenApiHttpDocumentFetch> {
+        let mut request = self.client.get(target_url);
+        if let Some(cached) = cached {
+            if let Some(etag) = &cached.etag {
+                request = request.header(IF_NONE_MATCH, etag);
+            }
+            if let Some(last_modified) = &cached.last_modified {
+                request = request.header(IF_MODIFIED_SINCE, last_modified);
+            }
+        }
+        let response = request.send().await.map_err(|err| {
+            StoreError::Other(format!(
+                "OpenAPI external $ref fetch failed for {target_url}: {err}"
+            ))
+        })?;
+        if response.status() == reqwest::StatusCode::NOT_MODIFIED {
+            return Ok(OpenApiHttpDocumentFetch::NotModified);
+        }
+        let response = response.error_for_status().map_err(|err| {
+            StoreError::Other(format!(
+                "OpenAPI external $ref fetch failed for {target_url}: {err}"
+            ))
+        })?;
+        let etag = response
+            .headers()
+            .get(ETAG)
+            .and_then(|value| value.to_str().ok())
+            .map(ToString::to_string);
+        let last_modified = response
+            .headers()
+            .get(LAST_MODIFIED)
+            .and_then(|value| value.to_str().ok())
+            .map(ToString::to_string);
+        let text = response.text().await.map_err(|err| {
+            StoreError::Other(format!(
+                "OpenAPI external $ref body read failed for {target_url}: {err}"
+            ))
+        })?;
+        Ok(OpenApiHttpDocumentFetch::Modified(
+            OpenApiHttpDocumentResponse {
+                text,
+                etag,
+                last_modified,
+            },
+        ))
     }
 
     async fn cached_http_document(
         &self,
         target_url: &str,
-    ) -> Result<Option<(serde_json::Value, OpenApiBundleDocumentMetadata)>> {
+    ) -> Result<Option<OpenApiCachedHttpDocument>> {
         let key = openapi_ref_document_cache_key(target_url);
         let Some(value) = self
             .cache
@@ -756,9 +833,6 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         let Some(expires_at) = object.get("expires_at").and_then(serde_json::Value::as_i64) else {
             return Ok(None);
         };
-        if expires_at <= chrono::Utc::now().timestamp() {
-            return Ok(None);
-        }
         let Some(document) = object.get("document").cloned() else {
             return Ok(None);
         };
@@ -775,13 +849,22 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         else {
             return Ok(None);
         };
-        Ok(Some((
+        Ok(Some(OpenApiCachedHttpDocument {
             document,
-            OpenApiBundleDocumentMetadata {
+            metadata: OpenApiBundleDocumentMetadata {
                 content_hash: content_hash.to_string(),
                 content_length,
             },
-        )))
+            expires_at,
+            etag: object
+                .get("etag")
+                .and_then(serde_json::Value::as_str)
+                .map(ToString::to_string),
+            last_modified: object
+                .get("last_modified")
+                .and_then(serde_json::Value::as_str)
+                .map(ToString::to_string),
+        }))
     }
 
     async fn store_cached_http_document(
@@ -789,6 +872,7 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         target_url: &str,
         document: &serde_json::Value,
         metadata: &OpenApiBundleDocumentMetadata,
+        response: &OpenApiHttpDocumentResponse,
     ) -> Result<()> {
         let key = openapi_ref_document_cache_key(target_url);
         let fetched_at = chrono::Utc::now().timestamp();
@@ -805,7 +889,38 @@ impl<'a> OpenApiExternalRefResolver<'a> {
                     "expires_at": fetched_at + OPENAPI_REF_DOCUMENT_CACHE_TTL_SECONDS,
                     "content_hash": metadata.content_hash,
                     "content_length": metadata.content_length,
+                    "etag": response.etag,
+                    "last_modified": response.last_modified,
                     "document": document,
+                }),
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn refresh_cached_http_document(
+        &self,
+        target_url: &str,
+        cached: &OpenApiCachedHttpDocument,
+    ) -> Result<()> {
+        let key = openapi_ref_document_cache_key(target_url);
+        let fetched_at = chrono::Utc::now().timestamp();
+        let source = openapi_ref_document_source(target_url);
+        self.cache
+            .put_state(
+                OPENAPI_REF_DOCUMENT_CACHE_STATE_TYPE,
+                &key,
+                serde_json::json!({
+                    "cache_version": OPENAPI_REF_DOCUMENT_CACHE_VERSION,
+                    "url": target_url,
+                    "source": source,
+                    "fetched_at": fetched_at,
+                    "expires_at": fetched_at + OPENAPI_REF_DOCUMENT_CACHE_TTL_SECONDS,
+                    "content_hash": cached.metadata.content_hash,
+                    "content_length": cached.metadata.content_length,
+                    "etag": cached.etag,
+                    "last_modified": cached.last_modified,
+                    "document": cached.document,
                 }),
             )
             .await?;
