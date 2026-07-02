@@ -14,6 +14,7 @@ const STATE_TYPES: &[&str] = &[
     "service_metadata",
     "session_status",
     "session_state",
+    "session_context",
     "tool_transforms",
     "openapi_imports",
 ];

@@ -1,8 +1,8 @@
 use super::layer::*;
 use crate::cache::memory_cache_store;
 use crate::cache::models::{
-    SessionEntity, SessionEvent, SessionEventType, SessionScope, SessionServiceItem,
-    SessionServiceRelation, SessionStatus, SessionStatusState, SessionToolItem,
+    SessionContextState, SessionEntity, SessionEvent, SessionEventType, SessionScope,
+    SessionServiceItem, SessionServiceRelation, SessionStatus, SessionStatusState, SessionToolItem,
     SessionToolVisibility, ToolVisibilityMode,
 };
 
@@ -210,6 +210,20 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
     )
     .await
     .unwrap();
+    mgr.put_state(
+        "session_context",
+        "store:global",
+        serde_json::to_value(SessionContextState {
+            context_key: "store:global".to_string(),
+            active_session_key: Some(session_key.to_string()),
+            auto_session_key: None,
+            updated_at: 100,
+            version: 1,
+        })
+        .unwrap(),
+    )
+    .await
+    .unwrap();
     mgr.put_event(
         "session_events",
         "store:global:s1:0001",
@@ -233,6 +247,7 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
     assert_eq!(snapshot.relations["session_services"].len(), 1);
     assert_eq!(snapshot.relations["session_tools"].len(), 1);
     assert_eq!(snapshot.states["session_status"].len(), 1);
+    assert_eq!(snapshot.states["session_context"].len(), 1);
     assert_eq!(snapshot.events["session_events"].len(), 1);
     assert!(mgr
         .get_entity("sessions", session_key)

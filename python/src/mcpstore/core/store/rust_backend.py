@@ -301,8 +301,6 @@ class RustStoreBackend:
     def __init__(self, rust_store):
         self._inner = rust_store
         self._sessions: Dict[tuple[str, str], "RustSession"] = {}
-        self._active_sessions: Dict[str, "RustSession"] = {}
-        self._auto_sessions: Dict[str, "RustSession"] = {}
         self._tool_overrides: Dict[str, Dict[str, Any]] = {}
         self._tool_visibility: Dict[str, Dict[str, Optional[set[str]]]] = {}
         self.registry = RustRegistryFacade(self)
@@ -1039,8 +1037,6 @@ class RustStoreBackend:
         self._inner.switch_cache_storage(backend, redis_url, namespace)
         self._cache_config = cache_config
         self._sessions.clear()
-        self._active_sessions.clear()
-        self._auto_sessions.clear()
         return True
 
     def wait_service_ready(self, name: str, timeout: float = 10.0) -> Dict[str, Any]:
@@ -1165,6 +1161,18 @@ class RustStoreBackend:
     def _session_agent_id(context: "RustStoreContext") -> Optional[str]:
         return context.agent_id
 
+    def _require_session_context_api(self) -> None:
+        required = (
+            "get_session_context_state",
+            "set_active_session_for_context",
+            "get_active_session_for_context",
+            "enable_auto_session_for_context",
+            "disable_auto_session_for_context",
+            "is_auto_session_enabled_for_context",
+        )
+        if not all(hasattr(self._inner, name) for name in required):
+            raise NotImplementedError("Rust core does not expose shared session context state")
+
     def _wrap_session(
         self,
         context: "RustStoreContext",
@@ -1206,9 +1214,8 @@ class RustStoreBackend:
         context: "RustStoreContext",
         session_id: Optional[str] = None,
     ) -> Optional["RustSession"]:
-        context_id = context.get_id()
         if session_id is None:
-            return self._auto_sessions.get(context_id) or self._active_sessions.get(context_id)
+            return self.active_session(context)
         entity = self._inner.find_session(
             session_id,
             self._session_scope(context),
@@ -1281,11 +1288,6 @@ class RustStoreBackend:
 
     def close_session(self, session: "RustSession", reason: Optional[str] = None) -> Dict[str, Any]:
         status = self._inner.close_session(session.session_key, reason)
-        context_id = session._context.get_id()
-        if self._active_sessions.get(context_id) is session:
-            self._active_sessions.pop(context_id, None)
-        if self._auto_sessions.get(context_id) is session:
-            self._auto_sessions.pop(context_id, None)
         return _record_value(status)
 
     def bind_service_to_session(self, session: "RustSession", service_name: str) -> Dict[str, Any]:
@@ -1407,24 +1409,46 @@ class RustStoreBackend:
         context: "RustStoreContext",
         session: Optional["RustSession"],
     ) -> None:
-        context_id = context.get_id()
-        if session is None:
-            self._active_sessions.pop(context_id, None)
-        else:
-            self._active_sessions[context_id] = session
+        self._require_session_context_api()
+        self._inner.set_active_session_for_context(
+            session.session_key if session is not None else None,
+            self._session_scope(context),
+            self._session_agent_id(context),
+        )
 
     def active_session(self, context: "RustStoreContext") -> Optional["RustSession"]:
-        context_id = context.get_id()
-        return self._active_sessions.get(context_id) or self._auto_sessions.get(context_id)
+        self._require_session_context_api()
+        entity = self._inner.get_active_session_for_context(
+            self._session_scope(context),
+            self._session_agent_id(context),
+        )
+        if entity is None:
+            return None
+        return self._wrap_session(context, _record_value(entity))
 
     def enable_auto_session(self, context: "RustStoreContext", session: "RustSession") -> None:
-        self._auto_sessions[context.get_id()] = session
+        self._require_session_context_api()
+        self._inner.enable_auto_session_for_context(
+            session.session_key,
+            self._session_scope(context),
+            self._session_agent_id(context),
+        )
 
     def disable_auto_session(self, context: "RustStoreContext") -> None:
-        self._auto_sessions.pop(context.get_id(), None)
+        self._require_session_context_api()
+        self._inner.disable_auto_session_for_context(
+            self._session_scope(context),
+            self._session_agent_id(context),
+        )
 
     def is_auto_session_enabled(self, context: "RustStoreContext") -> bool:
-        return context.get_id() in self._auto_sessions
+        self._require_session_context_api()
+        return bool(
+            self._inner.is_auto_session_enabled_for_context(
+                self._session_scope(context),
+                self._session_agent_id(context),
+            )
+        )
 
 
 class MCPStore(RustStoreBackend):

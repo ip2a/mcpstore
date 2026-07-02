@@ -11,6 +11,61 @@ from pathlib import Path
 from unittest.mock import patch
 
 
+def install_fake_session_context_api(inner):
+    inner.session_contexts = {}
+
+    def context_record(scope, agent_id):
+        return inner.session_contexts.setdefault(
+            (scope, agent_id),
+            {
+                "context_key": f"{scope}:{agent_id or 'global'}",
+                "active_session_key": None,
+                "auto_session_key": None,
+                "version": 0,
+            },
+        )
+
+    def get_session_context_state(scope, agent_id):
+        return inner.session_contexts.get((scope, agent_id))
+
+    def set_active_session_for_context(session_key, scope, agent_id):
+        record = context_record(scope, agent_id)
+        record["active_session_key"] = session_key
+        record["version"] += 1
+        return record
+
+    def get_active_session_for_context(scope, agent_id):
+        record = get_session_context_state(scope, agent_id) or {}
+        session_key = record.get("active_session_key") or record.get("auto_session_key")
+        if session_key is None:
+            return None
+        return inner.get_session(session_key) if hasattr(inner, "get_session") else None
+
+    def enable_auto_session_for_context(session_key, scope, agent_id):
+        record = context_record(scope, agent_id)
+        record["auto_session_key"] = session_key
+        record["version"] += 1
+        return record
+
+    def disable_auto_session_for_context(scope, agent_id):
+        record = context_record(scope, agent_id)
+        record["auto_session_key"] = None
+        record["version"] += 1
+        return record
+
+    def is_auto_session_enabled_for_context(scope, agent_id):
+        record = get_session_context_state(scope, agent_id) or {}
+        return record.get("auto_session_key") is not None
+
+    inner.get_session_context_state = get_session_context_state
+    inner.set_active_session_for_context = set_active_session_for_context
+    inner.get_active_session_for_context = get_active_session_for_context
+    inner.enable_auto_session_for_context = enable_auto_session_for_context
+    inner.disable_auto_session_for_context = disable_auto_session_for_context
+    inner.is_auto_session_enabled_for_context = is_auto_session_enabled_for_context
+    return inner
+
+
 class PyO3NativeBridgeTest(unittest.TestCase):
     def test_rust_binding_uses_native_python_objects(self):
         from mcpstore._rust import MCPStore
@@ -639,6 +694,7 @@ paths:
                 self.reset_mcp_scopes.append(scope)
 
         inner = FakeBackend()
+        install_fake_session_context_api(inner)
         backend = RustStoreBackend(inner)
         context = RustStoreContext(backend)
         agent = context.find_agent("agent-a")
@@ -952,7 +1008,8 @@ paths:
             def show_config(self):
                 return {"mcpServers": {"demo": {}}, "agents": {}, "clients": {}}
 
-        backend = RustStoreBackend(FakeInner())
+        inner = install_fake_session_context_api(FakeInner())
+        backend = RustStoreBackend(inner)
         context = backend.for_store()
 
         async def run():
@@ -1016,6 +1073,7 @@ paths:
                 return {"content": [{"type": "text", "text": "ok"}], "is_error": False}
 
         inner = FakeInner()
+        install_fake_session_context_api(inner)
         backend = RustStoreBackend(inner)
         result = backend.call_tool("demo", "echo", '{"text": "ok"}')
 
@@ -1260,7 +1318,8 @@ paths:
             def restart_service(self, name):
                 self.restarted_services.append(name)
 
-        backend = RustStoreBackend(FakeBackend())
+        inner = install_fake_session_context_api(FakeBackend())
+        backend = RustStoreBackend(inner)
         context = RustStoreContext(backend)
         session = context.create_session("browser_task")
         self.assertEqual(session.session_id, "browser_task")
@@ -1362,6 +1421,41 @@ paths:
         self.assertNotIn("cursor", state["values"])
         self.assertEqual(store.clear_session_state(created["session_key"])["values"], {})
         self.assertEqual(store.close_session(created["session_key"], "done")["status"], "closed")
+
+    def test_pyo3_session_context_bridge_exposes_rust_core_active_and_auto_pointers(self):
+        from mcpstore._rust import MCPStore
+
+        workdir = Path(tempfile.mkdtemp(prefix="mcpstore-pyo3-session-context-"))
+        config_path = str(workdir / "mcp.json")
+        store = MCPStore.setup_with_options(config_path, "local", "memory", None, "session-context")
+
+        first = store.create_session("first", "store", None, 30, {})
+        second = store.create_session("second", "store", None, 30, {})
+
+        state = store.set_active_session_for_context(first["session_key"], "store", None)
+        self.assertEqual(state["active_session_key"], first["session_key"])
+        self.assertEqual(
+            store.get_active_session_for_context("store", None)["session_key"],
+            first["session_key"],
+        )
+
+        state = store.enable_auto_session_for_context(second["session_key"], "store", None)
+        self.assertEqual(state["auto_session_key"], second["session_key"])
+        self.assertTrue(store.is_auto_session_enabled_for_context("store", None))
+        self.assertEqual(
+            store.get_active_session_for_context("store", None)["session_key"],
+            first["session_key"],
+        )
+
+        store.set_active_session_for_context(None, "store", None)
+        self.assertEqual(
+            store.get_active_session_for_context("store", None)["session_key"],
+            second["session_key"],
+        )
+        state = store.disable_auto_session_for_context("store", None)
+        self.assertIsNone(state["auto_session_key"])
+        self.assertFalse(store.is_auto_session_enabled_for_context("store", None))
+        self.assertIsNone(store.get_active_session_for_context("store", None))
 
     def test_pyo3_session_bridge_shares_redis_backend_namespace_when_available(self):
         redis_url = os.getenv("MCPSTORE_TEST_REDIS_URL")
@@ -1704,6 +1798,33 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         second_session.close_session()
         self.assertFalse(first.for_store().find_session("shared").is_active)
 
+    def test_python_facade_active_and_auto_session_pointers_come_from_rust_core(self):
+        from mcpstore._rust import MCPStore as RustMCPStore
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        workdir = Path(tempfile.mkdtemp(prefix="mcpstore-python-session-context-"))
+        config_path = str(workdir / "mcp.json")
+        rust = RustMCPStore.setup_with_options(config_path, "local", "memory", None, "python-session-context")
+        first = RustStoreBackend(rust)
+        second = RustStoreBackend(rust)
+        first_context = first.for_store()
+        second_context = second.for_store()
+
+        active = first_context.create_session("active")
+        first.set_active_session(first_context, active)
+        self.assertEqual(second_context.active_session.session_key, active.session_key)
+
+        auto = first_context.create_session("auto")
+        second.enable_auto_session(second_context, auto)
+        self.assertTrue(first_context.is_session_auto())
+        self.assertEqual(first_context.active_session.session_key, active.session_key)
+
+        second.set_active_session(second_context, None)
+        self.assertEqual(first_context.active_session.session_key, auto.session_key)
+        first.disable_auto_session(first_context)
+        self.assertFalse(second_context.is_session_auto())
+        self.assertIsNone(second_context.active_session)
+
     def test_python_facade_keeps_agent_tool_set_management_shape(self):
         import asyncio
 
@@ -1733,7 +1854,8 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             def event_history(self, count=100):
                 return []
 
-        backend = RustStoreBackend(FakeBackend())
+        inner = install_fake_session_context_api(FakeBackend())
+        backend = RustStoreBackend(inner)
         agent = RustStoreContext(backend, agent_id="agent-a")
 
         self.assertEqual(
@@ -2226,8 +2348,6 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         inner = FakeRustInner()
         store = RustStoreBackend(inner)
         store._sessions[("store", "s1")] = object()
-        store._active_sessions["store"] = object()
-        store._auto_sessions["store"] = object()
 
         context = store.for_store()
         self.assertIs(
@@ -2240,8 +2360,6 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             ("redis", "redis://localhost:6379/0", "switched"),
         )
         self.assertEqual(store._sessions, {})
-        self.assertEqual(store._active_sessions, {})
-        self.assertEqual(store._auto_sessions, {})
 
     def test_registry_facade_delegates_to_rust_cache_surface(self):
         import asyncio
@@ -2619,6 +2737,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             def __init__(self):
                 self.sessions = {}
                 self.state = {}
+                self.session_contexts = {}
                 self.transforms = {}
                 self.updated_services = {}
                 self.removed_services = []
@@ -2648,6 +2767,49 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                     if entity["session_key"] == session_key:
                         return entity
                 return None
+
+            def get_session_context_state(self, scope, agent_id):
+                return self.session_contexts.get((scope, agent_id))
+
+            def _session_context_record(self, scope, agent_id):
+                return self.session_contexts.setdefault(
+                    (scope, agent_id),
+                    {
+                        "context_key": f"{scope}:{agent_id or 'global'}",
+                        "active_session_key": None,
+                        "auto_session_key": None,
+                        "version": 0,
+                    },
+                )
+
+            def set_active_session_for_context(self, session_key, scope, agent_id):
+                record = self._session_context_record(scope, agent_id)
+                record["active_session_key"] = session_key
+                record["version"] += 1
+                return record
+
+            def get_active_session_for_context(self, scope, agent_id):
+                record = self.get_session_context_state(scope, agent_id) or {}
+                session_key = record.get("active_session_key") or record.get("auto_session_key")
+                if session_key is None:
+                    return None
+                return self.get_session(session_key)
+
+            def enable_auto_session_for_context(self, session_key, scope, agent_id):
+                record = self._session_context_record(scope, agent_id)
+                record["auto_session_key"] = session_key
+                record["version"] += 1
+                return record
+
+            def disable_auto_session_for_context(self, scope, agent_id):
+                record = self._session_context_record(scope, agent_id)
+                record["auto_session_key"] = None
+                record["version"] += 1
+                return record
+
+            def is_auto_session_enabled_for_context(self, scope, agent_id):
+                record = self.get_session_context_state(scope, agent_id) or {}
+                return record.get("auto_session_key") is not None
 
             def find_session_by_user_session_id(self, user_session_id):
                 for entity in self.sessions.values():
@@ -2861,6 +3023,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 return []
 
         fake_backend = FakeBackend()
+        install_fake_session_context_api(fake_backend)
         backend = RustStoreBackend(fake_backend)
         context = MCPStoreContext(backend)
         store_proxy = StoreProxy(context)
