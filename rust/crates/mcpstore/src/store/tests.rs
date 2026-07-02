@@ -4393,6 +4393,93 @@ async fn tool_transform_rules_are_rust_backed_and_affect_scoped_tools() {
 }
 
 #[tokio::test]
+async fn rust_tool_transform_helpers_create_shared_rules() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::OpenKeyvMemory),
+        redis_url: None,
+        namespace: Some("test-tool-transform-helpers".to_string()),
+    })
+    .unwrap();
+    store.add_service("svc", stdio_config()).await.unwrap();
+    let mut service = store.registry.find_service("svc").await.unwrap();
+    service.status = ConnectionStatus::Connected;
+    service.tools = vec![crate::registry::ToolInfo {
+        name: "echo".to_string(),
+        description: "Technical echo".to_string(),
+        schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "debug": {"type": "boolean"}
+            },
+            "required": ["text"]
+        }),
+    }];
+    store.registry.register(service).await;
+
+    let renamed = store
+        .create_parameter_renamed_tool_transform("svc", "echo", Some("say"), &[("text", "message")])
+        .await
+        .unwrap();
+    assert_eq!(renamed.display_name.as_deref(), Some("say"));
+    assert_eq!(renamed.arguments[0].new_name.as_deref(), Some("message"));
+
+    let validated = store
+        .create_validated_tool_transform(
+            "svc",
+            "echo",
+            Some("safe_echo"),
+            &[(
+                "text",
+                serde_json::json!({"type": "string", "minLength": 2}),
+            )],
+        )
+        .await
+        .unwrap();
+    assert_eq!(validated.tags, vec!["validated", "safe"]);
+    assert_eq!(
+        validated.arguments[0].validation_schema.as_ref().unwrap()["minLength"],
+        2
+    );
+
+    let friendly = store
+        .create_llm_friendly_tool_transform(
+            "svc",
+            "echo",
+            Some("simple_echo"),
+            Some("Simple echo"),
+            true,
+            true,
+        )
+        .await
+        .unwrap();
+    assert_eq!(friendly.description.as_deref(), Some("Simple echo"));
+    assert!(friendly.safety_policy.is_some());
+    assert!(friendly
+        .arguments
+        .iter()
+        .any(|arg| arg.original_name == "debug" && arg.hidden));
+
+    let loaded = store
+        .get_tool_transform("svc", "echo")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(loaded.display_name.as_deref(), Some("simple_echo"));
+    assert!(
+        loaded
+            .safety_policy
+            .unwrap()
+            .reject_dangerous_argument_names
+    );
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
 async fn context_tool_visibility_is_rust_backed_and_filters_scoped_tools() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
