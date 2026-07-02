@@ -2907,7 +2907,27 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         from mcpstore.api.api_dependencies import get_store
         from mcpstore.config import MemoryConfig
         from mcpstore.config.namespace import get_namespace
-        from mcpstore.core.models import ErrorCode, ResponseBuilder, timed_response
+        from mcpstore.core.models import (
+            AddServiceRequest,
+            AgentStatistics,
+            CallToolFailureResult,
+            ClientRegistrationRequest,
+            CommandServiceConfig,
+            DataResponse,
+            ErrorCode,
+            ExecutionResponse,
+            ListResponse,
+            ResponseBuilder,
+            ServiceConfig,
+            ServiceInfoResponse,
+            TimedResponseBuilder,
+            ToolSetState,
+            ToolsResponse,
+            api_endpoint,
+            handle_errors,
+            paginated,
+            timed_response,
+        )
 
         store = object()
         if importlib.util.find_spec("fastapi") is not None:
@@ -2977,6 +2997,45 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertEqual(ErrorCode.MISSING_PARAMETER.value, "missing_parameter")
         self.assertTrue(ResponseBuilder.success()["success"])
         self.assertFalse(ResponseBuilder.error()["success"])
+        self.assertEqual(ResponseBuilder.paginated_list("ok", [1, 2], 1, 2, 5)["pagination"]["total_pages"], 3)
+        with TimedResponseBuilder() as builder:
+            self.assertIn("request_id", builder.success()["meta"])
+        self.assertEqual(ListResponse[int](success=True, items=[1], total=1).total, 1)
+        self.assertEqual(DataResponse[int](success=True, data=3).data, 3)
+        self.assertEqual(ExecutionResponse(success=True).result, None)
+        self.assertEqual(ServiceConfig(name="svc").name, "svc")
+        self.assertEqual(CommandServiceConfig(name="svc", command="uvx").command, "uvx")
+        self.assertTrue(AddServiceRequest(config={"name": "svc"}).update_config)
+        self.assertEqual(ClientRegistrationRequest(client_id="client-a").client_id, "client-a")
+        self.assertEqual(ServiceInfoResponse(service=None, tools=[], connected=False).tools, [])
+        self.assertEqual(ToolsResponse(tools=[], total_tools=0).total_tools, 0)
+        self.assertEqual(AgentStatistics("agent", 0, 0, 0, 0, 0).services, [])
+        tool_set = ToolSetState("agent", "svc")
+        tool_set.add_tools({"echo"})
+        self.assertEqual(ToolSetState.from_dict(tool_set.to_dict()).available_tools, {"echo"})
+        self.assertTrue(CallToolFailureResult("boom").is_error)
+
+        @paginated(default_page_size=2)
+        def list_items(page=1, page_size=2):
+            return ["a", "b"], 5
+
+        self.assertEqual(list_items()["pagination"]["total"], 5)
+
+        @handle_errors()
+        def broken():
+            raise ValueError("bad")
+
+        self.assertFalse(broken()["success"])
+
+        @api_endpoint
+        def endpoint():
+            return ResponseBuilder.success()
+
+        self.assertTrue(endpoint()["success"])
+
+        import mcpstore
+
+        self.assertIs(mcpstore.ToolsResponse, ToolsResponse)
 
         @timed_response
         def handler():
