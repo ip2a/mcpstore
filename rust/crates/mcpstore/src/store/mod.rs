@@ -27,7 +27,10 @@ use runtime::StoreRuntimeConfig;
 pub use crate::agent::models::{ScopedServiceEntry, ScopedServiceHealth, ScopedToolEntry};
 pub use crate::cache::models::CacheHealthReport;
 pub use crate::events::EventCapabilityReport;
-pub use crate::openapi::{OpenApiImportOptions, OpenApiImportResult};
+pub use crate::openapi::{
+    OpenApiBundleArtifact, OpenApiBundleDependency, OpenApiBundleDiagnostic, OpenApiBundleDocument,
+    OpenApiImportOptions, OpenApiImportResult,
+};
 pub use openapi::{OpenApiImportInput, OpenApiImportSource};
 pub use options::{BackendKind, CacheStorage, SourceMode, StoreOptions};
 pub use tool_changes::{ToolChangeServiceResult, ToolChangeSummary};

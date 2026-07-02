@@ -24,7 +24,10 @@ pub use config::{AppConfig, CacheBackend, CacheConfig, ConfigManager, McpConfig,
 pub use cache::{CacheLayerManager, CacheSnapshot};
 
 // Facade re-exports: OpenAPI runtime imports
-pub use openapi::{OpenApiImportOptions, OpenApiImportResult};
+pub use openapi::{
+    OpenApiBundleArtifact, OpenApiBundleDependency, OpenApiBundleDiagnostic, OpenApiBundleDocument,
+    OpenApiImportOptions, OpenApiImportResult,
+};
 
 // Facade re-exports: event bus
 pub use events::{Event, EventBus};

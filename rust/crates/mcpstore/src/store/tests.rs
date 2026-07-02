@@ -1627,6 +1627,44 @@ async fn openapi_bundle_spec_returns_external_refs_without_importing() {
 }
 
 #[tokio::test]
+async fn openapi_bundle_artifact_reports_dependencies_without_importing() {
+    let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-bundle-artifact-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+
+    let root_url = format!("{base_url}/openapi.json");
+    let artifact = store.bundle_openapi_artifact(&root_url).await.unwrap();
+
+    assert_eq!(artifact.spec_url, root_url);
+    assert_eq!(
+        artifact.bundle["info"]["title"],
+        serde_json::json!("External Refs")
+    );
+    assert!(artifact.diagnostics.is_empty());
+    assert!(artifact
+        .documents
+        .iter()
+        .any(|document| document.url == root_url && document.role == "root"));
+    assert!(artifact.documents.iter().any(|document| {
+        document.url == format!("{base_url}/components.json") && document.role == "external"
+    }));
+    assert!(artifact.dependencies.iter().any(|dependency| {
+        dependency.source_document == root_url
+            && dependency.source_ref == "components.json#/components/parameters/ItemId"
+            && dependency.target_document == format!("{base_url}/components.json")
+            && dependency.pointer.as_deref() == Some("/components/parameters/ItemId")
+    }));
+    assert_eq!(components_requests.load(Ordering::SeqCst), 1);
+    assert!(store.list_openapi_imports().await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn openapi_import_parses_yaml_from_url() {
     let base_url = spawn_openapi_yaml_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
