@@ -469,7 +469,123 @@ fn request_body_schema(request_body: &Value) -> Value {
         .and_then(|media| media.get("schema"))
         .cloned()
         .unwrap_or_else(|| serde_json::json!({ "type": "object" }));
-    expose_binary_file_arguments(schema)
+    expose_binary_file_arguments(request_input_schema(schema))
+}
+
+fn request_input_schema(schema: Value) -> Value {
+    match schema {
+        Value::Object(mut object) => {
+            let mut removed_read_only = read_only_properties_in_all_of(&object);
+            if let Some(Value::Object(properties)) = object.get_mut("properties") {
+                let direct_read_only = properties
+                    .iter()
+                    .filter_map(|(name, schema)| schema_is_read_only(schema).then(|| name.clone()))
+                    .collect::<Vec<_>>();
+                for name in &direct_read_only {
+                    properties.remove(name);
+                }
+                append_unique(&mut removed_read_only, direct_read_only);
+                for value in properties.values_mut() {
+                    let converted = request_input_schema(std::mem::take(value));
+                    *value = converted;
+                }
+            }
+            remove_required_fields(&mut object, &removed_read_only);
+            for name in ["items", "additionalProperties"] {
+                if let Some(value) = object.get_mut(name) {
+                    if value.is_object() {
+                        let converted = request_input_schema(std::mem::take(value));
+                        *value = converted;
+                    }
+                }
+            }
+            for name in ["allOf", "anyOf", "oneOf"] {
+                if let Some(Value::Array(items)) = object.get_mut(name) {
+                    for item in items {
+                        let converted = request_input_schema(std::mem::take(item));
+                        *item = converted;
+                        if name == "allOf" {
+                            remove_required_fields_from_schema(item, &removed_read_only);
+                        }
+                    }
+                }
+            }
+            Value::Object(object)
+        }
+        Value::Array(items) => Value::Array(items.into_iter().map(request_input_schema).collect()),
+        other => other,
+    }
+}
+
+fn read_only_properties_in_all_of(object: &Map<String, Value>) -> Vec<String> {
+    object
+        .get("allOf")
+        .and_then(Value::as_array)
+        .map(|items| {
+            let mut names = Vec::new();
+            for item in items {
+                append_unique(&mut names, read_only_property_names(item));
+            }
+            names
+        })
+        .unwrap_or_default()
+}
+
+fn read_only_property_names(schema: &Value) -> Vec<String> {
+    let Some(object) = schema.as_object() else {
+        return Vec::new();
+    };
+    let mut names = object
+        .get("properties")
+        .and_then(Value::as_object)
+        .map(|properties| {
+            properties
+                .iter()
+                .filter_map(|(name, schema)| schema_is_read_only(schema).then(|| name.clone()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    for name in read_only_properties_in_all_of(object) {
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names
+}
+
+fn append_unique(target: &mut Vec<String>, values: Vec<String>) {
+    for value in values {
+        if !target.contains(&value) {
+            target.push(value);
+        }
+    }
+}
+
+fn remove_required_fields_from_schema(schema: &mut Value, names: &[String]) {
+    if let Value::Object(object) = schema {
+        remove_required_fields(object, names);
+    }
+}
+
+fn schema_is_read_only(schema: &Value) -> bool {
+    schema
+        .get("readOnly")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn remove_required_fields(object: &mut Map<String, Value>, names: &[String]) {
+    if names.is_empty() {
+        return;
+    }
+    if let Some(Value::Array(required)) = object.get_mut("required") {
+        required.retain(|value| {
+            value
+                .as_str()
+                .map(|name| !names.iter().any(|removed| removed == name))
+                .unwrap_or(true)
+        });
+    }
 }
 
 fn expose_binary_file_arguments(schema: Value) -> Value {
@@ -769,6 +885,86 @@ mod tests {
         assert_eq!(
             create.input_schema["required"],
             serde_json::json!(["tenant_id", "body"])
+        );
+    }
+
+    #[test]
+    fn request_input_schema_hides_read_only_body_fields() {
+        let spec = serde_json::json!({
+            "openapi": "3.0.0",
+            "info": { "title": "Demo", "version": "1.0" },
+            "servers": [{ "url": "https://api.example.test" }],
+            "paths": {
+                "/items": {
+                    "post": {
+                        "operationId": "createItem",
+                        "requestBody": {
+                            "required": true,
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "required": ["id", "name", "secret"],
+                                        "allOf": [
+                                            {
+                                                "type": "object",
+                                                "required": ["audit_id"],
+                                                "properties": {
+                                                    "audit_id": { "type": "string", "readOnly": true }
+                                                }
+                                            },
+                                            {
+                                                "type": "object",
+                                                "required": ["audit_id", "name"],
+                                                "properties": {
+                                                    "name": { "type": "string" }
+                                                }
+                                            }
+                                        ],
+                                        "properties": {
+                                            "id": { "type": "string", "readOnly": true },
+                                            "name": { "type": "string" },
+                                            "secret": { "type": "string", "writeOnly": true }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let result = analyze_openapi_spec("items", "memory://spec", spec).unwrap();
+        let create = result
+            .components
+            .iter()
+            .find(|component| component.name == "createItem")
+            .unwrap();
+
+        assert!(create.input_schema["properties"]["body"]["properties"]
+            .get("id")
+            .is_none());
+        assert_eq!(
+            create.input_schema["properties"]["body"]["properties"]["secret"]["writeOnly"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            create.input_schema["properties"]["body"]["required"],
+            serde_json::json!(["name", "secret"])
+        );
+        assert!(
+            create.input_schema["properties"]["body"]["allOf"][0]["properties"]
+                .get("audit_id")
+                .is_none()
+        );
+        assert_eq!(
+            create.input_schema["properties"]["body"]["allOf"][0]["required"],
+            serde_json::json!([])
+        );
+        assert_eq!(
+            create.input_schema["properties"]["body"]["allOf"][1]["required"],
+            serde_json::json!(["name"])
         );
     }
 }

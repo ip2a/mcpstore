@@ -389,6 +389,7 @@ fn validate_input_schema(component: &OpenApiComponent, args: &Map<String, Value>
     };
 
     let mut errors = Vec::new();
+    validate_read_only_request_fields(component, args, &mut errors);
     for (name, value) in args {
         let Some(schema) = properties.get(name) else {
             continue;
@@ -404,6 +405,116 @@ fn validate_input_schema(component: &OpenApiComponent, args: &Map<String, Value>
             component.name,
             errors.join(", ")
         )))
+    }
+}
+
+fn validate_read_only_request_fields(
+    component: &OpenApiComponent,
+    args: &Map<String, Value>,
+    errors: &mut Vec<String>,
+) {
+    let Some(body) = args.get("body") else {
+        return;
+    };
+    let Some(schema) = request_body_schema_for_validation(component) else {
+        return;
+    };
+    collect_read_only_request_fields(schema, body, "body", errors);
+}
+
+fn request_body_schema_for_validation(component: &OpenApiComponent) -> Option<&Value> {
+    let content = component
+        .endpoint
+        .request_body
+        .as_ref()?
+        .get("content")?
+        .as_object()?;
+    content
+        .get("application/json")
+        .or_else(|| content.values().next())
+        .and_then(|media| media.get("schema"))
+}
+
+fn collect_read_only_request_fields(
+    schema: &Value,
+    value: &Value,
+    path: &str,
+    errors: &mut Vec<String>,
+) {
+    if schema
+        .get("readOnly")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        errors.push(format!(
+            "{path} is readOnly and cannot be sent in a request"
+        ));
+        return;
+    }
+
+    if let Some(schemas) = schema.get("allOf").and_then(Value::as_array) {
+        for child_schema in schemas {
+            collect_read_only_request_fields(child_schema, value, path, errors);
+        }
+    }
+    for name in ["anyOf", "oneOf"] {
+        if let Some(schemas) = schema.get(name).and_then(Value::as_array) {
+            for child_schema in schemas
+                .iter()
+                .filter(|child_schema| schema_matches(child_schema, value))
+            {
+                collect_read_only_request_fields(child_schema, value, path, errors);
+            }
+        }
+    }
+
+    if let (Some(properties), Some(object)) = (
+        schema.get("properties").and_then(Value::as_object),
+        value.as_object(),
+    ) {
+        for (name, child_schema) in properties {
+            if let Some(child_value) = object.get(name) {
+                collect_read_only_request_fields(
+                    child_schema,
+                    child_value,
+                    &format!("{path}.{name}"),
+                    errors,
+                );
+            }
+        }
+    }
+
+    if let (Some(item_schema), Some(items)) = (schema.get("items"), value.as_array()) {
+        for (index, item) in items.iter().enumerate() {
+            collect_read_only_request_fields(
+                item_schema,
+                item,
+                &format!("{path}[{index}]"),
+                errors,
+            );
+        }
+    }
+
+    if let (Some(additional_schema), Some(object)) = (
+        schema
+            .get("additionalProperties")
+            .and_then(Value::as_object),
+        value.as_object(),
+    ) {
+        for (name, child_value) in object {
+            if !schema
+                .get("properties")
+                .and_then(Value::as_object)
+                .is_some_and(|properties| properties.contains_key(name))
+            {
+                collect_read_only_request_fields(
+                    &Value::Object(additional_schema.clone()),
+                    child_value,
+                    &format!("{path}.{name}"),
+                    errors,
+                );
+            }
+        }
     }
 }
 
