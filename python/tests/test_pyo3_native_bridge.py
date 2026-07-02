@@ -659,11 +659,26 @@ paths:
         self.assertTrue(service.tools_stats().history_available)
         self.assertTrue(service.update_service({"url": "https://updated.example.test/mcp"}))
         self.assertTrue(service.patch_service({"headers": {"X-Test": "1"}}))
-        self.assertFalse(hasattr(service, "update_config"))
-        self.assertFalse(hasattr(service, "patch_config"))
+        self.assertTrue(service.update_config({"url": "https://legacy.example.test/mcp"}))
+        self.assertTrue(service.patch_config({"headers": {"X-Legacy": "1"}}))
+        self.assertEqual(
+            inner.updates[-1],
+            ("demo", {"url": "https://legacy.example.test/mcp"}),
+        )
+        self.assertEqual(inner.patches[-1], ("demo", {"headers": {"X-Legacy": "1"}}))
         self.assertEqual(service.tools_stats().call_count, 1)
         self.assertEqual(service.tools_stats().error_count, 0)
         self.assertEqual(service.tools_stats().last_called_at, 20)
+        self.assertEqual(service.call_tool("echo", {"text": "service"}, return_extracted=True), "service")
+        self.assertEqual(asyncio.run(service.call_tool_async("echo", {"text": "async"})).text_output, "async")
+        with self.assertRaisesRegex(ValueError, "timeout"):
+            service.call_tool("echo", {"text": "service"}, timeout=10)
+        with self.assertRaisesRegex(NotImplementedError, "service-scoped hub"):
+            service.hub_http()
+        with self.assertRaisesRegex(NotImplementedError, "service-scoped hub"):
+            service.hub_sse()
+        with self.assertRaisesRegex(NotImplementedError, "service-scoped hub"):
+            service.hub_stdio()
 
         tool = service.find_tool("echo")
         self.assertEqual(tool.name, "echo")
@@ -729,12 +744,14 @@ paths:
             inner.patches,
             [
                 ("demo", {"headers": {"X-Test": "1"}}),
+                ("demo", {"headers": {"X-Legacy": "1"}}),
             ],
         )
         self.assertEqual(
             inner.updates,
             [
                 ("demo", {"url": "https://updated.example.test/mcp"}),
+                ("demo", {"url": "https://legacy.example.test/mcp"}),
                 ("demo", {"description": "patched"}),
             ],
         )
