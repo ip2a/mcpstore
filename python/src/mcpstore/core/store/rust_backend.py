@@ -1006,6 +1006,12 @@ class RustStoreBackend:
     def cache_inspect(self) -> Dict[str, Any]:
         return _record_value(self._inner.cache_inspect())
 
+    def reset_cache_request_metrics(self) -> bool:
+        if not hasattr(self._inner, "reset_cache_request_metrics"):
+            raise NotImplementedError("Rust core does not expose resettable cache request metrics")
+        self._inner.reset_cache_request_metrics()
+        return True
+
     def reset_config(self) -> bool:
         self._inner.reset_config()
         return True
@@ -1996,19 +2002,22 @@ class RustRegistryFacade:
         relation_count = len(inspect.get("relations", []) or [])
         state_count = len(inspect.get("states", []) or [])
         event_count = len(inspect.get("events", []) or [])
+        metrics = inspect.get("request_metrics") or {}
         return _record_value(
             {
                 "backend": inspect.get("backend"),
                 "namespace": inspect.get("namespace"),
-                "request_metrics_available": False,
-                "total_requests": None,
-                "hits": None,
-                "misses": None,
-                "hit_rate": None,
-                "avg_latency_ms": None,
-                "p50_latency_ms": None,
-                "p95_latency_ms": None,
-                "p99_latency_ms": None,
+                "request_metrics_available": bool(metrics.get("available")),
+                "request_metrics_scope": metrics.get("scope"),
+                "total_requests": metrics.get("total_requests"),
+                "hits": metrics.get("hits"),
+                "misses": metrics.get("misses"),
+                "errors": metrics.get("errors"),
+                "hit_rate": metrics.get("hit_rate"),
+                "avg_latency_ms": metrics.get("avg_latency_ms"),
+                "p50_latency_ms": metrics.get("p50_latency_ms"),
+                "p95_latency_ms": metrics.get("p95_latency_ms"),
+                "p99_latency_ms": metrics.get("p99_latency_ms"),
                 "total_size_bytes": None,
                 "entity_count": entity_count,
                 "relation_count": relation_count,
@@ -2021,7 +2030,7 @@ class RustRegistryFacade:
         return await self.get_cache_statistics()
 
     async def reset_cache_statistics(self) -> bool:
-        raise NotImplementedError("Rust cache inspect does not expose resettable request metrics")
+        return self._backend.reset_cache_request_metrics()
 
     async def switch_backend(self, backend: Any) -> bool:
         self._backend.switch_cache(self._cache_config_from_backend(backend))

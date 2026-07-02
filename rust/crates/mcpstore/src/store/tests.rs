@@ -4041,6 +4041,19 @@ async fn cache_inspect_includes_session_collections() {
             .iter()
             .any(|value| value.as_str() == Some(expected.as_str())));
     }
+    assert_eq!(inspect["request_metrics"]["available"], true);
+    assert!(
+        inspect["request_metrics"]["total_requests"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+
+    store.reset_cache_request_metrics().await.unwrap();
+    let after_reset = store.cache_inspect().await.unwrap();
+    assert_eq!(after_reset["request_metrics"]["total_requests"], 0);
+    assert_eq!(after_reset["request_metrics"]["hits"], 0);
+    assert_eq!(after_reset["request_metrics"]["misses"], 0);
 
     std::fs::remove_file(path).ok();
 }
