@@ -2616,6 +2616,35 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         with self.assertRaises(AttributeError):
             missing.reset_mcp_json_scope("agents")
 
+    def test_session_context_methods_require_current_rust_core_apis(self):
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        class FakeInner:
+            def find_session(self, session_id, scope, agent_id):
+                return {
+                    "session_id": session_id,
+                    "session_key": f"{scope}:{agent_id or 'store'}:{session_id}",
+                    "scope": scope,
+                    "agent_id": agent_id,
+                    "metadata": {},
+                    "lease_seconds": 3600,
+                }
+
+        store = RustStoreBackend(FakeInner())
+        context = store.for_store()
+        session = store.get_session(context, "active")
+
+        with self.assertRaises(AttributeError):
+            store.set_active_session(context, session)
+        with self.assertRaises(AttributeError):
+            store.active_session(context)
+        with self.assertRaises(AttributeError):
+            store.enable_auto_session(context, session)
+        with self.assertRaises(AttributeError):
+            store.disable_auto_session(context)
+        with self.assertRaises(AttributeError):
+            store.is_auto_session_enabled(context)
+
     def test_registry_facade_delegates_to_rust_cache_surface(self):
         import asyncio
 
