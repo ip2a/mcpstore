@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import tomllib
 import types
 from pathlib import Path
@@ -1342,6 +1343,30 @@ paths:
                 self.session_statuses[session_key] = status
                 return status
 
+            def close_sessions(self, scope=None, agent_id=None, reason=None):
+                return [
+                    self.close_session(entity["session_key"], reason)
+                    for entity in self.list_sessions(scope, agent_id)
+                ]
+
+            def cleanup_sessions(self, scope=None, agent_id=None):
+                return {
+                    "refreshed_sessions": len(self.list_sessions(scope, agent_id)),
+                    "expired_sessions": 0,
+                    "cleared_active_session": False,
+                    "cleared_auto_session": False,
+                }
+
+            def restart_sessions(self, scope=None, agent_id=None):
+                restarted = []
+                for entity in self.list_sessions(scope, agent_id):
+                    for service in self.list_session_services(entity["session_key"]):
+                        service_name = service["service_global_name"]
+                        if service_name not in restarted:
+                            self.restart_service(service_name)
+                            restarted.append(service_name)
+                return {"restarted_services": restarted}
+
             def bind_service_to_session(self, session_key, service_name):
                 services = self.bindings.setdefault(session_key, [])
                 if service_name not in services:
@@ -1595,6 +1620,38 @@ paths:
         state = store.disable_auto_session_for_context("store", None)
         self.assertIsNone(state["auto_session_key"])
         self.assertFalse(store.is_auto_session_enabled_for_context("store", None))
+        self.assertIsNone(store.get_active_session_for_context("store", None))
+
+    def test_pyo3_session_batch_lifecycle_is_rust_backed(self):
+        from mcpstore._rust import MCPStore
+
+        workdir = Path(tempfile.mkdtemp(prefix="mcpstore-pyo3-session-batch-"))
+        config_path = str(workdir / "mcp.json")
+        store = MCPStore.setup_with_options(config_path, "local", "memory", None, "session-batch")
+
+        first = store.create_session("first", "store", None, 30, {})
+        second = store.create_session("second", "store", None, 30, {})
+        agent = store.create_session("first", "agent", "agent-a", 30, {})
+        store.set_active_session_for_context(first["session_key"], "store", None)
+        store.enable_auto_session_for_context(second["session_key"], "store", None)
+
+        statuses = store.close_sessions("store", None, "done")
+
+        self.assertEqual(len(statuses), 2)
+        self.assertTrue(all(status["status"] == "closed" for status in statuses))
+        self.assertEqual(store.get_session_status(agent["session_key"])["status"], "active")
+        self.assertIsNone(store.get_active_session_for_context("store", None))
+        self.assertFalse(store.is_auto_session_enabled_for_context("store", None))
+
+        expired = store.create_session("expired", "store", None, 1, {})
+        store.set_active_session_for_context(expired["session_key"], "store", None)
+        time.sleep(2)
+
+        report = store.cleanup_sessions("store", None)
+
+        self.assertGreaterEqual(report["refreshed_sessions"], 3)
+        self.assertEqual(report["expired_sessions"], 1)
+        self.assertTrue(report["cleared_active_session"])
         self.assertIsNone(store.get_active_session_for_context("store", None))
 
     def test_pyo3_session_bridge_shares_redis_backend_namespace_when_available(self):

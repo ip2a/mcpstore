@@ -1374,6 +1374,30 @@ class RustStoreBackend:
         status = self._inner.close_session(session.session_key, reason)
         return _record_value(status)
 
+    def close_sessions(self, context: "RustStoreContext", reason: Optional[str] = None) -> List[Dict[str, Any]]:
+        statuses = self._inner.close_sessions(
+            self._session_scope(context),
+            self._session_agent_id(context),
+            reason,
+        )
+        return _record_value(statuses)
+
+    def cleanup_sessions(self, context: "RustStoreContext") -> Dict[str, Any]:
+        return _record_value(
+            self._inner.cleanup_sessions(
+                self._session_scope(context),
+                self._session_agent_id(context),
+            )
+        )
+
+    def restart_sessions(self, context: "RustStoreContext") -> Dict[str, Any]:
+        return _record_value(
+            self._inner.restart_sessions(
+                self._session_scope(context),
+                self._session_agent_id(context),
+            )
+        )
+
     def bind_service_to_session(self, session: "RustSession", service_name: str) -> Dict[str, Any]:
         relation = self._inner.bind_service_to_session(session.session_key, service_name)
         return _record_value(relation)
@@ -2643,24 +2667,15 @@ class RustStoreContext:
         return self._backend.is_auto_session_enabled(self)
 
     def close_all_sessions(self) -> "RustStoreContext":
-        for session in self.list_sessions():
-            session.close_session()
-        self._backend.set_active_session(self, None)
-        self._backend.disable_auto_session(self)
+        self._backend.close_sessions(self)
         return self
 
     def cleanup_sessions(self) -> "RustStoreContext":
-        for session in self.list_sessions():
-            self._backend.get_session_status(session)
-        active = self.active_session
-        if active is not None and not active.is_active:
-            self._backend.set_active_session(self, None)
-            self._backend.disable_auto_session(self)
+        self._backend.cleanup_sessions(self)
         return self
 
     def restart_sessions(self) -> "RustStoreContext":
-        for session in self.list_sessions():
-            session.restart_session()
+        self._backend.restart_sessions(self)
         return self
 
     def list_services(self) -> List[Dict[str, Any]]:
