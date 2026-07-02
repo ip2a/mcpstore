@@ -2326,7 +2326,17 @@ async fn openapi_tools_validate_input_schema_before_request() {
                                         "code": { "type": "string", "maxLength": 4 },
                                         "price": { "type": "number", "minimum": 0, "exclusiveMinimum": true },
                                         "discount": { "type": "number", "exclusiveMaximum": 1 },
-                                        "tags": { "type": "array", "minItems": 1, "maxItems": 2, "items": { "type": "string", "minLength": 2 } }
+                                        "quantity": { "type": "integer", "multipleOf": 5 },
+                                        "tags": { "type": "array", "minItems": 1, "maxItems": 2, "uniqueItems": true, "items": { "type": "string", "minLength": 2 } },
+                                        "metadata": {
+                                            "type": "object",
+                                            "properties": { "owner": { "type": "string" } },
+                                            "additionalProperties": false
+                                        },
+                                        "labels": {
+                                            "type": "object",
+                                            "additionalProperties": { "type": "string", "minLength": 2 }
+                                        }
                                     }
                                 }
                             }
@@ -2367,7 +2377,7 @@ async fn openapi_tools_validate_input_schema_before_request() {
             serde_json::json!({
                 "limit": 0,
                 "status": "draft",
-                "body": { "name": "x", "code": "abcde", "price": 0, "discount": 1, "tags": [] }
+                "body": { "name": "x", "code": "abcde", "price": 0, "discount": 1, "quantity": 7, "tags": [], "metadata": { "extra": true }, "labels": { "color": "r" } }
             }),
         )
         .await
@@ -2379,7 +2389,10 @@ async fn openapi_tools_validate_input_schema_before_request() {
     assert!(invalid_constraints.contains("body.code length must be at most 4"));
     assert!(invalid_constraints.contains("body.price must be greater than 0"));
     assert!(invalid_constraints.contains("body.discount must be less than 1"));
+    assert!(invalid_constraints.contains("body.quantity must be a multiple of 5"));
     assert!(invalid_constraints.contains("body.tags must contain at least 1 item(s)"));
+    assert!(invalid_constraints.contains("body.metadata.extra is not allowed"));
+    assert!(invalid_constraints.contains("body.labels.color length must be at least 2"));
 
     let too_many_items = store
         .call_tool(
@@ -2388,7 +2401,7 @@ async fn openapi_tools_validate_input_schema_before_request() {
             serde_json::json!({
                 "limit": 21,
                 "status": "draft",
-                "body": { "name": "item-123", "code": "abcd", "price": 1, "discount": 0.5, "tags": ["a", "bb", "cc"] }
+                "body": { "name": "item-123", "code": "abcd", "price": 1, "discount": 0.5, "quantity": 10, "tags": ["a", "bb", "cc"] }
             }),
         )
         .await
@@ -2398,6 +2411,21 @@ async fn openapi_tools_validate_input_schema_before_request() {
     assert!(too_many_items.contains("body.tags must contain at most 2 item(s)"));
     assert!(too_many_items.contains("body.tags[0] length must be at least 2"));
 
+    let duplicate_items = store
+        .call_tool(
+            "validation",
+            "createValidatedItem",
+            serde_json::json!({
+                "limit": 10,
+                "status": "draft",
+                "body": { "name": "item-123", "code": "abcd", "price": 1, "discount": 0.5, "quantity": 10, "tags": ["bb", "bb"] }
+            }),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(duplicate_items.contains("body.tags must contain unique items"));
+
     let call_result = store
         .call_tool(
             "validation",
@@ -2405,7 +2433,7 @@ async fn openapi_tools_validate_input_schema_before_request() {
             serde_json::json!({
                 "limit": 10,
                 "status": "draft",
-                "body": { "name": "item-123", "code": "abcd", "price": 1.5, "discount": 0.5, "tags": ["fruit"] }
+                "body": { "name": "item-123", "code": "abcd", "price": 1.5, "discount": 0.5, "quantity": 10, "tags": ["fruit"], "metadata": { "owner": "ops" }, "labels": { "color": "red" } }
             }),
         )
         .await
