@@ -1103,6 +1103,7 @@ async fn db_source_queues_control_requests_for_mutation_variants() {
     store.disconnect_service("svc-disconnect").await.unwrap();
     store.restart_service("svc-restart").await.unwrap();
     store.reset_agent_config("agent-a").await.unwrap();
+    store.reset_mcp_json_scope(Some("agent-a")).await.unwrap();
     store.reset_config().await.unwrap();
 
     let events = store
@@ -1110,7 +1111,7 @@ async fn db_source_queues_control_requests_for_mutation_variants() {
         .get_all_events_async(CONTROL_REQUEST_EVENT_TYPE)
         .await
         .unwrap();
-    assert_eq!(events.len(), 11);
+    assert_eq!(events.len(), 12);
 
     let queued_add = events
         .values()
@@ -1177,6 +1178,16 @@ async fn db_source_queues_control_requests_for_mutation_variants() {
         serde_json::json!("agent-a")
     );
     assert_eq!(agent_reset["status"], serde_json::json!("pending"));
+
+    let mcp_json_reset = events
+        .values()
+        .find(|event| event["type"] == serde_json::json!("McpJsonResetRequested"))
+        .unwrap();
+    assert_eq!(
+        mcp_json_reset["payload"]["scope"],
+        serde_json::json!("agent-a")
+    );
+    assert_eq!(mcp_json_reset["status"], serde_json::json!("pending"));
 
     assert!(!std::path::Path::new(&path).exists());
     assert!(store
@@ -1269,6 +1280,83 @@ async fn agent_scoped_config_view_and_reset_do_not_clear_store_services() {
         scoped_after_reset["agents"]["agent-a"],
         serde_json::json!([])
     );
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
+async fn scoped_mcp_json_reset_removes_services_for_requested_scope() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some("test-scoped-mcp-json-reset".to_string()),
+    })
+    .unwrap();
+
+    store.add_service("global", stdio_config()).await.unwrap();
+    let agent_a_service = store
+        .add_service_for_agent("agent-a", "alpha", stdio_config())
+        .await
+        .unwrap();
+    let agent_b_service = store
+        .add_service_for_agent("agent-b", "beta", stdio_config())
+        .await
+        .unwrap();
+
+    store
+        .reset_mcp_json_scope(Some(GLOBAL_AGENT_STORE))
+        .await
+        .unwrap();
+    let after_global_reset = store.show_config().await.unwrap();
+    assert!(after_global_reset["mcpServers"].get("global").is_none());
+    assert!(after_global_reset["mcpServers"]
+        .get(&agent_a_service)
+        .is_some());
+    assert!(after_global_reset["mcpServers"]
+        .get(&agent_b_service)
+        .is_some());
+    assert_eq!(
+        after_global_reset["agents"]["agent-a"],
+        serde_json::json!([agent_a_service.clone()])
+    );
+    assert!(store.find_service("global").await.is_none());
+
+    store.reset_mcp_json_scope(Some("agent-a")).await.unwrap();
+    let after_agent_reset = store.show_config().await.unwrap();
+    assert!(after_agent_reset["mcpServers"]
+        .get(&agent_a_service)
+        .is_none());
+    assert!(after_agent_reset["mcpServers"]
+        .get(&agent_b_service)
+        .is_some());
+    assert!(after_agent_reset["agents"].get("agent-a").is_none());
+    assert_eq!(
+        after_agent_reset["agents"]["agent-b"],
+        serde_json::json!([agent_b_service.clone()])
+    );
+    assert!(store.find_service(&agent_a_service).await.is_none());
+    assert!(store
+        .cache()
+        .get_relation("agent_services", "agent-a")
+        .await
+        .unwrap()
+        .is_none());
+
+    store.reset_mcp_json_scope(None).await.unwrap();
+    let after_all_reset = store.show_config().await.unwrap();
+    assert!(after_all_reset["mcpServers"]
+        .as_object()
+        .unwrap()
+        .is_empty());
+    assert!(after_all_reset
+        .get("agents")
+        .and_then(serde_json::Value::as_object)
+        .map(|agents| agents.is_empty())
+        .unwrap_or(true));
+    assert!(store.list_services().await.is_empty());
 
     std::fs::remove_file(path).ok();
 }

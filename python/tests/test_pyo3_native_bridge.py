@@ -482,6 +482,7 @@ paths:
                 self.updates = []
                 self.reset_all = False
                 self.reset_agents = []
+                self.reset_mcp_scopes = []
 
             def list_tools_scoped(self, agent_id=None, service_name=None, *, filter="available"):
                 return [
@@ -632,6 +633,9 @@ paths:
 
             def reset_agent_config(self, agent_id):
                 self.reset_agents.append(agent_id)
+
+            def reset_mcp_json_scope(self, scope=None):
+                self.reset_mcp_scopes.append(scope)
 
         inner = FakeBackend()
         backend = RustStoreBackend(inner)
@@ -2528,6 +2532,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 self.transforms = {}
                 self.updated_services = {}
                 self.removed_services = []
+                self.reset_mcp_scopes = []
 
             def find_session(self, session_id, scope, agent_id):
                 return self.sessions.get((scope, agent_id, session_id))
@@ -2708,6 +2713,10 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             def show_mcpjson(self):
                 return {"mcpServers": {"svc": {"command": "python"}}}
 
+            def reset_mcp_json_scope(self, scope=None):
+                self.reset_mcp_scopes.append(scope)
+                return True
+
             def resolve_tool_for_agent(self, agent_id, user_input):
                 return {"global_service_name": "svc", "canonical_tool_name": "echo"}
 
@@ -2842,6 +2851,9 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             )["options"]["ref_cache"]["enabled"],
             False,
         )
+        self.assertTrue(operations.reset_mcp_json_file())
+        self.assertTrue(asyncio.run(operations.reset_mcp_json_file_async("agent_a")))
+        self.assertEqual(fake_backend.reset_mcp_scopes, ["all", "agent_a"])
 
         session = context.with_session("compat")
 

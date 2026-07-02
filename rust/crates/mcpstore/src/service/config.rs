@@ -124,6 +124,68 @@ impl MCPStore {
         Ok(())
     }
 
+    pub async fn reset_mcp_json_scope(&self, scope: Option<&str>) -> Result<()> {
+        let scope = scope.unwrap_or("all");
+        if scope == "all" {
+            return self.reset_config().await;
+        }
+        if self.source_mode == SourceMode::Db {
+            return self
+                .queue_control_request(
+                    "McpJsonResetRequested",
+                    serde_json::json!({ "scope": scope }),
+                )
+                .await;
+        }
+
+        let mut cfg = self.config_manager.load_or_default();
+        let service_names: Vec<String> = if scope == GLOBAL_AGENT_STORE {
+            cfg.mcp_servers
+                .keys()
+                .filter(|name| {
+                    parse_agent_scoped(name)
+                        .map(|parsed| parsed.agent_id.is_none())
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .collect()
+        } else {
+            cfg.mcp_servers
+                .keys()
+                .filter(|name| {
+                    parse_agent_scoped(name)
+                        .map(|parsed| parsed.agent_id.as_deref() == Some(scope))
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .collect()
+        };
+
+        for service_name in service_names {
+            self.pool.remove(&service_name).await.ok();
+            self.registry.unregister(&service_name).await;
+            self.cache_service_removed(&service_name).await?;
+            cfg.mcp_servers.remove(&service_name);
+        }
+        if scope != GLOBAL_AGENT_STORE {
+            self.registry.clear_agent_scope(scope).await;
+            self.cache.delete_relation("agent_services", scope).await?;
+            cfg.agents.remove(scope);
+        } else {
+            let remaining_services = cfg
+                .mcp_servers
+                .keys()
+                .cloned()
+                .collect::<std::collections::HashSet<_>>();
+            cfg.agents.retain(|_, services| {
+                services.retain(|service_name| remaining_services.contains(service_name));
+                !services.is_empty()
+            });
+        }
+        self.config_manager.save(&cfg)?;
+        Ok(())
+    }
+
     pub async fn load_from_config(&self) -> Result<()> {
         if self.source_mode == SourceMode::Db {
             return self.load_from_db().await;

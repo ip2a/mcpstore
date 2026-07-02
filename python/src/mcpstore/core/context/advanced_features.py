@@ -64,12 +64,10 @@ class AdvancedFeaturesMixin:
         return getattr(self, "_last_openapi_import", None)
 
     def reset_mcp_json_file(self) -> bool:
-        return self._rust_context().reset_config()
+        return self._rust_context().reset_mcp_json_scope("all")
 
     async def reset_mcp_json_file_async(self, scope: str = "all") -> bool:
-        if scope not in (None, "all"):
-            raise NotImplementedError("Scoped MCP JSON reset is not exposed by the Rust-backed facade")
-        return self.reset_mcp_json_file()
+        return self._rust_context().reset_mcp_json_scope(scope)
 
     def _rust_context(self):
         return getattr(self, "_context", self)
