@@ -750,6 +750,19 @@ class RustStoreBackend:
             )
         )
 
+    def bundle_openapi_artifact(self, spec_url: str) -> Dict[str, Any]:
+        return _record_value(self._inner.bundle_openapi_artifact(spec_url))
+
+    def bundle_openapi_artifact_from_spec(self, spec_url: str, spec: Any) -> Dict[str, Any]:
+        if isinstance(spec, str):
+            return _record_value(self._inner.bundle_openapi_artifact_from_spec(spec_url, spec))
+        return _record_value(
+            self._inner.bundle_openapi_artifact_from_spec(
+                spec_url,
+                self._normalize_config_dict(spec, "OpenAPI spec"),
+            )
+        )
+
     def get_openapi_import(self, name: str) -> Optional[Dict[str, Any]]:
         return _record_value(self._inner.get_openapi_import(name))
 
@@ -2703,6 +2716,12 @@ class RustStoreContext:
 
     def bundle_openapi_spec_from_spec(self, spec_url: str, spec: Any) -> Dict[str, Any]:
         return self._backend.bundle_openapi_spec_from_spec(spec_url, spec)
+
+    def bundle_openapi_artifact(self, spec_url: str) -> Dict[str, Any]:
+        return self._backend.bundle_openapi_artifact(spec_url)
+
+    def bundle_openapi_artifact_from_spec(self, spec_url: str, spec: Any) -> Dict[str, Any]:
+        return self._backend.bundle_openapi_artifact_from_spec(spec_url, spec)
 
     def call_tool(
         self,

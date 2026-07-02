@@ -1,5 +1,6 @@
 use crate::openapi::{
     analyze_openapi_spec, parse_openapi_spec_text, resolve_openapi_local_refs,
+    OpenApiBundleArtifact, OpenApiBundleDependency, OpenApiBundleDiagnostic, OpenApiBundleDocument,
     OpenApiImportOptions, OpenApiImportResult,
 };
 use crate::openapi_runtime::openapi_tool_infos;
@@ -147,6 +148,32 @@ impl MCPStore {
     ) -> Result<serde_json::Value> {
         let client = reqwest::Client::new();
         bundle_openapi_external_refs(&client, spec_url, spec).await
+    }
+
+    pub async fn bundle_openapi_artifact(&self, spec_url: &str) -> Result<OpenApiBundleArtifact> {
+        let client = reqwest::Client::new();
+        let spec_text = fetch_openapi_spec_text(&client, spec_url).await?;
+        self.bundle_openapi_artifact_from_text(spec_url, &spec_text)
+            .await
+    }
+
+    pub async fn bundle_openapi_artifact_from_text(
+        &self,
+        spec_url: &str,
+        spec_text: &str,
+    ) -> Result<OpenApiBundleArtifact> {
+        let spec = parse_openapi_spec_text(spec_text)?;
+        self.bundle_openapi_artifact_from_value(spec_url, spec)
+            .await
+    }
+
+    pub async fn bundle_openapi_artifact_from_value(
+        &self,
+        spec_url: &str,
+        spec: serde_json::Value,
+    ) -> Result<OpenApiBundleArtifact> {
+        let client = reqwest::Client::new();
+        bundle_openapi_external_ref_artifact(&client, spec_url, spec).await
     }
 
     pub(crate) async fn register_openapi_virtual_service(
@@ -321,10 +348,24 @@ async fn bundle_openapi_external_refs(
     document_url: &str,
     spec: serde_json::Value,
 ) -> Result<serde_json::Value> {
-    let resolver = OpenApiExternalRefResolver::new(client);
-    resolver
+    Ok(
+        bundle_openapi_external_ref_artifact(client, document_url, spec)
+            .await?
+            .bundle,
+    )
+}
+
+async fn bundle_openapi_external_ref_artifact(
+    client: &reqwest::Client,
+    document_url: &str,
+    spec: serde_json::Value,
+) -> Result<OpenApiBundleArtifact> {
+    let root_document = document_label(document_url);
+    let resolver = OpenApiExternalRefResolver::new(client, root_document.clone());
+    let bundle = resolver
         .resolve_external_refs(document_url.to_string(), spec, 0, Vec::new())
-        .await
+        .await?;
+    Ok(resolver.into_artifact(document_url.to_string(), root_document, bundle)?)
 }
 
 async fn fetch_openapi_spec_text(client: &reqwest::Client, spec_url: &str) -> Result<String> {
@@ -354,14 +395,58 @@ async fn fetch_openapi_spec_text(client: &reqwest::Client, spec_url: &str) -> Re
 struct OpenApiExternalRefResolver<'a> {
     client: &'a reqwest::Client,
     documents: Mutex<HashMap<String, serde_json::Value>>,
+    loaded_documents: Mutex<Vec<String>>,
+    dependencies: Mutex<Vec<OpenApiBundleDependency>>,
+    diagnostics: Mutex<Vec<OpenApiBundleDiagnostic>>,
 }
 
 impl<'a> OpenApiExternalRefResolver<'a> {
-    fn new(client: &'a reqwest::Client) -> Self {
+    fn new(client: &'a reqwest::Client, root_document: String) -> Self {
         Self {
             client,
             documents: Mutex::new(HashMap::new()),
+            loaded_documents: Mutex::new(vec![root_document]),
+            dependencies: Mutex::new(Vec::new()),
+            diagnostics: Mutex::new(Vec::new()),
         }
+    }
+
+    fn into_artifact(
+        self,
+        spec_url: String,
+        root_document: String,
+        bundle: serde_json::Value,
+    ) -> Result<OpenApiBundleArtifact> {
+        let mut urls = self.loaded_documents.into_inner().map_err(|_| {
+            StoreError::Other("OpenAPI bundle document list lock poisoned".to_string())
+        })?;
+        urls.sort();
+        urls.dedup();
+        let documents = urls
+            .into_iter()
+            .map(|url| OpenApiBundleDocument {
+                role: if url == root_document {
+                    "root"
+                } else {
+                    "external"
+                }
+                .to_string(),
+                url,
+            })
+            .collect();
+        let dependencies = self.dependencies.into_inner().map_err(|_| {
+            StoreError::Other("OpenAPI bundle dependency list lock poisoned".to_string())
+        })?;
+        let diagnostics = self.diagnostics.into_inner().map_err(|_| {
+            StoreError::Other("OpenAPI bundle diagnostics lock poisoned".to_string())
+        })?;
+        Ok(OpenApiBundleArtifact {
+            spec_url,
+            bundle,
+            documents,
+            dependencies,
+            diagnostics,
+        })
     }
 
     fn resolve_external_refs(
@@ -457,6 +542,7 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         ref_stack: Vec<String>,
     ) -> Result<serde_json::Value> {
         let (target_url, pointer) = split_external_ref(document_url, reference)?;
+        self.record_dependency(document_url, reference, &target_url, pointer.as_deref())?;
         let ref_key = match &pointer {
             Some(pointer) => format!("{target_url}#{pointer}"),
             None => target_url.clone(),
@@ -536,6 +622,7 @@ impl<'a> OpenApiExternalRefResolver<'a> {
                 "OpenAPI external $ref document decode failed for {target_url}: {err}"
             ))
         })?;
+        self.record_loaded_document(target_url)?;
         self.documents
             .lock()
             .map_err(|_| {
@@ -543,6 +630,37 @@ impl<'a> OpenApiExternalRefResolver<'a> {
             })?
             .insert(target_url.to_string(), document.clone());
         Ok(document)
+    }
+
+    fn record_dependency(
+        &self,
+        source_document: &str,
+        source_ref: &str,
+        target_document: &str,
+        pointer: Option<&str>,
+    ) -> Result<()> {
+        self.dependencies
+            .lock()
+            .map_err(|_| {
+                StoreError::Other("OpenAPI bundle dependency list lock poisoned".to_string())
+            })?
+            .push(OpenApiBundleDependency {
+                source_document: document_label(source_document),
+                source_ref: source_ref.to_string(),
+                target_document: target_document.to_string(),
+                pointer: pointer.map(ToString::to_string),
+            });
+        Ok(())
+    }
+
+    fn record_loaded_document(&self, target_url: &str) -> Result<()> {
+        self.loaded_documents
+            .lock()
+            .map_err(|_| {
+                StoreError::Other("OpenAPI bundle document list lock poisoned".to_string())
+            })?
+            .push(target_url.to_string());
+        Ok(())
     }
 }
 
@@ -587,6 +705,10 @@ fn normalize_document_target(document_url: &str) -> Result<String> {
             "Unsupported OpenAPI external $ref URL: {document_url}"
         )))
     }
+}
+
+fn document_label(document_url: &str) -> String {
+    normalize_document_target(document_url).unwrap_or_else(|_| document_url.to_string())
 }
 
 fn join_external_ref_target(document_url: &str, target: &str, reference: &str) -> Result<String> {

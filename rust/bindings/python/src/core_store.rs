@@ -764,6 +764,52 @@ impl PyMCPStore {
         serde_value_to_py(py, result)
     }
 
+    fn bundle_openapi_artifact(&self, py: Python<'_>, spec_url: &str) -> PyResult<Py<PyAny>> {
+        let result = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.bundle_openapi_artifact(spec_url))
+            .map_err(map_store_err)?;
+        serde_value_to_py(
+            py,
+            serde_json::to_value(result).map_err(|err| {
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "OpenAPI bundle artifact conversion failed: {err}"
+                ))
+            })?,
+        )
+    }
+
+    fn bundle_openapi_artifact_from_spec(
+        &self,
+        py: Python<'_>,
+        spec_url: &str,
+        spec: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyAny>> {
+        let result = if let Ok(spec_text) = spec.extract::<String>() {
+            pyo3_async_runtimes::tokio::get_runtime()
+                .block_on(
+                    self.inner
+                        .bundle_openapi_artifact_from_text(spec_url, &spec_text),
+                )
+                .map_err(map_store_err)?
+        } else {
+            let spec = py_to_serde_value(spec, "OpenAPI spec")?;
+            pyo3_async_runtimes::tokio::get_runtime()
+                .block_on(
+                    self.inner
+                        .bundle_openapi_artifact_from_value(spec_url, spec),
+                )
+                .map_err(map_store_err)?
+        };
+        serde_value_to_py(
+            py,
+            serde_json::to_value(result).map_err(|err| {
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                    "OpenAPI bundle artifact conversion failed: {err}"
+                ))
+            })?,
+        )
+    }
+
     fn get_openapi_import(&self, py: Python<'_>, name: &str) -> PyResult<Option<Py<PyAny>>> {
         let result = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.get_openapi_import(name))
