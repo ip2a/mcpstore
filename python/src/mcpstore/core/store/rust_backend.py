@@ -908,6 +908,9 @@ class RustStoreBackend:
     def list_openapi_imports(self) -> List[Dict[str, Any]]:
         return _record_value(self._inner.list_openapi_imports())
 
+    def last_openapi_import(self) -> Optional[Dict[str, Any]]:
+        return _record_value(self._inner.last_openapi_import())
+
     def call_tool(
         self,
         service_name: str,
@@ -3308,7 +3311,6 @@ class RustStoreContext:
             auth=auth,
             ref_cache=ref_cache,
         )
-        self._last_openapi_import = result
         return result
 
     def import_api(
@@ -3350,7 +3352,6 @@ class RustStoreContext:
             auth=auth,
             ref_cache=ref_cache,
         )
-        self._last_openapi_import = result
         return result
 
     def import_api_from_spec(
@@ -3380,7 +3381,7 @@ class RustStoreContext:
         return self._backend.list_openapi_imports()
 
     def last_openapi_import(self) -> Optional[Dict[str, Any]]:
-        return getattr(self, "_last_openapi_import", None)
+        return self._backend.last_openapi_import()
 
     def bundle_openapi_spec(
         self,

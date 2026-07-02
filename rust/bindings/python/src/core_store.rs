@@ -942,6 +942,24 @@ impl PyMCPStore {
             .collect()
     }
 
+    fn last_openapi_import(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
+        let result = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.last_openapi_import())
+            .map_err(map_store_err)?;
+        result
+            .map(|result| {
+                serde_value_to_py(
+                    py,
+                    serde_json::to_value(result).map_err(|err| {
+                        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                            "OpenAPI import result conversion failed: {err}"
+                        ))
+                    })?,
+                )
+            })
+            .transpose()
+    }
+
     fn find_service(&self, py: Python<'_>, name: &str) -> PyResult<Option<Py<PyAny>>> {
         let service =
             pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.find_service(name));
