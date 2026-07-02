@@ -120,6 +120,63 @@ paths:
         self.assertEqual(result["spec_info"]["title"], "YAML Facade")
         self.assertEqual(result["component_types"]["resources"], 1)
 
+    def test_python_facade_bundles_openapi_file_refs_via_rust(self):
+        from mcpstore import MCPStore
+
+        workdir = Path(tempfile.mkdtemp(prefix="mcpstore-openapi-bundle-"))
+        components_dir = workdir / "components"
+        components_dir.mkdir()
+        (components_dir / "shared.yaml").write_text(
+            """
+components:
+  schemas:
+    ItemId:
+      type: string
+      description: bundled local item id
+    Item:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/ItemId'
+""".strip(),
+            encoding="utf-8",
+        )
+        spec_path = workdir / "openapi.yaml"
+        spec_path.write_text(
+            """
+openapi: 3.0.0
+info:
+  title: Bundle Facade
+  version: '2026.1'
+servers:
+  - url: https://bundle.example.test
+paths:
+  /items:
+    get:
+      operationId: listBundledItems
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: components/shared.yaml#/components/schemas/Item
+""".strip(),
+            encoding="utf-8",
+        )
+
+        store = MCPStore.setup_store(str(workdir / "mcp.json"))
+        bundled = store.for_store().bundle_openapi_spec(spec_path.as_posix())
+
+        schema = bundled["paths"]["/items"]["get"]["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
+        self.assertEqual(bundled["info"]["title"], "Bundle Facade")
+        self.assertEqual(
+            schema["properties"]["id"],
+            {"type": "string", "description": "bundled local item id"},
+        )
+
     def test_python_facade_uses_native_bridge(self):
         from mcpstore import MCPStore
 
