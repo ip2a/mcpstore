@@ -494,6 +494,9 @@ fn validate_string_format(schema: &Value, text: &str, path: &str, errors: &mut V
         "uuid" if uuid::Uuid::parse_str(text).is_err() => {
             errors.push(format!("{path} must be a valid UUID"));
         }
+        "email" if !email_address::EmailAddress::is_valid(text) => {
+            errors.push(format!("{path} must be a valid email address"));
+        }
         "hostname" if !is_valid_hostname(text) => {
             errors.push(format!("{path} must be a valid hostname"));
         }
@@ -505,6 +508,9 @@ fn validate_string_format(schema: &Value, text: &str, path: &str, errors: &mut V
         }
         "uri" => validate_uri_format(text, path, errors),
         "url" => validate_url_format(text, path, errors),
+        "regex" if regex::Regex::new(text).is_err() => {
+            errors.push(format!("{path} must be a valid regular expression"));
+        }
         _ => {}
     }
 }
