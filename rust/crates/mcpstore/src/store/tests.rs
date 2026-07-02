@@ -2289,6 +2289,94 @@ async fn openapi_tools_reject_missing_required_arguments_before_request() {
 }
 
 #[tokio::test]
+async fn openapi_tools_honor_read_only_and_write_only_request_fields() {
+    let base_url = spawn_openapi_http_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-read-write-only-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let spec = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": { "title": "Read Write Only", "version": "2026.1" },
+        "servers": [{ "url": base_url }],
+        "paths": {
+            "/items": {
+                "post": {
+                    "operationId": "createReadWriteItem",
+                    "requestBody": {
+                        "required": true,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["id", "name", "secret"],
+                                    "properties": {
+                                        "id": { "type": "string", "readOnly": true },
+                                        "name": { "type": "string" },
+                                        "secret": { "type": "string", "writeOnly": true }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    store
+        .import_openapi_service_from_spec("readonly", "memory://readonly", spec)
+        .await
+        .unwrap();
+
+    let tools = store.list_tools("readonly").await.unwrap();
+    let tool = tools
+        .iter()
+        .find(|tool| tool.name == "createReadWriteItem")
+        .unwrap();
+    assert!(tool.input_schema["properties"]["body"]["properties"]
+        .get("id")
+        .is_none());
+    assert_eq!(
+        tool.input_schema["properties"]["body"]["properties"]["secret"]["writeOnly"],
+        serde_json::json!(true)
+    );
+    assert_eq!(
+        tool.input_schema["properties"]["body"]["required"],
+        serde_json::json!(["name", "secret"])
+    );
+
+    let read_only_error = store
+        .call_tool(
+            "readonly",
+            "createReadWriteItem",
+            serde_json::json!({
+                "body": { "id": "server-generated", "name": "apple", "secret": "token" }
+            }),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(read_only_error.contains("body.id is readOnly and cannot be sent in a request"));
+
+    let call_result = store
+        .call_tool(
+            "readonly",
+            "createReadWriteItem",
+            serde_json::json!({
+                "body": { "name": "apple", "secret": "token" }
+            }),
+        )
+        .await
+        .unwrap();
+    assert!(!call_result.is_error);
+}
+
+#[tokio::test]
 async fn openapi_tools_validate_input_schema_before_request() {
     let base_url = spawn_openapi_http_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
