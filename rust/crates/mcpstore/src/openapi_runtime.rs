@@ -477,6 +477,42 @@ fn validate_string_constraints(
             Err(err) => errors.push(format!("{path} has invalid pattern {pattern}: {err}")),
         }
     }
+    validate_string_format(schema, text, path, errors);
+}
+
+fn validate_string_format(schema: &Value, text: &str, path: &str, errors: &mut Vec<String>) {
+    let Some(format) = schema.get("format").and_then(Value::as_str) else {
+        return;
+    };
+    match format {
+        "date" if chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d").is_err() => {
+            errors.push(format!("{path} must match date format YYYY-MM-DD"));
+        }
+        "date-time" if chrono::DateTime::parse_from_rfc3339(text).is_err() => {
+            errors.push(format!("{path} must match RFC3339 date-time format"));
+        }
+        "uuid" if uuid::Uuid::parse_str(text).is_err() => {
+            errors.push(format!("{path} must be a valid UUID"));
+        }
+        "uri" => validate_uri_format(text, path, errors),
+        "url" => validate_url_format(text, path, errors),
+        _ => {}
+    }
+}
+
+fn validate_uri_format(text: &str, path: &str, errors: &mut Vec<String>) {
+    match text.parse::<http::Uri>() {
+        Ok(uri) if uri.scheme().is_some() => {}
+        _ => errors.push(format!("{path} must be a valid absolute URI")),
+    }
+}
+
+fn validate_url_format(text: &str, path: &str, errors: &mut Vec<String>) {
+    match text.parse::<http::Uri>() {
+        Ok(uri)
+            if matches!(uri.scheme_str(), Some("http" | "https")) && uri.authority().is_some() => {}
+        _ => errors.push(format!("{path} must be a valid HTTP(S) URL")),
+    }
 }
 
 fn validate_numeric_constraints(
