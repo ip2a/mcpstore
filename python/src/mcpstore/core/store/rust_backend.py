@@ -480,6 +480,46 @@ class RustStoreBackend:
     def for_agent(self, agent_id: str):
         return RustStoreContext(self, agent_id=agent_id)
 
+    def get_store_context(self) -> "RustStoreContext":
+        return self.for_store()
+
+    def get_health_status(self, agent_id: Optional[str] = None) -> Dict[str, Any]:
+        context = self.for_agent(agent_id) if agent_id else self.for_store()
+        return context.check_services()
+
+    def get_workspace_dir(self) -> Optional[str]:
+        config_path = self._config_path
+        return os.path.dirname(config_path) if config_path else None
+
+    def is_using_data_space(self) -> bool:
+        return bool(self._config_path)
+
+    async def initialize_cache_from_files(self) -> None:
+        raise NotImplementedError(
+            "initialize_cache_from_files() was part of the legacy Python file-cache bootstrap. "
+            "Use MCPStore.setup_store(...) so Rust core owns configuration loading and cache state."
+        )
+
+    async def process_tool_request(self, request: Any) -> Dict[str, Any]:
+        service_name = getattr(request, "service_name", None) or getattr(request, "service", None)
+        tool_name = getattr(request, "tool_name", None) or getattr(request, "name", None)
+        args = getattr(request, "args", None)
+        if args is None:
+            args = getattr(request, "arguments", None)
+        agent_id = getattr(request, "agent_id", None)
+
+        if not service_name:
+            raise ValueError("ToolExecutionRequest.service_name is required")
+        if not tool_name:
+            raise ValueError("ToolExecutionRequest.tool_name is required")
+
+        context = self.for_agent(agent_id) if agent_id else self.for_store()
+        try:
+            result = context.find_service(str(service_name)).call_tool(str(tool_name), args or {})
+            return _record_value({"success": True, "result": result, "error": None})
+        except Exception as error:
+            return _record_value({"success": False, "result": None, "error": str(error)})
+
     def namespace(self) -> str:
         return self._inner.namespace()
 

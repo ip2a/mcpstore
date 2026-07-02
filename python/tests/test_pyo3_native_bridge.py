@@ -3154,7 +3154,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         from mcpstore.core.context.tool_proxy import ToolProxy as ToolProxyModuleExport
         from mcpstore.core.context.tool_transformation import ToolTransformer as ToolTransformerModuleExport
         from mcpstore.core.context.types import ContextType as ContextTypeModuleExport
-        from mcpstore.core.models import ServiceConnectionState, ServiceInfo, TransportType
+        from mcpstore.core.models import ServiceConnectionState, ServiceInfo, ToolExecutionRequest, TransportType
         from mcpstore.core.store import (
             CacheProxy as StoreCacheProxy,
             ClientManager,
@@ -3638,6 +3638,23 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
 
         self.assertIs(store_proxy.get_context(), context)
         self.assertEqual(store_proxy.get_id(), "global_agent_store")
+        self.assertIsInstance(backend.get_store_context(), MCPStoreContext)
+        self.assertEqual(backend.get_health_status().svc, "connected")
+        self.assertEqual(backend.get_workspace_dir(), None)
+        self.assertFalse(backend.is_using_data_space())
+        tool_response = asyncio.run(
+            backend.process_tool_request(
+                ToolExecutionRequest(
+                    service_name="svc",
+                    tool_name="echo",
+                    args={"text": "store-process"},
+                )
+            )
+        )
+        self.assertTrue(tool_response.success)
+        self.assertEqual(tool_response.result.content[0].text, "store-process")
+        with self.assertRaisesRegex(NotImplementedError, "setup_store"):
+            asyncio.run(backend.initialize_cache_from_files())
         self.assertIn("list_services_async", dir(type(store_proxy)))
         self.assertIn("show_config_async", dir(type(store_proxy)))
         self.assertIn("list_tools_async", dir(type(store_proxy)))
