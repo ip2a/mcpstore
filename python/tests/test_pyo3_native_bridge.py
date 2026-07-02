@@ -3038,6 +3038,9 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 self.removed_services = []
                 self.reset_mcp_scopes = []
                 self.transform_helpers = []
+                self.closed_session_scopes = []
+                self.cleaned_session_scopes = []
+                self.restarted_session_scopes = []
                 self.services = {"svc": {"name": "svc", "transport": "stdio", "agent_id": None}}
 
             def find_session(self, session_id, scope, agent_id):
@@ -3281,6 +3284,21 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                     if stored_scope == scope and stored_agent_id == agent_id
                 ]
 
+            def close_sessions(self, scope, agent_id, reason=None):
+                self.closed_session_scopes.append((scope, agent_id, reason))
+                return [{"status": "closed", "session_key": entity["session_key"], "reason": reason} for entity in self.list_sessions(scope, agent_id)]
+
+            def cleanup_sessions(self, scope, agent_id):
+                self.cleaned_session_scopes.append((scope, agent_id))
+                return {"refreshed_sessions": len(self.list_sessions(scope, agent_id)), "expired_sessions": 0}
+
+            def restart_sessions(self, scope, agent_id):
+                self.restarted_session_scopes.append((scope, agent_id))
+                return {"restarted_services": ["svc"]}
+
+            def close_session(self, session_key, reason=None):
+                return {"status": "closed", "session_key": session_key, "reason": reason}
+
             def list_services_scoped(self, agent_id=None):
                 return [
                     {**service, "agent_id": agent_id}
@@ -3472,6 +3490,13 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             self.assertEqual(context.for_langchain_with_session("shared"), "shared")
             self.assertEqual(context.for_langchain_with_shared_session("user-2"), "shared")
             self.assertEqual(context.for_langchain_with_auto_session(), "auto_session_default")
+        self.assertTrue(operations.is_session_auto())
+        self.assertIs(operations.cleanup_sessions(), context)
+        self.assertEqual(fake_backend.cleaned_session_scopes[-1], ("store", None))
+        self.assertIs(operations.restart_sessions(), context)
+        self.assertEqual(fake_backend.restarted_session_scopes[-1], ("store", None))
+        self.assertIs(operations.close_all_sessions(), context)
+        self.assertEqual(fake_backend.closed_session_scopes[-1], ("store", None, None))
         with self.assertRaisesRegex(ValueError, "Session not found"):
             operations.for_langchain_with_session("missing", create_if_not_exists=False)
         add_details = context.add_service_with_details({"name": "new", "command": "python"})
