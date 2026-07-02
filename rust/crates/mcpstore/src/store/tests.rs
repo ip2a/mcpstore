@@ -1466,6 +1466,130 @@ async fn openapi_import_bundles_external_yaml_http_refs() {
 }
 
 #[tokio::test]
+async fn openapi_import_bundles_external_file_refs() {
+    let base_url = spawn_openapi_http_fixture().await;
+    let fixture_dir = std::env::temp_dir().join(format!(
+        "mcpstore-openapi-file-ref-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(fixture_dir.join("components")).unwrap();
+    let spec_path = fixture_dir.join("openapi.yaml");
+    let components_path = fixture_dir.join("components").join("shared.yaml");
+    std::fs::write(
+        &components_path,
+        r#"components:
+  parameters:
+    ItemId:
+      name: id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/ItemId'
+  schemas:
+    ItemId:
+      type: string
+      description: local file item id
+    Item:
+      type: object
+      properties:
+        sku:
+          $ref: '#/components/schemas/ItemId'
+        name:
+          type: string
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        &spec_path,
+        format!(
+            r#"openapi: 3.0.0
+info:
+  title: Local File Refs
+  version: '2026.1'
+servers:
+  - url: {base_url}
+paths:
+  /items/{{id}}:
+    parameters:
+      - $ref: components/shared.yaml#/components/parameters/ItemId
+    get:
+      operationId: getItemByLocalFileRef
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: components/shared.yaml#/components/schemas/Item
+"#
+        ),
+    )
+    .unwrap();
+
+    let file_url = reqwest::Url::from_file_path(&spec_path)
+        .unwrap()
+        .to_string();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-file-ref-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+
+    let result = store
+        .import_openapi_service("file-ref", &file_url)
+        .await
+        .unwrap();
+
+    assert_eq!(result.total_endpoints, 1);
+    assert_eq!(result.component_types.resource_templates, 1);
+    let component = &result.components[0];
+    assert_eq!(component.name, "getItemByLocalFileRef");
+    assert_eq!(
+        component.input_schema["properties"]["id"],
+        serde_json::json!({
+            "type": "string",
+            "description": "local file item id",
+            "x_mcpstore_parameter_in": "path"
+        })
+    );
+
+    let call_result = store
+        .read_resource("file-ref", "openapi://file-ref/getItemByLocalFileRef/sku-1")
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(
+            call_result["contents"][0]["text"].as_str().unwrap()
+        )
+        .unwrap()["sku"],
+        serde_json::json!("sku-1")
+    );
+
+    let path_store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-path-ref-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let path_result = path_store
+        .import_openapi_service("path-ref", &spec_path.to_string_lossy())
+        .await
+        .unwrap();
+    assert_eq!(path_result.components[0].name, "getItemByLocalFileRef");
+    assert_eq!(
+        path_result.components[0].input_schema["properties"]["id"]["description"],
+        serde_json::json!("local file item id")
+    );
+
+    let _ = std::fs::remove_dir_all(fixture_dir);
+}
+
+#[tokio::test]
 async fn openapi_import_parses_yaml_from_url() {
     let base_url = spawn_openapi_yaml_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
