@@ -50,6 +50,23 @@ class AgentServiceMapper:
             if self.is_agent_service(name)
         }
 
+    def convert_service_list_to_local(self, global_service_infos: List[Any]) -> List[Any]:
+        local_service_infos = []
+        for service_info in global_service_infos:
+            name = getattr(service_info, "name", None)
+            if name is None or not self.is_agent_service(name):
+                continue
+            local_name = self.to_local_name(name)
+            if hasattr(service_info, "model_copy"):
+                local_service_infos.append(service_info.model_copy(update={"name": local_name}))
+            elif hasattr(service_info, "copy"):
+                local_service_infos.append(service_info.copy(update={"name": local_name}))
+            else:
+                data = dict(vars(service_info))
+                data["name"] = local_name
+                local_service_infos.append(type(service_info)(**data))
+        return local_service_infos
+
     def find_global_tool_name(
         self,
         local_tool_name: str,
@@ -75,4 +92,15 @@ class AgentServiceMapper:
             return dict(global_config)
         converted = dict(global_config)
         converted["mcpServers"] = self.filter_agent_services(servers)
+        return converted
+
+    def convert_config_to_global(self, local_config: Dict[str, Any]) -> Dict[str, Any]:
+        servers = local_config.get("mcpServers") if isinstance(local_config, dict) else None
+        if not isinstance(servers, dict):
+            return dict(local_config)
+        converted = dict(local_config)
+        converted["mcpServers"] = {
+            self.to_global_name(name): config
+            for name, config in servers.items()
+        }
         return converted
