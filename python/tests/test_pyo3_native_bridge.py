@@ -649,6 +649,10 @@ paths:
         self.assertEqual(context.find_cache().health_check().healthy, True)
         self.assertEqual(context.get_info().context_type, "store")
         self.assertEqual(agent.get_info().agent_id, "agent-a")
+        agents_summary = context.get_agents_summary()
+        self.assertEqual(agents_summary.total_agents, 1)
+        self.assertEqual(agents_summary.store_services, 1)
+        self.assertEqual(agents_summary.agents[0].agent_id, "agent-a")
         with patch.object(backend, "start_mcp_server", return_value=0) as start_mcp_server:
             self.assertEqual(context.hub_http(), 0)
         start_mcp_server.assert_called_once_with(
@@ -1700,6 +1704,12 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                     {"name": "beta", "original_name": "beta", "service_name": service},
                 ]
 
+            def check_services_scoped(self, agent_id=None):
+                return {"svc": "connected"}
+
+            def event_history(self, count=100):
+                return []
+
         backend = RustStoreBackend(FakeBackend())
         agent = RustStoreContext(backend, agent_id="agent-a")
 
@@ -1720,6 +1730,11 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         summary = agent.get_tool_set_summary()
         self.assertEqual(summary.agent_id, "agent-a")
         self.assertEqual(summary.total_services, 1)
+        tools_with_stats = agent.get_tools_with_stats()
+        self.assertEqual(tools_with_stats.metadata.total_tools, 1)
+        self.assertEqual(tools_with_stats.metadata.services_count, 1)
+        self.assertEqual(tools_with_stats.metadata.tools_by_service.svc, 1)
+        self.assertEqual(agent.get_system_stats().agent_id, "agent-a")
 
         service_proxy = agent.find_service("svc")
         self.assertTrue(service_proxy.is_agent_scoped)
@@ -3509,6 +3524,8 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         )
 
     def test_rust_context_keeps_cache_read_shape(self):
+        import asyncio
+
         from mcpstore.core.store.rust_backend import RustCacheProxy, RustStoreContext
 
         class FakeBackend:
@@ -3521,6 +3538,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                     ],
                     "relations": [{"_type": "binding", "_key": "demo:echo"}],
                     "states": [{"_type": "health", "_key": "demo"}],
+                    "events": [{"_type": "tool_call", "_key": "evt-1", "tool_name": "echo"}],
                 }
 
         context = RustStoreContext(FakeBackend())
@@ -3531,6 +3549,10 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertEqual(cache.read_entity("service", "demo")[0]["name"], "demo")
         self.assertEqual(cache.read_relation("binding", None)[0]["_key"], "demo:echo")
         self.assertEqual(cache.read_state("health", "demo")[0]["_type"], "health")
+        self.assertEqual(cache.read_event("tool_call", "evt-1")[0].tool_name, "echo")
+        self.assertEqual(asyncio.run(cache.read_event_async("tool_call", "evt-1"))[0]._key, "evt-1")
+        self.assertEqual(asyncio.run(cache.inspect_async()).backend, "memory")
+        self.assertEqual(asyncio.run(cache.dump_all_async()).events[0]._key, "evt-1")
 
 
 if __name__ == "__main__":
