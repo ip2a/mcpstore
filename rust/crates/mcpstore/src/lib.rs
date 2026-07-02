@@ -50,5 +50,7 @@ pub use transport::{ContentItem, ToolCallResult, ToolDescription};
 
 // Facade re-exports: core store
 pub use core::{Result, StoreError};
-pub use store::{BackendKind, CacheStorage, MCPStore, SourceMode, StoreOptions};
+pub use store::{
+    BackendKind, CacheStorage, MCPStore, SourceMode, StoreOptions, ToolVisibilityFilter,
+};
 pub use tool_transform::ToolTransformPatch;

@@ -302,7 +302,6 @@ class RustStoreBackend:
         self._inner = rust_store
         self._sessions: Dict[tuple[str, str], "RustSession"] = {}
         self._tool_overrides: Dict[str, Dict[str, Any]] = {}
-        self._tool_visibility: Dict[str, Dict[str, Optional[set[str]]]] = {}
         self.registry = RustRegistryFacade(self)
         self._config_path: Optional[str] = None
         self._cache_config: Any = None
@@ -662,9 +661,35 @@ class RustStoreBackend:
         *,
         filter: str = "available",
     ) -> List[Dict[str, Any]]:
-        if filter != "available":
-            raise ValueError(f"Rust core 当前不支持工具过滤器: {filter}")
-        return _record_value(self._inner.list_tools_scoped(agent_id, service_name))
+        return _record_value(
+            self._inner.list_tools_scoped(agent_id, service_name, filter=filter)
+        )
+
+    def get_context_tool_visibility(
+        self,
+        agent_id: Optional[str],
+        service_name: str,
+    ) -> Optional[Dict[str, Any]]:
+        return _record_value(
+            self._inner.get_context_tool_visibility(agent_id, service_name)
+        )
+
+    def set_context_tool_visibility(
+        self,
+        agent_id: Optional[str],
+        service_name: str,
+        tool_names: List[str],
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._inner.set_context_tool_visibility(agent_id, service_name, tool_names)
+        )
+
+    def clear_context_tool_visibility(
+        self,
+        agent_id: Optional[str],
+        service_name: str,
+    ) -> None:
+        self._inner.clear_context_tool_visibility(agent_id, service_name)
 
     def list_changed_tools_scoped(
         self,
@@ -2591,10 +2616,9 @@ class RustStoreContext:
         *,
         filter: str = "available",
     ) -> List[Dict[str, Any]]:
-        tools = _record_value(
-            self._backend.list_tools_scoped(self._agent_id, service_name)
+        return _record_value(
+            self._backend.list_tools_scoped(self._agent_id, service_name, filter=filter)
         )
-        return self._apply_tool_visibility(tools, service_name=service_name, filter=filter)
 
     def list_tools(self, service_name: Optional[str] = None, *, filter: str = "available") -> List[Dict[str, Any]]:
         active = self.active_session
@@ -2603,7 +2627,18 @@ class RustStoreContext:
         return self._list_tools_direct(service_name, filter=filter)
 
     def _tool_visibility_for(self, service_name: str) -> Optional[set[str]]:
-        return self._backend._tool_visibility.get(self.get_id(), {}).get(service_name)
+        visibility = self._backend.get_context_tool_visibility(self._agent_id, service_name)
+        if not visibility:
+            return None
+        return {
+            str(name)
+            for tool in visibility.get("tools", [])
+            for name in (
+                tool.get("tool_original_name"),
+                tool.get("tool_global_name"),
+            )
+            if name
+        }
 
     def _tool_service_name(self, tool: Dict[str, Any], fallback: Optional[str] = None) -> str:
         value = (
@@ -2679,11 +2714,14 @@ class RustStoreContext:
         return names
 
     def _set_visible_tools(self, service_name: str, visible: Optional[set[str]]) -> None:
-        context_visibility = self._backend._tool_visibility.setdefault(self.get_id(), {})
         if visible is None:
-            context_visibility.pop(service_name, None)
+            self._backend.clear_context_tool_visibility(self._agent_id, service_name)
         else:
-            context_visibility[service_name] = visible
+            self._backend.set_context_tool_visibility(
+                self._agent_id,
+                service_name,
+                sorted(str(tool) for tool in visible),
+            )
 
     def remove_tools(self, service: Any, tools: Any) -> "RustStoreContext":
         for service_name in self._service_names_for_tool_scope(service):

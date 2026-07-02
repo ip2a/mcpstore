@@ -8,17 +8,17 @@ use mcpstore::core::store::{
 };
 use mcpstore::{
     cache::models::{
-        HealthStatus, ServiceStatus, SessionContextState, SessionEntity, SessionScope,
-        SessionServiceItem, SessionServiceRelation, SessionStateData, SessionStatus,
-        SessionStatusState, SessionToolItem, SessionToolVisibility, ToolAvailability,
-        ToolStatusItem, ToolTransformRule,
+        ContextToolVisibilityState, HealthStatus, ServiceStatus, SessionContextState,
+        SessionEntity, SessionScope, SessionServiceItem, SessionServiceRelation, SessionStateData,
+        SessionStatus, SessionStatusState, SessionToolItem, SessionToolVisibility,
+        ToolAvailability, ToolStatusItem, ToolTransformRule,
     },
     ConnectionStatus, ContentItem, Event, ServiceEntry, StoreError, ToolCallResult,
     ToolDescription, ToolInfo,
 };
 use mcpstore::{
     CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, SessionRetryPolicy,
-    SessionToolSelection, ToolTransformPatch,
+    SessionToolSelection, ToolTransformPatch, ToolVisibilityFilter,
 };
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
@@ -83,6 +83,17 @@ fn parse_backend(backend: Option<&str>) -> PyResult<Option<BackendKind>> {
         None => Ok(None),
         Some(other) => Err(pyo3::exceptions::PyValueError::new_err(format!(
             "Unsupported backend: {other}"
+        ))),
+    }
+}
+
+fn parse_tool_visibility_filter(filter: Option<&str>) -> PyResult<ToolVisibilityFilter> {
+    match filter.unwrap_or("available") {
+        "all" => Ok(ToolVisibilityFilter::All),
+        "available" => Ok(ToolVisibilityFilter::Available),
+        "removed" => Ok(ToolVisibilityFilter::Removed),
+        other => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Unsupported tool visibility filter: {other}"
         ))),
     }
 }
@@ -545,6 +556,24 @@ fn session_tool_visibility_to_py(
         tools.append(session_tool_item_to_py(py, tool)?)?;
     }
     dict.set_item("session_key", &visibility.session_key)?;
+    dict.set_item("mode", "allowlist")?;
+    dict.set_item("tools", tools)?;
+    dict.set_item("updated_at", visibility.updated_at)?;
+    dict.set_item("version", visibility.version)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn context_tool_visibility_to_py(
+    py: Python<'_>,
+    visibility: &ContextToolVisibilityState,
+) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    let tools = PyList::empty(py);
+    for tool in &visibility.tools {
+        tools.append(session_tool_item_to_py(py, tool)?)?;
+    }
+    dict.set_item("context_key", &visibility.context_key)?;
+    dict.set_item("service_global_name", &visibility.service_global_name)?;
     dict.set_item("mode", "allowlist")?;
     dict.set_item("tools", tools)?;
     dict.set_item("updated_at", visibility.updated_at)?;
@@ -1285,6 +1314,57 @@ impl PyMCPStore {
             .collect()
     }
 
+    #[pyo3(signature = (agent_id, service_name))]
+    fn get_context_tool_visibility(
+        &self,
+        py: Python<'_>,
+        agent_id: Option<String>,
+        service_name: &str,
+    ) -> PyResult<Py<PyAny>> {
+        let visibility = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .get_context_tool_visibility(agent_id.as_deref(), service_name),
+            )
+            .map_err(map_store_err)?;
+        match visibility {
+            Some(visibility) => context_tool_visibility_to_py(py, &visibility),
+            None => Ok(py.None()),
+        }
+    }
+
+    #[pyo3(signature = (agent_id, service_name, tool_names))]
+    fn set_context_tool_visibility(
+        &self,
+        py: Python<'_>,
+        agent_id: Option<String>,
+        service_name: &str,
+        tool_names: Vec<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let visibility = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.set_context_tool_visibility(
+                agent_id.as_deref(),
+                service_name,
+                tool_names,
+            ))
+            .map_err(map_store_err)?;
+        context_tool_visibility_to_py(py, &visibility)
+    }
+
+    #[pyo3(signature = (agent_id, service_name))]
+    fn clear_context_tool_visibility(
+        &self,
+        agent_id: Option<String>,
+        service_name: &str,
+    ) -> PyResult<()> {
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .clear_context_tool_visibility(agent_id.as_deref(), service_name),
+            )
+            .map_err(map_store_err)
+    }
+
     fn get_session_state_value(
         &self,
         py: Python<'_>,
@@ -1548,18 +1628,21 @@ impl PyMCPStore {
             .collect()
     }
 
-    #[pyo3(signature = (agent_id=None, service_name=None))]
+    #[pyo3(signature = (agent_id=None, service_name=None, filter="all"))]
     fn list_tools_scoped(
         &self,
         py: Python<'_>,
         agent_id: Option<String>,
         service_name: Option<String>,
+        filter: Option<&str>,
     ) -> PyResult<Vec<Py<PyAny>>> {
+        let filter = parse_tool_visibility_filter(filter)?;
         let tools = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .list_tool_entries_scoped(agent_id.as_deref(), service_name.as_deref()),
-            )
+            .block_on(self.inner.list_tool_entries_scoped_with_filter(
+                agent_id.as_deref(),
+                service_name.as_deref(),
+                filter,
+            ))
             .map_err(map_store_err)?;
         tools
             .iter()
