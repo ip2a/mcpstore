@@ -103,6 +103,7 @@ const TOOL_TRANSFORM_DELETE_TOOL: &str = "mcpstore_tool_transform_delete";
 const OPENAPI_IMPORT_LIST_TOOL: &str = "mcpstore_openapi_import_list";
 const OPENAPI_IMPORT_GET_TOOL: &str = "mcpstore_openapi_import_get";
 const OPENAPI_IMPORT_SET_TOOL: &str = "mcpstore_openapi_import";
+const OPENAPI_BUNDLE_TOOL: &str = "mcpstore_openapi_bundle";
 
 #[derive(Clone)]
 struct ToolBinding {
@@ -823,20 +824,26 @@ fn build_openapi_tools() -> HashMap<String, Tool> {
         openapi_tool(
             OPENAPI_IMPORT_LIST_TOOL,
             "List all Rust-backed MCPStore OpenAPI import analysis records.",
-            openapi_schema(&[]),
+            openapi_schema(&[], false, false, false),
             true,
         ),
         openapi_tool(
             OPENAPI_IMPORT_GET_TOOL,
             "Get one Rust-backed MCPStore OpenAPI import analysis record.",
-            openapi_schema(&["name"]),
+            openapi_schema(&["name"], true, false, false),
             true,
         ),
         openapi_tool(
             OPENAPI_IMPORT_SET_TOOL,
             "Import an OpenAPI spec into MCPStore shared state and register an executable HTTP virtual service.",
-            openapi_schema(&["name", "spec_url"]),
+            openapi_schema(&["name", "spec_url"], true, true, true),
             false,
+        ),
+        openapi_tool(
+            OPENAPI_BUNDLE_TOOL,
+            "Bundle an OpenAPI spec with external references resolved without importing or registering a virtual service.",
+            openapi_schema(&["spec_url"], false, true, false),
+            true,
         ),
     ]
     .into_iter()
@@ -855,57 +862,71 @@ fn openapi_tool(
         .destructive(false)
         .idempotent(matches!(
             name,
-            OPENAPI_IMPORT_LIST_TOOL | OPENAPI_IMPORT_GET_TOOL
+            OPENAPI_IMPORT_LIST_TOOL | OPENAPI_IMPORT_GET_TOOL | OPENAPI_BUNDLE_TOOL
         ))
-        .open_world(name == OPENAPI_IMPORT_SET_TOOL);
+        .open_world(matches!(
+            name,
+            OPENAPI_IMPORT_SET_TOOL | OPENAPI_BUNDLE_TOOL
+        ));
     Tool::new(name, description, Arc::new(schema)).with_annotations(annotations)
 }
 
-fn openapi_schema(required: &[&str]) -> Map<String, Value> {
+fn openapi_schema(
+    required: &[&str],
+    include_name: bool,
+    include_spec_input: bool,
+    include_import_options: bool,
+) -> Map<String, Value> {
     let mut properties = Map::new();
-    properties.insert(
-        "name".to_string(),
-        serde_json::json!({
-            "type": "string",
-            "description": "MCPStore OpenAPI import/service name."
-        }),
-    );
-    properties.insert(
-        "spec_url".to_string(),
-        serde_json::json!({
-            "type": "string",
-            "description": "OpenAPI spec URL. When spec or spec_text is also provided, this is stored as source metadata."
-        }),
-    );
-    properties.insert(
-        "spec".to_string(),
-        serde_json::json!({
-            "type": "object",
-            "description": "Optional OpenAPI document. If omitted, MCPStore fetches spec_url."
-        }),
-    );
-    properties.insert(
-        "spec_text".to_string(),
-        serde_json::json!({
-            "type": "string",
-            "description": "Optional OpenAPI JSON or YAML document text. Mutually exclusive with spec."
-        }),
-    );
-    properties.insert(
-        "headers".to_string(),
-        serde_json::json!({
-            "type": "object",
-            "description": "Optional static HTTP headers sent by the OpenAPI virtual service.",
-            "additionalProperties": { "type": "string" }
-        }),
-    );
-    properties.insert(
-        "auth".to_string(),
-        serde_json::json!({
-            "type": "object",
-            "description": "Optional credentials keyed by OpenAPI security scheme name. Values may be strings, token/value objects, or username/password objects for basic auth."
-        }),
-    );
+    if include_name {
+        properties.insert(
+            "name".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "MCPStore OpenAPI import/service name."
+            }),
+        );
+    }
+    if include_spec_input {
+        properties.insert(
+            "spec_url".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "OpenAPI spec URL. When spec or spec_text is also provided, this is used as source metadata and as the base URI for relative external references."
+            }),
+        );
+        properties.insert(
+            "spec".to_string(),
+            serde_json::json!({
+                "type": "object",
+                "description": "Optional OpenAPI document. If omitted, MCPStore fetches spec_url."
+            }),
+        );
+        properties.insert(
+            "spec_text".to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Optional OpenAPI JSON or YAML document text. Mutually exclusive with spec."
+            }),
+        );
+    }
+    if include_import_options {
+        properties.insert(
+            "headers".to_string(),
+            serde_json::json!({
+                "type": "object",
+                "description": "Optional static HTTP headers sent by the OpenAPI virtual service.",
+                "additionalProperties": { "type": "string" }
+            }),
+        );
+        properties.insert(
+            "auth".to_string(),
+            serde_json::json!({
+                "type": "object",
+                "description": "Optional credentials keyed by OpenAPI security scheme name. Values may be strings, token/value objects, or username/password objects for basic auth."
+            }),
+        );
+    }
 
     let mut schema = Map::new();
     schema.insert("type".to_string(), Value::String("object".to_string()));
@@ -1103,6 +1124,31 @@ async fn call_openapi_tool(
             }
             .map_err(map_store_error)?;
             serde_json::json!({"import": import})
+        }
+        OPENAPI_BUNDLE_TOOL => {
+            let spec_url = required_argument_string(&arguments, "spec_url")?.to_string();
+            let spec = arguments.get("spec").cloned();
+            let spec_text = arguments
+                .get("spec_text")
+                .and_then(Value::as_str)
+                .filter(|text| !text.trim().is_empty());
+            let bundle = match (spec, spec_text) {
+                (Some(_), Some(_)) => {
+                    return Err(ErrorData::invalid_params(
+                        "spec and spec_text cannot both be provided",
+                        None,
+                    ));
+                }
+                (Some(spec), None) => store.bundle_openapi_spec_from_value(&spec_url, spec).await,
+                (None, Some(spec_text)) => {
+                    store
+                        .bundle_openapi_spec_from_text(&spec_url, spec_text)
+                        .await
+                }
+                (None, None) => store.bundle_openapi_spec(&spec_url).await,
+            }
+            .map_err(map_store_error)?;
+            serde_json::json!({"bundle": bundle})
         }
         _ => {
             return Err(ErrorData::invalid_params(
@@ -1769,6 +1815,61 @@ mod tests {
         assert!(tool_names.contains(&OPENAPI_IMPORT_LIST_TOOL.to_string()));
         assert!(tool_names.contains(&OPENAPI_IMPORT_GET_TOOL.to_string()));
         assert!(tool_names.contains(&OPENAPI_IMPORT_SET_TOOL.to_string()));
+        assert!(tool_names.contains(&OPENAPI_BUNDLE_TOOL.to_string()));
+
+        let fixture_dir = std::env::temp_dir().join(format!("mcpstore-mcp-{}", unique_namespace()));
+        std::fs::create_dir_all(&fixture_dir).unwrap();
+        let schemas_path = fixture_dir.join("schemas.json");
+        std::fs::write(
+            &schemas_path,
+            serde_json::to_vec(&serde_json::json!({
+                "Item": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}},
+                    "required": ["id"]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let bundle_args = serde_json::json!({
+            "spec_url": fixture_dir.join("openapi.json").to_string_lossy(),
+            "spec": {
+                "openapi": "3.0.0",
+                "info": {"title": "Inventory", "version": "1.0.0"},
+                "paths": {
+                    "/items": {
+                        "get": {
+                            "operationId": "listItems",
+                            "responses": {
+                                "200": {
+                                    "description": "ok",
+                                    "content": {
+                                        "application/json": {
+                                            "schema": {"$ref": "./schemas.json#/Item"}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+        let bundle_result = call_openapi_tool(&store, OPENAPI_BUNDLE_TOOL, bundle_args)
+            .await
+            .unwrap();
+        assert_eq!(
+            bundle_result.structured_content.as_ref().unwrap()["bundle"]["paths"]["/items"]["get"]
+                ["responses"]["200"]["content"]["application/json"]["schema"]["properties"]["id"]
+                ["type"],
+            "string"
+        );
+        assert!(store.list_openapi_imports().await.unwrap().is_empty());
 
         let spec = serde_json::json!({
             "openapi": "3.0.0",
@@ -1828,5 +1929,7 @@ mod tests {
             get_result.structured_content.as_ref().unwrap()["import"]["spec_info"]["title"],
             "Inventory"
         );
+
+        std::fs::remove_dir_all(&fixture_dir).unwrap();
     }
 }
