@@ -507,17 +507,21 @@ paths:
     def test_python_facade_keeps_chain_adapter_api(self):
         from mcpstore import MCPStore
         import mcpstore
+        from mcpstore.adapters import LangGraphAdapter
 
         workdir = Path(tempfile.mkdtemp(prefix="mcpstore-python-chain-"))
         store = MCPStore.setup_store(str(workdir / "mcp.json"))
         context = store.for_store()
 
         self.assertIsNotNone(context.for_openai())
+        self.assertEqual(type(context.for_langgraph()).__name__, "LangGraphAdapter")
         self.assertIsNotNone(context.for_autogen())
         self.assertIsNotNone(context.for_llamaindex())
         self.assertIsNotNone(context.for_crewai())
         self.assertIsNotNone(context.for_semantic_kernel())
         self.assertIsNotNone(mcpstore.LlamaIndexAdapter)
+        self.assertIsNotNone(mcpstore.LangGraphAdapter)
+        self.assertIs(mcpstore.LangGraphAdapter, LangGraphAdapter)
         self.assertIsNotNone(mcpstore.CrewAIAdapter)
         self.assertIsNotNone(mcpstore.SemanticKernelAdapter)
 

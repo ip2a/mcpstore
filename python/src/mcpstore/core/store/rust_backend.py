@@ -2559,7 +2559,9 @@ class RustSession:
         return LangChainAdapter(self, response_format=response_format)
 
     def for_langgraph(self, response_format: str = "text"):
-        return self.for_langchain(response_format=response_format)
+        from mcpstore.adapters.langgraph_adapter import LangGraphAdapter
+
+        return LangGraphAdapter(self, response_format=response_format)
 
     def for_openai(self):
         from mcpstore.adapters.openai_adapter import OpenAIAdapter
@@ -3247,7 +3249,9 @@ class RustStoreContext:
         return LangChainAdapter(self, response_format=response_format)
 
     def for_langgraph(self, response_format: str = "text"):
-        return self.for_langchain(response_format=response_format)
+        from mcpstore.adapters.langgraph_adapter import LangGraphAdapter
+
+        return LangGraphAdapter(self, response_format=response_format)
 
     def for_openai(self):
         from mcpstore.adapters.openai_adapter import OpenAIAdapter
