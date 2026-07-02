@@ -1402,6 +1402,16 @@ class RustStoreBackend:
             return None
         return self._wrap_session(context, _record_value(entity))
 
+    def find_session_by_key(
+        self,
+        context: "RustStoreContext",
+        session_key: str,
+    ) -> Optional["RustSession"]:
+        entity = self._inner.get_session(session_key)
+        if entity is None:
+            return None
+        return self._wrap_session(context, _record_value(entity))
+
     def find_session_by_user_session_id(
         self,
         context: "RustStoreContext",
@@ -3197,6 +3207,15 @@ class RustStoreContext:
             return self.find_user_session(session_id)
         return self._backend.find_session(self, session_id)
 
+    def find_session_by_key(self, session_key: str) -> Optional[RustSession]:
+        return self._backend.find_session_by_key(self, session_key)
+
+    def session_by_key(self, session_key: str) -> RustSession:
+        session = self.find_session_by_key(session_key)
+        if session is None:
+            raise ValueError(f"Session not found: {session_key}")
+        return session
+
     def find_user_session(self, user_session_id: str) -> Optional[RustSession]:
         return self._backend.find_session_by_user_session_id(self, user_session_id)
 
@@ -3263,6 +3282,9 @@ class RustStoreContext:
                 raise ValueError(f"Session not found: {session_id}")
             session = self.with_session(session_id)
         return session.for_langchain()
+
+    def for_langchain_with_session_key(self, session_key: str):
+        return self.session_by_key(session_key).for_langchain()
 
     def for_langchain_with_auto_session(self):
         session = self.current_session()
