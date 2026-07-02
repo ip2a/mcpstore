@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 
 dependencies = [
+    "mcp>=1.24.0,<2.0",
     "rich>=13.9.4",
     "pydantic[email]>=2.11.7",
     "toml>=0.10.2",

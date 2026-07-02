@@ -1753,6 +1753,40 @@ class RustToolProxy:
     def tool_meta(self) -> Dict[str, Any]:
         return self.tool_info().get("meta", {}) or {}
 
+    def mcp_type2tool(self):
+        from mcp import types as mcp_types
+
+        info = self.tool_info()
+        name = (
+            info.get("tool_original_name")
+            or info.get("original_name")
+            or info.get("name")
+            or self._tool_name
+        )
+        service_name = (
+            info.get("service_name")
+            or info.get("global_service_name")
+            or info.get("service_global_name")
+            or self._service_name
+        )
+        meta = {
+            "service_name": service_name,
+            "service_global_name": (
+                info.get("service_global_name") or info.get("global_service_name")
+            ),
+            "client_id": info.get("client_id"),
+        }
+        return mcp_types.Tool(
+            name=str(name),
+            title=info.get("title") or str(info.get("name") or self._tool_name),
+            description=info.get("description"),
+            inputSchema=info.get("inputSchema") or info.get("input_schema") or {},
+            outputSchema=info.get("outputSchema") or info.get("output_schema"),
+            icons=info.get("icons"),
+            annotations=info.get("annotations"),
+            _meta=meta,
+        )
+
     def usage_stats(self) -> Dict[str, Any]:
         info = self.tool_info()
         history = self.call_history(limit=1000)
@@ -2476,6 +2510,11 @@ class RustStoreContext:
                 "services": services,
             }
         )
+
+    def batch_add_services(self, services: Any) -> Dict[str, Any]:
+        for service in services:
+            self.add_service(service)
+        return _record_value({"success": True, "count": len(services)})
 
     @property
     def agent_id(self) -> Optional[str]:
