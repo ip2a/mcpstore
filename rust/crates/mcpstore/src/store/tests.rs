@@ -4281,6 +4281,75 @@ async fn tool_transform_rules_are_rust_backed_and_affect_scoped_tools() {
 }
 
 #[tokio::test]
+async fn context_tool_visibility_is_rust_backed_and_filters_scoped_tools() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::OpenKeyvMemory),
+        redis_url: None,
+        namespace: Some("test-context-tool-visibility".to_string()),
+    })
+    .unwrap();
+    store.add_service("svc", stdio_config()).await.unwrap();
+    let mut service = store.registry.find_service("svc").await.unwrap();
+    service.status = ConnectionStatus::Connected;
+    service.tools = vec![
+        crate::registry::ToolInfo {
+            name: "alpha".to_string(),
+            description: "alpha".to_string(),
+            schema: serde_json::json!({"type": "object"}),
+        },
+        crate::registry::ToolInfo {
+            name: "beta".to_string(),
+            description: "beta".to_string(),
+            schema: serde_json::json!({"type": "object"}),
+        },
+    ];
+    store.registry.register(service).await;
+
+    let visibility = store
+        .set_context_tool_visibility(None, "svc", vec!["alpha".to_string()])
+        .await
+        .unwrap();
+    assert_eq!(visibility.context_key, "store:global");
+    assert_eq!(visibility.service_global_name, "svc");
+    assert_eq!(visibility.tools.len(), 1);
+    assert!(store
+        .cache()
+        .get_state("context_tool_visibility", "store:global:svc")
+        .await
+        .unwrap()
+        .is_some());
+
+    let available = store
+        .list_tool_entries_scoped_with_filter(None, Some("svc"), ToolVisibilityFilter::Available)
+        .await
+        .unwrap();
+    assert_eq!(available.len(), 1);
+    assert_eq!(available[0].original_name, "alpha");
+
+    let removed = store
+        .list_tool_entries_scoped_with_filter(None, Some("svc"), ToolVisibilityFilter::Removed)
+        .await
+        .unwrap();
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0].original_name, "beta");
+
+    store
+        .clear_context_tool_visibility(None, "svc")
+        .await
+        .unwrap();
+    let restored = store
+        .list_tool_entries_scoped_with_filter(None, Some("svc"), ToolVisibilityFilter::Available)
+        .await
+        .unwrap();
+    assert_eq!(restored.len(), 2);
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
 async fn connect_service_failure_opens_circuit_and_schedules_retry() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {

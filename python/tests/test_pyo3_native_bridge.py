@@ -66,6 +66,90 @@ def install_fake_session_context_api(inner):
     return inner
 
 
+def install_fake_context_tool_visibility_api(inner):
+    inner.context_tool_visibility = {}
+    raw_list_tools_scoped = inner.list_tools_scoped
+
+    def tool_service_name(tool, fallback=None):
+        return str(
+            tool.get("global_service_name")
+            or tool.get("service_global_name")
+            or tool.get("service_name")
+            or fallback
+            or ""
+        )
+
+    def tool_names(tool):
+        return {
+            str(name)
+            for name in (
+                tool.get("name"),
+                tool.get("original_name"),
+                tool.get("tool_original_name"),
+                tool.get("global_tool_name"),
+                tool.get("tool_global_name"),
+            )
+            if name
+        }
+
+    def get_context_tool_visibility(agent_id, service_name):
+        return inner.context_tool_visibility.get((agent_id, service_name))
+
+    def set_context_tool_visibility(agent_id, service_name, tool_names_value):
+        selected = set(tool_names_value)
+        record = {
+            "context_key": f"agent:{agent_id}" if agent_id else "store:global",
+            "service_global_name": service_name,
+            "mode": "allowlist",
+            "tools": [
+                {
+                    "service_global_name": service_name,
+                    "tool_global_name": name,
+                    "tool_original_name": name,
+                }
+                for name in sorted(selected)
+            ],
+            "version": 1,
+        }
+        inner.context_tool_visibility[(agent_id, service_name)] = record
+        return record
+
+    def clear_context_tool_visibility(agent_id, service_name):
+        inner.context_tool_visibility.pop((agent_id, service_name), None)
+
+    def list_tools_scoped(agent_id=None, service_name=None, filter="available"):
+        tools = raw_list_tools_scoped(agent_id, service_name)
+        if filter == "all":
+            return tools
+        if filter not in {"available", "removed"}:
+            raise ValueError(f"Unsupported tool visibility filter: {filter}")
+        selected = []
+        for tool in tools:
+            resolved_service = tool_service_name(tool, service_name)
+            visibility = get_context_tool_visibility(agent_id, resolved_service)
+            is_visible = True
+            if visibility is not None:
+                allowed = {
+                    str(name)
+                    for item in visibility.get("tools", [])
+                    for name in (
+                        item.get("tool_original_name"),
+                        item.get("tool_global_name"),
+                    )
+                    if name
+                }
+                is_visible = bool(tool_names(tool) & allowed)
+            if (filter == "available" and is_visible) or (filter == "removed" and not is_visible):
+                selected.append(tool)
+        return selected
+
+    inner.get_context_tool_visibility = get_context_tool_visibility
+    inner.set_context_tool_visibility = set_context_tool_visibility
+    inner.clear_context_tool_visibility = clear_context_tool_visibility
+    inner.list_tools_scoped = list_tools_scoped
+    return inner
+
+
 class PyO3NativeBridgeTest(unittest.TestCase):
     def test_rust_binding_uses_native_python_objects(self):
         from mcpstore._rust import MCPStore
@@ -695,6 +779,7 @@ paths:
 
         inner = FakeBackend()
         install_fake_session_context_api(inner)
+        install_fake_context_tool_visibility_api(inner)
         backend = RustStoreBackend(inner)
         context = RustStoreContext(backend)
         agent = context.find_agent("agent-a")
@@ -1008,7 +1093,9 @@ paths:
             def show_config(self):
                 return {"mcpServers": {"demo": {}}, "agents": {}, "clients": {}}
 
-        inner = install_fake_session_context_api(FakeInner())
+        inner = install_fake_context_tool_visibility_api(
+            install_fake_session_context_api(FakeInner())
+        )
         backend = RustStoreBackend(inner)
         context = backend.for_store()
 
@@ -1074,6 +1161,7 @@ paths:
 
         inner = FakeInner()
         install_fake_session_context_api(inner)
+        install_fake_context_tool_visibility_api(inner)
         backend = RustStoreBackend(inner)
         result = backend.call_tool("demo", "echo", '{"text": "ok"}')
 
@@ -1318,7 +1406,9 @@ paths:
             def restart_service(self, name):
                 self.restarted_services.append(name)
 
-        inner = install_fake_session_context_api(FakeBackend())
+        inner = install_fake_context_tool_visibility_api(
+            install_fake_session_context_api(FakeBackend())
+        )
         backend = RustStoreBackend(inner)
         context = RustStoreContext(backend)
         session = context.create_session("browser_task")
@@ -1854,7 +1944,9 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             def event_history(self, count=100):
                 return []
 
-        inner = install_fake_session_context_api(FakeBackend())
+        inner = install_fake_context_tool_visibility_api(
+            install_fake_session_context_api(FakeBackend())
+        )
         backend = RustStoreBackend(inner)
         agent = RustStoreContext(backend, agent_id="agent-a")
 
@@ -3024,6 +3116,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
 
         fake_backend = FakeBackend()
         install_fake_session_context_api(fake_backend)
+        install_fake_context_tool_visibility_api(fake_backend)
         backend = RustStoreBackend(fake_backend)
         context = MCPStoreContext(backend)
         store_proxy = StoreProxy(context)

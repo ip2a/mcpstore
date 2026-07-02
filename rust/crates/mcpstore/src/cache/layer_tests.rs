@@ -1,9 +1,9 @@
 use super::layer::*;
 use crate::cache::memory_cache_store;
 use crate::cache::models::{
-    SessionContextState, SessionEntity, SessionEvent, SessionEventType, SessionScope,
-    SessionServiceItem, SessionServiceRelation, SessionStatus, SessionStatusState, SessionToolItem,
-    SessionToolVisibility, ToolVisibilityMode,
+    ContextToolVisibilityState, SessionContextState, SessionEntity, SessionEvent, SessionEventType,
+    SessionScope, SessionServiceItem, SessionServiceRelation, SessionStatus, SessionStatusState,
+    SessionToolItem, SessionToolVisibility, ToolVisibilityMode,
 };
 
 #[tokio::test]
@@ -224,6 +224,25 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
     )
     .await
     .unwrap();
+    mgr.put_state(
+        "context_tool_visibility",
+        "store:global:store.svc",
+        serde_json::to_value(ContextToolVisibilityState {
+            context_key: "store:global".to_string(),
+            service_global_name: "store.svc".to_string(),
+            mode: ToolVisibilityMode::Allowlist,
+            tools: vec![SessionToolItem {
+                service_global_name: "store.svc".to_string(),
+                tool_global_name: "store.svc.echo".to_string(),
+                tool_original_name: "echo".to_string(),
+            }],
+            updated_at: 103,
+            version: 1,
+        })
+        .unwrap(),
+    )
+    .await
+    .unwrap();
     mgr.put_event(
         "session_events",
         "store:global:s1:0001",
@@ -248,6 +267,7 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
     assert_eq!(snapshot.relations["session_tools"].len(), 1);
     assert_eq!(snapshot.states["session_status"].len(), 1);
     assert_eq!(snapshot.states["session_context"].len(), 1);
+    assert_eq!(snapshot.states["context_tool_visibility"].len(), 1);
     assert_eq!(snapshot.events["session_events"].len(), 1);
     assert!(mgr
         .get_entity("sessions", session_key)
@@ -266,6 +286,11 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
         .is_some());
     assert!(mgr
         .get_state("session_status", session_key)
+        .await
+        .unwrap()
+        .is_some());
+    assert!(mgr
+        .get_state("context_tool_visibility", "store:global:store.svc")
         .await
         .unwrap()
         .is_some());

@@ -137,6 +137,17 @@ pub struct SessionToolItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ContextToolVisibilityState {
+    pub context_key: String,
+    pub service_global_name: String,
+    pub mode: ToolVisibilityMode,
+    #[serde(default)]
+    pub tools: Vec<SessionToolItem>,
+    pub updated_at: i64,
+    pub version: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolVisibilityMode {
     Allowlist,
