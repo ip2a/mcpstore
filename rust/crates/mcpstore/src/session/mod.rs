@@ -53,6 +53,19 @@ pub struct SessionImportReport {
     pub session_events_unchanged: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct SessionCleanupReport {
+    pub refreshed_sessions: usize,
+    pub expired_sessions: usize,
+    pub cleared_active_session: bool,
+    pub cleared_auto_session: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionRestartReport {
+    pub restarted_services: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionRetryPolicy {
     pub max_attempts: usize,
@@ -736,6 +749,96 @@ impl MCPStore {
         self.clear_session_context_references(&session, session_key)
             .await?;
         Ok(status)
+    }
+
+    pub async fn close_sessions(
+        &self,
+        scope: Option<SessionScope>,
+        agent_id: Option<&str>,
+        reason: Option<String>,
+    ) -> Result<Vec<SessionStatusState>> {
+        let sessions = self.list_sessions(scope, agent_id).await?;
+        let mut statuses = Vec::with_capacity(sessions.len());
+        for session in sessions {
+            statuses.push(
+                self.close_session(&session.session_key, reason.clone())
+                    .await?,
+            );
+        }
+        Ok(statuses)
+    }
+
+    pub async fn cleanup_sessions(
+        &self,
+        scope: Option<SessionScope>,
+        agent_id: Option<&str>,
+    ) -> Result<SessionCleanupReport> {
+        let sessions = self.list_sessions(scope.clone(), agent_id).await?;
+        let mut report = SessionCleanupReport::default();
+        for session in &sessions {
+            if let Some(status) = self.get_session_status(&session.session_key).await? {
+                report.refreshed_sessions += 1;
+                if status.status == SessionStatus::Expired {
+                    report.expired_sessions += 1;
+                    let cleared = self
+                        .clear_session_context_references(session, &session.session_key)
+                        .await?;
+                    report.cleared_active_session |= cleared.0;
+                    report.cleared_auto_session |= cleared.1;
+                }
+            }
+        }
+        if let Some(scope) = scope {
+            let Some(state) = self
+                .get_session_context_state(scope.clone(), agent_id)
+                .await?
+            else {
+                return Ok(report);
+            };
+            let active_session_active = match state.active_session_key.as_deref() {
+                Some(session_key) => self.get_active_session_entity(session_key).await?.is_some(),
+                None => true,
+            };
+            let auto_session_active = match state.auto_session_key.as_deref() {
+                Some(session_key) => self.get_active_session_entity(session_key).await?.is_some(),
+                None => true,
+            };
+            if !active_session_active || !auto_session_active {
+                self.update_session_context_state(scope, agent_id, |state| {
+                    if !active_session_active {
+                        state.active_session_key = None;
+                    }
+                    if !auto_session_active {
+                        state.auto_session_key = None;
+                    }
+                })
+                .await?;
+                report.cleared_active_session |= !active_session_active;
+                report.cleared_auto_session |= !auto_session_active;
+            }
+        }
+        Ok(report)
+    }
+
+    pub async fn restart_sessions(
+        &self,
+        scope: Option<SessionScope>,
+        agent_id: Option<&str>,
+    ) -> Result<SessionRestartReport> {
+        let sessions = self.list_sessions(scope, agent_id).await?;
+        let mut service_names = Vec::new();
+        let mut seen = HashSet::new();
+        for session in sessions {
+            for service in self.list_session_services(&session.session_key).await? {
+                if seen.insert(service.service_global_name.clone()) {
+                    self.restart_service(&service.service_global_name).await?;
+                    service_names.push(service.service_global_name);
+                }
+            }
+        }
+        Ok(SessionRestartReport {
+            restarted_services: service_names,
+        })
     }
 
     pub async fn extend_session(
@@ -1780,30 +1883,30 @@ impl MCPStore {
         &self,
         session: &SessionEntity,
         session_key: &str,
-    ) -> Result<()> {
+    ) -> Result<(bool, bool)> {
         let scope = session.scope.clone();
         let agent_id = session.agent_id.as_deref();
         let Some(state) = self
             .get_session_context_state(scope.clone(), agent_id)
             .await?
         else {
-            return Ok(());
+            return Ok((false, false));
         };
-        if state.active_session_key.as_deref() != Some(session_key)
-            && state.auto_session_key.as_deref() != Some(session_key)
-        {
-            return Ok(());
+        let clear_active = state.active_session_key.as_deref() == Some(session_key);
+        let clear_auto = state.auto_session_key.as_deref() == Some(session_key);
+        if !clear_active && !clear_auto {
+            return Ok((false, false));
         }
         self.update_session_context_state(scope, agent_id, |state| {
-            if state.active_session_key.as_deref() == Some(session_key) {
+            if clear_active {
                 state.active_session_key = None;
             }
-            if state.auto_session_key.as_deref() == Some(session_key) {
+            if clear_auto {
                 state.auto_session_key = None;
             }
         })
         .await?;
-        Ok(())
+        Ok((clear_active, clear_auto))
     }
 
     async fn load_session_context_state(

@@ -42,7 +42,8 @@ pub use cache::models::{
     ToolArgumentTransform, ToolPreferenceState, ToolTransformRule,
 };
 pub use session::{
-    CreateSessionRequest, SessionBuilder, SessionContext, SessionRetryPolicy, SessionToolSelection,
+    CreateSessionRequest, SessionBuilder, SessionCleanupReport, SessionContext,
+    SessionRestartReport, SessionRetryPolicy, SessionToolSelection,
 };
 
 // Facade re-exports: transport
