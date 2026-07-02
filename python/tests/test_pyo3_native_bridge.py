@@ -3048,11 +3048,21 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             DataSourceStrategy,
             MemoryConfig,
             RedisConfig,
+            RedisConnectionFailure,
+            RedisHealthCheck,
             create_kv_store,
             create_kv_store_async,
             detect_strategy,
+            get_connection_info,
             get_namespace,
+            get_user_config_path,
+            get_user_data_dir,
+            get_user_default_mcp_path,
+            handle_redis_connection_error,
             load_app_config,
+            mask_password_in_url,
+            start_health_check,
+            test_redis_connection,
         )
 
         redis = RedisConfig(url="redis://localhost:6379/0", namespace="team")
@@ -3066,6 +3076,27 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             detect_strategy(redis, None, only_db=True),
             DataSourceStrategy.ONLY_DB,
         )
+        self.assertEqual(
+            mask_password_in_url("redis://user:secret@localhost:6379/0"),
+            "redis://user:***@localhost:6379/0",
+        )
+        self.assertEqual(get_connection_info(redis)["url"], "redis://localhost:6379/0")
+        self.assertEqual(get_user_data_dir().name, ".mcpstore")
+        self.assertEqual(get_user_config_path().name, "config.toml")
+        self.assertEqual(get_user_default_mcp_path().name, "mcp.json")
+        failure = handle_redis_connection_error(RuntimeError("down"), redis)
+        self.assertIsInstance(failure, RedisConnectionFailure)
+        self.assertIn("Rust cache backend", str(failure))
+        with self.assertRaisesRegex(NotImplementedError, "Rust-backed runtime"):
+            RedisHealthCheck(redis, object()).start()
+        disabled_health = RedisConfig(url="redis://localhost:6379/0", health_check_interval=0)
+        self.assertIsNone(start_health_check(disabled_health, object()))
+
+        async def call_removed_redis_test():
+            await test_redis_connection(redis)
+
+        with self.assertRaises(RedisConnectionFailure):
+            asyncio.run(call_removed_redis_test())
         with self.assertRaisesRegex(NotImplementedError, "Rust-backed cache"):
             create_kv_store(MemoryConfig())
 
