@@ -34,6 +34,7 @@ __all__ = [
     'tool_input_schema',
     # 执行器构建
     'build_sync_executor',
+    'build_async_executor',
     'attach_signature_from_schema',
     # 数据类
     'ToolCallView',
@@ -546,6 +547,50 @@ def build_sync_executor(
 
     _executor.__name__ = tool_name
     _executor.__doc__ = "Auto-generated MCPStore tool wrapper"
+    return _executor
+
+
+def build_async_executor(
+    context: Any,
+    tool_name: str,
+    args_schema: Type[BaseModel]
+) -> Callable[..., Any]:
+    """
+    构建异步工具执行器。
+
+    Args:
+        context: MCPStore 上下文
+        tool_name: 工具名称
+        args_schema: 参数模型
+
+    Returns:
+        Callable: 异步执行函数
+    """
+    async def _executor(**kwargs):
+        tool_input = {}
+        try:
+            tool_input = dict(kwargs)
+            result = await context.call_tool_async(tool_name, tool_input)
+            view = call_tool_response_helper(result)
+            if view.is_error:
+                payload = build_tool_error_payload(
+                    tool_name,
+                    view.error_message or view.text or "Tool execution failed",
+                    tool_input=tool_input,
+                    view=view,
+                )
+                return json.dumps(payload, ensure_ascii=False)
+            actual = view.structured if view.structured is not None else view.data
+            if actual is None:
+                actual = view.text
+            if isinstance(actual, (dict, list)):
+                return json.dumps(actual, ensure_ascii=False)
+            return str(actual)
+        except Exception as e:
+            return f"Tool '{tool_name}' execution failed: {e}\nProcessed parameters: {tool_input}"
+
+    _executor.__name__ = tool_name
+    _executor.__doc__ = "Auto-generated async MCPStore tool wrapper"
     return _executor
 
 

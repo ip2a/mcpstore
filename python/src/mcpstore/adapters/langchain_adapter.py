@@ -306,3 +306,105 @@ class LangChainAdapter:
             langchain_tools.append(lc_tool)
 
         return langchain_tools
+
+
+class SessionAwareLangChainAdapter(LangChainAdapter):
+    """LangChain adapter that executes tools through a Rust-backed session."""
+
+    def __init__(self, context: Any, session: Any, response_format: str = "text"):
+        super().__init__(context, response_format=response_format)
+        self._session = session
+
+    def _create_tool_function(self, tool_name: str, args_schema: Type[BaseModel]):
+        adapter_self = self
+
+        def _tool_executor(*args, **kwargs):
+            tool_input = {}
+            try:
+                tool_input = process_tool_args(args_schema, args, kwargs)
+                result = adapter_self._session.use_tool(tool_name, tool_input)
+                view = call_tool_response_helper(result)
+
+                if view.is_error:
+                    return adapter_self._format_error_output(
+                        tool_name,
+                        view.error_message or view.text or "Tool execution failed",
+                        tool_input=tool_input,
+                        view=view,
+                    )
+
+                if adapter_self._response_format == "content_and_artifact":
+                    response = {"text": view.text, "artifacts": view.artifacts}
+                    structured = adapter_self._normalize_structured_value(view.structured)
+                    data = adapter_self._normalize_structured_value(view.data)
+                    if structured is not None:
+                        response["structured"] = structured
+                    if data is not None:
+                        response["data"] = data
+                    return response
+
+                if view.text:
+                    return view.text
+                actual = view.structured if view.structured is not None else view.data
+                actual = adapter_self._normalize_structured_value(actual)
+                if isinstance(actual, (dict, list)):
+                    return json.dumps(actual, ensure_ascii=False)
+                return "" if actual is None else str(actual)
+            except Exception as e:
+                return adapter_self._format_error_output(
+                    tool_name,
+                    f"Tool '{tool_name}' execution failed: {str(e)}",
+                    tool_input=tool_input,
+                )
+
+        return _tool_executor
+
+    def _create_tool_coroutine(self, tool_name: str, args_schema: Type[BaseModel]):
+        adapter_self = self
+
+        async def _tool_executor(*args, **kwargs):
+            tool_input = {}
+            try:
+                tool_input = process_tool_args(args_schema, args, kwargs)
+                result = await adapter_self._session.use_tool_async(tool_name, tool_input)
+                view = call_tool_response_helper(result)
+
+                if view.is_error:
+                    return adapter_self._format_error_output(
+                        tool_name,
+                        view.error_message or view.text or "Tool execution failed",
+                        tool_input=tool_input,
+                        view=view,
+                    )
+
+                if adapter_self._response_format == "content_and_artifact":
+                    response = {"text": view.text, "artifacts": view.artifacts}
+                    structured = adapter_self._normalize_structured_value(view.structured)
+                    data = adapter_self._normalize_structured_value(view.data)
+                    if structured is not None:
+                        response["structured"] = structured
+                    if data is not None:
+                        response["data"] = data
+                    return response
+
+                if view.text:
+                    return view.text
+                actual = view.structured if view.structured is not None else view.data
+                actual = adapter_self._normalize_structured_value(actual)
+                if isinstance(actual, (dict, list)):
+                    return json.dumps(actual, ensure_ascii=False)
+                return "" if actual is None else str(actual)
+            except Exception as e:
+                return adapter_self._format_error_output(
+                    tool_name,
+                    f"Tool '{tool_name}' execution failed: {str(e)}",
+                    tool_input=tool_input,
+                )
+
+        return _tool_executor
+
+    def list_tools(self) -> List[Tool]:
+        return self._build_langchain_tools(self._session.list_tools())
+
+    async def list_tools_async(self) -> List[Tool]:
+        return self._build_langchain_tools(await self._session.list_tools_async())

@@ -522,6 +522,7 @@ paths:
         self.assertIsNotNone(mcpstore.LlamaIndexAdapter)
         self.assertIsNotNone(mcpstore.LangGraphAdapter)
         self.assertIs(mcpstore.LangGraphAdapter, LangGraphAdapter)
+        self.assertIsNotNone(mcpstore.SessionAwareLangChainAdapter)
         self.assertIsNotNone(mcpstore.CrewAIAdapter)
         self.assertIsNotNone(mcpstore.SemanticKernelAdapter)
 
@@ -530,6 +531,81 @@ paths:
         except ImportError:
             adapter = None
         self.assertTrue(adapter is None or hasattr(adapter, "list_tools"))
+
+    def test_session_langchain_adapter_routes_tool_calls_through_session(self):
+        import asyncio
+        from unittest.mock import patch
+
+        import mcpstore.adapters.langchain_adapter as langchain_adapter
+
+        class FakeStructuredTool:
+            def __init__(self, name, description, func, coroutine, args_schema):
+                self.name = name
+                self.description = description
+                self.func = func
+                self.coroutine = coroutine
+                self.args_schema = args_schema
+
+        class FakeContext:
+            def call_tool(self, name, arguments):
+                raise AssertionError("session-aware adapter must not call context.call_tool")
+
+            async def call_tool_async(self, name, arguments):
+                raise AssertionError("session-aware adapter must not call context.call_tool_async")
+
+        class FakeSession:
+            session_id = "shared"
+
+            def __init__(self):
+                self.sync_calls = []
+                self.async_calls = []
+                self.async_list_called = False
+
+            def list_tools(self):
+                return [
+                    {
+                        "name": "echo",
+                        "description": "Echo input",
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {"text": {"type": "string"}},
+                            "required": ["text"],
+                        },
+                    }
+                ]
+
+            async def list_tools_async(self):
+                self.async_list_called = True
+                return self.list_tools()
+
+            def use_tool(self, name, arguments):
+                self.sync_calls.append((name, arguments))
+                return {"content": [{"type": "text", "text": arguments["text"]}], "is_error": False}
+
+            async def use_tool_async(self, name, arguments):
+                self.async_calls.append((name, arguments))
+                return {"content": [{"type": "text", "text": arguments["text"]}], "is_error": False}
+
+        session = FakeSession()
+        with patch.object(langchain_adapter, "_LANGCHAIN_IMPORT_ERROR", None), patch.object(
+            langchain_adapter,
+            "StructuredTool",
+            FakeStructuredTool,
+            create=True,
+        ):
+            adapter = langchain_adapter.SessionAwareLangChainAdapter(FakeContext(), session)
+            tool = adapter.list_tools()[0]
+            self.assertEqual(tool.func(text="sync"), "sync")
+
+            async def run():
+                async_tool = (await adapter.list_tools_async())[0]
+                return await async_tool.coroutine(text="async")
+
+            self.assertEqual(asyncio.run(run()), "async")
+
+        self.assertEqual(session.sync_calls, [("echo", {"text": "sync"})])
+        self.assertEqual(session.async_calls, [("echo", {"text": "async"})])
+        self.assertTrue(session.async_list_called)
 
     def test_python_facade_keeps_export_import_cleanup_api(self):
         import asyncio
@@ -2185,9 +2261,71 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertTrue(context.call_tool_called)
         self.assertEqual(result, "ok")
 
+        callable_tools = OpenAIAdapter(context).get_callable_tools()
+        self.assertEqual(callable_tools[0]["name"], "echo")
+        self.assertEqual(callable_tools[0]["callable"](text="callable"), "callable")
+
+        registry = OpenAIAdapter(context).create_tool_registry()
+        self.assertIn("echo", registry)
+        self.assertEqual(registry["echo"]["execute"](text="registry"), "registry")
+        self.assertEqual(
+            OpenAIAdapter(context).batch_execute_tool_calls(
+                [{"name": "echo", "arguments": {"text": "batch"}}]
+            ),
+            ["batch"],
+        )
+
         autogen_tools = AutoGenAdapter(context).list_tools()
         self.assertEqual(autogen_tools[0](text="auto"), "auto")
         self.assertEqual(AutoGenAdapter(context).get_functions()[0](text="auto2"), "auto2")
+
+    def test_openai_adapter_keeps_async_callable_registry_api(self):
+        import asyncio
+
+        from mcpstore.adapters.openai_adapter import OpenAIAdapter
+
+        class FakeContext:
+            async def list_tools_async(self):
+                return [
+                    {
+                        "name": "echo",
+                        "description": "Echo input",
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {"text": {"type": "string"}},
+                            "required": ["text"],
+                        },
+                    }
+                ]
+
+            def list_tools(self):
+                raise AssertionError("async adapter methods must not call list_tools")
+
+            async def call_tool_async(self, name, arguments):
+                return {"content": [{"type": "text", "text": arguments["text"]}], "is_error": False}
+
+            def call_tool(self, name, arguments):
+                raise AssertionError("async adapter methods must not call call_tool")
+
+        async def run():
+            adapter = OpenAIAdapter(FakeContext())
+            callable_tools = await adapter.get_callable_tools_async()
+            registry = await adapter.create_tool_registry_async()
+            batch = await adapter.batch_execute_tool_calls_async(
+                [{"name": "echo", "arguments": {"text": "batch-async"}}]
+            )
+            return (
+                callable_tools[0]["name"],
+                await callable_tools[0]["async_callable"](text="callable-async"),
+                await registry["echo"]["execute_async"](text="registry-async"),
+                batch,
+            )
+
+        name, callable_result, registry_result, batch = asyncio.run(run())
+        self.assertEqual(name, "echo")
+        self.assertEqual(callable_result, "callable-async")
+        self.assertEqual(registry_result, "registry-async")
+        self.assertEqual(batch, ["batch-async"])
 
     def test_adapters_preserve_non_text_tool_content(self):
         from mcpstore.adapters.autogen_adapter import AutoGenAdapter
@@ -2973,6 +3111,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         from mcpstore.core.context.tool_proxy import ToolProxy as ToolProxyModuleExport
         from mcpstore.core.context.tool_transformation import ToolTransformer as ToolTransformerModuleExport
         from mcpstore.core.context.types import ContextType as ContextTypeModuleExport
+        from mcpstore.core.models import ServiceConnectionState, ServiceInfo, TransportType
         from mcpstore.core.store import (
             CacheProxy as StoreCacheProxy,
             ClientManager,
@@ -3041,6 +3180,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 self.closed_session_scopes = []
                 self.cleaned_session_scopes = []
                 self.restarted_session_scopes = []
+                self.session_tool_calls = []
                 self.services = {"svc": {"name": "svc", "transport": "stdio", "agent_id": None}}
 
             def find_session(self, session_id, scope, agent_id):
@@ -3308,6 +3448,22 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             def list_tools_scoped(self, agent_id=None, service_name=None):
                 return [{"name": "echo", "service_name": service_name or "svc", "agent_id": agent_id}]
 
+            def list_session_services(self, session_key):
+                return [
+                    {
+                        "session_key": session_key,
+                        "service_global_name": "svc",
+                        "service_original_name": "svc",
+                    }
+                ]
+
+            def list_tools_in_session(self, session_key):
+                return self.list_tools_scoped(service_name="svc")
+
+            def call_tool_in_session(self, session_key, tool_name, args):
+                self.session_tool_calls.append((session_key, tool_name, args))
+                return self.call_tool("svc", tool_name, args or {})
+
             def list_changed_tools_scoped(self, agent_id=None, service_name=None, *, force_refresh=False):
                 return {
                     "changed": True,
@@ -3568,16 +3724,72 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
 
         self.assertIsInstance(session, Session)
         self.assertIsInstance(session, ContextSession)
+        self.assertEqual(session.call_tool("echo", {"text": "session"}).content[0].text, "session")
+        self.assertEqual(
+            asyncio.run(session.call_tool_async("echo", {"text": "session-async"})).content[0].text,
+            "session-async",
+        )
+        self.assertEqual(asyncio.run(session.list_tools_async())[0].name, "echo")
+        self.assertEqual(session.for_openai().execute_tool_call({"name": "echo", "arguments": {"text": "openai"}}), "openai")
         self.assertIs(session.set_state("cursor", {"page": 7}), session)
         self.assertEqual(session.get_state("cursor").page, 7)
         self.assertEqual(session.state_values().cursor.page, 7)
         self.assertTrue(session.clear_cache())
         self.assertEqual(session.state_values(), {})
+        self.assertEqual(
+            fake_backend.session_tool_calls,
+            [
+                (session.session_key, "echo", {"text": "session"}),
+                (session.session_key, "echo", {"text": "session-async"}),
+                (session.session_key, "echo", {"text": "openai"}),
+            ],
+        )
 
         mapper = AgentServiceMapper("agent_a")
         self.assertEqual(mapper.to_global_name("svc"), "svc_byagent_agent_a")
         self.assertEqual(mapper.to_local_name("svc_byagent_agent_a"), "svc")
         self.assertEqual(AgentServiceMapper.parse_agent_service_name("svc_byagent_agent_a"), ("agent_a", "svc"))
+        self.assertEqual(
+            mapper.convert_config_to_global(
+                {"mcpServers": {"svc": {"url": "http://example.test"}}, "other": True}
+            ),
+            {"mcpServers": {"svc_byagent_agent_a": {"url": "http://example.test"}}, "other": True},
+        )
+        self.assertEqual(
+            mapper.convert_config_to_local(
+                {
+                    "mcpServers": {
+                        "svc_byagent_agent_a": {"url": "http://example.test"},
+                        "svc_byagent_agent_b": {"url": "http://ignored.test"},
+                    },
+                    "other": True,
+                }
+            ),
+            {"mcpServers": {"svc": {"url": "http://example.test"}}, "other": True},
+        )
+
+        service_infos = mapper.convert_service_list_to_local(
+            [
+                ServiceInfo(
+                    name="svc_byagent_agent_a",
+                    transport_type=TransportType.STREAMABLE_HTTP,
+                    status=ServiceConnectionState.HEALTHY,
+                    tool_count=2,
+                    keep_alive=True,
+                    config={"owner": "agent_a"},
+                ),
+                ServiceInfo(
+                    name="svc_byagent_agent_b",
+                    transport_type=TransportType.STREAMABLE_HTTP,
+                    status=ServiceConnectionState.HEALTHY,
+                    tool_count=1,
+                    keep_alive=True,
+                ),
+            ]
+        )
+        self.assertEqual(len(service_infos), 1)
+        self.assertEqual(service_infos[0].name, "svc")
+        self.assertEqual(service_infos[0].config, {"owner": "agent_a"})
         self.assertEqual(ContextType.STORE.value, "store")
 
         class ResourcePromptCompat(ResourcesPromptsMixin):
