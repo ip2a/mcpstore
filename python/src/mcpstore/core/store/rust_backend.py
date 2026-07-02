@@ -301,7 +301,6 @@ class RustStoreBackend:
     def __init__(self, rust_store):
         self._inner = rust_store
         self._sessions: Dict[tuple[str, str], "RustSession"] = {}
-        self._tool_overrides: Dict[str, Dict[str, Any]] = {}
         self.registry = RustRegistryFacade(self)
         self._config_path: Optional[str] = None
         self._cache_config: Any = None
@@ -690,6 +689,63 @@ class RustStoreBackend:
         service_name: str,
     ) -> None:
         self._inner.clear_context_tool_visibility(agent_id, service_name)
+
+    def get_tool_preference(
+        self,
+        agent_id: Optional[str],
+        service_name: str,
+        tool_name: str,
+        key: str,
+        default: Any = None,
+    ) -> Any:
+        return _record_value(
+            self._inner.get_tool_preference(
+                agent_id,
+                service_name,
+                tool_name,
+                key,
+                default,
+            )
+        )
+
+    def get_tool_preferences(
+        self,
+        agent_id: Optional[str],
+        service_name: str,
+        tool_name: str,
+    ) -> Optional[Dict[str, Any]]:
+        return _record_value(
+            self._inner.get_tool_preferences(agent_id, service_name, tool_name)
+        )
+
+    def set_tool_preference(
+        self,
+        agent_id: Optional[str],
+        service_name: str,
+        tool_name: str,
+        key: str,
+        value: Any,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._inner.set_tool_preference(
+                agent_id,
+                service_name,
+                tool_name,
+                key,
+                value,
+            )
+        )
+
+    def clear_tool_preference(
+        self,
+        agent_id: Optional[str],
+        service_name: str,
+        tool_name: str,
+        key: str,
+    ) -> Optional[Dict[str, Any]]:
+        return _record_value(
+            self._inner.clear_tool_preference(agent_id, service_name, tool_name, key)
+        )
 
     def list_changed_tools_scoped(
         self,
@@ -3423,9 +3479,6 @@ class RustStoreContext:
             **kwargs,
         )
 
-    def _tool_override_key(self, service_name: str, tool_name: str) -> str:
-        return f"{service_name or ''}:{tool_name}"
-
     def _set_tool_override(
         self,
         service_name: str,
@@ -3433,8 +3486,13 @@ class RustStoreContext:
         flag: str,
         value: Any,
     ) -> None:
-        key = self._tool_override_key(service_name, tool_name)
-        self._backend._tool_overrides.setdefault(key, {})[flag] = value
+        self._backend.set_tool_preference(
+            self._agent_id,
+            service_name,
+            tool_name,
+            flag,
+            value,
+        )
 
     def get_tool_override(
         self,
@@ -3444,13 +3502,21 @@ class RustStoreContext:
         default: Any = None,
     ) -> Any:
         keys = [
-            self._tool_override_key(service_name, tool_name),
-            self._tool_override_key("", tool_name),
+            (service_name, tool_name),
+            ("", tool_name),
         ]
-        for key in keys:
-            overrides = self._backend._tool_overrides.get(key)
-            if overrides and flag in overrides:
-                return overrides[flag]
+        for service, tool in keys:
+            try:
+                state = self._backend.get_tool_preferences(
+                    self._agent_id,
+                    service,
+                    tool,
+                )
+            except Exception:
+                state = None
+            preferences = state.get("preferences", {}) if state else {}
+            if flag in preferences:
+                return preferences[flag]
         return default
 
     def show_config(self, scope: str = "all") -> Dict[str, Any]:

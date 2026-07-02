@@ -150,6 +150,55 @@ def install_fake_context_tool_visibility_api(inner):
     return inner
 
 
+def install_fake_tool_preferences_api(inner):
+    inner.tool_preferences = {}
+
+    def preference_key(agent_id, service_name, tool_name):
+        return (agent_id, service_name, tool_name)
+
+    def get_tool_preferences(agent_id, service_name, tool_name):
+        return inner.tool_preferences.get(preference_key(agent_id, service_name, tool_name))
+
+    def get_tool_preference(agent_id, service_name, tool_name, key, default_value=None):
+        record = get_tool_preferences(agent_id, service_name, tool_name)
+        if not record:
+            return default_value
+        return record.get("preferences", {}).get(key, default_value)
+
+    def set_tool_preference(agent_id, service_name, tool_name, key, value):
+        record = inner.tool_preferences.setdefault(
+            preference_key(agent_id, service_name, tool_name),
+            {
+                "context_key": f"agent:{agent_id}" if agent_id else "store:global",
+                "service_global_name": service_name,
+                "tool_global_name": f"{service_name}_{tool_name}" if service_name else tool_name,
+                "tool_original_name": tool_name,
+                "preferences": {},
+                "version": 0,
+            },
+        )
+        record["preferences"][key] = value
+        record["version"] += 1
+        return record
+
+    def clear_tool_preference(agent_id, service_name, tool_name, key):
+        record = get_tool_preferences(agent_id, service_name, tool_name)
+        if not record:
+            return None
+        record["preferences"].pop(key, None)
+        record["version"] += 1
+        if not record["preferences"]:
+            inner.tool_preferences.pop(preference_key(agent_id, service_name, tool_name), None)
+            return None
+        return record
+
+    inner.get_tool_preferences = get_tool_preferences
+    inner.get_tool_preference = get_tool_preference
+    inner.set_tool_preference = set_tool_preference
+    inner.clear_tool_preference = clear_tool_preference
+    return inner
+
+
 class PyO3NativeBridgeTest(unittest.TestCase):
     def test_rust_binding_uses_native_python_objects(self):
         from mcpstore._rust import MCPStore
@@ -780,6 +829,7 @@ paths:
         inner = FakeBackend()
         install_fake_session_context_api(inner)
         install_fake_context_tool_visibility_api(inner)
+        install_fake_tool_preferences_api(inner)
         backend = RustStoreBackend(inner)
         context = RustStoreContext(backend)
         agent = context.find_agent("agent-a")

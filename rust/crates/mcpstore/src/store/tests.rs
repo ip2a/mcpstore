@@ -4350,6 +4350,98 @@ async fn context_tool_visibility_is_rust_backed_and_filters_scoped_tools() {
 }
 
 #[tokio::test]
+async fn tool_preferences_are_rust_backed_and_scoped_to_tool() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::OpenKeyvMemory),
+        redis_url: None,
+        namespace: Some("test-tool-preferences".to_string()),
+    })
+    .unwrap();
+    store.add_service("svc", stdio_config()).await.unwrap();
+    let mut service = store.registry.find_service("svc").await.unwrap();
+    service.status = ConnectionStatus::Connected;
+    service.tools = vec![crate::registry::ToolInfo {
+        name: "echo".to_string(),
+        description: "echo".to_string(),
+        schema: serde_json::json!({"type": "object"}),
+    }];
+    store.registry.register(service).await;
+
+    let state = store
+        .set_tool_preference(
+            None,
+            "svc",
+            "echo",
+            "return_direct",
+            serde_json::json!(true),
+        )
+        .await
+        .unwrap();
+    assert_eq!(state.context_key, "store:global");
+    assert_eq!(state.service_global_name, "svc");
+    assert_eq!(state.tool_global_name, "svc_echo");
+    assert_eq!(state.preferences["return_direct"], serde_json::json!(true));
+    assert!(store
+        .cache()
+        .get_state("tool_preferences", "store:global:svc_echo")
+        .await
+        .unwrap()
+        .is_some());
+
+    assert_eq!(
+        store
+            .get_tool_preference(None, "svc", "svc_echo", "return_direct")
+            .await
+            .unwrap(),
+        Some(serde_json::json!(true))
+    );
+
+    let unscoped_state = store
+        .set_tool_preference(None, "", "echo", "adapter", serde_json::json!("langchain"))
+        .await
+        .unwrap();
+    assert_eq!(unscoped_state.service_global_name, "svc");
+    assert_eq!(unscoped_state.tool_original_name, "echo");
+    assert_eq!(
+        store
+            .get_tool_preference(None, "svc", "echo", "adapter")
+            .await
+            .unwrap(),
+        Some(serde_json::json!("langchain"))
+    );
+
+    store
+        .clear_tool_preference(None, "svc", "echo", "return_direct")
+        .await
+        .unwrap();
+    let remaining = store
+        .get_tool_preferences(None, "svc", "echo")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(remaining.preferences.get("return_direct").is_none());
+    assert_eq!(
+        remaining.preferences["adapter"],
+        serde_json::json!("langchain")
+    );
+
+    store
+        .clear_tool_preference(None, "", "echo", "adapter")
+        .await
+        .unwrap();
+    assert!(store
+        .get_tool_preferences(None, "svc", "echo")
+        .await
+        .unwrap()
+        .is_none());
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
 async fn connect_service_failure_opens_circuit_and_schedules_retry() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
