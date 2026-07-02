@@ -317,6 +317,7 @@ async fn execute_component(
             OpenApiResponseBody::Text(text)
         }
     };
+    let body = filter_write_only_response_fields(component, status, &mime_type, body);
     Ok(OpenApiHttpResponse {
         status,
         mime_type,
@@ -1118,6 +1119,139 @@ fn response_media_has_binary_schema(component: &OpenApiComponent, mime_type: &st
             .and_then(|content| find_media_type(content, mime_type))
             .is_some_and(media_type_has_binary_schema)
     })
+}
+
+fn filter_write_only_response_fields(
+    component: &OpenApiComponent,
+    status: reqwest::StatusCode,
+    mime_type: &str,
+    body: OpenApiResponseBody,
+) -> OpenApiResponseBody {
+    let OpenApiResponseBody::Json(mut value) = body else {
+        return body;
+    };
+    let Some(schema) = response_body_schema_for_validation(component, status, mime_type) else {
+        return OpenApiResponseBody::Json(value);
+    };
+    if remove_write_only_response_fields(schema, &mut value) {
+        value = Value::Null;
+    }
+    OpenApiResponseBody::Json(value)
+}
+
+fn response_body_schema_for_validation<'a>(
+    component: &'a OpenApiComponent,
+    status: reqwest::StatusCode,
+    mime_type: &str,
+) -> Option<&'a Value> {
+    let status_code = status.as_u16().to_string();
+    let status_class = format!("{}XX", status.as_u16() / 100);
+    response_body_schema_for_status(component.endpoint.responses.get(&status_code), mime_type)
+        .or_else(|| {
+            response_body_schema_for_status(
+                component.endpoint.responses.get(&status_class),
+                mime_type,
+            )
+        })
+        .or_else(|| {
+            response_body_schema_for_status(component.endpoint.responses.get("default"), mime_type)
+        })
+}
+
+fn response_body_schema_for_status<'a>(
+    response: Option<&'a Value>,
+    mime_type: &str,
+) -> Option<&'a Value> {
+    let content = response?.get("content")?.as_object()?;
+    find_media_type(content, mime_type)
+        .or_else(|| {
+            is_json_mime_type(mime_type).then(|| {
+                content.iter().find_map(|(declared, media)| {
+                    normalize_mime_type(declared)
+                        .filter(|declared| is_json_mime_type(declared))
+                        .map(|_| media)
+                })
+            })?
+        })
+        .and_then(|media| media.get("schema"))
+}
+
+fn remove_write_only_response_fields(schema: &Value, value: &mut Value) -> bool {
+    if schema
+        .get("writeOnly")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    if let Some(schemas) = schema.get("allOf").and_then(Value::as_array) {
+        for child_schema in schemas {
+            if remove_write_only_response_fields(child_schema, value) {
+                return true;
+            }
+        }
+    }
+    for name in ["anyOf", "oneOf"] {
+        if let Some(schemas) = schema.get(name).and_then(Value::as_array) {
+            let matching = schemas
+                .iter()
+                .filter(|child_schema| schema_matches(child_schema, value))
+                .collect::<Vec<_>>();
+            for child_schema in matching {
+                if remove_write_only_response_fields(child_schema, value) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    if let (Some(properties), Some(object)) = (
+        schema.get("properties").and_then(Value::as_object),
+        value.as_object_mut(),
+    ) {
+        for (name, child_schema) in properties {
+            if let Some(child_value) = object.get_mut(name) {
+                if remove_write_only_response_fields(child_schema, child_value) {
+                    object.remove(name);
+                }
+            }
+        }
+    }
+
+    if let (Some(item_schema), Some(items)) = (schema.get("items"), value.as_array_mut()) {
+        let mut index = 0;
+        while index < items.len() {
+            if remove_write_only_response_fields(item_schema, &mut items[index]) {
+                items.remove(index);
+            } else {
+                index += 1;
+            }
+        }
+    }
+
+    if let (Some(additional_schema), Some(object)) = (
+        schema
+            .get("additionalProperties")
+            .and_then(Value::as_object),
+        value.as_object_mut(),
+    ) {
+        let additional_schema = Value::Object(additional_schema.clone());
+        let declared = schema.get("properties").and_then(Value::as_object);
+        let names = object.keys().cloned().collect::<Vec<_>>();
+        for name in names {
+            if declared.is_some_and(|properties| properties.contains_key(&name)) {
+                continue;
+            }
+            if let Some(child_value) = object.get_mut(&name) {
+                if remove_write_only_response_fields(&additional_schema, child_value) {
+                    object.remove(&name);
+                }
+            }
+        }
+    }
+
+    false
 }
 
 fn find_media_type<'a>(content: &'a Map<String, Value>, mime_type: &str) -> Option<&'a Value> {
