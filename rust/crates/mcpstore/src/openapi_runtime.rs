@@ -417,6 +417,11 @@ fn validate_schema_value(schema: &Value, value: &Value, path: &str, errors: &mut
         return;
     }
 
+    if is_file_argument_schema(schema) {
+        validate_binary_file_argument(value, path, errors);
+        return;
+    }
+
     if let Some(enum_values) = schema.get("enum").and_then(Value::as_array) {
         if !enum_values.iter().any(|enum_value| enum_value == value) {
             errors.push(format!("{path} must match one of the declared enum values"));
@@ -424,14 +429,13 @@ fn validate_schema_value(schema: &Value, value: &Value, path: &str, errors: &mut
         }
     }
 
+    validate_composition_schema(schema, value, path, errors);
+
     let Some(schema_type) = schema_type(schema) else {
         return;
     };
 
     match schema_type {
-        "object" if is_file_argument_schema(schema) => {
-            validate_binary_file_argument(value, path, errors)
-        }
         "object" => validate_object_schema(schema, value, path, errors),
         "array" => validate_array_schema(schema, value, path, errors),
         "string" if is_binary_string_schema(schema) => {
@@ -446,6 +450,83 @@ fn validate_schema_value(schema: &Value, value: &Value, path: &str, errors: &mut
         "boolean" if !value.is_boolean() => errors.push(format!("{path} must be a boolean")),
         _ => {}
     }
+}
+
+fn validate_composition_schema(
+    schema: &Value,
+    value: &Value,
+    path: &str,
+    errors: &mut Vec<String>,
+) {
+    validate_all_of_schema(schema, value, path, errors);
+    validate_any_of_schema(schema, value, path, errors);
+    validate_one_of_schema(schema, value, path, errors);
+    validate_not_schema(schema, value, path, errors);
+}
+
+fn validate_all_of_schema(schema: &Value, value: &Value, path: &str, errors: &mut Vec<String>) {
+    let Some(all_of) = schema.get("allOf") else {
+        return;
+    };
+    let Some(schemas) = all_of.as_array() else {
+        errors.push(format!("{path} has invalid allOf: must be an array"));
+        return;
+    };
+    for child_schema in schemas {
+        validate_schema_value(child_schema, value, path, errors);
+    }
+}
+
+fn validate_any_of_schema(schema: &Value, value: &Value, path: &str, errors: &mut Vec<String>) {
+    let Some(any_of) = schema.get("anyOf") else {
+        return;
+    };
+    let Some(schemas) = any_of.as_array() else {
+        errors.push(format!("{path} has invalid anyOf: must be an array"));
+        return;
+    };
+    if !schemas
+        .iter()
+        .any(|child_schema| schema_matches(child_schema, value))
+    {
+        errors.push(format!("{path} must match at least one anyOf schema"));
+    }
+}
+
+fn validate_one_of_schema(schema: &Value, value: &Value, path: &str, errors: &mut Vec<String>) {
+    let Some(one_of) = schema.get("oneOf") else {
+        return;
+    };
+    let Some(schemas) = one_of.as_array() else {
+        errors.push(format!("{path} has invalid oneOf: must be an array"));
+        return;
+    };
+    let matches = schemas
+        .iter()
+        .filter(|child_schema| schema_matches(child_schema, value))
+        .count();
+    if matches != 1 {
+        errors.push(format!("{path} must match exactly one oneOf schema"));
+    }
+}
+
+fn validate_not_schema(schema: &Value, value: &Value, path: &str, errors: &mut Vec<String>) {
+    let Some(not_schema) = schema.get("not") else {
+        return;
+    };
+    if !not_schema.is_object() {
+        errors.push(format!("{path} has invalid not: must be an object"));
+        return;
+    }
+    if schema_matches(not_schema, value) {
+        errors.push(format!("{path} must not match not schema"));
+    }
+}
+
+fn schema_matches(schema: &Value, value: &Value) -> bool {
+    let mut errors = Vec::new();
+    validate_schema_value(schema, value, "value", &mut errors);
+    errors.is_empty()
 }
 
 fn validate_string_constraints(
