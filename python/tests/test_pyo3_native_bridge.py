@@ -2576,6 +2576,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 self.updated_services = {}
                 self.removed_services = []
                 self.reset_mcp_scopes = []
+                self.services = {"svc": {"name": "svc", "transport": "stdio", "agent_id": None}}
 
             def find_session(self, session_id, scope, agent_id):
                 return self.sessions.get((scope, agent_id, session_id))
@@ -2688,7 +2689,10 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 ]
 
             def list_services_scoped(self, agent_id=None):
-                return [{"name": "svc", "transport": "stdio", "agent_id": agent_id}]
+                return [
+                    {**service, "agent_id": agent_id}
+                    for service in self.services.values()
+                ]
 
             def list_tools_scoped(self, agent_id=None, service_name=None):
                 return [{"name": "echo", "service_name": service_name or "svc", "agent_id": agent_id}]
@@ -2720,6 +2724,10 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
 
             def find_service(self, name):
                 return {"name": name, "transport": "stdio"}
+
+            def add_service(self, name, config):
+                self.services[name] = {"name": name, **config}
+                return True
 
             def update_service(self, name, config):
                 self.updated_services[name] = config
@@ -2860,9 +2868,34 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             self.assertEqual(context.for_langchain_with_auto_session(), "auto_session_default")
         with self.assertRaisesRegex(ValueError, "Session not found"):
             operations.for_langchain_with_session("missing", create_if_not_exists=False)
+        add_details = context.add_service_with_details({"name": "new", "command": "python"})
+        self.assertTrue(add_details.success)
+        self.assertEqual(add_details.added_services, ["new"])
+        self.assertEqual(add_details.service_details.new.command, "python")
+        self.assertEqual(add_details.total_services, 2)
+        self.assertEqual(add_details.total_tools, 1)
+        self.assertEqual(context.init_service("svc").health_status, "ready")
+        direct_sessions = context.list_agent_sessions()
+        self.assertEqual({session.session_id for session in direct_sessions}, {"shared", "auto_session_default"})
+        direct_stats = context.get_session_statistics()
+        self.assertEqual(direct_stats.total_sessions, 2)
+        self.assertEqual(direct_stats.active_sessions, 2)
+        self.assertEqual(direct_stats.context_sessions, 2)
+        self.assertTrue(direct_stats.auto_session_enabled)
+        self.assertEqual(direct_stats.context_info.context_type, "store")
         self.assertIs(operations.import_api("https://example.test/openapi.json", "example"), operations)
         self.assertEqual(operations.last_openapi_import().service_name, "example")
         self.assertTrue(operations.last_openapi_import().runtime_executable)
+        self.assertIs(context.import_api("https://example.test/direct-openapi.json", "direct"), context)
+        self.assertEqual(context.last_openapi_import().service_name, "direct")
+        self.assertIs(
+            context.import_api_from_spec(
+                {"openapi": "3.0.0", "info": {"title": "Example", "version": "1.0"}},
+                "direct_spec",
+            ),
+            context,
+        )
+        self.assertEqual(context.last_openapi_import().service_name, "direct_spec")
         self.assertIs(
             operations.import_api(
                 "https://example.test/secure-openapi.json",
@@ -2896,7 +2929,9 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         )
         self.assertTrue(operations.reset_mcp_json_file())
         self.assertTrue(asyncio.run(operations.reset_mcp_json_file_async("agent_a")))
-        self.assertEqual(fake_backend.reset_mcp_scopes, ["all", "agent_a"])
+        self.assertTrue(context.reset_mcp_json_file())
+        self.assertTrue(asyncio.run(context.reset_mcp_json_file_async("agent_b")))
+        self.assertEqual(fake_backend.reset_mcp_scopes, ["all", "agent_a", "all", "agent_b"])
 
         session = context.with_session("compat")
 
