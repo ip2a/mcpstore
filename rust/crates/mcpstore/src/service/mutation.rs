@@ -39,6 +39,10 @@ impl MCPStore {
         if self.source_mode == SourceMode::Local {
             let mut cfg = self.config_manager.load_or_default();
             cfg.mcp_servers.remove(name);
+            cfg.agents.retain(|_, services| {
+                services.retain(|service_name| service_name != name);
+                !services.is_empty()
+            });
             self.config_manager.save(&cfg)?;
         }
 

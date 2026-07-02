@@ -77,6 +77,10 @@ impl MCPStore {
             "StoreResetRequested" => {
                 self.reset_config().await?;
             }
+            "AgentResetRequested" => {
+                let agent_id = request::required_string(payload, "agent_id")?;
+                self.reset_agent_config(&agent_id).await?;
+            }
             other => {
                 return Err(StoreError::Other(format!(
                     "Unsupported control request type: {other}"

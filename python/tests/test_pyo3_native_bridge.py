@@ -480,6 +480,8 @@ paths:
                 self.restarted = []
                 self.patches = []
                 self.updates = []
+                self.reset_all = False
+                self.reset_agents = []
 
             def list_tools_scoped(self, agent_id=None, service_name=None, *, filter="available"):
                 return [
@@ -610,6 +612,26 @@ paths:
                     },
                     "clients": {"client-a": {"service": "demo"}},
                 }
+
+            def show_config_scoped(self, agent_id=None):
+                config = self.show_config()
+                if agent_id is None:
+                    return config
+                services = config["agents"].get(agent_id, [])
+                return {
+                    "mcpServers": {
+                        name: value
+                        for name, value in config["mcpServers"].items()
+                        if name in services
+                    },
+                    "agents": {agent_id: services},
+                }
+
+            def reset_config(self):
+                self.reset_all = True
+
+            def reset_agent_config(self, agent_id):
+                self.reset_agents.append(agent_id)
 
         inner = FakeBackend()
         backend = RustStoreBackend(inner)
@@ -744,6 +766,9 @@ paths:
         self.assertEqual(set(context.show_config("mcp").mcpServers), {"demo", "agent-demo", "other-agent-demo"})
         self.assertEqual(set(agent.show_config("all").mcpServers), {"agent-demo"})
         self.assertEqual(agent.show_config("agent").agents["agent-a"], ["agent-demo"])
+        self.assertTrue(agent.reset_config())
+        self.assertEqual(inner.reset_agents, ["agent-a"])
+        self.assertFalse(inner.reset_all)
         self.assertEqual(agent.get_stats().service_count, 1)
         self.assertEqual(asyncio.run(agent.get_stats_async()).healthy_services, 1)
         self.assertEqual(agent.map_global("svc"), "svc_byagent_agent-a")
@@ -2254,6 +2279,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                     "/for_agent/{agent_id}/list_prompts",
                     "/for_agent/{agent_id}/get_prompt",
                     "/for_agent/{agent_id}/show_config",
+                    "/for_agent/{agent_id}/reset_config",
                     "/for_agent/{agent_id}/wait_service",
                     "/for_agent/{agent_id}/wait_service/{service_name}",
                     "/for_agent/{agent_id}/patch_service/{service_name}",

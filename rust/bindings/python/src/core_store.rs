@@ -1609,6 +1609,14 @@ impl PyMCPStore {
         mcp_config_to_py(py, &config)
     }
 
+    #[pyo3(signature = (agent_id=None))]
+    fn show_config_scoped(&self, py: Python<'_>, agent_id: Option<String>) -> PyResult<Py<PyAny>> {
+        let config = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.show_config_scoped(agent_id.as_deref()))
+            .map_err(map_store_err)?;
+        serde_value_to_py(py, config)
+    }
+
     fn cache_health_check(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let health = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.cache_health_report())
@@ -1678,6 +1686,12 @@ impl PyMCPStore {
     fn reset_config(&self) -> PyResult<()> {
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.reset_config())
+            .map_err(map_store_err)
+    }
+
+    fn reset_agent_config(&self, agent_id: &str) -> PyResult<()> {
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.reset_agent_config(agent_id))
             .map_err(map_store_err)
     }
 
