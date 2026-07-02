@@ -38,8 +38,7 @@ class SessionManagementMixin:
         return self._rust_context().session_manual()
 
     def is_session_auto(self) -> bool:
-        context = self._rust_context()
-        return context.active_session is not None
+        return self._rust_context().is_session_auto()
 
     def current_session(self):
         return self._rust_context().current_session()
@@ -51,17 +50,13 @@ class SessionManagementMixin:
         return self.with_session(session_id)
 
     def close_all_sessions(self):
-        for session in self.list_sessions():
-            session.close_session()
-        return self._rust_context()
+        return self._rust_context().close_all_sessions()
 
     def cleanup_sessions(self):
-        return self._rust_context()
+        return self._rust_context().cleanup_sessions()
 
     def restart_sessions(self):
-        for session in self.list_sessions():
-            session.restart_session()
-        return self._rust_context()
+        return self._rust_context().restart_sessions()
 
     def create_shared_session(self, session_id: str, shared_id: str):
         return self.create_session(session_id, user_session_id=shared_id)
