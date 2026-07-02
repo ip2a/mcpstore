@@ -1023,6 +1023,7 @@ class RustStoreBackend:
         self,
         *,
         agent_id: Optional[str] = None,
+        service_name: Optional[str] = None,
         transport: str = "streamable-http",
         host: str = "0.0.0.0",
         port: int = 8000,
@@ -1061,6 +1062,8 @@ class RustStoreBackend:
         )
         if agent_id:
             cmd.extend(["--agent", agent_id])
+        if service_name:
+            cmd.extend(["--service", service_name])
         if self._config_path:
             cmd.extend(["--config-path", self._config_path])
         if self._only_db:
@@ -1557,20 +1560,44 @@ class RustServiceProxy:
             **kwargs,
         )
 
-    def _service_hub_not_supported(self) -> None:
-        raise NotImplementedError(
-            "Rust MCP server does not yet support service-scoped hub exposure; "
-            "use the store or agent context hub, or add Rust service-scope support first"
+    def hub_http(
+        self,
+        *,
+        port: int = 8000,
+        host: str = "0.0.0.0",
+        path: str = "/mcp",
+        block: bool = False,
+        **kwargs,
+    ) -> Any:
+        return self._context._backend.start_mcp_server(
+            agent_id=self._context.agent_id,
+            service_name=self._service_name,
+            transport="streamable-http",
+            host=host,
+            port=port,
+            path=path,
+            block=block,
+            **kwargs,
         )
 
-    def hub_http(self, *args, **kwargs) -> Any:
-        self._service_hub_not_supported()
-
     def hub_sse(self, *args, **kwargs) -> Any:
-        self._service_hub_not_supported()
+        raise NotImplementedError(
+            "Rust mcp-server does not expose SSE hub transport; use hub_http() for streamable-http"
+        )
 
-    def hub_stdio(self, *args, **kwargs) -> Any:
-        self._service_hub_not_supported()
+    def hub_stdio(
+        self,
+        *,
+        block: bool = False,
+        **kwargs,
+    ) -> Any:
+        return self._context._backend.start_mcp_server(
+            agent_id=self._context.agent_id,
+            service_name=self._service_name,
+            transport="stdio",
+            block=block,
+            **kwargs,
+        )
 
 
 class RustToolProxy:

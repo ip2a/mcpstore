@@ -673,12 +673,27 @@ paths:
         self.assertEqual(asyncio.run(service.call_tool_async("echo", {"text": "async"})).text_output, "async")
         with self.assertRaisesRegex(ValueError, "timeout"):
             service.call_tool("echo", {"text": "service"}, timeout=10)
-        with self.assertRaisesRegex(NotImplementedError, "service-scoped hub"):
-            service.hub_http()
-        with self.assertRaisesRegex(NotImplementedError, "service-scoped hub"):
+        with patch.object(backend, "start_mcp_server", return_value=0) as start_mcp_server:
+            self.assertEqual(service.hub_http(), 0)
+        start_mcp_server.assert_called_once_with(
+            agent_id=None,
+            service_name="demo",
+            transport="streamable-http",
+            host="0.0.0.0",
+            port=8000,
+            path="/mcp",
+            block=False,
+        )
+        with self.assertRaisesRegex(NotImplementedError, "SSE hub transport"):
             service.hub_sse()
-        with self.assertRaisesRegex(NotImplementedError, "service-scoped hub"):
-            service.hub_stdio()
+        with patch.object(backend, "start_mcp_server", return_value=0) as start_mcp_server:
+            self.assertEqual(service.hub_stdio(), 0)
+        start_mcp_server.assert_called_once_with(
+            agent_id=None,
+            service_name="demo",
+            transport="stdio",
+            block=False,
+        )
 
         tool = service.find_tool("echo")
         self.assertEqual(tool.name, "echo")
@@ -2024,6 +2039,38 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertIn("agent", cmd)
         self.assertIn("--agent", cmd)
         self.assertIn("agent-a", cmd)
+        self.assertIn("--config-path", cmd)
+        self.assertIn("--source", cmd)
+
+    def test_service_hub_http_delegates_service_scope_to_rust_mcp_server_cli(self):
+        from mcpstore.config import MemoryConfig
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        store = RustStoreBackend(object())
+        store._config_path = "mcp.json"
+        store._cache_config = MemoryConfig()
+        store._only_db = True
+
+        completed = type("Completed", (), {"returncode": 0})()
+        with patch("mcpstore._rust_cli.resolve_rust_cli_binary", return_value="/bin/mcpstore"):
+            with patch("mcpstore._rust_cli.resolve_runtime_cwd", return_value="/tmp"):
+                with patch("mcpstore.core.store.rust_backend.subprocess.run", return_value=completed) as run:
+                    code = store.for_agent("agent-a").find_service("demo").hub_http(
+                        host="0.0.0.0",
+                        port=18080,
+                        path="/mcp",
+                        block=True,
+                    )
+
+        self.assertEqual(code, 0)
+        cmd = run.call_args.args[0]
+        self.assertEqual(cmd[:4], ["/bin/mcpstore", "mcp-server", "--transport", "streamable-http"])
+        self.assertIn("--scope", cmd)
+        self.assertIn("agent", cmd)
+        self.assertIn("--agent", cmd)
+        self.assertIn("agent-a", cmd)
+        self.assertIn("--service", cmd)
+        self.assertIn("demo", cmd)
         self.assertIn("--config-path", cmd)
         self.assertIn("--source", cmd)
 
