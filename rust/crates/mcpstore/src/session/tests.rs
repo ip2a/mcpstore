@@ -551,6 +551,84 @@ async fn close_session_soft_closes_and_extend_rejects_closed_session() {
 }
 
 #[tokio::test]
+async fn scoped_session_batch_lifecycle_runs_in_rust_core() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+    let first = store
+        .create_session(CreateSessionRequest::store("first"))
+        .await
+        .unwrap();
+    let second = store
+        .create_session(CreateSessionRequest::store("second"))
+        .await
+        .unwrap();
+    let agent = store
+        .create_session(CreateSessionRequest::agent("first", "agent-a"))
+        .await
+        .unwrap();
+
+    store
+        .set_active_session_for_context(SessionScope::Store, None, Some(&first.session_key))
+        .await
+        .unwrap();
+    store
+        .enable_auto_session_for_context(SessionScope::Store, None, &second.session_key)
+        .await
+        .unwrap();
+
+    let statuses = store
+        .close_sessions(Some(SessionScope::Store), None, Some("done".to_string()))
+        .await
+        .unwrap();
+    assert_eq!(statuses.len(), 2);
+    assert!(statuses
+        .iter()
+        .all(|status| status.status == SessionStatus::Closed));
+    assert_eq!(
+        store
+            .get_session_status(&agent.session_key)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        SessionStatus::Active
+    );
+    assert!(store
+        .get_active_session_for_context(SessionScope::Store, None)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(!store
+        .is_auto_session_enabled_for_context(SessionScope::Store, None)
+        .await
+        .unwrap());
+
+    let mut request = CreateSessionRequest::store("expired");
+    request.lease_seconds = Some(1);
+    let expired = store.create_session(request).await.unwrap();
+    store
+        .set_active_session_for_context(SessionScope::Store, None, Some(&expired.session_key))
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    let report = store
+        .cleanup_sessions(Some(SessionScope::Store), None)
+        .await
+        .unwrap();
+    assert!(report.refreshed_sessions >= 3);
+    assert_eq!(report.expired_sessions, 1);
+    assert!(report.cleared_active_session);
+    assert!(store
+        .get_active_session_for_context(SessionScope::Store, None)
+        .await
+        .unwrap()
+        .is_none());
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
 async fn extend_session_updates_lease_and_expiry() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();

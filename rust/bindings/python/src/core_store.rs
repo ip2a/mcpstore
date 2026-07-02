@@ -17,8 +17,9 @@ use mcpstore::{
     ToolDescription, ToolInfo,
 };
 use mcpstore::{
-    CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, SessionRetryPolicy,
-    SessionToolSelection, ToolTransformPatch, ToolVisibilityFilter,
+    CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, SessionCleanupReport,
+    SessionRestartReport, SessionRetryPolicy, SessionToolSelection, ToolTransformPatch,
+    ToolVisibilityFilter,
 };
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
@@ -510,6 +511,30 @@ fn session_context_state_to_py(py: Python<'_>, state: &SessionContextState) -> P
     dict.set_item("auto_session_key", state.auto_session_key.as_deref())?;
     dict.set_item("updated_at", state.updated_at)?;
     dict.set_item("version", state.version)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn session_cleanup_report_to_py(
+    py: Python<'_>,
+    report: &SessionCleanupReport,
+) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item("refreshed_sessions", report.refreshed_sessions)?;
+    dict.set_item("expired_sessions", report.expired_sessions)?;
+    dict.set_item("cleared_active_session", report.cleared_active_session)?;
+    dict.set_item("cleared_auto_session", report.cleared_auto_session)?;
+    Ok(dict.into_any().unbind())
+}
+
+fn session_restart_report_to_py(
+    py: Python<'_>,
+    report: &SessionRestartReport,
+) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
+    dict.set_item(
+        "restarted_services",
+        string_list_to_py(py, &report.restarted_services)?,
+    )?;
     Ok(dict.into_any().unbind())
 }
 
@@ -1198,6 +1223,64 @@ impl PyMCPStore {
             .block_on(self.inner.close_session(session_key, reason))
             .map_err(map_store_err)?;
         session_status_to_py(py, &status)
+    }
+
+    #[pyo3(signature = (scope=None, agent_id=None, reason=None))]
+    fn close_sessions(
+        &self,
+        py: Python<'_>,
+        scope: Option<String>,
+        agent_id: Option<String>,
+        reason: Option<String>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        let scope = match scope {
+            Some(value) => Some(parse_session_scope(Some(value.as_str()))?),
+            None => None,
+        };
+        let statuses = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .close_sessions(scope, agent_id.as_deref(), reason),
+            )
+            .map_err(map_store_err)?;
+        statuses
+            .iter()
+            .map(|status| session_status_to_py(py, status))
+            .collect()
+    }
+
+    #[pyo3(signature = (scope=None, agent_id=None))]
+    fn cleanup_sessions(
+        &self,
+        py: Python<'_>,
+        scope: Option<String>,
+        agent_id: Option<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let scope = match scope {
+            Some(value) => Some(parse_session_scope(Some(value.as_str()))?),
+            None => None,
+        };
+        let report = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.cleanup_sessions(scope, agent_id.as_deref()))
+            .map_err(map_store_err)?;
+        session_cleanup_report_to_py(py, &report)
+    }
+
+    #[pyo3(signature = (scope=None, agent_id=None))]
+    fn restart_sessions(
+        &self,
+        py: Python<'_>,
+        scope: Option<String>,
+        agent_id: Option<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let scope = match scope {
+            Some(value) => Some(parse_session_scope(Some(value.as_str()))?),
+            None => None,
+        };
+        let report = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.restart_sessions(scope, agent_id.as_deref()))
+            .map_err(map_store_err)?;
+        session_restart_report_to_py(py, &report)
     }
 
     fn extend_session(
