@@ -1,7 +1,10 @@
+import asyncio
 import importlib
+import inspect
 import json
 import os
 import subprocess
+import threading
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
@@ -2645,6 +2648,50 @@ class RustStoreContext:
                 return _async_wrapper
         raise AttributeError(name)
 
+    def for_store(self):
+        from mcpstore.core.context.store_proxy import StoreProxy
+
+        context = self if self._agent_id is None else RustStoreContext(self._backend)
+        return StoreProxy(context)
+
+    def _run_async_via_bridge(
+        self,
+        value: Any,
+        op_name: str,
+        timeout: Optional[float] = None,
+    ) -> Any:
+        if not inspect.isawaitable(value):
+            return value
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            if timeout is None:
+                return asyncio.run(value)
+            return asyncio.run(asyncio.wait_for(value, timeout=timeout))
+
+        result: Dict[str, Any] = {}
+
+        def _runner() -> None:
+            try:
+                if timeout is None:
+                    result["value"] = asyncio.run(value)
+                else:
+                    result["value"] = asyncio.run(asyncio.wait_for(value, timeout=timeout))
+            except BaseException as error:
+                result["error"] = error
+
+        thread = threading.Thread(target=_runner, name=f"mcpstore-{op_name}", daemon=True)
+        thread.start()
+        thread.join()
+        if "error" in result:
+            raise result["error"]
+        return result.get("value")
+
+    async def bridge_execute(self, value: Any, op_name: Optional[str] = None) -> Any:
+        if inspect.isawaitable(value):
+            return await value
+        return value
+
     def add_service(
         self,
         config: Any = None,
@@ -3657,6 +3704,13 @@ class RustStoreContext:
                 "data_space": self.get_data_space_info(),
                 "event_capability": self.event_capability_report(),
             }
+        )
+
+    def get_unified_config(self) -> Any:
+        raise NotImplementedError(
+            "get_unified_config() was part of the legacy Python configuration manager. "
+            "The Rust-backed SDK exposes configuration snapshots through setup_config(), "
+            "show_config(), and show_mcpjson() instead."
         )
 
     def switch_cache(self, cache_config: Any) -> "RustStoreContext":
