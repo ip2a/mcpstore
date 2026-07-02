@@ -2277,6 +2277,7 @@ async fn openapi_bundle_ref_cache_policy_sets_ttl() {
                     enabled: true,
                     ttl_seconds: 42,
                 },
+                ..Default::default()
             },
         )
         .await
@@ -2315,6 +2316,7 @@ async fn openapi_bundle_ref_cache_policy_can_disable_shared_cache() {
             enabled: false,
             ttl_seconds: 300,
         },
+        ..Default::default()
     };
 
     let root_url = format!("{base_url}/openapi.json");
@@ -2630,6 +2632,65 @@ async fn openapi_runtime_honors_import_timeout() {
         .to_string();
 
     assert!(err.contains("OpenAPI request failed"), "{err}");
+    assert!(started_at.elapsed() < Duration::from_millis(200), "{err}");
+}
+
+#[tokio::test]
+async fn openapi_import_honors_fetch_timeout() {
+    let base_url = spawn_openapi_slow_http_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-fetch-timeout-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+
+    let started_at = Instant::now();
+    let err = store
+        .import_openapi_service_with_options(
+            "slow-import",
+            &format!("{base_url}/openapi.json"),
+            crate::openapi::OpenApiImportOptions {
+                fetch_timeout_millis: 50,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+
+    assert!(err.contains("OpenAPI spec fetch failed"), "{err}");
+    assert!(started_at.elapsed() < Duration::from_millis(200), "{err}");
+}
+
+#[tokio::test]
+async fn openapi_bundle_honors_fetch_timeout() {
+    let base_url = spawn_openapi_slow_http_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-bundle-timeout-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+
+    let started_at = Instant::now();
+    let err = store
+        .bundle_openapi_artifact_with_options(
+            &format!("{base_url}/openapi.json"),
+            crate::openapi::OpenApiBundleOptions {
+                timeout_millis: 50,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+
+    assert!(err.contains("OpenAPI spec fetch failed"), "{err}");
     assert!(started_at.elapsed() < Duration::from_millis(200), "{err}");
 }
 
