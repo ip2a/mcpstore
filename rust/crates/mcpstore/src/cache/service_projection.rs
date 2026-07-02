@@ -125,6 +125,7 @@ impl MCPStore {
         self.cache.delete_entity("services", name).await?;
         self.cache.delete_relation("service_tools", name).await?;
         self.cache.delete_state("service_status", name).await?;
+        self.clear_openapi_import_for_service(name).await?;
         self.remove_service_from_agent_relations(name).await?;
         let now = chrono::Utc::now().timestamp();
         self.cache

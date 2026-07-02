@@ -1713,6 +1713,47 @@ async fn openapi_last_import_tracks_latest_successful_import() {
 }
 
 #[tokio::test]
+async fn removing_openapi_service_clears_import_state() {
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-remove-import-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let spec = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": {"title": "Inventory", "version": "1.0"},
+        "paths": {
+            "/items": {
+                "get": {"operationId": "listItems"}
+            }
+        }
+    });
+
+    store
+        .import_openapi_service_from_spec("inventory", "memory://inventory", spec)
+        .await
+        .unwrap();
+    assert!(store
+        .get_openapi_import("inventory")
+        .await
+        .unwrap()
+        .is_some());
+    assert!(store.last_openapi_import().await.unwrap().is_some());
+
+    store.remove_service("inventory").await.unwrap();
+
+    assert!(store
+        .get_openapi_import("inventory")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(store.last_openapi_import().await.unwrap().is_none());
+}
+
+#[tokio::test]
 async fn openapi_import_bundles_external_http_refs() {
     let (base_url, components_requests) = spawn_openapi_spec_ref_fixture().await;
     let store = MCPStore::setup_with_options(StoreOptions {
