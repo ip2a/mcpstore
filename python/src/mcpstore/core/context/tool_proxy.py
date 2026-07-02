@@ -26,6 +26,16 @@ class ToolCallResult:
         return _read_field(self._result, "content", default=[])
 
     @property
+    def artifacts(self):
+        artifacts = []
+        for item in self.content or []:
+            item_type = _read_field(item, "type", default=None)
+            if item_type == "text" or (item_type is None and _read_field(item, "text", default=None) is not None):
+                continue
+            artifacts.append(_plain_value(item))
+        return artifacts
+
+    @property
     def structured_content(self):
         return _read_field(self._result, "structured_content", "structuredContent")
 
@@ -67,7 +77,10 @@ class ToolCallResult:
             "called_at": self.called_at.isoformat(),
             "is_error": self.is_error,
             "data": self.data,
+            "content": _plain_value(self.content),
+            "artifacts": self.artifacts,
             "text_output": self.text_output,
+            "structured_content": _plain_value(self.structured_content),
             "has_structured_content": self.structured_content is not None,
         }
 
@@ -85,6 +98,40 @@ def _read_field(value: Any, *names: str, default: Any = None) -> Any:
         if hasattr(value, name):
             return getattr(value, name)
     return default
+
+
+def _plain_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _plain_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain_value(item) for item in value]
+    if hasattr(value, "to_dict"):
+        return value.to_dict()
+    if not isinstance(value, (str, bytes, int, float, bool, type(None))):
+        fields = {}
+        for name in (
+            "type",
+            "text",
+            "data",
+            "mime_type",
+            "mimeType",
+            "resource",
+            "annotations",
+            "uri",
+            "name",
+            "title",
+            "description",
+            "size",
+            "width",
+            "height",
+        ):
+            if hasattr(value, name):
+                field_value = getattr(value, name)
+                if field_value is not None:
+                    fields[name] = _plain_value(field_value)
+        if fields:
+            return fields
+    return value
 
 
 __all__ = ["ToolProxy", "ToolCallResult"]

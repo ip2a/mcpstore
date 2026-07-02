@@ -4182,6 +4182,24 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertEqual(result.text_output, "ok")
         self.assertFalse(result.to_dict()["is_error"])
 
+        image_result = ToolCallResult(
+            {
+                "content": [
+                    {"type": "text", "text": "caption"},
+                    {"type": "image", "data": "base64-image", "mime_type": "image/png"},
+                ],
+                "structured_content": {"ok": True},
+                "is_error": False,
+            },
+            "snapshot",
+            {},
+        )
+        self.assertEqual(image_result.text_output, "caption")
+        self.assertEqual(image_result.artifacts[0]["type"], "image")
+        self.assertEqual(image_result.to_dict()["content"][1]["data"], "base64-image")
+        self.assertEqual(image_result.to_dict()["artifacts"][0]["mime_type"], "image/png")
+        self.assertEqual(image_result.to_dict()["structured_content"], {"ok": True})
+
         transformer = ToolTransformer(context, service_name="svc")
         transformed_name = transformer.create_parameter_renamed_tool(
             "echo",
