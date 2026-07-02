@@ -1654,6 +1654,10 @@ async fn openapi_bundle_artifact_reports_dependencies_without_importing() {
     assert!(artifact.documents.iter().any(|document| {
         document.url == format!("{base_url}/components.json") && document.role == "external"
     }));
+    for document in &artifact.documents {
+        assert!(document.content_hash.starts_with("blake3:"));
+        assert!(document.content_length > 0);
+    }
     assert!(artifact.dependencies.iter().any(|dependency| {
         dependency.source_document == root_url
             && dependency.source_ref == "components.json#/components/parameters/ItemId"

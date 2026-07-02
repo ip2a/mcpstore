@@ -190,6 +190,9 @@ paths:
                 for document in artifact["documents"]
             )
         )
+        for document in artifact["documents"]:
+            self.assertTrue(document["content_hash"].startswith("blake3:"))
+            self.assertGreater(document["content_length"], 0)
         self.assertTrue(
             any(
                 dependency["source_ref"] == "components/shared.yaml#/components/schemas/Item"

@@ -102,6 +102,8 @@ pub struct OpenApiBundleArtifact {
 pub struct OpenApiBundleDocument {
     pub url: String,
     pub role: String,
+    pub content_hash: String,
+    pub content_length: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
