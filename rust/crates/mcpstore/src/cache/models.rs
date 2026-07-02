@@ -270,6 +270,8 @@ pub struct ToolArgumentTransform {
     pub hidden: bool,
     pub default_value: Option<serde_json::Value>,
     pub description: Option<String>,
+    #[serde(default)]
+    pub validation_schema: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
