@@ -92,6 +92,7 @@ def __getattr__(name: str):
     # Adapter classes (lazy import, fall back to None if adapter is not installed)
     adapters_mapping = {
         "LangChainAdapter": "langchain_adapter",
+        "LangGraphAdapter": "langgraph_adapter",
         "OpenAIAdapter": "openai_adapter",
         "AutoGenAdapter": "autogen_adapter",
         "LlamaIndexAdapter": "llamaindex_adapter",
@@ -149,6 +150,7 @@ __all__ = [
 
     # Adapters
     "LangChainAdapter",
+    "LangGraphAdapter",
     "OpenAIAdapter",
     "AutoGenAdapter",
     "LlamaIndexAdapter",
