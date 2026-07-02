@@ -2881,6 +2881,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         from mcpstore.core.context.types import ContextType as ContextTypeModuleExport
         from mcpstore.core.store import (
             CacheProxy as StoreCacheProxy,
+            ClientManager,
             MCPStoreContext as StoreMCPStoreContext,
             RustCacheProxy,
             RustServiceProxy,
@@ -2931,6 +2932,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertIs(StoreServiceProxy, RustServiceProxy)
         self.assertIs(StoreToolProxy, RustToolProxy)
         self.assertIs(StoreCacheProxy, RustCacheProxy)
+        self.assertEqual(ClientManager().global_agent_store_id, "global_agent_store")
 
         class FakeBackend:
             def __init__(self):
