@@ -2392,6 +2392,9 @@ class RustSession:
                 services.append(info)
         return _record_value(services)
 
+    async def list_services_async(self) -> List[Dict[str, Any]]:
+        return self.list_services()
+
     def list_tools(self, service_name: Optional[str] = None) -> List[Dict[str, Any]]:
         if service_name is not None:
             resolved = self._context._resolve_service_name(service_name)
@@ -2403,6 +2406,24 @@ class RustSession:
                 or tool.get("service_global_name") == resolved
             ]
         return _record_value(self._context._backend.list_tools_in_session(self))
+
+    async def list_tools_async(self, service_name: Optional[str] = None) -> List[Dict[str, Any]]:
+        return self.list_tools(service_name)
+
+    def call_tool(
+        self,
+        tool_name: str,
+        args: Optional[Dict[str, Any]] = None,
+        *,
+        return_extracted: bool = False,
+        **kwargs,
+    ) -> Any:
+        return self.use_tool(
+            tool_name,
+            args,
+            return_extracted=return_extracted,
+            **kwargs,
+        )
 
     def use_tool(
         self,
@@ -2423,6 +2444,21 @@ class RustSession:
             if isinstance(item, dict) and item.get("type") == "text"
         ]
         return "\n".join(text for text in text_blocks if text)
+
+    async def call_tool_async(
+        self,
+        tool_name: str,
+        args: Optional[Dict[str, Any]] = None,
+        *,
+        return_extracted: bool = False,
+        **kwargs,
+    ) -> Any:
+        return await self.use_tool_async(
+            tool_name,
+            args,
+            return_extracted=return_extracted,
+            **kwargs,
+        )
 
     async def use_tool_async(
         self,
@@ -2554,9 +2590,9 @@ class RustSession:
         return True
 
     def for_langchain(self, response_format: str = "text"):
-        from mcpstore.adapters.langchain_adapter import LangChainAdapter
+        from mcpstore.adapters.langchain_adapter import SessionAwareLangChainAdapter
 
-        return LangChainAdapter(self, response_format=response_format)
+        return SessionAwareLangChainAdapter(self._context, self, response_format=response_format)
 
     def for_langgraph(self, response_format: str = "text"):
         from mcpstore.adapters.langgraph_adapter import LangGraphAdapter

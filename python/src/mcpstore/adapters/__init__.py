@@ -10,6 +10,7 @@ def __getattr__(name: str):
     """Lazy-load adapters on first access to avoid importing optional dependencies eagerly."""
     _mapping = {
         "LangChainAdapter": ".langchain_adapter",
+        "SessionAwareLangChainAdapter": ".langchain_adapter",
         "LangGraphAdapter": ".langgraph_adapter",
         "OpenAIAdapter": ".openai_adapter",
         "AutoGenAdapter": ".autogen_adapter",
@@ -28,6 +29,7 @@ def __getattr__(name: str):
 
 __all__ = [
     "LangChainAdapter",
+    "SessionAwareLangChainAdapter",
     "LangGraphAdapter",
     "OpenAIAdapter",
     "AutoGenAdapter",
