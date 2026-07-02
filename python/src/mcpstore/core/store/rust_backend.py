@@ -1572,6 +1572,45 @@ class RustStoreBackend:
         except Exception as error:
             return _tool_error_result(session.session_key, tool_name, args or {}, error)
 
+    def list_resources_in_session(self, session: "RustSession") -> List[Dict[str, Any]]:
+        return _record_value(self._inner.list_resources_in_session(session.session_key))
+
+    def list_resource_templates_in_session(self, session: "RustSession") -> List[Dict[str, Any]]:
+        return _record_value(self._inner.list_resource_templates_in_session(session.session_key))
+
+    def read_resource_in_session(
+        self,
+        session: "RustSession",
+        uri: str,
+        service_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._inner.read_resource_in_session(
+                session.session_key,
+                uri,
+                service_name,
+            )
+        )
+
+    def list_prompts_in_session(self, session: "RustSession") -> List[Dict[str, Any]]:
+        return _record_value(self._inner.list_prompts_in_session(session.session_key))
+
+    def get_prompt_in_session(
+        self,
+        session: "RustSession",
+        prompt_name: str,
+        arguments: Optional[Dict[str, Any]] = None,
+        service_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._inner.get_prompt_in_session(
+                session.session_key,
+                prompt_name,
+                self._normalize_optional_dict(arguments, "Prompt arguments"),
+                service_name,
+            )
+        )
+
     def set_active_session(
         self,
         context: "RustStoreContext",
@@ -2468,6 +2507,63 @@ class RustSession:
 
     async def list_tools_async(self, service_name: Optional[str] = None) -> List[Dict[str, Any]]:
         return self.list_tools(service_name)
+
+    def list_resources(self) -> List[Dict[str, Any]]:
+        return _record_value(self._context._backend.list_resources_in_session(self))
+
+    async def list_resources_async(self) -> List[Dict[str, Any]]:
+        return self.list_resources()
+
+    def list_resource_templates(self) -> List[Dict[str, Any]]:
+        return _record_value(self._context._backend.list_resource_templates_in_session(self))
+
+    async def list_resource_templates_async(self) -> List[Dict[str, Any]]:
+        return self.list_resource_templates()
+
+    def read_resource(
+        self,
+        uri: str,
+        service_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._context._backend.read_resource_in_session(self, uri, service_name)
+        )
+
+    async def read_resource_async(
+        self,
+        uri: str,
+        service_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return self.read_resource(uri, service_name=service_name)
+
+    def list_prompts(self) -> List[Dict[str, Any]]:
+        return _record_value(self._context._backend.list_prompts_in_session(self))
+
+    async def list_prompts_async(self) -> List[Dict[str, Any]]:
+        return self.list_prompts()
+
+    def get_prompt(
+        self,
+        prompt_name: str,
+        arguments: Optional[Dict[str, Any]] = None,
+        service_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return _record_value(
+            self._context._backend.get_prompt_in_session(
+                self,
+                prompt_name,
+                arguments,
+                service_name,
+            )
+        )
+
+    async def get_prompt_async(
+        self,
+        prompt_name: str,
+        arguments: Optional[Dict[str, Any]] = None,
+        service_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return self.get_prompt(prompt_name, arguments, service_name=service_name)
 
     def call_tool(
         self,
