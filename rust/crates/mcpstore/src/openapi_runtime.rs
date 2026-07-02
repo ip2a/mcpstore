@@ -520,6 +520,15 @@ fn validate_numeric_constraints(
             errors.push(format!("{path} must be less than {exclusive_maximum}"));
         }
     }
+    if let Some(multiple_of) = schema_number(schema, "multipleOf") {
+        if multiple_of <= 0.0 {
+            errors.push(format!(
+                "{path} has invalid multipleOf {multiple_of}: must be greater than 0"
+            ));
+        } else if !is_multiple_of(number, multiple_of) {
+            errors.push(format!("{path} must be a multiple of {multiple_of}"));
+        }
+    }
 }
 
 fn validate_object_schema(schema: &Value, value: &Value, path: &str, errors: &mut Vec<String>) {
@@ -537,12 +546,19 @@ fn validate_object_schema(schema: &Value, value: &Value, path: &str, errors: &mu
         }
     }
 
-    let Some(properties) = properties else {
-        return;
-    };
+    let additional_properties = schema.get("additionalProperties");
     for (name, child_value) in object {
-        if let Some(child_schema) = properties.get(name) {
+        if let Some(child_schema) = properties.and_then(|properties| properties.get(name)) {
             validate_schema_value(child_schema, child_value, &format!("{path}.{name}"), errors);
+        } else if additional_properties == Some(&Value::Bool(false)) {
+            errors.push(format!("{path}.{name} is not allowed"));
+        } else if let Some(child_schema) = additional_properties.and_then(Value::as_object) {
+            validate_schema_value(
+                &Value::Object(child_schema.clone()),
+                child_value,
+                &format!("{path}.{name}"),
+                errors,
+            );
         }
     }
 }
@@ -561,6 +577,14 @@ fn validate_array_schema(schema: &Value, value: &Value, path: &str, errors: &mut
         if items.len() > max_items as usize {
             errors.push(format!("{path} must contain at most {max_items} item(s)"));
         }
+    }
+    if schema
+        .get("uniqueItems")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        && has_duplicate_json_value(items)
+    {
+        errors.push(format!("{path} must contain unique items"));
     }
     let Some(item_schema) = schema.get("items") else {
         return;
@@ -608,6 +632,24 @@ fn exclusive_limit(schema: &Value, name: &str) -> Option<f64> {
         Value::Number(number) => number.as_f64(),
         _ => None,
     }
+}
+
+fn is_multiple_of(number: f64, multiple_of: f64) -> bool {
+    if !number.is_finite() || !multiple_of.is_finite() {
+        return false;
+    }
+    let quotient = number / multiple_of;
+    let nearest = quotient.round();
+    (quotient - nearest).abs() <= f64::EPSILON * quotient.abs().max(1.0) * 16.0
+}
+
+fn has_duplicate_json_value(items: &[Value]) -> bool {
+    for (index, item) in items.iter().enumerate() {
+        if items[index + 1..].iter().any(|other| other == item) {
+            return true;
+        }
+    }
+    false
 }
 
 fn argument_path(component: &OpenApiComponent, name: &str) -> String {
