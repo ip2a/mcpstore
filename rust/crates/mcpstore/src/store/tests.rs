@@ -95,6 +95,18 @@ async fn spawn_openapi_http_fixture() -> String {
                     )
                 } else if first_line.starts_with("GET /document ") {
                     ("200 OK", b"%PDF fixture".to_vec(), "application/pdf")
+                } else if first_line.starts_with("GET /profile ") {
+                    (
+                        "200 OK",
+                        json_bytes(serde_json::json!({
+                            "id": "profile-1",
+                            "username": "alice",
+                            "password": "server-secret",
+                            "tokens": ["token-1", "token-2"],
+                            "metadata": { "public": "visible", "secret": "hidden" }
+                        })),
+                        "application/json",
+                    )
                 } else if first_line.starts_with("GET /negotiated ") {
                     if request_lower.contains("accept: ")
                         && request_lower.contains("application/json")
@@ -121,6 +133,18 @@ async fn spawn_openapi_http_fixture() -> String {
                     (
                         "200 OK",
                         json_bytes(serde_json::json!({"created": true, "path": "/items"})),
+                        "application/json",
+                    )
+                } else if first_line.starts_with("POST /profile ") {
+                    (
+                        "200 OK",
+                        json_bytes(serde_json::json!({
+                            "id": "profile-1",
+                            "username": "alice",
+                            "password": "server-secret",
+                            "tokens": ["token-1", "token-2"],
+                            "metadata": { "public": "visible", "secret": "hidden" }
+                        })),
                         "application/json",
                     )
                 } else if first_line.starts_with("POST /forms/urlencoded ") {
@@ -1632,6 +1656,103 @@ async fn openapi_resources_preserve_response_mime_type() {
         json_resource["contents"][0]["mimeType"],
         serde_json::json!("application/json")
     );
+}
+
+#[tokio::test]
+async fn openapi_json_responses_filter_write_only_fields() {
+    let base_url = spawn_openapi_http_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!(
+            "openapi-response-write-only-{}",
+            uuid::Uuid::new_v4()
+        )),
+    })
+    .unwrap();
+    let profile_schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string", "readOnly": true },
+            "username": { "type": "string" },
+            "password": { "type": "string", "writeOnly": true },
+            "tokens": { "type": "array", "items": { "type": "string", "writeOnly": true } },
+            "metadata": {
+                "type": "object",
+                "properties": {
+                    "public": { "type": "string" },
+                    "secret": { "type": "string", "writeOnly": true }
+                }
+            }
+        }
+    });
+    let spec = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": { "title": "Profiles", "version": "2026.1" },
+        "servers": [{ "url": base_url }],
+        "paths": {
+            "/profile": {
+                "get": {
+                    "operationId": "getProfile",
+                    "responses": {
+                        "200": {
+                            "description": "Profile response",
+                            "content": { "application/json": { "schema": profile_schema.clone() } }
+                        }
+                    }
+                },
+                "post": {
+                    "operationId": "createProfile",
+                    "requestBody": { "content": { "application/json": { "schema": { "type": "object" } } } },
+                    "responses": {
+                        "200": {
+                            "description": "Profile response",
+                            "content": { "application/json": { "schema": profile_schema } }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    store
+        .import_openapi_service_from_spec("profiles", "memory://profiles", spec)
+        .await
+        .unwrap();
+
+    let call_result = store
+        .call_tool(
+            "profiles",
+            "createProfile",
+            serde_json::json!({ "body": { "username": "alice" } }),
+        )
+        .await
+        .unwrap();
+    let crate::transport::ContentItem::Text { text, .. } = &call_result.content[0] else {
+        panic!("expected text content");
+    };
+    let body = serde_json::from_str::<serde_json::Value>(text).unwrap();
+    assert_eq!(body["id"], serde_json::json!("profile-1"));
+    assert_eq!(body["username"], serde_json::json!("alice"));
+    assert!(body.get("password").is_none());
+    assert_eq!(body["tokens"], serde_json::json!([]));
+    assert_eq!(body["metadata"], serde_json::json!({ "public": "visible" }));
+
+    let resource = store
+        .read_resource("profiles", "openapi://profiles/getProfile")
+        .await
+        .unwrap();
+    let body = serde_json::from_str::<serde_json::Value>(
+        resource["contents"][0]["text"].as_str().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(body["id"], serde_json::json!("profile-1"));
+    assert_eq!(body["username"], serde_json::json!("alice"));
+    assert!(body.get("password").is_none());
+    assert_eq!(body["tokens"], serde_json::json!([]));
+    assert_eq!(body["metadata"], serde_json::json!({ "public": "visible" }));
 }
 
 #[tokio::test]
