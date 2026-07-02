@@ -209,6 +209,15 @@ pub struct SessionStateData {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SessionContextState {
+    pub context_key: String,
+    pub active_session_key: Option<String>,
+    pub auto_session_key: Option<String>,
+    pub updated_at: i64,
+    pub version: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolTransformRule {
     pub tool_global_name: String,
     pub service_global_name: String,

@@ -243,6 +243,168 @@ async fn redis_backend_shares_session_state_between_store_instances_when_availab
 }
 
 #[tokio::test]
+async fn session_context_state_tracks_active_and_auto_session_pointers() {
+    let path = temp_config_path();
+    let store = MCPStore::setup(Some(&path)).unwrap();
+    let active = store.session("active").create().await.unwrap();
+    let auto = store.session("auto").create().await.unwrap();
+
+    let state = store
+        .set_active_session_for_context(SessionScope::Store, None, Some(active.session_key()))
+        .await
+        .unwrap();
+    assert_eq!(
+        state.active_session_key.as_deref(),
+        Some(active.session_key())
+    );
+    assert_eq!(
+        store
+            .get_active_session_for_context(SessionScope::Store, None)
+            .await
+            .unwrap()
+            .unwrap()
+            .session_key,
+        active.session_key()
+    );
+
+    let state = store
+        .enable_auto_session_for_context(SessionScope::Store, None, auto.session_key())
+        .await
+        .unwrap();
+    assert_eq!(state.auto_session_key.as_deref(), Some(auto.session_key()));
+    assert!(store
+        .is_auto_session_enabled_for_context(SessionScope::Store, None)
+        .await
+        .unwrap());
+    assert_eq!(
+        store
+            .get_active_session_for_context(SessionScope::Store, None)
+            .await
+            .unwrap()
+            .unwrap()
+            .session_key,
+        active.session_key()
+    );
+
+    active.close().await.unwrap();
+    assert_eq!(
+        store
+            .get_active_session_for_context(SessionScope::Store, None)
+            .await
+            .unwrap()
+            .unwrap()
+            .session_key,
+        auto.session_key()
+    );
+
+    store
+        .set_active_session_for_context(SessionScope::Store, None, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .get_active_session_for_context(SessionScope::Store, None)
+            .await
+            .unwrap()
+            .unwrap()
+            .session_key,
+        auto.session_key()
+    );
+
+    auto.close().await.unwrap();
+    assert!(store
+        .get_active_session_for_context(SessionScope::Store, None)
+        .await
+        .unwrap()
+        .is_none());
+
+    let state = store
+        .disable_auto_session_for_context(SessionScope::Store, None)
+        .await
+        .unwrap();
+    assert!(state.auto_session_key.is_none());
+    assert!(!store
+        .is_auto_session_enabled_for_context(SessionScope::Store, None)
+        .await
+        .unwrap());
+    assert!(store
+        .get_active_session_for_context(SessionScope::Store, None)
+        .await
+        .unwrap()
+        .is_none());
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
+async fn redis_backend_shares_session_context_state_between_store_instances_when_available() {
+    let Ok(redis_url) = std::env::var("MCPSTORE_TEST_REDIS_URL") else {
+        return;
+    };
+    let namespace = format!("session-context-e2e-{}", uuid::Uuid::new_v4());
+    let first_path = temp_config_path();
+    let second_path = temp_config_path();
+    let first = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(first_path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Redis),
+        redis_url: Some(redis_url.clone()),
+        namespace: Some(namespace.clone()),
+    })
+    .unwrap();
+    let second = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(second_path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Redis),
+        redis_url: Some(redis_url),
+        namespace: Some(namespace),
+    })
+    .unwrap();
+
+    let active = first.session("active").create().await.unwrap();
+    let auto = first.session("auto").create().await.unwrap();
+
+    first
+        .set_active_session_for_context(SessionScope::Store, None, Some(active.session_key()))
+        .await
+        .unwrap();
+    assert_eq!(
+        second
+            .get_active_session_for_context(SessionScope::Store, None)
+            .await
+            .unwrap()
+            .unwrap()
+            .session_key,
+        active.session_key()
+    );
+
+    second
+        .enable_auto_session_for_context(SessionScope::Store, None, auto.session_key())
+        .await
+        .unwrap();
+    assert!(first
+        .is_auto_session_enabled_for_context(SessionScope::Store, None)
+        .await
+        .unwrap());
+    second
+        .set_active_session_for_context(SessionScope::Store, None, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        first
+            .get_active_session_for_context(SessionScope::Store, None)
+            .await
+            .unwrap()
+            .unwrap()
+            .session_key,
+        auto.session_key()
+    );
+
+    std::fs::remove_file(first_path).ok();
+    std::fs::remove_file(second_path).ok();
+}
+
+#[tokio::test]
 async fn redis_backend_rejects_stale_session_cas_write_when_available() {
     let Ok(redis_url) = std::env::var("MCPSTORE_TEST_REDIS_URL") else {
         return;
@@ -911,6 +1073,10 @@ async fn export_sessions_snapshot_contains_serializable_business_state() {
         .await
         .unwrap();
     store
+        .set_active_session_for_context(SessionScope::Store, None, Some(&session.session_key))
+        .await
+        .unwrap();
+    store
         .bind_service_to_session(&session.session_key, "alpha")
         .await
         .unwrap();
@@ -929,6 +1095,10 @@ async fn export_sessions_snapshot_contains_serializable_business_state() {
     assert_eq!(
         snapshot["states"]["session_status"]["store:global:exportable"]["status"],
         "active"
+    );
+    assert_eq!(
+        snapshot["states"]["session_context"]["store:global"]["active_session_key"],
+        "store:global:exportable"
     );
     assert!(snapshot["events"]
         .as_object()
@@ -954,6 +1124,10 @@ async fn import_sessions_snapshot_restores_business_state_without_overwrite() {
         .create()
         .await
         .unwrap();
+    source
+        .set_active_session_for_context(SessionScope::Store, None, Some(session.session_key()))
+        .await
+        .unwrap();
     session.bind_service("alpha").await.unwrap();
 
     let snapshot = source.export_sessions_snapshot().await.unwrap();
@@ -966,6 +1140,7 @@ async fn import_sessions_snapshot_restores_business_state_without_overwrite() {
     assert_eq!(report.sessions_imported, 1);
     assert_eq!(report.session_service_relations_imported, 1);
     assert_eq!(report.session_status_states_imported, 1);
+    assert_eq!(report.session_context_states_imported, 1);
     assert!(report.session_events_imported >= 2);
     let restored = target.session("portable").get().await.unwrap().unwrap();
     assert_eq!(restored.entity().await.unwrap().metadata["owner"], "source");
@@ -977,6 +1152,15 @@ async fn import_sessions_snapshot_restores_business_state_without_overwrite() {
         restored.list_services().await.unwrap()[0].service_global_name,
         "alpha"
     );
+    assert_eq!(
+        target
+            .get_active_session_for_context(SessionScope::Store, None)
+            .await
+            .unwrap()
+            .unwrap()
+            .session_key,
+        restored.session_key()
+    );
 
     let second_report = target
         .import_sessions_snapshot(snapshot.clone())
@@ -986,6 +1170,7 @@ async fn import_sessions_snapshot_restores_business_state_without_overwrite() {
     assert_eq!(second_report.sessions_unchanged, 1);
     assert_eq!(second_report.session_service_relations_unchanged, 1);
     assert_eq!(second_report.session_status_states_unchanged, 1);
+    assert_eq!(second_report.session_context_states_unchanged, 1);
 
     let conflict = MCPStore::setup(Some(&conflict_path)).unwrap();
     conflict
