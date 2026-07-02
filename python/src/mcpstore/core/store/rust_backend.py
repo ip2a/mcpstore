@@ -2410,6 +2410,32 @@ class RustStoreContext:
             self._backend.add_service(config, json_file=json_file, headers=headers)
         return self
 
+    def add_service_with_details(self, config: Any = None) -> Dict[str, Any]:
+        before_names = {str(service.get("name") or "") for service in self.list_services()}
+        self.add_service(config)
+        services = self.list_services()
+        added_services = [
+            service
+            for service in services
+            if str(service.get("name") or "") not in before_names
+        ]
+        tools = self._list_tools_direct()
+        return _record_value(
+            {
+                "success": True,
+                "added_services": [service.get("name") for service in added_services],
+                "failed_services": [],
+                "service_details": {
+                    str(service.get("name")): service
+                    for service in added_services
+                    if service.get("name")
+                },
+                "total_services": len(services),
+                "total_tools": len(tools),
+                "services": services,
+            }
+        )
+
     @property
     def agent_id(self) -> Optional[str]:
         return self._agent_id
@@ -2677,6 +2703,31 @@ class RustStoreContext:
 
     def list_sessions(self) -> List[RustSession]:
         return self._backend.list_sessions(self)
+
+    def list_agent_sessions(self) -> List[RustSession]:
+        return self.list_sessions()
+
+    def get_session_statistics(self) -> Dict[str, Any]:
+        sessions = self.list_sessions()
+        active = [session for session in sessions if session.is_active]
+        auto_session_enabled = self.is_session_auto()
+        return _record_value(
+            {
+                "total_sessions": len(sessions),
+                "active_sessions": len(active),
+                "context_sessions": len(sessions),
+                "auto_session_enabled": auto_session_enabled,
+                "cached_session_objects": 0,
+                "context_info": {
+                    "context_type": self.context_type,
+                    "agent_id": self.get_id(),
+                    "context_sessions": len(sessions),
+                    "auto_session_enabled": auto_session_enabled,
+                    "cached_session_objects": 0,
+                },
+                "sessions": sessions,
+            }
+        )
 
     def with_session(self, session_id: str) -> RustSession:
         return self.create_session(session_id)
@@ -3007,6 +3058,27 @@ class RustStoreContext:
         self._last_openapi_import = result
         return result
 
+    def import_api(
+        self,
+        api_url: str,
+        api_name: Optional[str] = None,
+        *,
+        headers: Optional[Dict[str, str]] = None,
+        auth: Optional[Dict[str, Any]] = None,
+        ref_cache: Optional[Dict[str, Any]] = None,
+    ) -> "RustStoreContext":
+        import time
+
+        name = api_name or f"api_{int(time.time())}"
+        self.import_openapi_service(
+            name,
+            api_url,
+            headers=headers,
+            auth=auth,
+            ref_cache=ref_cache,
+        )
+        return self
+
     def import_openapi_service_from_spec(
         self,
         name: str,
@@ -3027,6 +3099,26 @@ class RustStoreContext:
         )
         self._last_openapi_import = result
         return result
+
+    def import_api_from_spec(
+        self,
+        spec: Any,
+        api_name: str,
+        spec_url: str = "memory://openapi",
+        *,
+        headers: Optional[Dict[str, str]] = None,
+        auth: Optional[Dict[str, Any]] = None,
+        ref_cache: Optional[Dict[str, Any]] = None,
+    ) -> "RustStoreContext":
+        self.import_openapi_service_from_spec(
+            api_name,
+            spec_url,
+            spec,
+            headers=headers,
+            auth=auth,
+            ref_cache=ref_cache,
+        )
+        return self
 
     def get_openapi_import(self, name: str) -> Optional[Dict[str, Any]]:
         return self._backend.get_openapi_import(name)
@@ -3238,6 +3330,12 @@ class RustStoreContext:
     def reset_mcp_json_scope(self, scope: Optional[str] = None) -> bool:
         return self._backend.reset_mcp_json_scope(scope)
 
+    def reset_mcp_json_file(self) -> bool:
+        return self.reset_mcp_json_scope("all")
+
+    async def reset_mcp_json_file_async(self, scope: str = "all") -> bool:
+        return self.reset_mcp_json_scope(scope)
+
     def get_id(self) -> str:
         return self._agent_id or "global_agent_store"
 
@@ -3304,6 +3402,18 @@ class RustStoreContext:
         for name in names:
             results[name] = self.wait_service(name, status=status, timeout=timeout)
         return _record_value(results)
+
+    def init_service(
+        self,
+        name: Optional[str] = None,
+        *,
+        client_id: Optional[str] = None,
+        service_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        target = service_name or client_id or name
+        if not target:
+            raise ValueError("init_service requires a service name")
+        return self.wait_service(target)
 
     def _resolve_tool(self, tool_name: str) -> tuple[str, str]:
         active = self.active_session
