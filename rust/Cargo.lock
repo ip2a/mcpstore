@@ -1290,6 +1290,7 @@ version = "1.5.18"
 dependencies = [
  "async-trait",
  "base64",
+ "blake3",
  "chrono",
  "email_address",
  "http",

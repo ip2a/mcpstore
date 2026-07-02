@@ -163,8 +163,9 @@ impl MCPStore {
         spec_text: &str,
     ) -> Result<OpenApiBundleArtifact> {
         let spec = parse_openapi_spec_text(spec_text)?;
-        self.bundle_openapi_artifact_from_value(spec_url, spec)
-            .await
+        let client = reqwest::Client::new();
+        let root_metadata = document_metadata_from_bytes(spec_text.as_bytes());
+        bundle_openapi_external_ref_artifact(&client, spec_url, spec, root_metadata).await
     }
 
     pub async fn bundle_openapi_artifact_from_value(
@@ -173,7 +174,8 @@ impl MCPStore {
         spec: serde_json::Value,
     ) -> Result<OpenApiBundleArtifact> {
         let client = reqwest::Client::new();
-        bundle_openapi_external_ref_artifact(&client, spec_url, spec).await
+        let root_metadata = document_metadata_from_value(&spec)?;
+        bundle_openapi_external_ref_artifact(&client, spec_url, spec, root_metadata).await
     }
 
     pub(crate) async fn register_openapi_virtual_service(
@@ -348,8 +350,9 @@ async fn bundle_openapi_external_refs(
     document_url: &str,
     spec: serde_json::Value,
 ) -> Result<serde_json::Value> {
+    let root_metadata = document_metadata_from_value(&spec)?;
     Ok(
-        bundle_openapi_external_ref_artifact(client, document_url, spec)
+        bundle_openapi_external_ref_artifact(client, document_url, spec, root_metadata)
             .await?
             .bundle,
     )
@@ -359,9 +362,10 @@ async fn bundle_openapi_external_ref_artifact(
     client: &reqwest::Client,
     document_url: &str,
     spec: serde_json::Value,
+    root_metadata: OpenApiBundleDocumentMetadata,
 ) -> Result<OpenApiBundleArtifact> {
     let root_document = document_label(document_url);
-    let resolver = OpenApiExternalRefResolver::new(client, root_document.clone());
+    let resolver = OpenApiExternalRefResolver::new(client, root_document.clone(), root_metadata);
     let bundle = resolver
         .resolve_external_refs(document_url.to_string(), spec, 0, Vec::new())
         .await?;
@@ -395,16 +399,30 @@ async fn fetch_openapi_spec_text(client: &reqwest::Client, spec_url: &str) -> Re
 struct OpenApiExternalRefResolver<'a> {
     client: &'a reqwest::Client,
     documents: Mutex<HashMap<String, serde_json::Value>>,
+    document_metadata: Mutex<HashMap<String, OpenApiBundleDocumentMetadata>>,
     loaded_documents: Mutex<Vec<String>>,
     dependencies: Mutex<Vec<OpenApiBundleDependency>>,
     diagnostics: Mutex<Vec<OpenApiBundleDiagnostic>>,
 }
 
+#[derive(Debug, Clone)]
+struct OpenApiBundleDocumentMetadata {
+    content_hash: String,
+    content_length: usize,
+}
+
 impl<'a> OpenApiExternalRefResolver<'a> {
-    fn new(client: &'a reqwest::Client, root_document: String) -> Self {
+    fn new(
+        client: &'a reqwest::Client,
+        root_document: String,
+        root_metadata: OpenApiBundleDocumentMetadata,
+    ) -> Self {
+        let mut document_metadata = HashMap::new();
+        document_metadata.insert(root_document.clone(), root_metadata);
         Self {
             client,
             documents: Mutex::new(HashMap::new()),
+            document_metadata: Mutex::new(document_metadata),
             loaded_documents: Mutex::new(vec![root_document]),
             dependencies: Mutex::new(Vec::new()),
             diagnostics: Mutex::new(Vec::new()),
@@ -422,18 +440,30 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         })?;
         urls.sort();
         urls.dedup();
+        let document_metadata = self.document_metadata.into_inner().map_err(|_| {
+            StoreError::Other("OpenAPI bundle document metadata lock poisoned".to_string())
+        })?;
         let documents = urls
             .into_iter()
-            .map(|url| OpenApiBundleDocument {
-                role: if url == root_document {
-                    "root"
-                } else {
-                    "external"
-                }
-                .to_string(),
-                url,
+            .map(|url| {
+                let metadata = document_metadata.get(&url).cloned().ok_or_else(|| {
+                    StoreError::Other(format!(
+                        "OpenAPI bundle document metadata missing for {url}"
+                    ))
+                })?;
+                Ok(OpenApiBundleDocument {
+                    role: if url == root_document {
+                        "root"
+                    } else {
+                        "external"
+                    }
+                    .to_string(),
+                    content_hash: metadata.content_hash,
+                    content_length: metadata.content_length,
+                    url,
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
         let dependencies = self.dependencies.into_inner().map_err(|_| {
             StoreError::Other("OpenAPI bundle dependency list lock poisoned".to_string())
         })?;
@@ -623,6 +653,10 @@ impl<'a> OpenApiExternalRefResolver<'a> {
             ))
         })?;
         self.record_loaded_document(target_url)?;
+        self.record_document_metadata(
+            target_url,
+            document_metadata_from_bytes(document_text.as_bytes()),
+        )?;
         self.documents
             .lock()
             .map_err(|_| {
@@ -661,6 +695,38 @@ impl<'a> OpenApiExternalRefResolver<'a> {
             })?
             .push(target_url.to_string());
         Ok(())
+    }
+
+    fn record_document_metadata(
+        &self,
+        target_url: &str,
+        metadata: OpenApiBundleDocumentMetadata,
+    ) -> Result<()> {
+        self.document_metadata
+            .lock()
+            .map_err(|_| {
+                StoreError::Other("OpenAPI bundle document metadata lock poisoned".to_string())
+            })?
+            .insert(target_url.to_string(), metadata);
+        Ok(())
+    }
+}
+
+fn document_metadata_from_value(
+    value: &serde_json::Value,
+) -> Result<OpenApiBundleDocumentMetadata> {
+    let bytes = serde_json::to_vec(value).map_err(|err| {
+        StoreError::Other(format!(
+            "OpenAPI bundle document metadata serialization failed: {err}"
+        ))
+    })?;
+    Ok(document_metadata_from_bytes(&bytes))
+}
+
+fn document_metadata_from_bytes(bytes: &[u8]) -> OpenApiBundleDocumentMetadata {
+    OpenApiBundleDocumentMetadata {
+        content_hash: format!("blake3:{}", blake3::hash(bytes).to_hex()),
+        content_length: bytes.len(),
     }
 }
 
