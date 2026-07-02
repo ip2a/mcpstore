@@ -1,3 +1,4 @@
+import asyncio
 import tempfile
 import unittest
 import importlib.util
@@ -2522,8 +2523,9 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         from mcpstore.config import RedisConfig
         from mcpstore.core.store.rust_backend import RustStoreBackend
 
-        with self.assertRaises(TypeError):
-            RedisConfig(client=object())
+        client_config = RedisConfig(client=object())
+        with self.assertRaisesRegex(ValueError, "Python Redis client"):
+            RustStoreBackend._cache_options(client_config)
 
         config = RedisConfig(
             host="redis.local",
@@ -2961,6 +2963,8 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             DataSourceStrategy,
             MemoryConfig,
             RedisConfig,
+            create_kv_store,
+            create_kv_store_async,
             detect_strategy,
             get_namespace,
             load_app_config,
@@ -2977,6 +2981,14 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             detect_strategy(redis, None, only_db=True),
             DataSourceStrategy.ONLY_DB,
         )
+        with self.assertRaisesRegex(NotImplementedError, "Rust-backed cache"):
+            create_kv_store(MemoryConfig())
+
+        async def call_removed_async_factory():
+            await create_kv_store_async(MemoryConfig())
+
+        with self.assertRaisesRegex(NotImplementedError, "Rust-backed cache"):
+            asyncio.run(call_removed_async_factory())
 
         app_config = load_app_config()
         self.assertEqual(app_config["streamable_http_endpoint"], "/mcp")

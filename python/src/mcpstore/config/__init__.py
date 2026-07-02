@@ -13,6 +13,8 @@ def __getattr__(name: str):
         "OpenKeyvMemoryConfig",
         "get_namespace",
         "detect_strategy",
+        "create_kv_store",
+        "create_kv_store_async",
     }:
         from . import cache_config as _cache_config
 
@@ -41,4 +43,6 @@ __all__ = [
     "OpenKeyvMemoryConfig",
     "get_namespace",
     "detect_strategy",
+    "create_kv_store",
+    "create_kv_store_async",
 ]
