@@ -455,6 +455,34 @@ impl MCPStore {
         })?;
         self.get_openapi_import(&context.last_service_name).await
     }
+
+    pub(crate) async fn clear_openapi_import_for_service(&self, name: &str) -> Result<()> {
+        self.cache.delete_state("openapi_imports", name).await?;
+        let Some(value) = self
+            .cache
+            .get_state(
+                OPENAPI_IMPORT_CONTEXT_STATE_TYPE,
+                OPENAPI_IMPORT_CONTEXT_KEY,
+            )
+            .await?
+        else {
+            return Ok(());
+        };
+        let context: OpenApiImportContextState = serde_json::from_value(value).map_err(|err| {
+            StoreError::Other(format!(
+                "OpenAPI import context deserialization failed: {err}"
+            ))
+        })?;
+        if context.last_service_name == name {
+            self.cache
+                .delete_state(
+                    OPENAPI_IMPORT_CONTEXT_STATE_TYPE,
+                    OPENAPI_IMPORT_CONTEXT_KEY,
+                )
+                .await?;
+        }
+        Ok(())
+    }
 }
 
 impl MCPStore {
