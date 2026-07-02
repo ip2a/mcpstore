@@ -50,6 +50,7 @@ class ToolTransformConfig:
     new_tool_name: Optional[str] = None
     new_description: Optional[str] = None
     argument_transforms: Dict[str, ArgumentTransform] = field(default_factory=dict)
+    safety_policy: Optional[Dict[str, Any]] = None
     pre_execution_hooks: List[Callable] = field(default_factory=list)
     post_execution_hooks: List[Callable] = field(default_factory=list)
     tags: List[str] = field(default_factory=list)
@@ -65,6 +66,7 @@ class ToolTransformConfig:
             "display_name": self.new_tool_name,
             "description": self.new_description,
             "arguments": [item.to_rust_payload() for item in self.argument_transforms.values()],
+            "safety_policy": self.safety_policy,
             "tags": list(self.tags),
             "enabled": self.enabled,
         }
@@ -95,6 +97,7 @@ class ToolTransformer:
             display_name=config.new_tool_name,
             description=config.new_description,
             arguments=[item.to_rust_payload() for item in config.argument_transforms.values()],
+            safety_policy=config.safety_policy,
             tags=config.tags,
             enabled=config.enabled,
         )
@@ -106,19 +109,17 @@ class ToolTransformer:
         friendly_name: Optional[str] = None,
         simplified_description: Optional[str] = None,
         hide_technical_params: bool = True,
-        add_safety_checks: bool = False,
+        add_safety_checks: bool = True,
         service_name: Optional[str] = None,
     ) -> str:
-        if add_safety_checks:
-            raise NotImplementedError(
-                "Python safety hooks are not part of the shared Rust-backed transform model."
-            )
         config = ToolTransformConfig(
             original_tool_name=original_tool_name,
             new_tool_name=friendly_name or f"{original_tool_name}_simple",
             new_description=simplified_description,
             tags=["llm-friendly", "simplified"],
         )
+        if add_safety_checks:
+            config.safety_policy = self._default_safety_policy()
         if hide_technical_params:
             for param in ["timeout", "retry_count", "debug", "verbose", "raw_output"]:
                 config.argument_transforms[param] = ArgumentTransform(
@@ -127,6 +128,20 @@ class ToolTransformer:
                     default_value=self._get_default_for_param(param),
                 )
         return self.register_transformation(config, service_name=service_name)
+
+    @staticmethod
+    def _default_safety_policy() -> Dict[str, Any]:
+        return {
+            "reject_dangerous_argument_names": True,
+            "dangerous_argument_name_patterns": [
+                "__",
+                "eval",
+                "exec",
+                "import",
+                "open",
+                "file",
+            ],
+        }
 
     def create_parameter_renamed_tool(
         self,
@@ -259,6 +274,7 @@ class ToolTransformationManager:
             display_name=existing.get("display_name"),
             description=existing.get("description"),
             arguments=existing.get("arguments") or [],
+            safety_policy=existing.get("safety_policy"),
             tags=existing.get("tags") or [],
             enabled=enabled,
         )

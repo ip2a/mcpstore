@@ -1988,6 +1988,7 @@ class RustToolProxy:
         display_name: Optional[str] = None,
         description: Optional[str] = None,
         arguments: Optional[List[Dict[str, Any]]] = None,
+        safety_policy: Optional[Dict[str, Any]] = None,
         tags: Optional[List[str]] = None,
         enabled: bool = True,
         **kwargs,
@@ -2009,6 +2010,7 @@ class RustToolProxy:
             display_name=display_name,
             description=description,
             arguments=arguments,
+            safety_policy=safety_policy,
             tags=tags,
             enabled=enabled,
         )
@@ -3288,6 +3290,7 @@ class RustStoreContext:
         display_name: Optional[str] = None,
         description: Optional[str] = None,
         arguments: Optional[List[Dict[str, Any]]] = None,
+        safety_policy: Optional[Dict[str, Any]] = None,
         tags: Optional[List[str]] = None,
         enabled: bool = True,
     ) -> Dict[str, Any]:
@@ -3296,6 +3299,7 @@ class RustStoreContext:
             "display_name": display_name,
             "description": description,
             "arguments": arguments or [],
+            "safety_policy": safety_policy,
             "tags": tags or [],
             "enabled": enabled,
         }
