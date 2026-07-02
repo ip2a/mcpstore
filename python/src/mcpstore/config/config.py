@@ -3,7 +3,7 @@ Optimized configuration module
 Remove sys.path operations to improve import performance
 """
 import logging
-from typing import Union
+from typing import Any, Dict, Union
 
 # Remove sys.path.append() operations to improve import performance
 # If you need to import other modules, please use relative imports or correct package structure
@@ -164,3 +164,24 @@ class LoggingConfig:
             # 清空子 logger 自带的 handler，避免重复输出
             for h in module_logger.handlers[:]:
                 module_logger.removeHandler(h)
+
+
+HEARTBEAT_INTERVAL_SECONDS = 30
+HTTP_TIMEOUT_SECONDS = 30
+RECONNECTION_INTERVAL_SECONDS = 5
+STREAMABLE_HTTP_ENDPOINT = "/mcp"
+
+
+def load_app_config() -> Dict[str, Any]:
+    """Return Python compatibility defaults for legacy config callers.
+
+    Runtime behavior is configured by the Rust core. This function preserves the
+    old read-only shape used by Python integrations that inspect app defaults.
+    """
+
+    return {
+        "heartbeat_interval": HEARTBEAT_INTERVAL_SECONDS,
+        "http_timeout": HTTP_TIMEOUT_SECONDS,
+        "reconnection_interval": RECONNECTION_INTERVAL_SECONDS,
+        "streamable_http_endpoint": STREAMABLE_HTTP_ENDPOINT,
+    }

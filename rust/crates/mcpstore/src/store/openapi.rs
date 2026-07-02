@@ -1,7 +1,7 @@
 use crate::openapi::{
     analyze_openapi_spec, parse_openapi_spec_text, resolve_openapi_local_refs,
     OpenApiBundleArtifact, OpenApiBundleDependency, OpenApiBundleDiagnostic, OpenApiBundleDocument,
-    OpenApiImportOptions, OpenApiImportResult,
+    OpenApiBundleOptions, OpenApiImportOptions, OpenApiImportResult, OpenApiRefCachePolicy,
 };
 use crate::openapi_runtime::openapi_tool_infos;
 use crate::store::prelude::*;
@@ -16,7 +16,6 @@ use std::sync::Mutex;
 
 const MAX_EXTERNAL_REF_DEPTH: usize = 32;
 const OPENAPI_REF_DOCUMENT_CACHE_STATE_TYPE: &str = "openapi_ref_documents";
-const OPENAPI_REF_DOCUMENT_CACHE_TTL_SECONDS: i64 = 300;
 const OPENAPI_REF_DOCUMENT_CACHE_VERSION: u64 = 1;
 
 #[derive(Debug, Clone)]
@@ -103,7 +102,12 @@ impl MCPStore {
         options: OpenApiImportOptions,
     ) -> Result<OpenApiImportResult> {
         let client = reqwest::Client::new();
-        let spec = bundle_openapi_external_refs(&client, &self.cache, spec_url, spec).await?;
+        let bundle_options = OpenApiBundleOptions {
+            ref_cache: options.ref_cache.clone(),
+        };
+        let spec =
+            bundle_openapi_external_refs(&client, &self.cache, spec_url, spec, &bundle_options)
+                .await?;
         let mut result = analyze_openapi_spec(name, spec_url, spec)?;
         result.runtime_executable = true;
         self.register_openapi_virtual_service(&result, &options)
@@ -131,9 +135,18 @@ impl MCPStore {
     }
 
     pub async fn bundle_openapi_spec(&self, spec_url: &str) -> Result<serde_json::Value> {
+        self.bundle_openapi_spec_with_options(spec_url, OpenApiBundleOptions::default())
+            .await
+    }
+
+    pub async fn bundle_openapi_spec_with_options(
+        &self,
+        spec_url: &str,
+        options: OpenApiBundleOptions,
+    ) -> Result<serde_json::Value> {
         let client = reqwest::Client::new();
         let spec_text = fetch_openapi_spec_text(&client, spec_url).await?;
-        self.bundle_openapi_spec_from_text(spec_url, &spec_text)
+        self.bundle_openapi_spec_from_text_with_options(spec_url, &spec_text, options)
             .await
     }
 
@@ -142,8 +155,23 @@ impl MCPStore {
         spec_url: &str,
         spec_text: &str,
     ) -> Result<serde_json::Value> {
+        self.bundle_openapi_spec_from_text_with_options(
+            spec_url,
+            spec_text,
+            OpenApiBundleOptions::default(),
+        )
+        .await
+    }
+
+    pub async fn bundle_openapi_spec_from_text_with_options(
+        &self,
+        spec_url: &str,
+        spec_text: &str,
+        options: OpenApiBundleOptions,
+    ) -> Result<serde_json::Value> {
         let spec = parse_openapi_spec_text(spec_text)?;
-        self.bundle_openapi_spec_from_value(spec_url, spec).await
+        self.bundle_openapi_spec_from_value_with_options(spec_url, spec, options)
+            .await
     }
 
     pub async fn bundle_openapi_spec_from_value(
@@ -151,14 +179,37 @@ impl MCPStore {
         spec_url: &str,
         spec: serde_json::Value,
     ) -> Result<serde_json::Value> {
+        self.bundle_openapi_spec_from_value_with_options(
+            spec_url,
+            spec,
+            OpenApiBundleOptions::default(),
+        )
+        .await
+    }
+
+    pub async fn bundle_openapi_spec_from_value_with_options(
+        &self,
+        spec_url: &str,
+        spec: serde_json::Value,
+        options: OpenApiBundleOptions,
+    ) -> Result<serde_json::Value> {
         let client = reqwest::Client::new();
-        bundle_openapi_external_refs(&client, &self.cache, spec_url, spec).await
+        bundle_openapi_external_refs(&client, &self.cache, spec_url, spec, &options).await
     }
 
     pub async fn bundle_openapi_artifact(&self, spec_url: &str) -> Result<OpenApiBundleArtifact> {
+        self.bundle_openapi_artifact_with_options(spec_url, OpenApiBundleOptions::default())
+            .await
+    }
+
+    pub async fn bundle_openapi_artifact_with_options(
+        &self,
+        spec_url: &str,
+        options: OpenApiBundleOptions,
+    ) -> Result<OpenApiBundleArtifact> {
         let client = reqwest::Client::new();
         let spec_text = fetch_openapi_spec_text(&client, spec_url).await?;
-        self.bundle_openapi_artifact_from_text(spec_url, &spec_text)
+        self.bundle_openapi_artifact_from_text_with_options(spec_url, &spec_text, options)
             .await
     }
 
@@ -167,11 +218,32 @@ impl MCPStore {
         spec_url: &str,
         spec_text: &str,
     ) -> Result<OpenApiBundleArtifact> {
+        self.bundle_openapi_artifact_from_text_with_options(
+            spec_url,
+            spec_text,
+            OpenApiBundleOptions::default(),
+        )
+        .await
+    }
+
+    pub async fn bundle_openapi_artifact_from_text_with_options(
+        &self,
+        spec_url: &str,
+        spec_text: &str,
+        options: OpenApiBundleOptions,
+    ) -> Result<OpenApiBundleArtifact> {
         let spec = parse_openapi_spec_text(spec_text)?;
         let client = reqwest::Client::new();
         let root_metadata = document_metadata_from_bytes(spec_text.as_bytes());
-        bundle_openapi_external_ref_artifact(&client, &self.cache, spec_url, spec, root_metadata)
-            .await
+        bundle_openapi_external_ref_artifact(
+            &client,
+            &self.cache,
+            spec_url,
+            spec,
+            root_metadata,
+            &options,
+        )
+        .await
     }
 
     pub async fn bundle_openapi_artifact_from_value(
@@ -179,10 +251,31 @@ impl MCPStore {
         spec_url: &str,
         spec: serde_json::Value,
     ) -> Result<OpenApiBundleArtifact> {
+        self.bundle_openapi_artifact_from_value_with_options(
+            spec_url,
+            spec,
+            OpenApiBundleOptions::default(),
+        )
+        .await
+    }
+
+    pub async fn bundle_openapi_artifact_from_value_with_options(
+        &self,
+        spec_url: &str,
+        spec: serde_json::Value,
+        options: OpenApiBundleOptions,
+    ) -> Result<OpenApiBundleArtifact> {
         let client = reqwest::Client::new();
         let root_metadata = document_metadata_from_value(&spec)?;
-        bundle_openapi_external_ref_artifact(&client, &self.cache, spec_url, spec, root_metadata)
-            .await
+        bundle_openapi_external_ref_artifact(
+            &client,
+            &self.cache,
+            spec_url,
+            spec,
+            root_metadata,
+            &options,
+        )
+        .await
     }
 
     pub(crate) async fn register_openapi_virtual_service(
@@ -348,6 +441,7 @@ impl MCPStore {
         Ok(OpenApiImportOptions {
             headers: config.headers,
             auth,
+            ref_cache: OpenApiRefCachePolicy::default(),
         })
     }
 }
@@ -357,13 +451,19 @@ async fn bundle_openapi_external_refs(
     cache: &CacheLayerManager,
     document_url: &str,
     spec: serde_json::Value,
+    options: &OpenApiBundleOptions,
 ) -> Result<serde_json::Value> {
     let root_metadata = document_metadata_from_value(&spec)?;
-    Ok(
-        bundle_openapi_external_ref_artifact(client, cache, document_url, spec, root_metadata)
-            .await?
-            .bundle,
+    Ok(bundle_openapi_external_ref_artifact(
+        client,
+        cache,
+        document_url,
+        spec,
+        root_metadata,
+        options,
     )
+    .await?
+    .bundle)
 }
 
 async fn bundle_openapi_external_ref_artifact(
@@ -372,10 +472,16 @@ async fn bundle_openapi_external_ref_artifact(
     document_url: &str,
     spec: serde_json::Value,
     root_metadata: OpenApiBundleDocumentMetadata,
+    options: &OpenApiBundleOptions,
 ) -> Result<OpenApiBundleArtifact> {
     let root_document = document_label(document_url);
-    let resolver =
-        OpenApiExternalRefResolver::new(client, cache, root_document.clone(), root_metadata);
+    let resolver = OpenApiExternalRefResolver::new(
+        client,
+        cache,
+        root_document.clone(),
+        root_metadata,
+        options.ref_cache.clone(),
+    );
     let bundle = resolver
         .resolve_external_refs(document_url.to_string(), spec, 0, Vec::new())
         .await?;
@@ -409,6 +515,7 @@ async fn fetch_openapi_spec_text(client: &reqwest::Client, spec_url: &str) -> Re
 struct OpenApiExternalRefResolver<'a> {
     client: &'a reqwest::Client,
     cache: &'a CacheLayerManager,
+    ref_cache: OpenApiRefCachePolicy,
     documents: Mutex<HashMap<String, serde_json::Value>>,
     document_metadata: Mutex<HashMap<String, OpenApiBundleDocumentMetadata>>,
     loaded_documents: Mutex<Vec<String>>,
@@ -454,12 +561,14 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         cache: &'a CacheLayerManager,
         root_document: String,
         root_metadata: OpenApiBundleDocumentMetadata,
+        ref_cache: OpenApiRefCachePolicy,
     ) -> Self {
         let mut document_metadata = HashMap::new();
         document_metadata.insert(root_document.clone(), root_metadata);
         Self {
             client,
             cache,
+            ref_cache,
             documents: Mutex::new(HashMap::new()),
             document_metadata: Mutex::new(document_metadata),
             loaded_documents: Mutex::new(vec![root_document]),
@@ -668,7 +777,11 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         let mut http_response = None;
 
         if is_http_url(target_url) {
-            let cached_http_document = self.cached_http_document(target_url).await?;
+            let cached_http_document = if self.ref_cache.is_enabled() {
+                self.cached_http_document(target_url).await?
+            } else {
+                None
+            };
             if let Some(cached) = cached_http_document.as_ref() {
                 if cached.expires_at > chrono::Utc::now().timestamp() {
                     self.record_loaded_document(target_url)?;
@@ -703,14 +816,16 @@ impl<'a> OpenApiExternalRefResolver<'a> {
             let document_text = read_openapi_document_file(path, target_url)?;
             let metadata = document_metadata_from_bytes(document_text.as_bytes());
             let fingerprint = file_document_fingerprint(path, target_url)?;
-            if let Some((document, metadata)) = self
-                .cached_file_document(target_url, &metadata, &fingerprint)
-                .await?
-            {
-                self.record_loaded_document(target_url)?;
-                self.record_document_metadata(target_url, metadata)?;
-                self.record_document(target_url, document.clone())?;
-                return Ok(document);
+            if self.ref_cache.is_enabled() {
+                if let Some((document, metadata)) = self
+                    .cached_file_document(target_url, &metadata, &fingerprint)
+                    .await?
+                {
+                    self.record_loaded_document(target_url)?;
+                    self.record_document_metadata(target_url, metadata)?;
+                    self.record_document(target_url, document.clone())?;
+                    return Ok(document);
+                }
             }
             file_metadata = Some(metadata);
             file_fingerprint = Some(fingerprint);
@@ -737,7 +852,7 @@ impl<'a> OpenApiExternalRefResolver<'a> {
         self.record_loaded_document(target_url)?;
         self.record_document_metadata(target_url, metadata.clone())?;
         self.record_document(target_url, document.clone())?;
-        if is_http_url(target_url) {
+        if is_http_url(target_url) && self.ref_cache.is_enabled() {
             let response = http_response.as_ref().ok_or_else(|| {
                 StoreError::Other(format!("OpenAPI HTTP response missing for {target_url}"))
             })?;
@@ -747,8 +862,16 @@ impl<'a> OpenApiExternalRefResolver<'a> {
             let fingerprint = file_fingerprint.as_ref().ok_or_else(|| {
                 StoreError::Other(format!("OpenAPI file fingerprint missing for {target_url}"))
             })?;
-            self.store_cached_file_document(target_url, path, fingerprint, &document, &metadata)
+            if self.ref_cache.is_enabled() {
+                self.store_cached_file_document(
+                    target_url,
+                    path,
+                    fingerprint,
+                    &document,
+                    &metadata,
+                )
                 .await?;
+            }
         }
         Ok(document)
     }
@@ -886,7 +1009,8 @@ impl<'a> OpenApiExternalRefResolver<'a> {
                     "url": target_url,
                     "source": source,
                     "fetched_at": fetched_at,
-                    "expires_at": fetched_at + OPENAPI_REF_DOCUMENT_CACHE_TTL_SECONDS,
+                    "expires_at": fetched_at + self.ref_cache.ttl_seconds_i64(),
+                    "ttl_seconds": self.ref_cache.ttl_seconds,
                     "content_hash": metadata.content_hash,
                     "content_length": metadata.content_length,
                     "etag": response.etag,
@@ -915,7 +1039,8 @@ impl<'a> OpenApiExternalRefResolver<'a> {
                     "url": target_url,
                     "source": source,
                     "fetched_at": fetched_at,
-                    "expires_at": fetched_at + OPENAPI_REF_DOCUMENT_CACHE_TTL_SECONDS,
+                    "expires_at": fetched_at + self.ref_cache.ttl_seconds_i64(),
+                    "ttl_seconds": self.ref_cache.ttl_seconds,
                     "content_hash": cached.metadata.content_hash,
                     "content_length": cached.metadata.content_length,
                     "etag": cached.etag,
@@ -1020,6 +1145,7 @@ impl<'a> OpenApiExternalRefResolver<'a> {
                     "source": "file",
                     "path": path.to_string_lossy(),
                     "fetched_at": fetched_at,
+                    "ttl_seconds": self.ref_cache.ttl_seconds,
                     "content_hash": metadata.content_hash,
                     "content_length": metadata.content_length,
                     "file_size": fingerprint.file_size,

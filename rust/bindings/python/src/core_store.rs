@@ -17,8 +17,8 @@ use mcpstore::{
     ToolDescription, ToolInfo,
 };
 use mcpstore::{
-    CreateSessionRequest, OpenApiImportOptions, SessionRetryPolicy, SessionToolSelection,
-    ToolTransformPatch,
+    CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, SessionRetryPolicy,
+    SessionToolSelection, ToolTransformPatch,
 };
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
@@ -46,6 +46,21 @@ fn parse_openapi_import_options(
     let value = py_to_serde_value(options, "OpenAPI import options")?;
     serde_json::from_value(value).map_err(|err| {
         pyo3::exceptions::PyValueError::new_err(format!("Invalid OpenAPI import options: {err}"))
+    })
+}
+
+fn parse_openapi_bundle_options(
+    options: Option<&Bound<'_, PyAny>>,
+) -> PyResult<OpenApiBundleOptions> {
+    let Some(options) = options else {
+        return Ok(OpenApiBundleOptions::default());
+    };
+    if options.is_none() {
+        return Ok(OpenApiBundleOptions::default());
+    }
+    let value = py_to_serde_value(options, "OpenAPI bundle options")?;
+    serde_json::from_value(value).map_err(|err| {
+        pyo3::exceptions::PyValueError::new_err(format!("Invalid OpenAPI bundle options: {err}"))
     })
 }
 
@@ -735,38 +750,64 @@ impl PyMCPStore {
         )
     }
 
-    fn bundle_openapi_spec(&self, py: Python<'_>, spec_url: &str) -> PyResult<Py<PyAny>> {
+    #[pyo3(signature = (spec_url, options=None))]
+    fn bundle_openapi_spec(
+        &self,
+        py: Python<'_>,
+        spec_url: &str,
+        options: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        let options = parse_openapi_bundle_options(options)?;
         let result = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.bundle_openapi_spec(spec_url))
+            .block_on(
+                self.inner
+                    .bundle_openapi_spec_with_options(spec_url, options),
+            )
             .map_err(map_store_err)?;
         serde_value_to_py(py, result)
     }
 
+    #[pyo3(signature = (spec_url, spec, options=None))]
     fn bundle_openapi_spec_from_spec(
         &self,
         py: Python<'_>,
         spec_url: &str,
         spec: &Bound<'_, PyAny>,
+        options: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
+        let options = parse_openapi_bundle_options(options)?;
         let result = if let Ok(spec_text) = spec.extract::<String>() {
             pyo3_async_runtimes::tokio::get_runtime()
                 .block_on(
                     self.inner
-                        .bundle_openapi_spec_from_text(spec_url, &spec_text),
+                        .bundle_openapi_spec_from_text_with_options(spec_url, &spec_text, options),
                 )
                 .map_err(map_store_err)?
         } else {
             let spec = py_to_serde_value(spec, "OpenAPI spec")?;
             pyo3_async_runtimes::tokio::get_runtime()
-                .block_on(self.inner.bundle_openapi_spec_from_value(spec_url, spec))
+                .block_on(
+                    self.inner
+                        .bundle_openapi_spec_from_value_with_options(spec_url, spec, options),
+                )
                 .map_err(map_store_err)?
         };
         serde_value_to_py(py, result)
     }
 
-    fn bundle_openapi_artifact(&self, py: Python<'_>, spec_url: &str) -> PyResult<Py<PyAny>> {
+    #[pyo3(signature = (spec_url, options=None))]
+    fn bundle_openapi_artifact(
+        &self,
+        py: Python<'_>,
+        spec_url: &str,
+        options: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        let options = parse_openapi_bundle_options(options)?;
         let result = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.bundle_openapi_artifact(spec_url))
+            .block_on(
+                self.inner
+                    .bundle_openapi_artifact_with_options(spec_url, options),
+            )
             .map_err(map_store_err)?;
         serde_value_to_py(
             py,
@@ -778,17 +819,21 @@ impl PyMCPStore {
         )
     }
 
+    #[pyo3(signature = (spec_url, spec, options=None))]
     fn bundle_openapi_artifact_from_spec(
         &self,
         py: Python<'_>,
         spec_url: &str,
         spec: &Bound<'_, PyAny>,
+        options: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
+        let options = parse_openapi_bundle_options(options)?;
         let result = if let Ok(spec_text) = spec.extract::<String>() {
             pyo3_async_runtimes::tokio::get_runtime()
                 .block_on(
-                    self.inner
-                        .bundle_openapi_artifact_from_text(spec_url, &spec_text),
+                    self.inner.bundle_openapi_artifact_from_text_with_options(
+                        spec_url, &spec_text, options,
+                    ),
                 )
                 .map_err(map_store_err)?
         } else {
@@ -796,7 +841,7 @@ impl PyMCPStore {
             pyo3_async_runtimes::tokio::get_runtime()
                 .block_on(
                     self.inner
-                        .bundle_openapi_artifact_from_value(spec_url, spec),
+                        .bundle_openapi_artifact_from_value_with_options(spec_url, spec, options),
                 )
                 .map_err(map_store_err)?
         };

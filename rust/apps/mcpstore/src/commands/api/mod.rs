@@ -7,8 +7,8 @@ use axum::{
 };
 use clap::Args;
 use mcpstore::{
-    perspective::GLOBAL_AGENT_STORE, CreateSessionRequest, MCPStore, OpenApiImportOptions,
-    SessionScope, ToolTransformPatch,
+    perspective::GLOBAL_AGENT_STORE, CreateSessionRequest, MCPStore, OpenApiBundleOptions,
+    OpenApiImportOptions, OpenApiRefCachePolicy, SessionScope, ToolTransformPatch,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -156,6 +156,8 @@ struct OpenApiImportRequest {
     headers: HashMap<String, String>,
     #[serde(default)]
     auth: serde_json::Map<String, Value>,
+    #[serde(default)]
+    ref_cache: OpenApiRefCachePolicy,
 }
 
 pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
@@ -1277,6 +1279,7 @@ async fn store_import_openapi(
     let options = OpenApiImportOptions {
         headers: payload.headers,
         auth: payload.auth,
+        ref_cache: payload.ref_cache,
     };
     store_import_openapi_impl(
         state,
@@ -1297,6 +1300,7 @@ async fn store_import_openapi_by_path(
     let options = OpenApiImportOptions {
         headers: payload.headers,
         auth: payload.auth,
+        ref_cache: payload.ref_cache,
     };
     store_import_openapi_impl(
         state,
@@ -1352,6 +1356,9 @@ async fn store_bundle_openapi(
     State(state): State<Arc<ApiState>>,
     Json(payload): Json<OpenApiImportRequest>,
 ) -> ApiResult {
+    let options = OpenApiBundleOptions {
+        ref_cache: payload.ref_cache,
+    };
     let bundle = match (payload.spec, payload_spec_text(payload.spec_text)) {
         (Some(_), Some(_)) => {
             return Err(ApiError::invalid_request(
@@ -1361,16 +1368,21 @@ async fn store_bundle_openapi(
         (Some(spec), None) => {
             state
                 .store
-                .bundle_openapi_spec_from_value(&payload.spec_url, spec)
+                .bundle_openapi_spec_from_value_with_options(&payload.spec_url, spec, options)
                 .await
         }
         (None, Some(spec_text)) => {
             state
                 .store
-                .bundle_openapi_spec_from_text(&payload.spec_url, &spec_text)
+                .bundle_openapi_spec_from_text_with_options(&payload.spec_url, &spec_text, options)
                 .await
         }
-        (None, None) => state.store.bundle_openapi_spec(&payload.spec_url).await,
+        (None, None) => {
+            state
+                .store
+                .bundle_openapi_spec_with_options(&payload.spec_url, options)
+                .await
+        }
     }
     .map_err(ApiError::from_store)?;
     Ok(success("OpenAPI 规范打包成功", json!({ "bundle": bundle })))
@@ -1380,6 +1392,9 @@ async fn store_bundle_openapi_artifact(
     State(state): State<Arc<ApiState>>,
     Json(payload): Json<OpenApiImportRequest>,
 ) -> ApiResult {
+    let options = OpenApiBundleOptions {
+        ref_cache: payload.ref_cache,
+    };
     let artifact = match (payload.spec, payload_spec_text(payload.spec_text)) {
         (Some(_), Some(_)) => {
             return Err(ApiError::invalid_request(
@@ -1389,16 +1404,25 @@ async fn store_bundle_openapi_artifact(
         (Some(spec), None) => {
             state
                 .store
-                .bundle_openapi_artifact_from_value(&payload.spec_url, spec)
+                .bundle_openapi_artifact_from_value_with_options(&payload.spec_url, spec, options)
                 .await
         }
         (None, Some(spec_text)) => {
             state
                 .store
-                .bundle_openapi_artifact_from_text(&payload.spec_url, &spec_text)
+                .bundle_openapi_artifact_from_text_with_options(
+                    &payload.spec_url,
+                    &spec_text,
+                    options,
+                )
                 .await
         }
-        (None, None) => state.store.bundle_openapi_artifact(&payload.spec_url).await,
+        (None, None) => {
+            state
+                .store
+                .bundle_openapi_artifact_with_options(&payload.spec_url, options)
+                .await
+        }
     }
     .map_err(ApiError::from_store)?;
     Ok(success(
@@ -2027,16 +2051,23 @@ mod tests {
     }
 
     async fn spawn_test_api(store: MCPStore) -> (SocketAddr, tokio::task::JoinHandle<()>) {
+        let (addr, handle, _) = spawn_test_api_with_state(store).await;
+        (addr, handle)
+    }
+
+    async fn spawn_test_api_with_state(
+        store: MCPStore,
+    ) -> (SocketAddr, tokio::task::JoinHandle<()>, Arc<ApiState>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let state = Arc::new(ApiState {
             store: Arc::new(store),
         });
-        let app = router(state, "");
+        let app = router(Arc::clone(&state), "");
         let handle = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
-        (addr, handle)
+        (addr, handle, state)
     }
 
     #[tokio::test]
@@ -2519,7 +2550,7 @@ mod tests {
             namespace: Some(unique_namespace()),
         })
         .unwrap();
-        let (addr, handle) = spawn_test_api(store).await;
+        let (addr, handle, state) = spawn_test_api_with_state(store).await;
         let client = reqwest::Client::new();
         let base_url = format!("http://{addr}");
         let fixture_dir = std::env::temp_dir().join(format!("mcpstore-api-{}", unique_namespace()));
@@ -2544,6 +2575,7 @@ mod tests {
             ))
             .json(&json!({
                 "spec_url": fixture_dir.join("openapi.json").to_string_lossy(),
+                "ref_cache": {"ttl_seconds": 17},
                 "spec": {
                     "openapi": "3.0.0",
                     "info": {"title": "Inventory", "version": "1.0.0"},
@@ -2584,6 +2616,15 @@ mod tests {
             "./schemas.json#/Item"
         );
         assert_eq!(artifact["diagnostics"].as_array().unwrap().len(), 0);
+        let states = state
+            .store
+            .cache()
+            .get_all_states_async("openapi_ref_documents")
+            .await
+            .unwrap();
+        assert_eq!(states.len(), 1);
+        let cached = states.values().next().unwrap();
+        assert_eq!(cached["ttl_seconds"], json!(17));
 
         let list_response = client
             .get(format!("{base_url}/for_store/openapi_imports"))
