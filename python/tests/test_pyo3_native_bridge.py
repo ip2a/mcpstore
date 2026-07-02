@@ -3428,6 +3428,17 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         )
         rule = context.get_tool_transform("svc", "echo")
         self.assertEqual(rule.arguments[0].validation_schema.minLength, 2)
+        self.assertEqual(
+            transformer.create_llm_friendly_tool(
+                "echo",
+                friendly_name="safe_echo",
+                add_safety_checks=True,
+            ),
+            "safe_echo",
+        )
+        rule = context.get_tool_transform("svc", "echo")
+        self.assertTrue(rule.safety_policy.reject_dangerous_argument_names)
+        self.assertIn("import", rule.safety_policy.dangerous_argument_name_patterns)
         with self.assertRaisesRegex(NotImplementedError, "Callable validation"):
             transformer.create_validated_tool("echo", {"text": lambda value: True})
         with self.assertRaisesRegex(NotImplementedError, "Callable"):

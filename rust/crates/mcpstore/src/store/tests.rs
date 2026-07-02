@@ -4352,6 +4352,7 @@ async fn tool_transform_rules_are_rust_backed_and_affect_scoped_tools() {
                         validation_schema: None,
                     },
                 ],
+                safety_policy: None,
                 tags: vec!["llm-friendly".to_string()],
                 enabled: Some(true),
             },

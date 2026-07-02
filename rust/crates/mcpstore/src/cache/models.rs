@@ -257,6 +257,8 @@ pub struct ToolTransformRule {
     #[serde(default)]
     pub arguments: Vec<ToolArgumentTransform>,
     #[serde(default)]
+    pub safety_policy: Option<ToolTransformSafetyPolicy>,
+    #[serde(default)]
     pub tags: Vec<String>,
     pub enabled: bool,
     pub updated_at: i64,
@@ -272,6 +274,36 @@ pub struct ToolArgumentTransform {
     pub description: Option<String>,
     #[serde(default)]
     pub validation_schema: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ToolTransformSafetyPolicy {
+    #[serde(default = "ToolTransformSafetyPolicy::default_reject_dangerous_argument_names")]
+    pub reject_dangerous_argument_names: bool,
+    #[serde(default = "ToolTransformSafetyPolicy::default_dangerous_argument_name_patterns")]
+    pub dangerous_argument_name_patterns: Vec<String>,
+}
+
+impl Default for ToolTransformSafetyPolicy {
+    fn default() -> Self {
+        Self {
+            reject_dangerous_argument_names: Self::default_reject_dangerous_argument_names(),
+            dangerous_argument_name_patterns: Self::default_dangerous_argument_name_patterns(),
+        }
+    }
+}
+
+impl ToolTransformSafetyPolicy {
+    fn default_reject_dangerous_argument_names() -> bool {
+        true
+    }
+
+    fn default_dangerous_argument_name_patterns() -> Vec<String> {
+        ["__", "eval", "exec", "import", "open", "file"]
+            .into_iter()
+            .map(str::to_string)
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
