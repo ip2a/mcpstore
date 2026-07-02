@@ -691,6 +691,9 @@ paths:
             def list_services_scoped(self, agent_id=None):
                 return [{"name": "demo", "transport": "stdio"}]
 
+            def list_services(self):
+                return self.list_services_scoped()
+
             def list_agents(self):
                 return [{"agent_id": "agent-a", "services": ["demo"]}]
 
@@ -845,7 +848,9 @@ paths:
         self.assertEqual(context.find_cache().inspect().backend, "memory")
         self.assertEqual(context.find_cache().health_check().healthy, True)
         self.assertEqual(context.get_info().context_type, "store")
+        self.assertEqual(context.setup_config().info.context_type, "store")
         self.assertEqual(agent.get_info().agent_id, "agent-a")
+        self.assertEqual(agent.setup_config().info.agent_id, "agent-a")
         agents_summary = context.get_agents_summary()
         self.assertEqual(agents_summary.total_agents, 1)
         self.assertEqual(agents_summary.store_services, 1)
