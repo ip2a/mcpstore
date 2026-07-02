@@ -2436,6 +2436,8 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 self.sessions = {}
                 self.state = {}
                 self.transforms = {}
+                self.updated_services = {}
+                self.removed_services = []
 
             def find_session(self, session_id, scope, agent_id):
                 return self.sessions.get((scope, agent_id, session_id))
@@ -2581,6 +2583,14 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             def find_service(self, name):
                 return {"name": name, "transport": "stdio"}
 
+            def update_service(self, name, config):
+                self.updated_services[name] = config
+                return True
+
+            def remove_service(self, name):
+                self.removed_services.append(name)
+                return True
+
             def service_status_scoped(self, agent_id, service_name):
                 return {"status": "connected", "service_name": service_name, "agent_id": agent_id}
 
@@ -2601,6 +2611,12 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
 
             def current_backend(self):
                 return "memory"
+
+            def show_config(self, scope="all"):
+                return {"scope": scope, "mcpServers": {"svc": {"command": "python"}}}
+
+            def show_mcpjson(self):
+                return {"mcpServers": {"svc": {"command": "python"}}}
 
             def resolve_tool_for_agent(self, agent_id, user_input):
                 return {"global_service_name": "svc", "canonical_tool_name": "echo"}
@@ -2647,7 +2663,8 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             def list_openapi_imports(self):
                 return []
 
-        backend = RustStoreBackend(FakeBackend())
+        fake_backend = FakeBackend()
+        backend = RustStoreBackend(fake_backend)
         context = MCPStoreContext(backend)
         store_proxy = StoreProxy(context)
         agent_proxy = AgentProxy(context, "agent_a")
@@ -2679,11 +2696,28 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertEqual(operations.list_tools()[0].name, "echo")
         self.assertEqual(operations.call_tool("echo", {"text": "mix"}).text_output, "mix")
         self.assertEqual(operations.wait_service("svc").health_status, "ready")
+        self.assertEqual(operations.init_service("svc").health_status, "ready")
+        self.assertEqual(operations.service_info("svc").name, "svc")
+        self.assertEqual(operations.service_status("svc").status, "connected")
+        self.assertTrue(operations.update_config("svc", {"command": "node"}))
+        self.assertEqual(fake_backend.updated_services["svc"], {"command": "node"})
+        self.assertTrue(operations.delete_config("svc"))
+        self.assertEqual(fake_backend.removed_services[-1], "svc")
+        self.assertEqual(operations.show_mcpconfig().mcpServers.svc.command, "python")
         self.assertEqual(operations.get_agents_summary().total_agents, 1)
         self.assertEqual(operations.create_shared_session("shared", "user-1").metadata.user_session_id, "user-1")
         self.assertEqual(operations.find_user_session("user-1").session_id, "shared")
         self.assertTrue(operations.register_session_globally("shared", "user-2"))
         self.assertEqual(operations.find_user_session("user-2").session_id, "shared")
+        with patch.object(RustSession, "for_langchain", lambda session: session.session_id):
+            self.assertEqual(operations.for_langchain_with_session("shared"), "shared")
+            self.assertEqual(operations.for_langchain_with_shared_session("user-2"), "shared")
+            self.assertEqual(operations.for_langchain_with_auto_session(), "auto_session_default")
+            self.assertEqual(context.for_langchain_with_session("shared"), "shared")
+            self.assertEqual(context.for_langchain_with_shared_session("user-2"), "shared")
+            self.assertEqual(context.for_langchain_with_auto_session(), "auto_session_default")
+        with self.assertRaisesRegex(ValueError, "Session not found"):
+            operations.for_langchain_with_session("missing", create_if_not_exists=False)
         self.assertIs(operations.import_api("https://example.test/openapi.json", "example"), operations)
         self.assertEqual(operations.last_openapi_import().service_name, "example")
         self.assertTrue(operations.last_openapi_import().runtime_executable)

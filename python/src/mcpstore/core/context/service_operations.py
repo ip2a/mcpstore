@@ -80,13 +80,25 @@ class ServiceOperationsMixin:
     def get_service_info(self, name: str):
         return self._rust_context().get_service_info(name)
 
+    def service_info(self, name: str):
+        return self.get_service_info(name)
+
     async def get_service_info_async(self, name: str):
+        return self.get_service_info(name)
+
+    async def service_info_async(self, name: str):
         return self.get_service_info(name)
 
     def get_service_status(self, name: str):
         return self._rust_context().get_service_status(name)
 
+    def service_status(self, name: str):
+        return self.get_service_status(name)
+
     async def get_service_status_async(self, name: str):
+        return self.get_service_status(name)
+
+    async def service_status_async(self, name: str):
         return self.get_service_status(name)
 
     def check_services(self):
@@ -101,6 +113,12 @@ class ServiceOperationsMixin:
     async def update_service_async(self, name: str, config: Any):
         return self.update_service(name, config)
 
+    def update_config(self, name: str, config: Any):
+        return self.update_service(name, config)
+
+    async def update_config_async(self, name: str, config: Any):
+        return self.update_config(name, config)
+
     def patch_service(self, name: str, updates: Any):
         return self._rust_context().patch_service(name, updates)
 
@@ -113,11 +131,17 @@ class ServiceOperationsMixin:
     def remove_service(self, name: str):
         return self.delete_service(name)
 
+    def delete_config(self, name: str):
+        return self.delete_service(name)
+
     async def delete_service_async(self, name: str):
         return self.delete_service(name)
 
     async def remove_service_async(self, name: str):
         return self.remove_service(name)
+
+    async def delete_config_async(self, name: str):
+        return self.delete_config(name)
 
     def restart_service(self, name: str):
         return self._rust_context().restart_service(name)
@@ -134,8 +158,20 @@ class ServiceOperationsMixin:
     def show_config(self, scope: str = "all"):
         return self._rust_context().show_config(scope)
 
+    def show_mcpjson(self):
+        return self._rust_context().show_mcpjson()
+
+    def show_mcpconfig(self):
+        return self.show_mcpjson()
+
     async def show_config_async(self, scope: str = "all"):
         return self.show_config(scope)
+
+    async def show_mcpjson_async(self):
+        return self.show_mcpjson()
+
+    async def show_mcpconfig_async(self):
+        return self.show_mcpconfig()
 
     def reset_config(self):
         return self._rust_context().reset_config()
@@ -145,6 +181,15 @@ class ServiceOperationsMixin:
 
     def wait_service(self, name: str, status=None, timeout: float = 10.0):
         return self._rust_context().wait_service(name, status=status, timeout=timeout)
+
+    def init_service(self, name: str = None, *, client_id: str = None, service_name: str = None):
+        target = service_name or client_id or name
+        if not target:
+            raise ValueError("init_service requires a service name")
+        return self.wait_service(target)
+
+    async def init_service_async(self, name: str = None, *, client_id: str = None, service_name: str = None):
+        return self.init_service(name, client_id=client_id, service_name=service_name)
 
     def wait_services(self, names, status=None, timeout: float = 10.0):
         return self._rust_context().wait_services(names, status=status, timeout=timeout)

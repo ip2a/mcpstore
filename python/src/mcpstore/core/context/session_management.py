@@ -66,6 +66,27 @@ class SessionManagementMixin:
     def create_shared_session(self, session_id: str, shared_id: str):
         return self.create_session(session_id, user_session_id=shared_id)
 
+    def for_langchain_with_session(self, session_id: str, create_if_not_exists: bool = True):
+        session = self.find_session(session_id)
+        if session is None:
+            if not create_if_not_exists:
+                raise ValueError(f"Session not found: {session_id}")
+            session = self.with_session(session_id)
+        return session.for_langchain()
+
+    def for_langchain_with_auto_session(self):
+        session = self.current_session()
+        if session is None:
+            self.session_auto()
+            session = self.current_session()
+        return session.for_langchain()
+
+    def for_langchain_with_shared_session(self, shared_id: str):
+        session = self.find_user_session(shared_id)
+        if session is None:
+            session = self.create_shared_session(shared_id, shared_id)
+        return session.for_langchain()
+
     def list_agent_sessions(self):
         return self.list_sessions()
 

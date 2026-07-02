@@ -2193,6 +2193,34 @@ class RustSession:
         self._context._backend.close_session(self)
         return True
 
+    def for_langchain(self, response_format: str = "text"):
+        from mcpstore.adapters.langchain_adapter import LangChainAdapter
+
+        return LangChainAdapter(self, response_format=response_format)
+
+    def for_langgraph(self, response_format: str = "text"):
+        return self.for_langchain(response_format=response_format)
+
+    def for_openai(self):
+        from mcpstore.adapters.openai_adapter import OpenAIAdapter
+
+        return OpenAIAdapter(self)
+
+    def for_autogen(self):
+        from mcpstore.adapters.autogen_adapter import AutoGenAdapter
+
+        return AutoGenAdapter(self)
+
+    def for_llamaindex(self):
+        from mcpstore.adapters.llamaindex_adapter import LlamaIndexAdapter
+
+        return LlamaIndexAdapter(self)
+
+    def for_crewai(self):
+        from mcpstore.adapters.crewai_adapter import CrewAIAdapter
+
+        return CrewAIAdapter(self)
+
 
 class RustStoreContext:
     def __init__(self, backend: RustStoreBackend, agent_id: Optional[str] = None):
@@ -2459,6 +2487,37 @@ class RustStoreContext:
     async def with_session_async(self, session_id: str) -> RustSession:
         return self.with_session(session_id)
 
+    def create_shared_session(self, session_id: str, shared_id: str) -> RustSession:
+        return self.create_session(
+            session_id,
+            metadata={"user_session_id": shared_id},
+        )
+
+    def for_langchain_with_session(
+        self,
+        session_id: str,
+        create_if_not_exists: bool = True,
+    ):
+        session = self.find_session(session_id)
+        if session is None:
+            if not create_if_not_exists:
+                raise ValueError(f"Session not found: {session_id}")
+            session = self.with_session(session_id)
+        return session.for_langchain()
+
+    def for_langchain_with_auto_session(self):
+        session = self.current_session()
+        if session is None:
+            self.session_auto()
+            session = self.current_session()
+        return session.for_langchain()
+
+    def for_langchain_with_shared_session(self, shared_id: str):
+        session = self.find_user_session(shared_id)
+        if session is None:
+            session = self.create_shared_session(shared_id, shared_id)
+        return session.for_langchain()
+
     def session_auto(
         self,
         session_id: Optional[str] = None,
@@ -2612,11 +2671,17 @@ class RustStoreContext:
         service_name = self._resolve_service_name(name)
         return self._backend.update_service(service_name, config)
 
+    def update_config(self, name: str, config: Any) -> bool:
+        return self.update_service(name, config)
+
     def delete_service(self, name: str) -> bool:
         service_name = self._resolve_service_name(name)
         return self._backend.remove_service(service_name)
 
     def remove_service(self, name: str) -> bool:
+        return self.delete_service(name)
+
+    def delete_config(self, name: str) -> bool:
         return self.delete_service(name)
 
     def restart_service(self, name: str) -> bool:
@@ -2936,6 +3001,9 @@ class RustStoreContext:
 
     def show_mcpjson(self) -> Dict[str, Any]:
         return self._backend.show_mcpjson()
+
+    def show_mcpconfig(self) -> Dict[str, Any]:
+        return self.show_mcpjson()
 
     def get_json_config(self) -> Dict[str, Any]:
         return self._backend.get_json_config()
