@@ -919,6 +919,30 @@ paths:
         context = RustStoreContext(backend)
         agent = context.find_agent("agent-a")
         self.assertEqual(agent.agent_id, "agent-a")
+        self.assertIs(context.for_store().get_context(), context)
+        self.assertIsNone(agent.for_store().get_context().agent_id)
+        self.assertEqual(
+            context._run_async_via_bridge(
+                asyncio.sleep(0, result={"ok": True}),
+                op_name="compat_bridge",
+            ),
+            {"ok": True},
+        )
+
+        async def run_bridge_execute():
+            return await context.bridge_execute(
+                asyncio.sleep(0, result={"async_ok": True}),
+                op_name="compat_bridge_async",
+            )
+
+        async def run_sync_bridge_inside_loop():
+            return context._run_async_via_bridge(
+                asyncio.sleep(0, result={"loop_ok": True}),
+                op_name="compat_bridge_loop",
+            )
+
+        self.assertEqual(asyncio.run(run_bridge_execute()), {"async_ok": True})
+        self.assertEqual(asyncio.run(run_sync_bridge_inside_loop()), {"loop_ok": True})
         self.assertEqual(context.find_cache().scope, "global")
         self.assertEqual(context.list_agents()[0].agent_id, "agent-a")
         self.assertEqual(agent.find_cache().scope, "agent")
@@ -928,6 +952,8 @@ paths:
         self.assertEqual(context.setup_config().info.context_type, "store")
         self.assertEqual(agent.get_info().agent_id, "agent-a")
         self.assertEqual(agent.setup_config().info.agent_id, "agent-a")
+        with self.assertRaisesRegex(NotImplementedError, "setup_config"):
+            context.get_unified_config()
         agents_summary = context.get_agents_summary()
         self.assertEqual(agents_summary.total_agents, 1)
         self.assertEqual(agents_summary.store_services, 1)
