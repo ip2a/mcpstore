@@ -148,6 +148,18 @@ pub struct ContextToolVisibilityState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ToolPreferenceState {
+    pub context_key: String,
+    pub service_global_name: String,
+    pub tool_global_name: String,
+    pub tool_original_name: String,
+    #[serde(default)]
+    pub preferences: serde_json::Map<String, serde_json::Value>,
+    pub updated_at: i64,
+    pub version: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolVisibilityMode {
     Allowlist,

@@ -6,5 +6,6 @@ pub(crate) mod prompts;
 pub(crate) mod resources;
 pub(crate) mod scope;
 pub(crate) mod services;
+pub(crate) mod tool_preferences;
 pub(crate) mod tool_visibility;
 pub(crate) mod tools;

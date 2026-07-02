@@ -39,7 +39,7 @@ pub use registry::{ConnectionStatus, ServiceEntry, ToolInfo};
 pub use cache::models::{
     SessionContextState, SessionEntity, SessionScope, SessionServiceItem, SessionServiceRelation,
     SessionStateData, SessionStatus, SessionStatusState, SessionToolItem, SessionToolVisibility,
-    ToolArgumentTransform, ToolTransformRule,
+    ToolArgumentTransform, ToolPreferenceState, ToolTransformRule,
 };
 pub use session::{
     CreateSessionRequest, SessionBuilder, SessionContext, SessionRetryPolicy, SessionToolSelection,
