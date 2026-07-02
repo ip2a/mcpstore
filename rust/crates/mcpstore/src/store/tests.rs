@@ -2312,7 +2312,8 @@ async fn openapi_tools_validate_input_schema_before_request() {
                     "operationId": "createValidatedItem",
                     "parameters": [
                         { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 20 } },
-                        { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["draft", "published"] } }
+                        { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["draft", "published"] } },
+                        { "name": "request_id", "in": "query", "schema": { "type": "string", "format": "uuid" } }
                     ],
                     "requestBody": {
                         "required": true,
@@ -2327,6 +2328,10 @@ async fn openapi_tools_validate_input_schema_before_request() {
                                         "price": { "type": "number", "minimum": 0, "exclusiveMinimum": true },
                                         "discount": { "type": "number", "exclusiveMaximum": 1 },
                                         "quantity": { "type": "integer", "multipleOf": 5 },
+                                        "publish_date": { "type": "string", "format": "date" },
+                                        "updated_at": { "type": "string", "format": "date-time" },
+                                        "callback": { "type": "string", "format": "url" },
+                                        "resource_uri": { "type": "string", "format": "uri" },
                                         "tags": { "type": "array", "minItems": 1, "maxItems": 2, "uniqueItems": true, "items": { "type": "string", "minLength": 2 } },
                                         "metadata": {
                                             "type": "object",
@@ -2377,19 +2382,25 @@ async fn openapi_tools_validate_input_schema_before_request() {
             serde_json::json!({
                 "limit": 0,
                 "status": "draft",
-                "body": { "name": "x", "code": "abcde", "price": 0, "discount": 1, "quantity": 7, "tags": [], "metadata": { "extra": true }, "labels": { "color": "r" } }
+                "request_id": "not-a-uuid",
+                "body": { "name": "x", "code": "abcde", "price": 0, "discount": 1, "quantity": 7, "publish_date": "2026-02-30", "updated_at": "2026-01-01 10:00:00", "callback": "ftp://example.test/hook", "resource_uri": "not a uri", "tags": [], "metadata": { "extra": true }, "labels": { "color": "r" } }
             }),
         )
         .await
         .unwrap_err()
         .to_string();
     assert!(invalid_constraints.contains("query.limit must be greater than or equal to 1"));
+    assert!(invalid_constraints.contains("query.request_id must be a valid UUID"));
     assert!(invalid_constraints.contains("body.name length must be at least 3"));
     assert!(invalid_constraints.contains("body.name must match pattern ^item-[0-9]+$"));
     assert!(invalid_constraints.contains("body.code length must be at most 4"));
     assert!(invalid_constraints.contains("body.price must be greater than 0"));
     assert!(invalid_constraints.contains("body.discount must be less than 1"));
     assert!(invalid_constraints.contains("body.quantity must be a multiple of 5"));
+    assert!(invalid_constraints.contains("body.publish_date must match date format YYYY-MM-DD"));
+    assert!(invalid_constraints.contains("body.updated_at must match RFC3339 date-time format"));
+    assert!(invalid_constraints.contains("body.callback must be a valid HTTP(S) URL"));
+    assert!(invalid_constraints.contains("body.resource_uri must be a valid absolute URI"));
     assert!(invalid_constraints.contains("body.tags must contain at least 1 item(s)"));
     assert!(invalid_constraints.contains("body.metadata.extra is not allowed"));
     assert!(invalid_constraints.contains("body.labels.color length must be at least 2"));
@@ -2401,7 +2412,8 @@ async fn openapi_tools_validate_input_schema_before_request() {
             serde_json::json!({
                 "limit": 21,
                 "status": "draft",
-                "body": { "name": "item-123", "code": "abcd", "price": 1, "discount": 0.5, "quantity": 10, "tags": ["a", "bb", "cc"] }
+                "request_id": "550e8400-e29b-41d4-a716-446655440000",
+                "body": { "name": "item-123", "code": "abcd", "price": 1, "discount": 0.5, "quantity": 10, "publish_date": "2026-01-01", "updated_at": "2026-01-01T10:00:00Z", "callback": "https://example.test/hook", "resource_uri": "mcpstore://items/123", "tags": ["a", "bb", "cc"] }
             }),
         )
         .await
@@ -2418,7 +2430,8 @@ async fn openapi_tools_validate_input_schema_before_request() {
             serde_json::json!({
                 "limit": 10,
                 "status": "draft",
-                "body": { "name": "item-123", "code": "abcd", "price": 1, "discount": 0.5, "quantity": 10, "tags": ["bb", "bb"] }
+                "request_id": "550e8400-e29b-41d4-a716-446655440000",
+                "body": { "name": "item-123", "code": "abcd", "price": 1, "discount": 0.5, "quantity": 10, "publish_date": "2026-01-01", "updated_at": "2026-01-01T10:00:00Z", "callback": "https://example.test/hook", "resource_uri": "mcpstore://items/123", "tags": ["bb", "bb"] }
             }),
         )
         .await
@@ -2433,7 +2446,8 @@ async fn openapi_tools_validate_input_schema_before_request() {
             serde_json::json!({
                 "limit": 10,
                 "status": "draft",
-                "body": { "name": "item-123", "code": "abcd", "price": 1.5, "discount": 0.5, "quantity": 10, "tags": ["fruit"], "metadata": { "owner": "ops" }, "labels": { "color": "red" } }
+                "request_id": "550e8400-e29b-41d4-a716-446655440000",
+                "body": { "name": "item-123", "code": "abcd", "price": 1.5, "discount": 0.5, "quantity": 10, "publish_date": "2026-01-01", "updated_at": "2026-01-01T10:00:00Z", "callback": "https://example.test/hook", "resource_uri": "mcpstore://items/123", "tags": ["fruit"], "metadata": { "owner": "ops" }, "labels": { "color": "red" } }
             }),
         )
         .await
