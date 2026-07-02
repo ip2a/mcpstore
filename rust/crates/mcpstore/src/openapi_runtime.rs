@@ -4,6 +4,7 @@ use crate::openapi::{
 use crate::transport::{ContentItem, ToolCallResult};
 use crate::{Result, StoreError};
 use base64::Engine;
+use iri_string::types::{IriReferenceStr, IriStr, UriReferenceStr};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::path::Path;
@@ -700,6 +701,15 @@ fn validate_string_format(schema: &Value, text: &str, path: &str, errors: &mut V
             errors.push(format!("{path} must be a valid IPv6 address"));
         }
         "uri" => validate_uri_format(text, path, errors),
+        "uri-reference" if UriReferenceStr::new(text).is_err() => {
+            errors.push(format!("{path} must be a valid URI reference"));
+        }
+        "iri" if IriStr::new(text).is_err() => {
+            errors.push(format!("{path} must be a valid IRI"));
+        }
+        "iri-reference" if IriReferenceStr::new(text).is_err() => {
+            errors.push(format!("{path} must be a valid IRI reference"));
+        }
         "url" => validate_url_format(text, path, errors),
         "regex" if regex::Regex::new(text).is_err() => {
             errors.push(format!("{path} must be a valid regular expression"));

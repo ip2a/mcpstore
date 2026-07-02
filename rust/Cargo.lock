@@ -1293,6 +1293,7 @@ dependencies = [
  "chrono",
  "email_address",
  "http",
+ "iri-string",
  "openkeyv",
  "redis",
  "regex",
