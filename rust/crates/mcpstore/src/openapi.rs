@@ -164,7 +164,7 @@ impl OpenApiRefCachePolicy {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OpenApiImportOptions {
     #[serde(default)]
     pub headers: std::collections::HashMap<String, String>,
@@ -172,6 +172,31 @@ pub struct OpenApiImportOptions {
     pub auth: Map<String, Value>,
     #[serde(default)]
     pub ref_cache: OpenApiRefCachePolicy,
+    #[serde(default = "default_openapi_runtime_timeout_millis")]
+    pub timeout_millis: u64,
+}
+
+const DEFAULT_OPENAPI_RUNTIME_TIMEOUT_MILLIS: u64 = 30_000;
+
+impl Default for OpenApiImportOptions {
+    fn default() -> Self {
+        Self {
+            headers: std::collections::HashMap::new(),
+            auth: Map::new(),
+            ref_cache: OpenApiRefCachePolicy::default(),
+            timeout_millis: DEFAULT_OPENAPI_RUNTIME_TIMEOUT_MILLIS,
+        }
+    }
+}
+
+impl OpenApiImportOptions {
+    pub fn default_timeout_millis() -> u64 {
+        DEFAULT_OPENAPI_RUNTIME_TIMEOUT_MILLIS
+    }
+}
+
+fn default_openapi_runtime_timeout_millis() -> u64 {
+    DEFAULT_OPENAPI_RUNTIME_TIMEOUT_MILLIS
 }
 
 pub fn parse_openapi_spec_text(spec_text: &str) -> Result<Value> {

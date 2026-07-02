@@ -8,6 +8,7 @@ use iri_string::types::{IriReferenceStr, IriStr, UriReferenceStr};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::path::Path;
+use std::time::Duration;
 
 pub fn openapi_tool_infos(import: &OpenApiImportResult) -> Vec<crate::registry::ToolInfo> {
     import
@@ -271,7 +272,10 @@ async fn execute_component(
                 component.endpoint.method
             ))
         })?;
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(options.timeout_millis.max(1)))
+        .build()
+        .map_err(|err| StoreError::Other(format!("OpenAPI HTTP client creation failed: {err}")))?;
     let mut request = client.request(method, url);
     for (name, value) in request_headers {
         request = request.header(name, value);

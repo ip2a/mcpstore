@@ -508,6 +508,10 @@ impl MCPStore {
             headers: config.headers,
             auth,
             ref_cache: OpenApiRefCachePolicy::default(),
+            timeout_millis: config_value
+                .get("openapi_timeout_millis")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or_else(crate::openapi::OpenApiImportOptions::default_timeout_millis),
         })
     }
 }
@@ -1472,6 +1476,12 @@ fn openapi_config_value(
                 serde_json::Value::Object(options.auth.clone()),
             );
         }
+    }
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "openapi_timeout_millis".to_string(),
+            serde_json::Value::from(options.timeout_millis),
+        );
     }
     Ok(value)
 }

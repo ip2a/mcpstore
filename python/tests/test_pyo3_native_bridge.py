@@ -6,9 +6,11 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 import tomllib
 import types
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
@@ -392,6 +394,121 @@ paths:
                 for dependency in artifact["dependencies"]
             )
         )
+
+    def test_python_facade_executes_openapi_virtual_service_via_rust(self):
+        from mcpstore import MCPStore
+
+        class InventoryHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == "/items":
+                    self._json_response({"items": ["apple", "pear"]})
+                    return
+                if self.path == "/items/sku-1":
+                    self._json_response({"sku": "sku-1", "name": "apple"})
+                    return
+                self._json_response({"error": self.path}, status=404)
+
+            def do_POST(self):
+                if self.path == "/items":
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if length:
+                        self.rfile.read(length)
+                    self._json_response({"created": True, "path": "/items"})
+                    return
+                self._json_response({"error": self.path}, status=404)
+
+            def log_message(self, format, *args):
+                return
+
+            def _json_response(self, payload, status=200):
+                body = json.dumps(payload).encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), InventoryHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+
+        base_url = f"http://127.0.0.1:{server.server_port}"
+        workdir = Path(tempfile.mkdtemp(prefix="mcpstore-openapi-exec-"))
+        store = MCPStore.setup_store(str(workdir / "mcp.json"))
+        context = store.for_store()
+        spec = {
+            "openapi": "3.0.0",
+            "info": {"title": "Executable Inventory", "version": "2026.1"},
+            "servers": [{"url": base_url}],
+            "paths": {
+                "/items": {
+                    "get": {"operationId": "listItems", "summary": "List items"},
+                    "post": {"operationId": "createItem", "requestBody": {"required": True}},
+                },
+                "/items/{sku}": {
+                    "get": {
+                        "parameters": [
+                            {
+                                "name": "sku",
+                                "in": "path",
+                                "required": True,
+                                "schema": {"type": "string"},
+                            }
+                        ]
+                    }
+                },
+            },
+        }
+
+        result = context.import_openapi_service_from_spec(
+            "inventory-exec",
+            "memory://inventory-exec",
+            spec,
+            timeout_millis=2_000,
+        )
+
+        self.assertTrue(result["runtime_executable"])
+        self.assertEqual(context.list_tools("inventory-exec")[0].name, "createItem")
+        call = context.call_tool(
+            "createItem",
+            {"body": {"sku": "sku-1", "name": "apple"}},
+        )
+        self.assertFalse(call.is_error)
+        self.assertEqual(json.loads(call.text_output)["created"], True)
+
+        session = context.create_session("inventory-session").bind_service("inventory-exec")
+        session_call = session.use_tool(
+            "createItem",
+            {"body": {"sku": "sku-2", "name": "pear"}},
+        )
+        self.assertFalse(session_call["is_error"])
+        session_text = "".join(
+            item.get("text", "")
+            for item in session_call.get("content", [])
+            if item.get("type") == "text"
+        )
+        self.assertEqual(json.loads(session_text)["created"], True)
+
+        resources = context.list_resources("inventory-exec")
+        self.assertEqual(resources[0].uri, "openapi://inventory-exec/listItems")
+        resource = context.read_resource(
+            "openapi://inventory-exec/listItems",
+            service_name="inventory-exec",
+        )
+        self.assertIn("apple", resource.contents[0].text)
+
+        templates = context.list_resource_templates("inventory-exec")
+        self.assertEqual(
+            templates[0].uriTemplate,
+            "openapi://inventory-exec/get_items_sku/{sku}",
+        )
+        templated = context.read_resource(
+            "openapi://inventory-exec/get_items_sku/sku-1",
+            service_name="inventory-exec",
+        )
+        self.assertIn("sku-1", templated.contents[0].text)
 
     def test_python_facade_uses_native_bridge(self):
         from mcpstore import MCPStore
@@ -3850,12 +3967,17 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 "https://example.test/cache-openapi.json",
                 "cache",
                 ref_cache={"ttl_seconds": 21},
+                timeout_millis=1234,
             ),
             operations,
         )
         self.assertEqual(
             operations.last_openapi_import().options["ref_cache"]["ttl_seconds"],
             21,
+        )
+        self.assertEqual(
+            operations.last_openapi_import().options["timeout_millis"],
+            1234,
         )
         self.assertEqual(
             store_proxy.bundle_openapi_artifact(
