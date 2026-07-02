@@ -20,6 +20,12 @@ class SessionManagementMixin:
     def find_user_session(self, user_session_id: str):
         return self.find_session(user_session_id, is_user_session_id=True)
 
+    def find_session_by_key(self, session_key: str):
+        return self._rust_context().find_session_by_key(session_key)
+
+    def session_by_key(self, session_key: str):
+        return self._rust_context().session_by_key(session_key)
+
     def get_session(self, session_id: str):
         return self._rust_context().get_session(session_id)
 
@@ -68,6 +74,9 @@ class SessionManagementMixin:
                 raise ValueError(f"Session not found: {session_id}")
             session = self.with_session(session_id)
         return session.for_langchain()
+
+    def for_langchain_with_session_key(self, session_key: str):
+        return self.session_by_key(session_key).for_langchain()
 
     def for_langchain_with_auto_session(self):
         session = self.current_session()
