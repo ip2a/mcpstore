@@ -1423,6 +1423,9 @@ class RustStoreBackend:
     def disable_auto_session(self, context: "RustStoreContext") -> None:
         self._auto_sessions.pop(context.get_id(), None)
 
+    def is_auto_session_enabled(self, context: "RustStoreContext") -> bool:
+        return context.get_id() in self._auto_sessions
+
 
 class MCPStore(RustStoreBackend):
     """Public Python MCPStore facade backed by the PyO3 Rust runtime."""
@@ -2422,6 +2425,30 @@ class RustStoreContext:
     def current_session(self) -> Optional[RustSession]:
         return self.active_session
 
+    def is_session_auto(self) -> bool:
+        return self._backend.is_auto_session_enabled(self)
+
+    def close_all_sessions(self) -> "RustStoreContext":
+        for session in self.list_sessions():
+            session.close_session()
+        self._backend.set_active_session(self, None)
+        self._backend.disable_auto_session(self)
+        return self
+
+    def cleanup_sessions(self) -> "RustStoreContext":
+        for session in self.list_sessions():
+            self._backend.get_session_status(session)
+        active = self.active_session
+        if active is not None and not active.is_active:
+            self._backend.set_active_session(self, None)
+            self._backend.disable_auto_session(self)
+        return self
+
+    def restart_sessions(self) -> "RustStoreContext":
+        for session in self.list_sessions():
+            session.restart_session()
+        return self
+
     def list_services(self) -> List[Dict[str, Any]]:
         return _record_value(self._backend.list_services_scoped(self._agent_id))
 
@@ -2595,6 +2622,7 @@ class RustStoreContext:
         self,
         session_id: str,
         *,
+        user_session_id: Optional[str] = None,
         lease_seconds: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> RustSession:
@@ -2602,6 +2630,17 @@ class RustStoreContext:
             metadata,
             "Session metadata",
         )
+        if user_session_id is not None:
+            existing_user_session_id = normalized_metadata.get("user_session_id")
+            if (
+                existing_user_session_id is not None
+                and existing_user_session_id != user_session_id
+            ):
+                raise ValueError(
+                    "Session metadata user_session_id conflicts with create_session(user_session_id)"
+                )
+            normalized_metadata = dict(normalized_metadata)
+            normalized_metadata["user_session_id"] = user_session_id
         return self._backend.get_session(
             self,
             session_id,
@@ -2612,7 +2651,13 @@ class RustStoreContext:
     def find_session(
         self,
         session_id: Optional[str] = None,
+        *,
+        is_user_session_id: bool = False,
     ) -> Optional[RustSession]:
+        if is_user_session_id:
+            if session_id is None:
+                raise ValueError("find_session(is_user_session_id=True) requires session_id")
+            return self.find_user_session(session_id)
         return self._backend.find_session(self, session_id)
 
     def find_user_session(self, user_session_id: str) -> Optional[RustSession]:
