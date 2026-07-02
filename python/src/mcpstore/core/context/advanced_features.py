@@ -15,6 +15,7 @@ class AdvancedFeaturesMixin:
         auth: dict = None,
         ref_cache: dict = None,
         timeout_millis: int = None,
+        fetch_timeout_millis: int = None,
     ):
         import time
 
@@ -26,6 +27,7 @@ class AdvancedFeaturesMixin:
             auth=auth,
             ref_cache=ref_cache,
             timeout_millis=timeout_millis,
+            fetch_timeout_millis=fetch_timeout_millis,
         )
         return self
 
@@ -38,6 +40,7 @@ class AdvancedFeaturesMixin:
         auth: dict = None,
         ref_cache: dict = None,
         timeout_millis: int = None,
+        fetch_timeout_millis: int = None,
     ):
         return self.import_api(
             api_url,
@@ -46,6 +49,7 @@ class AdvancedFeaturesMixin:
             auth=auth,
             ref_cache=ref_cache,
             timeout_millis=timeout_millis,
+            fetch_timeout_millis=fetch_timeout_millis,
         )
 
     def import_api_from_spec(
@@ -58,6 +62,7 @@ class AdvancedFeaturesMixin:
         auth: dict = None,
         ref_cache: dict = None,
         timeout_millis: int = None,
+        fetch_timeout_millis: int = None,
     ):
         self._rust_context().import_openapi_service_from_spec(
             api_name,
@@ -67,6 +72,7 @@ class AdvancedFeaturesMixin:
             auth=auth,
             ref_cache=ref_cache,
             timeout_millis=timeout_millis,
+            fetch_timeout_millis=fetch_timeout_millis,
         )
         return self
 

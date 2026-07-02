@@ -13,6 +13,7 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Mutex;
+use std::time::Duration;
 
 const MAX_EXTERNAL_REF_DEPTH: usize = 32;
 const OPENAPI_REF_DOCUMENT_CACHE_STATE_TYPE: &str = "openapi_ref_documents";
@@ -49,7 +50,7 @@ impl MCPStore {
         spec_url: &str,
         options: OpenApiImportOptions,
     ) -> Result<OpenApiImportResult> {
-        let client = reqwest::Client::new();
+        let client = openapi_http_client(options.fetch_timeout_millis)?;
         let spec_text = fetch_openapi_spec_text(&client, spec_url).await?;
         self.import_openapi_service_from_spec_text_with_options(name, spec_url, &spec_text, options)
             .await
@@ -104,9 +105,10 @@ impl MCPStore {
         spec: serde_json::Value,
         options: OpenApiImportOptions,
     ) -> Result<OpenApiImportResult> {
-        let client = reqwest::Client::new();
+        let client = openapi_http_client(options.fetch_timeout_millis)?;
         let bundle_options = OpenApiBundleOptions {
             ref_cache: options.ref_cache.clone(),
+            timeout_millis: options.fetch_timeout_millis,
         };
         let spec =
             bundle_openapi_external_refs(&client, &self.cache, spec_url, spec, &bundle_options)
@@ -163,7 +165,7 @@ impl MCPStore {
         spec_url: &str,
         options: OpenApiBundleOptions,
     ) -> Result<serde_json::Value> {
-        let client = reqwest::Client::new();
+        let client = openapi_http_client(options.timeout_millis)?;
         let spec_text = fetch_openapi_spec_text(&client, spec_url).await?;
         self.bundle_openapi_spec_from_text_with_options(spec_url, &spec_text, options)
             .await
@@ -212,7 +214,7 @@ impl MCPStore {
         spec: serde_json::Value,
         options: OpenApiBundleOptions,
     ) -> Result<serde_json::Value> {
-        let client = reqwest::Client::new();
+        let client = openapi_http_client(options.timeout_millis)?;
         bundle_openapi_external_refs(&client, &self.cache, spec_url, spec, &options).await
     }
 
@@ -226,7 +228,7 @@ impl MCPStore {
         spec_url: &str,
         options: OpenApiBundleOptions,
     ) -> Result<OpenApiBundleArtifact> {
-        let client = reqwest::Client::new();
+        let client = openapi_http_client(options.timeout_millis)?;
         let spec_text = fetch_openapi_spec_text(&client, spec_url).await?;
         self.bundle_openapi_artifact_from_text_with_options(spec_url, &spec_text, options)
             .await
@@ -252,7 +254,7 @@ impl MCPStore {
         options: OpenApiBundleOptions,
     ) -> Result<OpenApiBundleArtifact> {
         let spec = parse_openapi_spec_text(spec_text)?;
-        let client = reqwest::Client::new();
+        let client = openapi_http_client(options.timeout_millis)?;
         let root_metadata = document_metadata_from_bytes(spec_text.as_bytes());
         bundle_openapi_external_ref_artifact(
             &client,
@@ -284,7 +286,7 @@ impl MCPStore {
         spec: serde_json::Value,
         options: OpenApiBundleOptions,
     ) -> Result<OpenApiBundleArtifact> {
-        let client = reqwest::Client::new();
+        let client = openapi_http_client(options.timeout_millis)?;
         let root_metadata = document_metadata_from_value(&spec)?;
         bundle_openapi_external_ref_artifact(
             &client,
@@ -512,8 +514,19 @@ impl MCPStore {
                 .get("openapi_timeout_millis")
                 .and_then(serde_json::Value::as_u64)
                 .unwrap_or_else(crate::openapi::OpenApiImportOptions::default_timeout_millis),
+            fetch_timeout_millis: config_value
+                .get("openapi_fetch_timeout_millis")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or_else(crate::openapi::OpenApiImportOptions::default_fetch_timeout_millis),
         })
     }
+}
+
+fn openapi_http_client(timeout_millis: u64) -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .timeout(Duration::from_millis(timeout_millis.max(1)))
+        .build()
+        .map_err(|err| StoreError::Other(format!("OpenAPI HTTP client creation failed: {err}")))
 }
 
 async fn bundle_openapi_external_refs(
@@ -1481,6 +1494,10 @@ fn openapi_config_value(
         object.insert(
             "openapi_timeout_millis".to_string(),
             serde_json::Value::from(options.timeout_millis),
+        );
+        object.insert(
+            "openapi_fetch_timeout_millis".to_string(),
+            serde_json::Value::from(options.fetch_timeout_millis),
         );
     }
     Ok(value)
