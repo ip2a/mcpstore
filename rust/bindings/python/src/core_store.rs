@@ -11,7 +11,7 @@ use mcpstore::{
         ContextToolVisibilityState, HealthStatus, ServiceStatus, SessionContextState,
         SessionEntity, SessionScope, SessionServiceItem, SessionServiceRelation, SessionStateData,
         SessionStatus, SessionStatusState, SessionToolItem, SessionToolVisibility,
-        ToolAvailability, ToolStatusItem, ToolTransformRule,
+        ToolAvailability, ToolPreferenceState, ToolStatusItem, ToolTransformRule,
     },
     ConnectionStatus, ContentItem, Event, ServiceEntry, StoreError, ToolCallResult,
     ToolDescription, ToolInfo,
@@ -579,6 +579,17 @@ fn context_tool_visibility_to_py(
     dict.set_item("updated_at", visibility.updated_at)?;
     dict.set_item("version", visibility.version)?;
     Ok(dict.into_any().unbind())
+}
+
+fn tool_preference_state_to_py(py: Python<'_>, state: &ToolPreferenceState) -> PyResult<Py<PyAny>> {
+    serde_value_to_py(
+        py,
+        serde_json::to_value(state).map_err(|err| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "Tool preferences conversion failed: {err}"
+            ))
+        })?,
+    )
 }
 
 fn tool_transform_rule_to_py(py: Python<'_>, rule: &ToolTransformRule) -> PyResult<Py<PyAny>> {
@@ -1363,6 +1374,99 @@ impl PyMCPStore {
                     .clear_context_tool_visibility(agent_id.as_deref(), service_name),
             )
             .map_err(map_store_err)
+    }
+
+    #[pyo3(signature = (agent_id, service_name, tool_name))]
+    fn get_tool_preferences(
+        &self,
+        py: Python<'_>,
+        agent_id: Option<String>,
+        service_name: &str,
+        tool_name: &str,
+    ) -> PyResult<Py<PyAny>> {
+        let state = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .get_tool_preferences(agent_id.as_deref(), service_name, tool_name),
+            )
+            .map_err(map_store_err)?;
+        match state {
+            Some(state) => tool_preference_state_to_py(py, &state),
+            None => Ok(py.None()),
+        }
+    }
+
+    #[pyo3(signature = (agent_id, service_name, tool_name, key, default_value=None))]
+    fn get_tool_preference(
+        &self,
+        py: Python<'_>,
+        agent_id: Option<String>,
+        service_name: &str,
+        tool_name: &str,
+        key: &str,
+        default_value: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        let value = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.get_tool_preference(
+                agent_id.as_deref(),
+                service_name,
+                tool_name,
+                key,
+            ))
+            .map_err(map_store_err)?;
+        match value {
+            Some(value) => serde_value_to_py(py, value),
+            None => match default_value {
+                Some(value) => Ok(value.clone().unbind()),
+                None => Ok(py.None()),
+            },
+        }
+    }
+
+    #[pyo3(signature = (agent_id, service_name, tool_name, key, value))]
+    fn set_tool_preference(
+        &self,
+        py: Python<'_>,
+        agent_id: Option<String>,
+        service_name: &str,
+        tool_name: &str,
+        key: &str,
+        value: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyAny>> {
+        let value = py_to_serde_value(value, "Tool preference value")?;
+        let state = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.set_tool_preference(
+                agent_id.as_deref(),
+                service_name,
+                tool_name,
+                key,
+                value,
+            ))
+            .map_err(map_store_err)?;
+        tool_preference_state_to_py(py, &state)
+    }
+
+    #[pyo3(signature = (agent_id, service_name, tool_name, key))]
+    fn clear_tool_preference(
+        &self,
+        py: Python<'_>,
+        agent_id: Option<String>,
+        service_name: &str,
+        tool_name: &str,
+        key: &str,
+    ) -> PyResult<Py<PyAny>> {
+        let state = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.clear_tool_preference(
+                agent_id.as_deref(),
+                service_name,
+                tool_name,
+                key,
+            ))
+            .map_err(map_store_err)?;
+        match state {
+            Some(state) => tool_preference_state_to_py(py, &state),
+            None => Ok(py.None()),
+        }
     }
 
     fn get_session_state_value(

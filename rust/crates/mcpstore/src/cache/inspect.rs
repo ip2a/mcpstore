@@ -16,6 +16,7 @@ const STATE_TYPES: &[&str] = &[
     "session_state",
     "session_context",
     "context_tool_visibility",
+    "tool_preferences",
     "tool_transforms",
     "openapi_imports",
 ];
