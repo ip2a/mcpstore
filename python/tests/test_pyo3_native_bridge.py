@@ -2943,6 +2943,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 self.updated_services = {}
                 self.removed_services = []
                 self.reset_mcp_scopes = []
+                self.transform_helpers = []
                 self.services = {"svc": {"name": "svc", "transport": "stdio", "agent_id": None}}
 
             def find_session(self, session_id, scope, agent_id):
@@ -3064,6 +3065,94 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 }
                 self.transforms[key] = record
                 return record
+
+            def create_llm_friendly_tool_transform(
+                self,
+                service_name,
+                tool_name,
+                friendly_name=None,
+                description=None,
+                hide_technical_params=True,
+                add_safety_policy=True,
+            ):
+                self.transform_helpers.append("llm_friendly")
+                transform = {
+                    "display_name": friendly_name or f"{tool_name}_simple",
+                    "description": description,
+                    "arguments": [
+                        {
+                            "original_name": "debug",
+                            "new_name": None,
+                            "hidden": True,
+                            "default_value": False,
+                            "description": None,
+                            "validation_schema": None,
+                        }
+                    ] if hide_technical_params else [],
+                    "safety_policy": {
+                        "reject_dangerous_argument_names": True,
+                        "dangerous_argument_name_patterns": ["__", "eval", "exec", "import", "open", "file"],
+                    } if add_safety_policy else None,
+                    "tags": ["llm-friendly", "simplified", *(["safe"] if add_safety_policy else [])],
+                    "enabled": True,
+                }
+                return self.set_tool_transform(service_name, tool_name, transform)
+
+            def create_parameter_renamed_tool_transform(
+                self,
+                service_name,
+                tool_name,
+                parameter_mapping,
+                new_tool_name=None,
+            ):
+                self.transform_helpers.append("parameter_renamed")
+                transform = {
+                    "display_name": new_tool_name or f"{tool_name}_renamed",
+                    "description": None,
+                    "arguments": [
+                        {
+                            "original_name": original,
+                            "new_name": renamed,
+                            "hidden": False,
+                            "default_value": None,
+                            "description": None,
+                            "validation_schema": None,
+                        }
+                        for original, renamed in parameter_mapping.items()
+                    ],
+                    "safety_policy": None,
+                    "tags": ["parameter-renamed"],
+                    "enabled": True,
+                }
+                return self.set_tool_transform(service_name, tool_name, transform)
+
+            def create_validated_tool_transform(
+                self,
+                service_name,
+                tool_name,
+                validation_rules,
+                new_tool_name=None,
+            ):
+                self.transform_helpers.append("validated")
+                transform = {
+                    "display_name": new_tool_name or f"{tool_name}_validated",
+                    "description": None,
+                    "arguments": [
+                        {
+                            "original_name": name,
+                            "new_name": None,
+                            "hidden": False,
+                            "default_value": None,
+                            "description": None,
+                            "validation_schema": dict(schema),
+                        }
+                        for name, schema in validation_rules.items()
+                    ],
+                    "safety_policy": None,
+                    "tags": ["validated", "safe"],
+                    "enabled": True,
+                }
+                return self.set_tool_transform(service_name, tool_name, transform)
 
             def get_tool_transform(self, service_name, tool_name):
                 return self.transforms.get((service_name, tool_name))
@@ -3400,6 +3489,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             new_tool_name="say",
         )
         self.assertEqual(transformed_name, "say")
+        self.assertEqual(fake_backend.transform_helpers, ["parameter_renamed"])
         rule = context.get_tool_transform("svc", "echo")
         self.assertEqual(rule.display_name, "say")
         self.assertEqual(rule.arguments[0].original_name, "text")
@@ -3426,6 +3516,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             ),
             "validated_echo",
         )
+        self.assertEqual(fake_backend.transform_helpers[-1], "validated")
         rule = context.get_tool_transform("svc", "echo")
         self.assertEqual(rule.arguments[0].validation_schema.minLength, 2)
         self.assertEqual(
@@ -3436,6 +3527,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             ),
             "safe_echo",
         )
+        self.assertEqual(fake_backend.transform_helpers[-1], "llm_friendly")
         rule = context.get_tool_transform("svc", "echo")
         self.assertTrue(rule.safety_policy.reject_dangerous_argument_names)
         self.assertIn("import", rule.safety_policy.dangerous_argument_name_patterns)
