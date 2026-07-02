@@ -3602,6 +3602,17 @@ class RustStoreContext:
     def get_data_space_info(self) -> Dict[str, Any]:
         return self._backend.get_data_space_info()
 
+    def setup_config(self) -> Dict[str, Any]:
+        return _record_value(
+            {
+                "info": self.get_info(),
+                "config": self.show_config("all"),
+                "mcp_json": self.show_mcpjson(),
+                "data_space": self.get_data_space_info(),
+                "event_capability": self.event_capability_report(),
+            }
+        )
+
     def switch_cache(self, cache_config: Any) -> "RustStoreContext":
         self._backend.switch_cache(cache_config)
         return self

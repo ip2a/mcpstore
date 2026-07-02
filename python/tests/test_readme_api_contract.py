@@ -25,6 +25,7 @@ class ReadmePythonApiContractTest(unittest.TestCase):
                 "use_tool",
                 "wait_service",
                 "show_config",
+                "setup_config",
                 "check_services",
                 "service_info",
                 "patch_service",
