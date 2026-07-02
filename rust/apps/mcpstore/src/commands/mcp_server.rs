@@ -47,6 +47,11 @@ pub struct McpServerArgs {
     pub agent: Option<String>,
     #[arg(
         long,
+        help = "Optional service name to expose within the selected store or agent scope"
+    )]
+    pub service: Option<String>,
+    #[arg(
+        long,
         value_enum,
         default_value_t = McpServerTransport::Stdio,
         help = "MCP transport: stdio or streamable-http"
@@ -118,6 +123,7 @@ struct ToolBinding {
 struct McpStoreServer {
     store: Arc<MCPStore>,
     agent_id: Option<String>,
+    service_name: Option<String>,
     session_key: Option<String>,
     scope_label: String,
     bindings: Arc<HashMap<String, ToolBinding>>,
@@ -131,17 +137,23 @@ impl McpStoreServer {
     async fn from_store(
         store: Arc<MCPStore>,
         agent_id: Option<String>,
+        service_name: Option<String>,
         session_key: Option<String>,
         expose_session_state_tools: bool,
         expose_tool_transform_tools: bool,
         expose_openapi_tools: bool,
     ) -> Result<Self, BoxErr> {
-        connect_scoped_services(&store, agent_id.as_deref()).await?;
+        connect_scoped_services(&store, agent_id.as_deref(), service_name.as_deref()).await?;
         if let Some(session_key) = session_key.as_deref() {
             store.session_by_key(session_key).status().await?;
         }
-        let bindings =
-            build_tool_bindings(&store, agent_id.as_deref(), session_key.as_deref()).await?;
+        let bindings = build_tool_bindings(
+            &store,
+            agent_id.as_deref(),
+            service_name.as_deref(),
+            session_key.as_deref(),
+        )
+        .await?;
         let session_state_tools = if expose_session_state_tools {
             build_session_state_tools()
         } else {
@@ -182,6 +194,10 @@ impl McpStoreServer {
             Some(agent_id) => format!("agent:{agent_id}"),
             None => "store".to_string(),
         };
+        let scope_label = match service_name.as_deref() {
+            Some(service_name) => format!("{scope_label} service:{service_name}"),
+            None => scope_label,
+        };
         let scope_label = match session_key.as_deref() {
             Some(session_key) => format!("{scope_label} session:{session_key}"),
             None => scope_label,
@@ -190,6 +206,7 @@ impl McpStoreServer {
         Ok(Self {
             store,
             agent_id,
+            service_name,
             session_key,
             scope_label,
             bindings: Arc::new(bindings),
@@ -212,6 +229,7 @@ impl McpStoreServer {
         build_tool_bindings(
             &self.store,
             self.agent_id.as_deref(),
+            self.service_name.as_deref(),
             self.session_key.as_deref(),
         )
         .await
@@ -285,12 +303,15 @@ impl ServerHandler for McpStoreServer {
     ) -> impl std::future::Future<Output = Result<ListResourcesResult, ErrorData>> + '_ {
         let store = Arc::clone(&self.store);
         let agent_id = self.agent_id.clone();
+        let service_name = self.service_name.clone();
         let session_key = self.session_key.clone();
         async move {
             let resources = if let Some(session_key) = session_key.as_deref() {
                 store.list_resources_in_session(session_key).await
             } else {
-                store.list_resources_scoped(agent_id.as_deref(), None).await
+                store
+                    .list_resources_scoped(agent_id.as_deref(), service_name.as_deref())
+                    .await
             }
             .map_err(map_store_error)?;
             let resources = deserialize_items::<Resource>(resources, "resource")?;
@@ -306,13 +327,14 @@ impl ServerHandler for McpStoreServer {
     {
         let store = Arc::clone(&self.store);
         let agent_id = self.agent_id.clone();
+        let service_name = self.service_name.clone();
         let session_key = self.session_key.clone();
         async move {
             let templates = if let Some(session_key) = session_key.as_deref() {
                 store.list_resource_templates_in_session(session_key).await
             } else {
                 store
-                    .list_resource_templates_scoped(agent_id.as_deref(), None)
+                    .list_resource_templates_scoped(agent_id.as_deref(), service_name.as_deref())
                     .await
             }
             .map_err(map_store_error)?;
@@ -328,6 +350,7 @@ impl ServerHandler for McpStoreServer {
     ) -> impl std::future::Future<Output = Result<ReadResourceResult, ErrorData>> + '_ {
         let store = Arc::clone(&self.store);
         let agent_id = self.agent_id.clone();
+        let service_name = self.service_name.clone();
         let session_key = self.session_key.clone();
         async move {
             let result = if let Some(session_key) = session_key.as_deref() {
@@ -336,7 +359,11 @@ impl ServerHandler for McpStoreServer {
                     .await
             } else {
                 store
-                    .read_resource_scoped(agent_id.as_deref(), &request.uri, None)
+                    .read_resource_scoped(
+                        agent_id.as_deref(),
+                        &request.uri,
+                        service_name.as_deref(),
+                    )
                     .await
             }
             .map_err(map_store_error)?;
@@ -351,12 +378,15 @@ impl ServerHandler for McpStoreServer {
     ) -> impl std::future::Future<Output = Result<ListPromptsResult, ErrorData>> + '_ {
         let store = Arc::clone(&self.store);
         let agent_id = self.agent_id.clone();
+        let service_name = self.service_name.clone();
         let session_key = self.session_key.clone();
         async move {
             let prompts = if let Some(session_key) = session_key.as_deref() {
                 store.list_prompts_in_session(session_key).await
             } else {
-                store.list_prompts_scoped(agent_id.as_deref(), None).await
+                store
+                    .list_prompts_scoped(agent_id.as_deref(), service_name.as_deref())
+                    .await
             }
             .map_err(map_store_error)?;
             let prompts = deserialize_items::<Prompt>(prompts, "prompt")?;
@@ -371,6 +401,7 @@ impl ServerHandler for McpStoreServer {
     ) -> impl std::future::Future<Output = Result<GetPromptResult, ErrorData>> + '_ {
         let store = Arc::clone(&self.store);
         let agent_id = self.agent_id.clone();
+        let service_name = self.service_name.clone();
         let session_key = self.session_key.clone();
         async move {
             let arguments = Value::Object(request.arguments.unwrap_or_default());
@@ -380,7 +411,12 @@ impl ServerHandler for McpStoreServer {
                     .await
             } else {
                 store
-                    .get_prompt_scoped(agent_id.as_deref(), &request.name, arguments, None)
+                    .get_prompt_scoped(
+                        agent_id.as_deref(),
+                        &request.name,
+                        arguments,
+                        service_name.as_deref(),
+                    )
                     .await
             }
             .map_err(map_store_error)?;
@@ -400,6 +436,7 @@ impl ServerHandler for McpStoreServer {
         let is_openapi_tool = self.openapi_tools.contains_key(tool_name.as_str());
         let store = Arc::clone(&self.store);
         let agent_id = self.agent_id.clone();
+        let service_name = self.service_name.clone();
         let default_session_key = self.session_key.clone();
         let meta = request.meta.clone();
         let arguments = request.arguments.unwrap_or_default();
@@ -423,15 +460,16 @@ impl ServerHandler for McpStoreServer {
 
             let binding = match binding {
                 Some(binding) => binding,
-                None => {
-                    build_tool_bindings(&store, agent_id.as_deref(), default_session_key.as_deref())
-                        .await
-                        .map_err(|error| ErrorData::internal_error(error.to_string(), None))?
-                        .remove(tool_name.as_str())
-                        .ok_or_else(|| {
-                            ErrorData::invalid_params(format!("未知工具: {tool_name}"), None)
-                        })?
-                }
+                None => build_tool_bindings(
+                    &store,
+                    agent_id.as_deref(),
+                    service_name.as_deref(),
+                    default_session_key.as_deref(),
+                )
+                .await
+                .map_err(|error| ErrorData::internal_error(error.to_string(), None))?
+                .remove(tool_name.as_str())
+                .ok_or_else(|| ErrorData::invalid_params(format!("未知工具: {tool_name}"), None))?,
             };
 
             let (args, session_key) = extract_business_session_key(
@@ -509,6 +547,7 @@ pub async fn run(args: McpServerArgs) -> Result<(), BoxErr> {
     let server = McpStoreServer::from_store(
         Arc::clone(&store),
         agent_id,
+        args.service.clone(),
         args.session_key.clone(),
         args.expose_session_state_tools,
         args.expose_tool_transform_tools,
@@ -525,8 +564,20 @@ pub async fn run(args: McpServerArgs) -> Result<(), BoxErr> {
     }
 }
 
-async fn connect_scoped_services(store: &MCPStore, agent_id: Option<&str>) -> Result<(), BoxErr> {
-    let mut service_names = if let Some(agent_id) = agent_id {
+async fn connect_scoped_services(
+    store: &MCPStore,
+    agent_id: Option<&str>,
+    service_name: Option<&str>,
+) -> Result<(), BoxErr> {
+    let mut service_names = if let Some(service_name) = service_name {
+        let service = store.service_info_scoped(agent_id, service_name).await?;
+        let global_service_name = service
+            .get("global_name")
+            .or_else(|| service.get("name"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("Service metadata missing name: {service_name}"))?;
+        vec![global_service_name.to_string()]
+    } else if let Some(agent_id) = agent_id {
         store.list_agent_service_names(agent_id).await?
     } else {
         store
@@ -548,6 +599,7 @@ async fn connect_scoped_services(store: &MCPStore, agent_id: Option<&str>) -> Re
 async fn build_tool_bindings(
     store: &MCPStore,
     agent_id: Option<&str>,
+    service_name: Option<&str>,
     session_key: Option<&str>,
 ) -> Result<HashMap<String, ToolBinding>, BoxErr> {
     let scope_id = agent_id.unwrap_or(GLOBAL_AGENT_STORE);
@@ -556,7 +608,7 @@ async fn build_tool_bindings(
             .and_then(serde_json::from_value::<Vec<Value>>)
             .map_err(|error| format!("session tool metadata serialization failed: {error}"))?
     } else {
-        store.list_tools_scoped(agent_id, None).await?
+        store.list_tools_scoped(agent_id, service_name).await?
     };
     let mut bindings = HashMap::with_capacity(tool_payloads.len());
 
@@ -1585,6 +1637,7 @@ mod tests {
         let server = McpStoreServer::from_store(
             Arc::clone(&store),
             None,
+            None,
             Some(session.session_key.clone()),
             false,
             false,
@@ -1609,6 +1662,7 @@ mod tests {
         let error = match McpStoreServer::from_store(
             Arc::clone(&store),
             None,
+            None,
             Some(session.session_key.clone()),
             false,
             false,
@@ -1620,6 +1674,45 @@ mod tests {
             Err(error) => error,
         };
         assert!(error.to_string().contains("Session is not active"));
+    }
+
+    #[tokio::test]
+    async fn mcp_server_can_expose_single_service_scope() {
+        let store = Arc::new(
+            MCPStore::setup_with_options(StoreOptions {
+                config_path: None,
+                source_mode: SourceMode::Db,
+                backend: Some(CacheStorage::Memory),
+                redis_url: None,
+                namespace: Some(unique_namespace()),
+            })
+            .unwrap(),
+        );
+        seed_db_service(&store, "alpha", "echo").await;
+        seed_db_service(&store, "beta", "search").await;
+        seed_global_agent_relation(&store, &["alpha", "beta"]).await;
+
+        let server = McpStoreServer::from_store(
+            Arc::clone(&store),
+            None,
+            Some("alpha".to_string()),
+            None,
+            false,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+        let tool_names = server
+            .tools
+            .iter()
+            .map(|tool| tool.name.as_ref().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(tool_names, vec!["echo"]);
+        assert!(server.bindings.contains_key("echo"));
+        assert!(!server.bindings.contains_key("beta_search"));
+        assert!(server.instructions().contains("service:alpha"));
     }
 
     #[tokio::test]
@@ -1644,6 +1737,7 @@ mod tests {
         let default_server = McpStoreServer::from_store(
             Arc::clone(&store),
             None,
+            None,
             Some(session.session_key.clone()),
             false,
             false,
@@ -1658,6 +1752,7 @@ mod tests {
 
         let server = McpStoreServer::from_store(
             Arc::clone(&store),
+            None,
             None,
             Some(session.session_key.clone()),
             true,
@@ -1770,7 +1865,7 @@ mod tests {
         seed_global_agent_relation(&store, &["alpha"]).await;
 
         let default_server =
-            McpStoreServer::from_store(Arc::clone(&store), None, None, false, false, false)
+            McpStoreServer::from_store(Arc::clone(&store), None, None, None, false, false, false)
                 .await
                 .unwrap();
         assert!(!default_server
@@ -1778,9 +1873,10 @@ mod tests {
             .iter()
             .any(|tool| tool.name.as_ref() == TOOL_TRANSFORM_SET_TOOL));
 
-        let server = McpStoreServer::from_store(Arc::clone(&store), None, None, false, true, false)
-            .await
-            .unwrap();
+        let server =
+            McpStoreServer::from_store(Arc::clone(&store), None, None, None, false, true, false)
+                .await
+                .unwrap();
         let tool_names = server
             .tools
             .iter()
@@ -1824,7 +1920,7 @@ mod tests {
         );
 
         let transformed_server =
-            McpStoreServer::from_store(Arc::clone(&store), None, None, false, true, false)
+            McpStoreServer::from_store(Arc::clone(&store), None, None, None, false, true, false)
                 .await
                 .unwrap();
         let transformed_tool = transformed_server.bindings.get("say").unwrap();
@@ -1867,7 +1963,7 @@ mod tests {
         );
 
         let restored_server =
-            McpStoreServer::from_store(Arc::clone(&store), None, None, false, true, false)
+            McpStoreServer::from_store(Arc::clone(&store), None, None, None, false, true, false)
                 .await
                 .unwrap();
         assert!(restored_server.bindings.contains_key("alpha_echo"));
@@ -1889,7 +1985,7 @@ mod tests {
         seed_global_agent_relation(&store, &["alpha"]).await;
 
         let default_server =
-            McpStoreServer::from_store(Arc::clone(&store), None, None, false, false, false)
+            McpStoreServer::from_store(Arc::clone(&store), None, None, None, false, false, false)
                 .await
                 .unwrap();
         assert!(!default_server
@@ -1897,9 +1993,10 @@ mod tests {
             .iter()
             .any(|tool| tool.name.as_ref() == OPENAPI_IMPORT_SET_TOOL));
 
-        let server = McpStoreServer::from_store(Arc::clone(&store), None, None, false, false, true)
-            .await
-            .unwrap();
+        let server =
+            McpStoreServer::from_store(Arc::clone(&store), None, None, None, false, false, true)
+                .await
+                .unwrap();
         let tool_names = server
             .tools
             .iter()
