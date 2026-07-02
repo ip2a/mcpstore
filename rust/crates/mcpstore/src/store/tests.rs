@@ -3,6 +3,7 @@ use base64::Engine;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -324,6 +325,27 @@ async fn spawn_openapi_http_fixture() -> String {
                 let _ = socket.write_all(&body).await;
             });
         }
+    });
+    format!("http://{addr}")
+}
+
+async fn spawn_openapi_slow_http_fixture() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let Ok((mut socket, _)) = listener.accept().await else {
+            return;
+        };
+        let mut buffer = vec![0; 1024];
+        let _ = socket.read(&mut buffer).await;
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let body = br#"{"ok":true}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        let _ = socket.write_all(response.as_bytes()).await;
+        let _ = socket.write_all(body).await;
     });
     format!("http://{addr}")
 }
@@ -2559,6 +2581,56 @@ async fn openapi_tool_http_error_returns_tool_error_without_marking_service_fail
 
     let service = store.find_service("inventory").await.unwrap();
     assert_ne!(service.status, ConnectionStatus::Error);
+}
+
+#[tokio::test]
+async fn openapi_runtime_honors_import_timeout() {
+    let base_url = spawn_openapi_slow_http_fixture().await;
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: None,
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-timeout-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let spec = serde_json::json!({
+        "openapi": "3.0.0",
+        "info": { "title": "Slow", "version": "1.0" },
+        "servers": [{ "url": base_url }],
+        "paths": {
+            "/slow": {
+                "post": { "operationId": "createSlowItem", "requestBody": { "required": true } }
+            }
+        }
+    });
+
+    store
+        .import_openapi_service_from_spec_with_options(
+            "slow",
+            "memory://slow",
+            spec,
+            crate::openapi::OpenApiImportOptions {
+                timeout_millis: 50,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let started_at = Instant::now();
+    let err = store
+        .call_tool(
+            "slow",
+            "createSlowItem",
+            serde_json::json!({"body": {"sku": "sku-1"}}),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+
+    assert!(err.contains("OpenAPI request failed"), "{err}");
+    assert!(started_at.elapsed() < Duration::from_millis(200), "{err}");
 }
 
 #[tokio::test]

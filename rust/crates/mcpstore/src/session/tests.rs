@@ -295,7 +295,11 @@ async fn redis_backend_shares_session_bindings_and_tool_visibility_when_availabl
         .unbind_service_from_session(created.session_key(), "alpha")
         .await
         .unwrap();
-    assert!(first.list_session_services(created.session_key()).await.unwrap().is_empty());
+    assert!(first
+        .list_session_services(created.session_key())
+        .await
+        .unwrap()
+        .is_empty());
 
     std::fs::remove_file(first_path).ok();
     std::fs::remove_file(second_path).ok();
