@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import tomllib
+import types
 from pathlib import Path
 from unittest.mock import patch
 
@@ -735,6 +736,19 @@ paths:
         self.assertIn("echo", repr(tool))
         self.assertEqual(tool.tool_info().inputSchema, schema)
         self.assertEqual(asyncio.run(tool.tool_info_async()).inputSchema, schema)
+
+        class FakeMcpTool:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+
+        fake_mcp = types.SimpleNamespace(types=types.SimpleNamespace(Tool=FakeMcpTool))
+        with patch.dict(sys.modules, {"mcp": fake_mcp, "mcp.types": fake_mcp.types}):
+            mcp_tool = tool.mcp_type2tool()
+        self.assertEqual(mcp_tool.name, "echo")
+        self.assertEqual(mcp_tool.title, "echo")
+        self.assertEqual(mcp_tool.description, "Echo input")
+        self.assertEqual(mcp_tool.inputSchema, schema)
+        self.assertEqual(mcp_tool._meta["service_name"], "demo")
         self.assertEqual(tool.find_cache().scope, "tool")
         self.assertTrue(tool.usage_stats().history_available)
         self.assertEqual(tool.usage_stats().call_count, 1)
@@ -1691,9 +1705,18 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertFalse(first.for_store().find_session("shared").is_active)
 
     def test_python_facade_keeps_agent_tool_set_management_shape(self):
+        import asyncio
+
         from mcpstore.core.store.rust_backend import RustStoreBackend, RustStoreContext
 
         class FakeBackend:
+            def __init__(self):
+                self.agent_services = []
+
+            def add_service_for_agent(self, agent_id, local_name, config):
+                self.agent_services.append((agent_id, local_name, config))
+                return f"{local_name}_byagent_{agent_id}"
+
             def list_services_scoped(self, agent_id=None):
                 return [{"name": "svc", "transport": "stdio"}]
 
@@ -1712,6 +1735,15 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
 
         backend = RustStoreBackend(FakeBackend())
         agent = RustStoreContext(backend, agent_id="agent-a")
+
+        self.assertEqual(
+            agent.batch_add_services([{"name": "extra", "transport": "stdio"}]),
+            {"success": True, "count": 1},
+        )
+        self.assertEqual(
+            asyncio.run(agent.batch_add_services_async([{"name": "more", "transport": "stdio"}])),
+            {"success": True, "count": 1},
+        )
 
         self.assertEqual([tool.name for tool in agent.list_tools(filter="all")], ["alpha", "beta"])
         self.assertEqual([tool.name for tool in agent.list_tools(filter="available")], ["alpha", "beta"])
