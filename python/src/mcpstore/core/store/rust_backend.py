@@ -1016,6 +1016,12 @@ class RustStoreBackend:
         self._inner.reset_agent_config(agent_id)
         return True
 
+    def reset_mcp_json_scope(self, scope: Optional[str] = None) -> bool:
+        if not hasattr(self._inner, "reset_mcp_json_scope"):
+            raise NotImplementedError("Rust core does not expose scoped MCP JSON reset")
+        self._inner.reset_mcp_json_scope(scope)
+        return True
+
     def load_from_config(self) -> bool:
         self._inner.load_from_config()
         return True
@@ -3174,6 +3180,9 @@ class RustStoreContext:
         if self._agent_id:
             return self._backend.reset_agent_config(self._agent_id)
         return self._backend.reset_config()
+
+    def reset_mcp_json_scope(self, scope: Optional[str] = None) -> bool:
+        return self._backend.reset_mcp_json_scope(scope)
 
     def get_id(self) -> str:
         return self._agent_id or "global_agent_store"

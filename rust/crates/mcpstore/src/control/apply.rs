@@ -81,6 +81,10 @@ impl MCPStore {
                 let agent_id = request::required_string(payload, "agent_id")?;
                 self.reset_agent_config(&agent_id).await?;
             }
+            "McpJsonResetRequested" => {
+                let scope = request::optional_string(payload, "scope");
+                self.reset_mcp_json_scope(scope.as_deref()).await?;
+            }
             other => {
                 return Err(StoreError::Other(format!(
                     "Unsupported control request type: {other}"

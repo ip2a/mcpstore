@@ -1695,6 +1695,13 @@ impl PyMCPStore {
             .map_err(map_store_err)
     }
 
+    #[pyo3(signature = (scope=None))]
+    fn reset_mcp_json_scope(&self, scope: Option<String>) -> PyResult<()> {
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.reset_mcp_json_scope(scope.as_deref()))
+            .map_err(map_store_err)
+    }
+
     #[pyo3(signature = (name, timeout_secs=10))]
     fn wait_service_ready(
         &self,
