@@ -1258,18 +1258,6 @@ class RustStoreBackend:
     def _session_agent_id(context: "RustStoreContext") -> Optional[str]:
         return context.agent_id
 
-    def _require_session_context_api(self) -> None:
-        required = (
-            "get_session_context_state",
-            "set_active_session_for_context",
-            "get_active_session_for_context",
-            "enable_auto_session_for_context",
-            "disable_auto_session_for_context",
-            "is_auto_session_enabled_for_context",
-        )
-        if not all(hasattr(self._inner, name) for name in required):
-            raise NotImplementedError("Rust core does not expose shared session context state")
-
     def _wrap_session(
         self,
         context: "RustStoreContext",
@@ -1530,7 +1518,6 @@ class RustStoreBackend:
         context: "RustStoreContext",
         session: Optional["RustSession"],
     ) -> None:
-        self._require_session_context_api()
         self._inner.set_active_session_for_context(
             session.session_key if session is not None else None,
             self._session_scope(context),
@@ -1538,7 +1525,6 @@ class RustStoreBackend:
         )
 
     def active_session(self, context: "RustStoreContext") -> Optional["RustSession"]:
-        self._require_session_context_api()
         entity = self._inner.get_active_session_for_context(
             self._session_scope(context),
             self._session_agent_id(context),
@@ -1548,7 +1534,6 @@ class RustStoreBackend:
         return self._wrap_session(context, _record_value(entity))
 
     def enable_auto_session(self, context: "RustStoreContext", session: "RustSession") -> None:
-        self._require_session_context_api()
         self._inner.enable_auto_session_for_context(
             session.session_key,
             self._session_scope(context),
@@ -1556,14 +1541,12 @@ class RustStoreBackend:
         )
 
     def disable_auto_session(self, context: "RustStoreContext") -> None:
-        self._require_session_context_api()
         self._inner.disable_auto_session_for_context(
             self._session_scope(context),
             self._session_agent_id(context),
         )
 
     def is_auto_session_enabled(self, context: "RustStoreContext") -> bool:
-        self._require_session_context_api()
         return bool(
             self._inner.is_auto_session_enabled_for_context(
                 self._session_scope(context),
