@@ -590,3 +590,133 @@ async fn api_processes_share_session_state_through_redis_backend(
     let _ = api_b.take().unwrap().stop().await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn api_cache_switch_migrates_session_state_to_shared_redis_backend(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let Ok(redis_url) = std::env::var("MCPSTORE_TEST_REDIS_URL") else {
+        eprintln!("skipping redis integration test: MCPSTORE_TEST_REDIS_URL is not set");
+        return Ok(());
+    };
+
+    let namespace = unique_namespace();
+    let port_a = reserve_local_port();
+    let port_b = reserve_local_port();
+
+    let mut api_a = Some(
+        spawn_api_process(&[
+            "api",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            &port_a.to_string(),
+            "--source",
+            "db",
+            "--backend",
+            "memory",
+        ])
+        .await?,
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()?;
+    let base_a = format!("http://127.0.0.1:{port_a}");
+
+    if let Err(error) = wait_until_ready(&client, &base_a).await {
+        let (stdout, stderr) = api_a.take().unwrap().stop().await?;
+        return Err(format!(
+            "Rust API A 服务启动失败: {error}\nstdout=\n{stdout}\nstderr=\n{stderr}"
+        )
+        .into());
+    }
+
+    let health_a = client.get(format!("{base_a}/health")).send().await?;
+    assert!(health_a.status().is_success());
+    let health_a_payload = health_a.json::<Value>().await?;
+    assert_eq!(health_a_payload["backend"], "memory");
+
+    let create = client
+        .post(format!("{base_a}/sessions/create"))
+        .json(&json!({
+            "session_id": "migrated-api-session",
+            "lease_seconds": 90,
+            "metadata": {"owner": "api-cache-switch-flow"},
+        }))
+        .send()
+        .await?;
+    assert!(create.status().is_success());
+    let create_payload = create.json::<Value>().await?;
+    let session_key = create_payload["data"]["session"]["session_key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let set_state = client
+        .post(format!("{base_a}/sessions/state/set"))
+        .json(&json!({
+            "session_key": session_key,
+            "key": "cursor",
+            "value": {"page": 11},
+        }))
+        .send()
+        .await?;
+    assert!(set_state.status().is_success());
+
+    let switch = client
+        .post(format!("{base_a}/cache/switch"))
+        .json(&json!({
+            "backend": "redis",
+            "redis_url": redis_url,
+            "namespace": namespace,
+        }))
+        .send()
+        .await?;
+    assert!(switch.status().is_success());
+    let switch_payload = switch.json::<Value>().await?;
+    assert!(switch_payload["success"].as_bool().unwrap_or(false));
+
+    let health_after_switch = client.get(format!("{base_a}/health")).send().await?;
+    assert!(health_after_switch.status().is_success());
+    let health_after_switch_payload = health_after_switch.json::<Value>().await?;
+    assert_eq!(health_after_switch_payload["backend"], "redis");
+
+    let mut api_b = Some(
+        spawn_api_process(&[
+            "api",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            &port_b.to_string(),
+            "--source",
+            "db",
+            "--redis-url",
+            &redis_url,
+            "--namespace",
+            &namespace,
+        ])
+        .await?,
+    );
+    let base_b = format!("http://127.0.0.1:{port_b}");
+    if let Err(error) = wait_until_ready(&client, &base_b).await {
+        let _ = api_a.take().unwrap().stop().await?;
+        let (stdout, stderr) = api_b.take().unwrap().stop().await?;
+        return Err(format!(
+            "Rust API B 服务启动失败: {error}\nstdout=\n{stdout}\nstderr=\n{stderr}"
+        )
+        .into());
+    }
+
+    let read_from_b = client
+        .get(format!("{base_b}/sessions/state/value"))
+        .query(&[("session_key", session_key.as_str()), ("key", "cursor")])
+        .send()
+        .await?;
+    assert!(read_from_b.status().is_success());
+    let read_from_b_payload = read_from_b.json::<Value>().await?;
+    assert_eq!(read_from_b_payload["data"]["value"]["page"], 11);
+
+    let _ = api_a.take().unwrap().stop().await?;
+    let _ = api_b.take().unwrap().stop().await?;
+    Ok(())
+}
