@@ -7,7 +7,7 @@ exposed by ``mcpstore._rust``.
 
 import asyncio
 import os
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 
 
 class StoreSetupManager:
@@ -17,7 +17,7 @@ class StoreSetupManager:
     def setup_store(
         mcpjson_path: str | None = None,
         debug: bool | str = False,
-        cache: Optional[Union["MemoryConfig", "RedisConfig"]] = None,
+        cache: Any = None,
         static_config: Optional[Dict[str, Any]] = None,
         cache_mode: str = "auto",
         only_db: bool = False,
@@ -47,7 +47,7 @@ class StoreSetupManager:
     async def setup_store_async(
         mcpjson_path: str | None = None,
         debug: bool | str = False,
-        cache: Optional[Union["MemoryConfig", "RedisConfig"]] = None,
+        cache: Any = None,
         static_config: Optional[Dict[str, Any]] = None,
         cache_mode: str = "auto",
         only_db: bool = False,
@@ -68,7 +68,7 @@ class StoreSetupManager:
     async def _setup_store_internal(
         mcpjson_path: str | None,
         debug: bool | str,
-        cache: Optional[Union["MemoryConfig", "RedisConfig"]],
+        cache: Any,
         static_config: Optional[Dict[str, Any]],
         cache_mode: str,
         only_db: bool,
@@ -77,6 +77,12 @@ class StoreSetupManager:
         from mcpstore.config.config import LoggingConfig
 
         LoggingConfig.setup_logging(debug=debug)
+
+        mcpjson_path, cache = StoreSetupManager._apply_setup_aliases(
+            mcpjson_path=mcpjson_path,
+            cache=cache,
+            extra_options=extra_options,
+        )
 
         if extra_options:
             unsupported = ", ".join(sorted(extra_options))
@@ -99,11 +105,35 @@ class StoreSetupManager:
         return store
 
     @staticmethod
+    def _apply_setup_aliases(
+        mcpjson_path: Any,
+        cache: Any,
+        extra_options: Dict[str, Any],
+    ):
+        path_aliases = [name for name in ("config_path", "mcp_config_file") if name in extra_options]
+        if path_aliases:
+            if mcpjson_path is not None:
+                raise ValueError("setup_store 参数冲突: mcpjson_path 不能和 config_path/mcp_config_file 同时使用")
+            if len(path_aliases) > 1:
+                raise ValueError("setup_store 参数冲突: config_path 和 mcp_config_file 只能使用一个")
+            mcpjson_path = extra_options.pop(path_aliases[0])
+
+        if "cache_config" in extra_options:
+            if cache is not None:
+                raise ValueError("setup_store 参数冲突: cache 不能和 cache_config 同时使用")
+            cache = extra_options.pop("cache_config")
+
+        return mcpjson_path, cache
+
+    @staticmethod
     def _normalize_cache_options(
-        cache: Optional[Union["MemoryConfig", "RedisConfig"]],
+        cache: Any,
         cache_mode: str,
         only_db: bool,
     ):
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        cache = RustStoreBackend._normalize_cache_config(cache)
         mode = (cache_mode or "auto").lower()
         if mode not in {"auto", "local", "shared"}:
             raise ValueError(f"Rust core 当前不支持 cache_mode={cache_mode!r}")
@@ -129,7 +159,7 @@ class StoreSetupManager:
     def _setup_rust_store(
         mcpjson_path: str | None,
         debug: bool | str,
-        cache: Optional[Union["MemoryConfig", "RedisConfig"]],
+        cache: Any,
         only_db: bool,
     ):
         from mcpstore.core.store.rust_backend import MCPStore
