@@ -8,7 +8,13 @@ def __getattr__(name: str):
         from .api_dependencies import get_store
 
         return get_store
-    if name in {"api_agent_router", "api_main_router", "api_set_store", "api_store_router"}:
+    if name in {
+        "api_agent_router",
+        "api_main_router",
+        "api_session_router",
+        "api_set_store",
+        "api_store_router",
+    }:
         from . import api_pack
 
         return getattr(api_pack, name)
@@ -18,6 +24,7 @@ def __getattr__(name: str):
 __all__ = [
     "api_agent_router",
     "api_main_router",
+    "api_session_router",
     "api_set_store",
     "api_store_router",
     "get_store",

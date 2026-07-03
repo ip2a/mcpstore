@@ -1003,6 +1003,22 @@ fn openapi_schema(
                 "additionalProperties": false
             }),
         );
+        properties.insert(
+            "fetch_timeout_millis".to_string(),
+            serde_json::json!({
+                "type": "integer",
+                "minimum": 1,
+                "description": "Optional timeout in milliseconds for fetching OpenAPI specs and external references."
+            }),
+        );
+        properties.insert(
+            "timeout_millis".to_string(),
+            serde_json::json!({
+                "type": "integer",
+                "minimum": 1,
+                "description": "Optional timeout in milliseconds for OpenAPI import runtime operations. Bundle tools use this as a fallback when fetch_timeout_millis is omitted."
+            }),
+        );
     }
 
     let mut schema = Map::new();
@@ -1330,6 +1346,10 @@ fn openapi_import_options_from_arguments(
         headers,
         auth,
         ref_cache: openapi_ref_cache_policy_from_arguments(arguments)?,
+        timeout_millis: optional_positive_u64_argument(arguments, "timeout_millis")?
+            .unwrap_or_else(OpenApiImportOptions::default_timeout_millis),
+        fetch_timeout_millis: optional_positive_u64_argument(arguments, "fetch_timeout_millis")?
+            .unwrap_or_else(OpenApiImportOptions::default_fetch_timeout_millis),
     })
 }
 
@@ -1338,7 +1358,30 @@ fn openapi_bundle_options_from_arguments(
 ) -> Result<OpenApiBundleOptions, ErrorData> {
     Ok(OpenApiBundleOptions {
         ref_cache: openapi_ref_cache_policy_from_arguments(arguments)?,
+        timeout_millis: optional_positive_u64_argument(arguments, "fetch_timeout_millis")?
+            .or(optional_positive_u64_argument(arguments, "timeout_millis")?)
+            .unwrap_or_else(OpenApiBundleOptions::default_timeout_millis),
     })
+}
+
+fn optional_positive_u64_argument(
+    arguments: &Map<String, Value>,
+    field: &str,
+) -> Result<Option<u64>, ErrorData> {
+    let Some(value) = arguments.get(field) else {
+        return Ok(None);
+    };
+    let parsed = match value {
+        Value::Null => return Ok(None),
+        Value::Number(number) => number.as_u64(),
+        Value::String(text) => text.parse::<u64>().ok(),
+        _ => None,
+    }
+    .filter(|value| *value > 0)
+    .ok_or_else(|| {
+        ErrorData::invalid_params(format!("OpenAPI {field} must be a positive integer"), None)
+    })?;
+    Ok(Some(parsed))
 }
 
 fn openapi_ref_cache_policy_from_arguments(
@@ -2016,6 +2059,14 @@ mod tests {
             .as_object()
             .unwrap()
             .contains_key("ref_cache"));
+        assert!(bundle_tool.input_schema["properties"]
+            .as_object()
+            .unwrap()
+            .contains_key("fetch_timeout_millis"));
+        assert!(bundle_tool.input_schema["properties"]
+            .as_object()
+            .unwrap()
+            .contains_key("timeout_millis"));
 
         let fixture_dir = std::env::temp_dir().join(format!("mcpstore-mcp-{}", unique_namespace()));
         std::fs::create_dir_all(&fixture_dir).unwrap();
@@ -2147,6 +2198,8 @@ mod tests {
             "name": "inventory",
             "spec_url": "memory://inventory",
             "spec": spec,
+            "timeout_millis": 4300,
+            "fetch_timeout_millis": "4400",
             "auth": {"ApiKeyAuth": "secret"}
         })
         .as_object()
@@ -2168,6 +2221,24 @@ mod tests {
                 ["ApiKeyAuth"]["name"],
             "x-api-key"
         );
+        let service = store.service_info_scoped(None, "inventory").await.unwrap();
+        assert_eq!(service["config"]["openapi_timeout_millis"], 4300);
+        assert_eq!(service["config"]["openapi_fetch_timeout_millis"], 4400);
+
+        let invalid_timeout_args = serde_json::json!({
+            "spec_url": "memory://invalid-timeout",
+            "spec": {"openapi": "3.0.0", "info": {"title": "Invalid", "version": "1.0.0"}, "paths": {}},
+            "fetch_timeout_millis": 0
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+        let invalid_timeout = call_openapi_tool(&store, OPENAPI_BUNDLE_TOOL, invalid_timeout_args)
+            .await
+            .unwrap_err();
+        assert!(invalid_timeout
+            .message
+            .contains("fetch_timeout_millis must be a positive integer"));
 
         let list_result = call_openapi_tool(&store, OPENAPI_IMPORT_LIST_TOOL, Map::new())
             .await

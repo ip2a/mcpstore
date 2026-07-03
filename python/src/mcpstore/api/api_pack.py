@@ -16,6 +16,7 @@ except ImportError as exc:  # pragma: no cover - only hit without FastAPI instal
 
 api_store_router = APIRouter(prefix="/for_store", tags=["MCPStore-Store"])
 api_agent_router = APIRouter(prefix="/for_agent", tags=["MCPStore-Agent"])
+api_session_router = APIRouter(prefix="/sessions", tags=["MCPStore-Sessions"])
 api_cache_router = APIRouter(prefix="/cache", tags=["MCPStore-Cache"])
 api_main_router = APIRouter()
 
@@ -704,6 +705,20 @@ async def agent_wait_service_by_name(
     return ResponseBuilder.success(message="Agent service ready status returned", data=result)
 
 
+@api_session_router.get("/snapshot")
+@timed_response
+async def sessions_export_snapshot():
+    snapshot = await _execute(get_store(), get_store().export_sessions_snapshot())
+    return ResponseBuilder.success(message="Session snapshot returned", data={"snapshot": snapshot})
+
+
+@api_session_router.post("/snapshot/import")
+@timed_response
+async def sessions_import_snapshot(snapshot: Dict[str, Any] = Body(...)):
+    report = await _execute(get_store(), get_store().import_sessions_snapshot(snapshot))
+    return ResponseBuilder.success(message="Session snapshot imported", data={"report": report})
+
+
 @api_cache_router.get("/inspect")
 @timed_response
 async def cache_inspect():
@@ -713,4 +728,5 @@ async def cache_inspect():
 
 api_main_router.include_router(api_store_router)
 api_main_router.include_router(api_agent_router)
+api_main_router.include_router(api_session_router)
 api_main_router.include_router(api_cache_router)
