@@ -102,6 +102,8 @@ const SESSION_STATE_GET_TOOL: &str = "mcpstore_session_state_get";
 const SESSION_STATE_SET_TOOL: &str = "mcpstore_session_state_set";
 const SESSION_STATE_DELETE_TOOL: &str = "mcpstore_session_state_delete";
 const SESSION_STATE_CLEAR_TOOL: &str = "mcpstore_session_state_clear";
+const SESSION_SNAPSHOT_EXPORT_TOOL: &str = "mcpstore_session_snapshot_export";
+const SESSION_SNAPSHOT_IMPORT_TOOL: &str = "mcpstore_session_snapshot_import";
 const TOOL_TRANSFORM_LIST_TOOL: &str = "mcpstore_tool_transform_list";
 const TOOL_TRANSFORM_GET_TOOL: &str = "mcpstore_tool_transform_get";
 const TOOL_TRANSFORM_SET_TOOL: &str = "mcpstore_tool_transform_set";
@@ -678,6 +680,18 @@ fn build_session_state_tools() -> HashMap<String, Tool> {
             session_state_schema(&[]),
             false,
         ),
+        session_state_tool(
+            SESSION_SNAPSHOT_EXPORT_TOOL,
+            "Export all MCPStore business sessions and session state as a portable snapshot.",
+            session_snapshot_schema(&[]),
+            true,
+        ),
+        session_state_tool(
+            SESSION_SNAPSHOT_IMPORT_TOOL,
+            "Import a MCPStore business session snapshot without overwriting changed local state.",
+            session_snapshot_schema(&["snapshot"]),
+            false,
+        ),
     ]
     .into_iter()
     .map(|tool| (tool.name.as_ref().to_string(), tool))
@@ -695,10 +709,42 @@ fn session_state_tool(
         .destructive(!read_only)
         .idempotent(matches!(
             name,
-            SESSION_STATE_LIST_TOOL | SESSION_STATE_GET_TOOL | SESSION_STATE_CLEAR_TOOL
+            SESSION_STATE_LIST_TOOL
+                | SESSION_STATE_GET_TOOL
+                | SESSION_STATE_CLEAR_TOOL
+                | SESSION_SNAPSHOT_EXPORT_TOOL
+                | SESSION_SNAPSHOT_IMPORT_TOOL
         ))
         .open_world(false);
     Tool::new(name, description, Arc::new(schema)).with_annotations(annotations)
+}
+
+fn session_snapshot_schema(required: &[&str]) -> Map<String, Value> {
+    let mut properties = Map::new();
+    properties.insert(
+        "snapshot".to_string(),
+        serde_json::json!({
+            "type": "object",
+            "description": "Snapshot returned by mcpstore_session_snapshot_export."
+        }),
+    );
+
+    let mut schema = Map::new();
+    schema.insert("type".to_string(), Value::String("object".to_string()));
+    schema.insert("properties".to_string(), Value::Object(properties));
+    schema.insert("additionalProperties".to_string(), Value::Bool(false));
+    if !required.is_empty() {
+        schema.insert(
+            "required".to_string(),
+            Value::Array(
+                required
+                    .iter()
+                    .map(|field| Value::String((*field).to_string()))
+                    .collect(),
+            ),
+        );
+    }
+    schema
 }
 
 fn session_state_schema(required: &[&str]) -> Map<String, Value> {
@@ -1046,9 +1092,27 @@ async fn call_session_state_tool(
     arguments: Map<String, Value>,
     default_session_key: Option<&str>,
 ) -> Result<CallToolResult, ErrorData> {
-    let session_key = resolve_session_state_key(meta, &arguments, default_session_key)?;
     let result = match tool_name {
+        SESSION_SNAPSHOT_EXPORT_TOOL => {
+            let snapshot = store
+                .export_sessions_snapshot()
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"snapshot": snapshot})
+        }
+        SESSION_SNAPSHOT_IMPORT_TOOL => {
+            let snapshot = arguments
+                .get("snapshot")
+                .cloned()
+                .ok_or_else(|| ErrorData::invalid_params("缺少参数: snapshot", None))?;
+            let report = store
+                .import_sessions_snapshot(snapshot)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"report": report})
+        }
         SESSION_STATE_LIST_TOOL => {
+            let session_key = resolve_session_state_key(meta, &arguments, default_session_key)?;
             let state = store
                 .list_session_state(&session_key)
                 .await
@@ -1057,6 +1121,7 @@ async fn call_session_state_tool(
             serde_json::json!({"state": state, "values": values})
         }
         SESSION_STATE_GET_TOOL => {
+            let session_key = resolve_session_state_key(meta, &arguments, default_session_key)?;
             let key = required_argument_string(&arguments, "key")?;
             let value = store
                 .get_session_state_value(&session_key, key)
@@ -1065,6 +1130,7 @@ async fn call_session_state_tool(
             serde_json::json!({"key": key, "value": value})
         }
         SESSION_STATE_SET_TOOL => {
+            let session_key = resolve_session_state_key(meta, &arguments, default_session_key)?;
             let key = required_argument_string(&arguments, "key")?;
             let value = arguments
                 .get("value")
@@ -1077,6 +1143,7 @@ async fn call_session_state_tool(
             serde_json::json!({"state": state})
         }
         SESSION_STATE_DELETE_TOOL => {
+            let session_key = resolve_session_state_key(meta, &arguments, default_session_key)?;
             let key = required_argument_string(&arguments, "key")?;
             let state = store
                 .delete_session_state(&session_key, key)
@@ -1085,6 +1152,7 @@ async fn call_session_state_tool(
             serde_json::json!({"state": state})
         }
         SESSION_STATE_CLEAR_TOOL => {
+            let session_key = resolve_session_state_key(meta, &arguments, default_session_key)?;
             let state = store
                 .clear_session_state(&session_key)
                 .await
@@ -1814,6 +1882,8 @@ mod tests {
         assert!(tool_names.contains(&SESSION_STATE_SET_TOOL.to_string()));
         assert!(tool_names.contains(&SESSION_STATE_DELETE_TOOL.to_string()));
         assert!(tool_names.contains(&SESSION_STATE_CLEAR_TOOL.to_string()));
+        assert!(tool_names.contains(&SESSION_SNAPSHOT_EXPORT_TOOL.to_string()));
+        assert!(tool_names.contains(&SESSION_SNAPSHOT_IMPORT_TOOL.to_string()));
 
         let set_args = serde_json::json!({
             "key": "cursor",
@@ -1889,6 +1959,85 @@ mod tests {
                 .as_object()
                 .unwrap()
                 .is_empty()
+        );
+
+        let set_snapshot_args = serde_json::json!({
+            "session_key": session.session_key,
+            "key": "cursor",
+            "value": {"page": 5},
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+        call_session_state_tool(
+            &store,
+            SESSION_STATE_SET_TOOL,
+            None,
+            set_snapshot_args,
+            None,
+        )
+        .await
+        .unwrap();
+        let export_result =
+            call_session_state_tool(&store, SESSION_SNAPSHOT_EXPORT_TOOL, None, Map::new(), None)
+                .await
+                .unwrap();
+        let snapshot = export_result.structured_content.as_ref().unwrap()["snapshot"].clone();
+        assert_eq!(
+            snapshot["states"]["session_state"][&session.session_key]["values"]["cursor"]["page"],
+            5
+        );
+
+        let target_store = Arc::new(
+            MCPStore::setup_with_options(StoreOptions {
+                config_path: None,
+                source_mode: SourceMode::Db,
+                backend: Some(CacheStorage::Memory),
+                redis_url: None,
+                namespace: Some(unique_namespace()),
+            })
+            .unwrap(),
+        );
+        seed_db_service(&target_store, "alpha", "echo").await;
+        seed_global_agent_relation(&target_store, &["alpha"]).await;
+        let import_args = serde_json::json!({"snapshot": snapshot})
+            .as_object()
+            .cloned()
+            .unwrap();
+        let import_result = call_session_state_tool(
+            &target_store,
+            SESSION_SNAPSHOT_IMPORT_TOOL,
+            None,
+            import_args.clone(),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            import_result.structured_content.as_ref().unwrap()["report"]["sessions_imported"],
+            1
+        );
+        assert_eq!(
+            target_store
+                .get_session_state_value(&session.session_key, "cursor")
+                .await
+                .unwrap()
+                .unwrap()["page"],
+            5
+        );
+
+        let import_again = call_session_state_tool(
+            &target_store,
+            SESSION_SNAPSHOT_IMPORT_TOOL,
+            None,
+            import_args,
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            import_again.structured_content.as_ref().unwrap()["report"]["sessions_unchanged"],
+            1
         );
     }
 
