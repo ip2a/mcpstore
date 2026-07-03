@@ -69,6 +69,20 @@ def __getattr__(name: str):
         globals()["PerspectiveResolver"] = PerspectiveResolver
         return PerspectiveResolver
 
+    if name in {
+        "ArgumentTransform",
+        "ToolTransformConfig",
+        "ToolTransformationManager",
+        "ToolTransformer",
+        "TransformationType",
+        "get_transformation_manager",
+    }:
+        from mcpstore.core.context import tool_transformation as transformation_module
+
+        value = getattr(transformation_module, name)
+        globals()[name] = value
+        return value
+
     # Compatibility models and helpers for the Python SDK surface. Store
     # behavior remains delegated to the Rust/PyO3 core.
     models = {
@@ -182,6 +196,12 @@ __all__ = [
 
     # Utilities
     "PerspectiveResolver",
+    "ArgumentTransform",
+    "ToolTransformConfig",
+    "ToolTransformationManager",
+    "ToolTransformer",
+    "TransformationType",
+    "get_transformation_manager",
     "ServiceInfo",
     "ServiceInfoResponse",
     "ServicesResponse",
