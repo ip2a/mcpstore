@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use clap::{Args, ValueEnum};
 use mcpstore::{
-    perspective::GLOBAL_AGENT_STORE, MCPStore, OpenApiBundleOptions, OpenApiImportOptions,
-    OpenApiRefCachePolicy, ToolTransformPatch,
+    perspective::GLOBAL_AGENT_STORE, CacheStorage, MCPStore, OpenApiBundleOptions,
+    OpenApiImportOptions, OpenApiRefCachePolicy, ToolTransformPatch,
 };
 use rmcp::{
     model::{
@@ -95,6 +95,11 @@ pub struct McpServerArgs {
         help = "Expose MCPStore OpenAPI import management tools. Disabled by default."
     )]
     pub expose_openapi_tools: bool,
+    #[arg(
+        long,
+        help = "Expose MCPStore cache backend management tools. Disabled by default."
+    )]
+    pub expose_cache_tools: bool,
 }
 
 const SESSION_STATE_LIST_TOOL: &str = "mcpstore_session_state_list";
@@ -113,6 +118,7 @@ const OPENAPI_IMPORT_GET_TOOL: &str = "mcpstore_openapi_import_get";
 const OPENAPI_IMPORT_SET_TOOL: &str = "mcpstore_openapi_import";
 const OPENAPI_BUNDLE_TOOL: &str = "mcpstore_openapi_bundle";
 const OPENAPI_BUNDLE_ARTIFACT_TOOL: &str = "mcpstore_openapi_bundle_artifact";
+const CACHE_SWITCH_TOOL: &str = "mcpstore_cache_switch";
 
 #[derive(Clone)]
 struct ToolBinding {
@@ -132,6 +138,7 @@ struct McpStoreServer {
     session_state_tools: Arc<HashMap<String, Tool>>,
     tool_transform_tools: Arc<HashMap<String, Tool>>,
     openapi_tools: Arc<HashMap<String, Tool>>,
+    cache_tools: Arc<HashMap<String, Tool>>,
     tools: Arc<Vec<Tool>>,
 }
 
@@ -144,6 +151,7 @@ impl McpStoreServer {
         expose_session_state_tools: bool,
         expose_tool_transform_tools: bool,
         expose_openapi_tools: bool,
+        expose_cache_tools: bool,
     ) -> Result<Self, BoxErr> {
         connect_scoped_services(&store, agent_id.as_deref(), service_name.as_deref()).await?;
         if let Some(session_key) = session_key.as_deref() {
@@ -171,10 +179,16 @@ impl McpStoreServer {
         } else {
             HashMap::new()
         };
+        let cache_tools = if expose_cache_tools {
+            build_cache_tools()
+        } else {
+            HashMap::new()
+        };
         for tool_name in session_state_tools
             .keys()
             .chain(tool_transform_tools.keys())
             .chain(openapi_tools.keys())
+            .chain(cache_tools.keys())
         {
             if bindings.contains_key(tool_name) {
                 return Err(format!(
@@ -190,6 +204,7 @@ impl McpStoreServer {
         tools.extend(session_state_tools.values().cloned());
         tools.extend(tool_transform_tools.values().cloned());
         tools.extend(openapi_tools.values().cloned());
+        tools.extend(cache_tools.values().cloned());
         tools.sort_by(|left, right| left.name.cmp(&right.name));
 
         let scope_label = match agent_id.as_deref() {
@@ -215,6 +230,7 @@ impl McpStoreServer {
             session_state_tools: Arc::new(session_state_tools),
             tool_transform_tools: Arc::new(tool_transform_tools),
             openapi_tools: Arc::new(openapi_tools),
+            cache_tools: Arc::new(cache_tools),
             tools: Arc::new(tools),
         })
     }
@@ -245,6 +261,7 @@ impl McpStoreServer {
             .keys()
             .chain(self.tool_transform_tools.keys())
             .chain(self.openapi_tools.keys())
+            .chain(self.cache_tools.keys())
         {
             if bindings.contains_key(tool_name) {
                 return Err(ErrorData::internal_error(
@@ -263,6 +280,7 @@ impl McpStoreServer {
         tools.extend(self.session_state_tools.values().cloned());
         tools.extend(self.tool_transform_tools.values().cloned());
         tools.extend(self.openapi_tools.values().cloned());
+        tools.extend(self.cache_tools.values().cloned());
         tools.sort_by(|left, right| left.name.cmp(&right.name));
         Ok(tools)
     }
@@ -296,6 +314,7 @@ impl ServerHandler for McpStoreServer {
             .or_else(|| self.session_state_tools.get(name).cloned())
             .or_else(|| self.tool_transform_tools.get(name).cloned())
             .or_else(|| self.openapi_tools.get(name).cloned())
+            .or_else(|| self.cache_tools.get(name).cloned())
     }
 
     fn list_resources(
@@ -436,6 +455,7 @@ impl ServerHandler for McpStoreServer {
         let is_session_state_tool = self.session_state_tools.contains_key(tool_name.as_str());
         let is_tool_transform_tool = self.tool_transform_tools.contains_key(tool_name.as_str());
         let is_openapi_tool = self.openapi_tools.contains_key(tool_name.as_str());
+        let is_cache_tool = self.cache_tools.contains_key(tool_name.as_str());
         let store = Arc::clone(&self.store);
         let agent_id = self.agent_id.clone();
         let service_name = self.service_name.clone();
@@ -458,6 +478,9 @@ impl ServerHandler for McpStoreServer {
             }
             if is_openapi_tool {
                 return call_openapi_tool(&store, &tool_name, arguments).await;
+            }
+            if is_cache_tool {
+                return call_cache_tool(&store, &tool_name, arguments).await;
             }
 
             let binding = match binding {
@@ -554,6 +577,7 @@ pub async fn run(args: McpServerArgs) -> Result<(), BoxErr> {
         args.expose_session_state_tools,
         args.expose_tool_transform_tools,
         args.expose_openapi_tools,
+        args.expose_cache_tools,
     )
     .await?;
     match args.transport {
@@ -1085,6 +1109,62 @@ fn openapi_schema(
     schema
 }
 
+fn build_cache_tools() -> HashMap<String, Tool> {
+    [cache_tool(
+        CACHE_SWITCH_TOOL,
+        "Switch the MCPStore cache backend and migrate existing Rust core state into the target backend.",
+        cache_switch_schema(),
+    )]
+    .into_iter()
+    .map(|tool| (tool.name.as_ref().to_string(), tool))
+    .collect()
+}
+
+fn cache_tool(name: &'static str, description: &'static str, schema: Map<String, Value>) -> Tool {
+    let annotations = ToolAnnotations::new()
+        .read_only(false)
+        .destructive(false)
+        .idempotent(false)
+        .open_world(false);
+    Tool::new(name, description, Arc::new(schema)).with_annotations(annotations)
+}
+
+fn cache_switch_schema() -> Map<String, Value> {
+    let mut properties = Map::new();
+    properties.insert(
+        "backend".to_string(),
+        serde_json::json!({
+            "type": "string",
+            "enum": ["memory", "redis", "openkeyv_memory", "openkeyv_redis"],
+            "description": "Target MCPStore cache backend. Redis backends require redis_url unless the store already has one."
+        }),
+    );
+    properties.insert(
+        "redis_url".to_string(),
+        serde_json::json!({
+            "type": "string",
+            "description": "Optional Redis URL for redis/openkeyv_redis backends."
+        }),
+    );
+    properties.insert(
+        "namespace".to_string(),
+        serde_json::json!({
+            "type": "string",
+            "description": "Optional target namespace. Use the same namespace to share state across processes."
+        }),
+    );
+
+    let mut schema = Map::new();
+    schema.insert("type".to_string(), Value::String("object".to_string()));
+    schema.insert("properties".to_string(), Value::Object(properties));
+    schema.insert("additionalProperties".to_string(), Value::Bool(false));
+    schema.insert(
+        "required".to_string(),
+        Value::Array(vec![Value::String("backend".to_string())]),
+    );
+    schema
+}
+
 async fn call_session_state_tool(
     store: &MCPStore,
     tool_name: &str,
@@ -1366,6 +1446,38 @@ async fn call_openapi_tool(
     Ok(CallToolResult::structured(result))
 }
 
+async fn call_cache_tool(
+    store: &MCPStore,
+    tool_name: &str,
+    arguments: Map<String, Value>,
+) -> Result<CallToolResult, ErrorData> {
+    let result = match tool_name {
+        CACHE_SWITCH_TOOL => {
+            let backend = required_argument_string(&arguments, "backend")?;
+            let storage = parse_cache_storage_argument(backend)?;
+            let backend_label = storage.as_str();
+            let redis_url = optional_string_argument(&arguments, "redis_url");
+            let namespace = optional_string_argument(&arguments, "namespace");
+            let snapshot = store
+                .switch_cache_storage(storage, redis_url, namespace)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({
+                "backend": backend_label,
+                "namespace": store.namespace(),
+                "snapshot": snapshot,
+            })
+        }
+        _ => {
+            return Err(ErrorData::invalid_params(
+                format!("未知 MCPStore cache 管理工具: {tool_name}"),
+                None,
+            ));
+        }
+    };
+    Ok(CallToolResult::structured(result))
+}
+
 fn resolve_session_state_key(
     meta: Option<&rmcp::model::Meta>,
     arguments: &Map<String, Value>,
@@ -1394,6 +1506,28 @@ fn required_argument_string<'a>(
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ErrorData::invalid_params(format!("缺少参数: {field}"), None))
+}
+
+fn optional_string_argument(arguments: &Map<String, Value>, field: &str) -> Option<String> {
+    arguments
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn parse_cache_storage_argument(value: &str) -> Result<CacheStorage, ErrorData> {
+    match value {
+        "memory" => Ok(CacheStorage::Memory),
+        "redis" => Ok(CacheStorage::Redis),
+        "openkeyv_memory" => Ok(CacheStorage::OpenKeyvMemory),
+        "openkeyv_redis" => Ok(CacheStorage::OpenKeyvRedis),
+        other => Err(ErrorData::invalid_params(
+            format!("不支持的 cache backend: {other}"),
+            None,
+        )),
+    }
 }
 
 fn openapi_import_options_from_arguments(
@@ -1753,6 +1887,7 @@ mod tests {
             false,
             false,
             false,
+            false,
         )
         .await
         .unwrap();
@@ -1775,6 +1910,7 @@ mod tests {
             None,
             None,
             Some(session.session_key.clone()),
+            false,
             false,
             false,
             false,
@@ -1808,6 +1944,7 @@ mod tests {
             None,
             Some("alpha".to_string()),
             None,
+            false,
             false,
             false,
             false,
@@ -1853,6 +1990,7 @@ mod tests {
             false,
             false,
             false,
+            false,
         )
         .await
         .unwrap();
@@ -1867,6 +2005,7 @@ mod tests {
             None,
             Some(session.session_key.clone()),
             true,
+            false,
             false,
             false,
         )
@@ -2056,19 +2195,35 @@ mod tests {
         seed_db_service(&store, "alpha", "echo").await;
         seed_global_agent_relation(&store, &["alpha"]).await;
 
-        let default_server =
-            McpStoreServer::from_store(Arc::clone(&store), None, None, None, false, false, false)
-                .await
-                .unwrap();
+        let default_server = McpStoreServer::from_store(
+            Arc::clone(&store),
+            None,
+            None,
+            None,
+            false,
+            false,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
         assert!(!default_server
             .tools
             .iter()
             .any(|tool| tool.name.as_ref() == TOOL_TRANSFORM_SET_TOOL));
 
-        let server =
-            McpStoreServer::from_store(Arc::clone(&store), None, None, None, false, true, false)
-                .await
-                .unwrap();
+        let server = McpStoreServer::from_store(
+            Arc::clone(&store),
+            None,
+            None,
+            None,
+            false,
+            true,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
         let tool_names = server
             .tools
             .iter()
@@ -2111,10 +2266,18 @@ mod tests {
             "say"
         );
 
-        let transformed_server =
-            McpStoreServer::from_store(Arc::clone(&store), None, None, None, false, true, false)
-                .await
-                .unwrap();
+        let transformed_server = McpStoreServer::from_store(
+            Arc::clone(&store),
+            None,
+            None,
+            None,
+            false,
+            true,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
         let transformed_tool = transformed_server.bindings.get("say").unwrap();
         let schema = transformed_tool.tool.input_schema.as_ref();
         assert_eq!(
@@ -2154,11 +2317,109 @@ mod tests {
             "ok"
         );
 
-        let restored_server =
-            McpStoreServer::from_store(Arc::clone(&store), None, None, None, false, true, false)
-                .await
-                .unwrap();
+        let restored_server = McpStoreServer::from_store(
+            Arc::clone(&store),
+            None,
+            None,
+            None,
+            false,
+            true,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
         assert!(restored_server.bindings.contains_key("alpha_echo"));
+    }
+
+    #[tokio::test]
+    async fn mcp_server_cache_tools_are_explicit_and_use_rust_core() {
+        let store = Arc::new(
+            MCPStore::setup_with_options(StoreOptions {
+                config_path: None,
+                source_mode: SourceMode::Db,
+                backend: Some(CacheStorage::Memory),
+                redis_url: None,
+                namespace: Some(unique_namespace()),
+            })
+            .unwrap(),
+        );
+        seed_db_service(&store, "alpha", "echo").await;
+        seed_global_agent_relation(&store, &["alpha"]).await;
+
+        let default_server = McpStoreServer::from_store(
+            Arc::clone(&store),
+            None,
+            None,
+            None,
+            false,
+            false,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+        assert!(!default_server
+            .tools
+            .iter()
+            .any(|tool| tool.name.as_ref() == CACHE_SWITCH_TOOL));
+
+        let server = McpStoreServer::from_store(
+            Arc::clone(&store),
+            None,
+            None,
+            None,
+            false,
+            false,
+            false,
+            true,
+        )
+        .await
+        .unwrap();
+        assert!(server
+            .tools
+            .iter()
+            .any(|tool| tool.name.as_ref() == CACHE_SWITCH_TOOL));
+        let cache_tool = server.get_tool(CACHE_SWITCH_TOOL).unwrap();
+        assert!(cache_tool.input_schema["properties"]
+            .as_object()
+            .unwrap()
+            .contains_key("namespace"));
+
+        let switch_args = serde_json::json!({
+            "backend": "openkeyv_memory",
+            "namespace": unique_namespace(),
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+        let switch_result = call_cache_tool(&store, CACHE_SWITCH_TOOL, switch_args)
+            .await
+            .unwrap();
+        assert_eq!(
+            store.current_cache_storage().await,
+            CacheStorage::OpenKeyvMemory
+        );
+        assert_eq!(
+            switch_result.structured_content.as_ref().unwrap()["backend"],
+            "openkeyv_memory"
+        );
+        assert!(
+            switch_result.structured_content.as_ref().unwrap()["snapshot"]["entities"]["services"]
+                .as_object()
+                .unwrap()
+                .contains_key("alpha")
+        );
+        assert!(store.service_info_scoped(None, "alpha").await.is_ok());
+
+        let invalid_args = serde_json::json!({"backend": "sqlite"})
+            .as_object()
+            .cloned()
+            .unwrap();
+        let invalid = call_cache_tool(&store, CACHE_SWITCH_TOOL, invalid_args)
+            .await
+            .unwrap_err();
+        assert!(invalid.message.contains("不支持的 cache backend"));
     }
 
     #[tokio::test]
@@ -2176,19 +2437,35 @@ mod tests {
         seed_db_service(&store, "alpha", "echo").await;
         seed_global_agent_relation(&store, &["alpha"]).await;
 
-        let default_server =
-            McpStoreServer::from_store(Arc::clone(&store), None, None, None, false, false, false)
-                .await
-                .unwrap();
+        let default_server = McpStoreServer::from_store(
+            Arc::clone(&store),
+            None,
+            None,
+            None,
+            false,
+            false,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
         assert!(!default_server
             .tools
             .iter()
             .any(|tool| tool.name.as_ref() == OPENAPI_IMPORT_SET_TOOL));
 
-        let server =
-            McpStoreServer::from_store(Arc::clone(&store), None, None, None, false, false, true)
-                .await
-                .unwrap();
+        let server = McpStoreServer::from_store(
+            Arc::clone(&store),
+            None,
+            None,
+            None,
+            false,
+            false,
+            true,
+            false,
+        )
+        .await
+        .unwrap();
         let tool_names = server
             .tools
             .iter()
