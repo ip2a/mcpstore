@@ -10,6 +10,7 @@ def __getattr__(name: str):
         return get_store
     if name in {
         "api_agent_router",
+        "api_cache_router",
         "api_main_router",
         "api_session_router",
         "api_set_store",
@@ -23,6 +24,7 @@ def __getattr__(name: str):
 
 __all__ = [
     "api_agent_router",
+    "api_cache_router",
     "api_main_router",
     "api_session_router",
     "api_set_store",

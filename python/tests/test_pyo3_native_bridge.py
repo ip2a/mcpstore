@@ -3141,6 +3141,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
     def test_rust_backed_public_api_modules_import(self):
         from mcpstore.api.api_dependencies import get_store
         from mcpstore.config import MemoryConfig
+        from mcpstore.config import OpenKeyvRedisConfig
         from mcpstore.config.namespace import get_namespace
         from mcpstore.core.models import (
             AddServiceRequest,
@@ -3167,10 +3168,13 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         store = object()
         if importlib.util.find_spec("fastapi") is not None:
             from mcpstore.api.api_pack import api_agent_router, api_main_router, api_session_router, api_set_store
+            from mcpstore import api_cache_router, api_session_router as top_level_session_router
 
             self.assertIsNotNone(api_main_router)
             self.assertIsNotNone(api_agent_router)
             self.assertIsNotNone(api_session_router)
+            self.assertIs(api_session_router, top_level_session_router)
+            self.assertIsNotNone(api_cache_router)
             paths = {route.path for route in api_main_router.routes}
             self.assertNotIn("/for_store/update_config/{service_name}", paths)
             self.assertNotIn("/for_store/delete_config/{service_name}", paths)
@@ -3231,6 +3235,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         api_set_store(store)
         self.assertIs(get_store(), store)
         self.assertEqual(get_namespace(MemoryConfig()), "mcpstore")
+        self.assertEqual(OpenKeyvRedisConfig(url="redis://localhost:6379/0").cache_type.value, "openkeyv_redis")
         self.assertIsNone(importlib.util.find_spec("mcpstore.config.factory"))
         self.assertEqual(ErrorCode.MISSING_PARAMETER.value, "missing_parameter")
         self.assertTrue(ResponseBuilder.success()["success"])
