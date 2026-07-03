@@ -179,8 +179,33 @@ class ServiceOperationsMixin:
     async def reset_config_async(self):
         return self.reset_config()
 
-    def wait_service(self, name: str, status=None, timeout: float = 10.0):
-        return self._rust_context().wait_service(name, status=status, timeout=timeout)
+    def wait_service(
+        self,
+        name: str,
+        status=None,
+        timeout: float = 10.0,
+        raise_on_timeout: bool = False,
+    ):
+        return self._rust_context().wait_service(
+            name,
+            status=status,
+            timeout=timeout,
+            raise_on_timeout=raise_on_timeout,
+        )
+
+    async def wait_service_async(
+        self,
+        name: str,
+        status=None,
+        timeout: float = 10.0,
+        raise_on_timeout: bool = False,
+    ):
+        return self.wait_service(
+            name,
+            status=status,
+            timeout=timeout,
+            raise_on_timeout=raise_on_timeout,
+        )
 
     def init_service(self, name: str = None, *, client_id: str = None, service_name: str = None):
         target = service_name or client_id or name
@@ -191,8 +216,27 @@ class ServiceOperationsMixin:
     async def init_service_async(self, name: str = None, *, client_id: str = None, service_name: str = None):
         return self.init_service(name, client_id=client_id, service_name=service_name)
 
-    def wait_services(self, names, status=None, timeout: float = 10.0):
-        return self._rust_context().wait_services(names, status=status, timeout=timeout)
+    def wait_services(self, names, status=None, timeout: float = 10.0, raise_on_timeout: bool = False):
+        return self._rust_context().wait_services(
+            names,
+            status=status,
+            timeout=timeout,
+            raise_on_timeout=raise_on_timeout,
+        )
+
+    async def wait_services_async(
+        self,
+        names,
+        status=None,
+        timeout: float = 10.0,
+        raise_on_timeout: bool = False,
+    ):
+        return self.wait_services(
+            names,
+            status=status,
+            timeout=timeout,
+            raise_on_timeout=raise_on_timeout,
+        )
 
     def _rust_context(self):
         return getattr(self, "_context", self)
