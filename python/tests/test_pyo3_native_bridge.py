@@ -3166,10 +3166,11 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
 
         store = object()
         if importlib.util.find_spec("fastapi") is not None:
-            from mcpstore.api.api_pack import api_agent_router, api_main_router, api_set_store
+            from mcpstore.api.api_pack import api_agent_router, api_main_router, api_session_router, api_set_store
 
             self.assertIsNotNone(api_main_router)
             self.assertIsNotNone(api_agent_router)
+            self.assertIsNotNone(api_session_router)
             paths = {route.path for route in api_main_router.routes}
             self.assertNotIn("/for_store/update_config/{service_name}", paths)
             self.assertNotIn("/for_store/delete_config/{service_name}", paths)
@@ -3220,6 +3221,8 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                     "/for_agent/{agent_id}/service_status/{service_name}",
                     "/for_agent/{agent_id}/service_info/{service_name}",
                     "/for_agent/{agent_id}/service/{service_name}",
+                    "/sessions/snapshot",
+                    "/sessions/snapshot/import",
                 }.issubset(paths)
             )
         else:
@@ -4832,6 +4835,81 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertEqual(
             store.agent_contexts["agent-b"].calls,
             [("get_prompt", "summarize", "", None)],
+        )
+
+    def test_api_session_snapshot_routes_delegate_to_store(self):
+        import asyncio
+        import importlib
+        import sys
+        import types
+
+        if importlib.util.find_spec("fastapi") is None:
+            class FakeAPIRouter:
+                def __init__(self, *args, **kwargs):
+                    pass
+
+                def get(self, *args, **kwargs):
+                    return lambda func: func
+
+                def post(self, *args, **kwargs):
+                    return lambda func: func
+
+                def put(self, *args, **kwargs):
+                    return lambda func: func
+
+                def patch(self, *args, **kwargs):
+                    return lambda func: func
+
+                def delete(self, *args, **kwargs):
+                    return lambda func: func
+
+                def include_router(self, *args, **kwargs):
+                    return None
+
+            fake_fastapi = types.ModuleType("fastapi")
+            fake_fastapi.APIRouter = FakeAPIRouter
+            fake_fastapi.Body = lambda default=None, **kwargs: default
+            fake_fastapi.Query = lambda default=None, **kwargs: default
+            with patch.dict(sys.modules, {"fastapi": fake_fastapi}):
+                sys.modules.pop("mcpstore.api.api_pack", None)
+                api_pack = importlib.import_module("mcpstore.api.api_pack")
+        else:
+            api_pack = importlib.import_module("mcpstore.api.api_pack")
+
+        class FakeStore:
+            def __init__(self):
+                self.calls = []
+                self.snapshot = {
+                    "entities": {"store:global:shared": {"session_id": "shared"}},
+                    "relations": {"session_services": {}, "session_tools": {}},
+                    "states": {"session_status": {}, "session_state": {}, "session_context": {}},
+                    "events": {},
+                }
+
+            def export_sessions_snapshot(self):
+                self.calls.append(("export_sessions_snapshot",))
+                return self.snapshot
+
+            def import_sessions_snapshot(self, snapshot):
+                self.calls.append(("import_sessions_snapshot", snapshot))
+                return {"sessions_imported": len(snapshot.get("entities", {}))}
+
+        store = FakeStore()
+        api_pack.api_set_store(store)
+
+        export_result = asyncio.run(api_pack.sessions_export_snapshot())
+        self.assertTrue(export_result["success"])
+        self.assertEqual(export_result["data"]["snapshot"], store.snapshot)
+
+        import_result = asyncio.run(api_pack.sessions_import_snapshot(store.snapshot))
+        self.assertTrue(import_result["success"])
+        self.assertEqual(import_result["data"]["report"]["sessions_imported"], 1)
+        self.assertEqual(
+            store.calls,
+            [
+                ("export_sessions_snapshot",),
+                ("import_sessions_snapshot", store.snapshot),
+            ],
         )
 
     def test_rust_context_keeps_cache_read_shape(self):

@@ -152,6 +152,8 @@ struct OpenApiImportRequest {
     spec_url: String,
     spec: Option<Value>,
     spec_text: Option<String>,
+    timeout_millis: Option<u64>,
+    fetch_timeout_millis: Option<u64>,
     #[serde(default)]
     headers: HashMap<String, String>,
     #[serde(default)]
@@ -215,6 +217,8 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
         .route("/sessions/get", get(session_get_by_query))
         .route("/sessions/find", get(session_find))
         .route("/sessions/list", get(session_list))
+        .route("/sessions/snapshot", get(session_export_snapshot))
+        .route("/sessions/snapshot/import", post(session_import_snapshot))
         .route("/sessions/status/:session_key", get(session_status))
         .route("/sessions/status", get(session_status_by_query))
         .route("/sessions/close", post(session_close_by_body))
@@ -557,6 +561,33 @@ async fn session_list(
     Ok(success(
         "Session 列表获取成功",
         json!({ "sessions": sessions, "total": sessions.len() }),
+    ))
+}
+
+async fn session_export_snapshot(State(state): State<Arc<ApiState>>) -> ApiResult {
+    let snapshot = state
+        .store
+        .export_sessions_snapshot()
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Session snapshot 导出成功",
+        json!({ "snapshot": snapshot }),
+    ))
+}
+
+async fn session_import_snapshot(
+    State(state): State<Arc<ApiState>>,
+    Json(snapshot): Json<Value>,
+) -> ApiResult {
+    let report = state
+        .store
+        .import_sessions_snapshot(snapshot)
+        .await
+        .map_err(ApiError::from_store)?;
+    Ok(success(
+        "Session snapshot 导入成功",
+        json!({ "report": report }),
     ))
 }
 
@@ -1284,6 +1315,13 @@ async fn store_import_openapi(
         headers: payload.headers,
         auth: payload.auth,
         ref_cache: payload.ref_cache,
+        timeout_millis: openapi_timeout_millis(payload.timeout_millis, "timeout_millis")?
+            .unwrap_or_else(OpenApiImportOptions::default_timeout_millis),
+        fetch_timeout_millis: openapi_timeout_millis(
+            payload.fetch_timeout_millis,
+            "fetch_timeout_millis",
+        )?
+        .unwrap_or_else(OpenApiImportOptions::default_fetch_timeout_millis),
     };
     store_import_openapi_impl(
         state,
@@ -1305,6 +1343,13 @@ async fn store_import_openapi_by_path(
         headers: payload.headers,
         auth: payload.auth,
         ref_cache: payload.ref_cache,
+        timeout_millis: openapi_timeout_millis(payload.timeout_millis, "timeout_millis")?
+            .unwrap_or_else(OpenApiImportOptions::default_timeout_millis),
+        fetch_timeout_millis: openapi_timeout_millis(
+            payload.fetch_timeout_millis,
+            "fetch_timeout_millis",
+        )?
+        .unwrap_or_else(OpenApiImportOptions::default_fetch_timeout_millis),
     };
     store_import_openapi_impl(
         state,
@@ -1362,6 +1407,15 @@ async fn store_bundle_openapi(
 ) -> ApiResult {
     let options = OpenApiBundleOptions {
         ref_cache: payload.ref_cache,
+        timeout_millis: openapi_timeout_millis(
+            payload.fetch_timeout_millis,
+            "fetch_timeout_millis",
+        )?
+        .or(openapi_timeout_millis(
+            payload.timeout_millis,
+            "timeout_millis",
+        )?)
+        .unwrap_or_else(OpenApiBundleOptions::default_timeout_millis),
     };
     let bundle = match (payload.spec, payload_spec_text(payload.spec_text)) {
         (Some(_), Some(_)) => {
@@ -1398,6 +1452,15 @@ async fn store_bundle_openapi_artifact(
 ) -> ApiResult {
     let options = OpenApiBundleOptions {
         ref_cache: payload.ref_cache,
+        timeout_millis: openapi_timeout_millis(
+            payload.fetch_timeout_millis,
+            "fetch_timeout_millis",
+        )?
+        .or(openapi_timeout_millis(
+            payload.timeout_millis,
+            "timeout_millis",
+        )?)
+        .unwrap_or_else(OpenApiBundleOptions::default_timeout_millis),
     };
     let artifact = match (payload.spec, payload_spec_text(payload.spec_text)) {
         (Some(_), Some(_)) => {
@@ -1437,6 +1500,16 @@ async fn store_bundle_openapi_artifact(
 
 fn payload_spec_text(spec_text: Option<String>) -> Option<String> {
     spec_text.filter(|text| !text.trim().is_empty())
+}
+
+fn openapi_timeout_millis(value: Option<u64>, field: &'static str) -> ApiResult<Option<u64>> {
+    match value {
+        Some(0) => Err(ApiError::invalid_parameter(
+            format!("{field} must be a positive integer"),
+            Some(field),
+        )),
+        other => Ok(other),
+    }
 }
 
 async fn store_list_resources(
@@ -2284,6 +2357,132 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn session_snapshot_routes_export_and_import_rust_core_state() {
+        let source = MCPStore::setup_with_options(StoreOptions {
+            config_path: None,
+            source_mode: SourceMode::Db,
+            backend: Some(CacheStorage::Memory),
+            redis_url: None,
+            namespace: Some(unique_namespace()),
+        })
+        .unwrap();
+        seed_db_service(&source).await;
+        let (source_addr, source_handle) = spawn_test_api(source).await;
+        let client = reqwest::Client::new();
+        let source_base_url = format!("http://{source_addr}");
+
+        let create = client
+            .post(format!("{source_base_url}/sessions/create"))
+            .json(&json!({
+                "session_id": "snapshot-session",
+                "lease_seconds": 60,
+                "metadata": {"owner": "snapshot-test"},
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert!(create.status().is_success());
+        let create_payload = create.json::<Value>().await.unwrap();
+        let session_key = create_payload["data"]["session"]["session_key"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let bind = client
+            .post(format!("{source_base_url}/sessions/bind_service"))
+            .json(&json!({"session_key": session_key, "service_name": "demo"}))
+            .send()
+            .await
+            .unwrap();
+        assert!(bind.status().is_success());
+
+        let set_state = client
+            .post(format!("{source_base_url}/sessions/state/set"))
+            .json(&json!({
+                "session_key": session_key,
+                "key": "cursor",
+                "value": {"page": 2},
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert!(set_state.status().is_success());
+
+        let export = client
+            .get(format!("{source_base_url}/sessions/snapshot"))
+            .send()
+            .await
+            .unwrap();
+        assert!(export.status().is_success());
+        let export_payload = export.json::<Value>().await.unwrap();
+        let snapshot = export_payload["data"]["snapshot"].clone();
+        assert_eq!(
+            snapshot["entities"]["store:global:snapshot-session"]["metadata"]["owner"],
+            "snapshot-test"
+        );
+        assert_eq!(
+            snapshot["states"]["session_state"]["store:global:snapshot-session"]["values"]
+                ["cursor"]["page"],
+            2
+        );
+
+        let target = MCPStore::setup_with_options(StoreOptions {
+            config_path: None,
+            source_mode: SourceMode::Db,
+            backend: Some(CacheStorage::Memory),
+            redis_url: None,
+            namespace: Some(unique_namespace()),
+        })
+        .unwrap();
+        seed_db_service(&target).await;
+        let (target_addr, target_handle) = spawn_test_api(target).await;
+        let target_base_url = format!("http://{target_addr}");
+
+        let import = client
+            .post(format!("{target_base_url}/sessions/snapshot/import"))
+            .json(&snapshot)
+            .send()
+            .await
+            .unwrap();
+        assert!(import.status().is_success());
+        let import_payload = import.json::<Value>().await.unwrap();
+        assert_eq!(import_payload["data"]["report"]["sessions_imported"], 1);
+        assert_eq!(
+            import_payload["data"]["report"]["session_state_records_imported"],
+            1
+        );
+
+        let imported_state = client
+            .get(format!("{target_base_url}/sessions/state/value"))
+            .query(&[
+                ("session_key", "store:global:snapshot-session"),
+                ("key", "cursor"),
+            ])
+            .send()
+            .await
+            .unwrap();
+        assert!(imported_state.status().is_success());
+        let imported_state_payload = imported_state.json::<Value>().await.unwrap();
+        assert_eq!(imported_state_payload["data"]["value"]["page"], 2);
+
+        let import_again = client
+            .post(format!("{target_base_url}/sessions/snapshot/import"))
+            .json(&snapshot)
+            .send()
+            .await
+            .unwrap();
+        assert!(import_again.status().is_success());
+        let import_again_payload = import_again.json::<Value>().await.unwrap();
+        assert_eq!(
+            import_again_payload["data"]["report"]["sessions_unchanged"],
+            1
+        );
+
+        source_handle.abort();
+        target_handle.abort();
+    }
+
+    #[tokio::test]
     async fn store_routes_manage_rust_core_tool_transforms() {
         let store = MCPStore::setup_with_options(StoreOptions {
             config_path: None,
@@ -2441,6 +2640,8 @@ mod tests {
             .json(&json!({
                 "spec_url": "memory://inventory",
                 "spec": spec,
+                "timeout_millis": 4100,
+                "fetch_timeout_millis": 4200,
                 "auth": {"ApiKeyAuth": "secret"}
             }))
             .send()
@@ -2467,6 +2668,22 @@ mod tests {
             "x-api-key"
         );
 
+        let service_response = client
+            .get(format!("{base_url}/for_store/service_info/inventory"))
+            .send()
+            .await
+            .unwrap();
+        assert!(service_response.status().is_success());
+        let service_payload = service_response.json::<Value>().await.unwrap();
+        assert_eq!(
+            service_payload["data"]["config"]["openapi_timeout_millis"],
+            4100
+        );
+        assert_eq!(
+            service_payload["data"]["config"]["openapi_fetch_timeout_millis"],
+            4200
+        );
+
         let get_response = client
             .get(format!(
                 "{base_url}/for_store/openapi_imports/get/inventory"
@@ -2489,6 +2706,26 @@ mod tests {
         assert!(list_response.status().is_success());
         let list_payload = list_response.json::<Value>().await.unwrap();
         assert_eq!(list_payload["data"]["total"], 1);
+
+        let invalid_timeout = client
+            .post(format!("{base_url}/for_store/openapi_imports/bundle"))
+            .json(&json!({
+                "spec_url": "memory://invalid-timeout",
+                "spec": {"openapi": "3.0.0", "info": {"title": "Invalid", "version": "1.0.0"}, "paths": {}},
+                "fetch_timeout_millis": 0
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            invalid_timeout.status(),
+            axum::http::StatusCode::BAD_REQUEST
+        );
+        let invalid_timeout_payload = invalid_timeout.json::<Value>().await.unwrap();
+        assert_eq!(
+            invalid_timeout_payload["errors"][0]["field"],
+            "fetch_timeout_millis"
+        );
 
         handle.abort();
     }
