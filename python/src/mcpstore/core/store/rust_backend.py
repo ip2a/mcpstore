@@ -1293,6 +1293,7 @@ class RustStoreBackend:
         port: int = 8000,
         path: str = "/mcp",
         block: bool = False,
+        expose_service_tools: bool = False,
         expose_cache_tools: bool = False,
         expose_event_tools: bool = False,
         **kwargs,
@@ -1334,6 +1335,8 @@ class RustStoreBackend:
             cmd.extend(["--config-path", self._config_path])
         if self._only_db:
             cmd.extend(["--source", "db"])
+        if expose_service_tools:
+            cmd.append("--expose-service-tools")
         if expose_cache_tools:
             cmd.append("--expose-cache-tools")
         if expose_event_tools:
