@@ -44,6 +44,8 @@ impl MCPStore {
                     true,
                 )
                 .await;
+            self.record_health_check_result(name, true, None, None)
+                .await?;
             return Ok(());
         }
         if self.pool.is_connected(name).await {

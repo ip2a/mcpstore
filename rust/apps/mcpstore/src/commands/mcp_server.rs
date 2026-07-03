@@ -138,6 +138,7 @@ const SERVICE_REMOVE_TOOL: &str = "mcpstore_service_remove";
 const SERVICE_CONNECT_TOOL: &str = "mcpstore_service_connect";
 const SERVICE_DISCONNECT_TOOL: &str = "mcpstore_service_disconnect";
 const SERVICE_RESTART_TOOL: &str = "mcpstore_service_restart";
+const SERVICE_WAIT_TOOL: &str = "mcpstore_service_wait";
 const CACHE_HEALTH_TOOL: &str = "mcpstore_cache_health";
 const CACHE_INSPECT_TOOL: &str = "mcpstore_cache_inspect";
 const CACHE_SWITCH_TOOL: &str = "mcpstore_cache_switch";
@@ -1257,6 +1258,12 @@ fn build_service_tools() -> HashMap<String, Tool> {
             service_name_schema(),
             false,
         ),
+        service_tool(
+            SERVICE_WAIT_TOOL,
+            "Wait for one MCPStore service to become ready in the current store or agent scope through Rust core.",
+            service_wait_schema(),
+            false,
+        ),
     ]
     .into_iter()
     .map(|tool| (tool.name.as_ref().to_string(), tool))
@@ -1411,6 +1418,26 @@ fn service_patch_schema() -> Map<String, Value> {
         }),
     );
     object_schema(properties, &["name", "updates"])
+}
+
+fn service_wait_schema() -> Map<String, Value> {
+    let mut properties = Map::new();
+    properties.insert(
+        "name".to_string(),
+        serde_json::json!({
+            "type": "string",
+            "description": "Service name. In agent scope this may be either the local service name or global service name."
+        }),
+    );
+    properties.insert(
+        "timeout".to_string(),
+        serde_json::json!({
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum wait time in seconds. Defaults to 10."
+        }),
+    );
+    object_schema(properties, &["name"])
 }
 
 fn cache_switch_schema() -> Map<String, Value> {
@@ -1573,6 +1600,23 @@ async fn call_service_tool(
                 .await
                 .map_err(map_store_error)?;
             serde_json::json!({"status": "ok", "name": name, "global_name": global_name})
+        }
+        SERVICE_WAIT_TOOL => {
+            let name = required_argument_string(&arguments, "name")?;
+            let timeout =
+                optional_positive_u64_argument_with_label(&arguments, "timeout", "service wait")?
+                    .unwrap_or(10);
+            let global_name = resolve_service_name_for_tool(store, agent_id, name).await?;
+            let status = store
+                .wait_service_ready(&global_name, timeout)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({
+                "status": status,
+                "name": name,
+                "global_name": global_name,
+                "timeout": timeout
+            })
         }
         _ => {
             return Err(ErrorData::invalid_params(
@@ -2058,6 +2102,14 @@ fn optional_positive_u64_argument(
     arguments: &Map<String, Value>,
     field: &str,
 ) -> Result<Option<u64>, ErrorData> {
+    optional_positive_u64_argument_with_label(arguments, field, "OpenAPI")
+}
+
+fn optional_positive_u64_argument_with_label(
+    arguments: &Map<String, Value>,
+    field: &str,
+    label: &str,
+) -> Result<Option<u64>, ErrorData> {
     let Some(value) = arguments.get(field) else {
         return Ok(None);
     };
@@ -2069,7 +2121,7 @@ fn optional_positive_u64_argument(
     }
     .filter(|value| *value > 0)
     .ok_or_else(|| {
-        ErrorData::invalid_params(format!("OpenAPI {field} must be a positive integer"), None)
+        ErrorData::invalid_params(format!("{label} {field} must be a positive integer"), None)
     })?;
     Ok(Some(parsed))
 }
@@ -2903,11 +2955,17 @@ mod tests {
         assert!(tool_names.contains(&SERVICE_CONNECT_TOOL.to_string()));
         assert!(tool_names.contains(&SERVICE_DISCONNECT_TOOL.to_string()));
         assert!(tool_names.contains(&SERVICE_RESTART_TOOL.to_string()));
+        assert!(tool_names.contains(&SERVICE_WAIT_TOOL.to_string()));
         let add_tool = server.get_tool(SERVICE_ADD_TOOL).unwrap();
         assert!(add_tool.input_schema["properties"]
             .as_object()
             .unwrap()
             .contains_key("config"));
+        let wait_tool = server.get_tool(SERVICE_WAIT_TOOL).unwrap();
+        assert!(wait_tool.input_schema["properties"]
+            .as_object()
+            .unwrap()
+            .contains_key("timeout"));
 
         let add_args = serde_json::json!({
             "name": "alpha",
@@ -3067,6 +3125,87 @@ mod tests {
             .service_info_scoped(Some("agent-a"), "alpha")
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn mcp_server_service_wait_uses_rust_core_and_agent_resolution() {
+        let store = Arc::new(
+            MCPStore::setup_with_options(StoreOptions {
+                config_path: Some(temp_config_path()),
+                source_mode: SourceMode::Local,
+                backend: Some(CacheStorage::Memory),
+                redis_url: None,
+                namespace: Some(unique_namespace()),
+            })
+            .unwrap(),
+        );
+
+        let import_args = serde_json::json!({
+            "name": "inventory",
+            "spec_url": "memory://inventory",
+            "spec": {
+                "openapi": "3.0.0",
+                "info": {"title": "Inventory", "version": "1.0.0"},
+                "paths": {
+                    "/items": {
+                        "get": {"operationId": "listItems", "responses": {"200": {"description": "ok"}}},
+                        "post": {"operationId": "createItem", "responses": {"201": {"description": "created"}}}
+                    }
+                }
+            }
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+        call_openapi_tool(&store, OPENAPI_IMPORT_SET_TOOL, import_args)
+            .await
+            .unwrap();
+
+        let wait_args = serde_json::json!({"name": "inventory", "timeout": 1})
+            .as_object()
+            .cloned()
+            .unwrap();
+        let wait_result = call_service_tool(&store, SERVICE_WAIT_TOOL, None, wait_args)
+            .await
+            .unwrap();
+        let content = wait_result.structured_content.as_ref().unwrap();
+        assert_eq!(content["name"], "inventory");
+        assert_eq!(content["global_name"], "inventory");
+        assert_eq!(content["timeout"], 1);
+        assert!(matches!(
+            content["status"]["health_status"].as_str(),
+            Some("healthy" | "ready")
+        ));
+        assert_eq!(content["status"]["tools"].as_array().unwrap().len(), 1);
+
+        store
+            .assign_service_to_agent("agent-a", "inventory")
+            .await
+            .unwrap();
+        let agent_wait_args = serde_json::json!({"name": "inventory", "timeout": "1"})
+            .as_object()
+            .cloned()
+            .unwrap();
+        let agent_wait =
+            call_service_tool(&store, SERVICE_WAIT_TOOL, Some("agent-a"), agent_wait_args)
+                .await
+                .unwrap();
+        assert_eq!(
+            agent_wait.structured_content.as_ref().unwrap()["global_name"],
+            "inventory"
+        );
+
+        let invalid_timeout_args = serde_json::json!({"name": "inventory", "timeout": 0})
+            .as_object()
+            .cloned()
+            .unwrap();
+        let invalid_timeout =
+            call_service_tool(&store, SERVICE_WAIT_TOOL, None, invalid_timeout_args)
+                .await
+                .unwrap_err();
+        assert!(invalid_timeout
+            .message
+            .contains("service wait timeout must be a positive integer"));
     }
 
     #[tokio::test]
