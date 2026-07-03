@@ -2683,21 +2683,41 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 only_db=False,
             )
 
-    def test_setup_store_rejects_mcp_config_file_alias(self):
-        from mcpstore.core.store.setup_manager import StoreSetupManager
-
-        with self.assertRaisesRegex(ValueError, "mcp_config_file"):
-            StoreSetupManager.setup_store(mcp_config_file=Path("alias.json"))
-
-    def test_setup_store_rejects_kwargs_aliases(self):
+    def test_setup_store_accepts_path_and_cache_aliases_without_old_core(self):
         from mcpstore.config import MemoryConfig
         from mcpstore.core.store.setup_manager import StoreSetupManager
 
         cache = MemoryConfig()
-        with self.assertRaisesRegex(ValueError, "config_path"):
-            StoreSetupManager.setup_store(config_path=Path("config-alias.json"))
-        with self.assertRaisesRegex(ValueError, "cache_config"):
-            StoreSetupManager.setup_store(cache_config=cache)
+        fake_store = object()
+        with patch.object(StoreSetupManager, "_setup_rust_store", return_value=fake_store) as setup:
+            result = StoreSetupManager.setup_store(
+                config_path=Path("config-alias.json"),
+                cache_config=cache,
+            )
+        self.assertIs(result, fake_store)
+        setup.assert_called_once_with(
+            mcpjson_path="config-alias.json",
+            debug=False,
+            cache=cache,
+            only_db=False,
+        )
+
+        with patch.object(StoreSetupManager, "_setup_rust_store", return_value=fake_store) as setup:
+            result = StoreSetupManager.setup_store(mcp_config_file=Path("mcp-file.json"))
+        self.assertIs(result, fake_store)
+        setup.assert_called_once_with(
+            mcpjson_path="mcp-file.json",
+            debug=False,
+            cache=None,
+            only_db=False,
+        )
+
+        with self.assertRaisesRegex(ValueError, "mcpjson_path.*config_path"):
+            StoreSetupManager.setup_store("main.json", config_path=Path("alias.json"))
+        with self.assertRaisesRegex(ValueError, "config_path.*mcp_config_file"):
+            StoreSetupManager.setup_store(config_path=Path("a.json"), mcp_config_file=Path("b.json"))
+        with self.assertRaisesRegex(ValueError, "cache.*cache_config"):
+            StoreSetupManager.setup_store(cache=cache, cache_config=cache)
         with self.assertRaisesRegex(ValueError, "external_db"):
             StoreSetupManager.setup_store(external_db={"cache": {"type": "memory"}})
 
@@ -2769,6 +2789,52 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertEqual(backend, "redis")
         self.assertEqual(redis_url, "redis://:p%40ss%20word@redis.local:6380/2")
         self.assertEqual(namespace, "team")
+
+    def test_cache_config_normalizes_public_dict_and_string_shapes(self):
+        import types
+
+        from mcpstore.config import MemoryConfig, RedisConfig
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        memory = RustStoreBackend._normalize_cache_config("memory")
+        self.assertIsInstance(memory, MemoryConfig)
+
+        redis = RustStoreBackend._normalize_cache_config(
+            {
+                "type": "redis",
+                "host": "redis.local",
+                "port": 6380,
+                "db": 2,
+                "password": "p@ss word",
+                "namespace": "team",
+            }
+        )
+        self.assertIsInstance(redis, RedisConfig)
+        self.assertEqual(RustStoreBackend._cache_options(redis), ("redis", "redis://:p%40ss%20word@redis.local:6380/2", "team"))
+
+        class FakeRustStore:
+            def load_from_config(self):
+                pass
+
+        class FakeMCPStore:
+            called = None
+
+            @staticmethod
+            def setup_with_options(config_path, source_mode, backend, redis_url, namespace):
+                FakeMCPStore.called = (config_path, source_mode, backend, redis_url, namespace)
+                return FakeRustStore()
+
+        fake_module = types.SimpleNamespace(MCPStore=FakeMCPStore)
+        with patch("importlib.import_module", return_value=fake_module):
+            store = RustStoreBackend.setup(cache_config={"type": "memory"})
+
+        self.assertEqual(FakeMCPStore.called, (None, "local", "memory", None, None))
+        self.assertIsInstance(store._cache_config, MemoryConfig)
+
+        with self.assertRaisesRegex(ValueError, "Python Redis client"):
+            RustStoreBackend._cache_options({"type": "redis", "client": object()})
+        with self.assertRaisesRegex(ValueError, "需要显式 url 或 host"):
+            RustStoreBackend._normalize_cache_config("redis")
 
     def test_start_api_server_delegates_to_rust_cli(self):
         from mcpstore.config import RedisConfig
@@ -3004,7 +3070,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
 
         context = store.for_store()
         self.assertIs(
-            context.switch_cache(RedisConfig(url="redis://localhost:6379/0", namespace="switched")),
+            context.switch_cache({"type": "redis", "url": "redis://localhost:6379/0", "namespace": "switched"}),
             context,
         )
 
@@ -3013,6 +3079,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             ("redis", "redis://localhost:6379/0", "switched"),
         )
         self.assertEqual(store._sessions, {})
+        self.assertIsInstance(store._cache_config, RedisConfig)
 
     def test_session_snapshot_facade_delegates_to_rust_core(self):
         from mcpstore.core.store.rust_backend import RustStoreBackend
