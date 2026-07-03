@@ -100,6 +100,11 @@ pub struct McpServerArgs {
         help = "Expose MCPStore cache backend management tools. Disabled by default."
     )]
     pub expose_cache_tools: bool,
+    #[arg(
+        long,
+        help = "Expose MCPStore event observability tools. Disabled by default."
+    )]
+    pub expose_event_tools: bool,
 }
 
 const SESSION_STATE_LIST_TOOL: &str = "mcpstore_session_state_list";
@@ -121,6 +126,8 @@ const OPENAPI_BUNDLE_ARTIFACT_TOOL: &str = "mcpstore_openapi_bundle_artifact";
 const CACHE_HEALTH_TOOL: &str = "mcpstore_cache_health";
 const CACHE_INSPECT_TOOL: &str = "mcpstore_cache_inspect";
 const CACHE_SWITCH_TOOL: &str = "mcpstore_cache_switch";
+const EVENT_HISTORY_TOOL: &str = "mcpstore_event_history";
+const EVENT_CAPABILITY_REPORT_TOOL: &str = "mcpstore_event_capability_report";
 
 #[derive(Clone)]
 struct ToolBinding {
@@ -141,6 +148,7 @@ struct McpStoreServer {
     tool_transform_tools: Arc<HashMap<String, Tool>>,
     openapi_tools: Arc<HashMap<String, Tool>>,
     cache_tools: Arc<HashMap<String, Tool>>,
+    event_tools: Arc<HashMap<String, Tool>>,
     tools: Arc<Vec<Tool>>,
 }
 
@@ -154,6 +162,7 @@ impl McpStoreServer {
         expose_tool_transform_tools: bool,
         expose_openapi_tools: bool,
         expose_cache_tools: bool,
+        expose_event_tools: bool,
     ) -> Result<Self, BoxErr> {
         connect_scoped_services(&store, agent_id.as_deref(), service_name.as_deref()).await?;
         if let Some(session_key) = session_key.as_deref() {
@@ -186,11 +195,17 @@ impl McpStoreServer {
         } else {
             HashMap::new()
         };
+        let event_tools = if expose_event_tools {
+            build_event_tools()
+        } else {
+            HashMap::new()
+        };
         for tool_name in session_state_tools
             .keys()
             .chain(tool_transform_tools.keys())
             .chain(openapi_tools.keys())
             .chain(cache_tools.keys())
+            .chain(event_tools.keys())
         {
             if bindings.contains_key(tool_name) {
                 return Err(format!(
@@ -207,6 +222,7 @@ impl McpStoreServer {
         tools.extend(tool_transform_tools.values().cloned());
         tools.extend(openapi_tools.values().cloned());
         tools.extend(cache_tools.values().cloned());
+        tools.extend(event_tools.values().cloned());
         tools.sort_by(|left, right| left.name.cmp(&right.name));
 
         let scope_label = match agent_id.as_deref() {
@@ -233,6 +249,7 @@ impl McpStoreServer {
             tool_transform_tools: Arc::new(tool_transform_tools),
             openapi_tools: Arc::new(openapi_tools),
             cache_tools: Arc::new(cache_tools),
+            event_tools: Arc::new(event_tools),
             tools: Arc::new(tools),
         })
     }
@@ -264,6 +281,7 @@ impl McpStoreServer {
             .chain(self.tool_transform_tools.keys())
             .chain(self.openapi_tools.keys())
             .chain(self.cache_tools.keys())
+            .chain(self.event_tools.keys())
         {
             if bindings.contains_key(tool_name) {
                 return Err(ErrorData::internal_error(
@@ -283,6 +301,7 @@ impl McpStoreServer {
         tools.extend(self.tool_transform_tools.values().cloned());
         tools.extend(self.openapi_tools.values().cloned());
         tools.extend(self.cache_tools.values().cloned());
+        tools.extend(self.event_tools.values().cloned());
         tools.sort_by(|left, right| left.name.cmp(&right.name));
         Ok(tools)
     }
@@ -317,6 +336,7 @@ impl ServerHandler for McpStoreServer {
             .or_else(|| self.tool_transform_tools.get(name).cloned())
             .or_else(|| self.openapi_tools.get(name).cloned())
             .or_else(|| self.cache_tools.get(name).cloned())
+            .or_else(|| self.event_tools.get(name).cloned())
     }
 
     fn list_resources(
@@ -458,6 +478,7 @@ impl ServerHandler for McpStoreServer {
         let is_tool_transform_tool = self.tool_transform_tools.contains_key(tool_name.as_str());
         let is_openapi_tool = self.openapi_tools.contains_key(tool_name.as_str());
         let is_cache_tool = self.cache_tools.contains_key(tool_name.as_str());
+        let is_event_tool = self.event_tools.contains_key(tool_name.as_str());
         let store = Arc::clone(&self.store);
         let agent_id = self.agent_id.clone();
         let service_name = self.service_name.clone();
@@ -483,6 +504,9 @@ impl ServerHandler for McpStoreServer {
             }
             if is_cache_tool {
                 return call_cache_tool(&store, &tool_name, arguments).await;
+            }
+            if is_event_tool {
+                return call_event_tool(&store, &tool_name, arguments).await;
             }
 
             let binding = match binding {
@@ -580,6 +604,7 @@ pub async fn run(args: McpServerArgs) -> Result<(), BoxErr> {
         args.expose_tool_transform_tools,
         args.expose_openapi_tools,
         args.expose_cache_tools,
+        args.expose_event_tools,
     )
     .await?;
     match args.transport {
@@ -1137,6 +1162,33 @@ fn build_cache_tools() -> HashMap<String, Tool> {
     .collect()
 }
 
+fn build_event_tools() -> HashMap<String, Tool> {
+    [
+        event_tool(
+            EVENT_HISTORY_TOOL,
+            "Read recent MCPStore event history from Rust core.",
+            event_history_schema(),
+        ),
+        event_tool(
+            EVENT_CAPABILITY_REPORT_TOOL,
+            "Read MCPStore event capability report from Rust core.",
+            empty_object_schema(),
+        ),
+    ]
+    .into_iter()
+    .map(|tool| (tool.name.as_ref().to_string(), tool))
+    .collect()
+}
+
+fn event_tool(name: &'static str, description: &'static str, schema: Map<String, Value>) -> Tool {
+    let annotations = ToolAnnotations::new()
+        .read_only(true)
+        .destructive(false)
+        .idempotent(true)
+        .open_world(false);
+    Tool::new(name, description, Arc::new(schema)).with_annotations(annotations)
+}
+
 fn cache_tool(
     name: &'static str,
     description: &'static str,
@@ -1155,6 +1207,24 @@ fn empty_object_schema() -> Map<String, Value> {
     let mut schema = Map::new();
     schema.insert("type".to_string(), Value::String("object".to_string()));
     schema.insert("properties".to_string(), Value::Object(Map::new()));
+    schema.insert("additionalProperties".to_string(), Value::Bool(false));
+    schema
+}
+
+fn event_history_schema() -> Map<String, Value> {
+    let mut properties = Map::new();
+    properties.insert(
+        "count".to_string(),
+        serde_json::json!({
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum number of recent events to return. Defaults to 100."
+        }),
+    );
+
+    let mut schema = Map::new();
+    schema.insert("type".to_string(), Value::String("object".to_string()));
+    schema.insert("properties".to_string(), Value::Object(properties));
     schema.insert("additionalProperties".to_string(), Value::Bool(false));
     schema
 }
@@ -1193,6 +1263,31 @@ fn cache_switch_schema() -> Map<String, Value> {
         Value::Array(vec![Value::String("backend".to_string())]),
     );
     schema
+}
+
+async fn call_event_tool(
+    store: &MCPStore,
+    tool_name: &str,
+    arguments: Map<String, Value>,
+) -> Result<CallToolResult, ErrorData> {
+    let result = match tool_name {
+        EVENT_HISTORY_TOOL => {
+            let count = optional_positive_usize_argument(&arguments, "count")?.unwrap_or(100);
+            let events = store.event_history(count).await;
+            serde_json::json!({"events": events, "total": events.len()})
+        }
+        EVENT_CAPABILITY_REPORT_TOOL => {
+            let report = store.event_capability_report().await;
+            serde_json::json!({"report": report})
+        }
+        _ => {
+            return Err(ErrorData::invalid_params(
+                format!("未知 MCPStore event 观测工具: {tool_name}"),
+                None,
+            ));
+        }
+    };
+    Ok(CallToolResult::structured(result))
 }
 
 async fn call_session_state_tool(
@@ -1553,6 +1648,27 @@ fn optional_string_argument(arguments: &Map<String, Value>, field: &str) -> Opti
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+fn optional_positive_usize_argument(
+    arguments: &Map<String, Value>,
+    field: &str,
+) -> Result<Option<usize>, ErrorData> {
+    let Some(value) = arguments.get(field) else {
+        return Ok(None);
+    };
+    let parsed = match value {
+        Value::Null => return Ok(None),
+        Value::Number(number) => number.as_u64(),
+        Value::String(text) => text.parse::<u64>().ok(),
+        _ => None,
+    }
+    .filter(|value| *value > 0)
+    .and_then(|value| usize::try_from(value).ok())
+    .ok_or_else(|| {
+        ErrorData::invalid_params(format!("{field} must be a positive integer"), None)
+    })?;
+    Ok(Some(parsed))
 }
 
 fn parse_cache_storage_argument(value: &str) -> Result<CacheStorage, ErrorData> {
@@ -1926,6 +2042,7 @@ mod tests {
             false,
             false,
             false,
+            false,
         )
         .await
         .unwrap();
@@ -1948,6 +2065,7 @@ mod tests {
             None,
             None,
             Some(session.session_key.clone()),
+            false,
             false,
             false,
             false,
@@ -1982,6 +2100,7 @@ mod tests {
             None,
             Some("alpha".to_string()),
             None,
+            false,
             false,
             false,
             false,
@@ -2029,6 +2148,7 @@ mod tests {
             false,
             false,
             false,
+            false,
         )
         .await
         .unwrap();
@@ -2043,6 +2163,7 @@ mod tests {
             None,
             Some(session.session_key.clone()),
             true,
+            false,
             false,
             false,
             false,
@@ -2242,6 +2363,7 @@ mod tests {
             false,
             false,
             false,
+            false,
         )
         .await
         .unwrap();
@@ -2257,6 +2379,7 @@ mod tests {
             None,
             false,
             true,
+            false,
             false,
             false,
         )
@@ -2313,6 +2436,7 @@ mod tests {
             true,
             false,
             false,
+            false,
         )
         .await
         .unwrap();
@@ -2364,6 +2488,7 @@ mod tests {
             true,
             false,
             false,
+            false,
         )
         .await
         .unwrap();
@@ -2394,6 +2519,7 @@ mod tests {
             false,
             false,
             false,
+            false,
         )
         .await
         .unwrap();
@@ -2419,6 +2545,7 @@ mod tests {
             false,
             false,
             true,
+            false,
         )
         .await
         .unwrap();
@@ -2495,6 +2622,107 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mcp_server_event_tools_are_explicit_and_use_rust_core() {
+        let store = Arc::new(
+            MCPStore::setup_with_options(StoreOptions {
+                config_path: None,
+                source_mode: SourceMode::Db,
+                backend: Some(CacheStorage::Memory),
+                redis_url: None,
+                namespace: Some(unique_namespace()),
+            })
+            .unwrap(),
+        );
+        seed_db_service(&store, "alpha", "echo").await;
+        seed_global_agent_relation(&store, &["alpha"]).await;
+
+        let default_server = McpStoreServer::from_store(
+            Arc::clone(&store),
+            None,
+            None,
+            None,
+            false,
+            false,
+            false,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+        assert!(!default_server
+            .tools
+            .iter()
+            .any(|tool| tool.name.as_ref() == EVENT_HISTORY_TOOL));
+        assert!(!default_server
+            .tools
+            .iter()
+            .any(|tool| tool.name.as_ref() == EVENT_CAPABILITY_REPORT_TOOL));
+
+        let server = McpStoreServer::from_store(
+            Arc::clone(&store),
+            None,
+            None,
+            None,
+            false,
+            false,
+            false,
+            false,
+            true,
+        )
+        .await
+        .unwrap();
+        let tool_names = server
+            .tools
+            .iter()
+            .map(|tool| tool.name.as_ref().to_string())
+            .collect::<Vec<_>>();
+        assert!(tool_names.contains(&EVENT_HISTORY_TOOL.to_string()));
+        assert!(tool_names.contains(&EVENT_CAPABILITY_REPORT_TOOL.to_string()));
+        let history_tool = server.get_tool(EVENT_HISTORY_TOOL).unwrap();
+        assert!(history_tool.input_schema["properties"]
+            .as_object()
+            .unwrap()
+            .contains_key("count"));
+
+        store
+            .publish_event("MCP_EVENT_TOOL_TEST", serde_json::json!({"ok": true}), true)
+            .await
+            .unwrap();
+        let history_args = serde_json::json!({"count": 1})
+            .as_object()
+            .cloned()
+            .unwrap();
+        let history_result = call_event_tool(&store, EVENT_HISTORY_TOOL, history_args)
+            .await
+            .unwrap();
+        assert_eq!(
+            history_result.structured_content.as_ref().unwrap()["total"],
+            1
+        );
+        assert_eq!(
+            history_result.structured_content.as_ref().unwrap()["events"][0]["event_type"],
+            "MCP_EVENT_TOOL_TEST"
+        );
+
+        let report_result = call_event_tool(&store, EVENT_CAPABILITY_REPORT_TOOL, Map::new())
+            .await
+            .unwrap();
+        assert_eq!(
+            report_result.structured_content.as_ref().unwrap()["report"]["event_bus"],
+            true
+        );
+
+        let invalid_args = serde_json::json!({"count": 0})
+            .as_object()
+            .cloned()
+            .unwrap();
+        let invalid = call_event_tool(&store, EVENT_HISTORY_TOOL, invalid_args)
+            .await
+            .unwrap_err();
+        assert!(invalid.message.contains("count must be a positive integer"));
+    }
+
+    #[tokio::test]
     async fn mcp_server_openapi_tools_are_explicit_and_use_rust_core() {
         let store = Arc::new(
             MCPStore::setup_with_options(StoreOptions {
@@ -2518,6 +2746,7 @@ mod tests {
             false,
             false,
             false,
+            false,
         )
         .await
         .unwrap();
@@ -2534,6 +2763,7 @@ mod tests {
             false,
             false,
             true,
+            false,
             false,
         )
         .await
