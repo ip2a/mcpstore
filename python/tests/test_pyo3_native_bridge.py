@@ -1789,6 +1789,15 @@ paths:
         shared = context.create_session("shared_task", user_session_id="legacy")
         self.assertEqual(shared.metadata.user_session_id, "legacy")
         self.assertEqual(context.find_session("legacy", is_user_session_id=True), shared)
+        positional_shared = context.create_session(
+            "positional_shared_task",
+            "legacy-positional",
+            lease_seconds=240,
+            metadata={"purpose": "direct-context"},
+        )
+        self.assertEqual(positional_shared.metadata.user_session_id, "legacy-positional")
+        self.assertEqual(positional_shared.metadata.purpose, "direct-context")
+        self.assertEqual(positional_shared.lease_seconds, 240)
         with self.assertRaisesRegex(ValueError, "conflicts"):
             context.create_session(
                 "conflicting_shared_task",
@@ -4159,8 +4168,22 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertEqual(fake_backend.removed_services[-1], "svc")
         self.assertEqual(operations.show_mcpconfig().mcpServers.svc.command, "python")
         self.assertEqual(operations.get_agents_summary().total_agents, 1)
-        self.assertEqual(operations.create_shared_session("shared", "user-1").metadata.user_session_id, "user-1")
+        shared_session = operations.create_shared_session(
+            "shared",
+            "user-1",
+            lease_seconds=1800,
+            metadata={"purpose": "compat"},
+        )
+        self.assertEqual(shared_session.metadata.user_session_id, "user-1")
+        self.assertEqual(shared_session.metadata.purpose, "compat")
+        self.assertEqual(shared_session.lease_seconds, 1800)
         self.assertEqual(operations.find_user_session("user-1").session_id, "shared")
+        with self.assertRaisesRegex(ValueError, "conflicts"):
+            operations.create_shared_session(
+                "conflicting-shared",
+                "user-1",
+                metadata={"user_session_id": "different"},
+            )
         self.assertTrue(operations.register_session_globally("shared", "user-2"))
         self.assertEqual(operations.find_user_session("user-2").session_id, "shared")
         shared_session_key = operations.find_user_session("user-2").session_key

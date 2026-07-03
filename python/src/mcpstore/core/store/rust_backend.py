@@ -2458,6 +2458,17 @@ class RustSession:
         return _record_value(self._entity.get("metadata") or {})
 
     @property
+    def lease_seconds(self) -> Optional[int]:
+        self._context._backend.get_session_entity(self)
+        value = self._entity.get("lease_seconds")
+        return int(value) if value is not None else None
+
+    @property
+    def expires_at(self) -> Optional[Any]:
+        self._context._backend.get_session_entity(self)
+        return _record_value(self._entity.get("expires_at"))
+
+    @property
     def status(self) -> str:
         return str(self._context._backend.get_session_status(self).get("status") or "active")
 
@@ -3189,8 +3200,8 @@ class RustStoreContext:
     def create_session(
         self,
         session_id: str,
-        *,
         user_session_id: Optional[str] = None,
+        *,
         lease_seconds: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> RustSession:
@@ -3286,10 +3297,19 @@ class RustStoreContext:
     async def with_session_async(self, session_id: str) -> RustSession:
         return self.with_session(session_id)
 
-    def create_shared_session(self, session_id: str, shared_id: str) -> RustSession:
+    def create_shared_session(
+        self,
+        session_id: str,
+        shared_id: str,
+        *,
+        lease_seconds: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> RustSession:
         return self.create_session(
             session_id,
-            metadata={"user_session_id": shared_id},
+            user_session_id=shared_id,
+            lease_seconds=lease_seconds,
+            metadata=metadata,
         )
 
     def for_langchain_with_session(
