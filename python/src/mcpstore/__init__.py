@@ -32,10 +32,11 @@ def __getattr__(name: str):
         return globals()[name]
 
     # Cache config classes
-    if name in ("MemoryConfig", "RedisConfig", "OpenKeyvMemoryConfig"):
+    if name in ("MemoryConfig", "RedisConfig", "OpenKeyvMemoryConfig", "OpenKeyvRedisConfig"):
         from mcpstore.config import (
             MemoryConfig,
             OpenKeyvMemoryConfig,
+            OpenKeyvRedisConfig,
             RedisConfig,
         )
 
@@ -43,8 +44,24 @@ def __getattr__(name: str):
             "MemoryConfig": MemoryConfig,
             "RedisConfig": RedisConfig,
             "OpenKeyvMemoryConfig": OpenKeyvMemoryConfig,
+            "OpenKeyvRedisConfig": OpenKeyvRedisConfig,
         })
         return globals()[name]
+
+    if name in {
+        "api_agent_router",
+        "api_cache_router",
+        "api_main_router",
+        "api_session_router",
+        "api_set_store",
+        "api_store_router",
+        "get_store",
+    }:
+        from mcpstore import api as api_module
+
+        value = getattr(api_module, name)
+        globals()[name] = value
+        return value
 
     if name == "PerspectiveResolver":
         from mcpstore._rust import PerspectiveResolver
@@ -152,6 +169,16 @@ __all__ = [
     "MemoryConfig",
     "RedisConfig",
     "OpenKeyvMemoryConfig",
+    "OpenKeyvRedisConfig",
+
+    # FastAPI helpers
+    "api_agent_router",
+    "api_cache_router",
+    "api_main_router",
+    "api_session_router",
+    "api_set_store",
+    "api_store_router",
+    "get_store",
 
     # Utilities
     "PerspectiveResolver",
