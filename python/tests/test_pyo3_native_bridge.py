@@ -2849,6 +2849,28 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         cmd = run.call_args.args[0]
         self.assertIn("--expose-cache-tools", cmd)
 
+    def test_hub_http_can_expose_rust_event_observability_tools(self):
+        from mcpstore.config import MemoryConfig
+        from mcpstore.core.store.rust_backend import RustStoreBackend
+
+        store = RustStoreBackend(object())
+        store._config_path = "mcp.json"
+        store._cache_config = MemoryConfig()
+        store._only_db = True
+
+        completed = type("Completed", (), {"returncode": 0})()
+        with patch("mcpstore._rust_cli.resolve_rust_cli_binary", return_value="/bin/mcpstore"):
+            with patch("mcpstore._rust_cli.resolve_runtime_cwd", return_value="/tmp"):
+                with patch("mcpstore.core.store.rust_backend.subprocess.run", return_value=completed) as run:
+                    code = store.for_store().hub_http(
+                        block=True,
+                        expose_event_tools=True,
+                    )
+
+        self.assertEqual(code, 0)
+        cmd = run.call_args.args[0]
+        self.assertIn("--expose-event-tools", cmd)
+
     def test_service_hub_http_delegates_service_scope_to_rust_mcp_server_cli(self):
         from mcpstore.config import MemoryConfig
         from mcpstore.core.store.rust_backend import RustStoreBackend
