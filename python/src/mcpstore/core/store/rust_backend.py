@@ -1294,6 +1294,7 @@ class RustStoreBackend:
         path: str = "/mcp",
         block: bool = False,
         expose_cache_tools: bool = False,
+        expose_event_tools: bool = False,
         **kwargs,
     ) -> Any:
         from mcpstore._rust_cli import resolve_rust_cli_binary, resolve_runtime_cwd
@@ -1335,6 +1336,8 @@ class RustStoreBackend:
             cmd.extend(["--source", "db"])
         if expose_cache_tools:
             cmd.append("--expose-cache-tools")
+        if expose_event_tools:
+            cmd.append("--expose-event-tools")
 
         backend, redis_url, namespace = self._cache_options(self._cache_config)
         if backend:
