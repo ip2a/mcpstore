@@ -2386,28 +2386,35 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertEqual([tool.name for tool in agent.list_tools(filter="available")], ["alpha", "beta"])
 
         self.assertIs(agent.remove_tools(service="svc", tools="_all_tools"), agent)
+        self.assertIs(asyncio.run(agent.remove_tools_async(service="svc", tools="_all_tools")), agent)
         self.assertEqual(agent.list_tools(filter="available"), [])
         self.assertEqual([tool.name for tool in agent.list_tools(filter="removed")], ["alpha", "beta"])
 
         self.assertIs(agent.add_tools(service="svc", tools=["alpha"]), agent)
+        self.assertIs(asyncio.run(agent.add_tools_async(service="svc", tools=["alpha"])), agent)
         self.assertEqual([tool.name for tool in agent.list_tools(filter="available")], ["alpha"])
         info = agent.get_tool_set_info(service="svc")
         self.assertEqual(info.total_tools, 2)
         self.assertEqual(info.available_tools, 1)
         self.assertEqual(info.removed_tools, 1)
+        self.assertEqual(asyncio.run(agent.get_tool_set_info_async(service="svc")).available_tools, 1)
 
         summary = agent.get_tool_set_summary()
         self.assertEqual(summary.agent_id, "agent-a")
         self.assertEqual(summary.total_services, 1)
+        self.assertEqual(asyncio.run(agent.get_tool_set_summary_async()).total_services, 1)
         tools_with_stats = agent.get_tools_with_stats()
         self.assertEqual(tools_with_stats.metadata.total_tools, 1)
         self.assertEqual(tools_with_stats.metadata.services_count, 1)
         self.assertEqual(tools_with_stats.metadata.tools_by_service.svc, 1)
+        self.assertEqual(asyncio.run(agent.get_tools_with_stats_async()).metadata.total_tools, 1)
         self.assertEqual(agent.get_system_stats().agent_id, "agent-a")
+        self.assertEqual(asyncio.run(agent.get_system_stats_async()).agent_id, "agent-a")
 
         service_proxy = agent.find_service("svc")
         self.assertTrue(service_proxy.is_agent_scoped)
         self.assertIs(agent.reset_tools(service=service_proxy), agent)
+        self.assertIs(asyncio.run(agent.reset_tools_async(service=service_proxy)), agent)
         self.assertEqual([tool.name for tool in agent.list_tools(filter="available")], ["alpha", "beta"])
 
         other_agent = RustStoreContext(backend, agent_id="agent-b")
@@ -4031,6 +4038,9 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                     for service in self.services.values()
                 ]
 
+            def list_services(self):
+                return self.list_services_scoped(None)
+
             def list_tools_scoped(self, agent_id=None, service_name=None):
                 return [{"name": "echo", "service_name": service_name or "svc", "agent_id": agent_id}]
 
@@ -4284,6 +4294,13 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertIn("svc", fake_backend.services)
         self.assertTrue(asyncio.run(context.reset_config_async()))
         self.assertEqual(fake_backend.reset_calls[-1], ("store", None))
+        self.assertGreaterEqual(asyncio.run(context.get_stats_async()).service_count, 1)
+        self.assertEqual(asyncio.run(context.get_agents_summary_async()).total_agents, 1)
+        self.assertTrue(asyncio.run(context.list_changed_tools_async("svc", force_refresh=True)).changed)
+        self.assertTrue(asyncio.run(context.setup_config_async()).event_capability.history)
+        self.assertIs(asyncio.run(context.switch_cache_async({"type": "memory"})), context)
+        self.assertEqual(fake_backend.switched_caches[-1], ("memory", None, None))
+        self.assertEqual(asyncio.run(context.init_service_async(service_name="svc")).health_status, "ready")
         agent_context = context.find_agent("agent_a")
         self.assertEqual(asyncio.run(agent_context.list_services_async())[0].agent_id, "agent_a")
         self.assertEqual(asyncio.run(agent_context.show_config_async("mcp")).mcpServers.svc.command, "python")
@@ -4390,6 +4407,11 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertTrue(two_step["step1_config_removal"])
         self.assertTrue(two_step["step2_registry_cleanup"])
         self.assertEqual(fake_backend.removed_services[-1], "svc")
+        direct_two_step = asyncio.run(context.delete_service_two_step("svc"))
+        self.assertTrue(direct_two_step.overall_success)
+        self.assertTrue(direct_two_step.step1_config_removal)
+        self.assertTrue(direct_two_step.step2_registry_cleanup)
+        self.assertEqual(fake_backend.removed_services[-1], "svc")
         self.assertTrue(operations.switch_cache({"type": "memory"}))
         self.assertEqual(fake_backend.switched_caches[-1], ("memory", None, None))
         self.assertTrue(asyncio.run(operations.switch_cache_async({"type": "memory"})))
@@ -4458,6 +4480,15 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertEqual(add_details.service_details.new.command, "python")
         self.assertEqual(add_details.total_services, 2)
         self.assertEqual(add_details.total_tools, 1)
+        self.assertTrue(asyncio.run(context.add_service_with_details_async({"name": "details", "command": "python"})).success)
+        self.assertEqual(
+            asyncio.run(
+                context.batch_add_services_async(
+                    [{"name": "batch_a", "command": "python"}, {"name": "batch_b", "command": "python"}]
+                )
+            ).count,
+            2,
+        )
         self.assertEqual(context.init_service("svc").health_status, "ready")
         direct_sessions = context.list_agent_sessions()
         self.assertEqual({session.session_id for session in direct_sessions}, {"shared", "auto_session_default"})
@@ -4472,6 +4503,11 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertTrue(operations.last_openapi_import().runtime_executable)
         self.assertIs(context.import_api("https://example.test/direct-openapi.json", "direct"), context)
         self.assertEqual(context.last_openapi_import().service_name, "direct")
+        self.assertIs(
+            asyncio.run(context.import_api_async("https://example.test/direct-async-openapi.json", "direct_async")),
+            context,
+        )
+        self.assertEqual(context.last_openapi_import().service_name, "direct_async")
         self.assertIs(
             context.import_api_from_spec(
                 {"openapi": "3.0.0", "info": {"title": "Example", "version": "1.0"}},
