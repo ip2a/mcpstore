@@ -5,6 +5,22 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 use tokio::io::AsyncReadExt;
 
+struct ApiProcess {
+    child: tokio::process::Child,
+    stdout_task: tokio::task::JoinHandle<Result<String, std::io::Error>>,
+    stderr_task: tokio::task::JoinHandle<Result<String, std::io::Error>>,
+}
+
+impl ApiProcess {
+    async fn stop(mut self) -> Result<(String, String), Box<dyn std::error::Error>> {
+        let _ = self.child.kill().await;
+        let _ = self.child.wait().await;
+        let stdout = self.stdout_task.await??;
+        let stderr = self.stderr_task.await??;
+        Ok((stdout, stderr))
+    }
+}
+
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
@@ -63,6 +79,45 @@ fn assert_success(output: &Output, step: &str) -> String {
         );
     }
     String::from_utf8_lossy(&output.stdout).to_string()
+}
+
+fn unique_namespace() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time before unix epoch")
+        .as_nanos();
+    format!("mcpstore-api-flow-{nanos}")
+}
+
+async fn spawn_api_process(args: &[&str]) -> Result<ApiProcess, Box<dyn std::error::Error>> {
+    let mut child = tokio::process::Command::new(cli_bin())
+        .args(args)
+        .current_dir(rust_root())
+        .kill_on_drop(true)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+
+    let stdout = child.stdout.take().expect("stdout must be piped");
+    let stderr = child.stderr.take().expect("stderr must be piped");
+    let stdout_task = tokio::spawn(async move {
+        let mut stdout = stdout;
+        let mut buffer = String::new();
+        stdout.read_to_string(&mut buffer).await?;
+        Ok::<_, std::io::Error>(buffer)
+    });
+    let stderr_task = tokio::spawn(async move {
+        let mut stderr = stderr;
+        let mut buffer = String::new();
+        stderr.read_to_string(&mut buffer).await?;
+        Ok::<_, std::io::Error>(buffer)
+    });
+
+    Ok(ApiProcess {
+        child,
+        stdout_task,
+        stderr_task,
+    })
 }
 
 #[tokio::test]
@@ -394,4 +449,144 @@ async fn wait_until_ready(
     }
 
     Err(format!("等待 Rust API 就绪超时: {last_error}").into())
+}
+
+#[tokio::test]
+async fn api_processes_share_session_state_through_redis_backend(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let Ok(redis_url) = std::env::var("MCPSTORE_TEST_REDIS_URL") else {
+        eprintln!("skipping redis integration test: MCPSTORE_TEST_REDIS_URL is not set");
+        return Ok(());
+    };
+
+    let namespace = unique_namespace();
+    let port_a = reserve_local_port();
+    let port_b = reserve_local_port();
+
+    let mut api_a = Some(
+        spawn_api_process(&[
+            "api",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            &port_a.to_string(),
+            "--source",
+            "db",
+            "--redis-url",
+            &redis_url,
+            "--namespace",
+            &namespace,
+        ])
+        .await?,
+    );
+    let mut api_b = Some(
+        spawn_api_process(&[
+            "api",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            &port_b.to_string(),
+            "--source",
+            "db",
+            "--redis-url",
+            &redis_url,
+            "--namespace",
+            &namespace,
+        ])
+        .await?,
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()?;
+    let base_a = format!("http://127.0.0.1:{port_a}");
+    let base_b = format!("http://127.0.0.1:{port_b}");
+
+    if let Err(error) = wait_until_ready(&client, &base_a).await {
+        let (stdout, stderr) = api_a.take().unwrap().stop().await?;
+        let _ = api_b.take().unwrap().stop().await?;
+        return Err(format!(
+            "Rust API A 服务启动失败: {error}\nstdout=\n{stdout}\nstderr=\n{stderr}"
+        )
+        .into());
+    }
+    if let Err(error) = wait_until_ready(&client, &base_b).await {
+        let _ = api_a.take().unwrap().stop().await?;
+        let (stdout, stderr) = api_b.take().unwrap().stop().await?;
+        return Err(format!(
+            "Rust API B 服务启动失败: {error}\nstdout=\n{stdout}\nstderr=\n{stderr}"
+        )
+        .into());
+    }
+
+    let health_a = client.get(format!("{base_a}/health")).send().await?;
+    assert!(health_a.status().is_success());
+    let health_a_payload = health_a.json::<Value>().await?;
+    assert_eq!(health_a_payload["backend"], "redis");
+
+    let create = client
+        .post(format!("{base_a}/sessions/create"))
+        .json(&json!({
+            "session_id": "redis-api-session",
+            "lease_seconds": 60,
+            "metadata": {"owner": "api-redis-flow"},
+        }))
+        .send()
+        .await?;
+    assert!(create.status().is_success());
+    let create_payload = create.json::<Value>().await?;
+    let session_key = create_payload["data"]["session"]["session_key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let set_state = client
+        .post(format!("{base_a}/sessions/state/set"))
+        .json(&json!({
+            "session_key": session_key,
+            "key": "cursor",
+            "value": {"page": 7},
+        }))
+        .send()
+        .await?;
+    assert!(set_state.status().is_success());
+
+    let read_from_b = client
+        .get(format!("{base_b}/sessions/state/value"))
+        .query(&[("session_key", session_key.as_str()), ("key", "cursor")])
+        .send()
+        .await?;
+    assert!(read_from_b.status().is_success());
+    let read_from_b_payload = read_from_b.json::<Value>().await?;
+    assert_eq!(read_from_b_payload["data"]["value"]["page"], 7);
+
+    let close_from_b = client
+        .post(format!("{base_b}/sessions/close"))
+        .json(&json!({"session_key": session_key, "reason": "closed-by-peer"}))
+        .send()
+        .await?;
+    assert!(close_from_b.status().is_success());
+
+    let write_after_close_from_a = client
+        .post(format!("{base_a}/sessions/state/set"))
+        .json(&json!({
+            "session_key": session_key,
+            "key": "after_close",
+            "value": true,
+        }))
+        .send()
+        .await?;
+    assert_eq!(
+        write_after_close_from_a.status(),
+        axum::http::StatusCode::CONFLICT
+    );
+    let write_after_close_payload = write_after_close_from_a.json::<Value>().await?;
+    assert_eq!(
+        write_after_close_payload["errors"][0]["code"],
+        "SESSION_NOT_ACTIVE"
+    );
+
+    let _ = api_a.take().unwrap().stop().await?;
+    let _ = api_b.take().unwrap().stop().await?;
+    Ok(())
 }
