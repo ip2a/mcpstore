@@ -2,15 +2,26 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 
 class SessionManagementMixin:
     """Compatibility mixin delegating session lifecycle to Rust core."""
 
-    def create_session(self, session_id: str, user_session_id: Optional[str] = None):
-        metadata = {"user_session_id": user_session_id} if user_session_id else None
-        return self._rust_context().create_session(session_id, metadata=metadata)
+    def create_session(
+        self,
+        session_id: str,
+        user_session_id: Optional[str] = None,
+        *,
+        lease_seconds: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        return self._rust_context().create_session(
+            session_id,
+            user_session_id=user_session_id,
+            lease_seconds=lease_seconds,
+            metadata=metadata,
+        )
 
     def find_session(self, session_id: Optional[str] = None, is_user_session_id: bool = False):
         if is_user_session_id:
@@ -70,8 +81,20 @@ class SessionManagementMixin:
     def import_sessions_snapshot(self, snapshot):
         return self._rust_context().import_sessions_snapshot(snapshot)
 
-    def create_shared_session(self, session_id: str, shared_id: str):
-        return self.create_session(session_id, user_session_id=shared_id)
+    def create_shared_session(
+        self,
+        session_id: str,
+        shared_id: str,
+        *,
+        lease_seconds: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        return self.create_session(
+            session_id,
+            user_session_id=shared_id,
+            lease_seconds=lease_seconds,
+            metadata=metadata,
+        )
 
     def for_langchain_with_session(self, session_id: str, create_if_not_exists: bool = True):
         session = self.find_session(session_id)
