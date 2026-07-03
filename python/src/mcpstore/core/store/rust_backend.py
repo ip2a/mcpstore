@@ -3602,9 +3602,16 @@ class RustStoreContext:
         service_name = self._resolve_service_name(name)
         return self._backend.disconnect_service(service_name)
 
+    async def disconnect_service_async(self, name: str, reason: str = "user_requested") -> bool:
+        _ = reason
+        return self.disconnect_service(name)
+
     def connect_service(self, name: str) -> bool:
         service_name = self._resolve_service_name(name)
         return self._backend.connect_service(service_name)
+
+    async def connect_service_async(self, name: str) -> bool:
+        return self.connect_service(name)
 
     def event_history(self, count: int = 100) -> List[Dict[str, Any]]:
         return self._backend.event_history(count)

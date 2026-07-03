@@ -152,8 +152,15 @@ class ServiceOperationsMixin:
     def connect_service(self, name: str):
         return self._rust_context().connect_service(name)
 
+    async def connect_service_async(self, name: str):
+        return self.connect_service(name)
+
     def disconnect_service(self, name: str):
         return self._rust_context().disconnect_service(name)
+
+    async def disconnect_service_async(self, name: str, reason: str = "user_requested"):
+        _ = reason
+        return self.disconnect_service(name)
 
     def show_config(self, scope: str = "all"):
         return self._rust_context().show_config(scope)

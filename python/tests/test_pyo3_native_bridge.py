@@ -3743,6 +3743,8 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 self.session_tool_calls = []
                 self.find_service_calls = []
                 self.switched_caches = []
+                self.connected_services = []
+                self.disconnected_services = []
                 self.services = {"svc": {"name": "svc", "transport": "stdio", "agent_id": None}}
 
             def find_session(self, session_id, scope, agent_id):
@@ -4094,6 +4096,14 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             def service_status_scoped(self, agent_id, service_name):
                 return {"status": "connected", "service_name": service_name, "agent_id": agent_id}
 
+            def connect_service(self, name):
+                self.connected_services.append(name)
+                return True
+
+            def disconnect_service(self, name):
+                self.disconnected_services.append(name)
+                return True
+
             def wait_service_ready(self, name, timeout=10.0):
                 return {"service_global_name": name, "health_status": "ready"}
 
@@ -4241,6 +4251,14 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertEqual(operations.init_service("svc").health_status, "ready")
         self.assertEqual(operations.service_info("svc").name, "svc")
         self.assertEqual(operations.service_status("svc").status, "connected")
+        self.assertTrue(asyncio.run(context.connect_service_async("svc")))
+        self.assertEqual(fake_backend.connected_services[-1], "svc")
+        self.assertTrue(asyncio.run(context.disconnect_service_async("svc")))
+        self.assertEqual(fake_backend.disconnected_services[-1], "svc")
+        self.assertTrue(asyncio.run(operations.connect_service_async("svc")))
+        self.assertEqual(fake_backend.connected_services[-1], "svc")
+        self.assertTrue(asyncio.run(operations.disconnect_service_async("svc", reason="test")))
+        self.assertEqual(fake_backend.disconnected_services[-1], "svc")
 
         fake_backend.find_service_calls.clear()
         async_safe = AsyncSafeServiceManagementFactory.create_service_management(context)
