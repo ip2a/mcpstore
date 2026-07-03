@@ -3671,6 +3671,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         from mcpstore.core.store import (
             CacheProxy as StoreCacheProxy,
             ClientManager,
+            ConfigManagementMixin,
             MCPStoreContext as StoreMCPStoreContext,
             RustCacheProxy,
             RustServiceProxy,
@@ -3722,6 +3723,8 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertIs(StoreServiceProxy, RustServiceProxy)
         self.assertIs(StoreToolProxy, RustToolProxy)
         self.assertIs(StoreCacheProxy, RustCacheProxy)
+        from mcpstore.core.store.config_management import ConfigManagementMixin as ConfigManagementModuleExport
+        self.assertIs(ConfigManagementModuleExport, ConfigManagementMixin)
         self.assertEqual(ClientManager().global_agent_store_id, "global_agent_store")
 
         class FakeBackend:
@@ -4263,6 +4266,19 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertTrue(operations.delete_config("svc"))
         self.assertEqual(fake_backend.removed_services[-1], "svc")
         self.assertEqual(operations.show_mcpconfig().mcpServers.svc.command, "python")
+
+        class ConfigCompat(ConfigManagementMixin):
+            def __init__(self, rust_context):
+                self._context = rust_context
+
+        config_compat = ConfigCompat(context)
+        self.assertEqual(config_compat.show_mcpjson().mcpServers.svc.command, "python")
+        self.assertEqual(config_compat.show_mcpconfig().mcpServers.svc.command, "python")
+        self.assertEqual(config_compat.get_json_config().scope, "all")
+        with self.assertRaisesRegex(NotImplementedError, "legacy Python client manager"):
+            config_compat.get_json_config("client-1")
+        with self.assertRaisesRegex(NotImplementedError, "legacy Python configuration manager"):
+            config_compat.get_unified_config()
         self.assertEqual(operations.get_agents_summary().total_agents, 1)
         shared_session = operations.create_shared_session(
             "shared",
