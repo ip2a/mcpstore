@@ -5,14 +5,14 @@ from typing import Any
 from .advanced_features import AdvancedFeaturesMixin
 from .agent_statistics import AgentStatisticsMixin
 from .resources_prompts import ResourcesPromptsMixin
-from .service_operations import ServiceOperationsMixin
+from .service_management import ServiceManagementMixin
 from .session_management import SessionManagementMixin
 from .tool_operations import ToolOperationsMixin
 from mcpstore.core.store.rust_backend import RustStoreContext
 
 
 class StoreProxy(
-    ServiceOperationsMixin,
+    ServiceManagementMixin,
     ToolOperationsMixin,
     SessionManagementMixin,
     AdvancedFeaturesMixin,

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+
+from .service_operations import ServiceOperationsMixin
 
 
 class UpdateServiceAuthHelper:
@@ -43,4 +45,73 @@ class UpdateServiceAuthHelper:
         return self._context
 
 
-__all__ = ["UpdateServiceAuthHelper"]
+class ServiceManagementMixin(ServiceOperationsMixin):
+    """Historical service-management API backed by RustStoreContext."""
+
+    @staticmethod
+    def _apply_auth_to_update_config(
+        config: Optional[Dict[str, Any]] = None,
+        auth: Optional[str] = None,
+        token: Optional[str] = None,
+        api_key: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        if config is not None and not isinstance(config, dict):
+            raise ValueError("Service update config must be a dict")
+
+        final_config = dict(config or {})
+        final_headers = dict(final_config.get("headers") or {})
+        final_headers.update(headers or {})
+
+        bearer = token or auth
+        if bearer:
+            final_headers["Authorization"] = f"Bearer {bearer}"
+        if api_key:
+            final_headers["X-API-Key"] = api_key
+        if final_headers:
+            final_config["headers"] = final_headers
+        return final_config
+
+    def update_service(
+        self,
+        name: str,
+        config: Optional[Dict[str, Any]] = None,
+        auth: Optional[str] = None,
+        token: Optional[str] = None,
+        api_key: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None,
+    ):
+        if config is None and not any([auth, token, api_key, headers]):
+            return UpdateServiceAuthHelper(self, name, {})
+
+        final_config = self._apply_auth_to_update_config(
+            config,
+            auth=auth,
+            token=token,
+            api_key=api_key,
+            headers=headers,
+        )
+        ServiceOperationsMixin.update_service(self, name, final_config)
+        return self
+
+    async def update_service_async(
+        self,
+        name: str,
+        config: Optional[Dict[str, Any]] = None,
+        auth: Optional[str] = None,
+        token: Optional[str] = None,
+        api_key: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None,
+    ):
+        result = self.update_service(
+            name,
+            config,
+            auth=auth,
+            token=token,
+            api_key=api_key,
+            headers=headers,
+        )
+        return result
+
+
+__all__ = ["ServiceManagementMixin", "UpdateServiceAuthHelper"]
