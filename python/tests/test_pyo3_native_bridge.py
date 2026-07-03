@@ -1226,11 +1226,16 @@ paths:
         self.assertEqual(asyncio.run(agent.get_stats_async()).healthy_services, 1)
         self.assertEqual(agent.map_global("svc"), "svc_byagent_agent-a")
         self.assertEqual(agent.map_local("svc_byagent_agent-a"), "svc")
-        self.assertEqual(context.wait_service("demo", status="healthy").health_status, "ready")
+        ready_wait = context.wait_service("demo", status="healthy")
+        self.assertTrue(ready_wait.success)
+        self.assertEqual(ready_wait.health_status, "ready")
         self.assertEqual(context.wait_service("demo", status=["healthy", "warning"]).health_status, "ready")
         self.assertEqual(context.wait_services(["demo"], status="healthy")["demo"].health_status, "ready")
+        failed_wait = context.wait_service("demo", status="degraded")
+        self.assertFalse(failed_wait.success)
+        self.assertIn("expected", failed_wait.error)
         with self.assertRaises(TimeoutError):
-            context.wait_service("demo", status="degraded")
+            context.wait_service("demo", status="degraded", raise_on_timeout=True)
         self.assertTrue(service.restart_service())
         self.assertTrue(service.delete_service())
         self.assertEqual(
@@ -2757,12 +2762,12 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertEqual(namespace, "team")
 
     def test_start_api_server_delegates_to_rust_cli(self):
-        from mcpstore.config import MemoryConfig
+        from mcpstore.config import RedisConfig
         from mcpstore.core.store.rust_backend import RustStoreBackend
 
         store = RustStoreBackend(object())
         store._config_path = "mcp.json"
-        store._cache_config = MemoryConfig()
+        store._cache_config = RedisConfig(url="redis://localhost:6379/1", namespace="team")
         store._only_db = True
 
         completed = type("Completed", (), {"returncode": 0})()
@@ -2782,6 +2787,10 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertIn("--config-path", cmd)
         self.assertIn("--source", cmd)
         self.assertIn("--backend", cmd)
+        self.assertEqual(cmd[cmd.index("--source") + 1], "db")
+        self.assertEqual(cmd[cmd.index("--backend") + 1], "redis")
+        self.assertEqual(cmd[cmd.index("--redis-url") + 1], "redis://localhost:6379/1")
+        self.assertEqual(cmd[cmd.index("--namespace") + 1], "team")
 
     def test_server_launch_rejects_unsupported_python_only_options(self):
         from mcpstore.core.store.rust_backend import RustStoreBackend
@@ -2798,12 +2807,12 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             store.for_store().hub_http(legacy=True)
 
     def test_hub_http_delegates_to_rust_mcp_server_cli(self):
-        from mcpstore.config import MemoryConfig
+        from mcpstore.config import RedisConfig
         from mcpstore.core.store.rust_backend import RustStoreBackend
 
         store = RustStoreBackend(object())
         store._config_path = "mcp.json"
-        store._cache_config = MemoryConfig()
+        store._cache_config = RedisConfig(url="redis://localhost:6379/1", namespace="team")
         store._only_db = True
 
         completed = type("Completed", (), {"returncode": 0})()
@@ -2826,6 +2835,11 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertIn("agent-a", cmd)
         self.assertIn("--config-path", cmd)
         self.assertIn("--source", cmd)
+        self.assertIn("--backend", cmd)
+        self.assertEqual(cmd[cmd.index("--source") + 1], "db")
+        self.assertEqual(cmd[cmd.index("--backend") + 1], "redis")
+        self.assertEqual(cmd[cmd.index("--redis-url") + 1], "redis://localhost:6379/1")
+        self.assertEqual(cmd[cmd.index("--namespace") + 1], "team")
 
     def test_hub_http_can_expose_rust_cache_management_tools(self):
         from mcpstore.config import MemoryConfig
@@ -4128,6 +4142,14 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertEqual(operations.list_tools()[0].name, "echo")
         self.assertEqual(operations.call_tool("echo", {"text": "mix"}).text_output, "mix")
         self.assertEqual(operations.wait_service("svc").health_status, "ready")
+        self.assertEqual(
+            asyncio.run(operations.wait_service_async("svc", raise_on_timeout=True)).health_status,
+            "ready",
+        )
+        self.assertEqual(
+            asyncio.run(operations.wait_services_async(["svc"], raise_on_timeout=True))["svc"].health_status,
+            "ready",
+        )
         self.assertEqual(operations.init_service("svc").health_status, "ready")
         self.assertEqual(operations.service_info("svc").name, "svc")
         self.assertEqual(operations.service_status("svc").status, "connected")
@@ -4260,6 +4282,8 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         )
         self.assertEqual(asyncio.run(session.list_tools_async())[0].name, "echo")
         self.assertEqual(session.for_openai().execute_tool_call({"name": "echo", "arguments": {"text": "openai"}}), "openai")
+        semantic_functions = session.for_semantic_kernel().get_functions()
+        self.assertEqual(semantic_functions[0](text="semantic"), "semantic")
         self.assertIs(session.set_state("cursor", {"page": 7}), session)
         self.assertEqual(session.get_state("cursor").page, 7)
         self.assertEqual(session.state_values().cursor.page, 7)
@@ -4271,6 +4295,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 (session.session_key, "echo", {"text": "session"}),
                 (session.session_key, "echo", {"text": "session-async"}),
                 (session.session_key, "echo", {"text": "openai"}),
+                (session.session_key, "echo", {"text": "semantic"}),
             ],
         )
 

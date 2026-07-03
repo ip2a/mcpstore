@@ -2833,6 +2833,11 @@ class RustSession:
 
         return CrewAIAdapter(self)
 
+    def for_semantic_kernel(self):
+        from mcpstore.adapters.semantic_kernel_adapter import SemanticKernelAdapter
+
+        return SemanticKernelAdapter(self)
+
 
 class RustStoreContext:
     def __init__(self, backend: RustStoreBackend, agent_id: Optional[str] = None):
@@ -4071,29 +4076,54 @@ class RustStoreContext:
         name: str,
         status: Optional[Any] = None,
         timeout: float = 10.0,
+        raise_on_timeout: bool = False,
     ) -> Dict[str, Any]:
-        service_name = self._resolve_service_name(name)
-        result = self._backend.wait_service_ready(service_name, timeout)
-        targets = _normalize_status_targets(status)
-        if targets is None:
-            return result
-        actual = _status_value(result)
-        if actual in targets:
-            return result
-        raise TimeoutError(
-            f"Wait for service status timed out: {name} "
-            f"(expected={sorted(targets)}, actual={actual or 'unknown'})"
-        )
+        try:
+            service_name = self._resolve_service_name(name)
+            result = self._backend.wait_service_ready(service_name, timeout)
+            targets = _normalize_status_targets(status)
+            if targets is None:
+                return self._wait_success_result(result)
+            actual = _status_value(result)
+            if actual in targets:
+                return self._wait_success_result(result)
+            raise TimeoutError(
+                f"Wait for service status timed out: {name} "
+                f"(expected={sorted(targets)}, actual={actual or 'unknown'})"
+            )
+        except Exception as error:
+            if raise_on_timeout:
+                raise
+            return _record_value(
+                {
+                    "success": False,
+                    "service_name": name,
+                    "status": status,
+                    "error": str(error),
+                }
+            )
+
+    def _wait_success_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        if isinstance(result, dict) and "success" not in result:
+            result = dict(result)
+            result["success"] = True
+        return _record_value(result)
 
     def wait_services(
         self,
         names: List[str],
         status: Optional[Any] = None,
         timeout: float = 10.0,
+        raise_on_timeout: bool = False,
     ) -> Dict[str, Any]:
         results = {}
         for name in names:
-            results[name] = self.wait_service(name, status=status, timeout=timeout)
+            results[name] = self.wait_service(
+                name,
+                status=status,
+                timeout=timeout,
+                raise_on_timeout=raise_on_timeout,
+            )
         return _record_value(results)
 
     def init_service(
