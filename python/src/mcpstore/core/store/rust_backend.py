@@ -3022,10 +3022,16 @@ class RustStoreContext:
             }
         )
 
+    async def add_service_with_details_async(self, config: Any = None) -> Dict[str, Any]:
+        return self.add_service_with_details(config)
+
     def batch_add_services(self, services: Any) -> Dict[str, Any]:
         for service in services:
             self.add_service(service)
         return _record_value({"success": True, "count": len(services)})
+
+    async def batch_add_services_async(self, services: Any) -> Dict[str, Any]:
+        return self.batch_add_services(services)
 
     @property
     def agent_id(self) -> Optional[str]:
@@ -3201,6 +3207,9 @@ class RustStoreContext:
             self._set_visible_tools(service_name, visible - remove)
         return self
 
+    async def remove_tools_async(self, service: Any, tools: Any) -> "RustStoreContext":
+        return self.remove_tools(service, tools)
+
     def add_tools(self, service: Any, tools: Any) -> "RustStoreContext":
         for service_name in self._service_names_for_tool_scope(service):
             current = self._tool_visibility_for(service_name)
@@ -3212,10 +3221,16 @@ class RustStoreContext:
             self._set_visible_tools(service_name, visible)
         return self
 
+    async def add_tools_async(self, service: Any, tools: Any) -> "RustStoreContext":
+        return self.add_tools(service, tools)
+
     def reset_tools(self, service: Any) -> "RustStoreContext":
         for service_name in self._service_names_for_tool_scope(service):
             self._set_visible_tools(service_name, None)
         return self
+
+    async def reset_tools_async(self, service: Any) -> "RustStoreContext":
+        return self.reset_tools(service)
 
     def get_tool_set_info(self, service: Any) -> Dict[str, Any]:
         service_name = self._service_names_for_tool_scope(service)[0]
@@ -3232,6 +3247,9 @@ class RustStoreContext:
                 "utilization": (available / total) if total else 0.0,
             }
         )
+
+    async def get_tool_set_info_async(self, service: Any) -> Dict[str, Any]:
+        return self.get_tool_set_info(service)
 
     def get_tool_set_summary(self) -> Dict[str, Any]:
         services = {}
@@ -3252,6 +3270,9 @@ class RustStoreContext:
                 "services": services,
             }
         )
+
+    async def get_tool_set_summary_async(self) -> Dict[str, Any]:
+        return self.get_tool_set_summary()
 
     def get_tools_with_stats(self) -> Dict[str, Any]:
         tools = self.list_tools()
@@ -3277,8 +3298,14 @@ class RustStoreContext:
             }
         )
 
+    async def get_tools_with_stats_async(self) -> Dict[str, Any]:
+        return self.get_tools_with_stats()
+
     def get_system_stats(self) -> Dict[str, Any]:
         return self.get_stats()
+
+    async def get_system_stats_async(self) -> Dict[str, Any]:
+        return self.get_system_stats()
 
     def create_session(
         self,
@@ -3531,6 +3558,9 @@ class RustStoreContext:
             }
         )
 
+    async def get_stats_async(self) -> Dict[str, Any]:
+        return self.get_stats()
+
     def get_agents_summary(self) -> Dict[str, Any]:
         agents = []
         total_services = 0
@@ -3559,6 +3589,9 @@ class RustStoreContext:
             }
         )
 
+    async def get_agents_summary_async(self) -> Dict[str, Any]:
+        return self.get_agents_summary()
+
     def list_resources(self, service_name: Optional[str] = None) -> List[Dict[str, Any]]:
         return _record_value(
             self._backend.list_resources_scoped(self._agent_id, service_name)
@@ -3581,6 +3614,16 @@ class RustStoreContext:
                 service_name,
                 force_refresh=force_refresh,
             )
+        )
+
+    async def list_changed_tools_async(
+        self,
+        service_name: Optional[str] = None,
+        force_refresh: bool = False,
+    ) -> Dict[str, Any]:
+        return self.list_changed_tools(
+            service_name=service_name,
+            force_refresh=force_refresh,
         )
 
     def list_resource_templates(
@@ -3689,6 +3732,30 @@ class RustStoreContext:
 
     async def delete_config_async(self, name: str) -> bool:
         return self.delete_config(name)
+
+    async def delete_service_two_step(self, service_name: str) -> Dict[str, Any]:
+        result = {
+            "step1_config_removal": False,
+            "step2_registry_cleanup": False,
+            "step1_error": None,
+            "step2_error": None,
+            "overall_success": False,
+        }
+        try:
+            result["step1_config_removal"] = bool(self.delete_service(service_name))
+            if not result["step1_config_removal"]:
+                result["step1_error"] = "Failed to remove service from configuration"
+        except Exception as exc:
+            result["step1_error"] = f"Configuration removal failed: {exc}"
+
+        if result["step1_config_removal"]:
+            result["step2_registry_cleanup"] = True
+        else:
+            result["step2_error"] = "Rust service removal did not complete"
+        result["overall_success"] = bool(
+            result["step1_config_removal"] and result["step2_registry_cleanup"]
+        )
+        return _record_value(result)
 
     def restart_service(self, name: str) -> bool:
         service_name = self._resolve_service_name(name)
@@ -3913,6 +3980,27 @@ class RustStoreContext:
             fetch_timeout_millis=fetch_timeout_millis,
         )
         return self
+
+    async def import_api_async(
+        self,
+        api_url: str,
+        api_name: Optional[str] = None,
+        *,
+        headers: Optional[Dict[str, str]] = None,
+        auth: Optional[Dict[str, Any]] = None,
+        ref_cache: Optional[Dict[str, Any]] = None,
+        timeout_millis: Optional[int] = None,
+        fetch_timeout_millis: Optional[int] = None,
+    ) -> "RustStoreContext":
+        return self.import_api(
+            api_url,
+            api_name,
+            headers=headers,
+            auth=auth,
+            ref_cache=ref_cache,
+            timeout_millis=timeout_millis,
+            fetch_timeout_millis=fetch_timeout_millis,
+        )
 
     def import_openapi_service_from_spec(
         self,
@@ -4172,6 +4260,9 @@ class RustStoreContext:
             }
         )
 
+    async def setup_config_async(self) -> Dict[str, Any]:
+        return self.setup_config()
+
     def get_unified_config(self) -> Any:
         raise NotImplementedError(
             "get_unified_config() was part of the legacy Python configuration manager. "
@@ -4182,6 +4273,9 @@ class RustStoreContext:
     def switch_cache(self, cache_config: Any) -> "RustStoreContext":
         self._backend.switch_cache(cache_config)
         return self
+
+    async def switch_cache_async(self, cache_config: Any) -> "RustStoreContext":
+        return self.switch_cache(cache_config)
 
     def hub_http(
         self,
@@ -4376,6 +4470,19 @@ class RustStoreContext:
         if not target:
             raise ValueError("init_service requires a service name")
         return self.wait_service(target)
+
+    async def init_service_async(
+        self,
+        name: Optional[str] = None,
+        *,
+        client_id: Optional[str] = None,
+        service_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return self.init_service(
+            name,
+            client_id=client_id,
+            service_name=service_name,
+        )
 
     def _resolve_tool(self, tool_name: str) -> tuple[str, str]:
         active = self.active_session
