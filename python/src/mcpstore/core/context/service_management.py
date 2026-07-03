@@ -113,5 +113,38 @@ class ServiceManagementMixin(ServiceOperationsMixin):
         )
         return result
 
+    async def delete_service_two_step(self, service_name: str) -> Dict[str, Any]:
+        """Historical two-step delete result backed by Rust service removal."""
+
+        result = {
+            "step1_config_removal": False,
+            "step2_registry_cleanup": False,
+            "step1_error": None,
+            "step2_error": None,
+            "overall_success": False,
+        }
+        try:
+            result["step1_config_removal"] = bool(self.delete_service(service_name))
+            if not result["step1_config_removal"]:
+                result["step1_error"] = "Failed to remove service from configuration"
+        except Exception as exc:
+            result["step1_error"] = f"Configuration removal failed: {exc}"
+
+        if result["step1_config_removal"]:
+            result["step2_registry_cleanup"] = True
+        else:
+            result["step2_error"] = "Rust service removal did not complete"
+        result["overall_success"] = bool(
+            result["step1_config_removal"] and result["step2_registry_cleanup"]
+        )
+        return result
+
+    def switch_cache(self, cache_config: Any) -> bool:
+        self._rust_context().switch_cache(cache_config)
+        return True
+
+    async def switch_cache_async(self, cache_config: Any) -> bool:
+        return self.switch_cache(cache_config)
+
 
 __all__ = ["ServiceManagementMixin", "UpdateServiceAuthHelper"]
