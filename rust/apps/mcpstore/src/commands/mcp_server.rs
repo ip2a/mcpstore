@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use clap::{Args, ValueEnum};
 use mcpstore::{
-    perspective::GLOBAL_AGENT_STORE, CacheStorage, MCPStore, OpenApiBundleOptions,
-    OpenApiImportOptions, OpenApiRefCachePolicy, ToolTransformPatch,
+    config::ServerConfig, perspective::GLOBAL_AGENT_STORE, CacheStorage, MCPStore,
+    OpenApiBundleOptions, OpenApiImportOptions, OpenApiRefCachePolicy, ToolTransformPatch,
 };
 use rmcp::{
     model::{
@@ -97,6 +97,11 @@ pub struct McpServerArgs {
     pub expose_openapi_tools: bool,
     #[arg(
         long,
+        help = "Expose MCPStore service lifecycle management tools. Disabled by default."
+    )]
+    pub expose_service_tools: bool,
+    #[arg(
+        long,
         help = "Expose MCPStore cache backend management tools. Disabled by default."
     )]
     pub expose_cache_tools: bool,
@@ -123,6 +128,16 @@ const OPENAPI_IMPORT_GET_TOOL: &str = "mcpstore_openapi_import_get";
 const OPENAPI_IMPORT_SET_TOOL: &str = "mcpstore_openapi_import";
 const OPENAPI_BUNDLE_TOOL: &str = "mcpstore_openapi_bundle";
 const OPENAPI_BUNDLE_ARTIFACT_TOOL: &str = "mcpstore_openapi_bundle_artifact";
+const SERVICE_LIST_TOOL: &str = "mcpstore_service_list";
+const SERVICE_INFO_TOOL: &str = "mcpstore_service_info";
+const SERVICE_STATUS_TOOL: &str = "mcpstore_service_status";
+const SERVICE_CHECK_TOOL: &str = "mcpstore_service_check";
+const SERVICE_ADD_TOOL: &str = "mcpstore_service_add";
+const SERVICE_PATCH_TOOL: &str = "mcpstore_service_patch";
+const SERVICE_REMOVE_TOOL: &str = "mcpstore_service_remove";
+const SERVICE_CONNECT_TOOL: &str = "mcpstore_service_connect";
+const SERVICE_DISCONNECT_TOOL: &str = "mcpstore_service_disconnect";
+const SERVICE_RESTART_TOOL: &str = "mcpstore_service_restart";
 const CACHE_HEALTH_TOOL: &str = "mcpstore_cache_health";
 const CACHE_INSPECT_TOOL: &str = "mcpstore_cache_inspect";
 const CACHE_SWITCH_TOOL: &str = "mcpstore_cache_switch";
@@ -147,6 +162,7 @@ struct McpStoreServer {
     session_state_tools: Arc<HashMap<String, Tool>>,
     tool_transform_tools: Arc<HashMap<String, Tool>>,
     openapi_tools: Arc<HashMap<String, Tool>>,
+    service_tools: Arc<HashMap<String, Tool>>,
     cache_tools: Arc<HashMap<String, Tool>>,
     event_tools: Arc<HashMap<String, Tool>>,
     tools: Arc<Vec<Tool>>,
@@ -161,6 +177,7 @@ impl McpStoreServer {
         expose_session_state_tools: bool,
         expose_tool_transform_tools: bool,
         expose_openapi_tools: bool,
+        expose_service_tools: bool,
         expose_cache_tools: bool,
         expose_event_tools: bool,
     ) -> Result<Self, BoxErr> {
@@ -190,6 +207,11 @@ impl McpStoreServer {
         } else {
             HashMap::new()
         };
+        let service_tools = if expose_service_tools {
+            build_service_tools()
+        } else {
+            HashMap::new()
+        };
         let cache_tools = if expose_cache_tools {
             build_cache_tools()
         } else {
@@ -204,6 +226,7 @@ impl McpStoreServer {
             .keys()
             .chain(tool_transform_tools.keys())
             .chain(openapi_tools.keys())
+            .chain(service_tools.keys())
             .chain(cache_tools.keys())
             .chain(event_tools.keys())
         {
@@ -221,6 +244,7 @@ impl McpStoreServer {
         tools.extend(session_state_tools.values().cloned());
         tools.extend(tool_transform_tools.values().cloned());
         tools.extend(openapi_tools.values().cloned());
+        tools.extend(service_tools.values().cloned());
         tools.extend(cache_tools.values().cloned());
         tools.extend(event_tools.values().cloned());
         tools.sort_by(|left, right| left.name.cmp(&right.name));
@@ -248,6 +272,7 @@ impl McpStoreServer {
             session_state_tools: Arc::new(session_state_tools),
             tool_transform_tools: Arc::new(tool_transform_tools),
             openapi_tools: Arc::new(openapi_tools),
+            service_tools: Arc::new(service_tools),
             cache_tools: Arc::new(cache_tools),
             event_tools: Arc::new(event_tools),
             tools: Arc::new(tools),
@@ -280,6 +305,7 @@ impl McpStoreServer {
             .keys()
             .chain(self.tool_transform_tools.keys())
             .chain(self.openapi_tools.keys())
+            .chain(self.service_tools.keys())
             .chain(self.cache_tools.keys())
             .chain(self.event_tools.keys())
         {
@@ -300,6 +326,7 @@ impl McpStoreServer {
         tools.extend(self.session_state_tools.values().cloned());
         tools.extend(self.tool_transform_tools.values().cloned());
         tools.extend(self.openapi_tools.values().cloned());
+        tools.extend(self.service_tools.values().cloned());
         tools.extend(self.cache_tools.values().cloned());
         tools.extend(self.event_tools.values().cloned());
         tools.sort_by(|left, right| left.name.cmp(&right.name));
@@ -335,6 +362,7 @@ impl ServerHandler for McpStoreServer {
             .or_else(|| self.session_state_tools.get(name).cloned())
             .or_else(|| self.tool_transform_tools.get(name).cloned())
             .or_else(|| self.openapi_tools.get(name).cloned())
+            .or_else(|| self.service_tools.get(name).cloned())
             .or_else(|| self.cache_tools.get(name).cloned())
             .or_else(|| self.event_tools.get(name).cloned())
     }
@@ -477,6 +505,7 @@ impl ServerHandler for McpStoreServer {
         let is_session_state_tool = self.session_state_tools.contains_key(tool_name.as_str());
         let is_tool_transform_tool = self.tool_transform_tools.contains_key(tool_name.as_str());
         let is_openapi_tool = self.openapi_tools.contains_key(tool_name.as_str());
+        let is_service_tool = self.service_tools.contains_key(tool_name.as_str());
         let is_cache_tool = self.cache_tools.contains_key(tool_name.as_str());
         let is_event_tool = self.event_tools.contains_key(tool_name.as_str());
         let store = Arc::clone(&self.store);
@@ -501,6 +530,9 @@ impl ServerHandler for McpStoreServer {
             }
             if is_openapi_tool {
                 return call_openapi_tool(&store, &tool_name, arguments).await;
+            }
+            if is_service_tool {
+                return call_service_tool(&store, &tool_name, agent_id.as_deref(), arguments).await;
             }
             if is_cache_tool {
                 return call_cache_tool(&store, &tool_name, arguments).await;
@@ -603,6 +635,7 @@ pub async fn run(args: McpServerArgs) -> Result<(), BoxErr> {
         args.expose_session_state_tools,
         args.expose_tool_transform_tools,
         args.expose_openapi_tools,
+        args.expose_service_tools,
         args.expose_cache_tools,
         args.expose_event_tools,
     )
@@ -1162,6 +1195,74 @@ fn build_cache_tools() -> HashMap<String, Tool> {
     .collect()
 }
 
+fn build_service_tools() -> HashMap<String, Tool> {
+    [
+        service_tool(
+            SERVICE_LIST_TOOL,
+            "List MCPStore services in the current store or agent scope from Rust core.",
+            empty_object_schema(),
+            true,
+        ),
+        service_tool(
+            SERVICE_INFO_TOOL,
+            "Read one MCPStore service definition in the current store or agent scope from Rust core.",
+            service_name_schema(),
+            true,
+        ),
+        service_tool(
+            SERVICE_STATUS_TOOL,
+            "Read one MCPStore service status in the current store or agent scope from Rust core.",
+            service_name_schema(),
+            true,
+        ),
+        service_tool(
+            SERVICE_CHECK_TOOL,
+            "Run MCPStore service health checks in the current store or agent scope from Rust core.",
+            empty_object_schema(),
+            true,
+        ),
+        service_tool(
+            SERVICE_ADD_TOOL,
+            "Add one MCPStore service to the current store or agent scope through Rust core.",
+            service_add_schema(),
+            false,
+        ),
+        service_tool(
+            SERVICE_PATCH_TOOL,
+            "Patch one MCPStore service config in the current store or agent scope through Rust core.",
+            service_patch_schema(),
+            false,
+        ),
+        service_tool(
+            SERVICE_REMOVE_TOOL,
+            "Remove one MCPStore service in the current store or agent scope through Rust core.",
+            service_name_schema(),
+            false,
+        ),
+        service_tool(
+            SERVICE_CONNECT_TOOL,
+            "Connect one MCPStore service in the current store or agent scope through Rust core.",
+            service_name_schema(),
+            false,
+        ),
+        service_tool(
+            SERVICE_DISCONNECT_TOOL,
+            "Disconnect one MCPStore service in the current store or agent scope through Rust core.",
+            service_name_schema(),
+            false,
+        ),
+        service_tool(
+            SERVICE_RESTART_TOOL,
+            "Restart one MCPStore service in the current store or agent scope through Rust core.",
+            service_name_schema(),
+            false,
+        ),
+    ]
+    .into_iter()
+    .map(|tool| (tool.name.as_ref().to_string(), tool))
+    .collect()
+}
+
 fn build_event_tools() -> HashMap<String, Tool> {
     [
         event_tool(
@@ -1178,6 +1279,20 @@ fn build_event_tools() -> HashMap<String, Tool> {
     .into_iter()
     .map(|tool| (tool.name.as_ref().to_string(), tool))
     .collect()
+}
+
+fn service_tool(
+    name: &'static str,
+    description: &'static str,
+    schema: Map<String, Value>,
+    read_only: bool,
+) -> Tool {
+    let annotations = ToolAnnotations::new()
+        .read_only(read_only)
+        .destructive(matches!(name, SERVICE_REMOVE_TOOL))
+        .idempotent(read_only)
+        .open_world(false);
+    Tool::new(name, description, Arc::new(schema)).with_annotations(annotations)
 }
 
 fn event_tool(name: &'static str, description: &'static str, schema: Map<String, Value>) -> Tool {
@@ -1211,6 +1326,25 @@ fn empty_object_schema() -> Map<String, Value> {
     schema
 }
 
+fn object_schema(properties: Map<String, Value>, required: &[&str]) -> Map<String, Value> {
+    let mut schema = Map::new();
+    schema.insert("type".to_string(), Value::String("object".to_string()));
+    schema.insert("properties".to_string(), Value::Object(properties));
+    schema.insert("additionalProperties".to_string(), Value::Bool(false));
+    if !required.is_empty() {
+        schema.insert(
+            "required".to_string(),
+            Value::Array(
+                required
+                    .iter()
+                    .map(|field| Value::String((*field).to_string()))
+                    .collect(),
+            ),
+        );
+    }
+    schema
+}
+
 fn event_history_schema() -> Map<String, Value> {
     let mut properties = Map::new();
     properties.insert(
@@ -1227,6 +1361,56 @@ fn event_history_schema() -> Map<String, Value> {
     schema.insert("properties".to_string(), Value::Object(properties));
     schema.insert("additionalProperties".to_string(), Value::Bool(false));
     schema
+}
+
+fn service_name_schema() -> Map<String, Value> {
+    let mut properties = Map::new();
+    properties.insert(
+        "name".to_string(),
+        serde_json::json!({
+            "type": "string",
+            "description": "Service name. In agent scope this may be either the local service name or global service name."
+        }),
+    );
+    object_schema(properties, &["name"])
+}
+
+fn service_add_schema() -> Map<String, Value> {
+    let mut properties = Map::new();
+    properties.insert(
+        "name".to_string(),
+        serde_json::json!({
+            "type": "string",
+            "description": "Service name. In agent scope this is the local service name to add."
+        }),
+    );
+    properties.insert(
+        "config".to_string(),
+        serde_json::json!({
+            "type": "object",
+            "description": "MCP service config, for example command/args/env or url/headers/transport."
+        }),
+    );
+    object_schema(properties, &["name", "config"])
+}
+
+fn service_patch_schema() -> Map<String, Value> {
+    let mut properties = Map::new();
+    properties.insert(
+        "name".to_string(),
+        serde_json::json!({
+            "type": "string",
+            "description": "Service name. In agent scope this may be either the local service name or global service name."
+        }),
+    );
+    properties.insert(
+        "updates".to_string(),
+        serde_json::json!({
+            "type": "object",
+            "description": "Partial JSON object merged into the service config."
+        }),
+    );
+    object_schema(properties, &["name", "updates"])
 }
 
 fn cache_switch_schema() -> Map<String, Value> {
@@ -1283,6 +1467,116 @@ async fn call_event_tool(
         _ => {
             return Err(ErrorData::invalid_params(
                 format!("未知 MCPStore event 观测工具: {tool_name}"),
+                None,
+            ));
+        }
+    };
+    Ok(CallToolResult::structured(result))
+}
+
+async fn call_service_tool(
+    store: &MCPStore,
+    tool_name: &str,
+    agent_id: Option<&str>,
+    arguments: Map<String, Value>,
+) -> Result<CallToolResult, ErrorData> {
+    let result = match tool_name {
+        SERVICE_LIST_TOOL => {
+            let services = store
+                .list_services_scoped(agent_id)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"services": services, "total": services.len()})
+        }
+        SERVICE_INFO_TOOL => {
+            let name = required_argument_string(&arguments, "name")?;
+            let service = store
+                .service_info_scoped(agent_id, name)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"service": service})
+        }
+        SERVICE_STATUS_TOOL => {
+            let name = required_argument_string(&arguments, "name")?;
+            let status = store
+                .service_status_scoped(agent_id, name)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"status": status})
+        }
+        SERVICE_CHECK_TOOL => {
+            let checks = store
+                .check_services_scoped(agent_id)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"checks": checks})
+        }
+        SERVICE_ADD_TOOL => {
+            let name = required_argument_string(&arguments, "name")?.to_string();
+            let config = service_config_from_arguments(&arguments)?;
+            let global_name = if let Some(agent_id) = agent_id {
+                store
+                    .add_service_for_agent(agent_id, &name, config)
+                    .await
+                    .map_err(map_store_error)?
+            } else {
+                store
+                    .add_service(&name, config)
+                    .await
+                    .map_err(map_store_error)?;
+                name.clone()
+            };
+            serde_json::json!({"status": "ok", "name": name, "global_name": global_name})
+        }
+        SERVICE_PATCH_TOOL => {
+            let name = required_argument_string(&arguments, "name")?;
+            let updates = service_updates_from_arguments(&arguments)?;
+            let global_name = resolve_service_name_for_tool(store, agent_id, name).await?;
+            store
+                .patch_service(&global_name, updates)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"status": "ok", "name": name, "global_name": global_name})
+        }
+        SERVICE_REMOVE_TOOL => {
+            let name = required_argument_string(&arguments, "name")?;
+            let global_name = resolve_service_name_for_tool(store, agent_id, name).await?;
+            store
+                .remove_service(&global_name)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"status": "ok", "name": name, "global_name": global_name})
+        }
+        SERVICE_CONNECT_TOOL => {
+            let name = required_argument_string(&arguments, "name")?;
+            let global_name = resolve_service_name_for_tool(store, agent_id, name).await?;
+            store
+                .connect_service(&global_name)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"status": "ok", "name": name, "global_name": global_name})
+        }
+        SERVICE_DISCONNECT_TOOL => {
+            let name = required_argument_string(&arguments, "name")?;
+            let global_name = resolve_service_name_for_tool(store, agent_id, name).await?;
+            store
+                .disconnect_service(&global_name)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"status": "ok", "name": name, "global_name": global_name})
+        }
+        SERVICE_RESTART_TOOL => {
+            let name = required_argument_string(&arguments, "name")?;
+            let global_name = resolve_service_name_for_tool(store, agent_id, name).await?;
+            store
+                .restart_service(&global_name)
+                .await
+                .map_err(map_store_error)?;
+            serde_json::json!({"status": "ok", "name": name, "global_name": global_name})
+        }
+        _ => {
+            return Err(ErrorData::invalid_params(
+                format!("未知 MCPStore service 管理工具: {tool_name}"),
                 None,
             ));
         }
@@ -1671,6 +1965,46 @@ fn optional_positive_usize_argument(
     Ok(Some(parsed))
 }
 
+fn service_config_from_arguments(
+    arguments: &Map<String, Value>,
+) -> Result<ServerConfig, ErrorData> {
+    let config = arguments
+        .get("config")
+        .cloned()
+        .ok_or_else(|| ErrorData::invalid_params("缺少参数: config", None))?;
+    serde_json::from_value::<ServerConfig>(config)
+        .map_err(|error| ErrorData::invalid_params(format!("服务配置解析失败: {error}"), None))
+}
+
+fn service_updates_from_arguments(arguments: &Map<String, Value>) -> Result<Value, ErrorData> {
+    let updates = arguments
+        .get("updates")
+        .cloned()
+        .ok_or_else(|| ErrorData::invalid_params("缺少参数: updates", None))?;
+    if !updates.is_object() {
+        return Err(ErrorData::invalid_params(
+            "updates must be a JSON object",
+            None,
+        ));
+    }
+    Ok(updates)
+}
+
+async fn resolve_service_name_for_tool(
+    store: &MCPStore,
+    agent_id: Option<&str>,
+    service_name: &str,
+) -> Result<String, ErrorData> {
+    if let Some(agent_id) = agent_id {
+        store
+            .resolve_service_name_for_agent(agent_id, service_name)
+            .await
+            .map_err(map_store_error)
+    } else {
+        Ok(service_name.to_string())
+    }
+}
+
 fn parse_cache_storage_argument(value: &str) -> Result<CacheStorage, ErrorData> {
     match value {
         "memory" => Ok(CacheStorage::Memory),
@@ -1865,6 +2199,13 @@ mod tests {
         format!("mcp-server-session-test-{nanos}")
     }
 
+    fn temp_config_path() -> String {
+        std::env::temp_dir()
+            .join(format!("mcpstore-mcp-server-{}.json", unique_namespace()))
+            .to_string_lossy()
+            .to_string()
+    }
+
     fn stdio_config() -> ServerConfig {
         ServerConfig {
             url: None,
@@ -2043,6 +2384,7 @@ mod tests {
             false,
             false,
             false,
+            false,
         )
         .await
         .unwrap();
@@ -2065,6 +2407,7 @@ mod tests {
             None,
             None,
             Some(session.session_key.clone()),
+            false,
             false,
             false,
             false,
@@ -2100,6 +2443,7 @@ mod tests {
             None,
             Some("alpha".to_string()),
             None,
+            false,
             false,
             false,
             false,
@@ -2149,6 +2493,7 @@ mod tests {
             false,
             false,
             false,
+            false,
         )
         .await
         .unwrap();
@@ -2163,6 +2508,7 @@ mod tests {
             None,
             Some(session.session_key.clone()),
             true,
+            false,
             false,
             false,
             false,
@@ -2364,6 +2710,7 @@ mod tests {
             false,
             false,
             false,
+            false,
         )
         .await
         .unwrap();
@@ -2379,6 +2726,7 @@ mod tests {
             None,
             false,
             true,
+            false,
             false,
             false,
             false,
@@ -2437,6 +2785,7 @@ mod tests {
             false,
             false,
             false,
+            false,
         )
         .await
         .unwrap();
@@ -2489,10 +2838,235 @@ mod tests {
             false,
             false,
             false,
+            false,
         )
         .await
         .unwrap();
         assert!(restored_server.bindings.contains_key("alpha_echo"));
+    }
+
+    #[tokio::test]
+    async fn mcp_server_service_tools_are_explicit_and_use_rust_core() {
+        let store = Arc::new(
+            MCPStore::setup_with_options(StoreOptions {
+                config_path: Some(temp_config_path()),
+                source_mode: SourceMode::Local,
+                backend: Some(CacheStorage::Memory),
+                redis_url: None,
+                namespace: Some(unique_namespace()),
+            })
+            .unwrap(),
+        );
+
+        let default_server = McpStoreServer::from_store(
+            Arc::clone(&store),
+            None,
+            None,
+            None,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+        assert!(!default_server
+            .tools
+            .iter()
+            .any(|tool| tool.name.as_ref() == SERVICE_ADD_TOOL));
+
+        let server = McpStoreServer::from_store(
+            Arc::clone(&store),
+            None,
+            None,
+            None,
+            false,
+            false,
+            false,
+            true,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+        let tool_names = server
+            .tools
+            .iter()
+            .map(|tool| tool.name.as_ref().to_string())
+            .collect::<Vec<_>>();
+        assert!(tool_names.contains(&SERVICE_LIST_TOOL.to_string()));
+        assert!(tool_names.contains(&SERVICE_ADD_TOOL.to_string()));
+        assert!(tool_names.contains(&SERVICE_PATCH_TOOL.to_string()));
+        assert!(tool_names.contains(&SERVICE_REMOVE_TOOL.to_string()));
+        assert!(tool_names.contains(&SERVICE_CONNECT_TOOL.to_string()));
+        assert!(tool_names.contains(&SERVICE_DISCONNECT_TOOL.to_string()));
+        assert!(tool_names.contains(&SERVICE_RESTART_TOOL.to_string()));
+        let add_tool = server.get_tool(SERVICE_ADD_TOOL).unwrap();
+        assert!(add_tool.input_schema["properties"]
+            .as_object()
+            .unwrap()
+            .contains_key("config"));
+
+        let add_args = serde_json::json!({
+            "name": "alpha",
+            "config": {
+                "command": "echo",
+                "args": ["fixture"],
+                "transport": "stdio",
+                "description": "fixture"
+            }
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+        let add_result = call_service_tool(&store, SERVICE_ADD_TOOL, None, add_args)
+            .await
+            .unwrap();
+        assert_eq!(
+            add_result.structured_content.as_ref().unwrap()["status"],
+            "ok"
+        );
+
+        let list_result = call_service_tool(&store, SERVICE_LIST_TOOL, None, Map::new())
+            .await
+            .unwrap();
+        assert_eq!(list_result.structured_content.as_ref().unwrap()["total"], 1);
+
+        let info_args = serde_json::json!({"name": "alpha"})
+            .as_object()
+            .cloned()
+            .unwrap();
+        let info_result = call_service_tool(&store, SERVICE_INFO_TOOL, None, info_args.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            info_result.structured_content.as_ref().unwrap()["service"]["name"],
+            "alpha"
+        );
+
+        let status_result = call_service_tool(&store, SERVICE_STATUS_TOOL, None, info_args.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            status_result.structured_content.as_ref().unwrap()["status"]["service_global_name"],
+            "alpha"
+        );
+
+        let check_result = call_service_tool(&store, SERVICE_CHECK_TOOL, None, Map::new())
+            .await
+            .unwrap();
+        assert!(check_result.structured_content.as_ref().unwrap()["checks"]
+            .as_object()
+            .unwrap()
+            .contains_key("alpha"));
+
+        let patch_args = serde_json::json!({
+            "name": "alpha",
+            "updates": {"description": "patched"}
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+        let patch_result = call_service_tool(&store, SERVICE_PATCH_TOOL, None, patch_args)
+            .await
+            .unwrap();
+        assert_eq!(
+            patch_result.structured_content.as_ref().unwrap()["status"],
+            "ok"
+        );
+        let patched = store.service_info_scoped(None, "alpha").await.unwrap();
+        assert_eq!(patched["config"]["description"], "patched");
+
+        let remove_result = call_service_tool(&store, SERVICE_REMOVE_TOOL, None, info_args)
+            .await
+            .unwrap();
+        assert_eq!(
+            remove_result.structured_content.as_ref().unwrap()["status"],
+            "ok"
+        );
+        assert!(store.service_info_scoped(None, "alpha").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn mcp_server_service_tools_resolve_agent_local_service_names() {
+        let store = Arc::new(
+            MCPStore::setup_with_options(StoreOptions {
+                config_path: Some(temp_config_path()),
+                source_mode: SourceMode::Local,
+                backend: Some(CacheStorage::Memory),
+                redis_url: None,
+                namespace: Some(unique_namespace()),
+            })
+            .unwrap(),
+        );
+
+        let add_args = serde_json::json!({
+            "name": "alpha",
+            "config": {
+                "command": "echo",
+                "args": ["fixture"],
+                "transport": "stdio",
+                "description": "fixture"
+            }
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+        let add_result = call_service_tool(&store, SERVICE_ADD_TOOL, Some("agent-a"), add_args)
+            .await
+            .unwrap();
+        assert_eq!(
+            add_result.structured_content.as_ref().unwrap()["global_name"],
+            "alpha_byagent_agent-a"
+        );
+
+        let list_result = call_service_tool(&store, SERVICE_LIST_TOOL, Some("agent-a"), Map::new())
+            .await
+            .unwrap();
+        assert_eq!(list_result.structured_content.as_ref().unwrap()["total"], 1);
+        assert_eq!(
+            list_result.structured_content.as_ref().unwrap()["services"][0]["name"],
+            "alpha"
+        );
+        assert_eq!(
+            list_result.structured_content.as_ref().unwrap()["services"][0]["global_name"],
+            "alpha_byagent_agent-a"
+        );
+
+        let patch_args = serde_json::json!({
+            "name": "alpha",
+            "updates": {"description": "patched-agent"}
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+        let patch_result =
+            call_service_tool(&store, SERVICE_PATCH_TOOL, Some("agent-a"), patch_args)
+                .await
+                .unwrap();
+        assert_eq!(
+            patch_result.structured_content.as_ref().unwrap()["global_name"],
+            "alpha_byagent_agent-a"
+        );
+        let patched = store
+            .service_info_scoped(Some("agent-a"), "alpha")
+            .await
+            .unwrap();
+        assert_eq!(patched["config"]["description"], "patched-agent");
+
+        let remove_args = serde_json::json!({"name": "alpha"})
+            .as_object()
+            .cloned()
+            .unwrap();
+        call_service_tool(&store, SERVICE_REMOVE_TOOL, Some("agent-a"), remove_args)
+            .await
+            .unwrap();
+        assert!(store
+            .service_info_scoped(Some("agent-a"), "alpha")
+            .await
+            .is_err());
     }
 
     #[tokio::test]
@@ -2520,6 +3094,7 @@ mod tests {
             false,
             false,
             false,
+            false,
         )
         .await
         .unwrap();
@@ -2541,6 +3116,7 @@ mod tests {
             None,
             None,
             None,
+            false,
             false,
             false,
             false,
@@ -2646,6 +3222,7 @@ mod tests {
             false,
             false,
             false,
+            false,
         )
         .await
         .unwrap();
@@ -2663,6 +3240,7 @@ mod tests {
             None,
             None,
             None,
+            false,
             false,
             false,
             false,
@@ -2747,6 +3325,7 @@ mod tests {
             false,
             false,
             false,
+            false,
         )
         .await
         .unwrap();
@@ -2763,6 +3342,7 @@ mod tests {
             false,
             false,
             true,
+            false,
             false,
             false,
         )
