@@ -118,6 +118,8 @@ const OPENAPI_IMPORT_GET_TOOL: &str = "mcpstore_openapi_import_get";
 const OPENAPI_IMPORT_SET_TOOL: &str = "mcpstore_openapi_import";
 const OPENAPI_BUNDLE_TOOL: &str = "mcpstore_openapi_bundle";
 const OPENAPI_BUNDLE_ARTIFACT_TOOL: &str = "mcpstore_openapi_bundle_artifact";
+const CACHE_HEALTH_TOOL: &str = "mcpstore_cache_health";
+const CACHE_INSPECT_TOOL: &str = "mcpstore_cache_inspect";
 const CACHE_SWITCH_TOOL: &str = "mcpstore_cache_switch";
 
 #[derive(Clone)]
@@ -1110,23 +1112,51 @@ fn openapi_schema(
 }
 
 fn build_cache_tools() -> HashMap<String, Tool> {
-    [cache_tool(
-        CACHE_SWITCH_TOOL,
-        "Switch the MCPStore cache backend and migrate existing Rust core state into the target backend.",
-        cache_switch_schema(),
-    )]
+    [
+        cache_tool(
+            CACHE_HEALTH_TOOL,
+            "Read MCPStore cache backend health and collection coverage from Rust core.",
+            empty_object_schema(),
+            true,
+        ),
+        cache_tool(
+            CACHE_INSPECT_TOOL,
+            "Inspect MCPStore cache backend state, counts, collections, and request metrics from Rust core.",
+            empty_object_schema(),
+            true,
+        ),
+        cache_tool(
+            CACHE_SWITCH_TOOL,
+            "Switch the MCPStore cache backend and migrate existing Rust core state into the target backend.",
+            cache_switch_schema(),
+            false,
+        ),
+    ]
     .into_iter()
     .map(|tool| (tool.name.as_ref().to_string(), tool))
     .collect()
 }
 
-fn cache_tool(name: &'static str, description: &'static str, schema: Map<String, Value>) -> Tool {
+fn cache_tool(
+    name: &'static str,
+    description: &'static str,
+    schema: Map<String, Value>,
+    read_only: bool,
+) -> Tool {
     let annotations = ToolAnnotations::new()
-        .read_only(false)
+        .read_only(read_only)
         .destructive(false)
-        .idempotent(false)
+        .idempotent(read_only)
         .open_world(false);
     Tool::new(name, description, Arc::new(schema)).with_annotations(annotations)
+}
+
+fn empty_object_schema() -> Map<String, Value> {
+    let mut schema = Map::new();
+    schema.insert("type".to_string(), Value::String("object".to_string()));
+    schema.insert("properties".to_string(), Value::Object(Map::new()));
+    schema.insert("additionalProperties".to_string(), Value::Bool(false));
+    schema
 }
 
 fn cache_switch_schema() -> Map<String, Value> {
@@ -1452,6 +1482,14 @@ async fn call_cache_tool(
     arguments: Map<String, Value>,
 ) -> Result<CallToolResult, ErrorData> {
     let result = match tool_name {
+        CACHE_HEALTH_TOOL => {
+            let health = store.cache_health_check().await.map_err(map_store_error)?;
+            serde_json::json!({"health": health})
+        }
+        CACHE_INSPECT_TOOL => {
+            let inspect = store.cache_inspect().await.map_err(map_store_error)?;
+            serde_json::json!({"inspect": inspect})
+        }
         CACHE_SWITCH_TOOL => {
             let backend = required_argument_string(&arguments, "backend")?;
             let storage = parse_cache_storage_argument(backend)?;
@@ -2363,6 +2401,14 @@ mod tests {
             .tools
             .iter()
             .any(|tool| tool.name.as_ref() == CACHE_SWITCH_TOOL));
+        assert!(!default_server
+            .tools
+            .iter()
+            .any(|tool| tool.name.as_ref() == CACHE_HEALTH_TOOL));
+        assert!(!default_server
+            .tools
+            .iter()
+            .any(|tool| tool.name.as_ref() == CACHE_INSPECT_TOOL));
 
         let server = McpStoreServer::from_store(
             Arc::clone(&store),
@@ -2376,15 +2422,41 @@ mod tests {
         )
         .await
         .unwrap();
-        assert!(server
+        let tool_names = server
             .tools
             .iter()
-            .any(|tool| tool.name.as_ref() == CACHE_SWITCH_TOOL));
+            .map(|tool| tool.name.as_ref().to_string())
+            .collect::<Vec<_>>();
+        assert!(tool_names.contains(&CACHE_HEALTH_TOOL.to_string()));
+        assert!(tool_names.contains(&CACHE_INSPECT_TOOL.to_string()));
+        assert!(tool_names.contains(&CACHE_SWITCH_TOOL.to_string()));
         let cache_tool = server.get_tool(CACHE_SWITCH_TOOL).unwrap();
         assert!(cache_tool.input_schema["properties"]
             .as_object()
             .unwrap()
             .contains_key("namespace"));
+
+        let health_result = call_cache_tool(&store, CACHE_HEALTH_TOOL, Map::new())
+            .await
+            .unwrap();
+        assert_eq!(
+            health_result.structured_content.as_ref().unwrap()["health"]["backend"],
+            "memory"
+        );
+
+        let inspect_result = call_cache_tool(&store, CACHE_INSPECT_TOOL, Map::new())
+            .await
+            .unwrap();
+        assert_eq!(
+            inspect_result.structured_content.as_ref().unwrap()["inspect"]["backend"],
+            "memory"
+        );
+        assert!(
+            inspect_result.structured_content.as_ref().unwrap()["inspect"]["counts"]["entities"]
+                .as_object()
+                .unwrap()
+                .contains_key("services")
+        );
 
         let switch_args = serde_json::json!({
             "backend": "openkeyv_memory",
