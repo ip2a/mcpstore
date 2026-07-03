@@ -3741,6 +3741,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 self.cleaned_session_scopes = []
                 self.restarted_session_scopes = []
                 self.session_tool_calls = []
+                self.find_service_calls = []
                 self.services = {"svc": {"name": "svc", "transport": "stdio", "agent_id": None}}
 
             def find_session(self, session_id, scope, agent_id):
@@ -4071,6 +4072,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 return {"svc": "connected"}
 
             def find_service(self, name):
+                self.find_service_calls.append(name)
                 return {"name": name, "transport": "stdio"}
 
             def add_service(self, name, config):
@@ -4235,6 +4237,34 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertEqual(operations.init_service("svc").health_status, "ready")
         self.assertEqual(operations.service_info("svc").name, "svc")
         self.assertEqual(operations.service_status("svc").status, "connected")
+
+        fake_backend.find_service_calls.clear()
+        async_safe = AsyncSafeServiceManagementFactory.create_service_management(context)
+        self.assertIsInstance(async_safe, AsyncSafeServiceManagement)
+        self.assertEqual(async_safe.get_cache_stats()["total_cached"], 0)
+        first_info = async_safe.get_service_info("svc")
+        self.assertEqual(first_info.name, "svc")
+        self.assertEqual(fake_backend.find_service_calls, ["svc"])
+        self.assertIs(async_safe.get_service_info("svc"), first_info)
+        self.assertEqual(fake_backend.find_service_calls, ["svc"])
+        self.assertEqual(asyncio.run(async_safe.get_service_info_async("svc")).name, "svc")
+        self.assertEqual(fake_backend.find_service_calls, ["svc"])
+        self.assertEqual(async_safe.get_service_info("svc", use_cache=False).name, "svc")
+        self.assertEqual(fake_backend.find_service_calls, ["svc", "svc"])
+        cache_stats = async_safe.get_cache_stats()
+        self.assertEqual(cache_stats["total_cached"], 1)
+        self.assertEqual(cache_stats["valid_entries"], 1)
+        self.assertEqual(cache_stats["expired_entries"], 0)
+        self.assertEqual(cache_stats["entries"][0]["name"], "svc")
+        async_safe.clear_cache("svc")
+        self.assertEqual(async_safe.get_cache_stats()["total_cached"], 0)
+        async_safe.get_service_info("svc")
+        async_safe.clear_cache()
+        self.assertEqual(async_safe.get_cache_stats()["total_cached"], 0)
+        migrated_async_safe = AsyncSafeServiceManagementFactory.migrate_from_standard_management(operations)
+        self.assertIsInstance(migrated_async_safe, AsyncSafeServiceManagement)
+        self.assertEqual(migrated_async_safe.service_info("svc").name, "svc")
+
         self.assertTrue(operations.update_config("svc", {"command": "node"}))
         self.assertEqual(fake_backend.updated_services["svc"], {"command": "node"})
         self.assertIs(
