@@ -318,6 +318,7 @@ class RustStoreBackend:
     ) -> "RustStoreBackend":
         rust_mod = importlib.import_module("mcpstore._rust")
         config_path = os.fspath(config_path) if config_path is not None else None
+        cache_config = cls._normalize_cache_config(cache_config)
         backend, redis_url, namespace = cls._cache_options(cache_config)
         rust_store = rust_mod.MCPStore.setup_with_options(
             config_path,
@@ -332,6 +333,63 @@ class RustStoreBackend:
         store._only_db = only_db
         store.load_from_config()
         return store
+
+    @classmethod
+    def _normalize_cache_config(cls, cache_config):
+        if cache_config is None or hasattr(cache_config, "cache_type"):
+            return cache_config
+
+        if isinstance(cache_config, str):
+            cache_type = cache_config.strip().lower()
+            if cache_type == "memory":
+                from mcpstore.config import MemoryConfig
+
+                return MemoryConfig()
+            if cache_type == "openkeyv_memory":
+                from mcpstore.config import OpenKeyvMemoryConfig
+
+                return OpenKeyvMemoryConfig()
+            if cache_type in {"redis", "openkeyv_redis"}:
+                raise ValueError(
+                    "Redis 缓存配置需要显式 url 或 host；请使用 "
+                    "{'type': 'redis', 'url': 'redis://...'} 或 RedisConfig(url=...)"
+                )
+            raise ValueError(f"不支持的 Rust 缓存类型: {cache_config!r}")
+
+        if isinstance(cache_config, dict):
+            raw_type = cache_config.get("type", cache_config.get("cache_type"))
+            cache_type = getattr(raw_type, "value", raw_type)
+            cache_type = str(cache_type).lower() if cache_type is not None else None
+            if cache_type is None:
+                raise ValueError("缓存配置 dict 缺少 type 或 cache_type")
+
+            options = dict(cache_config)
+            options.pop("type", None)
+            options.pop("cache_type", None)
+
+            try:
+                if cache_type == "memory":
+                    from mcpstore.config import MemoryConfig
+
+                    return MemoryConfig(**options)
+                if cache_type == "openkeyv_memory":
+                    from mcpstore.config import OpenKeyvMemoryConfig
+
+                    return OpenKeyvMemoryConfig(**options)
+                if cache_type == "redis":
+                    from mcpstore.config import RedisConfig
+
+                    return RedisConfig(**options)
+                if cache_type == "openkeyv_redis":
+                    from mcpstore.config import OpenKeyvRedisConfig
+
+                    return OpenKeyvRedisConfig(**options)
+            except TypeError as exc:
+                raise ValueError(f"缓存配置 dict 包含不支持的字段: {exc}") from exc
+
+            raise ValueError(f"不支持的 Rust 缓存类型: {cache_type!r}")
+
+        return cache_config
 
     @staticmethod
     def _redis_url(cache_config) -> Optional[str]:
@@ -350,6 +408,7 @@ class RustStoreBackend:
 
     @classmethod
     def _cache_options(cls, cache_config):
+        cache_config = cls._normalize_cache_config(cache_config)
         if cache_config is None:
             return None, None, None
         cache_type = getattr(cache_config, "cache_type", None)
@@ -1227,6 +1286,7 @@ class RustStoreBackend:
         return True
 
     def switch_cache(self, cache_config: Any) -> bool:
+        cache_config = self._normalize_cache_config(cache_config)
         backend, redis_url, namespace = self._cache_options(cache_config)
         if backend is None:
             backend = "memory"
