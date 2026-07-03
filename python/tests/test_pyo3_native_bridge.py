@@ -3742,6 +3742,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 self.restarted_session_scopes = []
                 self.session_tool_calls = []
                 self.find_service_calls = []
+                self.switched_caches = []
                 self.services = {"svc": {"name": "svc", "transport": "stdio", "agent_id": None}}
 
             def find_session(self, session_id, scope, agent_id):
@@ -4087,6 +4088,9 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 self.removed_services.append(name)
                 return True
 
+            def switch_cache_storage(self, backend, redis_url, namespace):
+                self.switched_caches.append((backend, redis_url, namespace))
+
             def service_status_scoped(self, agent_id, service_name):
                 return {"status": "connected", "service_name": service_name, "agent_id": agent_id}
 
@@ -4295,6 +4299,15 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertEqual(fake_backend.updated_services["svc"], {"headers": {"Authorization": "Bearer token-2"}})
         self.assertTrue(operations.delete_config("svc"))
         self.assertEqual(fake_backend.removed_services[-1], "svc")
+        two_step = asyncio.run(operations.delete_service_two_step("svc"))
+        self.assertTrue(two_step["overall_success"])
+        self.assertTrue(two_step["step1_config_removal"])
+        self.assertTrue(two_step["step2_registry_cleanup"])
+        self.assertEqual(fake_backend.removed_services[-1], "svc")
+        self.assertTrue(operations.switch_cache({"type": "memory"}))
+        self.assertEqual(fake_backend.switched_caches[-1], ("memory", None, None))
+        self.assertTrue(asyncio.run(operations.switch_cache_async({"type": "memory"})))
+        self.assertEqual(fake_backend.switched_caches[-1], ("memory", None, None))
         self.assertEqual(operations.show_mcpconfig().mcpServers.svc.command, "python")
 
         class ConfigCompat(ConfigManagementMixin):
