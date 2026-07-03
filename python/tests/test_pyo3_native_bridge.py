@@ -3630,6 +3630,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             ContextType,
             MCPStoreContext as ContextMCPStoreContext,
             ResourcesPromptsMixin,
+            ServiceManagementMixin,
             ServiceOperationsMixin,
             ServiceProxy,
             Session as ContextSession,
@@ -3654,6 +3655,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         from mcpstore.core.context.resources_prompts import ResourcesPromptsMixin as ResourcesPromptsModuleExport
         from mcpstore.core.context.service_operations import AddServiceWaitStrategy as WaitStrategyModuleExport
         from mcpstore.core.context.service_operations import ServiceOperationsMixin as ServiceOperationsModuleExport
+        from mcpstore.core.context.service_management import ServiceManagementMixin as ServiceManagementModuleExport
         from mcpstore.core.context.service_management import UpdateServiceAuthHelper as AuthHelperModuleExport
         from mcpstore.core.context.service_proxy import ServiceProxy as ServiceProxyModuleExport
         from mcpstore.core.context.session import Session as SessionModuleExport
@@ -3704,6 +3706,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertIs(AsyncSafeModuleExport, AsyncSafeServiceManagement)
         self.assertIs(WaitStrategyModuleExport, AddServiceWaitStrategy)
         self.assertIs(ServiceOperationsModuleExport, ServiceOperationsMixin)
+        self.assertIs(ServiceManagementModuleExport, ServiceManagementMixin)
         self.assertIs(ToolOperationsModuleExport, ToolOperationsMixin)
         self.assertIs(SessionManagementModuleExport, SessionManagementMixin)
         self.assertIs(ToolProtocolModuleExport, CallToolResultProtocol)
@@ -4201,7 +4204,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertEqual(agent_proxy.map_local("svc_byagent_agent_a"), "svc")
 
         class ContextOperationsCompat(
-            ServiceOperationsMixin,
+            ServiceManagementMixin,
             ToolOperationsMixin,
             SessionManagementMixin,
             AdvancedFeaturesMixin,
@@ -4231,6 +4234,32 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertEqual(operations.service_status("svc").status, "connected")
         self.assertTrue(operations.update_config("svc", {"command": "node"}))
         self.assertEqual(fake_backend.updated_services["svc"], {"command": "node"})
+        self.assertIs(
+            operations.update_service(
+                "svc",
+                {"url": "https://example.test/mcp", "headers": {"X-Existing": "1"}},
+                token="token-1",
+                api_key="key-1",
+                headers={"X-Custom": "2"},
+            ),
+            operations,
+        )
+        self.assertEqual(
+            fake_backend.updated_services["svc"],
+            {
+                "url": "https://example.test/mcp",
+                "headers": {
+                    "X-Existing": "1",
+                    "X-Custom": "2",
+                    "Authorization": "Bearer token-1",
+                    "X-API-Key": "key-1",
+                },
+            },
+        )
+        helper = operations.update_service("svc")
+        self.assertIsInstance(helper, UpdateServiceAuthHelper)
+        self.assertIs(asyncio.run(helper.token("token-2")), operations)
+        self.assertEqual(fake_backend.updated_services["svc"], {"headers": {"Authorization": "Bearer token-2"}})
         self.assertTrue(operations.delete_config("svc"))
         self.assertEqual(fake_backend.removed_services[-1], "svc")
         self.assertEqual(operations.show_mcpconfig().mcpServers.svc.command, "python")

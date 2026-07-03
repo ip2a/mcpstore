@@ -16,7 +16,7 @@ from .base_context import MCPStoreContext
 from .cache_proxy import CacheProxy
 from .resources_prompts import ResourcesPromptsMixin
 from .service_operations import AddServiceWaitStrategy, ServiceOperationsMixin
-from .service_management import UpdateServiceAuthHelper
+from .service_management import ServiceManagementMixin, UpdateServiceAuthHelper
 from .service_proxy import ServiceProxy
 from .session import Session, SessionContext
 from .session_management import SessionManagementMixin
@@ -47,6 +47,7 @@ __all__ = [
     "AsyncSafeServiceManagement",
     "AsyncSafeServiceManagementFactory",
     "UpdateServiceAuthHelper",
+    "ServiceManagementMixin",
     "AddServiceWaitStrategy",
     "ServiceOperationsMixin",
     "ToolOperationsMixin",
