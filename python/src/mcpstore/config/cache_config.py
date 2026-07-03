@@ -113,6 +113,13 @@ class RedisConfig(BaseCacheConfig):
             )
 
 
+@dataclass
+class OpenKeyvRedisConfig(RedisConfig):
+    """openkeyv Redis cache configuration for Rust core."""
+
+    cache_type: Literal[CacheType.OPENKEYV_REDIS] = CacheType.OPENKEYV_REDIS
+
+
 def get_namespace(config: object, default: str = "mcpstore") -> str:
     """Return the configured cache namespace, or the MCPStore default."""
 
