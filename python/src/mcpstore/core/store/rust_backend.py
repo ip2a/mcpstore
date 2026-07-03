@@ -2987,6 +2987,15 @@ class RustStoreContext:
             self._backend.add_service(config, json_file=json_file, headers=headers)
         return self
 
+    async def add_service_async(
+        self,
+        config: Any = None,
+        *,
+        json_file: Optional[str] = None,
+        headers: Optional[Dict[str, Any]] = None,
+    ) -> "RustStoreContext":
+        return self.add_service(config, json_file=json_file, headers=headers)
+
     def add_service_with_details(self, config: Any = None) -> Dict[str, Any]:
         before_names = {str(service.get("name") or "") for service in self.list_services()}
         self.add_service(config)
@@ -3051,8 +3060,14 @@ class RustStoreContext:
     def list_services(self) -> List[Dict[str, Any]]:
         return _record_value(self._backend.list_services_scoped(self._agent_id))
 
+    async def list_services_async(self) -> List[Dict[str, Any]]:
+        return self.list_services()
+
     def list_agents(self) -> List[Dict[str, Any]]:
         return _record_value(self._backend.list_agents())
+
+    async def list_agents_async(self) -> List[Dict[str, Any]]:
+        return self.list_agents()
 
     def _list_tools_direct(
         self,
@@ -3069,6 +3084,14 @@ class RustStoreContext:
         if service_name is None and active is not None:
             return active.list_tools()
         return self._list_tools_direct(service_name, filter=filter)
+
+    async def list_tools_async(
+        self,
+        service_name: Optional[str] = None,
+        *,
+        filter: str = "available",
+    ) -> List[Dict[str, Any]]:
+        return self.list_tools(service_name=service_name, filter=filter)
 
     def _tool_visibility_for(self, service_name: str) -> Optional[set[str]]:
         visibility = self._backend.get_context_tool_visibility(self._agent_id, service_name)
@@ -3430,17 +3453,32 @@ class RustStoreContext:
         service = self._backend.find_service(service_name)
         return _record_value(service or {})
 
+    async def get_service_info_async(self, name: str) -> Dict[str, Any]:
+        return self.get_service_info(name)
+
     def service_info(self, name: str) -> Dict[str, Any]:
         return self.get_service_info(name)
+
+    async def service_info_async(self, name: str) -> Dict[str, Any]:
+        return self.service_info(name)
 
     def get_service_status(self, name: str) -> Dict[str, Any]:
         return self._backend.service_status_scoped(self._agent_id, name)
 
+    async def get_service_status_async(self, name: str) -> Dict[str, Any]:
+        return self.get_service_status(name)
+
     def service_status(self, name: str) -> Dict[str, Any]:
         return self.get_service_status(name)
 
+    async def service_status_async(self, name: str) -> Dict[str, Any]:
+        return self.service_status(name)
+
     def check_services(self) -> Dict[str, Any]:
         return self._backend.check_services_scoped(self._agent_id)
+
+    async def check_services_async(self) -> Dict[str, Any]:
+        return self.check_services()
 
     def get_info(self) -> Dict[str, Any]:
         return _record_value(
@@ -3453,6 +3491,9 @@ class RustStoreContext:
                 "tool_count": len(self.list_tools()),
             }
         )
+
+    async def get_info_async(self) -> Dict[str, Any]:
+        return self.get_info()
 
     def get_stats(self) -> Dict[str, Any]:
         services = self.list_services()
@@ -3523,6 +3564,12 @@ class RustStoreContext:
             self._backend.list_resources_scoped(self._agent_id, service_name)
         )
 
+    async def list_resources_async(
+        self,
+        service_name: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self.list_resources(service_name=service_name)
+
     def list_changed_tools(
         self,
         service_name: Optional[str] = None,
@@ -3544,6 +3591,12 @@ class RustStoreContext:
             self._backend.list_resource_templates_scoped(self._agent_id, service_name)
         )
 
+    async def list_resource_templates_async(
+        self,
+        service_name: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self.list_resource_templates(service_name=service_name)
+
     def read_resource(
         self,
         uri: str,
@@ -3553,10 +3606,23 @@ class RustStoreContext:
             self._backend.read_resource_scoped(self._agent_id, uri, service_name)
         )
 
+    async def read_resource_async(
+        self,
+        uri: str,
+        service_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return self.read_resource(uri, service_name=service_name)
+
     def list_prompts(self, service_name: Optional[str] = None) -> List[Dict[str, Any]]:
         return _record_value(
             self._backend.list_prompts_scoped(self._agent_id, service_name)
         )
+
+    async def list_prompts_async(
+        self,
+        service_name: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self.list_prompts(service_name=service_name)
 
     def get_prompt(
         self,
@@ -3573,30 +3639,63 @@ class RustStoreContext:
             )
         )
 
+    async def get_prompt_async(
+        self,
+        prompt_name: str,
+        arguments: Optional[Dict[str, Any]] = None,
+        service_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return self.get_prompt(
+            prompt_name,
+            arguments=arguments,
+            service_name=service_name,
+        )
+
     def patch_service(self, name: str, updates: Any) -> bool:
         service_name = self._resolve_service_name(name)
         return self._backend.patch_service(service_name, updates)
+
+    async def patch_service_async(self, name: str, updates: Any) -> bool:
+        return self.patch_service(name, updates)
 
     def update_service(self, name: str, config: Any) -> bool:
         service_name = self._resolve_service_name(name)
         return self._backend.update_service(service_name, config)
 
+    async def update_service_async(self, name: str, config: Any) -> bool:
+        return self.update_service(name, config)
+
     def update_config(self, name: str, config: Any) -> bool:
         return self.update_service(name, config)
+
+    async def update_config_async(self, name: str, config: Any) -> bool:
+        return self.update_config(name, config)
 
     def delete_service(self, name: str) -> bool:
         service_name = self._resolve_service_name(name)
         return self._backend.remove_service(service_name)
 
+    async def delete_service_async(self, name: str) -> bool:
+        return self.delete_service(name)
+
     def remove_service(self, name: str) -> bool:
         return self.delete_service(name)
+
+    async def remove_service_async(self, name: str) -> bool:
+        return self.remove_service(name)
 
     def delete_config(self, name: str) -> bool:
         return self.delete_service(name)
 
+    async def delete_config_async(self, name: str) -> bool:
+        return self.delete_config(name)
+
     def restart_service(self, name: str) -> bool:
         service_name = self._resolve_service_name(name)
         return self._backend.restart_service(service_name)
+
+    async def restart_service_async(self, name: str) -> bool:
+        return self.restart_service(name)
 
     def disconnect_service(self, name: str) -> bool:
         service_name = self._resolve_service_name(name)
@@ -3615,6 +3714,13 @@ class RustStoreContext:
 
     def event_history(self, count: int = 100) -> List[Dict[str, Any]]:
         return self._backend.event_history(count)
+
+    async def event_history_async(
+        self,
+        count: int = 100,
+        limit: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        return self.event_history(count if limit is None else limit)
 
     def _tool_call_history(
         self,
@@ -3640,6 +3746,9 @@ class RustStoreContext:
 
     def event_capability_report(self) -> Dict[str, Any]:
         return self._backend.event_capability_report()
+
+    async def event_capability_report_async(self) -> Dict[str, Any]:
+        return self.event_capability_report()
 
     def for_langchain(self, response_format: str = "text"):
         from mcpstore.adapters.langchain_adapter import LangChainAdapter
@@ -4022,14 +4131,26 @@ class RustStoreContext:
             return self._backend.show_config_scoped(self._agent_id, scope)
         return self._backend.show_config(scope)
 
+    async def show_config_async(self, scope: str = "all") -> Dict[str, Any]:
+        return self.show_config(scope)
+
     def show_mcpjson(self) -> Dict[str, Any]:
         return self._backend.show_mcpjson()
+
+    async def show_mcpjson_async(self) -> Dict[str, Any]:
+        return self.show_mcpjson()
 
     def show_mcpconfig(self) -> Dict[str, Any]:
         return self.show_mcpjson()
 
+    async def show_mcpconfig_async(self) -> Dict[str, Any]:
+        return self.show_mcpconfig()
+
     def get_json_config(self) -> Dict[str, Any]:
         return self._backend.get_json_config()
+
+    async def get_json_config_async(self) -> Dict[str, Any]:
+        return self.get_json_config()
 
     def get_data_space_info(self) -> Dict[str, Any]:
         return self._backend.get_data_space_info()
@@ -4112,6 +4233,9 @@ class RustStoreContext:
             return self._backend.reset_agent_config(self._agent_id)
         return self._backend.reset_config()
 
+    async def reset_config_async(self) -> bool:
+        return self.reset_config()
+
     def reset_mcp_json_scope(self, scope: Optional[str] = None) -> bool:
         return self._backend.reset_mcp_json_scope(scope)
 
@@ -4190,6 +4314,20 @@ class RustStoreContext:
                 }
             )
 
+    async def wait_service_async(
+        self,
+        name: str,
+        status: Optional[Any] = None,
+        timeout: float = 10.0,
+        raise_on_timeout: bool = False,
+    ) -> Dict[str, Any]:
+        return self.wait_service(
+            name,
+            status=status,
+            timeout=timeout,
+            raise_on_timeout=raise_on_timeout,
+        )
+
     def _wait_success_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(result, dict) and "success" not in result:
             result = dict(result)
@@ -4212,6 +4350,20 @@ class RustStoreContext:
                 raise_on_timeout=raise_on_timeout,
             )
         return _record_value(results)
+
+    async def wait_services_async(
+        self,
+        names: List[str],
+        status: Optional[Any] = None,
+        timeout: float = 10.0,
+        raise_on_timeout: bool = False,
+    ) -> Dict[str, Any]:
+        return self.wait_services(
+            names,
+            status=status,
+            timeout=timeout,
+            raise_on_timeout=raise_on_timeout,
+        )
 
     def init_service(
         self,

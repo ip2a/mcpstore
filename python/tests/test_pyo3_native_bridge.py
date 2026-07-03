@@ -3743,6 +3743,7 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 self.session_tool_calls = []
                 self.find_service_calls = []
                 self.switched_caches = []
+                self.reset_calls = []
                 self.connected_services = []
                 self.disconnected_services = []
                 self.services = {"svc": {"name": "svc", "transport": "stdio", "agent_id": None}}
@@ -4086,8 +4087,15 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 self.updated_services[name] = config
                 return True
 
+            def patch_service(self, name, updates):
+                self.updated_services[name] = updates
+                return True
+
             def remove_service(self, name):
                 self.removed_services.append(name)
+                return True
+
+            def restart_service(self, name):
                 return True
 
             def switch_cache_storage(self, backend, redis_url, namespace):
@@ -4114,7 +4122,10 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
                 return {"svc": "connected"}
 
             def event_history(self, count=100):
-                return []
+                return [{"event_type": "tool_call", "count": count}]
+
+            def event_capability_report(self):
+                return {"event_bus": True, "history": True}
 
             def namespace(self):
                 return "test"
@@ -4125,8 +4136,22 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             def show_config(self, scope="all"):
                 return {"scope": scope, "mcpServers": {"svc": {"command": "python"}}}
 
+            def show_config_scoped(self, agent_id):
+                return {
+                    "agent_id": agent_id,
+                    "mcpServers": {"svc": {"command": "python"}},
+                }
+
             def show_mcpjson(self):
                 return {"mcpServers": {"svc": {"command": "python"}}}
+
+            def reset_config(self):
+                self.reset_calls.append(("store", None))
+                return True
+
+            def reset_agent_config(self, agent_id):
+                self.reset_calls.append(("agent", agent_id))
+                return True
 
             def reset_mcp_json_scope(self, scope=None):
                 self.reset_mcp_scopes.append(scope)
@@ -4221,6 +4246,49 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertIn("list_tools_async", dir(type(agent_proxy)))
         self.assertEqual(agent_proxy.map_global("svc"), "svc_byagent_agent_a")
         self.assertEqual(agent_proxy.map_local("svc_byagent_agent_a"), "svc")
+
+        self.assertEqual(asyncio.run(context.list_services_async())[0].name, "svc")
+        self.assertEqual(asyncio.run(context.list_agents_async())[0].agent_id, "agent_a")
+        self.assertEqual(asyncio.run(context.list_tools_async(service_name="svc"))[0].name, "echo")
+        self.assertEqual(asyncio.run(context.list_resources_async(service_name="svc"))[0].uri, "memory://doc")
+        self.assertEqual(
+            asyncio.run(context.list_resource_templates_async(service_name="svc"))[0].uriTemplate,
+            "memory://{name}",
+        )
+        self.assertEqual(
+            asyncio.run(context.read_resource_async("memory://doc", service_name="svc")).text,
+            "body",
+        )
+        self.assertEqual(asyncio.run(context.list_prompts_async(service_name="svc"))[0].name, "summarize")
+        self.assertEqual(
+            asyncio.run(context.get_prompt_async("summarize", {"topic": "rust"}, service_name="svc")).arguments.topic,
+            "rust",
+        )
+        self.assertEqual(asyncio.run(context.check_services_async()).svc, "connected")
+        self.assertEqual(asyncio.run(context.show_config_async("mcp")).mcpServers.svc.command, "python")
+        self.assertEqual(asyncio.run(context.get_json_config_async()).mcpServers.svc.command, "python")
+        self.assertTrue(asyncio.run(context.event_capability_report_async()).event_bus)
+        self.assertEqual(asyncio.run(context.event_history_async(limit=7))[0].count, 7)
+        self.assertEqual(asyncio.run(context.get_info_async()).service_count, 1)
+        self.assertEqual(asyncio.run(context.service_status_async("svc")).status, "connected")
+        self.assertEqual(asyncio.run(context.service_info_async("svc")).name, "svc")
+        self.assertTrue(asyncio.run(context.update_service_async("svc", {"command": "node"})))
+        self.assertEqual(fake_backend.updated_services["svc"], {"command": "node"})
+        self.assertTrue(asyncio.run(context.patch_service_async("svc", {"env": {"A": "1"}})))
+        self.assertEqual(fake_backend.updated_services["svc"], {"env": {"A": "1"}})
+        self.assertTrue(asyncio.run(context.restart_service_async("svc")))
+        self.assertEqual(asyncio.run(context.wait_service_async("svc", status="ready")).health_status, "ready")
+        self.assertTrue(asyncio.run(context.delete_service_async("svc")))
+        self.assertEqual(fake_backend.removed_services[-1], "svc")
+        self.assertIs(asyncio.run(context.add_service_async({"name": "svc", "command": "python"})), context)
+        self.assertIn("svc", fake_backend.services)
+        self.assertTrue(asyncio.run(context.reset_config_async()))
+        self.assertEqual(fake_backend.reset_calls[-1], ("store", None))
+        agent_context = context.find_agent("agent_a")
+        self.assertEqual(asyncio.run(agent_context.list_services_async())[0].agent_id, "agent_a")
+        self.assertEqual(asyncio.run(agent_context.show_config_async("mcp")).mcpServers.svc.command, "python")
+        self.assertTrue(asyncio.run(agent_context.reset_config_async()))
+        self.assertEqual(fake_backend.reset_calls[-1], ("agent", "agent_a"))
 
         class ContextOperationsCompat(
             ServiceManagementMixin,
