@@ -3433,11 +3433,25 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
             ServiceInfo,
             LoggingConfig,
             ServiceNotFoundException,
+            ToolTransformConfig,
+            ToolTransformationManager,
+            ToolTransformer,
             ToolExecutionError,
             ToolExecutionRequest,
             ToolInfo,
+            TransformationType,
             ValidationException,
+            ArgumentTransform,
+            get_transformation_manager,
             timed_response,
+        )
+        from mcpstore.core.context import (
+            ArgumentTransform as ContextArgumentTransform,
+            ToolTransformConfig as ContextToolTransformConfig,
+            ToolTransformationManager as ContextToolTransformationManager,
+            ToolTransformer as ContextToolTransformer,
+            TransformationType as ContextTransformationType,
+            get_transformation_manager as context_get_transformation_manager,
         )
 
         service = ServiceInfo(
@@ -3453,6 +3467,14 @@ print(json.dumps(store.list_session_state(session_key)["values"]))
         self.assertEqual(service.name, "weather")
         self.assertEqual(service.transport_type.value, "stdio")
         LoggingConfig.enable_debug()
+        self.assertIs(ArgumentTransform, ContextArgumentTransform)
+        self.assertIs(ToolTransformConfig, ContextToolTransformConfig)
+        self.assertIs(ToolTransformationManager, ContextToolTransformationManager)
+        self.assertIs(ToolTransformer, ContextToolTransformer)
+        self.assertIs(TransformationType, ContextTransformationType)
+        self.assertIs(get_transformation_manager, context_get_transformation_manager)
+        self.assertEqual(TransformationType.RENAME_ARGS.value, "rename_args")
+        self.assertEqual(ArgumentTransform("debug", hidden=True).original_name, "debug")
         self.assertTrue(LoggingConfig.is_debug_enabled())
         LoggingConfig.disable_debug()
         self.assertFalse(LoggingConfig.is_debug_enabled())
