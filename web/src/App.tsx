@@ -25,6 +25,7 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
+  AlertDialogMedia,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
@@ -1493,6 +1494,9 @@ function DeleteServiceDialog({ service, onOpenChange, onConfirm }: { service: Se
     <AlertDialog open={Boolean(service)} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
+          <AlertDialogMedia className="text-destructive">
+            <Trash2Icon />
+          </AlertDialogMedia>
           <AlertDialogTitle>Delete service?</AlertDialogTitle>
           <AlertDialogDescription>{service ? `This removes ${service.name} from mcpstore.` : null}</AlertDialogDescription>
         </AlertDialogHeader>
@@ -1511,6 +1515,9 @@ function ResetConfigDialog({ target, onOpenChange, onConfirm }: { target: ResetT
     <AlertDialog open={Boolean(target)} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
+          <AlertDialogMedia className="text-destructive">
+            <RefreshCwIcon />
+          </AlertDialogMedia>
           <AlertDialogTitle>Reset config?</AlertDialogTitle>
           <AlertDialogDescription>{target ? `${label} config will be reset.` : null}</AlertDialogDescription>
         </AlertDialogHeader>
