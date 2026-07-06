@@ -441,13 +441,14 @@ function AgentsView(props: {
   onUnassign: (agentId: string, serviceName: string) => void
 }) {
   const agentIds = props.agents.map(getAgentId).filter(Boolean)
-  const [selectedAgentId, setSelectedAgentId] = useState(agentIds[0] || "")
+  const selectedAgentId = useUiStore((state) => state.selectedAgentId)
+  const setSelectedAgentId = useUiStore((state) => state.setSelectedAgentId)
   const [typedAgentId, setTypedAgentId] = useState("")
   const [assignTarget, setAssignTarget] = useState(props.services[0]?.name || "")
   const [agentServices, setAgentServices] = useState<ServiceEntry[]>([])
   const [agentTools, setAgentTools] = useState<ToolInfo[]>([])
   const [loadingAgent, setLoadingAgent] = useState(false)
-  const activeAgentId = (typedAgentId.trim() || selectedAgentId).trim()
+  const activeAgentId = (typedAgentId.trim() || selectedAgentId || "").trim()
 
   useEffect(() => {
     if (!selectedAgentId && agentIds[0]) setSelectedAgentId(agentIds[0])
@@ -514,7 +515,7 @@ function AgentsView(props: {
                         key={agentId || JSON.stringify(agent)}
                         disabled={!agentId}
                         meta={`${serviceNames.length} services · ${agentId === activeAgentId ? agentTools.length : "-"} tools`}
-                        onClick={() => setSelectedAgentId(agentId)}
+                        onClick={() => setSelectedAgentId(agentId || null)}
                         selected={agentId === activeAgentId}
                         title={agentId || "-"}
                         trailing={agentId === activeAgentId ? <Badge variant="outline">active</Badge> : null}
@@ -545,7 +546,7 @@ function AgentsView(props: {
               <FieldGroup>
                 <Field>
                   <FieldLabel>Known Agent</FieldLabel>
-                  <Select value={selectedAgentId || "none"} onValueChange={(value) => setSelectedAgentId(value === "none" ? "" : value)}>
+                  <Select value={selectedAgentId || "none"} onValueChange={(value) => setSelectedAgentId(value === "none" ? null : value)}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
