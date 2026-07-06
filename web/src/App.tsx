@@ -645,7 +645,7 @@ function AgentsView(props: {
                   </TableBody>
                 </Table>
               ) : (
-                <PageEmpty title="No services" description="No MCP services are available for this agent." />
+                <PageEmpty title="No services" description="No MCP services are available for this agent." onRefresh={() => loadAgentScope(activeAgentId)} />
               )}
             </div>
           </PanelCard>
@@ -669,7 +669,7 @@ function AgentsView(props: {
                   ))}
                 </div>
               ) : (
-                <PageEmpty title="No tools" description="No tools are available for this agent." />
+                <PageEmpty title="No tools" description="No tools are available for this agent." onRefresh={() => loadAgentScope(activeAgentId)} />
               )}
             </div>
           </PanelCard>
@@ -1129,7 +1129,7 @@ function ServiceDetailView(props: {
             ))}
           </div>
         ) : (
-          <PageEmpty title="No tools found" description="Tool definitions will appear after the service is connected." />
+          <PageEmpty title="No tools found" description="Tool definitions will appear after the service is connected." onRefresh={loadDetail} />
         )}
       </section>
 
