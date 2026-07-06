@@ -51,6 +51,7 @@ import {
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { SettingsDialog } from "@/features/settings/settings-dialog"
 import { DetailHeader } from "@/components/shared/detail-header"
+import { EntityRow } from "@/components/shared/entity-row"
 import { MetaLine } from "@/components/shared/meta-line"
 import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
 import { SectionHeading } from "@/components/shared/section-heading"
@@ -650,13 +651,12 @@ function AgentsView(props: {
               ) : agentTools.length ? (
                 <div className="flex flex-col gap-3">
                   {agentTools.slice(0, 8).map((tool) => (
-                    <div key={toolKey(tool)} className="flex items-center justify-between gap-3 rounded-md border p-3">
-                      <div className="min-w-0">
+                    <EntityRow key={toolKey(tool)} actions={<Badge variant="outline">tool</Badge>}>
+                      <div className="flex min-w-0 flex-col gap-1">
                         <p className="truncate text-sm font-medium">{tool.name}</p>
                         <p className="truncate text-sm text-muted-foreground">{tool.description || "No description"}</p>
                       </div>
-                      <Badge variant="outline">tool</Badge>
-                    </div>
+                    </EntityRow>
                   ))}
                 </div>
               ) : (
