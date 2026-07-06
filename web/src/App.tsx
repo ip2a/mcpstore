@@ -720,12 +720,9 @@ function ToolsView(props: {
         }
       />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Filters</CardTitle>
-          <CardDescription>{visibleTools.length} tools</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px_220px_220px]">
+      <PanelCard>
+        <SectionHeading title="Filters" titleAs="h2" description={`${visibleTools.length} tools`} className="border-b-0 pb-0" />
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px_220px_220px]">
           <SearchBox placeholder="Search tools" value={query} onChange={setQuery} />
           <Select value={scope} onValueChange={setScope}>
             <SelectTrigger>
@@ -768,8 +765,8 @@ function ToolsView(props: {
               </SelectGroup>
             </SelectContent>
           </Select>
-        </CardContent>
-      </Card>
+        </div>
+      </PanelCard>
 
       {loading ? (
         <PageSkeleton />
