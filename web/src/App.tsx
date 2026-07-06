@@ -70,6 +70,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { HomeHero } from "@/components/home-hero"
 import { useDashboard } from "@/hooks/use-dashboard"
+import { useUiStore } from "@/stores/ui-store"
 import {
   addService,
   assignService,
@@ -145,7 +146,8 @@ export function App() {
   const [toolDialog, setToolDialog] = useState<ToolDialogState>(null)
   const [toolDetail, setToolDetail] = useState<ToolDetailState>(null)
   const [cacheDialog, setCacheDialog] = useState(false)
-  const [settingsDialog, setSettingsDialog] = useState(false)
+  const settingsDialogOpen = useUiStore((state) => state.settingsDialogOpen)
+  const setSettingsDialogOpen = useUiStore((state) => state.setSettingsDialogOpen)
   const [deleteTarget, setDeleteTarget] = useState<ServiceEntry | null>(null)
   const [resetTarget, setResetTarget] = useState<ResetTarget | null>(null)
   const [cacheRevision, setCacheRevision] = useState(0)
@@ -223,7 +225,7 @@ export function App() {
                 <PlusIcon data-icon="inline-start" />
                 添加
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setSettingsDialog(true)}>
+              <Button variant="outline" size="sm" onClick={() => setSettingsDialogOpen(true)}>
                 <SettingsIcon data-icon="inline-start" />
                 设置
               </Button>
@@ -307,7 +309,7 @@ export function App() {
           setCacheRevision((value) => value + 1)
         }}
       />
-      <SettingsDialog open={settingsDialog} onOpenChange={setSettingsDialog} />
+      <SettingsDialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen} />
       <DeleteServiceDialog
         service={deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
