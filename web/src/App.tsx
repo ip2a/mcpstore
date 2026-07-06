@@ -987,6 +987,7 @@ function ServiceDetailView(props: {
 }) {
   const [detail, setDetail] = useState<ServiceEntry | null>(null)
   const [statusReport, setStatusReport] = useState<unknown>(null)
+  const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const service = detail || props.service
   const endpoint = service.url || service.command || "-"
@@ -995,11 +996,14 @@ function ServiceDetailView(props: {
   async function loadDetail() {
     setLoading(true)
     try {
+      setError(null)
       const [nextDetail, nextStatus] = await Promise.all([serviceInfo(props.service.name), serviceStatus(props.service.name).catch(() => null)])
       setDetail(nextDetail)
       setStatusReport(nextStatus)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "服务详情加载失败")
+      const message = err instanceof Error ? err.message : "服务详情加载失败"
+      setError(message)
+      toast.error(message)
     } finally {
       setLoading(false)
     }
@@ -1086,7 +1090,7 @@ function ServiceDetailView(props: {
       <section className="grid gap-4 lg:grid-cols-2">
         <PanelCard>
           <SectionHeading title="Status" titleAs="h2" className="border-b-0 pb-0" />
-          <JsonBlock value={statusReport || { status: service.status || "Unknown" }} />
+          {error ? <PageError title="Service status failed to load" message={error} /> : <JsonBlock value={statusReport || { status: service.status || "Unknown" }} />}
         </PanelCard>
         <PanelCard>
           <SectionHeading title="Raw Detail" titleAs="h2" className="border-b-0 pb-0" />
