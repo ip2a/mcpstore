@@ -60,7 +60,6 @@ import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Toaster } from "@/components/ui/sonner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -857,7 +856,7 @@ function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarget | nul
                 </Button>
               </CardAction>
             </CardHeader>
-            <CardContent>{loading && !storeConfig ? <ServiceSkeleton /> : <JsonBlock value={storeConfig || {}} />}</CardContent>
+            <CardContent>{loading && !storeConfig ? <PageSkeleton /> : <JsonBlock value={storeConfig || {}} />}</CardContent>
           </Card>
         </TabsContent>
         <TabsContent value="agent">
@@ -888,7 +887,7 @@ function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarget | nul
                   </SelectGroup>
                 </SelectContent>
               </Select>
-              {loading && !agentConfig ? <ServiceSkeleton /> : <JsonBlock value={agentConfig || {}} />}
+              {loading && !agentConfig ? <PageSkeleton /> : <JsonBlock value={agentConfig || {}} />}
             </CardContent>
           </Card>
         </TabsContent>
@@ -951,14 +950,14 @@ function CacheView(props: { backend?: CacheBackend; revision: number; onRefreshD
             <CardTitle>Health</CardTitle>
             <CardDescription>/cache/health</CardDescription>
           </CardHeader>
-          <CardContent>{loading && !healthReport ? <ServiceSkeleton /> : <JsonBlock value={healthReport || {}} />}</CardContent>
+          <CardContent>{loading && !healthReport ? <PageSkeleton /> : <JsonBlock value={healthReport || {}} />}</CardContent>
         </Card>
         <Card>
           <CardHeader>
             <CardTitle>Inspect</CardTitle>
             <CardDescription>/cache/inspect</CardDescription>
           </CardHeader>
-          <CardContent>{loading && !inspectReport ? <ServiceSkeleton /> : <JsonBlock value={inspectReport || {}} />}</CardContent>
+          <CardContent>{loading && !inspectReport ? <PageSkeleton /> : <JsonBlock value={inspectReport || {}} />}</CardContent>
         </Card>
       </section>
     </>
@@ -1586,19 +1585,6 @@ function StatusBadge({ status }: { status?: string }) {
 
 function JsonBlock({ value }: { value: unknown }) {
   return <pre className="max-h-96 overflow-auto rounded-md bg-muted p-4 text-sm">{JSON.stringify(value, null, 2)}</pre>
-}
-
-function ServiceSkeleton() {
-  return (
-    <div className="flex flex-col gap-3">
-      {Array.from({ length: 5 }).map((_, index) => (
-        <div key={index} className="flex items-center gap-4">
-          <Skeleton className="h-10 flex-1" />
-          <Skeleton className="h-10 w-32" />
-        </div>
-      ))}
-    </div>
-  )
 }
 
 function getAgentId(agent: AgentItem) {
