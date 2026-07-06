@@ -54,6 +54,7 @@ import { DetailHeader } from "@/components/shared/detail-header"
 import { EntityRow } from "@/components/shared/entity-row"
 import { MetaLine } from "@/components/shared/meta-line"
 import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
+import { PageEmpty, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
@@ -414,7 +415,13 @@ function ServicesView(props: {
               检查
             </Button>
           </div>
-          {props.loading ? <ServiceSkeleton /> : filteredServices.length ? <ServiceTable {...props} services={filteredServices} /> : <NoServices />}
+          {props.loading ? (
+            <PageSkeleton />
+          ) : filteredServices.length ? (
+            <ServiceTable {...props} services={filteredServices} />
+          ) : (
+            <PageEmpty title="No services" description="No MCP services are available in the current view." onRefresh={props.onRefresh} />
+          )}
         </CardContent>
       </Card>
     </>
