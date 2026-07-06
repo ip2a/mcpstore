@@ -61,6 +61,7 @@ import { Input } from "@/components/ui/input"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Toaster } from "@/components/ui/sonner"
+import { Spinner } from "@/components/ui/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
@@ -1358,7 +1359,10 @@ function AddServiceView({ agents, onBack, onAdded }: { agents: AgentItem[]; onBa
 
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={onBack}>Cancel</Button>
-                <Button type="submit" disabled={submitting}>{submitting ? "Adding" : "Add Service"}</Button>
+                <Button type="submit" disabled={submitting}>
+                  {submitting ? <Spinner data-icon="inline-start" /> : null}
+                  {submitting ? "Adding" : "Add Service"}
+                </Button>
               </div>
             </FieldGroup>
           </form>
