@@ -1233,13 +1233,12 @@ function ToolCard({ tool, sourceLabel, onRun, onDetail }: { tool: ToolInfo; sour
         </div>
         {params.length ? (
           params.slice(0, 4).map(([name, meta]) => (
-            <div key={name} className="flex items-start justify-between gap-3 rounded-md border p-3">
+            <EntityRow key={name} actions={<Badge variant="outline">{meta.type || "any"}</Badge>}>
               <div className="min-w-0">
                 <code className="text-sm font-medium">{name}</code>
                 <p className="truncate text-sm text-muted-foreground">{meta.description || "No description"}</p>
               </div>
-              <Badge variant="outline">{meta.type || "any"}</Badge>
-            </div>
+            </EntityRow>
           ))
         ) : (
           <p className="text-sm text-muted-foreground">No params required</p>
