@@ -1044,7 +1044,14 @@ function ServiceDetailView(props: {
   return (
     <>
       <DetailHeader
+        badges={<StatusBadge status={service.status} />}
         eyebrow="服务详情"
+        meta={
+          <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
+            <span>tools · {tools.length}</span>
+            <span>added · {formatDateTime(service.added_time)}</span>
+          </div>
+        }
         title={service.name}
         actions={
           <>
