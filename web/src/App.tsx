@@ -51,7 +51,7 @@ import { DialogForm, DialogFormFooter } from "@/components/shared/dialog-form"
 import { EntityRow } from "@/components/shared/entity-row"
 import { MetaLine } from "@/components/shared/meta-line"
 import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
-import { PageEmpty, PageSkeleton } from "@/components/shared/page-states"
+import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
@@ -786,6 +786,7 @@ function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarget | nul
   const [agentId, setAgentId] = useState(agentIds[0] || "")
   const [storeConfig, setStoreConfig] = useState<unknown>(null)
   const [agentConfig, setAgentConfig] = useState<unknown>(null)
+  const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -795,6 +796,7 @@ function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarget | nul
   async function loadConfig() {
     setLoading(true)
     try {
+      setError(null)
       const store = await showConfig()
       setStoreConfig(store)
       if (agentId) {
@@ -803,7 +805,9 @@ function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarget | nul
         setAgentConfig(null)
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "配置加载失败")
+      const message = err instanceof Error ? err.message : "配置加载失败"
+      setError(message)
+      toast.error(message)
     } finally {
       setLoading(false)
     }
@@ -842,7 +846,13 @@ function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarget | nul
                 Reset
               </Button>}
             />
-            {loading && !storeConfig ? <PageSkeleton /> : <JsonBlock value={storeConfig || {}} />}
+            {error ? (
+              <PageError title="Configuration failed to load" message={error} />
+            ) : loading && !storeConfig ? (
+              <PageSkeleton />
+            ) : (
+              <JsonBlock value={storeConfig || {}} />
+            )}
           </PanelCard>
         </TabsContent>
         <TabsContent value="agent">
@@ -872,7 +882,13 @@ function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarget | nul
                 </SelectGroup>
               </SelectContent>
             </Select>
-            {loading && !agentConfig ? <PageSkeleton /> : <JsonBlock value={agentConfig || {}} />}
+            {error ? (
+              <PageError title="Agent config failed to load" message={error} />
+            ) : loading && !agentConfig ? (
+              <PageSkeleton />
+            ) : (
+              <JsonBlock value={agentConfig || {}} />
+            )}
           </PanelCard>
         </TabsContent>
       </Tabs>
@@ -883,17 +899,21 @@ function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarget | nul
 function CacheView(props: { backend?: CacheBackend; revision: number; onRefreshDashboard: () => Promise<void>; onSwitch: () => void }) {
   const [healthReport, setHealthReport] = useState<unknown>(null)
   const [inspectReport, setInspectReport] = useState<unknown>(null)
+  const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   async function loadCache() {
     setLoading(true)
     try {
+      setError(null)
       const [health, inspect] = await Promise.all([cacheHealth(), cacheInspect()])
       setHealthReport(health)
       setInspectReport(inspect)
       await props.onRefreshDashboard()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "缓存加载失败")
+      const message = err instanceof Error ? err.message : "缓存加载失败"
+      setError(message)
+      toast.error(message)
     } finally {
       setLoading(false)
     }
@@ -931,11 +951,23 @@ function CacheView(props: { backend?: CacheBackend; revision: number; onRefreshD
       <section className="grid gap-4 lg:grid-cols-2">
         <PanelCard>
           <SectionHeading title="Health" titleAs="h2" description="/cache/health" className="border-b-0 pb-0" />
-          {loading && !healthReport ? <PageSkeleton /> : <JsonBlock value={healthReport || {}} />}
+          {error ? (
+            <PageError title="Cache health failed to load" message={error} />
+          ) : loading && !healthReport ? (
+            <PageSkeleton />
+          ) : (
+            <JsonBlock value={healthReport || {}} />
+          )}
         </PanelCard>
         <PanelCard>
           <SectionHeading title="Inspect" titleAs="h2" description="/cache/inspect" className="border-b-0 pb-0" />
-          {loading && !inspectReport ? <PageSkeleton /> : <JsonBlock value={inspectReport || {}} />}
+          {error ? (
+            <PageError title="Cache inspect failed to load" message={error} />
+          ) : loading && !inspectReport ? (
+            <PageSkeleton />
+          ) : (
+            <JsonBlock value={inspectReport || {}} />
+          )}
         </PanelCard>
       </section>
     </>
