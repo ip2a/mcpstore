@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { RefreshCwIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -11,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { showAgentConfig, showConfig, type AgentItem } from "@/lib/api"
+import { queryKeys } from "@/lib/query-keys"
 
 export type ResetTarget = { scope: "store" } | { scope: "agent"; agentId: string }
 
@@ -18,32 +20,28 @@ export function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarge
   const agentIds = props.agents.map(getAgentId).filter(Boolean)
   const [activeTab, setActiveTab] = useState("store")
   const [agentId, setAgentId] = useState(agentIds[0] || "")
-  const [storeConfig, setStoreConfig] = useState<unknown>(null)
-  const [agentConfig, setAgentConfig] = useState<unknown>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const storeConfigQuery = useQuery({ enabled: false, queryKey: queryKeys.config, queryFn: showConfig })
+  const agentConfigQuery = useQuery({ enabled: false, queryKey: queryKeys.agentConfig(agentId), queryFn: () => showAgentConfig(agentId) })
+  const storeConfig = storeConfigQuery.data
+  const agentConfig = agentId ? agentConfigQuery.data : null
+  const error = storeConfigQuery.error || agentConfigQuery.error
+  const errorMessage = error instanceof Error ? error.message : error ? String(error) : "配置加载失败"
+  const loading = storeConfigQuery.isFetching || agentConfigQuery.isFetching
 
   useEffect(() => {
     if (!agentId && agentIds[0]) setAgentId(agentIds[0])
   }, [agentId, agentIds])
 
   async function loadConfig() {
-    setLoading(true)
     try {
-      setError(null)
-      const store = await showConfig()
-      setStoreConfig(store)
-      if (agentId) {
-        setAgentConfig(await showAgentConfig(agentId))
-      } else {
-        setAgentConfig(null)
-      }
+      const store = await storeConfigQuery.refetch()
+      if (store.error) throw store.error
+      if (!agentId) return
+      const agent = await agentConfigQuery.refetch()
+      if (agent.error) throw agent.error
     } catch (err) {
       const message = err instanceof Error ? err.message : "配置加载失败"
-      setError(message)
       toast.error(message)
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -81,7 +79,7 @@ export function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarge
               </Button>}
             />
             {error ? (
-              <PageError title="Configuration failed to load" message={error} onRefresh={loadConfig} />
+              <PageError title="Configuration failed to load" message={errorMessage} onRefresh={loadConfig} />
             ) : loading && !storeConfig ? (
               <PageSkeleton />
             ) : (
@@ -117,7 +115,7 @@ export function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarge
               </SelectContent>
             </Select>
             {error ? (
-              <PageError title="Agent config failed to load" message={error} onRefresh={loadConfig} />
+              <PageError title="Agent config failed to load" message={errorMessage} onRefresh={loadConfig} />
             ) : loading && !agentConfig ? (
               <PageSkeleton />
             ) : (
