@@ -34,7 +34,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -1472,6 +1471,12 @@ function RunToolDialog({ state, onOpenChange }: { state: ToolDialogState; onOpen
 
 function ToolDetailDialog({ state, onOpenChange, onRun }: { state: ToolDetailState; onOpenChange: (open: boolean) => void; onRun: (state: NonNullable<ToolDetailState>) => void }) {
   const schema = state ? getToolSchema(state.tool) : {}
+
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (state?.onRun) onRun(state)
+  }
+
   return (
     <Dialog open={Boolean(state)} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
@@ -1479,7 +1484,7 @@ function ToolDetailDialog({ state, onOpenChange, onRun }: { state: ToolDetailSta
           <DialogTitle>{state?.tool.name}</DialogTitle>
           <DialogDescription>{state?.sourceLabel}</DialogDescription>
         </DialogHeader>
-        <FieldGroup>
+        <DialogForm onSubmit={onSubmit}>
           {state?.tool.description ? (
             <Field>
               <FieldLabel>Description</FieldLabel>
@@ -1494,11 +1499,13 @@ function ToolDetailDialog({ state, onOpenChange, onRun }: { state: ToolDetailSta
             <FieldLabel>Raw Tool</FieldLabel>
             <JsonBlock value={state?.tool || {}} />
           </Field>
-        </FieldGroup>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
-          {state?.onRun ? <Button onClick={() => onRun(state)}>Run</Button> : null}
-        </DialogFooter>
+          <DialogFormFooter
+            cancelLabel="Close"
+            onCancel={() => onOpenChange(false)}
+            submitButtonProps={{ className: state?.onRun ? undefined : "hidden" }}
+            submitLabel="Run"
+          />
+        </DialogForm>
       </DialogContent>
     </Dialog>
   )
