@@ -55,6 +55,7 @@ import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-sta
 import { PanelCard } from "@/components/shared/panel-card"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
+import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
@@ -628,7 +629,7 @@ function AgentsView(props: {
                       <TableRow key={service.name}>
                         <TableCell className="font-medium">{service.name}</TableCell>
                         <TableCell>
-                          <StatusBadge status={service.status} />
+                          <ServiceStatusBadge status={service.status} />
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
@@ -1054,7 +1055,7 @@ function ServiceDetailView(props: {
   return (
     <>
       <DetailHeader
-        badges={<StatusBadge status={service.status} />}
+        badges={<ServiceStatusBadge status={service.status} />}
         eyebrow="服务详情"
         meta={
           <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
@@ -1104,7 +1105,7 @@ function ServiceDetailView(props: {
       </MetricGrid>
 
       <PanelCard>
-        <SectionHeading title="Service Info" titleAs="h2" className="border-b-0 pb-0" actions={<StatusBadge status={service.status} />} />
+        <SectionHeading title="Service Info" titleAs="h2" className="border-b-0 pb-0" actions={<ServiceStatusBadge status={service.status} />} />
         <div className="grid gap-4 text-sm md:grid-cols-2">
           <MetaLine label="Transport" value={String(service.transport || "unknown")} valueClassName="font-mono" />
           <MetaLine label="Original" value={String(service.original_name || service.name)} valueClassName="font-mono" />
@@ -1199,7 +1200,7 @@ function ServiceTable(props: {
             </TableCell>
             <TableCell>{props.agentMap.get(service.name) || service.agent_id || "store"}</TableCell>
             <TableCell>{service.transport || "-"}</TableCell>
-            <TableCell><StatusBadge status={service.status} /></TableCell>
+            <TableCell><ServiceStatusBadge status={service.status} /></TableCell>
             <TableCell>{service.tools?.length || 0}</TableCell>
             <TableCell className="text-right">
               <div className="flex justify-end gap-2" onClick={(event) => event.stopPropagation()}>
@@ -1635,11 +1636,6 @@ function SearchBox({ placeholder, value, onChange }: { placeholder: string; valu
       <InputGroupInput placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} />
     </InputGroup>
   )
-}
-
-function StatusBadge({ status }: { status?: string }) {
-  const label = status || "Unknown"
-  return <Badge variant={label === "Connected" ? "default" : label === "Error" ? "destructive" : "secondary"}>{label}</Badge>
 }
 
 function getAgentId(agent: AgentItem) {
