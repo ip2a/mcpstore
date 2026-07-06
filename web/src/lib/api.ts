@@ -44,6 +44,16 @@ export type ApiEnvelope<T> = {
   errors?: Array<{ code: string; message: string; field?: string }>
 }
 
+export class ApiError extends Error {
+  status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = "ApiError"
+    this.status = status
+  }
+}
+
 export type AddServiceInput = {
   name: string
   scope: "store" | "agent"
@@ -62,14 +72,40 @@ function apiUrl(path: string) {
   return `${API_BASE}${path}`
 }
 
+export function buildQuery(params: Record<string, string | number | boolean | null | undefined>) {
+  const search = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === "") continue
+    search.set(key, String(value))
+  }
+  const query = search.toString()
+  return query ? `?${query}` : ""
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   const text = await response.text()
   const body = text ? JSON.parse(text) : null
   if (!response.ok) {
     const message = body?.message || body?.errors?.[0]?.message || response.statusText
-    throw new Error(message)
+    throw new ApiError(message, response.status)
   }
   return body as T
+}
+
+export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers = new Headers(options.headers)
+  headers.set("Accept", "application/json")
+
+  if (options.body !== undefined && !(options.body instanceof FormData) && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json")
+  }
+
+  return readJson<T>(
+    await fetch(apiUrl(path), {
+      ...options,
+      headers,
+    }),
+  )
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -79,7 +115,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   })
   const payload = await readJson<ApiEnvelope<T>>(response)
   if (!payload.success) {
-    throw new Error(payload.errors?.[0]?.message || payload.message)
+    throw new ApiError(payload.errors?.[0]?.message || payload.message, response.status)
   }
   return payload.data as T
 }
@@ -99,7 +135,7 @@ export async function listAgents(): Promise<AgentItem[]> {
 }
 
 export async function listTools(serviceName?: string): Promise<ToolInfo[]> {
-  const suffix = serviceName ? `?service_name=${encodeURIComponent(serviceName)}` : ""
+  const suffix = buildQuery({ service_name: serviceName })
   const data = await request<{ tools?: ToolInfo[] }>(`/for_store/list_tools${suffix}`)
   return data?.tools || []
 }
@@ -110,7 +146,7 @@ export async function listAgentServices(agentId: string): Promise<ServiceEntry[]
 }
 
 export async function listAgentTools(agentId: string, serviceName?: string): Promise<ToolInfo[]> {
-  const suffix = serviceName ? `?service_name=${encodeURIComponent(serviceName)}` : ""
+  const suffix = buildQuery({ service_name: serviceName })
   const data = await request<{ tools?: ToolInfo[] }>(`/for_agent/${encodeURIComponent(agentId)}/list_tools${suffix}`)
   return data?.tools || []
 }

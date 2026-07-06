@@ -1,0 +1,14 @@
+export const queryKeys = {
+  health: ["health"] as const,
+  services: ["services"] as const,
+  service: (serviceName: string) => ["services", serviceName] as const,
+  serviceStatus: (serviceName: string) => ["services", serviceName, "status"] as const,
+  tools: (serviceName?: string) => ["tools", serviceName ?? "all"] as const,
+  agents: ["agents"] as const,
+  agentServices: (agentId: string) => ["agents", agentId, "services"] as const,
+  agentTools: (agentId: string, serviceName?: string) => ["agents", agentId, "tools", serviceName ?? "all"] as const,
+  config: ["config"] as const,
+  agentConfig: (agentId: string) => ["agents", agentId, "config"] as const,
+  cacheHealth: ["cache", "health"] as const,
+  cacheInspect: ["cache", "inspect"] as const,
+}
