@@ -497,12 +497,9 @@ function AgentsView(props: {
 
       <TwoPanePage variant="page">
         <div className="flex min-w-0 flex-col gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Agent List</CardTitle>
-              <CardDescription>{props.agents.length} items</CardDescription>
-            </CardHeader>
-            <CardContent>
+          <PanelCard>
+            <SectionHeading title="Agent List" titleAs="h2" description={`${props.agents.length} items`} className="border-b-0 pb-0" />
+            <div>
               {props.loading ? (
                 <PageSkeleton />
               ) : props.agents.length ? (
@@ -526,8 +523,8 @@ function AgentsView(props: {
               ) : (
                 <PageEmpty title="No agents" description="Agent records will appear after services are assigned." onRefresh={props.onRefresh} />
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </PanelCard>
 
           <PanelCard>
             <SectionHeading title="Agent Scope" titleAs="h2" description={activeAgentId || "No agent selected"} className="border-b-0 pb-0" />
