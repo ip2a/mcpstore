@@ -139,7 +139,7 @@ function viewTitle(view: View): string {
 }
 
 export function App() {
-  const { services, agents, agentMap, backend, loading, refresh } = useDashboard()
+  const { services, agents, agentMap, backend, loading, error: dashboardError, refresh } = useDashboard()
   const [view, setView] = useState<View>({ name: "services" })
   const [toolDialog, setToolDialog] = useState<ToolDialogState>(null)
   const [toolDetail, setToolDetail] = useState<ToolDetailState>(null)
@@ -274,6 +274,7 @@ export function App() {
               agentMap={agentMap}
               backend={backend}
               busy={busy}
+              error={dashboardError}
               loading={loading}
               onCache={() => setView({ name: "cache" })}
               onCheck={() => runAction("check:services", checkServices)}
@@ -329,6 +330,7 @@ function ServicesView(props: {
   agentMap: Map<string, string>
   backend?: CacheBackend
   busy: string | null
+  error: string | null
   loading: boolean
   onCache: () => void
   onCheck: () => void
@@ -417,7 +419,9 @@ function ServicesView(props: {
               检查
             </Button>
           </div>
-          {props.loading ? (
+          {props.error ? (
+            <PageError title="Dashboard failed to load" message={props.error} onRefresh={props.onRefresh} />
+          ) : props.loading ? (
             <PageSkeleton />
           ) : filteredServices.length ? (
             <ServiceTable {...props} services={filteredServices} />
