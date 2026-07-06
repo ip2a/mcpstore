@@ -1399,7 +1399,8 @@ function RunToolDialog({ state, onOpenChange }: { state: ToolDialogState; onOpen
     }
   }, [state])
 
-  async function onRun() {
+  async function onRun(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
     if (!state) return
     setRunning(true)
     try {
@@ -1420,17 +1421,14 @@ function RunToolDialog({ state, onOpenChange }: { state: ToolDialogState; onOpen
           <DialogTitle>Run tool: {state?.tool.name}</DialogTitle>
           <DialogDescription>{state?.sourceLabel}</DialogDescription>
         </DialogHeader>
-        <FieldGroup>
+        <DialogForm onSubmit={onRun}>
           <Field>
             <FieldLabel htmlFor="tool-args">Args JSON</FieldLabel>
             <Textarea id="tool-args" value={args} onChange={(event) => setArgs(event.target.value)} rows={6} />
           </Field>
           {result ? <JsonBlock value={result} /> : null}
-        </FieldGroup>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
-          <Button onClick={onRun} disabled={running}>{running ? "Running" : "Run"}</Button>
-        </DialogFooter>
+          <DialogFormFooter cancelLabel="Close" onCancel={() => onOpenChange(false)} submitLabel={running ? "Running" : "Run"} submitting={running} />
+        </DialogForm>
       </DialogContent>
     </Dialog>
   )
