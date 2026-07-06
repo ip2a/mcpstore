@@ -67,6 +67,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { HomeHero } from "@/components/home-hero"
 import { useDashboard } from "@/hooks/use-dashboard"
+import { formatDateTime } from "@/lib/format"
 import { useUiStore } from "@/stores/ui-store"
 import {
   addService,
@@ -1090,6 +1091,7 @@ function ServiceDetailView(props: {
         <div className="grid gap-4 text-sm md:grid-cols-2">
           <MetaLine label="Transport" value={String(service.transport || "unknown")} valueClassName="font-mono" />
           <MetaLine label="Original" value={String(service.original_name || service.name)} valueClassName="font-mono" />
+          <MetaLine label="Added" value={formatDateTime(service.added_time)} valueClassName="font-mono" />
           <MetaLine label="Command" value={String(service.command || "-")} valueClassName="font-mono" />
           <MetaLine label="URL" value={String(service.url || "-")} valueClassName="font-mono" />
         </div>
