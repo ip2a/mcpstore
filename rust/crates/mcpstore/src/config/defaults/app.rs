@@ -20,6 +20,14 @@ pub(in crate::config) fn default_ui_language() -> String {
     "zh-cn".to_string()
 }
 
+pub(in crate::config) fn default_backup_dir() -> String {
+    "./backups".to_string()
+}
+
+pub(in crate::config) fn default_log_max_size_bytes() -> u64 {
+    5 * 1024 * 1024
+}
+
 pub(in crate::config) fn default_true() -> bool {
     true
 }

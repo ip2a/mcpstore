@@ -7,6 +7,7 @@ use super::{
 pub(super) fn validate_app_config(config: &AppConfig) -> Result<()> {
     let mut errors = Vec::new();
 
+    validate_ui_config(config, &mut errors);
     validate_server_settings(&config.server, &mut errors);
     validate_health_check_config(&config.health_check, &mut errors);
     validate_monitoring_config(&config.monitoring, &mut errors);
@@ -16,4 +17,18 @@ pub(super) fn validate_app_config(config: &AppConfig) -> Result<()> {
         return Err(ConfigError::Invalid(errors.join("; ")));
     }
     Ok(())
+}
+
+fn validate_ui_config(config: &AppConfig, errors: &mut Vec<String>) {
+    if !matches!(config.ui.language.as_str(), "auto" | "zh" | "zh-cn" | "en") {
+        errors.push("ui.language must be one of auto, zh, zh-cn, en".to_string());
+    }
+
+    if config.ui.default_backup_dir.trim().is_empty() {
+        errors.push("ui.default_backup_dir cannot be empty".to_string());
+    }
+
+    if config.ui.logging.max_size_bytes == 0 {
+        errors.push("ui.logging.max_size_bytes must be greater than 0".to_string());
+    }
 }
