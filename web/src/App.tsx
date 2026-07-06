@@ -659,6 +659,7 @@ function ToolsView(props: {
   const [serviceName, setServiceName] = useState("all")
   const [query, setQuery] = useState("")
   const [tools, setTools] = useState<ToolInfo[]>([])
+  const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -668,10 +669,13 @@ function ToolsView(props: {
   async function loadTools() {
     setLoading(true)
     try {
+      setError(null)
       const nextTools = scope === "agent" && agentId ? await listAgentTools(agentId, serviceName === "all" ? undefined : serviceName) : await listTools(serviceName === "all" ? undefined : serviceName)
       setTools(nextTools)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "工具加载失败")
+      const message = err instanceof Error ? err.message : "工具加载失败"
+      setError(message)
+      toast.error(message)
     } finally {
       setLoading(false)
     }
@@ -756,7 +760,9 @@ function ToolsView(props: {
         </div>
       </PanelCard>
 
-      {loading ? (
+      {error ? (
+        <PageError title="Tools failed to load" message={error} />
+      ) : loading ? (
         <PageSkeleton />
       ) : visibleTools.length ? (
         <section className="grid gap-4 lg:grid-cols-2">
