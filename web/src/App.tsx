@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react"
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react"
 import {
   ActivityIcon,
   ArrowLeftIcon,
@@ -464,21 +464,21 @@ function AgentsView(props: {
     if (!assignTarget && props.services[0]?.name) setAssignTarget(props.services[0].name)
   }, [assignTarget, props.services])
 
-  useEffect(() => {
-    if (!activeAgentId) {
-      setAgentServices([])
-      setAgentTools([])
+  const loadAgentScope = useCallback(
+    async (agentId: string, options: { cancelled?: () => boolean } = {}) => {
+      if (!agentId) {
+        setAgentServices([])
+        setAgentTools([])
+        setAgentServicesError(null)
+        setAgentToolsError(null)
+        return
+      }
+      setLoadingAgent(true)
       setAgentServicesError(null)
       setAgentToolsError(null)
-      return
-    }
-    let cancelled = false
-    setLoadingAgent(true)
-    setAgentServicesError(null)
-    setAgentToolsError(null)
-    Promise.allSettled([listAgentServices(activeAgentId), listAgentTools(activeAgentId)])
-      .then(([servicesResult, toolsResult]) => {
-        if (cancelled) return
+      try {
+        const [servicesResult, toolsResult] = await Promise.allSettled([listAgentServices(agentId), listAgentTools(agentId)])
+        if (options.cancelled?.()) return
         if (servicesResult.status === "fulfilled") {
           setAgentServices(servicesResult.value)
         } else {
@@ -495,14 +495,20 @@ function AgentsView(props: {
           setAgentToolsError(message)
           toast.error(message)
         }
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingAgent(false)
-      })
+      } finally {
+        if (!options.cancelled?.()) setLoadingAgent(false)
+      }
+    },
+    [],
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    void loadAgentScope(activeAgentId, { cancelled: () => cancelled })
     return () => {
       cancelled = true
     }
-  }, [activeAgentId, props.busy])
+  }, [activeAgentId, loadAgentScope, props.busy])
 
   return (
     <>
@@ -605,7 +611,7 @@ function AgentsView(props: {
             <SectionHeading title="Agent Services" titleAs="h2" description={loadingAgent ? "Loading" : `${agentServices.length} items`} className="border-b-0 pb-0" />
             <div>
               {agentServicesError ? (
-                <PageError title="Agent services failed to load" message={agentServicesError} />
+                <PageError title="Agent services failed to load" message={agentServicesError} onRefresh={() => loadAgentScope(activeAgentId)} />
               ) : loadingAgent ? (
                 <PageSkeleton />
               ) : agentServices.length ? (
@@ -648,7 +654,7 @@ function AgentsView(props: {
             <SectionHeading title="Agent Tools" titleAs="h2" description={loadingAgent ? "Loading" : `${agentTools.length} items`} className="border-b-0 pb-0" />
             <div>
               {agentToolsError ? (
-                <PageError title="Agent tools failed to load" message={agentToolsError} />
+                <PageError title="Agent tools failed to load" message={agentToolsError} onRefresh={() => loadAgentScope(activeAgentId)} />
               ) : loadingAgent ? (
                 <PageSkeleton />
               ) : agentTools.length ? (
