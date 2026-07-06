@@ -11,4 +11,6 @@ export const queryKeys = {
   agentConfig: (agentId: string) => ["agents", agentId, "config"] as const,
   cacheHealth: ["cache", "health"] as const,
   cacheInspect: ["cache", "inspect"] as const,
+  meta: ["meta"] as const,
+  settings: ["settings"] as const,
 }
