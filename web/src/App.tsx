@@ -51,6 +51,7 @@ import {
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { SettingsDialog } from "@/features/settings/settings-dialog"
 import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
+import { SectionHeading } from "@/components/shared/section-heading"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
@@ -1085,12 +1086,7 @@ function ServiceDetailView(props: {
       </Card>
 
       <section className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-lg font-semibold">Tool List</h2>
-            <p className="text-sm text-muted-foreground">{tools.length} items</p>
-          </div>
-        </div>
+        <SectionHeading title="Tool List" titleAs="h2" description={`${tools.length} items`} className="border-b-0 pb-0" />
         {tools.length ? (
           <div className="grid gap-4 lg:grid-cols-2">
             {tools.map((tool) => (
