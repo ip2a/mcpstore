@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { RefreshCwIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -11,6 +12,7 @@ import { ToolCard } from "@/components/shared/tool-card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { callAgentTool, callStoreTool, listAgentTools, listTools, type AgentItem, type ServiceEntry, type ToolInfo } from "@/lib/api"
+import { queryKeys } from "@/lib/query-keys"
 import { getToolServiceName, toolKey } from "@/lib/tool-info"
 import type { ToolDetailState, ToolDialogState } from "@/features/tools/tool-dialogs"
 
@@ -25,26 +27,28 @@ export function ToolsView(props: {
   const [agentId, setAgentId] = useState(agentIds[0] || "")
   const [serviceName, setServiceName] = useState("all")
   const [query, setQuery] = useState("")
-  const [tools, setTools] = useState<ToolInfo[]>([])
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const serviceFilter = serviceName === "all" ? undefined : serviceName
+  const toolsQuery = useQuery({
+    enabled: false,
+    queryKey: scope === "agent" && agentId ? queryKeys.agentTools(agentId, serviceFilter) : queryKeys.tools(serviceFilter),
+    queryFn: () => (scope === "agent" && agentId ? listAgentTools(agentId, serviceFilter) : listTools(serviceFilter)),
+  })
+  const tools = toolsQuery.data || []
+  const error = toolsQuery.error
+  const errorMessage = error instanceof Error ? error.message : error ? String(error) : "工具加载失败"
+  const loading = toolsQuery.isFetching
 
   useEffect(() => {
     if (!agentId && agentIds[0]) setAgentId(agentIds[0])
   }, [agentId, agentIds])
 
   async function loadTools() {
-    setLoading(true)
     try {
-      setError(null)
-      const nextTools = scope === "agent" && agentId ? await listAgentTools(agentId, serviceName === "all" ? undefined : serviceName) : await listTools(serviceName === "all" ? undefined : serviceName)
-      setTools(nextTools)
+      const nextTools = await toolsQuery.refetch()
+      if (nextTools.error) throw nextTools.error
     } catch (err) {
       const message = err instanceof Error ? err.message : "工具加载失败"
-      setError(message)
       toast.error(message)
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -128,7 +132,7 @@ export function ToolsView(props: {
       </PanelCard>
 
       {error ? (
-        <PageError title="Tools failed to load" message={error} onRefresh={loadTools} />
+        <PageError title="Tools failed to load" message={errorMessage} onRefresh={loadTools} />
       ) : loading ? (
         <PageSkeleton />
       ) : visibleTools.length ? (
