@@ -1370,7 +1370,10 @@ function AddServiceView({ agents, onBack, onAdded }: { agents: AgentItem[]; onBa
 
               <Field>
                 <FieldLabel htmlFor="commandOrUrl">Command or URL</FieldLabel>
-                <Input id="commandOrUrl" name="commandOrUrl" placeholder={transport === "stdio" ? "npx -y @modelcontextprotocol/server-filesystem ." : "https://example.com/mcp"} required />
+                <InputGroup>
+                  <InputGroupAddon align="inline-start">{transport}</InputGroupAddon>
+                  <InputGroupInput id="commandOrUrl" name="commandOrUrl" placeholder={transport === "stdio" ? "npx -y @modelcontextprotocol/server-filesystem ." : "https://example.com/mcp"} required />
+                </InputGroup>
               </Field>
 
               <Field>
@@ -1380,7 +1383,10 @@ function AddServiceView({ agents, onBack, onAdded }: { agents: AgentItem[]; onBa
 
               <Field>
                 <FieldLabel htmlFor="workingDir">Working directory</FieldLabel>
-                <Input id="workingDir" name="workingDir" placeholder="Optional" />
+                <InputGroup>
+                  <InputGroupAddon align="inline-start">cwd</InputGroupAddon>
+                  <InputGroupInput id="workingDir" name="workingDir" placeholder="Optional" />
+                </InputGroup>
               </Field>
 
               <Tabs defaultValue="env">
