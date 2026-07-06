@@ -847,28 +847,30 @@ function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarget | nul
         </TabsList>
         <TabsContent value="store">
           <PanelCard>
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-base font-semibold">Store Config</h2>
-              <Button variant="outline" size="sm" onClick={() => props.onResetTarget({ scope: "store" })}>
+            <SectionHeading
+              title="Store Config"
+              titleAs="h2"
+              className="border-b-0 pb-0"
+              actions={<Button variant="outline" size="sm" onClick={() => props.onResetTarget({ scope: "store" })}>
                 <RefreshCwIcon data-icon="inline-start" />
                 Reset
-              </Button>
-            </div>
+              </Button>}
+            />
             {loading && !storeConfig ? <PageSkeleton /> : <JsonBlock value={storeConfig || {}} />}
           </PanelCard>
         </TabsContent>
         <TabsContent value="agent">
           <PanelCard>
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex min-w-0 flex-col gap-1">
-                <h2 className="text-base font-semibold">Agent Config</h2>
-                <p className="truncate text-sm text-muted-foreground">{agentId || "No agent selected"}</p>
-              </div>
-              <Button variant="outline" size="sm" disabled={!agentId} onClick={() => props.onResetTarget({ scope: "agent", agentId })}>
+            <SectionHeading
+              title="Agent Config"
+              titleAs="h2"
+              description={agentId || "No agent selected"}
+              className="border-b-0 pb-0"
+              actions={<Button variant="outline" size="sm" disabled={!agentId} onClick={() => props.onResetTarget({ scope: "agent", agentId })}>
                 <RefreshCwIcon data-icon="inline-start" />
                 Reset
-              </Button>
-            </div>
+              </Button>}
+            />
             <Select value={agentId || "none"} onValueChange={(value) => setAgentId(value === "none" ? "" : value)}>
               <SelectTrigger className="w-full md:w-80">
                 <SelectValue />
@@ -942,17 +944,11 @@ function CacheView(props: { backend?: CacheBackend; revision: number; onRefreshD
 
       <section className="grid gap-4 lg:grid-cols-2">
         <PanelCard>
-          <div className="flex flex-col gap-1">
-            <h2 className="text-base font-semibold">Health</h2>
-            <p className="text-sm text-muted-foreground">/cache/health</p>
-          </div>
+          <SectionHeading title="Health" titleAs="h2" description="/cache/health" className="border-b-0 pb-0" />
           {loading && !healthReport ? <PageSkeleton /> : <JsonBlock value={healthReport || {}} />}
         </PanelCard>
         <PanelCard>
-          <div className="flex flex-col gap-1">
-            <h2 className="text-base font-semibold">Inspect</h2>
-            <p className="text-sm text-muted-foreground">/cache/inspect</p>
-          </div>
+          <SectionHeading title="Inspect" titleAs="h2" description="/cache/inspect" className="border-b-0 pb-0" />
           {loading && !inspectReport ? <PageSkeleton /> : <JsonBlock value={inspectReport || {}} />}
         </PanelCard>
       </section>
@@ -1041,10 +1037,7 @@ function ServiceDetailView(props: {
       </section>
 
       <PanelCard>
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-base font-semibold">Service Info</h2>
-          <StatusBadge status={service.status} />
-        </div>
+        <SectionHeading title="Service Info" titleAs="h2" className="border-b-0 pb-0" actions={<StatusBadge status={service.status} />} />
         <div className="grid gap-4 text-sm md:grid-cols-2">
           <MetaLine label="Transport" value={String(service.transport || "unknown")} valueClassName="font-mono" />
           <MetaLine label="Original" value={String(service.original_name || service.name)} valueClassName="font-mono" />
@@ -1074,11 +1067,11 @@ function ServiceDetailView(props: {
 
       <section className="grid gap-4 lg:grid-cols-2">
         <PanelCard>
-          <h2 className="text-base font-semibold">Status</h2>
+          <SectionHeading title="Status" titleAs="h2" className="border-b-0 pb-0" />
           <JsonBlock value={statusReport || { status: service.status || "Unknown" }} />
         </PanelCard>
         <PanelCard>
-          <h2 className="text-base font-semibold">Raw Detail</h2>
+          <SectionHeading title="Raw Detail" titleAs="h2" className="border-b-0 pb-0" />
           <JsonBlock value={service} />
         </PanelCard>
       </section>
