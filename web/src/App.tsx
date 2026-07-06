@@ -54,6 +54,7 @@ import { DetailHeader } from "@/components/shared/detail-header"
 import { EntityRow } from "@/components/shared/entity-row"
 import { MetaLine } from "@/components/shared/meta-line"
 import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
+import { PanelCard } from "@/components/shared/panel-card"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
@@ -1591,12 +1592,10 @@ function ResetConfigDialog({ target, onOpenChange, onConfirm }: { target: ResetT
 
 function InfoCard({ label, value }: { label: string; value: string }) {
   return (
-    <Card>
-      <CardContent className="flex min-w-0 flex-col gap-1 p-4">
-        <span className="text-sm text-muted-foreground">{label}</span>
-        <code className="truncate text-sm font-medium">{value}</code>
-      </CardContent>
-    </Card>
+    <PanelCard variant="plain" className="flex min-w-0 flex-col gap-1">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <code className="truncate text-sm font-medium">{value}</code>
+    </PanelCard>
   )
 }
 
