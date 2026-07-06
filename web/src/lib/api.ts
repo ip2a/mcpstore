@@ -37,6 +37,50 @@ export type AgentItem = {
 export type CacheReport = Record<string, unknown>
 export type ConfigReport = Record<string, unknown>
 
+export type UiLanguage = "auto" | "en" | "zh" | string
+
+export type LogSettingsPayload = {
+  max_size_bytes?: number | null
+  retention_days?: number | null
+}
+
+export type SettingsPayload = {
+  language?: UiLanguage
+  default_backup_dir?: string
+  logging?: LogSettingsPayload
+  [key: string]: unknown
+}
+
+export type SettingsPathsPayload = {
+  backup_dir_base?: string | null
+  backup_dir_input?: string | null
+  backup_dir_resolved?: string | null
+  log_dir?: string | null
+  log_file_name?: string | null
+  log_file_path?: string | null
+}
+
+export type ConfigFilePayload = {
+  path?: string
+  format?: string
+  content?: string
+}
+
+export type MetaPayload = {
+  version?: string
+  settings?: SettingsPayload
+  settings_paths?: SettingsPathsPayload
+  config_file?: ConfigFilePayload
+  [key: string]: unknown
+}
+
+export type UpdateSettingsPayload = {
+  language?: UiLanguage
+  default_backup_dir?: string
+  logging?: LogSettingsPayload
+  [key: string]: unknown
+}
+
 export type ApiEnvelope<T> = {
   success: boolean
   message: string
@@ -177,6 +221,17 @@ export async function showConfig(): Promise<ConfigReport> {
 
 export async function showAgentConfig(agentId: string): Promise<ConfigReport> {
   return request(`/for_agent/${encodeURIComponent(agentId)}/show_config`)
+}
+
+export async function getMeta(): Promise<MetaPayload> {
+  return api<MetaPayload>("/v1/meta")
+}
+
+export async function updateSettings(payload: UpdateSettingsPayload): Promise<SettingsPayload> {
+  return api<SettingsPayload>("/v1/settings", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  })
 }
 
 export async function resetConfig() {
