@@ -9,7 +9,6 @@ import { WorkspaceIdentity } from "@/components/shared/workspace-identity"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldTitle } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupTextarea } from "@/components/ui/input-group"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -196,12 +195,14 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                               <PathText value={settingsPaths?.log_file_path} fallback={t("logFilePathMissing")} wrap="all" />
                             </FieldDescription>
                           </FieldContent>
-                          <Input
-                            className="w-32"
-                            inputMode="decimal"
-                            value={logSizeMb(draft)}
-                            onChange={(event) => patchLogging({ max_size_bytes: Math.max(0, Number(event.target.value || 0) * 1024 * 1024) })}
-                          />
+                          <InputGroup className="w-32">
+                            <InputGroupInput
+                              inputMode="decimal"
+                              value={logSizeMb(draft)}
+                              onChange={(event) => patchLogging({ max_size_bytes: Math.max(0, Number(event.target.value || 0) * 1024 * 1024) })}
+                            />
+                            <InputGroupAddon align="inline-end">MB</InputGroupAddon>
+                          </InputGroup>
                         </Field>
 
                         <Field orientation="responsive">
@@ -209,13 +210,15 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                             <FieldTitle>{t("logRetentionDays")}</FieldTitle>
                             <FieldDescription>{t("unlimited")}</FieldDescription>
                           </FieldContent>
-                          <Input
-                            className="w-32"
-                            inputMode="numeric"
-                            placeholder="不限"
-                            value={draft.logging.retention_days ?? ""}
-                            onChange={(event) => patchLogging({ retention_days: event.target.value === "" ? null : Math.max(0, Number(event.target.value)) })}
-                          />
+                          <InputGroup className="w-32">
+                            <InputGroupInput
+                              inputMode="numeric"
+                              placeholder="不限"
+                              value={draft.logging.retention_days ?? ""}
+                              onChange={(event) => patchLogging({ retention_days: event.target.value === "" ? null : Math.max(0, Number(event.target.value)) })}
+                            />
+                            <InputGroupAddon align="inline-end">days</InputGroupAddon>
+                          </InputGroup>
                         </Field>
                       </FieldGroup>
                     </section>
