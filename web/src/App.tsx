@@ -10,7 +10,6 @@ import {
   MoreHorizontalIcon,
   PlusIcon,
   RefreshCwIcon,
-  SearchIcon,
   SettingsIcon,
   Trash2Icon,
   UnlinkIcon,
@@ -53,6 +52,7 @@ import { MetaLine } from "@/components/shared/meta-line"
 import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import { SearchBox } from "@/components/shared/search-box"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
 import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
@@ -1624,17 +1624,6 @@ function ResetConfigDialog({ target, onOpenChange, onConfirm }: { target: ResetT
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  )
-}
-
-function SearchBox({ placeholder, value, onChange }: { placeholder: string; value: string; onChange: (value: string) => void }) {
-  return (
-    <InputGroup className="min-w-0 flex-1">
-      <InputGroupAddon align="inline-start" className="pointer-events-none">
-        <SearchIcon aria-hidden="true" />
-      </InputGroupAddon>
-      <InputGroupInput placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} />
-    </InputGroup>
   )
 }
 
