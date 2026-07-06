@@ -1,0 +1,1670 @@
+import { useEffect, useMemo, useState, type FormEvent } from "react"
+import {
+  ActivityIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  BotIcon,
+  BracesIcon,
+  CableIcon,
+  DatabaseIcon,
+  MoreHorizontalIcon,
+  PlusIcon,
+  RefreshCwIcon,
+  SearchIcon,
+  SettingsIcon,
+  Trash2Icon,
+  WrenchIcon,
+} from "lucide-react"
+import { toast } from "sonner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Toaster } from "@/components/ui/sonner"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
+import { TooltipProvider } from "@/components/ui/tooltip"
+import { HomeHero } from "@/components/home-hero"
+import { useDashboard } from "@/hooks/use-dashboard"
+import {
+  addService,
+  assignService,
+  cacheHealth,
+  cacheInspect,
+  callAgentTool,
+  callStoreTool,
+  callTool,
+  checkServices,
+  connectService,
+  disconnectService,
+  listAgentServices,
+  listAgentTools,
+  listTools,
+  parseKvLines,
+  removeService,
+  resetAgentConfig,
+  resetConfig,
+  restartService,
+  serviceInfo,
+  serviceStatus,
+  showAgentConfig,
+  showConfig,
+  switchCache,
+  unassignService,
+  type AgentItem,
+  type CacheBackend,
+  type ServiceEntry,
+  type ToolInfo,
+} from "@/lib/api"
+
+type View =
+  | { name: "services" }
+  | { name: "agents" }
+  | { name: "tools" }
+  | { name: "config" }
+  | { name: "cache" }
+  | { name: "add" }
+  | { name: "service"; serviceName: string }
+
+type ToolDialogState = {
+  tool: ToolInfo
+  sourceLabel: string
+  onRun: (args: Record<string, unknown>) => Promise<unknown>
+} | null
+
+type ToolDetailState = {
+  tool: ToolInfo
+  sourceLabel: string
+  onRun?: (args: Record<string, unknown>) => Promise<unknown>
+} | null
+
+type ResetTarget = { scope: "store" } | { scope: "agent"; agentId: string }
+
+const cacheOptions: CacheBackend[] = ["memory", "redis", "openkeyv_memory", "openkeyv_redis"]
+const navItems: Array<{ view: View["name"]; label: string }> = [
+  { view: "services", label: "服务" },
+  { view: "agents", label: "Agent" },
+  { view: "tools", label: "工具" },
+  { view: "config", label: "配置" },
+  { view: "cache", label: "缓存" },
+]
+
+function viewTitle(view: View): string {
+  if (view.name === "service") return view.serviceName
+  if (view.name === "add") return "添加服务"
+  return navItems.find((item) => item.view === view.name)?.label || "服务"
+}
+
+export function App() {
+  const { services, agents, agentMap, backend, loading, refresh } = useDashboard()
+  const [view, setView] = useState<View>({ name: "services" })
+  const [toolDialog, setToolDialog] = useState<ToolDialogState>(null)
+  const [toolDetail, setToolDetail] = useState<ToolDetailState>(null)
+  const [cacheDialog, setCacheDialog] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<ServiceEntry | null>(null)
+  const [resetTarget, setResetTarget] = useState<ResetTarget | null>(null)
+  const [cacheRevision, setCacheRevision] = useState(0)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  const selectedService = view.name === "service" ? services.find((service) => service.name === view.serviceName) : undefined
+  const isHome = view.name === "services"
+  const pageTitle = viewTitle(view)
+
+  async function runAction(label: string, action: () => Promise<unknown>) {
+    setBusy(label)
+    try {
+      await action()
+      toast.success("操作已完成")
+      await refresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "操作失败")
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function confirmReset(target: ResetTarget) {
+    if (target.scope === "store") {
+      await runAction("reset:store", resetConfig)
+    } else {
+      await runAction(`reset:${target.agentId}`, () => resetAgentConfig(target.agentId))
+    }
+  }
+
+  function openServiceToolRunner(service: ServiceEntry, tool: ToolInfo) {
+    setToolDialog({
+      tool,
+      sourceLabel: service.name,
+      onRun: (args) => callTool(service.name, tool.name, args),
+    })
+  }
+
+  function openServiceToolDetail(service: ServiceEntry, tool: ToolInfo) {
+    setToolDetail({
+      tool,
+      sourceLabel: service.name,
+      onRun: (args) => callTool(service.name, tool.name, args),
+    })
+  }
+
+  return (
+    <TooltipProvider>
+      <div className="min-h-dvh bg-background">
+        <div className="mx-auto grid h-dvh w-[min(1280px,calc(100vw-24px))] grid-rows-[auto_minmax(0,1fr)] overflow-hidden pb-4">
+          <header className="mb-3 flex min-h-16 items-center justify-between gap-4 border-b py-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <button className="font-mono font-bold" type="button" onClick={() => setView({ name: "services" })}>
+                mcpstore
+              </button>
+              <div className="h-5 w-px bg-border" />
+              <span className="truncate text-sm font-semibold">{pageTitle}</span>
+            </div>
+
+            <nav className="flex flex-wrap items-center justify-end gap-2">
+              {!isHome ? (
+                <Button type="button" variant="outline" size="sm" onClick={() => setView({ name: "services" })}>
+                  <ArrowLeftIcon data-icon="inline-start" />
+                  返回
+                </Button>
+              ) : null}
+              {navItems.map((item) =>
+                view.name === item.view ? null : (
+                  <Button key={item.view} variant="outline" size="sm" onClick={() => setView({ name: item.view } as View)}>
+                    {item.label}
+                  </Button>
+                ),
+              )}
+              <Button variant="outline" size="sm" onClick={() => setView({ name: "add" })}>
+                <PlusIcon data-icon="inline-start" />
+                添加
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setView({ name: "config" })}>
+                <SettingsIcon data-icon="inline-start" />
+                设置
+              </Button>
+            </nav>
+          </header>
+
+          <main className="flex min-h-0 flex-col gap-6 overflow-auto py-3">
+          {view.name === "add" ? (
+            <AddServiceView agents={agents} onBack={() => setView({ name: "services" })} onAdded={refresh} />
+          ) : selectedService ? (
+            <ServiceDetailView
+              service={selectedService}
+              busy={busy}
+              onBack={() => setView({ name: "services" })}
+              onRunTool={(tool) => openServiceToolRunner(selectedService, tool)}
+              onToolDetail={(tool) => openServiceToolDetail(selectedService, tool)}
+              onConnect={() => runAction(`connect:${selectedService.name}`, () => connectService(selectedService.name))}
+              onDisconnect={() => runAction(`disconnect:${selectedService.name}`, () => disconnectService(selectedService.name))}
+              onRestart={() => runAction(`restart:${selectedService.name}`, () => restartService(selectedService.name))}
+              onDelete={() => setDeleteTarget(selectedService)}
+            />
+          ) : view.name === "agents" ? (
+            <AgentsView
+              agents={agents}
+              services={services}
+              loading={loading}
+              busy={busy}
+              onRefresh={refresh}
+              onAssign={(agentId, serviceName) => runAction(`assign:${agentId}:${serviceName}`, () => assignService(agentId, serviceName))}
+              onOpenService={(serviceName) => setView({ name: "service", serviceName })}
+              onUnassign={(agentId, serviceName) => runAction(`unassign:${agentId}:${serviceName}`, () => unassignService(agentId, serviceName))}
+            />
+          ) : view.name === "tools" ? (
+            <ToolsView
+              agents={agents}
+              services={services}
+              onToolDetail={setToolDetail}
+              onRunTool={setToolDialog}
+            />
+          ) : view.name === "config" ? (
+            <ConfigView agents={agents} resetTarget={resetTarget} onResetTarget={setResetTarget} />
+          ) : view.name === "cache" ? (
+            <CacheView backend={backend} revision={cacheRevision} onRefreshDashboard={refresh} onSwitch={() => setCacheDialog(true)} />
+          ) : (
+            <ServicesView
+              services={services}
+              agents={agents}
+              agentMap={agentMap}
+              backend={backend}
+              busy={busy}
+              loading={loading}
+              onCache={() => setView({ name: "cache" })}
+              onCheck={() => runAction("check:services", checkServices)}
+              onConnect={(service) => runAction(`connect:${service.name}`, () => connectService(service.name))}
+              onDelete={setDeleteTarget}
+              onDisconnect={(service) => runAction(`disconnect:${service.name}`, () => disconnectService(service.name))}
+              onOpen={(service) => setView({ name: "service", serviceName: service.name })}
+              onRefresh={refresh}
+              onRestart={(service) => runAction(`restart:${service.name}`, () => restartService(service.name))}
+            />
+          )}
+          </main>
+        </div>
+      </div>
+
+      <RunToolDialog state={toolDialog} onOpenChange={(open) => !open && setToolDialog(null)} />
+      <ToolDetailDialog
+        state={toolDetail}
+        onOpenChange={(open) => !open && setToolDetail(null)}
+        onRun={(state) => {
+          if (!state.onRun) return
+          setToolDialog({ tool: state.tool, sourceLabel: state.sourceLabel, onRun: state.onRun })
+        }}
+      />
+      <SwitchCacheDialog
+        open={cacheDialog}
+        current={backend}
+        onOpenChange={setCacheDialog}
+        onChanged={async () => {
+          await refresh()
+          setCacheRevision((value) => value + 1)
+        }}
+      />
+      <DeleteServiceDialog
+        service={deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onConfirm={(service) => runAction(`delete:${service.name}`, () => removeService(service.name)).then(() => setView({ name: "services" }))}
+      />
+      <ResetConfigDialog
+        target={resetTarget}
+        onOpenChange={(open) => !open && setResetTarget(null)}
+        onConfirm={(target) => confirmReset(target).then(() => setResetTarget(null))}
+      />
+      <Toaster />
+    </TooltipProvider>
+  )
+}
+
+function ServicesView(props: {
+  services: ServiceEntry[]
+  agents: AgentItem[]
+  agentMap: Map<string, string>
+  backend?: CacheBackend
+  busy: string | null
+  loading: boolean
+  onCache: () => void
+  onCheck: () => void
+  onConnect: (service: ServiceEntry) => void
+  onDelete: (service: ServiceEntry) => void
+  onDisconnect: (service: ServiceEntry) => void
+  onOpen: (service: ServiceEntry) => void
+  onRefresh: () => void
+  onRestart: (service: ServiceEntry) => void
+}) {
+  const [agentFilter, setAgentFilter] = useState("store")
+  const [query, setQuery] = useState("")
+  const agentIds = props.agents.map(getAgentId).filter(Boolean)
+  const filteredServices = useMemo(() => {
+    return props.services.filter((service) => {
+      const inAgent = agentFilter === "store" || props.agentMap.get(service.name) === agentFilter
+      const text = `${service.name} ${service.transport || ""} ${service.config?.description || ""}`.toLowerCase()
+      return inAgent && text.includes(query.trim().toLowerCase())
+    })
+  }, [agentFilter, props.agentMap, props.services, query])
+  const totals = useMemo(() => {
+    const count = (status: string) => filteredServices.filter((service) => service.status === status).length
+    return {
+      services: filteredServices.length,
+      tools: filteredServices.reduce((sum, service) => sum + (service.tools?.length || 0), 0),
+      connected: count("Connected"),
+      disconnected: count("Disconnected"),
+      connecting: count("Connecting"),
+      error: count("Error"),
+    }
+  }, [filteredServices])
+
+  return (
+    <>
+      <HomeHero
+        backend={props.backend}
+        stats={{
+          loading: props.loading,
+          services: totals.services,
+          connected: totals.connected,
+          disconnected: totals.disconnected,
+          connecting: totals.connecting,
+          error: totals.error,
+          tools: totals.tools,
+          agents: agentIds.length,
+        }}
+      />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>MCP 服务列表</CardTitle>
+          <CardDescription>{filteredServices.length} services</CardDescription>
+          <CardAction>
+            <Button variant="outline" size="sm" onClick={props.onCache}>
+              <DatabaseIcon data-icon="inline-start" />
+              缓存
+            </Button>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_auto_auto]">
+            <SearchBox placeholder="Search services" value={query} onChange={setQuery} />
+            <Select value={agentFilter} onValueChange={setAgentFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Agent" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="store">Store</SelectItem>
+                  {agentIds.map((agentId) => (
+                    <SelectItem key={agentId} value={agentId}>
+                      {agentId}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" onClick={props.onRefresh} disabled={props.loading}>
+              <RefreshCwIcon data-icon="inline-start" />
+              刷新
+            </Button>
+            <Button variant="outline" onClick={props.onCheck} disabled={Boolean(props.busy)}>
+              <ActivityIcon data-icon="inline-start" />
+              检查
+            </Button>
+          </div>
+          {props.loading ? <ServiceSkeleton /> : filteredServices.length ? <ServiceTable {...props} services={filteredServices} /> : <NoServices />}
+        </CardContent>
+      </Card>
+    </>
+  )
+}
+
+function AgentsView(props: {
+  agents: AgentItem[]
+  services: ServiceEntry[]
+  loading: boolean
+  busy: string | null
+  onAssign: (agentId: string, serviceName: string) => void
+  onOpenService: (serviceName: string) => void
+  onRefresh: () => void
+  onUnassign: (agentId: string, serviceName: string) => void
+}) {
+  const agentIds = props.agents.map(getAgentId).filter(Boolean)
+  const [selectedAgentId, setSelectedAgentId] = useState(agentIds[0] || "")
+  const [typedAgentId, setTypedAgentId] = useState("")
+  const [assignTarget, setAssignTarget] = useState(props.services[0]?.name || "")
+  const [agentServices, setAgentServices] = useState<ServiceEntry[]>([])
+  const [agentTools, setAgentTools] = useState<ToolInfo[]>([])
+  const [loadingAgent, setLoadingAgent] = useState(false)
+  const activeAgentId = (typedAgentId.trim() || selectedAgentId).trim()
+
+  useEffect(() => {
+    if (!selectedAgentId && agentIds[0]) setSelectedAgentId(agentIds[0])
+  }, [agentIds, selectedAgentId])
+
+  useEffect(() => {
+    if (!assignTarget && props.services[0]?.name) setAssignTarget(props.services[0].name)
+  }, [assignTarget, props.services])
+
+  useEffect(() => {
+    if (!activeAgentId) {
+      setAgentServices([])
+      setAgentTools([])
+      return
+    }
+    let cancelled = false
+    setLoadingAgent(true)
+    Promise.all([listAgentServices(activeAgentId).catch(() => []), listAgentTools(activeAgentId).catch(() => [])])
+      .then(([services, tools]) => {
+        if (!cancelled) {
+          setAgentServices(services)
+          setAgentTools(tools)
+        }
+      })
+      .catch((err) => toast.error(err instanceof Error ? err.message : "Agent 加载失败"))
+      .finally(() => {
+        if (!cancelled) setLoadingAgent(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeAgentId, props.busy])
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="Agent 管理"
+        title="Agent Workspace"
+        actions={
+          <Button variant="outline" onClick={props.onRefresh} disabled={props.loading}>
+            <RefreshCwIcon data-icon="inline-start" />
+            刷新
+          </Button>
+        }
+      />
+
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Agent List</CardTitle>
+            <CardDescription>{props.agents.length} items</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {props.loading ? (
+              <ServiceSkeleton />
+            ) : props.agents.length ? (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Agent</TableHead>
+                      <TableHead>Services</TableHead>
+                      <TableHead>Tools</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {props.agents.map((agent) => {
+                      const agentId = getAgentId(agent)
+                      const serviceNames = getAgentServices(agent)
+                      return (
+                        <TableRow key={agentId || JSON.stringify(agent)}>
+                          <TableCell className="font-medium">{agentId || "-"}</TableCell>
+                          <TableCell>{serviceNames.length}</TableCell>
+                          <TableCell>{agentId === activeAgentId ? agentTools.length : "-"}</TableCell>
+                          <TableCell className="text-right">
+                            <Button size="sm" variant="outline" onClick={() => setSelectedAgentId(agentId)} disabled={!agentId}>
+                              View
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <Empty>
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <BotIcon />
+                  </EmptyMedia>
+                  <EmptyTitle>No agents</EmptyTitle>
+                  <EmptyDescription>Agent records will appear after services are assigned.</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Agent Scope</CardTitle>
+            <CardDescription>{activeAgentId || "No agent selected"}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FieldGroup>
+              <Field>
+                <FieldLabel>Known Agent</FieldLabel>
+                <Select value={selectedAgentId || "none"} onValueChange={(value) => setSelectedAgentId(value === "none" ? "" : value)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="none">None</SelectItem>
+                      {agentIds.map((agentId) => (
+                        <SelectItem key={agentId} value={agentId}>
+                          {agentId}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="agent-id">Agent ID</FieldLabel>
+                <Input id="agent-id" value={typedAgentId} onChange={(event) => setTypedAgentId(event.target.value)} placeholder="agent-a" />
+              </Field>
+              <Field>
+                <FieldLabel>Assign Service</FieldLabel>
+                <Select value={assignTarget || "none"} onValueChange={(value) => setAssignTarget(value === "none" ? "" : value)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="none">None</SelectItem>
+                      {props.services.map((service) => (
+                        <SelectItem key={service.name} value={service.name}>
+                          {service.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Button disabled={!activeAgentId || !assignTarget || Boolean(props.busy)} onClick={() => props.onAssign(activeAgentId, assignTarget)}>
+                Assign
+              </Button>
+            </FieldGroup>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Agent Services</CardTitle>
+            <CardDescription>{loadingAgent ? "Loading" : `${agentServices.length} items`}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loadingAgent ? (
+              <ServiceSkeleton />
+            ) : agentServices.length ? (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Service</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {agentServices.map((service) => (
+                      <TableRow key={service.name}>
+                        <TableCell className="font-medium">{service.name}</TableCell>
+                        <TableCell>
+                          <StatusBadge status={service.status} />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button size="sm" variant="outline" onClick={() => props.onOpenService(service.name)}>
+                              View
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => props.onUnassign(activeAgentId, service.name)} disabled={!activeAgentId || Boolean(props.busy)}>
+                              Unassign
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <NoServices />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Agent Tools</CardTitle>
+            <CardDescription>{loadingAgent ? "Loading" : `${agentTools.length} items`}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loadingAgent ? (
+              <ServiceSkeleton />
+            ) : agentTools.length ? (
+              <div className="flex flex-col gap-3">
+                {agentTools.slice(0, 8).map((tool) => (
+                  <div key={toolKey(tool)} className="flex items-center justify-between gap-3 rounded-md border p-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{tool.name}</p>
+                      <p className="truncate text-sm text-muted-foreground">{tool.description || "No description"}</p>
+                    </div>
+                    <Badge variant="outline">tool</Badge>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Empty>
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <BracesIcon />
+                  </EmptyMedia>
+                  <EmptyTitle>No tools</EmptyTitle>
+                  <EmptyDescription>No tools are available for this agent.</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            )}
+          </CardContent>
+        </Card>
+      </section>
+    </>
+  )
+}
+
+function ToolsView(props: {
+  agents: AgentItem[]
+  services: ServiceEntry[]
+  onRunTool: (state: ToolDialogState) => void
+  onToolDetail: (state: ToolDetailState) => void
+}) {
+  const agentIds = props.agents.map(getAgentId).filter(Boolean)
+  const [scope, setScope] = useState("store")
+  const [agentId, setAgentId] = useState(agentIds[0] || "")
+  const [serviceName, setServiceName] = useState("all")
+  const [query, setQuery] = useState("")
+  const [tools, setTools] = useState<ToolInfo[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!agentId && agentIds[0]) setAgentId(agentIds[0])
+  }, [agentId, agentIds])
+
+  async function loadTools() {
+    setLoading(true)
+    try {
+      const nextTools = scope === "agent" && agentId ? await listAgentTools(agentId, serviceName === "all" ? undefined : serviceName) : await listTools(serviceName === "all" ? undefined : serviceName)
+      setTools(nextTools)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "工具加载失败")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadTools()
+  }, [scope, agentId, serviceName])
+
+  const visibleTools = tools.filter((tool) => {
+    const text = `${tool.name} ${tool.description || ""} ${getToolServiceName(tool) || ""}`.toLowerCase()
+    return text.includes(query.trim().toLowerCase())
+  })
+
+  function makeRunner(tool: ToolInfo): NonNullable<ToolDialogState> {
+    const sourceLabel = scope === "agent" ? `Agent ${agentId}` : getToolServiceName(tool) || serviceName
+    return {
+      tool,
+      sourceLabel,
+      onRun: (args) => (scope === "agent" ? callAgentTool(agentId, tool.name, args) : callStoreTool(tool.name, args)),
+    }
+  }
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="工具管理"
+        title="Tool Registry"
+        actions={
+          <Button variant="outline" onClick={loadTools} disabled={loading}>
+            <RefreshCwIcon data-icon="inline-start" />
+            刷新
+          </Button>
+        }
+      />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Filters</CardTitle>
+          <CardDescription>{visibleTools.length} tools</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px_220px_220px]">
+          <SearchBox placeholder="Search tools" value={query} onChange={setQuery} />
+          <Select value={scope} onValueChange={setScope}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="store">Store</SelectItem>
+                <SelectItem value="agent">Agent</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Select value={agentId || "none"} onValueChange={(value) => setAgentId(value === "none" ? "" : value)} disabled={scope !== "agent"}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="none">No agent</SelectItem>
+                {agentIds.map((id) => (
+                  <SelectItem key={id} value={id}>
+                    {id}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Select value={serviceName} onValueChange={setServiceName}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="all">All services</SelectItem>
+                {props.services.map((service) => (
+                  <SelectItem key={service.name} value={service.name}>
+                    {service.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
+
+      {loading ? (
+        <ServiceSkeleton />
+      ) : visibleTools.length ? (
+        <section className="grid gap-4 lg:grid-cols-2">
+          {visibleTools.map((tool) => {
+            const runner = makeRunner(tool)
+            return (
+              <ToolCard
+                key={toolKey(tool)}
+                tool={tool}
+                sourceLabel={runner.sourceLabel}
+                onRun={() => props.onRunTool(runner)}
+                onDetail={() => props.onToolDetail(runner)}
+              />
+            )
+          })}
+        </section>
+      ) : (
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <WrenchIcon />
+            </EmptyMedia>
+            <EmptyTitle>No tools</EmptyTitle>
+            <EmptyDescription>No tools are available in the current scope.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      )}
+    </>
+  )
+}
+
+function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarget | null; onResetTarget: (target: ResetTarget | null) => void }) {
+  const agentIds = props.agents.map(getAgentId).filter(Boolean)
+  const [activeTab, setActiveTab] = useState("store")
+  const [agentId, setAgentId] = useState(agentIds[0] || "")
+  const [storeConfig, setStoreConfig] = useState<unknown>(null)
+  const [agentConfig, setAgentConfig] = useState<unknown>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!agentId && agentIds[0]) setAgentId(agentIds[0])
+  }, [agentId, agentIds])
+
+  async function loadConfig() {
+    setLoading(true)
+    try {
+      const store = await showConfig()
+      setStoreConfig(store)
+      if (agentId) {
+        setAgentConfig(await showAgentConfig(agentId))
+      } else {
+        setAgentConfig(null)
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "配置加载失败")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadConfig()
+  }, [agentId, props.resetTarget])
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="配置管理"
+        title="Configuration"
+        actions={
+          <Button variant="outline" onClick={loadConfig} disabled={loading}>
+            <RefreshCwIcon data-icon="inline-start" />
+            刷新
+          </Button>
+        }
+      />
+
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="store">Store</TabsTrigger>
+          <TabsTrigger value="agent">Agent</TabsTrigger>
+        </TabsList>
+        <TabsContent value="store">
+          <Card>
+            <CardHeader>
+              <CardTitle>Store Config</CardTitle>
+              <CardAction>
+                <Button variant="outline" size="sm" onClick={() => props.onResetTarget({ scope: "store" })}>
+                  Reset
+                </Button>
+              </CardAction>
+            </CardHeader>
+            <CardContent>{loading && !storeConfig ? <ServiceSkeleton /> : <JsonBlock value={storeConfig || {}} />}</CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="agent">
+          <Card>
+            <CardHeader>
+              <CardTitle>Agent Config</CardTitle>
+              <CardDescription>{agentId || "No agent selected"}</CardDescription>
+              <CardAction>
+                <Button variant="outline" size="sm" disabled={!agentId} onClick={() => props.onResetTarget({ scope: "agent", agentId })}>
+                  Reset
+                </Button>
+              </CardAction>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <Select value={agentId || "none"} onValueChange={(value) => setAgentId(value === "none" ? "" : value)}>
+                <SelectTrigger className="w-full md:w-80">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="none">No agent</SelectItem>
+                    {agentIds.map((id) => (
+                      <SelectItem key={id} value={id}>
+                        {id}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              {loading && !agentConfig ? <ServiceSkeleton /> : <JsonBlock value={agentConfig || {}} />}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </>
+  )
+}
+
+function CacheView(props: { backend?: CacheBackend; revision: number; onRefreshDashboard: () => Promise<void>; onSwitch: () => void }) {
+  const [healthReport, setHealthReport] = useState<unknown>(null)
+  const [inspectReport, setInspectReport] = useState<unknown>(null)
+  const [loading, setLoading] = useState(false)
+
+  async function loadCache() {
+    setLoading(true)
+    try {
+      const [health, inspect] = await Promise.all([cacheHealth(), cacheInspect()])
+      setHealthReport(health)
+      setInspectReport(inspect)
+      await props.onRefreshDashboard()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "缓存加载失败")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadCache()
+  }, [props.revision])
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="缓存管理"
+        title="Cache Storage"
+        actions={
+          <>
+            <Button variant="outline" onClick={loadCache} disabled={loading}>
+              <RefreshCwIcon data-icon="inline-start" />
+              刷新
+            </Button>
+            <Button onClick={props.onSwitch}>
+              <DatabaseIcon data-icon="inline-start" />
+              切换
+            </Button>
+          </>
+        }
+      />
+
+      <section className="grid gap-3 sm:grid-cols-3">
+        <MetricCard label="Current backend" value={props.backend || "unknown"} />
+        <MetricCard label="Health keys" value={countKeys(healthReport)} />
+        <MetricCard label="Inspect keys" value={countKeys(inspectReport)} />
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Health</CardTitle>
+            <CardDescription>/cache/health</CardDescription>
+          </CardHeader>
+          <CardContent>{loading && !healthReport ? <ServiceSkeleton /> : <JsonBlock value={healthReport || {}} />}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Inspect</CardTitle>
+            <CardDescription>/cache/inspect</CardDescription>
+          </CardHeader>
+          <CardContent>{loading && !inspectReport ? <ServiceSkeleton /> : <JsonBlock value={inspectReport || {}} />}</CardContent>
+        </Card>
+      </section>
+    </>
+  )
+}
+
+function ServiceDetailView(props: {
+  service: ServiceEntry
+  busy: string | null
+  onBack: () => void
+  onRunTool: (tool: ToolInfo) => void
+  onToolDetail: (tool: ToolInfo) => void
+  onConnect: () => void
+  onDisconnect: () => void
+  onRestart: () => void
+  onDelete: () => void
+}) {
+  const [detail, setDetail] = useState<ServiceEntry | null>(null)
+  const [statusReport, setStatusReport] = useState<unknown>(null)
+  const [loading, setLoading] = useState(false)
+  const service = detail || props.service
+  const endpoint = service.url || service.command || "-"
+  const tools = service.tools || []
+
+  async function loadDetail() {
+    setLoading(true)
+    try {
+      const [nextDetail, nextStatus] = await Promise.all([serviceInfo(props.service.name), serviceStatus(props.service.name).catch(() => null)])
+      setDetail(nextDetail)
+      setStatusReport(nextStatus)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "服务详情加载失败")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadDetail()
+  }, [props.service.name])
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="服务详情"
+        title={service.name}
+        actions={
+          <>
+            <Button variant="outline" onClick={props.onBack}>Back</Button>
+            <Button variant="outline" onClick={loadDetail} disabled={loading}>
+              <RefreshCwIcon data-icon="inline-start" />
+              刷新
+            </Button>
+            {service.status === "Connected" ? (
+              <Button variant="outline" onClick={props.onDisconnect} disabled={Boolean(props.busy)}>Disconnect</Button>
+            ) : (
+              <Button onClick={props.onConnect} disabled={Boolean(props.busy)}>Connect</Button>
+            )}
+            <Button variant="outline" onClick={props.onRestart} disabled={Boolean(props.busy)}>Restart</Button>
+            <Button variant="destructive" onClick={props.onDelete} disabled={Boolean(props.busy)}>
+              <Trash2Icon data-icon="inline-start" />
+              Delete
+            </Button>
+          </>
+        }
+      />
+
+      <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <InfoCard label="Name" value={service.name} />
+        <InfoCard label="Endpoint" value={String(endpoint)} />
+        <InfoCard label="Agent" value={String(service.agent_id || "store")} />
+        <InfoCard label="Tools" value={String(tools.length)} />
+      </section>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Service Info</CardTitle>
+          <CardAction>
+            <StatusBadge status={service.status} />
+          </CardAction>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-2">
+          <InfoItem label="Transport" value={String(service.transport || "unknown")} />
+          <InfoItem label="Original" value={String(service.original_name || service.name)} />
+          <InfoItem label="Command" value={String(service.command || "-")} />
+          <InfoItem label="URL" value={String(service.url || "-")} />
+        </CardContent>
+      </Card>
+
+      <section className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-lg font-semibold">Tool List</h2>
+            <p className="text-sm text-muted-foreground">{tools.length} items</p>
+          </div>
+        </div>
+        {tools.length ? (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {tools.map((tool) => (
+              <ToolCard
+                key={toolKey(tool)}
+                tool={tool}
+                sourceLabel={service.name}
+                onRun={() => props.onRunTool(tool)}
+                onDetail={() => props.onToolDetail(tool)}
+              />
+            ))}
+          </div>
+        ) : (
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <BracesIcon />
+              </EmptyMedia>
+              <EmptyTitle>No tools found</EmptyTitle>
+              <EmptyDescription>Tool definitions will appear after the service is connected.</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        )}
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Status</CardTitle>
+          </CardHeader>
+          <CardContent><JsonBlock value={statusReport || { status: service.status || "Unknown" }} /></CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Raw Detail</CardTitle>
+          </CardHeader>
+          <CardContent><JsonBlock value={service} /></CardContent>
+        </Card>
+      </section>
+    </>
+  )
+}
+
+function ServiceTable(props: {
+  services: ServiceEntry[]
+  agentMap: Map<string, string>
+  busy: string | null
+  onConnect: (service: ServiceEntry) => void
+  onDelete: (service: ServiceEntry) => void
+  onDisconnect: (service: ServiceEntry) => void
+  onOpen: (service: ServiceEntry) => void
+  onRestart: (service: ServiceEntry) => void
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Service</TableHead>
+            <TableHead>Agent</TableHead>
+            <TableHead>Transport</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Tools</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {props.services.map((service) => (
+            <TableRow
+              key={service.name}
+              className="cursor-pointer"
+              tabIndex={0}
+              onClick={() => props.onOpen(service)}
+              onKeyDown={(event) => {
+                if (event.target !== event.currentTarget) return
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault()
+                  props.onOpen(service)
+                }
+              }}
+            >
+              <TableCell>
+                <button
+                  className="flex max-w-96 flex-col gap-1 text-left"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    props.onOpen(service)
+                  }}
+                >
+                  <span className="font-medium">{service.name}</span>
+                  <span className="truncate text-sm text-muted-foreground">{String(service.config?.description || "No description")}</span>
+                </button>
+              </TableCell>
+              <TableCell>{props.agentMap.get(service.name) || service.agent_id || "store"}</TableCell>
+              <TableCell>{service.transport || "-"}</TableCell>
+              <TableCell><StatusBadge status={service.status} /></TableCell>
+              <TableCell>{service.tools?.length || 0}</TableCell>
+              <TableCell className="text-right">
+                <div className="flex justify-end gap-2" onClick={(event) => event.stopPropagation()}>
+                  <Button variant="ghost" size="sm" onClick={() => props.onOpen(service)}>
+                    Detail
+                    <ArrowRightIcon data-icon="inline-end" />
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" aria-label={`Actions for ${service.name}`}>
+                        <MoreHorizontalIcon />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuGroup>
+                        {service.status === "Connected" ? (
+                          <DropdownMenuItem onClick={() => props.onDisconnect(service)}>Disconnect</DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem onClick={() => props.onConnect(service)}>Connect</DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem onClick={() => props.onRestart(service)}>Restart</DropdownMenuItem>
+                        <DropdownMenuItem variant="destructive" onClick={() => props.onDelete(service)}>Delete</DropdownMenuItem>
+                      </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  )
+}
+
+function ToolCard({ tool, sourceLabel, onRun, onDetail }: { tool: ToolInfo; sourceLabel?: string; onRun: () => void; onDetail: () => void }) {
+  const schema = getToolSchema(tool) as { properties?: Record<string, { type?: string; description?: string }>; required?: string[] }
+  const params = Object.entries(schema.properties || {}).sort(([a], [b]) => a.localeCompare(b))
+
+  async function onCopy() {
+    await navigator.clipboard.writeText(JSON.stringify(tool, null, 2))
+    toast.success("Tool copied")
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{tool.name}</CardTitle>
+        <CardDescription>{tool.description || "No description"}</CardDescription>
+        <CardAction>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button size="sm" onClick={onRun}>Run</Button>
+            <Button size="sm" variant="outline" onClick={onDetail}>Details</Button>
+            <Button size="sm" variant="outline" onClick={onCopy}>Copy</Button>
+          </div>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="secondary">{sourceLabel || getToolServiceName(tool) || "store"}</Badge>
+          {schema.required?.length ? <Badge variant="outline">{schema.required.length} required</Badge> : <Badge variant="outline">optional</Badge>}
+        </div>
+        {params.length ? (
+          params.slice(0, 4).map(([name, meta]) => (
+            <div key={name} className="flex items-start justify-between gap-3 rounded-md border p-3">
+              <div className="min-w-0">
+                <code className="text-sm font-medium">{name}</code>
+                <p className="truncate text-sm text-muted-foreground">{meta.description || "No description"}</p>
+              </div>
+              <Badge variant="outline">{meta.type || "any"}</Badge>
+            </div>
+          ))
+        ) : (
+          <p className="text-sm text-muted-foreground">No params required</p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function AddServiceView({ agents, onBack, onAdded }: { agents: AgentItem[]; onBack: () => void; onAdded: () => Promise<void> }) {
+  const [scope, setScope] = useState<"store" | "agent">("store")
+  const [transport, setTransport] = useState<"stdio" | "streamable-http" | "sse">("stdio")
+  const [agentId, setAgentId] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  const agentIds = agents.map(getAgentId).filter(Boolean)
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const data = new FormData(event.currentTarget)
+    setSubmitting(true)
+    try {
+      await addService({
+        name: String(data.get("name") || "").trim(),
+        scope,
+        agentId: scope === "agent" ? agentId || String(data.get("agentId") || "").trim() : undefined,
+        transport,
+        commandOrUrl: String(data.get("commandOrUrl") || "").trim(),
+        description: String(data.get("description") || "").trim() || undefined,
+        workingDir: String(data.get("workingDir") || "").trim() || undefined,
+        env: parseKvLines(String(data.get("env") || "")),
+        headers: parseKvLines(String(data.get("headers") || "")),
+      })
+      toast.success("Service added")
+      await onAdded()
+      onBack()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Add service failed")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <>
+      <PageHeader eyebrow="添加服务" title="New MCP Service" actions={<Button variant="outline" onClick={onBack}>Back</Button>} />
+      <Card>
+        <CardHeader>
+          <CardTitle>Service Config</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={onSubmit}>
+            <FieldGroup>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field>
+                  <FieldLabel htmlFor="name">Name</FieldLabel>
+                  <Input id="name" name="name" placeholder="github" required />
+                </Field>
+                <Field>
+                  <FieldLabel>Scope</FieldLabel>
+                  <Select value={scope} onValueChange={(value) => setScope(value as "store" | "agent")}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="store">Store</SelectItem>
+                        <SelectItem value="agent">Agent</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field data-disabled={scope === "store"}>
+                  <FieldLabel>Agent ID</FieldLabel>
+                  {agentIds.length ? (
+                    <Select value={agentId || "manual"} onValueChange={(value) => setAgentId(value === "manual" ? "" : value)} disabled={scope === "store"}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="manual">Manual</SelectItem>
+                          {agentIds.map((id) => <SelectItem key={id} value={id}>{id}</SelectItem>)}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input name="agentId" placeholder="agent-a" disabled={scope === "store"} required={scope === "agent"} />
+                  )}
+                </Field>
+                <Field>
+                  <FieldLabel>Transport</FieldLabel>
+                  <Select value={transport} onValueChange={(value) => setTransport(value as "stdio" | "streamable-http" | "sse")}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="stdio">stdio</SelectItem>
+                        <SelectItem value="streamable-http">streamable-http</SelectItem>
+                        <SelectItem value="sse">sse</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </div>
+
+              {scope === "agent" && agentIds.length ? (
+                <Field>
+                  <FieldLabel htmlFor="agentId">Manual Agent ID</FieldLabel>
+                  <Input id="agentId" name="agentId" placeholder="agent-a" disabled={Boolean(agentId)} required={!agentId} />
+                </Field>
+              ) : null}
+
+              <Field>
+                <FieldLabel htmlFor="commandOrUrl">Command or URL</FieldLabel>
+                <Input id="commandOrUrl" name="commandOrUrl" placeholder={transport === "stdio" ? "npx -y @modelcontextprotocol/server-filesystem ." : "https://example.com/mcp"} required />
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="description">Description</FieldLabel>
+                <Input id="description" name="description" placeholder="Optional description" />
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="workingDir">Working directory</FieldLabel>
+                <Input id="workingDir" name="workingDir" placeholder="Optional" />
+              </Field>
+
+              <Tabs defaultValue="env">
+                <TabsList>
+                  <TabsTrigger value="env">Env</TabsTrigger>
+                  <TabsTrigger value="headers">Headers</TabsTrigger>
+                </TabsList>
+                <TabsContent value="env">
+                  <Field>
+                    <FieldLabel htmlFor="env">Env vars</FieldLabel>
+                    <Textarea id="env" name="env" placeholder="TOKEN=..." />
+                  </Field>
+                </TabsContent>
+                <TabsContent value="headers">
+                  <Field>
+                    <FieldLabel htmlFor="headers">Headers</FieldLabel>
+                    <Textarea id="headers" name="headers" placeholder="Authorization=Bearer ..." />
+                  </Field>
+                </TabsContent>
+              </Tabs>
+
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={onBack}>Cancel</Button>
+                <Button type="submit" disabled={submitting}>{submitting ? "Adding" : "Add Service"}</Button>
+              </div>
+            </FieldGroup>
+          </form>
+        </CardContent>
+      </Card>
+    </>
+  )
+}
+
+function RunToolDialog({ state, onOpenChange }: { state: ToolDialogState; onOpenChange: (open: boolean) => void }) {
+  const [args, setArgs] = useState("{}")
+  const [result, setResult] = useState<unknown>(null)
+  const [running, setRunning] = useState(false)
+
+  useEffect(() => {
+    if (state) {
+      setArgs("{}")
+      setResult(null)
+    }
+  }, [state])
+
+  async function onRun() {
+    if (!state) return
+    setRunning(true)
+    try {
+      const parsed = JSON.parse(args)
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error("Args must be a JSON object")
+      setResult(await state.onRun(parsed))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Tool call failed")
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <Dialog open={Boolean(state)} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Run tool: {state?.tool.name}</DialogTitle>
+          <DialogDescription>{state?.sourceLabel}</DialogDescription>
+        </DialogHeader>
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="tool-args">Args JSON</FieldLabel>
+            <Textarea id="tool-args" value={args} onChange={(event) => setArgs(event.target.value)} rows={6} />
+          </Field>
+          {result ? <JsonBlock value={result} /> : null}
+        </FieldGroup>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+          <Button onClick={onRun} disabled={running}>{running ? "Running" : "Run"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ToolDetailDialog({ state, onOpenChange, onRun }: { state: ToolDetailState; onOpenChange: (open: boolean) => void; onRun: (state: NonNullable<ToolDetailState>) => void }) {
+  const schema = state ? getToolSchema(state.tool) : {}
+  return (
+    <Dialog open={Boolean(state)} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{state?.tool.name}</DialogTitle>
+          <DialogDescription>{state?.sourceLabel}</DialogDescription>
+        </DialogHeader>
+        <FieldGroup>
+          {state?.tool.description ? (
+            <Field>
+              <FieldLabel>Description</FieldLabel>
+              <p className="text-sm text-muted-foreground">{state.tool.description}</p>
+            </Field>
+          ) : null}
+          <Field>
+            <FieldLabel>Param Schema</FieldLabel>
+            <JsonBlock value={schema} />
+          </Field>
+          <Field>
+            <FieldLabel>Raw Tool</FieldLabel>
+            <JsonBlock value={state?.tool || {}} />
+          </Field>
+        </FieldGroup>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+          {state?.onRun ? <Button onClick={() => onRun(state)}>Run</Button> : null}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function SwitchCacheDialog({ open, current, onOpenChange, onChanged }: { open: boolean; current?: CacheBackend; onOpenChange: (open: boolean) => void; onChanged: () => Promise<void> }) {
+  const [target, setTarget] = useState<CacheBackend>(current || "memory")
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (open && current) setTarget(current)
+  }, [current, open])
+
+  async function onSwitch() {
+    setSubmitting(true)
+    try {
+      await switchCache(target)
+      toast.success("Cache storage switched")
+      await onChanged()
+      onOpenChange(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Switch failed")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Switch cache storage</DialogTitle>
+          <DialogDescription>Current cache storage: {current || "unknown"}</DialogDescription>
+        </DialogHeader>
+        <Field>
+          <FieldLabel>Target cache storage</FieldLabel>
+          <Select value={target} onValueChange={(value) => setTarget(value as CacheBackend)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {cacheOptions.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </Field>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={onSwitch} disabled={submitting}>{submitting ? "Switching" : "Switch"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function DeleteServiceDialog({ service, onOpenChange, onConfirm }: { service: ServiceEntry | null; onOpenChange: (open: boolean) => void; onConfirm: (service: ServiceEntry) => void }) {
+  return (
+    <AlertDialog open={Boolean(service)} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete service?</AlertDialogTitle>
+          <AlertDialogDescription>{service ? `This removes ${service.name} from mcpstore.` : null}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" onClick={() => service && onConfirm(service)}>Delete</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+function ResetConfigDialog({ target, onOpenChange, onConfirm }: { target: ResetTarget | null; onOpenChange: (open: boolean) => void; onConfirm: (target: ResetTarget) => void }) {
+  const label = target?.scope === "agent" ? `Agent ${target.agentId}` : "Store"
+  return (
+    <AlertDialog open={Boolean(target)} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Reset config?</AlertDialogTitle>
+          <AlertDialogDescription>{target ? `${label} config will be reset.` : null}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" onClick={() => target && onConfirm(target)}>Reset</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+function PageHeader({ eyebrow, title, actions }: { eyebrow: string; title: string; actions?: React.ReactNode }) {
+  return (
+    <section className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+      <div className="flex min-w-0 flex-col gap-1">
+        <p className="text-sm font-medium text-muted-foreground">{eyebrow}</p>
+        <h1 className="truncate text-2xl font-semibold">{title}</h1>
+      </div>
+      {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+    </section>
+  )
+}
+
+function MetricCard({ label, value }: { label: string; value: number | string }) {
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-1 p-4">
+        <span className="truncate text-2xl font-semibold">{value}</span>
+        <span className="text-sm text-muted-foreground">{label}</span>
+      </CardContent>
+    </Card>
+  )
+}
+
+function InfoCard({ label, value }: { label: string; value: string }) {
+  return (
+    <Card>
+      <CardContent className="flex min-w-0 flex-col gap-1 p-4">
+        <span className="text-sm text-muted-foreground">{label}</span>
+        <code className="truncate text-sm font-medium">{value}</code>
+      </CardContent>
+    </Card>
+  )
+}
+
+function SearchBox({ placeholder, value, onChange }: { placeholder: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="relative min-w-0 flex-1">
+      <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+      <Input className="pl-9" placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} />
+    </div>
+  )
+}
+
+function StatusBadge({ status }: { status?: string }) {
+  const label = status || "Unknown"
+  return <Badge variant={label === "Connected" ? "default" : label === "Error" ? "destructive" : "secondary"}>{label}</Badge>
+}
+
+function InfoItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <code className="truncate rounded-md bg-muted px-2 py-1 text-sm">{value}</code>
+    </div>
+  )
+}
+
+function JsonBlock({ value }: { value: unknown }) {
+  return <pre className="max-h-96 overflow-auto rounded-md bg-muted p-4 text-sm">{JSON.stringify(value, null, 2)}</pre>
+}
+
+function ServiceSkeleton() {
+  return (
+    <div className="flex flex-col gap-3">
+      {Array.from({ length: 5 }).map((_, index) => (
+        <div key={index} className="flex items-center gap-4">
+          <Skeleton className="h-10 flex-1" />
+          <Skeleton className="h-10 w-32" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function NoServices() {
+  return (
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <CableIcon />
+        </EmptyMedia>
+        <EmptyTitle>No services</EmptyTitle>
+        <EmptyDescription>No MCP services are available in the current view.</EmptyDescription>
+      </EmptyHeader>
+    </Empty>
+  )
+}
+
+function getAgentId(agent: AgentItem) {
+  return String(agent.agent_id || agent.id || "")
+}
+
+function getAgentServices(agent: AgentItem) {
+  return (agent.services || agent.service_names || []).map(String)
+}
+
+function getToolSchema(tool: ToolInfo) {
+  return tool.schema || tool.inputSchema || tool.input_schema || tool.parameters || {}
+}
+
+function getToolServiceName(tool: ToolInfo) {
+  return String(tool.service_name || tool.service || tool.server_name || "") || undefined
+}
+
+function toolKey(tool: ToolInfo) {
+  return `${getToolServiceName(tool) || "tool"}:${tool.name}`
+}
+
+function countKeys(value: unknown) {
+  return value && typeof value === "object" ? Object.keys(value).length : 0
+}
