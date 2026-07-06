@@ -3,7 +3,6 @@ import {
   ActivityIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
-  BracesIcon,
   ClipboardIcon,
   DatabaseIcon,
   EyeIcon,
@@ -46,7 +45,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { SettingsDialog } from "@/features/settings/settings-dialog"
 import { DetailHeader } from "@/components/shared/detail-header"
 import { DialogForm, DialogFormFooter } from "@/components/shared/dialog-form"
@@ -1042,20 +1040,18 @@ function ServiceDetailView(props: {
         <InfoCard label="Tools" value={String(tools.length)} />
       </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Service Info</CardTitle>
-          <CardAction>
-            <StatusBadge status={service.status} />
-          </CardAction>
-        </CardHeader>
-        <CardContent className="grid gap-4 text-sm md:grid-cols-2">
+      <PanelCard>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-base font-semibold">Service Info</h2>
+          <StatusBadge status={service.status} />
+        </div>
+        <div className="grid gap-4 text-sm md:grid-cols-2">
           <MetaLine label="Transport" value={String(service.transport || "unknown")} valueClassName="font-mono" />
           <MetaLine label="Original" value={String(service.original_name || service.name)} valueClassName="font-mono" />
           <MetaLine label="Command" value={String(service.command || "-")} valueClassName="font-mono" />
           <MetaLine label="URL" value={String(service.url || "-")} valueClassName="font-mono" />
-        </CardContent>
-      </Card>
+        </div>
+      </PanelCard>
 
       <section className="flex flex-col gap-3">
         <SectionHeading title="Tool List" titleAs="h2" description={`${tools.length} items`} className="border-b-0 pb-0" />
@@ -1072,15 +1068,7 @@ function ServiceDetailView(props: {
             ))}
           </div>
         ) : (
-          <Empty>
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <BracesIcon />
-              </EmptyMedia>
-              <EmptyTitle>No tools found</EmptyTitle>
-              <EmptyDescription>Tool definitions will appear after the service is connected.</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
+          <PageEmpty title="No tools found" description="Tool definitions will appear after the service is connected." />
         )}
       </section>
 
