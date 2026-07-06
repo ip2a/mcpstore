@@ -37,11 +37,21 @@ export function PageEmpty({ title, description, onRefresh }: { title: string; de
   )
 }
 
-export function PageError({ title, message }: { title: string; message: string }) {
+export function PageError({ title, message, onRefresh }: { title: string; message: string; onRefresh?: () => void }) {
   return (
-    <Alert variant="destructive">
-      <AlertTitle>{title}</AlertTitle>
-      <AlertDescription>{message}</AlertDescription>
+    <Alert variant="destructive" className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1">
+        <AlertTitle>{title}</AlertTitle>
+        <AlertDescription>{message}</AlertDescription>
+      </div>
+      {onRefresh ? (
+        <div>
+          <Button variant="outline" onClick={onRefresh}>
+            <RefreshCwIcon data-icon="inline-start" />
+            刷新
+          </Button>
+        </div>
+      ) : null}
     </Alert>
   )
 }
