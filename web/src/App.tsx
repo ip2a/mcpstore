@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { SettingsDialog } from "@/features/settings/settings-dialog"
+import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
@@ -962,11 +963,11 @@ function CacheView(props: { backend?: CacheBackend; revision: number; onRefreshD
         }
       />
 
-      <section className="grid gap-3 sm:grid-cols-3">
-        <MetricCard label="Current backend" value={props.backend || "unknown"} />
-        <MetricCard label="Health keys" value={countKeys(healthReport)} />
-        <MetricCard label="Inspect keys" value={countKeys(inspectReport)} />
-      </section>
+      <MetricGrid columns="three">
+        <MetricTile variant="compact" label="Current backend" value={props.backend || "unknown"} />
+        <MetricTile variant="compact" label="Health keys" value={countKeys(healthReport)} />
+        <MetricTile variant="compact" label="Inspect keys" value={countKeys(inspectReport)} />
+      </MetricGrid>
 
       <section className="grid gap-4 lg:grid-cols-2">
         <Card>
@@ -1599,17 +1600,6 @@ function PageHeader({ eyebrow, title, actions }: { eyebrow: string; title: strin
       </div>
       {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
     </section>
-  )
-}
-
-function MetricCard({ label, value }: { label: string; value: number | string }) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col gap-1 p-4">
-        <span className="truncate text-2xl font-semibold">{value}</span>
-        <span className="text-sm text-muted-foreground">{label}</span>
-      </CardContent>
-    </Card>
   )
 }
 
