@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { AlertCircleIcon, RefreshCwIcon, SaveIcon, SettingsIcon } from "lucide-react"
 import { toast } from "sonner"
 
+import { DialogForm, DialogFormFooter } from "@/components/shared/dialog-form"
+import { PathText } from "@/components/shared/path-text"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { DialogForm, DialogFormFooter } from "@/components/shared/dialog-form"
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldTitle } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
@@ -179,12 +180,14 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                       <Field orientation="responsive">
                         <FieldContent>
                           <FieldTitle>默认备份目录</FieldTitle>
-                          <FieldDescription>{settingsPaths?.backup_dir_resolved || "后端未返回解析后的目录。"}</FieldDescription>
+                          <FieldDescription>
+                            <PathText value={settingsPaths?.backup_dir_resolved} fallback="后端未返回解析后的目录。" wrap="all" />
+                          </FieldDescription>
                         </FieldContent>
                         <InputGroup className="max-w-xl">
                           {settingsPaths?.backup_dir_base ? (
                             <InputGroupAddon align="inline-start" className="max-w-48 truncate">
-                              {settingsPaths.backup_dir_base}
+                              <PathText value={settingsPaths.backup_dir_base} wrap="truncate" />
                             </InputGroupAddon>
                           ) : null}
                           <InputGroupInput value={draft.default_backup_dir} onChange={(event) => patchDraft({ default_backup_dir: event.target.value })} placeholder="./backups" />
@@ -194,7 +197,9 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                       <Field orientation="responsive">
                         <FieldContent>
                           <FieldTitle>日志大小上限 MB</FieldTitle>
-                          <FieldDescription>{settingsPaths?.log_file_path || "日志路径会在后端 meta 接口完成后显示。"}</FieldDescription>
+                          <FieldDescription>
+                            <PathText value={settingsPaths?.log_file_path} fallback="日志路径会在后端 meta 接口完成后显示。" wrap="all" />
+                          </FieldDescription>
                         </FieldContent>
                         <Input
                           className="w-32"
@@ -224,7 +229,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 {section === "config" ? (
                   <section className="flex flex-col gap-4">
                     <SectionHead title="配置文件" description="只读展示后端 meta 接口返回的配置文件内容。" />
-                    <ReadonlyValue label="路径" value={configFile?.path || "-"} />
+                    <ReadonlyValue label="路径" value={configFile?.path || "-"} path />
                     <Textarea className="min-h-80 font-mono text-xs" readOnly value={configContent} />
                   </section>
                 ) : null}
@@ -268,11 +273,11 @@ function SectionHead({ title, description }: { title: string; description: strin
   )
 }
 
-function ReadonlyValue({ label, value }: { label: string; value: string }) {
+function ReadonlyValue({ label, value, path = false }: { label: string; value: string; path?: boolean }) {
   return (
     <div className="flex min-w-0 flex-col gap-1 rounded-md border p-3">
       <span className="text-sm text-muted-foreground">{label}</span>
-      <code className="truncate text-sm">{value}</code>
+      {path ? <PathText value={value} tone="default" weight="medium" wrap="all" /> : <code className="truncate text-sm">{value}</code>}
     </div>
   )
 }

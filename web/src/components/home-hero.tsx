@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { ChevronDownIcon } from "lucide-react"
+import { PathText } from "@/components/shared/path-text"
 import { MCPSTORE_ASCII, randomAsciiBannerColor } from "@/lib/ascii-banner"
 import type { CacheBackend } from "@/lib/api"
 
@@ -25,14 +26,6 @@ const STAT_ITEMS: Array<{ key: keyof Omit<HomeHeroStats, "loading">; label: stri
   { key: "tools", label: "Tools" },
   { key: "agents", label: "Agents" },
 ]
-
-function PathText({ value, className }: { value: string; className?: string }) {
-  return (
-    <span className={`font-mono text-xs text-muted-foreground break-all ${className || ""}`} title={value}>
-      {value}
-    </span>
-  )
-}
 
 function StatValue({ loading, value }: { loading: boolean; value: number }) {
   return <span className="font-mono text-sm font-medium tabular-nums">{loading ? "-" : value}</span>
@@ -78,6 +71,7 @@ export function HomeHero({ backend, stats }: { backend?: CacheBackend; stats: Ho
             <PathText
               value={`${subtitle} · services ${stats.loading ? "-" : stats.services}`}
               className="min-w-0 truncate"
+              wrap="truncate"
             />
           </span>
           <ChevronDownIcon aria-hidden="true" className="shrink-0" />
@@ -105,7 +99,7 @@ export function HomeHero({ backend, stats }: { backend?: CacheBackend; stats: Ho
       <div className="flex min-w-0 flex-col items-start justify-start gap-3 self-stretch border-l pl-4">
         <div className="flex w-full min-w-0 flex-col gap-2">
           <h1 className="m-0 w-full truncate text-left text-2xl font-semibold leading-none">mcpstore</h1>
-          <PathText value={subtitle} className="block w-full min-w-0 text-left" />
+          <PathText value={subtitle} className="block w-full min-w-0 text-left" wrap="all" />
         </div>
         <HeroStats stats={stats} />
       </div>
