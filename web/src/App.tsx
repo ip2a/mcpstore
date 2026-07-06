@@ -846,50 +846,46 @@ function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarget | nul
           <TabsTrigger value="agent">Agent</TabsTrigger>
         </TabsList>
         <TabsContent value="store">
-          <Card>
-            <CardHeader>
-              <CardTitle>Store Config</CardTitle>
-              <CardAction>
-                <Button variant="outline" size="sm" onClick={() => props.onResetTarget({ scope: "store" })}>
-                  <RefreshCwIcon data-icon="inline-start" />
-                  Reset
-                </Button>
-              </CardAction>
-            </CardHeader>
-            <CardContent>{loading && !storeConfig ? <PageSkeleton /> : <JsonBlock value={storeConfig || {}} />}</CardContent>
-          </Card>
+          <PanelCard>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-base font-semibold">Store Config</h2>
+              <Button variant="outline" size="sm" onClick={() => props.onResetTarget({ scope: "store" })}>
+                <RefreshCwIcon data-icon="inline-start" />
+                Reset
+              </Button>
+            </div>
+            {loading && !storeConfig ? <PageSkeleton /> : <JsonBlock value={storeConfig || {}} />}
+          </PanelCard>
         </TabsContent>
         <TabsContent value="agent">
-          <Card>
-            <CardHeader>
-              <CardTitle>Agent Config</CardTitle>
-              <CardDescription>{agentId || "No agent selected"}</CardDescription>
-              <CardAction>
-                <Button variant="outline" size="sm" disabled={!agentId} onClick={() => props.onResetTarget({ scope: "agent", agentId })}>
-                  <RefreshCwIcon data-icon="inline-start" />
-                  Reset
-                </Button>
-              </CardAction>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <Select value={agentId || "none"} onValueChange={(value) => setAgentId(value === "none" ? "" : value)}>
-                <SelectTrigger className="w-full md:w-80">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="none">No agent</SelectItem>
-                    {agentIds.map((id) => (
-                      <SelectItem key={id} value={id}>
-                        {id}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              {loading && !agentConfig ? <PageSkeleton /> : <JsonBlock value={agentConfig || {}} />}
-            </CardContent>
-          </Card>
+          <PanelCard>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 flex-col gap-1">
+                <h2 className="text-base font-semibold">Agent Config</h2>
+                <p className="truncate text-sm text-muted-foreground">{agentId || "No agent selected"}</p>
+              </div>
+              <Button variant="outline" size="sm" disabled={!agentId} onClick={() => props.onResetTarget({ scope: "agent", agentId })}>
+                <RefreshCwIcon data-icon="inline-start" />
+                Reset
+              </Button>
+            </div>
+            <Select value={agentId || "none"} onValueChange={(value) => setAgentId(value === "none" ? "" : value)}>
+              <SelectTrigger className="w-full md:w-80">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="none">No agent</SelectItem>
+                  {agentIds.map((id) => (
+                    <SelectItem key={id} value={id}>
+                      {id}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {loading && !agentConfig ? <PageSkeleton /> : <JsonBlock value={agentConfig || {}} />}
+          </PanelCard>
         </TabsContent>
       </Tabs>
     </>
@@ -945,20 +941,20 @@ function CacheView(props: { backend?: CacheBackend; revision: number; onRefreshD
       </MetricGrid>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Health</CardTitle>
-            <CardDescription>/cache/health</CardDescription>
-          </CardHeader>
-          <CardContent>{loading && !healthReport ? <PageSkeleton /> : <JsonBlock value={healthReport || {}} />}</CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Inspect</CardTitle>
-            <CardDescription>/cache/inspect</CardDescription>
-          </CardHeader>
-          <CardContent>{loading && !inspectReport ? <PageSkeleton /> : <JsonBlock value={inspectReport || {}} />}</CardContent>
-        </Card>
+        <PanelCard>
+          <div className="flex flex-col gap-1">
+            <h2 className="text-base font-semibold">Health</h2>
+            <p className="text-sm text-muted-foreground">/cache/health</p>
+          </div>
+          {loading && !healthReport ? <PageSkeleton /> : <JsonBlock value={healthReport || {}} />}
+        </PanelCard>
+        <PanelCard>
+          <div className="flex flex-col gap-1">
+            <h2 className="text-base font-semibold">Inspect</h2>
+            <p className="text-sm text-muted-foreground">/cache/inspect</p>
+          </div>
+          {loading && !inspectReport ? <PageSkeleton /> : <JsonBlock value={inspectReport || {}} />}
+        </PanelCard>
       </section>
     </>
   )
@@ -1087,18 +1083,14 @@ function ServiceDetailView(props: {
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Status</CardTitle>
-          </CardHeader>
-          <CardContent><JsonBlock value={statusReport || { status: service.status || "Unknown" }} /></CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Raw Detail</CardTitle>
-          </CardHeader>
-          <CardContent><JsonBlock value={service} /></CardContent>
-        </Card>
+        <PanelCard>
+          <h2 className="text-base font-semibold">Status</h2>
+          <JsonBlock value={statusReport || { status: service.status || "Unknown" }} />
+        </PanelCard>
+        <PanelCard>
+          <h2 className="text-base font-semibold">Raw Detail</h2>
+          <JsonBlock value={service} />
+        </PanelCard>
       </section>
     </>
   )
