@@ -787,7 +787,7 @@ function ToolsView(props: {
       </Card>
 
       {loading ? (
-        <ServiceSkeleton />
+        <PageSkeleton />
       ) : visibleTools.length ? (
         <section className="grid gap-4 lg:grid-cols-2">
           {visibleTools.map((tool) => {
@@ -804,15 +804,7 @@ function ToolsView(props: {
           })}
         </section>
       ) : (
-        <Empty>
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <WrenchIcon />
-            </EmptyMedia>
-            <EmptyTitle>No tools</EmptyTitle>
-            <EmptyDescription>No tools are available in the current scope.</EmptyDescription>
-          </EmptyHeader>
-        </Empty>
+        <PageEmpty title="No tools" description="No tools are available in the current scope." onRefresh={loadTools} />
       )}
     </>
   )
