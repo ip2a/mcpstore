@@ -6,13 +6,17 @@ import {
   BotIcon,
   BracesIcon,
   CableIcon,
+  ClipboardIcon,
   DatabaseIcon,
+  EyeIcon,
+  LinkIcon,
   MoreHorizontalIcon,
   PlusIcon,
   RefreshCwIcon,
   SearchIcon,
   SettingsIcon,
   Trash2Icon,
+  UnlinkIcon,
   WrenchIcon,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -868,6 +872,7 @@ function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarget | nul
               <CardTitle>Store Config</CardTitle>
               <CardAction>
                 <Button variant="outline" size="sm" onClick={() => props.onResetTarget({ scope: "store" })}>
+                  <RefreshCwIcon data-icon="inline-start" />
                   Reset
                 </Button>
               </CardAction>
@@ -882,6 +887,7 @@ function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarget | nul
               <CardDescription>{agentId || "No agent selected"}</CardDescription>
               <CardAction>
                 <Button variant="outline" size="sm" disabled={!agentId} onClick={() => props.onResetTarget({ scope: "agent", agentId })}>
+                  <RefreshCwIcon data-icon="inline-start" />
                   Reset
                 </Button>
               </CardAction>
@@ -1021,17 +1027,29 @@ function ServiceDetailView(props: {
         title={service.name}
         actions={
           <>
-            <Button variant="outline" onClick={props.onBack}>Back</Button>
+            <Button variant="outline" onClick={props.onBack}>
+              <ArrowLeftIcon data-icon="inline-start" />
+              Back
+            </Button>
             <Button variant="outline" onClick={loadDetail} disabled={loading}>
               <RefreshCwIcon data-icon="inline-start" />
               刷新
             </Button>
             {service.status === "Connected" ? (
-              <Button variant="outline" onClick={props.onDisconnect} disabled={Boolean(props.busy)}>Disconnect</Button>
+              <Button variant="outline" onClick={props.onDisconnect} disabled={Boolean(props.busy)}>
+                <UnlinkIcon data-icon="inline-start" />
+                Disconnect
+              </Button>
             ) : (
-              <Button onClick={props.onConnect} disabled={Boolean(props.busy)}>Connect</Button>
+              <Button onClick={props.onConnect} disabled={Boolean(props.busy)}>
+                <LinkIcon data-icon="inline-start" />
+                Connect
+              </Button>
             )}
-            <Button variant="outline" onClick={props.onRestart} disabled={Boolean(props.busy)}>Restart</Button>
+            <Button variant="outline" onClick={props.onRestart} disabled={Boolean(props.busy)}>
+              <RefreshCwIcon data-icon="inline-start" />
+              Restart
+            </Button>
             <Button variant="destructive" onClick={props.onDelete} disabled={Boolean(props.busy)}>
               <Trash2Icon data-icon="inline-start" />
               Delete
@@ -1217,9 +1235,18 @@ function ToolCard({ tool, sourceLabel, onRun, onDetail }: { tool: ToolInfo; sour
         <CardDescription>{tool.description || "No description"}</CardDescription>
         <CardAction>
           <div className="flex flex-wrap justify-end gap-2">
-            <Button size="sm" onClick={onRun}>Run</Button>
-            <Button size="sm" variant="outline" onClick={onDetail}>Details</Button>
-            <Button size="sm" variant="outline" onClick={onCopy}>Copy</Button>
+            <Button size="sm" onClick={onRun}>
+              <WrenchIcon data-icon="inline-start" />
+              Run
+            </Button>
+            <Button size="sm" variant="outline" onClick={onDetail}>
+              <EyeIcon data-icon="inline-start" />
+              Details
+            </Button>
+            <Button size="sm" variant="outline" onClick={onCopy}>
+              <ClipboardIcon data-icon="inline-start" />
+              Copy
+            </Button>
           </div>
         </CardAction>
       </CardHeader>
