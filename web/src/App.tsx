@@ -377,18 +377,20 @@ function ServicesView(props: {
         }}
       />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>MCP 服务列表</CardTitle>
-          <CardDescription>{filteredServices.length} services</CardDescription>
-          <CardAction>
+      <PanelCard>
+        <SectionHeading
+          title="MCP 服务列表"
+          titleAs="h2"
+          description={`${filteredServices.length} services`}
+          className="border-b-0 pb-0"
+          actions={
             <Button variant="outline" size="sm" onClick={props.onCache}>
               <DatabaseIcon data-icon="inline-start" />
               缓存
             </Button>
-          </CardAction>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+          }
+        />
+        <div className="flex flex-col gap-4">
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_auto_auto]">
             <SearchBox placeholder="Search services" value={query} onChange={setQuery} />
             <Select value={agentFilter} onValueChange={setAgentFilter}>
@@ -422,8 +424,8 @@ function ServicesView(props: {
           ) : (
             <PageEmpty title="No services" description="No MCP services are available in the current view." onRefresh={props.onRefresh} />
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </PanelCard>
     </>
   )
 }
