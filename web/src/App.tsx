@@ -1086,12 +1086,12 @@ function ServiceDetailView(props: {
         }
       />
 
-      <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <InfoCard label="Name" value={service.name} />
-        <InfoCard label="Endpoint" value={String(endpoint)} />
-        <InfoCard label="Agent" value={String(service.agent_id || "store")} />
-        <InfoCard label="Tools" value={String(tools.length)} />
-      </section>
+      <MetricGrid columns="four">
+        <MetricTile variant="compact" label="Name" value={service.name} title={service.name} />
+        <MetricTile variant="compact" label="Endpoint" value={String(endpoint)} title={String(endpoint)} />
+        <MetricTile variant="compact" label="Agent" value={String(service.agent_id || "store")} />
+        <MetricTile variant="compact" label="Tools" value={String(tools.length)} />
+      </MetricGrid>
 
       <PanelCard>
         <SectionHeading title="Service Info" titleAs="h2" className="border-b-0 pb-0" actions={<StatusBadge status={service.status} />} />
@@ -1613,15 +1613,6 @@ function ResetConfigDialog({ target, onOpenChange, onConfirm }: { target: ResetT
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  )
-}
-
-function InfoCard({ label, value }: { label: string; value: string }) {
-  return (
-    <PanelCard variant="plain" className="flex min-w-0 flex-col gap-1">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <code className="truncate text-sm font-medium">{value}</code>
-    </PanelCard>
   )
 }
 
