@@ -30,6 +30,7 @@ import { ServiceDetailView } from "@/features/services/service-detail-view"
 import { ServiceTable } from "@/features/services/service-table"
 import { SettingsDialog } from "@/features/settings/settings-dialog"
 import { RunToolDialog, ToolDetailDialog, type ToolDetailState, type ToolDialogState } from "@/features/tools/tool-dialogs"
+import { ToolsView } from "@/features/tools/tools-view"
 import { DetailHeader } from "@/components/shared/detail-header"
 import { EntityRow } from "@/components/shared/entity-row"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
@@ -38,7 +39,6 @@ import { SearchBox } from "@/components/shared/search-box"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
 import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
-import { ToolCard } from "@/components/shared/tool-card"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
@@ -48,19 +48,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { HomeHero } from "@/components/home-hero"
 import { useDashboard } from "@/hooks/use-dashboard"
-import { getToolServiceName, toolKey } from "@/lib/tool-info"
+import { toolKey } from "@/lib/tool-info"
 import { useUiStore } from "@/stores/ui-store"
 import {
   assignService,
-  callAgentTool,
-  callStoreTool,
   callTool,
   checkServices,
   connectService,
   disconnectService,
   listAgentServices,
   listAgentTools,
-  listTools,
   removeService,
   resetAgentConfig,
   resetConfig,
@@ -632,145 +629,6 @@ function AgentsView(props: {
           </PanelCard>
         </div>
       </TwoPanePage>
-    </>
-  )
-}
-
-function ToolsView(props: {
-  agents: AgentItem[]
-  services: ServiceEntry[]
-  onRunTool: (state: ToolDialogState) => void
-  onToolDetail: (state: ToolDetailState) => void
-}) {
-  const agentIds = props.agents.map(getAgentId).filter(Boolean)
-  const [scope, setScope] = useState("store")
-  const [agentId, setAgentId] = useState(agentIds[0] || "")
-  const [serviceName, setServiceName] = useState("all")
-  const [query, setQuery] = useState("")
-  const [tools, setTools] = useState<ToolInfo[]>([])
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    if (!agentId && agentIds[0]) setAgentId(agentIds[0])
-  }, [agentId, agentIds])
-
-  async function loadTools() {
-    setLoading(true)
-    try {
-      setError(null)
-      const nextTools = scope === "agent" && agentId ? await listAgentTools(agentId, serviceName === "all" ? undefined : serviceName) : await listTools(serviceName === "all" ? undefined : serviceName)
-      setTools(nextTools)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "工具加载失败"
-      setError(message)
-      toast.error(message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    void loadTools()
-  }, [scope, agentId, serviceName])
-
-  const visibleTools = tools.filter((tool) => {
-    const text = `${tool.name} ${tool.description || ""} ${getToolServiceName(tool) || ""}`.toLowerCase()
-    return text.includes(query.trim().toLowerCase())
-  })
-
-  function makeRunner(tool: ToolInfo): NonNullable<ToolDialogState> {
-    const sourceLabel = scope === "agent" ? `Agent ${agentId}` : getToolServiceName(tool) || serviceName
-    return {
-      tool,
-      sourceLabel,
-      onRun: (args) => (scope === "agent" ? callAgentTool(agentId, tool.name, args) : callStoreTool(tool.name, args)),
-    }
-  }
-
-  return (
-    <>
-      <DetailHeader
-        eyebrow="工具管理"
-        title="Tool Registry"
-        actions={
-          <Button variant="outline" onClick={loadTools} disabled={loading}>
-            <RefreshCwIcon data-icon="inline-start" />
-            刷新
-          </Button>
-        }
-      />
-
-      <PanelCard>
-        <SectionHeading title="Filters" titleAs="h2" description={`${visibleTools.length} tools`} className="border-b-0 pb-0" />
-        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px_220px_220px]">
-          <SearchBox placeholder="Search tools" value={query} onChange={setQuery} />
-          <Select value={scope} onValueChange={setScope}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="store">Store</SelectItem>
-                <SelectItem value="agent">Agent</SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          <Select value={agentId || "none"} onValueChange={(value) => setAgentId(value === "none" ? "" : value)} disabled={scope !== "agent"}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="none">No agent</SelectItem>
-                {agentIds.map((id) => (
-                  <SelectItem key={id} value={id}>
-                    {id}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          <Select value={serviceName} onValueChange={setServiceName}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="all">All services</SelectItem>
-                {props.services.map((service) => (
-                  <SelectItem key={service.name} value={service.name}>
-                    {service.name}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </div>
-      </PanelCard>
-
-      {error ? (
-        <PageError title="Tools failed to load" message={error} onRefresh={loadTools} />
-      ) : loading ? (
-        <PageSkeleton />
-      ) : visibleTools.length ? (
-        <section className="grid gap-4 lg:grid-cols-2">
-          {visibleTools.map((tool) => {
-            const runner = makeRunner(tool)
-            return (
-              <ToolCard
-                key={toolKey(tool)}
-                tool={tool}
-                sourceLabel={runner.sourceLabel}
-                onRun={() => props.onRunTool(runner)}
-                onDetail={() => props.onToolDetail(runner)}
-              />
-            )
-          })}
-        </section>
-      ) : (
-        <PageEmpty title="No tools" description="No tools are available in the current scope." onRefresh={loadTools} />
-      )}
     </>
   )
 }
