@@ -59,6 +59,7 @@ import { SelectableRowButton } from "@/components/shared/selectable-row-button"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Toaster } from "@/components/ui/sonner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -1563,10 +1564,12 @@ function InfoCard({ label, value }: { label: string; value: string }) {
 
 function SearchBox({ placeholder, value, onChange }: { placeholder: string; value: string; onChange: (value: string) => void }) {
   return (
-    <div className="relative min-w-0 flex-1">
-      <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-      <Input className="pl-9" placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} />
-    </div>
+    <InputGroup className="min-w-0 flex-1">
+      <InputGroupAddon align="inline-start" className="pointer-events-none">
+        <SearchIcon aria-hidden="true" />
+      </InputGroupAddon>
+      <InputGroupInput placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} />
+    </InputGroup>
   )
 }
 
