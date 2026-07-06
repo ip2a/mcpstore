@@ -49,6 +49,7 @@ import {
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { SettingsDialog } from "@/features/settings/settings-dialog"
 import { DetailHeader } from "@/components/shared/detail-header"
+import { DialogForm, DialogFormFooter } from "@/components/shared/dialog-form"
 import { EntityRow } from "@/components/shared/entity-row"
 import { MetaLine } from "@/components/shared/meta-line"
 import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
@@ -1477,7 +1478,8 @@ function SwitchCacheDialog({ open, current, onOpenChange, onChanged }: { open: b
     if (open && current) setTarget(current)
   }, [current, open])
 
-  async function onSwitch() {
+  async function onSwitch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
     setSubmitting(true)
     try {
       await switchCache(target)
@@ -1498,21 +1500,20 @@ function SwitchCacheDialog({ open, current, onOpenChange, onChanged }: { open: b
           <DialogTitle>Switch cache storage</DialogTitle>
           <DialogDescription>Current cache storage: {current || "unknown"}</DialogDescription>
         </DialogHeader>
-        <Field>
-          <FieldLabel>Target cache storage</FieldLabel>
-          <Select value={target} onValueChange={(value) => setTarget(value as CacheBackend)}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {cacheOptions.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </Field>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={onSwitch} disabled={submitting}>{submitting ? "Switching" : "Switch"}</Button>
-        </DialogFooter>
+        <DialogForm onSubmit={onSwitch}>
+          <Field>
+            <FieldLabel>Target cache storage</FieldLabel>
+            <Select value={target} onValueChange={(value) => setTarget(value as CacheBackend)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {cacheOptions.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+          <DialogFormFooter cancelLabel="Cancel" onCancel={() => onOpenChange(false)} submitLabel={submitting ? "Switching" : "Switch"} submitting={submitting} />
+        </DialogForm>
       </DialogContent>
     </Dialog>
   )
