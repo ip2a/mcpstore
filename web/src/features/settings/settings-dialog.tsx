@@ -10,11 +10,10 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldTitle } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
+import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupTextarea } from "@/components/ui/input-group"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
-import { Textarea } from "@/components/ui/textarea"
 import { getMeta, updateSettings, type SettingsPayload, type UiLanguage, type UpdateSettingsPayload } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import type { I18nKey } from "@/lib/i18n-core"
@@ -231,7 +230,9 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                         label="Config File"
                         className="rounded-md border p-3"
                       />
-                      <Textarea className="min-h-80 font-mono text-xs" readOnly value={configContent} />
+                      <InputGroup>
+                        <InputGroupTextarea className="min-h-80 font-mono text-xs" readOnly value={configContent} />
+                      </InputGroup>
                     </section>
                   ) : null}
 
