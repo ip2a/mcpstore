@@ -529,12 +529,9 @@ function AgentsView(props: {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Agent Scope</CardTitle>
-              <CardDescription>{activeAgentId || "No agent selected"}</CardDescription>
-            </CardHeader>
-            <CardContent>
+          <PanelCard>
+            <SectionHeading title="Agent Scope" titleAs="h2" description={activeAgentId || "No agent selected"} className="border-b-0 pb-0" />
+            <div>
               <FieldGroup>
                 <Field>
                   <FieldLabel>Known Agent</FieldLabel>
@@ -580,8 +577,8 @@ function AgentsView(props: {
                   Assign
                 </Button>
               </FieldGroup>
-            </CardContent>
-          </Card>
+            </div>
+          </PanelCard>
         </div>
 
         <div className="flex min-w-0 flex-col gap-4">
