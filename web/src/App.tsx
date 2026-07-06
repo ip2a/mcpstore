@@ -4,7 +4,6 @@ import {
   ArrowLeftIcon,
   ArrowRightIcon,
   BracesIcon,
-  CableIcon,
   ClipboardIcon,
   DatabaseIcon,
   EyeIcon,
@@ -1599,20 +1598,6 @@ function ServiceSkeleton() {
         </div>
       ))}
     </div>
-  )
-}
-
-function NoServices() {
-  return (
-    <Empty>
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <CableIcon />
-        </EmptyMedia>
-        <EmptyTitle>No services</EmptyTitle>
-        <EmptyDescription>No MCP services are available in the current view.</EmptyDescription>
-      </EmptyHeader>
-    </Empty>
   )
 }
 
