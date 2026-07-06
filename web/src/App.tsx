@@ -3,7 +3,6 @@ import {
   ActivityIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
-  BotIcon,
   BracesIcon,
   CableIcon,
   ClipboardIcon,
@@ -504,7 +503,7 @@ function AgentsView(props: {
             </CardHeader>
             <CardContent>
               {props.loading ? (
-                <ServiceSkeleton />
+                <PageSkeleton />
               ) : props.agents.length ? (
                 <div className="flex flex-col gap-2">
                   {props.agents.map((agent) => {
@@ -524,15 +523,7 @@ function AgentsView(props: {
                   })}
                 </div>
               ) : (
-                <Empty>
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon">
-                      <BotIcon />
-                    </EmptyMedia>
-                    <EmptyTitle>No agents</EmptyTitle>
-                    <EmptyDescription>Agent records will appear after services are assigned.</EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
+                <PageEmpty title="No agents" description="Agent records will appear after services are assigned." onRefresh={props.onRefresh} />
               )}
             </CardContent>
           </Card>
@@ -600,7 +591,7 @@ function AgentsView(props: {
             </CardHeader>
             <CardContent>
               {loadingAgent ? (
-                <ServiceSkeleton />
+                <PageSkeleton />
               ) : agentServices.length ? (
                 <div className="overflow-x-auto">
                   <Table>
@@ -634,7 +625,7 @@ function AgentsView(props: {
                   </Table>
                 </div>
               ) : (
-                <NoServices />
+                <PageEmpty title="No services" description="No MCP services are available for this agent." />
               )}
             </CardContent>
           </Card>
@@ -646,7 +637,7 @@ function AgentsView(props: {
             </CardHeader>
             <CardContent>
               {loadingAgent ? (
-                <ServiceSkeleton />
+                <PageSkeleton />
               ) : agentTools.length ? (
                 <div className="flex flex-col gap-3">
                   {agentTools.slice(0, 8).map((tool) => (
@@ -659,15 +650,7 @@ function AgentsView(props: {
                   ))}
                 </div>
               ) : (
-                <Empty>
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon">
-                      <BracesIcon />
-                    </EmptyMedia>
-                    <EmptyTitle>No tools</EmptyTitle>
-                    <EmptyDescription>No tools are available for this agent.</EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
+                <PageEmpty title="No tools" description="No tools are available for this agent." />
               )}
             </CardContent>
           </Card>
