@@ -56,6 +56,7 @@ import { MetaLine } from "@/components/shared/meta-line"
 import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
 import { PanelCard } from "@/components/shared/panel-card"
 import { SectionHeading } from "@/components/shared/section-heading"
+import { SelectableRowButton } from "@/components/shared/selectable-row-button"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
@@ -495,35 +496,22 @@ function AgentsView(props: {
               {props.loading ? (
                 <ServiceSkeleton />
               ) : props.agents.length ? (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Agent</TableHead>
-                        <TableHead>Services</TableHead>
-                        <TableHead>Tools</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {props.agents.map((agent) => {
-                        const agentId = getAgentId(agent)
-                        const serviceNames = getAgentServices(agent)
-                        return (
-                          <TableRow key={agentId || JSON.stringify(agent)}>
-                            <TableCell className="font-medium">{agentId || "-"}</TableCell>
-                            <TableCell>{serviceNames.length}</TableCell>
-                            <TableCell>{agentId === activeAgentId ? agentTools.length : "-"}</TableCell>
-                            <TableCell className="text-right">
-                              <Button size="sm" variant="outline" onClick={() => setSelectedAgentId(agentId)} disabled={!agentId}>
-                                View
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
+                <div className="flex flex-col gap-2">
+                  {props.agents.map((agent) => {
+                    const agentId = getAgentId(agent)
+                    const serviceNames = getAgentServices(agent)
+                    return (
+                      <SelectableRowButton
+                        key={agentId || JSON.stringify(agent)}
+                        disabled={!agentId}
+                        meta={`${serviceNames.length} services · ${agentId === activeAgentId ? agentTools.length : "-"} tools`}
+                        onClick={() => setSelectedAgentId(agentId)}
+                        selected={agentId === activeAgentId}
+                        title={agentId || "-"}
+                        trailing={agentId === activeAgentId ? <Badge variant="outline">active</Badge> : null}
+                      />
+                    )
+                  })}
                 </div>
               ) : (
                 <Empty>
