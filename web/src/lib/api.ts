@@ -88,6 +88,8 @@ export type ApiEnvelope<T> = {
   errors?: Array<{ code: string; message: string; field?: string }>
 }
 
+type FlexibleEnvelope<T> = ApiEnvelope<T> | { ok: boolean; message?: string; data?: T; error?: string }
+
 export class ApiError extends Error {
   status: number
 
@@ -144,12 +146,26 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     headers.set("Content-Type", "application/json")
   }
 
-  return readJson<T>(
+  const payload = await readJson<T | FlexibleEnvelope<T>>(
     await fetch(apiUrl(path), {
       ...options,
       headers,
     }),
   )
+
+  if (payload && typeof payload === "object" && "success" in payload) {
+    const envelope = payload as ApiEnvelope<T>
+    if (!envelope.success) throw new ApiError(envelope.errors?.[0]?.message || envelope.message, 200)
+    return envelope.data as T
+  }
+
+  if (payload && typeof payload === "object" && "ok" in payload) {
+    const envelope = payload as { ok: boolean; message?: string; data?: T; error?: string }
+    if (!envelope.ok) throw new ApiError(envelope.error || envelope.message || "Request failed", 200)
+    return envelope.data as T
+  }
+
+  return payload as T
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
