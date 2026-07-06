@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { DatabaseIcon, RefreshCwIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -10,27 +11,29 @@ import { PanelCard } from "@/components/shared/panel-card"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { Button } from "@/components/ui/button"
 import { cacheHealth, cacheInspect, type CacheBackend } from "@/lib/api"
+import { queryKeys } from "@/lib/query-keys"
 
 export function CacheView(props: { backend?: CacheBackend; revision: number; onRefreshDashboard: () => Promise<void>; onSwitch: () => void }) {
-  const [healthReport, setHealthReport] = useState<unknown>(null)
-  const [inspectReport, setInspectReport] = useState<unknown>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [refreshError, setRefreshError] = useState<string | null>(null)
+  const healthQuery = useQuery({ enabled: false, queryKey: queryKeys.cacheHealth, queryFn: cacheHealth })
+  const inspectQuery = useQuery({ enabled: false, queryKey: queryKeys.cacheInspect, queryFn: cacheInspect })
+  const healthReport = healthQuery.data
+  const inspectReport = inspectQuery.data
+  const error = healthQuery.error || inspectQuery.error || refreshError
+  const errorMessage = error instanceof Error ? error.message : error ? String(error) : "缓存加载失败"
+  const loading = healthQuery.isFetching || inspectQuery.isFetching
 
   async function loadCache() {
-    setLoading(true)
     try {
-      setError(null)
-      const [health, inspect] = await Promise.all([cacheHealth(), cacheInspect()])
-      setHealthReport(health)
-      setInspectReport(inspect)
+      setRefreshError(null)
+      const [health, inspect] = await Promise.all([healthQuery.refetch(), inspectQuery.refetch()])
+      if (health.error) throw health.error
+      if (inspect.error) throw inspect.error
       await props.onRefreshDashboard()
     } catch (err) {
       const message = err instanceof Error ? err.message : "缓存加载失败"
-      setError(message)
+      if (!healthQuery.error && !inspectQuery.error) setRefreshError(message)
       toast.error(message)
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -67,7 +70,7 @@ export function CacheView(props: { backend?: CacheBackend; revision: number; onR
         <PanelCard>
           <SectionHeading title="Health" titleAs="h2" description="/cache/health" className="border-b-0 pb-0" />
           {error ? (
-            <PageError title="Cache health failed to load" message={error} onRefresh={loadCache} />
+            <PageError title="Cache health failed to load" message={errorMessage} onRefresh={loadCache} />
           ) : loading && !healthReport ? (
             <PageSkeleton />
           ) : (
@@ -77,7 +80,7 @@ export function CacheView(props: { backend?: CacheBackend; revision: number; onR
         <PanelCard>
           <SectionHeading title="Inspect" titleAs="h2" description="/cache/inspect" className="border-b-0 pb-0" />
           {error ? (
-            <PageError title="Cache inspect failed to load" message={error} onRefresh={loadCache} />
+            <PageError title="Cache inspect failed to load" message={errorMessage} onRefresh={loadCache} />
           ) : loading && !inspectReport ? (
             <PageSkeleton />
           ) : (
