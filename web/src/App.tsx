@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   ActivityIcon,
   ArrowLeftIcon,
@@ -24,13 +24,12 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { SwitchCacheDialog } from "@/features/cache/switch-cache-dialog"
 import { AddServiceView } from "@/features/services/add-service-view"
 import { ServiceTable } from "@/features/services/service-table"
 import { SettingsDialog } from "@/features/settings/settings-dialog"
 import { RunToolDialog, ToolDetailDialog, type ToolDetailState, type ToolDialogState } from "@/features/tools/tool-dialogs"
 import { DetailHeader } from "@/components/shared/detail-header"
-import { DialogForm, DialogFormFooter } from "@/components/shared/dialog-form"
 import { EntityRow } from "@/components/shared/entity-row"
 import { JsonBlock } from "@/components/shared/json-block"
 import { MetaLine } from "@/components/shared/meta-line"
@@ -76,7 +75,6 @@ import {
   serviceStatus,
   showAgentConfig,
   showConfig,
-  switchCache,
   unassignService,
   type AgentItem,
   type CacheBackend,
@@ -95,7 +93,6 @@ type View =
 
 type ResetTarget = { scope: "store" } | { scope: "agent"; agentId: string }
 
-const cacheOptions: CacheBackend[] = ["memory", "redis", "openkeyv_memory", "openkeyv_redis"]
 const navItems: Array<{ view: View["name"]; label: string }> = [
   { view: "services", label: "服务" },
   { view: "agents", label: "Agent" },
@@ -1116,55 +1113,6 @@ function ServiceDetailView(props: {
         </PanelCard>
       </section>
     </>
-  )
-}
-
-function SwitchCacheDialog({ open, current, onOpenChange, onChanged }: { open: boolean; current?: CacheBackend; onOpenChange: (open: boolean) => void; onChanged: () => Promise<void> }) {
-  const [target, setTarget] = useState<CacheBackend>(current || "memory")
-  const [submitting, setSubmitting] = useState(false)
-
-  useEffect(() => {
-    if (open && current) setTarget(current)
-  }, [current, open])
-
-  async function onSwitch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setSubmitting(true)
-    try {
-      await switchCache(target)
-      toast.success("Cache storage switched")
-      await onChanged()
-      onOpenChange(false)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Switch failed")
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Switch cache storage</DialogTitle>
-          <DialogDescription>Current cache storage: {current || "unknown"}</DialogDescription>
-        </DialogHeader>
-        <DialogForm onSubmit={onSwitch}>
-          <Field>
-            <FieldLabel>Target cache storage</FieldLabel>
-            <Select value={target} onValueChange={(value) => setTarget(value as CacheBackend)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {cacheOptions.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
-          <DialogFormFooter cancelLabel="Cancel" onCancel={() => onOpenChange(false)} submitLabel={submitting ? "Switching" : "Switch"} submitting={submitting} />
-        </DialogForm>
-      </DialogContent>
-    </Dialog>
   )
 }
 
