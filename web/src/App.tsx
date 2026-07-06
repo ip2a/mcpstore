@@ -2,28 +2,17 @@ import { useState } from "react"
 import {
   ArrowLeftIcon,
   PlusIcon,
-  RefreshCwIcon,
   SettingsIcon,
-  Trash2Icon,
 } from "lucide-react"
 import { toast } from "sonner"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogMedia,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { AgentsView } from "@/features/agents/agents-view"
 import { CacheView } from "@/features/cache/cache-view"
 import { SwitchCacheDialog } from "@/features/cache/switch-cache-dialog"
 import { ConfigView, type ResetTarget } from "@/features/config/config-view"
+import { ResetConfigDialog } from "@/features/config/reset-config-dialog"
 import { AddServiceView } from "@/features/services/add-service-view"
+import { DeleteServiceDialog } from "@/features/services/delete-service-dialog"
 import { ServiceDetailView } from "@/features/services/service-detail-view"
 import { ServicesView } from "@/features/services/services-view"
 import { SettingsDialog } from "@/features/settings/settings-dialog"
@@ -254,46 +243,5 @@ export function App() {
       />
       <Toaster />
     </TooltipProvider>
-  )
-}
-
-function DeleteServiceDialog({ service, onOpenChange, onConfirm }: { service: ServiceEntry | null; onOpenChange: (open: boolean) => void; onConfirm: (service: ServiceEntry) => void }) {
-  return (
-    <AlertDialog open={Boolean(service)} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogMedia className="text-destructive">
-            <Trash2Icon />
-          </AlertDialogMedia>
-          <AlertDialogTitle>Delete service?</AlertDialogTitle>
-          <AlertDialogDescription>{service ? `This removes ${service.name} from mcpstore.` : null}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" onClick={() => service && onConfirm(service)}>Delete</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  )
-}
-
-function ResetConfigDialog({ target, onOpenChange, onConfirm }: { target: ResetTarget | null; onOpenChange: (open: boolean) => void; onConfirm: (target: ResetTarget) => void }) {
-  const label = target?.scope === "agent" ? `Agent ${target.agentId}` : "Store"
-  return (
-    <AlertDialog open={Boolean(target)} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogMedia className="text-destructive">
-            <RefreshCwIcon />
-          </AlertDialogMedia>
-          <AlertDialogTitle>Reset config?</AlertDialogTitle>
-          <AlertDialogDescription>{target ? `${label} config will be reset.` : null}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" onClick={() => target && onConfirm(target)}>Reset</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
   )
 }
