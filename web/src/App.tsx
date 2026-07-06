@@ -582,12 +582,9 @@ function AgentsView(props: {
         </div>
 
         <div className="flex min-w-0 flex-col gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Agent Services</CardTitle>
-              <CardDescription>{loadingAgent ? "Loading" : `${agentServices.length} items`}</CardDescription>
-            </CardHeader>
-            <CardContent>
+          <PanelCard>
+            <SectionHeading title="Agent Services" titleAs="h2" description={loadingAgent ? "Loading" : `${agentServices.length} items`} className="border-b-0 pb-0" />
+            <div>
               {loadingAgent ? (
                 <PageSkeleton />
               ) : agentServices.length ? (
@@ -625,15 +622,12 @@ function AgentsView(props: {
               ) : (
                 <PageEmpty title="No services" description="No MCP services are available for this agent." />
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </PanelCard>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Agent Tools</CardTitle>
-              <CardDescription>{loadingAgent ? "Loading" : `${agentTools.length} items`}</CardDescription>
-            </CardHeader>
-            <CardContent>
+          <PanelCard>
+            <SectionHeading title="Agent Tools" titleAs="h2" description={loadingAgent ? "Loading" : `${agentTools.length} items`} className="border-b-0 pb-0" />
+            <div>
               {loadingAgent ? (
                 <PageSkeleton />
               ) : agentTools.length ? (
@@ -650,8 +644,8 @@ function AgentsView(props: {
               ) : (
                 <PageEmpty title="No tools" description="No tools are available for this agent." />
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </PanelCard>
         </div>
       </TwoPanePage>
     </>
