@@ -15,6 +15,8 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { getMeta, updateSettings, type SettingsPayload, type UiLanguage, type UpdateSettingsPayload } from "@/lib/api"
+import { useI18n } from "@/lib/i18n-context"
+import type { I18nKey } from "@/lib/i18n-core"
 import { queryKeys } from "@/lib/query-keys"
 
 type SectionId = "general" | "config" | "about"
@@ -28,10 +30,10 @@ type SettingsDraft = {
   }
 }
 
-const sections: Array<{ id: SectionId; label: string }> = [
-  { id: "general", label: "通用" },
-  { id: "config", label: "配置文件" },
-  { id: "about", label: "关于" },
+const sections: Array<{ id: SectionId; labelKey: I18nKey }> = [
+  { id: "general", labelKey: "general" },
+  { id: "config", labelKey: "configFile" },
+  { id: "about", labelKey: "about" },
 ]
 
 function settingsDraft(settings?: SettingsPayload): SettingsDraft {
@@ -62,6 +64,7 @@ function payloadFromDraft(draft: SettingsDraft): UpdateSettingsPayload {
 }
 
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const { setLanguageOverride, t } = useI18n()
   const queryClient = useQueryClient()
   const [section, setSection] = useState<SectionId>("general")
   const [draft, setDraft] = useState<SettingsDraft | null>(null)
@@ -97,11 +100,12 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     if (!draft) return
     try {
       await settingsMutation.mutateAsync(payloadFromDraft(draft))
-      toast.success("设置已保存")
+      setLanguageOverride(draft.language)
+      toast.success(t("saved"))
       await queryClient.invalidateQueries({ queryKey: queryKeys.meta })
       onOpenChange(false)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "设置保存失败")
+      toast.error(err instanceof Error ? err.message : t("saveFailed"))
     }
   }
 
@@ -118,13 +122,13 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
         <DialogHeader className="border-b px-4 py-3 sm:px-5">
           <DialogTitle className="flex items-center gap-2">
             <SettingsIcon className="size-4" />
-            设置
+            {t("settings")}
           </DialogTitle>
-          <DialogDescription>管理 mcpstore Web 设置和配置文件信息。</DialogDescription>
+          <DialogDescription>{t("settingsDescription")}</DialogDescription>
         </DialogHeader>
 
         <div className="grid min-h-0 flex-1 grid-cols-[144px_minmax(0,1fr)]">
-          <nav className="flex flex-col gap-1 border-r p-3" aria-label="设置">
+          <nav className="flex flex-col gap-1 border-r p-3" aria-label={t("settingsNav")}>
             {sections.map((item) => (
               <Button
                 key={item.id}
@@ -133,25 +137,25 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 className="justify-start"
                 onClick={() => setSection(item.id)}
               >
-                {item.label}
+                {t(item.labelKey)}
               </Button>
             ))}
           </nav>
 
           <div className="min-h-0 overflow-auto p-4 sm:p-5">
-            {loading ? <SettingsLoading label="正在加载设置" /> : null}
+            {loading ? <SettingsLoading label={t("loadingSettings")} /> : null}
             {error ? <SettingsError message={error} onRetry={() => void metaQuery.refetch()} /> : null}
 
             {!loading && !error && draft ? (
               <DialogForm onSubmit={onSubmit}>
                 {section === "general" ? (
                   <section className="flex flex-col gap-5">
-                    <SectionHead title="通用" description="这些字段会通过 /api/v1/settings 保存到后端。" />
+                    <SectionHead title={t("general")} description={t("generalDescription")} />
                     <FieldGroup>
                       <Field orientation="responsive">
                         <FieldContent>
-                          <FieldTitle>语言</FieldTitle>
-                          <FieldDescription>控制设置界面的语言偏好；后端可按需使用该值。</FieldDescription>
+                          <FieldTitle>{t("language")}</FieldTitle>
+                          <FieldDescription>{t("chooseLanguage")}</FieldDescription>
                         </FieldContent>
                         <Select value={draft.language} onValueChange={(value) => patchDraft({ language: value as UiLanguage })}>
                           <SelectTrigger className="w-44">
@@ -159,7 +163,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                           </SelectTrigger>
                           <SelectContent>
                             <SelectGroup>
-                              <SelectItem value="auto">自动</SelectItem>
+                              <SelectItem value="auto">{t("auto")}</SelectItem>
                               <SelectItem value="zh">中文</SelectItem>
                               <SelectItem value="en">English</SelectItem>
                             </SelectGroup>
@@ -169,9 +173,9 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
                       <Field orientation="responsive">
                         <FieldContent>
-                          <FieldTitle>默认备份目录</FieldTitle>
+                          <FieldTitle>{t("defaultBackupDir")}</FieldTitle>
                           <FieldDescription>
-                            <PathText value={settingsPaths?.backup_dir_resolved} fallback="后端未返回解析后的目录。" wrap="all" />
+                            <PathText value={settingsPaths?.backup_dir_resolved} fallback={t("backupDirMissing")} wrap="all" />
                           </FieldDescription>
                         </FieldContent>
                         <InputGroup className="max-w-xl">
@@ -186,9 +190,9 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
                       <Field orientation="responsive">
                         <FieldContent>
-                          <FieldTitle>日志大小上限 MB</FieldTitle>
+                          <FieldTitle>{t("logMaxSizeMb")}</FieldTitle>
                           <FieldDescription>
-                            <PathText value={settingsPaths?.log_file_path} fallback="日志路径会在后端 meta 接口完成后显示。" wrap="all" />
+                            <PathText value={settingsPaths?.log_file_path} fallback={t("logFilePathMissing")} wrap="all" />
                           </FieldDescription>
                         </FieldContent>
                         <Input
@@ -201,8 +205,8 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
                       <Field orientation="responsive">
                         <FieldContent>
-                          <FieldTitle>日志保留天数</FieldTitle>
-                          <FieldDescription>留空表示不限制。</FieldDescription>
+                          <FieldTitle>{t("logRetentionDays")}</FieldTitle>
+                          <FieldDescription>{t("unlimited")}</FieldDescription>
                         </FieldContent>
                         <Input
                           className="w-32"
@@ -218,10 +222,10 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
                 {section === "config" ? (
                   <section className="flex flex-col gap-4">
-                    <SectionHead title="配置文件" description="只读展示后端 meta 接口返回的配置文件内容。" />
+                    <SectionHead title={t("configFile")} description={t("configReadonlyDescription")} />
                     <WorkspaceIdentity
                       workspace={configFile?.path}
-                      fallbackTitle="未返回配置文件"
+                      fallbackTitle={t("configFileMissing")}
                       label="Config File"
                       className="rounded-md border p-3"
                     />
@@ -231,10 +235,10 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
                 {section === "about" ? (
                   <section className="flex flex-col gap-4">
-                    <SectionHead title="关于" description="当前 Web 设置接口状态。" />
-                    <ReadonlyValue label="版本" value={meta?.version ? `v${meta.version}` : "-"} />
-                    <ReadonlyValue label="Meta API" value="/api/v1/meta" />
-                    <ReadonlyValue label="Settings API" value="PUT /api/v1/settings" />
+                    <SectionHead title={t("about")} description={t("settingsDescription")} />
+                    <ReadonlyValue label={t("version")} value={meta?.version ? `v${meta.version}` : "-"} />
+                    <ReadonlyValue label={t("metaApi")} value="/api/v1/meta" />
+                    <ReadonlyValue label={t("settingsApi")} value="PUT /api/v1/settings" />
                   </section>
                 ) : null}
 
@@ -245,7 +249,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                   submitLabel={
                     <>
                       {!saving ? <SaveIcon data-icon="inline-start" /> : null}
-                      保存
+                      {t("save")}
                     </>
                   }
                   submitting={saving}
@@ -287,18 +291,20 @@ function SettingsLoading({ label }: { label: string }) {
 }
 
 function SettingsError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const { t } = useI18n()
+
   return (
     <div className="flex flex-col gap-3 rounded-md border border-destructive/30 p-4 text-sm">
       <div className="flex items-start gap-2 text-destructive">
         <AlertCircleIcon className="mt-0.5 size-4" />
         <div>
-          <p className="font-medium">设置服务暂不可用</p>
+          <p className="font-medium">{t("settingsUnavailable")}</p>
           <p className="mt-1 text-muted-foreground">{message}</p>
         </div>
       </div>
       <Button type="button" variant="outline" className="w-fit" onClick={onRetry}>
         <RefreshCwIcon data-icon="inline-start" />
-        重试
+        {t("retry")}
       </Button>
     </div>
   )
