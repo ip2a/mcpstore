@@ -1258,13 +1258,10 @@ function AddServiceView({ agents, onBack, onAdded }: { agents: AgentItem[]; onBa
   return (
     <>
       <DetailHeader eyebrow="添加服务" title="New MCP Service" actions={<Button variant="outline" onClick={onBack}>Back</Button>} />
-      <Card>
-        <CardHeader>
-          <CardTitle>Service Config</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={onSubmit}>
-            <FieldGroup>
+      <PanelCard>
+        <SectionHeading title="Service Config" titleAs="h2" className="border-b-0 pb-0" />
+        <form onSubmit={onSubmit}>
+          <FieldGroup>
               <div className="grid gap-4 md:grid-cols-2">
                 <Field>
                   <FieldLabel htmlFor="name">Name</FieldLabel>
@@ -1364,10 +1361,9 @@ function AddServiceView({ agents, onBack, onAdded }: { agents: AgentItem[]; onBa
                   {submitting ? "Adding" : "Add Service"}
                 </Button>
               </div>
-            </FieldGroup>
-          </form>
-        </CardContent>
-      </Card>
+          </FieldGroup>
+        </form>
+      </PanelCard>
     </>
   )
 }
