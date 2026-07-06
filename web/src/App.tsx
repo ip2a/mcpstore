@@ -3,9 +3,7 @@ import {
   ActivityIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
-  ClipboardIcon,
   DatabaseIcon,
-  EyeIcon,
   LinkIcon,
   MoreHorizontalIcon,
   PlusIcon,
@@ -13,7 +11,6 @@ import {
   SettingsIcon,
   Trash2Icon,
   UnlinkIcon,
-  WrenchIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 import {
@@ -56,6 +53,7 @@ import { SearchBox } from "@/components/shared/search-box"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { SelectableRowButton } from "@/components/shared/selectable-row-button"
 import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
+import { ToolCard } from "@/components/shared/tool-card"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
@@ -69,6 +67,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { HomeHero } from "@/components/home-hero"
 import { useDashboard } from "@/hooks/use-dashboard"
 import { formatDateTime } from "@/lib/format"
+import { getToolSchema, getToolServiceName, toolKey } from "@/lib/tool-info"
 import { useUiStore } from "@/stores/ui-store"
 import {
   addService,
@@ -1235,61 +1234,6 @@ function ServiceTable(props: {
   )
 }
 
-function ToolCard({ tool, sourceLabel, onRun, onDetail }: { tool: ToolInfo; sourceLabel?: string; onRun: () => void; onDetail: () => void }) {
-  const schema = getToolSchema(tool) as { properties?: Record<string, { type?: string; description?: string }>; required?: string[] }
-  const params = Object.entries(schema.properties || {}).sort(([a], [b]) => a.localeCompare(b))
-
-  async function onCopy() {
-    await navigator.clipboard.writeText(JSON.stringify(tool, null, 2))
-    toast.success("Tool copied")
-  }
-
-  return (
-    <PanelCard>
-      <SectionHeading
-        title={tool.name}
-        titleAs="h2"
-        description={tool.description || "No description"}
-        className="border-b-0 pb-0"
-        actions={
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button size="sm" onClick={onRun}>
-              <WrenchIcon data-icon="inline-start" />
-              Run
-            </Button>
-            <Button size="sm" variant="outline" onClick={onDetail}>
-              <EyeIcon data-icon="inline-start" />
-              Details
-            </Button>
-            <Button size="sm" variant="outline" onClick={onCopy}>
-              <ClipboardIcon data-icon="inline-start" />
-              Copy
-            </Button>
-          </div>
-        }
-      />
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap gap-2">
-          <Badge variant="secondary">{sourceLabel || getToolServiceName(tool) || "store"}</Badge>
-          {schema.required?.length ? <Badge variant="outline">{schema.required.length} required</Badge> : <Badge variant="outline">optional</Badge>}
-        </div>
-        {params.length ? (
-          params.slice(0, 4).map(([name, meta]) => (
-            <EntityRow key={name} actions={<Badge variant="outline">{meta.type || "any"}</Badge>}>
-              <div className="min-w-0">
-                <code className="text-sm font-medium">{name}</code>
-                <p className="truncate text-sm text-muted-foreground">{meta.description || "No description"}</p>
-              </div>
-            </EntityRow>
-          ))
-        ) : (
-          <p className="text-sm text-muted-foreground">No params required</p>
-        )}
-      </div>
-    </PanelCard>
-  )
-}
-
 function AddServiceView({ agents, onBack, onAdded }: { agents: AgentItem[]; onBack: () => void; onAdded: () => Promise<void> }) {
   const [scope, setScope] = useState<"store" | "agent">("store")
   const [transport, setTransport] = useState<"stdio" | "streamable-http" | "sse">("stdio")
@@ -1633,18 +1577,6 @@ function getAgentId(agent: AgentItem) {
 
 function getAgentServices(agent: AgentItem) {
   return (agent.services || agent.service_names || []).map(String)
-}
-
-function getToolSchema(tool: ToolInfo) {
-  return tool.schema || tool.inputSchema || tool.input_schema || tool.parameters || {}
-}
-
-function getToolServiceName(tool: ToolInfo) {
-  return String(tool.service_name || tool.service || tool.server_name || "") || undefined
-}
-
-function toolKey(tool: ToolInfo) {
-  return `${getToolServiceName(tool) || "tool"}:${tool.name}`
 }
 
 function countKeys(value: unknown) {
