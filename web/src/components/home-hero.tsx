@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { ChevronDownIcon } from "lucide-react"
+import { ActivitySparkline } from "@/components/shared/activity-sparkline"
 import { PathText } from "@/components/shared/path-text"
 import { MCPSTORE_ASCII, randomAsciiBannerColor } from "@/lib/ascii-banner"
 import type { CacheBackend } from "@/lib/api"
@@ -32,17 +33,22 @@ function StatValue({ loading, value }: { loading: boolean; value: number }) {
 }
 
 function HeroStats({ stats }: { stats: HomeHeroStats }) {
+  const activityValues = [stats.services, stats.connected, stats.disconnected, stats.connecting, stats.error, stats.tools, stats.agents]
+
   return (
-    <dl className="m-0 grid w-full grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
-      {STAT_ITEMS.map(({ key, label }) => (
-        <div key={key} className="flex min-w-0 items-baseline justify-between gap-2">
-          <dt className="truncate text-xs text-muted-foreground">{label}</dt>
-          <dd className="m-0">
-            <StatValue loading={stats.loading} value={stats[key]} />
-          </dd>
-        </div>
-      ))}
-    </dl>
+    <div className="flex w-full min-w-0 flex-col gap-2">
+      <ActivitySparkline values={activityValues} isLoading={stats.loading} title="Store activity overview" />
+      <dl className="m-0 grid w-full grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
+        {STAT_ITEMS.map(({ key, label }) => (
+          <div key={key} className="flex min-w-0 items-baseline justify-between gap-2">
+            <dt className="truncate text-xs text-muted-foreground">{label}</dt>
+            <dd className="m-0">
+              <StatValue loading={stats.loading} value={stats[key]} />
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   )
 }
 
