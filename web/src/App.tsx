@@ -447,6 +447,8 @@ function AgentsView(props: {
   const [assignTarget, setAssignTarget] = useState(props.services[0]?.name || "")
   const [agentServices, setAgentServices] = useState<ServiceEntry[]>([])
   const [agentTools, setAgentTools] = useState<ToolInfo[]>([])
+  const [agentServicesError, setAgentServicesError] = useState<string | null>(null)
+  const [agentToolsError, setAgentToolsError] = useState<string | null>(null)
   const [loadingAgent, setLoadingAgent] = useState(false)
   const activeAgentId = (typedAgentId.trim() || selectedAgentId || "").trim()
 
@@ -462,18 +464,34 @@ function AgentsView(props: {
     if (!activeAgentId) {
       setAgentServices([])
       setAgentTools([])
+      setAgentServicesError(null)
+      setAgentToolsError(null)
       return
     }
     let cancelled = false
     setLoadingAgent(true)
-    Promise.all([listAgentServices(activeAgentId).catch(() => []), listAgentTools(activeAgentId).catch(() => [])])
-      .then(([services, tools]) => {
-        if (!cancelled) {
-          setAgentServices(services)
-          setAgentTools(tools)
+    setAgentServicesError(null)
+    setAgentToolsError(null)
+    Promise.allSettled([listAgentServices(activeAgentId), listAgentTools(activeAgentId)])
+      .then(([servicesResult, toolsResult]) => {
+        if (cancelled) return
+        if (servicesResult.status === "fulfilled") {
+          setAgentServices(servicesResult.value)
+        } else {
+          const message = servicesResult.reason instanceof Error ? servicesResult.reason.message : "Agent services 加载失败"
+          setAgentServices([])
+          setAgentServicesError(message)
+          toast.error(message)
+        }
+        if (toolsResult.status === "fulfilled") {
+          setAgentTools(toolsResult.value)
+        } else {
+          const message = toolsResult.reason instanceof Error ? toolsResult.reason.message : "Agent tools 加载失败"
+          setAgentTools([])
+          setAgentToolsError(message)
+          toast.error(message)
         }
       })
-      .catch((err) => toast.error(err instanceof Error ? err.message : "Agent 加载失败"))
       .finally(() => {
         if (!cancelled) setLoadingAgent(false)
       })
@@ -582,7 +600,9 @@ function AgentsView(props: {
           <PanelCard>
             <SectionHeading title="Agent Services" titleAs="h2" description={loadingAgent ? "Loading" : `${agentServices.length} items`} className="border-b-0 pb-0" />
             <div>
-              {loadingAgent ? (
+              {agentServicesError ? (
+                <PageError title="Agent services failed to load" message={agentServicesError} />
+              ) : loadingAgent ? (
                 <PageSkeleton />
               ) : agentServices.length ? (
                 <Table>
@@ -623,7 +643,9 @@ function AgentsView(props: {
           <PanelCard>
             <SectionHeading title="Agent Tools" titleAs="h2" description={loadingAgent ? "Loading" : `${agentTools.length} items`} className="border-b-0 pb-0" />
             <div>
-              {loadingAgent ? (
+              {agentToolsError ? (
+                <PageError title="Agent tools failed to load" message={agentToolsError} />
+              ) : loadingAgent ? (
                 <PageSkeleton />
               ) : agentTools.length ? (
                 <div className="flex flex-col gap-3">
