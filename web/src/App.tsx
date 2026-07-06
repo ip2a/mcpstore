@@ -57,14 +57,13 @@ import { SelectableRowButton } from "@/components/shared/selectable-row-button"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
+import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupTextarea } from "@/components/ui/input-group"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Toaster } from "@/components/ui/sonner"
 import { Spinner } from "@/components/ui/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Textarea } from "@/components/ui/textarea"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { HomeHero } from "@/components/home-hero"
 import { useDashboard } from "@/hooks/use-dashboard"
@@ -1328,13 +1327,17 @@ function AddServiceView({ agents, onBack, onAdded }: { agents: AgentItem[]; onBa
                 <TabsContent value="env">
                   <Field>
                     <FieldLabel htmlFor="env">Env vars</FieldLabel>
-                    <Textarea id="env" name="env" placeholder="TOKEN=..." />
+                    <InputGroup>
+                      <InputGroupTextarea id="env" name="env" placeholder="TOKEN=..." />
+                    </InputGroup>
                   </Field>
                 </TabsContent>
                 <TabsContent value="headers">
                   <Field>
                     <FieldLabel htmlFor="headers">Headers</FieldLabel>
-                    <Textarea id="headers" name="headers" placeholder="Authorization=Bearer ..." />
+                    <InputGroup>
+                      <InputGroupTextarea id="headers" name="headers" placeholder="Authorization=Bearer ..." />
+                    </InputGroup>
                   </Field>
                 </TabsContent>
               </Tabs>
@@ -1390,7 +1393,9 @@ function RunToolDialog({ state, onOpenChange }: { state: ToolDialogState; onOpen
         <DialogForm onSubmit={onRun}>
           <Field>
             <FieldLabel htmlFor="tool-args">Args JSON</FieldLabel>
-            <Textarea id="tool-args" value={args} onChange={(event) => setArgs(event.target.value)} rows={6} />
+            <InputGroup>
+              <InputGroupTextarea id="tool-args" value={args} onChange={(event) => setArgs(event.target.value)} rows={6} />
+            </InputGroup>
           </Field>
           {result ? <JsonBlock value={result} /> : null}
           <DialogFormFooter cancelLabel="Close" onCancel={() => onOpenChange(false)} submitLabel={running ? "Running" : "Run"} submitting={running} />
