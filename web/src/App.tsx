@@ -26,6 +26,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { CacheView } from "@/features/cache/cache-view"
 import { SwitchCacheDialog } from "@/features/cache/switch-cache-dialog"
+import { ConfigView, type ResetTarget } from "@/features/config/config-view"
 import { AddServiceView } from "@/features/services/add-service-view"
 import { ServiceTable } from "@/features/services/service-table"
 import { SettingsDialog } from "@/features/settings/settings-dialog"
@@ -48,7 +49,6 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Toaster } from "@/components/ui/sonner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { HomeHero } from "@/components/home-hero"
 import { useDashboard } from "@/hooks/use-dashboard"
@@ -72,8 +72,6 @@ import {
   restartService,
   serviceInfo,
   serviceStatus,
-  showAgentConfig,
-  showConfig,
   unassignService,
   type AgentItem,
   type CacheBackend,
@@ -89,8 +87,6 @@ type View =
   | { name: "cache" }
   | { name: "add" }
   | { name: "service"; serviceName: string }
-
-type ResetTarget = { scope: "store" } | { scope: "agent"; agentId: string }
 
 const navItems: Array<{ view: View["name"]; label: string }> = [
   { view: "services", label: "服务" },
@@ -782,122 +778,6 @@ function ToolsView(props: {
       ) : (
         <PageEmpty title="No tools" description="No tools are available in the current scope." onRefresh={loadTools} />
       )}
-    </>
-  )
-}
-
-function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarget | null; onResetTarget: (target: ResetTarget | null) => void }) {
-  const agentIds = props.agents.map(getAgentId).filter(Boolean)
-  const [activeTab, setActiveTab] = useState("store")
-  const [agentId, setAgentId] = useState(agentIds[0] || "")
-  const [storeConfig, setStoreConfig] = useState<unknown>(null)
-  const [agentConfig, setAgentConfig] = useState<unknown>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    if (!agentId && agentIds[0]) setAgentId(agentIds[0])
-  }, [agentId, agentIds])
-
-  async function loadConfig() {
-    setLoading(true)
-    try {
-      setError(null)
-      const store = await showConfig()
-      setStoreConfig(store)
-      if (agentId) {
-        setAgentConfig(await showAgentConfig(agentId))
-      } else {
-        setAgentConfig(null)
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "配置加载失败"
-      setError(message)
-      toast.error(message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    void loadConfig()
-  }, [agentId, props.resetTarget])
-
-  return (
-    <>
-      <DetailHeader
-        eyebrow="配置管理"
-        title="Configuration"
-        actions={
-          <Button variant="outline" onClick={loadConfig} disabled={loading}>
-            <RefreshCwIcon data-icon="inline-start" />
-            刷新
-          </Button>
-        }
-      />
-
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="store">Store</TabsTrigger>
-          <TabsTrigger value="agent">Agent</TabsTrigger>
-        </TabsList>
-        <TabsContent value="store">
-          <PanelCard>
-            <SectionHeading
-              title="Store Config"
-              titleAs="h2"
-              className="border-b-0 pb-0"
-              actions={<Button variant="outline" size="sm" onClick={() => props.onResetTarget({ scope: "store" })}>
-                <RefreshCwIcon data-icon="inline-start" />
-                Reset
-              </Button>}
-            />
-            {error ? (
-              <PageError title="Configuration failed to load" message={error} onRefresh={loadConfig} />
-            ) : loading && !storeConfig ? (
-              <PageSkeleton />
-            ) : (
-              <JsonBlock value={storeConfig || {}} />
-            )}
-          </PanelCard>
-        </TabsContent>
-        <TabsContent value="agent">
-          <PanelCard>
-            <SectionHeading
-              title="Agent Config"
-              titleAs="h2"
-              description={agentId || "No agent selected"}
-              className="border-b-0 pb-0"
-              actions={<Button variant="outline" size="sm" disabled={!agentId} onClick={() => props.onResetTarget({ scope: "agent", agentId })}>
-                <RefreshCwIcon data-icon="inline-start" />
-                Reset
-              </Button>}
-            />
-            <Select value={agentId || "none"} onValueChange={(value) => setAgentId(value === "none" ? "" : value)}>
-              <SelectTrigger className="w-full md:w-80">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="none">No agent</SelectItem>
-                  {agentIds.map((id) => (
-                    <SelectItem key={id} value={id}>
-                      {id}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            {error ? (
-              <PageError title="Agent config failed to load" message={error} onRefresh={loadConfig} />
-            ) : loading && !agentConfig ? (
-              <PageSkeleton />
-            ) : (
-              <JsonBlock value={agentConfig || {}} />
-            )}
-          </PanelCard>
-        </TabsContent>
-      </Tabs>
     </>
   )
 }
