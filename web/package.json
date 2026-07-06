@@ -15,6 +15,7 @@
   "type": "module",
   "dependencies": {
     "@tailwindcss/vite": "latest",
+    "@tanstack/react-query": "^5.101.2",
     "@vitejs/plugin-react": "latest",
     "class-variance-authority": "latest",
     "clsx": "latest",

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AlertCircleIcon, RefreshCwIcon, SaveIcon, SettingsIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -13,7 +14,8 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
-import { getMeta, updateSettings, type MetaPayload, type SettingsPayload, type UiLanguage, type UpdateSettingsPayload } from "@/lib/api"
+import { getMeta, updateSettings, type SettingsPayload, type UiLanguage, type UpdateSettingsPayload } from "@/lib/api"
+import { queryKeys } from "@/lib/query-keys"
 
 type SectionId = "general" | "config" | "about"
 
@@ -60,36 +62,27 @@ function payloadFromDraft(draft: SettingsDraft): UpdateSettingsPayload {
 }
 
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const queryClient = useQueryClient()
   const [section, setSection] = useState<SectionId>("general")
-  const [meta, setMeta] = useState<MetaPayload | null>(null)
   const [draft, setDraft] = useState<SettingsDraft | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState("")
+  const metaQuery = useQuery({
+    enabled: open,
+    queryKey: queryKeys.meta,
+    queryFn: getMeta,
+  })
+  const settingsMutation = useMutation({ mutationKey: queryKeys.settings, mutationFn: updateSettings })
+  const meta = metaQuery.data
+  const loading = metaQuery.isFetching && !draft
+  const error = metaQuery.error instanceof Error ? metaQuery.error.message : ""
+  const saving = settingsMutation.isPending
 
   const settingsPaths = meta?.settings_paths
   const configFile = meta?.config_file
   const configContent = useMemo(() => configFile?.content || "", [configFile?.content])
 
-  async function loadSettings() {
-    setLoading(true)
-    setError("")
-    try {
-      const nextMeta = await getMeta()
-      setMeta(nextMeta)
-      setDraft(settingsDraft(nextMeta.settings))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "设置服务暂不可用")
-      setMeta(null)
-      setDraft(null)
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
-    if (open) void loadSettings()
-  }, [open])
+    if (open && meta) setDraft(settingsDraft(meta.settings))
+  }, [meta, open])
 
   function patchDraft(patch: Partial<SettingsDraft>) {
     setDraft((current) => (current ? { ...current, ...patch } : current))
@@ -102,23 +95,19 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!draft) return
-    setSaving(true)
     try {
-      await updateSettings(payloadFromDraft(draft))
+      await settingsMutation.mutateAsync(payloadFromDraft(draft))
       toast.success("设置已保存")
-      await loadSettings()
+      await queryClient.invalidateQueries({ queryKey: queryKeys.meta })
       onOpenChange(false)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "设置保存失败")
-    } finally {
-      setSaving(false)
     }
   }
 
   function handleOpenChange(nextOpen: boolean) {
     if (!nextOpen) {
       setSection("general")
-      setError("")
     }
     onOpenChange(nextOpen)
   }
@@ -151,7 +140,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
           <div className="min-h-0 overflow-auto p-4 sm:p-5">
             {loading ? <SettingsLoading label="正在加载设置" /> : null}
-            {error ? <SettingsError message={error} onRetry={loadSettings} /> : null}
+            {error ? <SettingsError message={error} onRetry={() => void metaQuery.refetch()} /> : null}
 
             {!loading && !error && draft ? (
               <DialogForm onSubmit={onSubmit}>
