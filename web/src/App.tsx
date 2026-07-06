@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { SettingsDialog } from "@/features/settings/settings-dialog"
+import { DetailHeader } from "@/components/shared/detail-header"
 import { MetaLine } from "@/components/shared/meta-line"
 import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
 import { SectionHeading } from "@/components/shared/section-heading"
@@ -470,7 +471,7 @@ function AgentsView(props: {
 
   return (
     <>
-      <PageHeader
+      <DetailHeader
         eyebrow="Agent 管理"
         title="Agent Workspace"
         actions={
@@ -727,7 +728,7 @@ function ToolsView(props: {
 
   return (
     <>
-      <PageHeader
+      <DetailHeader
         eyebrow="工具管理"
         title="Tool Registry"
         actions={
@@ -856,7 +857,7 @@ function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarget | nul
 
   return (
     <>
-      <PageHeader
+      <DetailHeader
         eyebrow="配置管理"
         title="Configuration"
         actions={
@@ -948,7 +949,7 @@ function CacheView(props: { backend?: CacheBackend; revision: number; onRefreshD
 
   return (
     <>
-      <PageHeader
+      <DetailHeader
         eyebrow="缓存管理"
         title="Cache Storage"
         actions={
@@ -1028,7 +1029,7 @@ function ServiceDetailView(props: {
 
   return (
     <>
-      <PageHeader
+      <DetailHeader
         eyebrow="服务详情"
         title={service.name}
         actions={
@@ -1309,7 +1310,7 @@ function AddServiceView({ agents, onBack, onAdded }: { agents: AgentItem[]; onBa
 
   return (
     <>
-      <PageHeader eyebrow="添加服务" title="New MCP Service" actions={<Button variant="outline" onClick={onBack}>Back</Button>} />
+      <DetailHeader eyebrow="添加服务" title="New MCP Service" actions={<Button variant="outline" onClick={onBack}>Back</Button>} />
       <Card>
         <CardHeader>
           <CardTitle>Service Config</CardTitle>
@@ -1585,18 +1586,6 @@ function ResetConfigDialog({ target, onOpenChange, onConfirm }: { target: ResetT
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  )
-}
-
-function PageHeader({ eyebrow, title, actions }: { eyebrow: string; title: string; actions?: React.ReactNode }) {
-  return (
-    <section className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-      <div className="flex min-w-0 flex-col gap-1">
-        <p className="text-sm font-medium text-muted-foreground">{eyebrow}</p>
-        <h1 className="truncate text-2xl font-semibold">{title}</h1>
-      </div>
-      {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
-    </section>
   )
 }
 
