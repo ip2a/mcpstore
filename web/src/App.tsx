@@ -45,6 +45,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
+import { SettingsDialog } from "@/features/settings/settings-dialog"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -131,6 +132,7 @@ export function App() {
   const [toolDialog, setToolDialog] = useState<ToolDialogState>(null)
   const [toolDetail, setToolDetail] = useState<ToolDetailState>(null)
   const [cacheDialog, setCacheDialog] = useState(false)
+  const [settingsDialog, setSettingsDialog] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<ServiceEntry | null>(null)
   const [resetTarget, setResetTarget] = useState<ResetTarget | null>(null)
   const [cacheRevision, setCacheRevision] = useState(0)
@@ -208,7 +210,7 @@ export function App() {
                 <PlusIcon data-icon="inline-start" />
                 添加
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setView({ name: "config" })}>
+              <Button variant="outline" size="sm" onClick={() => setSettingsDialog(true)}>
                 <SettingsIcon data-icon="inline-start" />
                 设置
               </Button>
@@ -292,6 +294,7 @@ export function App() {
           setCacheRevision((value) => value + 1)
         }}
       />
+      <SettingsDialog open={settingsDialog} onOpenChange={setSettingsDialog} />
       <DeleteServiceDialog
         service={deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
