@@ -59,6 +59,7 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Toaster } from "@/components/ui/sonner"
 import { Spinner } from "@/components/ui/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -1547,7 +1548,11 @@ function StatusBadge({ status }: { status?: string }) {
 }
 
 function JsonBlock({ value }: { value: unknown }) {
-  return <pre className="max-h-96 overflow-auto rounded-md bg-muted p-4 text-sm">{JSON.stringify(value, null, 2)}</pre>
+  return (
+    <ScrollArea className="max-h-96 rounded-md bg-muted">
+      <pre className="p-4 text-sm">{JSON.stringify(value, null, 2)}</pre>
+    </ScrollArea>
+  )
 }
 
 function getAgentId(agent: AgentItem) {
