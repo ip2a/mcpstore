@@ -29,7 +29,6 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
@@ -1166,11 +1165,13 @@ function ToolCard({ tool, sourceLabel, onRun, onDetail }: { tool: ToolInfo; sour
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{tool.name}</CardTitle>
-        <CardDescription>{tool.description || "No description"}</CardDescription>
-        <CardAction>
+    <PanelCard>
+      <SectionHeading
+        title={tool.name}
+        titleAs="h2"
+        description={tool.description || "No description"}
+        className="border-b-0 pb-0"
+        actions={
           <div className="flex flex-wrap justify-end gap-2">
             <Button size="sm" onClick={onRun}>
               <WrenchIcon data-icon="inline-start" />
@@ -1185,9 +1186,9 @@ function ToolCard({ tool, sourceLabel, onRun, onDetail }: { tool: ToolInfo; sour
               Copy
             </Button>
           </div>
-        </CardAction>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
+        }
+      />
+      <div className="flex flex-col gap-3">
         <div className="flex flex-wrap gap-2">
           <Badge variant="secondary">{sourceLabel || getToolServiceName(tool) || "store"}</Badge>
           {schema.required?.length ? <Badge variant="outline">{schema.required.length} required</Badge> : <Badge variant="outline">optional</Badge>}
@@ -1204,8 +1205,8 @@ function ToolCard({ tool, sourceLabel, onRun, onDetail }: { tool: ToolInfo; sour
         ) : (
           <p className="text-sm text-muted-foreground">No params required</p>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </PanelCard>
   )
 }
 
