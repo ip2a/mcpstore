@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { SettingsDialog } from "@/features/settings/settings-dialog"
+import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -477,196 +478,198 @@ function AgentsView(props: {
         }
       />
 
-      <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Agent List</CardTitle>
-            <CardDescription>{props.agents.length} items</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {props.loading ? (
-              <ServiceSkeleton />
-            ) : props.agents.length ? (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Agent</TableHead>
-                      <TableHead>Services</TableHead>
-                      <TableHead>Tools</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {props.agents.map((agent) => {
-                      const agentId = getAgentId(agent)
-                      const serviceNames = getAgentServices(agent)
-                      return (
-                        <TableRow key={agentId || JSON.stringify(agent)}>
-                          <TableCell className="font-medium">{agentId || "-"}</TableCell>
-                          <TableCell>{serviceNames.length}</TableCell>
-                          <TableCell>{agentId === activeAgentId ? agentTools.length : "-"}</TableCell>
+      <TwoPanePage variant="page">
+        <div className="flex min-w-0 flex-col gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Agent List</CardTitle>
+              <CardDescription>{props.agents.length} items</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {props.loading ? (
+                <ServiceSkeleton />
+              ) : props.agents.length ? (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Agent</TableHead>
+                        <TableHead>Services</TableHead>
+                        <TableHead>Tools</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {props.agents.map((agent) => {
+                        const agentId = getAgentId(agent)
+                        const serviceNames = getAgentServices(agent)
+                        return (
+                          <TableRow key={agentId || JSON.stringify(agent)}>
+                            <TableCell className="font-medium">{agentId || "-"}</TableCell>
+                            <TableCell>{serviceNames.length}</TableCell>
+                            <TableCell>{agentId === activeAgentId ? agentTools.length : "-"}</TableCell>
+                            <TableCell className="text-right">
+                              <Button size="sm" variant="outline" onClick={() => setSelectedAgentId(agentId)} disabled={!agentId}>
+                                View
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <Empty>
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <BotIcon />
+                    </EmptyMedia>
+                    <EmptyTitle>No agents</EmptyTitle>
+                    <EmptyDescription>Agent records will appear after services are assigned.</EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Agent Scope</CardTitle>
+              <CardDescription>{activeAgentId || "No agent selected"}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel>Known Agent</FieldLabel>
+                  <Select value={selectedAgentId || "none"} onValueChange={(value) => setSelectedAgentId(value === "none" ? "" : value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="none">None</SelectItem>
+                        {agentIds.map((agentId) => (
+                          <SelectItem key={agentId} value={agentId}>
+                            {agentId}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="agent-id">Agent ID</FieldLabel>
+                  <Input id="agent-id" value={typedAgentId} onChange={(event) => setTypedAgentId(event.target.value)} placeholder="agent-a" />
+                </Field>
+                <Field>
+                  <FieldLabel>Assign Service</FieldLabel>
+                  <Select value={assignTarget || "none"} onValueChange={(value) => setAssignTarget(value === "none" ? "" : value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="none">None</SelectItem>
+                        {props.services.map((service) => (
+                          <SelectItem key={service.name} value={service.name}>
+                            {service.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Button disabled={!activeAgentId || !assignTarget || Boolean(props.busy)} onClick={() => props.onAssign(activeAgentId, assignTarget)}>
+                  Assign
+                </Button>
+              </FieldGroup>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Agent Services</CardTitle>
+              <CardDescription>{loadingAgent ? "Loading" : `${agentServices.length} items`}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loadingAgent ? (
+                <ServiceSkeleton />
+              ) : agentServices.length ? (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Service</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {agentServices.map((service) => (
+                        <TableRow key={service.name}>
+                          <TableCell className="font-medium">{service.name}</TableCell>
+                          <TableCell>
+                            <StatusBadge status={service.status} />
+                          </TableCell>
                           <TableCell className="text-right">
-                            <Button size="sm" variant="outline" onClick={() => setSelectedAgentId(agentId)} disabled={!agentId}>
-                              View
-                            </Button>
+                            <div className="flex justify-end gap-2">
+                              <Button size="sm" variant="outline" onClick={() => props.onOpenService(service.name)}>
+                                View
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => props.onUnassign(activeAgentId, service.name)} disabled={!activeAgentId || Boolean(props.busy)}>
+                                Unassign
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-            ) : (
-              <Empty>
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <BotIcon />
-                  </EmptyMedia>
-                  <EmptyTitle>No agents</EmptyTitle>
-                  <EmptyDescription>Agent records will appear after services are assigned.</EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Agent Scope</CardTitle>
-            <CardDescription>{activeAgentId || "No agent selected"}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <FieldGroup>
-              <Field>
-                <FieldLabel>Known Agent</FieldLabel>
-                <Select value={selectedAgentId || "none"} onValueChange={(value) => setSelectedAgentId(value === "none" ? "" : value)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="none">None</SelectItem>
-                      {agentIds.map((agentId) => (
-                        <SelectItem key={agentId} value={agentId}>
-                          {agentId}
-                        </SelectItem>
                       ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="agent-id">Agent ID</FieldLabel>
-                <Input id="agent-id" value={typedAgentId} onChange={(event) => setTypedAgentId(event.target.value)} placeholder="agent-a" />
-              </Field>
-              <Field>
-                <FieldLabel>Assign Service</FieldLabel>
-                <Select value={assignTarget || "none"} onValueChange={(value) => setAssignTarget(value === "none" ? "" : value)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="none">None</SelectItem>
-                      {props.services.map((service) => (
-                        <SelectItem key={service.name} value={service.name}>
-                          {service.name}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Button disabled={!activeAgentId || !assignTarget || Boolean(props.busy)} onClick={() => props.onAssign(activeAgentId, assignTarget)}>
-                Assign
-              </Button>
-            </FieldGroup>
-          </CardContent>
-        </Card>
-      </section>
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <NoServices />
+              )}
+            </CardContent>
+          </Card>
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Agent Services</CardTitle>
-            <CardDescription>{loadingAgent ? "Loading" : `${agentServices.length} items`}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loadingAgent ? (
-              <ServiceSkeleton />
-            ) : agentServices.length ? (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Service</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {agentServices.map((service) => (
-                      <TableRow key={service.name}>
-                        <TableCell className="font-medium">{service.name}</TableCell>
-                        <TableCell>
-                          <StatusBadge status={service.status} />
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button size="sm" variant="outline" onClick={() => props.onOpenService(service.name)}>
-                              View
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => props.onUnassign(activeAgentId, service.name)} disabled={!activeAgentId || Boolean(props.busy)}>
-                              Unassign
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            ) : (
-              <NoServices />
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Agent Tools</CardTitle>
-            <CardDescription>{loadingAgent ? "Loading" : `${agentTools.length} items`}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loadingAgent ? (
-              <ServiceSkeleton />
-            ) : agentTools.length ? (
-              <div className="flex flex-col gap-3">
-                {agentTools.slice(0, 8).map((tool) => (
-                  <div key={toolKey(tool)} className="flex items-center justify-between gap-3 rounded-md border p-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{tool.name}</p>
-                      <p className="truncate text-sm text-muted-foreground">{tool.description || "No description"}</p>
+          <Card>
+            <CardHeader>
+              <CardTitle>Agent Tools</CardTitle>
+              <CardDescription>{loadingAgent ? "Loading" : `${agentTools.length} items`}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loadingAgent ? (
+                <ServiceSkeleton />
+              ) : agentTools.length ? (
+                <div className="flex flex-col gap-3">
+                  {agentTools.slice(0, 8).map((tool) => (
+                    <div key={toolKey(tool)} className="flex items-center justify-between gap-3 rounded-md border p-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{tool.name}</p>
+                        <p className="truncate text-sm text-muted-foreground">{tool.description || "No description"}</p>
+                      </div>
+                      <Badge variant="outline">tool</Badge>
                     </div>
-                    <Badge variant="outline">tool</Badge>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <Empty>
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <BracesIcon />
-                  </EmptyMedia>
-                  <EmptyTitle>No tools</EmptyTitle>
-                  <EmptyDescription>No tools are available for this agent.</EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            )}
-          </CardContent>
-        </Card>
-      </section>
+                  ))}
+                </div>
+              ) : (
+                <Empty>
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <BracesIcon />
+                    </EmptyMedia>
+                    <EmptyTitle>No tools</EmptyTitle>
+                    <EmptyDescription>No tools are available for this agent.</EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </TwoPanePage>
     </>
   )
 }
