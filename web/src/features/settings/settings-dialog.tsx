@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldTitle } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
@@ -142,121 +143,123 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
             ))}
           </nav>
 
-          <div className="min-h-0 overflow-auto p-4 sm:p-5">
-            {loading ? <SettingsLoading label={t("loadingSettings")} /> : null}
-            {error ? <SettingsError message={error} onRetry={() => void metaQuery.refetch()} /> : null}
+          <ScrollArea className="min-h-0">
+            <div className="p-4 sm:p-5">
+              {loading ? <SettingsLoading label={t("loadingSettings")} /> : null}
+              {error ? <SettingsError message={error} onRetry={() => void metaQuery.refetch()} /> : null}
 
-            {!loading && !error && draft ? (
-              <DialogForm onSubmit={onSubmit}>
-                {section === "general" ? (
-                  <section className="flex flex-col gap-5">
-                    <SectionHead title={t("general")} description={t("generalDescription")} />
-                    <FieldGroup>
-                      <Field orientation="responsive">
-                        <FieldContent>
-                          <FieldTitle>{t("language")}</FieldTitle>
-                          <FieldDescription>{t("chooseLanguage")}</FieldDescription>
-                        </FieldContent>
-                        <Select value={draft.language} onValueChange={(value) => patchDraft({ language: value as UiLanguage })}>
-                          <SelectTrigger className="w-44">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              <SelectItem value="auto">{t("auto")}</SelectItem>
-                              <SelectItem value="zh">中文</SelectItem>
-                              <SelectItem value="en">English</SelectItem>
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                      </Field>
+              {!loading && !error && draft ? (
+                <DialogForm onSubmit={onSubmit}>
+                  {section === "general" ? (
+                    <section className="flex flex-col gap-5">
+                      <SectionHead title={t("general")} description={t("generalDescription")} />
+                      <FieldGroup>
+                        <Field orientation="responsive">
+                          <FieldContent>
+                            <FieldTitle>{t("language")}</FieldTitle>
+                            <FieldDescription>{t("chooseLanguage")}</FieldDescription>
+                          </FieldContent>
+                          <Select value={draft.language} onValueChange={(value) => patchDraft({ language: value as UiLanguage })}>
+                            <SelectTrigger className="w-44">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                <SelectItem value="auto">{t("auto")}</SelectItem>
+                                <SelectItem value="zh">中文</SelectItem>
+                                <SelectItem value="en">English</SelectItem>
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                        </Field>
 
-                      <Field orientation="responsive">
-                        <FieldContent>
-                          <FieldTitle>{t("defaultBackupDir")}</FieldTitle>
-                          <FieldDescription>
-                            <PathText value={settingsPaths?.backup_dir_resolved} fallback={t("backupDirMissing")} wrap="all" />
-                          </FieldDescription>
-                        </FieldContent>
-                        <InputGroup className="max-w-xl">
-                          {settingsPaths?.backup_dir_base ? (
-                            <InputGroupAddon align="inline-start" className="max-w-48 truncate">
-                              <PathText value={settingsPaths.backup_dir_base} wrap="truncate" />
-                            </InputGroupAddon>
-                          ) : null}
-                          <InputGroupInput value={draft.default_backup_dir} onChange={(event) => patchDraft({ default_backup_dir: event.target.value })} placeholder="./backups" />
-                        </InputGroup>
-                      </Field>
+                        <Field orientation="responsive">
+                          <FieldContent>
+                            <FieldTitle>{t("defaultBackupDir")}</FieldTitle>
+                            <FieldDescription>
+                              <PathText value={settingsPaths?.backup_dir_resolved} fallback={t("backupDirMissing")} wrap="all" />
+                            </FieldDescription>
+                          </FieldContent>
+                          <InputGroup className="max-w-xl">
+                            {settingsPaths?.backup_dir_base ? (
+                              <InputGroupAddon align="inline-start" className="max-w-48 truncate">
+                                <PathText value={settingsPaths.backup_dir_base} wrap="truncate" />
+                              </InputGroupAddon>
+                            ) : null}
+                            <InputGroupInput value={draft.default_backup_dir} onChange={(event) => patchDraft({ default_backup_dir: event.target.value })} placeholder="./backups" />
+                          </InputGroup>
+                        </Field>
 
-                      <Field orientation="responsive">
-                        <FieldContent>
-                          <FieldTitle>{t("logMaxSizeMb")}</FieldTitle>
-                          <FieldDescription>
-                            <PathText value={settingsPaths?.log_file_path} fallback={t("logFilePathMissing")} wrap="all" />
-                          </FieldDescription>
-                        </FieldContent>
-                        <Input
-                          className="w-32"
-                          inputMode="decimal"
-                          value={logSizeMb(draft)}
-                          onChange={(event) => patchLogging({ max_size_bytes: Math.max(0, Number(event.target.value || 0) * 1024 * 1024) })}
-                        />
-                      </Field>
+                        <Field orientation="responsive">
+                          <FieldContent>
+                            <FieldTitle>{t("logMaxSizeMb")}</FieldTitle>
+                            <FieldDescription>
+                              <PathText value={settingsPaths?.log_file_path} fallback={t("logFilePathMissing")} wrap="all" />
+                            </FieldDescription>
+                          </FieldContent>
+                          <Input
+                            className="w-32"
+                            inputMode="decimal"
+                            value={logSizeMb(draft)}
+                            onChange={(event) => patchLogging({ max_size_bytes: Math.max(0, Number(event.target.value || 0) * 1024 * 1024) })}
+                          />
+                        </Field>
 
-                      <Field orientation="responsive">
-                        <FieldContent>
-                          <FieldTitle>{t("logRetentionDays")}</FieldTitle>
-                          <FieldDescription>{t("unlimited")}</FieldDescription>
-                        </FieldContent>
-                        <Input
-                          className="w-32"
-                          inputMode="numeric"
-                          placeholder="不限"
-                          value={draft.logging.retention_days ?? ""}
-                          onChange={(event) => patchLogging({ retention_days: event.target.value === "" ? null : Math.max(0, Number(event.target.value)) })}
-                        />
-                      </Field>
-                    </FieldGroup>
-                  </section>
-                ) : null}
+                        <Field orientation="responsive">
+                          <FieldContent>
+                            <FieldTitle>{t("logRetentionDays")}</FieldTitle>
+                            <FieldDescription>{t("unlimited")}</FieldDescription>
+                          </FieldContent>
+                          <Input
+                            className="w-32"
+                            inputMode="numeric"
+                            placeholder="不限"
+                            value={draft.logging.retention_days ?? ""}
+                            onChange={(event) => patchLogging({ retention_days: event.target.value === "" ? null : Math.max(0, Number(event.target.value)) })}
+                          />
+                        </Field>
+                      </FieldGroup>
+                    </section>
+                  ) : null}
 
-                {section === "config" ? (
-                  <section className="flex flex-col gap-4">
-                    <SectionHead title={t("configFile")} description={t("configReadonlyDescription")} />
-                    <WorkspaceIdentity
-                      workspace={configFile?.path}
-                      fallbackTitle={t("configFileMissing")}
-                      label="Config File"
-                      className="rounded-md border p-3"
-                    />
-                    <Textarea className="min-h-80 font-mono text-xs" readOnly value={configContent} />
-                  </section>
-                ) : null}
+                  {section === "config" ? (
+                    <section className="flex flex-col gap-4">
+                      <SectionHead title={t("configFile")} description={t("configReadonlyDescription")} />
+                      <WorkspaceIdentity
+                        workspace={configFile?.path}
+                        fallbackTitle={t("configFileMissing")}
+                        label="Config File"
+                        className="rounded-md border p-3"
+                      />
+                      <Textarea className="min-h-80 font-mono text-xs" readOnly value={configContent} />
+                    </section>
+                  ) : null}
 
-                {section === "about" ? (
-                  <section className="flex flex-col gap-4">
-                    <SectionHead title={t("about")} description={t("settingsDescription")} />
-                    <ReadonlyValue label={t("version")} value={meta?.version ? `v${meta.version}` : "-"} />
-                    <ReadonlyValue label={t("metaApi")} value="/api/v1/meta" />
-                    <ReadonlyValue label={t("settingsApi")} value="PUT /api/v1/settings" />
-                  </section>
-                ) : null}
+                  {section === "about" ? (
+                    <section className="flex flex-col gap-4">
+                      <SectionHead title={t("about")} description={t("settingsDescription")} />
+                      <ReadonlyValue label={t("version")} value={meta?.version ? `v${meta.version}` : "-"} />
+                      <ReadonlyValue label={t("metaApi")} value="/api/v1/meta" />
+                      <ReadonlyValue label={t("settingsApi")} value="PUT /api/v1/settings" />
+                    </section>
+                  ) : null}
 
-                <DialogFormFooter
-                  className="mt-auto border-t pt-4"
-                  onCancel={() => handleOpenChange(false)}
-                  submitDisabled={!draft}
-                  submitLabel={
-                    <>
-                      {!saving ? <SaveIcon data-icon="inline-start" /> : null}
-                      {t("save")}
-                    </>
-                  }
-                  submitting={saving}
-                />
-              </DialogForm>
-            ) : null}
-          </div>
+                  <DialogFormFooter
+                    className="mt-auto border-t pt-4"
+                    onCancel={() => handleOpenChange(false)}
+                    submitDisabled={!draft}
+                    submitLabel={
+                      <>
+                        {!saving ? <SaveIcon data-icon="inline-start" /> : null}
+                        {t("save")}
+                      </>
+                    }
+                    submitting={saving}
+                  />
+                </DialogForm>
+              ) : null}
+            </div>
+          </ScrollArea>
         </div>
       </DialogContent>
     </Dialog>
