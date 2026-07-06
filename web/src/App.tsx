@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { CacheView } from "@/features/cache/cache-view"
 import { SwitchCacheDialog } from "@/features/cache/switch-cache-dialog"
 import { AddServiceView } from "@/features/services/add-service-view"
 import { ServiceTable } from "@/features/services/service-table"
@@ -56,8 +57,6 @@ import { getToolServiceName, toolKey } from "@/lib/tool-info"
 import { useUiStore } from "@/stores/ui-store"
 import {
   assignService,
-  cacheHealth,
-  cacheInspect,
   callAgentTool,
   callStoreTool,
   callTool,
@@ -903,84 +902,6 @@ function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarget | nul
   )
 }
 
-function CacheView(props: { backend?: CacheBackend; revision: number; onRefreshDashboard: () => Promise<void>; onSwitch: () => void }) {
-  const [healthReport, setHealthReport] = useState<unknown>(null)
-  const [inspectReport, setInspectReport] = useState<unknown>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-
-  async function loadCache() {
-    setLoading(true)
-    try {
-      setError(null)
-      const [health, inspect] = await Promise.all([cacheHealth(), cacheInspect()])
-      setHealthReport(health)
-      setInspectReport(inspect)
-      await props.onRefreshDashboard()
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "缓存加载失败"
-      setError(message)
-      toast.error(message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    void loadCache()
-  }, [props.revision])
-
-  return (
-    <>
-      <DetailHeader
-        eyebrow="缓存管理"
-        title="Cache Storage"
-        actions={
-          <>
-            <Button variant="outline" onClick={loadCache} disabled={loading}>
-              <RefreshCwIcon data-icon="inline-start" />
-              刷新
-            </Button>
-            <Button onClick={props.onSwitch}>
-              <DatabaseIcon data-icon="inline-start" />
-              切换
-            </Button>
-          </>
-        }
-      />
-
-      <MetricGrid columns="three">
-        <MetricTile variant="compact" label="Current backend" value={props.backend || "unknown"} />
-        <MetricTile variant="compact" label="Health keys" value={countKeys(healthReport)} />
-        <MetricTile variant="compact" label="Inspect keys" value={countKeys(inspectReport)} />
-      </MetricGrid>
-
-      <section className="grid gap-4 lg:grid-cols-2">
-        <PanelCard>
-          <SectionHeading title="Health" titleAs="h2" description="/cache/health" className="border-b-0 pb-0" />
-          {error ? (
-            <PageError title="Cache health failed to load" message={error} onRefresh={loadCache} />
-          ) : loading && !healthReport ? (
-            <PageSkeleton />
-          ) : (
-            <JsonBlock value={healthReport || {}} />
-          )}
-        </PanelCard>
-        <PanelCard>
-          <SectionHeading title="Inspect" titleAs="h2" description="/cache/inspect" className="border-b-0 pb-0" />
-          {error ? (
-            <PageError title="Cache inspect failed to load" message={error} onRefresh={loadCache} />
-          ) : loading && !inspectReport ? (
-            <PageSkeleton />
-          ) : (
-            <JsonBlock value={inspectReport || {}} />
-          )}
-        </PanelCard>
-      </section>
-    </>
-  )
-}
-
 function ServiceDetailView(props: {
   service: ServiceEntry
   busy: string | null
@@ -1163,8 +1084,4 @@ function getAgentId(agent: AgentItem) {
 
 function getAgentServices(agent: AgentItem) {
   return (agent.services || agent.service_names || []).map(String)
-}
-
-function countKeys(value: unknown) {
-  return value && typeof value === "object" ? Object.keys(value).length : 0
 }
