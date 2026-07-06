@@ -24,16 +24,11 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { AddServiceView } from "@/features/services/add-service-view"
 import { ServiceTable } from "@/features/services/service-table"
 import { SettingsDialog } from "@/features/settings/settings-dialog"
+import { RunToolDialog, ToolDetailDialog, type ToolDetailState, type ToolDialogState } from "@/features/tools/tool-dialogs"
 import { DetailHeader } from "@/components/shared/detail-header"
 import { DialogForm, DialogFormFooter } from "@/components/shared/dialog-form"
 import { EntityRow } from "@/components/shared/entity-row"
@@ -50,7 +45,6 @@ import { ToolCard } from "@/components/shared/tool-card"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { InputGroup, InputGroupTextarea } from "@/components/ui/input-group"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Toaster } from "@/components/ui/sonner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -59,7 +53,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { HomeHero } from "@/components/home-hero"
 import { useDashboard } from "@/hooks/use-dashboard"
 import { formatDateTime } from "@/lib/format"
-import { getToolSchema, getToolServiceName, toolKey } from "@/lib/tool-info"
+import { getToolServiceName, toolKey } from "@/lib/tool-info"
 import { useUiStore } from "@/stores/ui-store"
 import {
   assignService,
@@ -98,18 +92,6 @@ type View =
   | { name: "cache" }
   | { name: "add" }
   | { name: "service"; serviceName: string }
-
-type ToolDialogState = {
-  tool: ToolInfo
-  sourceLabel: string
-  onRun: (args: Record<string, unknown>) => Promise<unknown>
-} | null
-
-type ToolDetailState = {
-  tool: ToolInfo
-  sourceLabel: string
-  onRun?: (args: Record<string, unknown>) => Promise<unknown>
-} | null
 
 type ResetTarget = { scope: "store" } | { scope: "agent"; agentId: string }
 
@@ -1134,97 +1116,6 @@ function ServiceDetailView(props: {
         </PanelCard>
       </section>
     </>
-  )
-}
-
-function RunToolDialog({ state, onOpenChange }: { state: ToolDialogState; onOpenChange: (open: boolean) => void }) {
-  const [args, setArgs] = useState("{}")
-  const [result, setResult] = useState<unknown>(null)
-  const [running, setRunning] = useState(false)
-
-  useEffect(() => {
-    if (state) {
-      setArgs("{}")
-      setResult(null)
-    }
-  }, [state])
-
-  async function onRun(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!state) return
-    setRunning(true)
-    try {
-      const parsed = JSON.parse(args)
-      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error("Args must be a JSON object")
-      setResult(await state.onRun(parsed))
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Tool call failed")
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  return (
-    <Dialog open={Boolean(state)} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Run tool: {state?.tool.name}</DialogTitle>
-          <DialogDescription>{state?.sourceLabel}</DialogDescription>
-        </DialogHeader>
-        <DialogForm onSubmit={onRun}>
-          <Field>
-            <FieldLabel htmlFor="tool-args">Args JSON</FieldLabel>
-            <InputGroup>
-              <InputGroupTextarea id="tool-args" value={args} onChange={(event) => setArgs(event.target.value)} rows={6} />
-            </InputGroup>
-          </Field>
-          {result ? <JsonBlock value={result} /> : null}
-          <DialogFormFooter cancelLabel="Close" onCancel={() => onOpenChange(false)} submitLabel={running ? "Running" : "Run"} submitting={running} />
-        </DialogForm>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function ToolDetailDialog({ state, onOpenChange, onRun }: { state: ToolDetailState; onOpenChange: (open: boolean) => void; onRun: (state: NonNullable<ToolDetailState>) => void }) {
-  const schema = state ? getToolSchema(state.tool) : {}
-
-  function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (state?.onRun) onRun(state)
-  }
-
-  return (
-    <Dialog open={Boolean(state)} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{state?.tool.name}</DialogTitle>
-          <DialogDescription>{state?.sourceLabel}</DialogDescription>
-        </DialogHeader>
-        <DialogForm onSubmit={onSubmit}>
-          {state?.tool.description ? (
-            <Field>
-              <FieldLabel>Description</FieldLabel>
-              <p className="text-sm text-muted-foreground">{state.tool.description}</p>
-            </Field>
-          ) : null}
-          <Field>
-            <FieldLabel>Param Schema</FieldLabel>
-            <JsonBlock value={schema} />
-          </Field>
-          <Field>
-            <FieldLabel>Raw Tool</FieldLabel>
-            <JsonBlock value={state?.tool || {}} />
-          </Field>
-          <DialogFormFooter
-            cancelLabel="Close"
-            onCancel={() => onOpenChange(false)}
-            submitButtonProps={{ className: state?.onRun ? undefined : "hidden" }}
-            submitLabel="Run"
-          />
-        </DialogForm>
-      </DialogContent>
-    </Dialog>
   )
 }
 
