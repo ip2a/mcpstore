@@ -1,14 +1,15 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, path::Path as FsPath, sync::Arc};
 
 use axum::{
     extract::{Path, Query, State},
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use clap::Args;
 use mcpstore::{
-    perspective::GLOBAL_AGENT_STORE, CreateSessionRequest, MCPStore, OpenApiBundleOptions,
-    OpenApiImportOptions, OpenApiRefCachePolicy, SessionScope, ToolTransformPatch,
+    config::ConfigError, perspective::GLOBAL_AGENT_STORE, AppConfig, CreateSessionRequest,
+    MCPStore, OpenApiBundleOptions, OpenApiImportOptions, OpenApiRefCachePolicy, SessionScope,
+    ToolTransformPatch,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -162,6 +163,19 @@ struct OpenApiImportRequest {
     ref_cache: OpenApiRefCachePolicy,
 }
 
+#[derive(Deserialize)]
+struct UpdateSettingsRequest {
+    language: Option<String>,
+    default_backup_dir: Option<String>,
+    logging: Option<UpdateLoggingRequest>,
+}
+
+#[derive(Deserialize)]
+struct UpdateLoggingRequest {
+    max_size_bytes: Option<u64>,
+    retention_days: Option<Option<u64>>,
+}
+
 pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
     let store = build_store(&args.store)?;
     store.load_from_source().await?;
@@ -209,6 +223,8 @@ fn spawn_control_request_worker(store: Arc<MCPStore>) {
 fn router(state: Arc<ApiState>, prefix: &str) -> Router {
     let base = Router::new()
         .route("/health", get(health))
+        .route("/v1/meta", get(app_meta))
+        .route("/v1/settings", put(app_update_settings))
         .route("/agents/list", get(list_agents))
         .route("/events/history", get(event_history))
         .route("/events/capability_report", get(event_capability_report))
@@ -451,6 +467,142 @@ async fn health(State(state): State<Arc<ApiState>>) -> Json<Value> {
         "status": "ok",
         "backend": cache_storage_label(state.store.current_cache_storage().await),
     }))
+}
+
+async fn app_meta(State(state): State<Arc<ApiState>>) -> ApiResult {
+    let payload = app_meta_payload(&state)?;
+    Ok(success("应用元信息获取成功", payload))
+}
+
+async fn app_update_settings(
+    State(state): State<Arc<ApiState>>,
+    Json(payload): Json<UpdateSettingsRequest>,
+) -> ApiResult {
+    let config_manager = state.store.config_manager();
+    let mut config = config_manager
+        .load_app_config_or_default()
+        .map_err(config_api_error)?;
+
+    if let Some(language) = payload.language {
+        config.ui.language = normalize_ui_language(&language)?;
+    }
+
+    if let Some(default_backup_dir) = payload.default_backup_dir {
+        let value = default_backup_dir.trim();
+        if value.is_empty() {
+            return Err(ApiError::invalid_parameter(
+                "默认备份目录不能为空",
+                Some("default_backup_dir"),
+            ));
+        }
+        config.ui.default_backup_dir = value.to_string();
+    }
+
+    if let Some(logging) = payload.logging {
+        if let Some(max_size_bytes) = logging.max_size_bytes {
+            if max_size_bytes == 0 {
+                return Err(ApiError::invalid_parameter(
+                    "日志大小上限必须大于 0",
+                    Some("logging.max_size_bytes"),
+                ));
+            }
+            config.ui.logging.max_size_bytes = max_size_bytes;
+        }
+        if let Some(retention_days) = logging.retention_days {
+            config.ui.logging.retention_days = retention_days;
+        }
+    }
+
+    config_manager
+        .save_app_config(&config)
+        .map_err(config_api_error)?;
+
+    Ok(success("设置保存成功", settings_payload(&config)))
+}
+
+fn app_meta_payload(state: &ApiState) -> Result<Value, ApiError> {
+    let config_manager = state.store.config_manager();
+    let config = config_manager
+        .load_app_config_or_default()
+        .map_err(config_api_error)?;
+    let config_path = config_manager.app_config_path();
+    let config_content = if config_path.exists() {
+        std::fs::read_to_string(config_path).map_err(config_io_api_error)?
+    } else {
+        config_manager
+            .default_app_config_toml()
+            .map_err(config_api_error)?
+    };
+
+    Ok(json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "settings": settings_payload(&config),
+        "settings_paths": settings_paths_payload(config_manager.mcp_path(), &config),
+        "config_file": {
+            "path": config_path.display().to_string(),
+            "format": "toml",
+            "content": config_content,
+        },
+    }))
+}
+
+fn settings_payload(config: &AppConfig) -> Value {
+    json!({
+        "language": api_ui_language(&config.ui.language),
+        "default_backup_dir": config.ui.default_backup_dir,
+        "logging": {
+            "max_size_bytes": config.ui.logging.max_size_bytes,
+            "retention_days": config.ui.logging.retention_days,
+        },
+    })
+}
+
+fn settings_paths_payload(mcp_path: &FsPath, config: &AppConfig) -> Value {
+    let base = mcp_path.parent().unwrap_or_else(|| FsPath::new("."));
+    let backup_dir = FsPath::new(&config.ui.default_backup_dir);
+    let backup_dir_resolved = if backup_dir.is_absolute() {
+        backup_dir.to_path_buf()
+    } else {
+        base.join(backup_dir)
+    };
+    let log_dir = base.join("logs");
+    let log_file_name = "mcpstore.log";
+
+    json!({
+        "backup_dir_base": base.display().to_string(),
+        "backup_dir_input": config.ui.default_backup_dir,
+        "backup_dir_resolved": backup_dir_resolved.display().to_string(),
+        "log_dir": log_dir.display().to_string(),
+        "log_file_name": log_file_name,
+        "log_file_path": log_dir.join(log_file_name).display().to_string(),
+    })
+}
+
+fn normalize_ui_language(language: &str) -> Result<String, ApiError> {
+    match language.trim() {
+        "auto" => Ok("auto".to_string()),
+        "zh" | "zh-cn" => Ok("zh".to_string()),
+        "en" => Ok("en".to_string()),
+        _ => Err(ApiError::invalid_parameter(
+            "语言必须是 auto、zh 或 en",
+            Some("language"),
+        )),
+    }
+}
+
+fn api_ui_language(language: &str) -> &str {
+    match language {
+        "zh-cn" => "zh",
+        value => value,
+    }
+}
+
+fn config_api_error(error: ConfigError) -> ApiError {
+    ApiError::invalid_request(error.to_string())
+}
+
+fn config_io_api_error(error: std::io::Error) -> ApiError {
+    ApiError::invalid_request(error.to_string())
 }
 
 async fn list_agents(State(state): State<Arc<ApiState>>) -> ApiResult {
