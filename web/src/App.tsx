@@ -787,7 +787,7 @@ function ToolsView(props: {
       </PanelCard>
 
       {error ? (
-        <PageError title="Tools failed to load" message={error} />
+        <PageError title="Tools failed to load" message={error} onRefresh={loadTools} />
       ) : loading ? (
         <PageSkeleton />
       ) : visibleTools.length ? (
@@ -879,7 +879,7 @@ function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarget | nul
               </Button>}
             />
             {error ? (
-              <PageError title="Configuration failed to load" message={error} />
+              <PageError title="Configuration failed to load" message={error} onRefresh={loadConfig} />
             ) : loading && !storeConfig ? (
               <PageSkeleton />
             ) : (
@@ -915,7 +915,7 @@ function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarget | nul
               </SelectContent>
             </Select>
             {error ? (
-              <PageError title="Agent config failed to load" message={error} />
+              <PageError title="Agent config failed to load" message={error} onRefresh={loadConfig} />
             ) : loading && !agentConfig ? (
               <PageSkeleton />
             ) : (
@@ -984,7 +984,7 @@ function CacheView(props: { backend?: CacheBackend; revision: number; onRefreshD
         <PanelCard>
           <SectionHeading title="Health" titleAs="h2" description="/cache/health" className="border-b-0 pb-0" />
           {error ? (
-            <PageError title="Cache health failed to load" message={error} />
+            <PageError title="Cache health failed to load" message={error} onRefresh={loadCache} />
           ) : loading && !healthReport ? (
             <PageSkeleton />
           ) : (
@@ -994,7 +994,7 @@ function CacheView(props: { backend?: CacheBackend; revision: number; onRefreshD
         <PanelCard>
           <SectionHeading title="Inspect" titleAs="h2" description="/cache/inspect" className="border-b-0 pb-0" />
           {error ? (
-            <PageError title="Cache inspect failed to load" message={error} />
+            <PageError title="Cache inspect failed to load" message={error} onRefresh={loadCache} />
           ) : loading && !inspectReport ? (
             <PageSkeleton />
           ) : (
@@ -1130,7 +1130,7 @@ function ServiceDetailView(props: {
       <section className="grid gap-4 lg:grid-cols-2">
         <PanelCard>
           <SectionHeading title="Status" titleAs="h2" className="border-b-0 pb-0" />
-          {error ? <PageError title="Service status failed to load" message={error} /> : <JsonBlock value={statusReport || { status: service.status || "Unknown" }} />}
+          {error ? <PageError title="Service status failed to load" message={error} onRefresh={loadDetail} /> : <JsonBlock value={statusReport || { status: service.status || "Unknown" }} />}
         </PanelCard>
         <PanelCard>
           <SectionHeading title="Raw Detail" titleAs="h2" className="border-b-0 pb-0" />
