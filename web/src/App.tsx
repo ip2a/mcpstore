@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { SettingsDialog } from "@/features/settings/settings-dialog"
+import { MetaLine } from "@/components/shared/meta-line"
 import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { TwoPanePage } from "@/components/shared/two-pane-page"
@@ -1077,11 +1078,11 @@ function ServiceDetailView(props: {
             <StatusBadge status={service.status} />
           </CardAction>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
-          <InfoItem label="Transport" value={String(service.transport || "unknown")} />
-          <InfoItem label="Original" value={String(service.original_name || service.name)} />
-          <InfoItem label="Command" value={String(service.command || "-")} />
-          <InfoItem label="URL" value={String(service.url || "-")} />
+        <CardContent className="grid gap-4 text-sm md:grid-cols-2">
+          <MetaLine label="Transport" value={String(service.transport || "unknown")} valueClassName="font-mono" />
+          <MetaLine label="Original" value={String(service.original_name || service.name)} valueClassName="font-mono" />
+          <MetaLine label="Command" value={String(service.command || "-")} valueClassName="font-mono" />
+          <MetaLine label="URL" value={String(service.url || "-")} valueClassName="font-mono" />
         </CardContent>
       </Card>
 
@@ -1622,15 +1623,6 @@ function SearchBox({ placeholder, value, onChange }: { placeholder: string; valu
 function StatusBadge({ status }: { status?: string }) {
   const label = status || "Unknown"
   return <Badge variant={label === "Connected" ? "default" : label === "Error" ? "destructive" : "secondary"}>{label}</Badge>
-}
-
-function InfoItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <code className="truncate rounded-md bg-muted px-2 py-1 text-sm">{value}</code>
-    </div>
-  )
 }
 
 function JsonBlock({ value }: { value: unknown }) {
