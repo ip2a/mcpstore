@@ -48,6 +48,7 @@ import { SettingsDialog } from "@/features/settings/settings-dialog"
 import { DetailHeader } from "@/components/shared/detail-header"
 import { DialogForm, DialogFormFooter } from "@/components/shared/dialog-form"
 import { EntityRow } from "@/components/shared/entity-row"
+import { JsonBlock } from "@/components/shared/json-block"
 import { MetaLine } from "@/components/shared/meta-line"
 import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
@@ -59,7 +60,6 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupTextarea } from "@/components/ui/input-group"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Toaster } from "@/components/ui/sonner"
 import { Spinner } from "@/components/ui/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -1640,14 +1640,6 @@ function SearchBox({ placeholder, value, onChange }: { placeholder: string; valu
 function StatusBadge({ status }: { status?: string }) {
   const label = status || "Unknown"
   return <Badge variant={label === "Connected" ? "default" : label === "Error" ? "destructive" : "secondary"}>{label}</Badge>
-}
-
-function JsonBlock({ value }: { value: unknown }) {
-  return (
-    <ScrollArea className="max-h-96 rounded-md bg-muted">
-      <pre className="p-4 text-sm">{JSON.stringify(value, null, 2)}</pre>
-    </ScrollArea>
-  )
 }
 
 function getAgentId(agent: AgentItem) {
