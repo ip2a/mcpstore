@@ -4,6 +4,7 @@ import { toast } from "sonner"
 
 import { DialogForm, DialogFormFooter } from "@/components/shared/dialog-form"
 import { PathText } from "@/components/shared/path-text"
+import { WorkspaceIdentity } from "@/components/shared/workspace-identity"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldTitle } from "@/components/ui/field"
@@ -229,7 +230,12 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 {section === "config" ? (
                   <section className="flex flex-col gap-4">
                     <SectionHead title="配置文件" description="只读展示后端 meta 接口返回的配置文件内容。" />
-                    <ReadonlyValue label="路径" value={configFile?.path || "-"} path />
+                    <WorkspaceIdentity
+                      workspace={configFile?.path}
+                      fallbackTitle="未返回配置文件"
+                      label="Config File"
+                      className="rounded-md border p-3"
+                    />
                     <Textarea className="min-h-80 font-mono text-xs" readOnly value={configContent} />
                   </section>
                 ) : null}
