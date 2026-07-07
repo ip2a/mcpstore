@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
 import { RefreshCwIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -11,8 +10,8 @@ import { SectionHeading } from "@/components/shared/section-heading"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { showAgentConfig, showConfig, type AgentItem } from "@/lib/api"
-import { queryKeys } from "@/lib/query-keys"
+import { type AgentItem } from "@/lib/api"
+import { useAgentConfigQuery, useStoreConfigQuery } from "@/features/config/queries"
 
 export type ResetTarget = { scope: "store" } | { scope: "agent"; agentId: string }
 
@@ -20,8 +19,8 @@ export function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarge
   const agentIds = props.agents.map(getAgentId).filter(Boolean)
   const [activeTab, setActiveTab] = useState("store")
   const [agentId, setAgentId] = useState(agentIds[0] || "")
-  const storeConfigQuery = useQuery({ enabled: false, queryKey: queryKeys.config, queryFn: showConfig })
-  const agentConfigQuery = useQuery({ enabled: false, queryKey: queryKeys.agentConfig(agentId), queryFn: () => showAgentConfig(agentId) })
+  const storeConfigQuery = useStoreConfigQuery()
+  const agentConfigQuery = useAgentConfigQuery(agentId)
   const storeConfig = storeConfigQuery.data
   const agentConfig = agentId ? agentConfigQuery.data : null
   const error = storeConfigQuery.error || agentConfigQuery.error
