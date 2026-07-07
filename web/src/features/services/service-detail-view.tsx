@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { ArrowLeftIcon, LinkIcon, RefreshCwIcon, Trash2Icon, UnlinkIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -13,6 +14,7 @@ import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
 import { ToolCard } from "@/components/shared/tool-card"
 import { Button } from "@/components/ui/button"
 import { formatDateTime } from "@/lib/format"
+import { queryKeys } from "@/lib/query-keys"
 import { toolKey } from "@/lib/tool-info"
 import { serviceInfo, serviceStatus, type ServiceEntry, type ToolInfo } from "@/lib/api"
 
@@ -27,27 +29,31 @@ export function ServiceDetailView(props: {
   onRestart: () => void
   onDelete: () => void
 }) {
-  const [detail, setDetail] = useState<ServiceEntry | null>(null)
-  const [statusReport, setStatusReport] = useState<unknown>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [detailError, setDetailError] = useState<string | null>(null)
+  const detailQuery = useQuery({ enabled: false, queryKey: queryKeys.service(props.service.name), queryFn: () => serviceInfo(props.service.name) })
+  const statusQuery = useQuery({
+    enabled: false,
+    queryKey: queryKeys.serviceStatus(props.service.name),
+    queryFn: () => serviceStatus(props.service.name).catch(() => null),
+  })
+  const detail = detailQuery.data
+  const statusReport = statusQuery.data
+  const error = detailQuery.error || detailError
+  const errorMessage = error instanceof Error ? error.message : error ? String(error) : "服务详情加载失败"
+  const loading = detailQuery.isFetching || statusQuery.isFetching
   const service = detail || props.service
   const endpoint = service.url || service.command || "-"
   const tools = service.tools || []
 
   async function loadDetail() {
-    setLoading(true)
     try {
-      setError(null)
-      const [nextDetail, nextStatus] = await Promise.all([serviceInfo(props.service.name), serviceStatus(props.service.name).catch(() => null)])
-      setDetail(nextDetail)
-      setStatusReport(nextStatus)
+      setDetailError(null)
+      const [nextDetail] = await Promise.all([detailQuery.refetch(), statusQuery.refetch()])
+      if (nextDetail.error) throw nextDetail.error
     } catch (err) {
       const message = err instanceof Error ? err.message : "服务详情加载失败"
-      setError(message)
+      if (!detailQuery.error) setDetailError(message)
       toast.error(message)
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -140,7 +146,7 @@ export function ServiceDetailView(props: {
       <section className="grid gap-4 lg:grid-cols-2">
         <PanelCard>
           <SectionHeading title="Status" titleAs="h2" className="border-b-0 pb-0" />
-          {error ? <PageError title="Service status failed to load" message={error} onRefresh={loadDetail} /> : <JsonBlock value={statusReport || { status: service.status || "Unknown" }} />}
+          {error ? <PageError title="Service status failed to load" message={errorMessage} onRefresh={loadDetail} /> : <JsonBlock value={statusReport || { status: service.status || "Unknown" }} />}
         </PanelCard>
         <PanelCard>
           <SectionHeading title="Raw Detail" titleAs="h2" className="border-b-0 pb-0" />
