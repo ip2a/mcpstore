@@ -1,28 +1,6 @@
 import { ArrowLeftIcon, PlusIcon, SettingsIcon } from "lucide-react"
+import { navItems, type AppView } from "@/app/app-view"
 import { Button } from "@/components/ui/button"
-
-export type AppView =
-  | { name: "services" }
-  | { name: "agents" }
-  | { name: "tools" }
-  | { name: "config" }
-  | { name: "cache" }
-  | { name: "add" }
-  | { name: "service"; serviceName: string }
-
-const navItems: Array<{ view: AppView; label: string }> = [
-  { view: { name: "services" }, label: "服务" },
-  { view: { name: "agents" }, label: "Agent" },
-  { view: { name: "tools" }, label: "工具" },
-  { view: { name: "config" }, label: "配置" },
-  { view: { name: "cache" }, label: "缓存" },
-]
-
-export function viewTitle(view: AppView): string {
-  if (view.name === "service") return view.serviceName
-  if (view.name === "add") return "添加服务"
-  return navItems.find((item) => item.view.name === view.name)?.label || "服务"
-}
 
 export function AppHeader({ onOpenSettings, onViewChange, pageTitle, view }: { onOpenSettings: () => void; onViewChange: (view: AppView) => void; pageTitle: string; view: AppView }) {
   const isHome = view.name === "services"
