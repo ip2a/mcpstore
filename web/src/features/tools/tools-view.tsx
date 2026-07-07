@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
 import { RefreshCwIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -11,9 +10,9 @@ import { SectionHeading } from "@/components/shared/section-heading"
 import { ToolCard } from "@/components/shared/tool-card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { callAgentTool, callStoreTool, listAgentTools, listTools, type AgentItem, type ServiceEntry, type ToolInfo } from "@/lib/api"
-import { queryKeys } from "@/lib/query-keys"
+import { callAgentTool, callStoreTool, type AgentItem, type ServiceEntry, type ToolInfo } from "@/lib/api"
 import { getToolServiceName, toolKey } from "@/lib/tool-info"
+import { useToolsQuery } from "@/features/tools/queries"
 import type { ToolDetailState, ToolDialogState } from "@/features/tools/tool-dialogs"
 
 export function ToolsView(props: {
@@ -28,11 +27,7 @@ export function ToolsView(props: {
   const [serviceName, setServiceName] = useState("all")
   const [query, setQuery] = useState("")
   const serviceFilter = serviceName === "all" ? undefined : serviceName
-  const toolsQuery = useQuery({
-    enabled: false,
-    queryKey: scope === "agent" && agentId ? queryKeys.agentTools(agentId, serviceFilter) : queryKeys.tools(serviceFilter),
-    queryFn: () => (scope === "agent" && agentId ? listAgentTools(agentId, serviceFilter) : listTools(serviceFilter)),
-  })
+  const toolsQuery = useToolsQuery({ agentId, scope, serviceName: serviceFilter })
   const tools = toolsQuery.data || []
   const error = toolsQuery.error
   const errorMessage = error instanceof Error ? error.message : error ? String(error) : "工具加载失败"
