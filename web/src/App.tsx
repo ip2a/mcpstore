@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   ArrowLeftIcon,
   PlusIcon,
@@ -21,6 +22,7 @@ import { ToolsView } from "@/features/tools/tools-view"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useDashboard } from "@/hooks/use-dashboard"
+import { queryKeys } from "@/lib/query-keys"
 import { useUiStore } from "@/stores/ui-store"
 import {
   assignService,
@@ -62,6 +64,7 @@ function viewTitle(view: View): string {
 
 export function App() {
   const { services, agents, agentMap, backend, loading, error: dashboardError, refresh } = useDashboard()
+  const queryClient = useQueryClient()
   const [view, setView] = useState<View>({ name: "services" })
   const [toolDialog, setToolDialog] = useState<ToolDialogState>(null)
   const [toolDetail, setToolDetail] = useState<ToolDetailState>(null)
@@ -71,23 +74,46 @@ export function App() {
   const [deleteTarget, setDeleteTarget] = useState<ServiceEntry | null>(null)
   const [resetTarget, setResetTarget] = useState<ResetTarget | null>(null)
   const [cacheRevision, setCacheRevision] = useState(0)
+  const [serviceDetailRevision, setServiceDetailRevision] = useState(0)
   const [busy, setBusy] = useState<string | null>(null)
 
   const selectedService = view.name === "service" ? services.find((service) => service.name === view.serviceName) : undefined
   const isHome = view.name === "services"
   const pageTitle = viewTitle(view)
 
-  async function runAction(label: string, action: () => Promise<unknown>) {
+  async function runAction(label: string, action: () => Promise<unknown>, onSuccess?: () => Promise<void> | void) {
     setBusy(label)
     try {
       await action()
       toast.success("操作已完成")
       await refresh()
+      await onSuccess?.()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "操作失败")
     } finally {
       setBusy(null)
     }
+  }
+
+  async function refreshServiceQueries(serviceName: string, agentId?: string) {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.services }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.service(serviceName) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.serviceStatus(serviceName) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.toolsRoot }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.agents }),
+      agentId ? queryClient.invalidateQueries({ queryKey: queryKeys.agent(agentId) }) : Promise.resolve(),
+    ])
+    setServiceDetailRevision((value) => value + 1)
+  }
+
+  async function refreshAgentQueries(agentId: string) {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.agents }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.agent(agentId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.toolsRoot }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.agentToolsRoot(agentId) }),
+    ])
   }
 
   async function confirmReset(target: ResetTarget) {
@@ -159,12 +185,13 @@ export function App() {
             <ServiceDetailView
               service={selectedService}
               busy={busy}
+              refreshToken={serviceDetailRevision}
               onBack={() => setView({ name: "services" })}
               onRunTool={(tool) => openServiceToolRunner(selectedService, tool)}
               onToolDetail={(tool) => openServiceToolDetail(selectedService, tool)}
-              onConnect={() => runAction(`connect:${selectedService.name}`, () => connectService(selectedService.name))}
-              onDisconnect={() => runAction(`disconnect:${selectedService.name}`, () => disconnectService(selectedService.name))}
-              onRestart={() => runAction(`restart:${selectedService.name}`, () => restartService(selectedService.name))}
+              onConnect={() => runAction(`connect:${selectedService.name}`, () => connectService(selectedService.name), () => refreshServiceQueries(selectedService.name, selectedService.agent_id))}
+              onDisconnect={() => runAction(`disconnect:${selectedService.name}`, () => disconnectService(selectedService.name), () => refreshServiceQueries(selectedService.name, selectedService.agent_id))}
+              onRestart={() => runAction(`restart:${selectedService.name}`, () => restartService(selectedService.name), () => refreshServiceQueries(selectedService.name, selectedService.agent_id))}
               onDelete={() => setDeleteTarget(selectedService)}
             />
           ) : view.name === "agents" ? (
@@ -174,9 +201,13 @@ export function App() {
               loading={loading}
               busy={busy}
               onRefresh={refresh}
-              onAssign={(agentId, serviceName) => runAction(`assign:${agentId}:${serviceName}`, () => assignService(agentId, serviceName))}
+              onAssign={(agentId, serviceName) => runAction(`assign:${agentId}:${serviceName}`, () => assignService(agentId, serviceName), async () => {
+                await Promise.all([refreshAgentQueries(agentId), refreshServiceQueries(serviceName, agentId)])
+              })}
               onOpenService={(serviceName) => setView({ name: "service", serviceName })}
-              onUnassign={(agentId, serviceName) => runAction(`unassign:${agentId}:${serviceName}`, () => unassignService(agentId, serviceName))}
+              onUnassign={(agentId, serviceName) => runAction(`unassign:${agentId}:${serviceName}`, () => unassignService(agentId, serviceName), async () => {
+                await Promise.all([refreshAgentQueries(agentId), refreshServiceQueries(serviceName, agentId)])
+              })}
             />
           ) : view.name === "tools" ? (
             <ToolsView
@@ -200,12 +231,12 @@ export function App() {
               loading={loading}
               onCache={() => setView({ name: "cache" })}
               onCheck={() => runAction("check:services", checkServices)}
-              onConnect={(service) => runAction(`connect:${service.name}`, () => connectService(service.name))}
+              onConnect={(service) => runAction(`connect:${service.name}`, () => connectService(service.name), () => refreshServiceQueries(service.name, service.agent_id))}
               onDelete={setDeleteTarget}
-              onDisconnect={(service) => runAction(`disconnect:${service.name}`, () => disconnectService(service.name))}
+              onDisconnect={(service) => runAction(`disconnect:${service.name}`, () => disconnectService(service.name), () => refreshServiceQueries(service.name, service.agent_id))}
               onOpen={(service) => setView({ name: "service", serviceName: service.name })}
               onRefresh={refresh}
-              onRestart={(service) => runAction(`restart:${service.name}`, () => restartService(service.name))}
+              onRestart={(service) => runAction(`restart:${service.name}`, () => restartService(service.name), () => refreshServiceQueries(service.name, service.agent_id))}
             />
           )}
           </main>
@@ -234,7 +265,7 @@ export function App() {
       <DeleteServiceDialog
         service={deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        onConfirm={(service) => runAction(`delete:${service.name}`, () => removeService(service.name)).then(() => setView({ name: "services" }))}
+        onConfirm={(service) => runAction(`delete:${service.name}`, () => removeService(service.name), () => refreshServiceQueries(service.name, service.agent_id)).then(() => setView({ name: "services" }))}
       />
       <ResetConfigDialog
         target={resetTarget}
