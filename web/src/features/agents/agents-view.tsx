@@ -1,6 +1,4 @@
-import { useEffect, useState } from "react"
 import { RefreshCwIcon } from "lucide-react"
-import { toast } from "sonner"
 
 import { DetailHeader } from "@/components/shared/detail-header"
 import { EntityRow } from "@/components/shared/entity-row"
@@ -18,9 +16,8 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { type AgentItem, type ServiceEntry } from "@/lib/api"
 import { getAgentId, getAgentServices } from "@/features/agents/model"
-import { useAgentServicesQuery, useAgentToolsQuery } from "@/features/agents/queries"
+import { useAgentScope } from "@/features/agents/use-agent-scope"
 import { toolKey } from "@/lib/tool-info"
-import { useUiStore } from "@/stores/ui-store"
 
 export function AgentsView(props: {
   agents: AgentItem[]
@@ -32,41 +29,25 @@ export function AgentsView(props: {
   onRefresh: () => void
   onUnassign: (agentId: string, serviceName: string) => void
 }) {
-  const agentIds = props.agents.map(getAgentId).filter(Boolean)
-  const selectedAgentId = useUiStore((state) => state.selectedAgentId)
-  const setSelectedAgentId = useUiStore((state) => state.setSelectedAgentId)
-  const [typedAgentId, setTypedAgentId] = useState("")
-  const [assignTarget, setAssignTarget] = useState(props.services[0]?.name || "")
-  const activeAgentId = (typedAgentId.trim() || selectedAgentId || "").trim()
-  const agentServicesQuery = useAgentServicesQuery(activeAgentId)
-  const agentToolsQuery = useAgentToolsQuery(activeAgentId)
-  const agentServices = activeAgentId ? agentServicesQuery.data || [] : []
-  const agentTools = activeAgentId ? agentToolsQuery.data || [] : []
-  const agentServicesError = activeAgentId ? agentServicesQuery.error : null
-  const agentToolsError = activeAgentId ? agentToolsQuery.error : null
-  const agentServicesErrorMessage = agentServicesError instanceof Error ? agentServicesError.message : agentServicesError ? String(agentServicesError) : "Agent services 加载失败"
-  const agentToolsErrorMessage = agentToolsError instanceof Error ? agentToolsError.message : agentToolsError ? String(agentToolsError) : "Agent tools 加载失败"
-  const loadingAgentServices = agentServicesQuery.isFetching
-  const loadingAgentTools = agentToolsQuery.isFetching
-
-  useEffect(() => {
-    if (!selectedAgentId && agentIds[0]) setSelectedAgentId(agentIds[0])
-  }, [agentIds, selectedAgentId])
-
-  useEffect(() => {
-    if (!assignTarget && props.services[0]?.name) setAssignTarget(props.services[0].name)
-  }, [assignTarget, props.services])
-
-  async function loadAgentScope() {
-    if (!activeAgentId) return
-    const [servicesResult, toolsResult] = await Promise.all([agentServicesQuery.refetch(), agentToolsQuery.refetch()])
-    if (servicesResult.error) toast.error(servicesResult.error instanceof Error ? servicesResult.error.message : "Agent services 加载失败")
-    if (toolsResult.error) toast.error(toolsResult.error instanceof Error ? toolsResult.error.message : "Agent tools 加载失败")
-  }
-
-  useEffect(() => {
-    void loadAgentScope()
-  }, [activeAgentId, props.busy])
+  const {
+    activeAgentId,
+    agentIds,
+    agentServices,
+    agentServicesError,
+    agentServicesErrorMessage,
+    agentTools,
+    agentToolsError,
+    agentToolsErrorMessage,
+    assignTarget,
+    loadAgentScope,
+    loadingAgentServices,
+    loadingAgentTools,
+    selectedAgentId,
+    setAssignTarget,
+    setSelectedAgentId,
+    setTypedAgentId,
+    typedAgentId,
+  } = useAgentScope({ agents: props.agents, busy: props.busy, services: props.services })
 
   return (
     <>
