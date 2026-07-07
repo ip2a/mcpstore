@@ -1,35 +1,30 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useMemo } from "react"
+import { useQuery } from "@tanstack/react-query"
+
 import { health, listAgents, listServices, type AgentItem, type CacheBackend, type ServiceEntry } from "@/lib/api"
+import { queryKeys } from "@/lib/query-keys"
 
 export function useDashboard() {
-  const [services, setServices] = useState<ServiceEntry[]>([])
-  const [agents, setAgents] = useState<AgentItem[]>([])
-  const [backend, setBackend] = useState<CacheBackend | undefined>()
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const healthQuery = useQuery({ queryKey: queryKeys.health, queryFn: health })
+  const servicesQuery = useQuery({
+    queryKey: queryKeys.services,
+    queryFn: async () => (await listServices()).sort((a, b) => a.name.localeCompare(b.name)),
+  })
+  const agentsQuery = useQuery({ queryKey: queryKeys.agents, queryFn: () => listAgents().catch(() => []) })
+
+  const services = servicesQuery.data || []
+  const agents = agentsQuery.data || []
+  const backend = healthQuery.data?.backend as CacheBackend | undefined
+  const loading = healthQuery.isFetching || servicesQuery.isFetching || agentsQuery.isFetching
+  const errorSource = healthQuery.error || servicesQuery.error
+  const error = errorSource instanceof Error ? errorSource.message : errorSource ? String(errorSource) : null
+  const refetchHealth = healthQuery.refetch
+  const refetchServices = servicesQuery.refetch
+  const refetchAgents = agentsQuery.refetch
 
   const refresh = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const [nextHealth, nextServices, nextAgents] = await Promise.all([
-        health(),
-        listServices(),
-        listAgents().catch(() => []),
-      ])
-      setBackend(nextHealth.backend)
-      setServices(nextServices.sort((a, b) => a.name.localeCompare(b.name)))
-      setAgents(nextAgents)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load mcpstore")
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    void refresh()
-  }, [refresh])
+    await Promise.all([refetchHealth(), refetchServices(), refetchAgents()])
+  }, [refetchAgents, refetchHealth, refetchServices])
 
   const agentMap = useMemo(() => {
     const map = new Map<string, string>()
