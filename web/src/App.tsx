@@ -4,6 +4,7 @@ import { useAppView } from "@/app/use-app-view"
 import { AppDialogs } from "@/components/layout/app-dialogs"
 import { AppHeader } from "@/components/layout/app-header"
 import { AgentsView } from "@/features/agents/agents-view"
+import { useAgentActions } from "@/features/agents/use-agent-actions"
 import { CacheView } from "@/features/cache/cache-view"
 import { ConfigView } from "@/features/config/config-view"
 import { AddServiceView } from "@/features/services/add-service-view"
@@ -17,10 +18,6 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAppQueryRefreshers } from "@/hooks/use-app-query-refreshers"
 import { useDashboard } from "@/hooks/use-dashboard"
 import { useUiStore } from "@/stores/ui-store"
-import {
-  assignService,
-  unassignService,
-} from "@/lib/api"
 
 export function App() {
   const { services, agents, agentMap, backend, loading, error: dashboardError, refresh } = useDashboard()
@@ -51,6 +48,7 @@ export function App() {
     removeServiceEntry,
     restartServiceEntry,
   } = useServiceActions({ refreshServiceQueries, runAction })
+  const { assignServiceToAgent, unassignServiceFromAgent } = useAgentActions({ refreshAgentQueries, refreshServiceQueries, runAction })
   const cacheDialogOpen = useUiStore((state) => state.cacheDialogOpen)
   const setCacheDialogOpen = useUiStore((state) => state.setCacheDialogOpen)
   const settingsDialogOpen = useUiStore((state) => state.settingsDialogOpen)
@@ -89,13 +87,9 @@ export function App() {
               loading={loading}
               busy={busy}
               onRefresh={refresh}
-              onAssign={(agentId, serviceName) => runAction(`assign:${agentId}:${serviceName}`, () => assignService(agentId, serviceName), async () => {
-                await Promise.all([refreshAgentQueries(agentId), refreshServiceQueries(serviceName, agentId)])
-              })}
+              onAssign={assignServiceToAgent}
               onOpenService={(serviceName) => setView({ name: "service", serviceName })}
-              onUnassign={(agentId, serviceName) => runAction(`unassign:${agentId}:${serviceName}`, () => unassignService(agentId, serviceName), async () => {
-                await Promise.all([refreshAgentQueries(agentId), refreshServiceQueries(serviceName, agentId)])
-              })}
+              onUnassign={unassignServiceFromAgent}
             />
           ) : view.name === "tools" ? (
             <ToolsView
