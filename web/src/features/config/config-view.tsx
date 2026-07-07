@@ -10,6 +10,7 @@ import { SectionHeading } from "@/components/shared/section-heading"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { getAgentId } from "@/features/agents/model"
 import { type AgentItem } from "@/lib/api"
 import { useAgentConfigQuery, useStoreConfigQuery } from "@/features/config/queries"
 
@@ -125,8 +126,4 @@ export function ConfigView(props: { agents: AgentItem[]; resetTarget: ResetTarge
       </Tabs>
     </>
   )
-}
-
-function getAgentId(agent: AgentItem) {
-  return String(agent.agent_id || agent.id || "")
 }
