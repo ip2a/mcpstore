@@ -8,6 +8,7 @@ import { SearchBox } from "@/components/shared/search-box"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { getAgentId } from "@/features/agents/model"
 import { ServiceTable } from "@/features/services/service-table"
 import type { AgentItem, CacheBackend, ServiceEntry } from "@/lib/api"
 
@@ -119,8 +120,4 @@ export function ServicesView(props: {
       </PanelCard>
     </>
   )
-}
-
-function getAgentId(agent: AgentItem) {
-  return String(agent.agent_id || agent.id || "")
 }
