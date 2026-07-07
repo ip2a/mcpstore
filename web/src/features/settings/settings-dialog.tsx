@@ -13,55 +13,11 @@ import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupTextarea } from
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
+import { logSizeMb, payloadFromDraft, sections, settingsDraft, type SectionId, type SettingsDraft } from "@/features/settings/model"
 import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
-import { type SettingsPayload, type UiLanguage, type UpdateSettingsPayload } from "@/lib/api"
+import { type UiLanguage } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
-import type { I18nKey } from "@/lib/i18n-core"
 import { queryKeys } from "@/lib/query-keys"
-
-type SectionId = "general" | "config" | "about"
-
-type SettingsDraft = {
-  language: UiLanguage
-  default_backup_dir: string
-  logging: {
-    max_size_bytes: number | null
-    retention_days: number | null
-  }
-}
-
-const sections: Array<{ id: SectionId; labelKey: I18nKey }> = [
-  { id: "general", labelKey: "general" },
-  { id: "config", labelKey: "configFile" },
-  { id: "about", labelKey: "about" },
-]
-
-function settingsDraft(settings?: SettingsPayload): SettingsDraft {
-  return {
-    language: settings?.language || "auto",
-    default_backup_dir: typeof settings?.default_backup_dir === "string" ? settings.default_backup_dir : "./backups",
-    logging: {
-      max_size_bytes: typeof settings?.logging?.max_size_bytes === "number" ? settings.logging.max_size_bytes : 5 * 1024 * 1024,
-      retention_days: typeof settings?.logging?.retention_days === "number" ? settings.logging.retention_days : null,
-    },
-  }
-}
-
-function logSizeMb(draft: SettingsDraft) {
-  const bytes = Number(draft.logging.max_size_bytes || 0)
-  return String((bytes > 0 ? bytes : 5 * 1024 * 1024) / 1024 / 1024).replace(/\.0$/, "")
-}
-
-function payloadFromDraft(draft: SettingsDraft): UpdateSettingsPayload {
-  return {
-    language: draft.language,
-    default_backup_dir: draft.default_backup_dir || "./backups",
-    logging: {
-      max_size_bytes: draft.logging.max_size_bytes,
-      retention_days: draft.logging.retention_days,
-    },
-  }
-}
 
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { setLanguageOverride, t } = useI18n()
