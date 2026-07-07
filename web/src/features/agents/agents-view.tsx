@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { type AgentItem, type ServiceEntry } from "@/lib/api"
+import { getAgentId, getAgentServices } from "@/features/agents/model"
 import { useAgentServicesQuery, useAgentToolsQuery } from "@/features/agents/queries"
 import { toolKey } from "@/lib/tool-info"
 import { useUiStore } from "@/stores/ui-store"
@@ -234,12 +235,4 @@ export function AgentsView(props: {
       </TwoPanePage>
     </>
   )
-}
-
-function getAgentId(agent: AgentItem) {
-  return String(agent.agent_id || agent.id || "")
-}
-
-function getAgentServices(agent: AgentItem) {
-  return (agent.services || agent.service_names || []).map(String)
 }

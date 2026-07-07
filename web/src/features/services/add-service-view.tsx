@@ -11,6 +11,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupTextarea } from
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { getAgentId } from "@/features/agents/model"
 import { addService, parseKvLines, type AgentItem } from "@/lib/api"
 
 export function AddServiceView({ agents, onBack, onAdded }: { agents: AgentItem[]; onBack: () => void; onAdded: () => Promise<void> }) {
@@ -167,8 +168,4 @@ export function AddServiceView({ agents, onBack, onAdded }: { agents: AgentItem[
       </PanelCard>
     </>
   )
-}
-
-function getAgentId(agent: AgentItem) {
-  return String(agent.agent_id || agent.id || "")
 }

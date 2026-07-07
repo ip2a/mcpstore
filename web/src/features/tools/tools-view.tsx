@@ -10,6 +10,7 @@ import { SectionHeading } from "@/components/shared/section-heading"
 import { ToolCard } from "@/components/shared/tool-card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { getAgentId } from "@/features/agents/model"
 import { callAgentTool, callStoreTool, type AgentItem, type ServiceEntry, type ToolInfo } from "@/lib/api"
 import { getToolServiceName, toolKey } from "@/lib/tool-info"
 import { useToolsQuery } from "@/features/tools/queries"
@@ -150,8 +151,4 @@ export function ToolsView(props: {
       )}
     </>
   )
-}
-
-function getAgentId(agent: AgentItem) {
-  return String(agent.agent_id || agent.id || "")
 }
