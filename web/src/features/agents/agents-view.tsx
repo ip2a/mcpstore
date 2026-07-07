@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { RefreshCwIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -17,6 +18,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { listAgentServices, listAgentTools, type AgentItem, type ServiceEntry, type ToolInfo } from "@/lib/api"
+import { queryKeys } from "@/lib/query-keys"
 import { toolKey } from "@/lib/tool-info"
 import { useUiStore } from "@/stores/ui-store"
 
@@ -35,12 +37,25 @@ export function AgentsView(props: {
   const setSelectedAgentId = useUiStore((state) => state.setSelectedAgentId)
   const [typedAgentId, setTypedAgentId] = useState("")
   const [assignTarget, setAssignTarget] = useState(props.services[0]?.name || "")
-  const [agentServices, setAgentServices] = useState<ServiceEntry[]>([])
-  const [agentTools, setAgentTools] = useState<ToolInfo[]>([])
-  const [agentServicesError, setAgentServicesError] = useState<string | null>(null)
-  const [agentToolsError, setAgentToolsError] = useState<string | null>(null)
-  const [loadingAgent, setLoadingAgent] = useState(false)
   const activeAgentId = (typedAgentId.trim() || selectedAgentId || "").trim()
+  const agentServicesQuery = useQuery({
+    enabled: false,
+    queryKey: queryKeys.agentServices(activeAgentId),
+    queryFn: () => listAgentServices(activeAgentId),
+  })
+  const agentToolsQuery = useQuery({
+    enabled: false,
+    queryKey: queryKeys.agentTools(activeAgentId),
+    queryFn: () => listAgentTools(activeAgentId),
+  })
+  const agentServices = activeAgentId ? agentServicesQuery.data || [] : []
+  const agentTools = activeAgentId ? agentToolsQuery.data || [] : []
+  const agentServicesError = activeAgentId ? agentServicesQuery.error : null
+  const agentToolsError = activeAgentId ? agentToolsQuery.error : null
+  const agentServicesErrorMessage = agentServicesError instanceof Error ? agentServicesError.message : agentServicesError ? String(agentServicesError) : "Agent services 加载失败"
+  const agentToolsErrorMessage = agentToolsError instanceof Error ? agentToolsError.message : agentToolsError ? String(agentToolsError) : "Agent tools 加载失败"
+  const loadingAgentServices = agentServicesQuery.isFetching
+  const loadingAgentTools = agentToolsQuery.isFetching
 
   useEffect(() => {
     if (!selectedAgentId && agentIds[0]) setSelectedAgentId(agentIds[0])
@@ -50,51 +65,16 @@ export function AgentsView(props: {
     if (!assignTarget && props.services[0]?.name) setAssignTarget(props.services[0].name)
   }, [assignTarget, props.services])
 
-  const loadAgentScope = useCallback(
-    async (agentId: string, options: { cancelled?: () => boolean } = {}) => {
-      if (!agentId) {
-        setAgentServices([])
-        setAgentTools([])
-        setAgentServicesError(null)
-        setAgentToolsError(null)
-        return
-      }
-      setLoadingAgent(true)
-      setAgentServicesError(null)
-      setAgentToolsError(null)
-      try {
-        const [servicesResult, toolsResult] = await Promise.allSettled([listAgentServices(agentId), listAgentTools(agentId)])
-        if (options.cancelled?.()) return
-        if (servicesResult.status === "fulfilled") {
-          setAgentServices(servicesResult.value)
-        } else {
-          const message = servicesResult.reason instanceof Error ? servicesResult.reason.message : "Agent services 加载失败"
-          setAgentServices([])
-          setAgentServicesError(message)
-          toast.error(message)
-        }
-        if (toolsResult.status === "fulfilled") {
-          setAgentTools(toolsResult.value)
-        } else {
-          const message = toolsResult.reason instanceof Error ? toolsResult.reason.message : "Agent tools 加载失败"
-          setAgentTools([])
-          setAgentToolsError(message)
-          toast.error(message)
-        }
-      } finally {
-        if (!options.cancelled?.()) setLoadingAgent(false)
-      }
-    },
-    [],
-  )
+  async function loadAgentScope() {
+    if (!activeAgentId) return
+    const [servicesResult, toolsResult] = await Promise.all([agentServicesQuery.refetch(), agentToolsQuery.refetch()])
+    if (servicesResult.error) toast.error(servicesResult.error instanceof Error ? servicesResult.error.message : "Agent services 加载失败")
+    if (toolsResult.error) toast.error(toolsResult.error instanceof Error ? toolsResult.error.message : "Agent tools 加载失败")
+  }
 
   useEffect(() => {
-    let cancelled = false
-    void loadAgentScope(activeAgentId, { cancelled: () => cancelled })
-    return () => {
-      cancelled = true
-    }
-  }, [activeAgentId, loadAgentScope, props.busy])
+    void loadAgentScope()
+  }, [activeAgentId, props.busy])
 
   return (
     <>
@@ -194,11 +174,11 @@ export function AgentsView(props: {
 
         <div className="flex min-w-0 flex-col gap-4">
           <PanelCard>
-            <SectionHeading title="Agent Services" titleAs="h2" description={loadingAgent ? "Loading" : `${agentServices.length} items`} className="border-b-0 pb-0" />
+            <SectionHeading title="Agent Services" titleAs="h2" description={loadingAgentServices ? "Loading" : `${agentServices.length} items`} className="border-b-0 pb-0" />
             <div>
               {agentServicesError ? (
-                <PageError title="Agent services failed to load" message={agentServicesError} onRefresh={() => loadAgentScope(activeAgentId)} />
-              ) : loadingAgent ? (
+                <PageError title="Agent services failed to load" message={agentServicesErrorMessage} onRefresh={loadAgentScope} />
+              ) : loadingAgentServices ? (
                 <PageSkeleton />
               ) : agentServices.length ? (
                 <Table>
@@ -231,17 +211,17 @@ export function AgentsView(props: {
                   </TableBody>
                 </Table>
               ) : (
-                <PageEmpty title="No services" description="No MCP services are available for this agent." onRefresh={() => loadAgentScope(activeAgentId)} />
+                <PageEmpty title="No services" description="No MCP services are available for this agent." onRefresh={loadAgentScope} />
               )}
             </div>
           </PanelCard>
 
           <PanelCard>
-            <SectionHeading title="Agent Tools" titleAs="h2" description={loadingAgent ? "Loading" : `${agentTools.length} items`} className="border-b-0 pb-0" />
+            <SectionHeading title="Agent Tools" titleAs="h2" description={loadingAgentTools ? "Loading" : `${agentTools.length} items`} className="border-b-0 pb-0" />
             <div>
               {agentToolsError ? (
-                <PageError title="Agent tools failed to load" message={agentToolsError} onRefresh={() => loadAgentScope(activeAgentId)} />
-              ) : loadingAgent ? (
+                <PageError title="Agent tools failed to load" message={agentToolsErrorMessage} onRefresh={loadAgentScope} />
+              ) : loadingAgentTools ? (
                 <PageSkeleton />
               ) : agentTools.length ? (
                 <div className="flex flex-col gap-3">
@@ -255,7 +235,7 @@ export function AgentsView(props: {
                   ))}
                 </div>
               ) : (
-                <PageEmpty title="No tools" description="No tools are available for this agent." onRefresh={() => loadAgentScope(activeAgentId)} />
+                <PageEmpty title="No tools" description="No tools are available for this agent." onRefresh={loadAgentScope} />
               )}
             </div>
           </PanelCard>
