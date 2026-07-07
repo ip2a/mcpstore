@@ -21,6 +21,7 @@ import { serviceInfo, serviceStatus, type ServiceEntry, type ToolInfo } from "@/
 export function ServiceDetailView(props: {
   service: ServiceEntry
   busy: string | null
+  refreshToken?: number
   onBack: () => void
   onRunTool: (tool: ToolInfo) => void
   onToolDetail: (tool: ToolInfo) => void
@@ -59,7 +60,7 @@ export function ServiceDetailView(props: {
 
   useEffect(() => {
     void loadDetail()
-  }, [props.service.name])
+  }, [props.refreshToken, props.service.name])
 
   return (
     <>
