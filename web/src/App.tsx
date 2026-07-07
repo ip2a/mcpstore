@@ -107,6 +107,14 @@ export function App() {
     setServiceDetailRevision((value) => value + 1)
   }
 
+  async function refreshServiceRegistryQueries() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.services }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.toolsRoot }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.agents }),
+    ])
+  }
+
   async function refreshAgentQueries(agentId: string) {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.agents }),
@@ -116,11 +124,23 @@ export function App() {
     ])
   }
 
+  async function refreshCacheQueries() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.health }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.cacheHealth }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.cacheInspect }),
+    ])
+  }
+
+  async function refreshConfigQueries(target: ResetTarget) {
+    await queryClient.invalidateQueries({ queryKey: target.scope === "store" ? queryKeys.config : queryKeys.agentConfig(target.agentId) })
+  }
+
   async function confirmReset(target: ResetTarget) {
     if (target.scope === "store") {
-      await runAction("reset:store", resetConfig)
+      await runAction("reset:store", resetConfig, () => refreshConfigQueries(target))
     } else {
-      await runAction(`reset:${target.agentId}`, () => resetAgentConfig(target.agentId))
+      await runAction(`reset:${target.agentId}`, () => resetAgentConfig(target.agentId), () => refreshConfigQueries(target))
     }
   }
 
@@ -180,7 +200,10 @@ export function App() {
 
           <main className="flex min-h-0 flex-col gap-6 overflow-auto py-3">
           {view.name === "add" ? (
-            <AddServiceView agents={agents} onBack={() => setView({ name: "services" })} onAdded={refresh} />
+            <AddServiceView agents={agents} onBack={() => setView({ name: "services" })} onAdded={async () => {
+              await refresh()
+              await refreshServiceRegistryQueries()
+            }} />
           ) : selectedService ? (
             <ServiceDetailView
               service={selectedService}
@@ -258,6 +281,7 @@ export function App() {
         onOpenChange={setCacheDialog}
         onChanged={async () => {
           await refresh()
+          await refreshCacheQueries()
           setCacheRevision((value) => value + 1)
         }}
       />
