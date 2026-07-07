@@ -28,7 +28,17 @@ export function useToolDialogState() {
     setToolDialog({ tool: state.tool, sourceLabel: state.sourceLabel, onRun: state.onRun })
   }
 
+  function closeToolDetail(open: boolean) {
+    if (!open) setToolDetail(null)
+  }
+
+  function closeToolDialog(open: boolean) {
+    if (!open) setToolDialog(null)
+  }
+
   return {
+    closeToolDetail,
+    closeToolDialog,
     openServiceToolDetail,
     openServiceToolRunner,
     openToolRunnerFromDetail,

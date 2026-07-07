@@ -33,6 +33,8 @@ export function App() {
   const { pageTitle, selectedService, setView, view } = useAppView(services)
   const { busy, runAction } = useAppActions(refresh)
   const {
+    closeToolDetail,
+    closeToolDialog,
     openServiceToolDetail,
     openServiceToolRunner,
     openToolRunnerFromDetail,
@@ -144,8 +146,8 @@ export function App() {
         onResetDialogOpenChange={closeResetDialog}
         onRunToolFromDetail={openToolRunnerFromDetail}
         onSettingsDialogOpenChange={setSettingsDialogOpen}
-        onToolDetailOpenChange={(open) => !open && setToolDetail(null)}
-        onToolDialogOpenChange={(open) => !open && setToolDialog(null)}
+        onToolDetailOpenChange={closeToolDetail}
+        onToolDialogOpenChange={closeToolDialog}
       />
       <Toaster />
     </TooltipProvider>
