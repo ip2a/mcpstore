@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import { AlertCircleIcon, RefreshCwIcon, SaveIcon, SettingsIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -13,7 +13,8 @@ import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupTextarea } from
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
-import { getMeta, updateSettings, type SettingsPayload, type UiLanguage, type UpdateSettingsPayload } from "@/lib/api"
+import { useSettingsMetaQuery, useUpdateSettingsMutation } from "@/features/settings/queries"
+import { type SettingsPayload, type UiLanguage, type UpdateSettingsPayload } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 import type { I18nKey } from "@/lib/i18n-core"
 import { queryKeys } from "@/lib/query-keys"
@@ -67,12 +68,8 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const queryClient = useQueryClient()
   const [section, setSection] = useState<SectionId>("general")
   const [draft, setDraft] = useState<SettingsDraft | null>(null)
-  const metaQuery = useQuery({
-    enabled: open,
-    queryKey: queryKeys.meta,
-    queryFn: getMeta,
-  })
-  const settingsMutation = useMutation({ mutationKey: queryKeys.settings, mutationFn: updateSettings })
+  const metaQuery = useSettingsMetaQuery(open)
+  const settingsMutation = useUpdateSettingsMutation()
   const meta = metaQuery.data
   const loading = metaQuery.isFetching && !draft
   const error = metaQuery.error instanceof Error ? metaQuery.error.message : ""
