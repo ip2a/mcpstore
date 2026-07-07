@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
 import { DatabaseIcon, RefreshCwIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -10,13 +9,13 @@ import { PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { Button } from "@/components/ui/button"
-import { cacheHealth, cacheInspect, type CacheBackend } from "@/lib/api"
-import { queryKeys } from "@/lib/query-keys"
+import { type CacheBackend } from "@/lib/api"
+import { useCacheHealthQuery, useCacheInspectQuery } from "@/features/cache/queries"
 
 export function CacheView(props: { backend?: CacheBackend; revision: number; onRefreshDashboard: () => Promise<void>; onSwitch: () => void }) {
   const [refreshError, setRefreshError] = useState<string | null>(null)
-  const healthQuery = useQuery({ enabled: false, queryKey: queryKeys.cacheHealth, queryFn: cacheHealth })
-  const inspectQuery = useQuery({ enabled: false, queryKey: queryKeys.cacheInspect, queryFn: cacheInspect })
+  const healthQuery = useCacheHealthQuery()
+  const inspectQuery = useCacheInspectQuery()
   const healthReport = healthQuery.data
   const inspectReport = inspectQuery.data
   const error = healthQuery.error || inspectQuery.error || refreshError
