@@ -1,19 +1,20 @@
-import { useEffect, useState } from "react"
 import { RefreshCwIcon } from "lucide-react"
-import { toast } from "sonner"
 
 import { DetailHeader } from "@/components/shared/detail-header"
+import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
 import { SearchBox } from "@/components/shared/search-box"
 import { SectionHeading } from "@/components/shared/section-heading"
+import { SelectableRowButton } from "@/components/shared/selectable-row-button"
 import { ToolCard } from "@/components/shared/tool-card"
+import { TwoPanePage } from "@/components/shared/two-pane-page"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { getAgentId } from "@/features/agents/model"
-import { callAgentTool, callStoreTool, type AgentItem, type ServiceEntry, type ToolInfo } from "@/lib/api"
-import { getToolServiceName, toolKey } from "@/lib/tool-info"
-import { useToolsQuery } from "@/features/tools/queries"
+import { useToolsRegistry } from "@/features/tools/use-tools-registry"
+import { type AgentItem, type ServiceEntry, type ToolInfo } from "@/lib/api"
+import { getToolSchema, getToolServiceName, toolKey } from "@/lib/tool-info"
 import type { ToolDetailState, ToolDialogState } from "@/features/tools/tool-dialogs"
 
 export function ToolsView(props: {
@@ -22,49 +23,26 @@ export function ToolsView(props: {
   onRunTool: (state: ToolDialogState) => void
   onToolDetail: (state: ToolDetailState) => void
 }) {
-  const agentIds = props.agents.map(getAgentId).filter(Boolean)
-  const [scope, setScope] = useState("store")
-  const [agentId, setAgentId] = useState(agentIds[0] || "")
-  const [serviceName, setServiceName] = useState("all")
-  const [query, setQuery] = useState("")
-  const serviceFilter = serviceName === "all" ? undefined : serviceName
-  const toolsQuery = useToolsQuery({ agentId, scope, serviceName: serviceFilter })
-  const tools = toolsQuery.data || []
-  const error = toolsQuery.error
-  const errorMessage = error instanceof Error ? error.message : error ? String(error) : "工具加载失败"
-  const loading = toolsQuery.isFetching
-
-  useEffect(() => {
-    if (!agentId && agentIds[0]) setAgentId(agentIds[0])
-  }, [agentId, agentIds])
-
-  async function loadTools() {
-    try {
-      const nextTools = await toolsQuery.refetch()
-      if (nextTools.error) throw nextTools.error
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "工具加载失败"
-      toast.error(message)
-    }
-  }
-
-  useEffect(() => {
-    void loadTools()
-  }, [scope, agentId, serviceName])
-
-  const visibleTools = tools.filter((tool) => {
-    const text = `${tool.name} ${tool.description || ""} ${getToolServiceName(tool) || ""}`.toLowerCase()
-    return text.includes(query.trim().toLowerCase())
-  })
-
-  function makeRunner(tool: ToolInfo): NonNullable<ToolDialogState> {
-    const sourceLabel = scope === "agent" ? `Agent ${agentId}` : getToolServiceName(tool) || serviceName
-    return {
-      tool,
-      sourceLabel,
-      onRun: (args) => (scope === "agent" ? callAgentTool(agentId, tool.name, args) : callStoreTool(tool.name, args)),
-    }
-  }
+  const {
+    agentId,
+    agentIds,
+    error,
+    errorMessage,
+    loadTools,
+    loading,
+    makeRunner,
+    query,
+    scope,
+    selectedTool,
+    selectedToolKey,
+    serviceName,
+    setAgentId,
+    setQuery,
+    setScope,
+    setSelectedToolKey,
+    setServiceName,
+    visibleTools,
+  } = useToolsRegistry({ agents: props.agents })
 
   return (
     <>
@@ -132,23 +110,58 @@ export function ToolsView(props: {
       ) : loading ? (
         <PageSkeleton />
       ) : visibleTools.length ? (
-        <section className="grid gap-4 lg:grid-cols-2">
-          {visibleTools.map((tool) => {
-            const runner = makeRunner(tool)
-            return (
-              <ToolCard
-                key={toolKey(tool)}
-                tool={tool}
-                sourceLabel={runner.sourceLabel}
-                onRun={() => props.onRunTool(runner)}
-                onDetail={() => props.onToolDetail(runner)}
-              />
-            )
-          })}
-        </section>
+        <TwoPanePage variant="page" className="min-h-[520px] lg:grid-cols-[minmax(260px,0.38fr)_minmax(0,1fr)]">
+          <PanelCard>
+            <SectionHeading title="Tool List" titleAs="h2" description={`${visibleTools.length} tools`} className="border-b-0 pb-0" />
+            <div className="flex min-h-0 flex-col gap-2 overflow-auto pr-1">
+              {visibleTools.map((tool) => {
+                const key = toolKey(tool)
+                const schema = getToolSchema(tool) as { properties?: Record<string, unknown>; required?: string[] }
+                const paramCount = Object.keys(schema.properties || {}).length
+                return (
+                  <SelectableRowButton
+                    key={key}
+                    meta={`${getToolServiceName(tool) || "store"} · ${paramCount} params`}
+                    onClick={() => setSelectedToolKey(key)}
+                    selected={key === selectedToolKey}
+                    title={tool.name}
+                    trailing={schema.required?.length ? <Badge variant="outline">{schema.required.length}</Badge> : null}
+                  />
+                )
+              })}
+            </div>
+          </PanelCard>
+
+          {selectedTool ? (
+            <ToolDetailPane
+              tool={selectedTool}
+              sourceLabel={makeRunner(selectedTool).sourceLabel}
+              onDetail={() => props.onToolDetail(makeRunner(selectedTool))}
+              onRun={() => props.onRunTool(makeRunner(selectedTool))}
+            />
+          ) : (
+            <PageEmpty title="No tool selected" description="Select a tool to inspect its schema and actions." />
+          )}
+        </TwoPanePage>
       ) : (
         <PageEmpty title="No tools" description="No tools are available in the current scope." onRefresh={loadTools} />
       )}
     </>
+  )
+}
+
+function ToolDetailPane({ tool, sourceLabel, onDetail, onRun }: { tool: ToolInfo; sourceLabel: string; onDetail: () => void; onRun: () => void }) {
+  const schema = getToolSchema(tool) as { properties?: Record<string, unknown>; required?: string[] }
+  const params = Object.keys(schema.properties || {})
+
+  return (
+    <div className="flex min-w-0 flex-col gap-4">
+      <MetricGrid columns="three">
+        <MetricTile label="Params" value={params.length} hint="schema fields" variant="compact" />
+        <MetricTile label="Required" value={schema.required?.length || 0} hint="mandatory" variant="compact" />
+        <MetricTile label="Source" value={sourceLabel} hint="call scope" variant="compact" />
+      </MetricGrid>
+      <ToolCard tool={tool} sourceLabel={sourceLabel} onDetail={onDetail} onRun={onRun} />
+    </div>
   )
 }
