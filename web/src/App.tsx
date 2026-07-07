@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { toast } from "sonner"
-import { type AppView, viewTitle } from "@/app/app-view"
+import { useAppView } from "@/app/use-app-view"
 import { AppDialogs } from "@/components/layout/app-dialogs"
 import { AppHeader } from "@/components/layout/app-header"
 import { AgentsView } from "@/features/agents/agents-view"
@@ -42,7 +42,7 @@ export function App() {
     refreshServiceRegistryQueries,
     serviceDetailRevision,
   } = useAppQueryRefreshers()
-  const [view, setView] = useState<AppView>({ name: "services" })
+  const { pageTitle, selectedService, setView, view } = useAppView(services)
   const [toolDialog, setToolDialog] = useState<ToolDialogState>(null)
   const [toolDetail, setToolDetail] = useState<ToolDetailState>(null)
   const cacheDialogOpen = useUiStore((state) => state.cacheDialogOpen)
@@ -52,9 +52,6 @@ export function App() {
   const [deleteTarget, setDeleteTarget] = useState<ServiceEntry | null>(null)
   const [resetTarget, setResetTarget] = useState<ResetTarget | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-
-  const selectedService = view.name === "service" ? services.find((service) => service.name === view.serviceName) : undefined
-  const pageTitle = viewTitle(view)
 
   async function runAction(label: string, action: () => Promise<unknown>, onSuccess?: () => Promise<void> | void) {
     setBusy(label)
