@@ -1,12 +1,7 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import {
-  ArrowLeftIcon,
-  PlusIcon,
-  SettingsIcon,
-} from "lucide-react"
 import { toast } from "sonner"
-import { Button } from "@/components/ui/button"
+import { AppHeader, type AppView, viewTitle } from "@/components/layout/app-header"
 import { AgentsView } from "@/features/agents/agents-view"
 import { CacheView } from "@/features/cache/cache-view"
 import { SwitchCacheDialog } from "@/features/cache/switch-cache-dialog"
@@ -39,33 +34,10 @@ import {
   type ToolInfo,
 } from "@/lib/api"
 
-type View =
-  | { name: "services" }
-  | { name: "agents" }
-  | { name: "tools" }
-  | { name: "config" }
-  | { name: "cache" }
-  | { name: "add" }
-  | { name: "service"; serviceName: string }
-
-const navItems: Array<{ view: View["name"]; label: string }> = [
-  { view: "services", label: "服务" },
-  { view: "agents", label: "Agent" },
-  { view: "tools", label: "工具" },
-  { view: "config", label: "配置" },
-  { view: "cache", label: "缓存" },
-]
-
-function viewTitle(view: View): string {
-  if (view.name === "service") return view.serviceName
-  if (view.name === "add") return "添加服务"
-  return navItems.find((item) => item.view === view.name)?.label || "服务"
-}
-
 export function App() {
   const { services, agents, agentMap, backend, loading, error: dashboardError, refresh } = useDashboard()
   const queryClient = useQueryClient()
-  const [view, setView] = useState<View>({ name: "services" })
+  const [view, setView] = useState<AppView>({ name: "services" })
   const [toolDialog, setToolDialog] = useState<ToolDialogState>(null)
   const [toolDetail, setToolDetail] = useState<ToolDetailState>(null)
   const [cacheDialog, setCacheDialog] = useState(false)
@@ -78,7 +50,6 @@ export function App() {
   const [busy, setBusy] = useState<string | null>(null)
 
   const selectedService = view.name === "service" ? services.find((service) => service.name === view.serviceName) : undefined
-  const isHome = view.name === "services"
   const pageTitle = viewTitle(view)
 
   async function runAction(label: string, action: () => Promise<unknown>, onSuccess?: () => Promise<void> | void) {
@@ -164,39 +135,7 @@ export function App() {
     <TooltipProvider>
       <div className="min-h-dvh bg-background">
         <div className="mx-auto grid h-dvh w-[min(1280px,calc(100vw-24px))] grid-rows-[auto_minmax(0,1fr)] overflow-hidden pb-4">
-          <header className="mb-3 flex min-h-16 items-center justify-between gap-4 border-b py-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <button className="font-mono font-bold" type="button" onClick={() => setView({ name: "services" })}>
-                mcpstore
-              </button>
-              <div className="h-5 w-px bg-border" />
-              <span className="truncate text-sm font-semibold">{pageTitle}</span>
-            </div>
-
-            <nav className="flex flex-wrap items-center justify-end gap-2">
-              {!isHome ? (
-                <Button type="button" variant="outline" size="sm" onClick={() => setView({ name: "services" })}>
-                  <ArrowLeftIcon data-icon="inline-start" />
-                  返回
-                </Button>
-              ) : null}
-              {navItems.map((item) =>
-                view.name === item.view ? null : (
-                  <Button key={item.view} variant="outline" size="sm" onClick={() => setView({ name: item.view } as View)}>
-                    {item.label}
-                  </Button>
-                ),
-              )}
-              <Button variant="outline" size="sm" onClick={() => setView({ name: "add" })}>
-                <PlusIcon data-icon="inline-start" />
-                添加
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setSettingsDialogOpen(true)}>
-                <SettingsIcon data-icon="inline-start" />
-                设置
-              </Button>
-            </nav>
-          </header>
+          <AppHeader pageTitle={pageTitle} view={view} onViewChange={setView} onOpenSettings={() => setSettingsDialogOpen(true)} />
 
           <main className="flex min-h-0 flex-col gap-6 overflow-auto py-3">
           {view.name === "add" ? (
