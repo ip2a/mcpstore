@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { toast } from "sonner"
+import { useAppActions } from "@/app/use-app-actions"
 import { useAppView } from "@/app/use-app-view"
 import { AppDialogs } from "@/components/layout/app-dialogs"
 import { AppHeader } from "@/components/layout/app-header"
@@ -43,6 +43,7 @@ export function App() {
     serviceDetailRevision,
   } = useAppQueryRefreshers()
   const { pageTitle, selectedService, setView, view } = useAppView(services)
+  const { busy, runAction } = useAppActions(refresh)
   const [toolDialog, setToolDialog] = useState<ToolDialogState>(null)
   const [toolDetail, setToolDetail] = useState<ToolDetailState>(null)
   const cacheDialogOpen = useUiStore((state) => state.cacheDialogOpen)
@@ -51,21 +52,6 @@ export function App() {
   const setSettingsDialogOpen = useUiStore((state) => state.setSettingsDialogOpen)
   const [deleteTarget, setDeleteTarget] = useState<ServiceEntry | null>(null)
   const [resetTarget, setResetTarget] = useState<ResetTarget | null>(null)
-  const [busy, setBusy] = useState<string | null>(null)
-
-  async function runAction(label: string, action: () => Promise<unknown>, onSuccess?: () => Promise<void> | void) {
-    setBusy(label)
-    try {
-      await action()
-      toast.success("操作已完成")
-      await refresh()
-      await onSuccess?.()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "操作失败")
-    } finally {
-      setBusy(null)
-    }
-  }
 
   async function confirmReset(target: ResetTarget) {
     if (target.scope === "store") {
