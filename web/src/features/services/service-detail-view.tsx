@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
 import { ArrowLeftIcon, LinkIcon, RefreshCwIcon, Trash2Icon, UnlinkIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -13,10 +12,10 @@ import { SectionHeading } from "@/components/shared/section-heading"
 import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
 import { ToolCard } from "@/components/shared/tool-card"
 import { Button } from "@/components/ui/button"
+import { useServiceDetailQuery, useServiceStatusQuery } from "@/features/services/queries"
 import { formatDateTime } from "@/lib/format"
-import { queryKeys } from "@/lib/query-keys"
 import { toolKey } from "@/lib/tool-info"
-import { serviceInfo, serviceStatus, type ServiceEntry, type ToolInfo } from "@/lib/api"
+import { type ServiceEntry, type ToolInfo } from "@/lib/api"
 
 export function ServiceDetailView(props: {
   service: ServiceEntry
@@ -31,12 +30,8 @@ export function ServiceDetailView(props: {
   onDelete: () => void
 }) {
   const [detailError, setDetailError] = useState<string | null>(null)
-  const detailQuery = useQuery({ enabled: false, queryKey: queryKeys.service(props.service.name), queryFn: () => serviceInfo(props.service.name) })
-  const statusQuery = useQuery({
-    enabled: false,
-    queryKey: queryKeys.serviceStatus(props.service.name),
-    queryFn: () => serviceStatus(props.service.name).catch(() => null),
-  })
+  const detailQuery = useServiceDetailQuery(props.service.name)
+  const statusQuery = useServiceStatusQuery(props.service.name)
   const detail = detailQuery.data
   const statusReport = statusQuery.data
   const error = detailQuery.error || detailError
