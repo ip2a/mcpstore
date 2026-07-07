@@ -1,17 +1,14 @@
 import { useState } from "react"
 import { toast } from "sonner"
+import { AppDialogs } from "@/components/layout/app-dialogs"
 import { AppHeader, type AppView, viewTitle } from "@/components/layout/app-header"
 import { AgentsView } from "@/features/agents/agents-view"
 import { CacheView } from "@/features/cache/cache-view"
-import { SwitchCacheDialog } from "@/features/cache/switch-cache-dialog"
 import { ConfigView, type ResetTarget } from "@/features/config/config-view"
-import { ResetConfigDialog } from "@/features/config/reset-config-dialog"
 import { AddServiceView } from "@/features/services/add-service-view"
-import { DeleteServiceDialog } from "@/features/services/delete-service-dialog"
 import { ServiceDetailView } from "@/features/services/service-detail-view"
 import { ServicesView } from "@/features/services/services-view"
-import { SettingsDialog } from "@/features/settings/settings-dialog"
-import { RunToolDialog, ToolDetailDialog, type ToolDetailState, type ToolDialogState } from "@/features/tools/tool-dialogs"
+import { type ToolDetailState, type ToolDialogState } from "@/features/tools/tool-dialogs"
 import { ToolsView } from "@/features/tools/tools-view"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -169,34 +166,30 @@ export function App() {
         </div>
       </div>
 
-      <RunToolDialog state={toolDialog} onOpenChange={(open) => !open && setToolDialog(null)} />
-      <ToolDetailDialog
-        state={toolDetail}
-        onOpenChange={(open) => !open && setToolDetail(null)}
-        onRun={(state) => {
-          if (!state.onRun) return
-          setToolDialog({ tool: state.tool, sourceLabel: state.sourceLabel, onRun: state.onRun })
-        }}
-      />
-      <SwitchCacheDialog
-        open={cacheDialog}
-        current={backend}
-        onOpenChange={setCacheDialog}
-        onChanged={async () => {
+      <AppDialogs
+        backend={backend}
+        cacheDialogOpen={cacheDialog}
+        deleteTarget={deleteTarget}
+        resetTarget={resetTarget}
+        settingsDialogOpen={settingsDialogOpen}
+        toolDetail={toolDetail}
+        toolDialog={toolDialog}
+        onCacheChanged={async () => {
           await refresh()
           await refreshCacheQueries()
         }}
-      />
-      <SettingsDialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen} />
-      <DeleteServiceDialog
-        service={deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
-        onConfirm={(service) => runAction(`delete:${service.name}`, () => removeService(service.name), () => refreshServiceQueries(service.name, service.agent_id)).then(() => setView({ name: "services" }))}
-      />
-      <ResetConfigDialog
-        target={resetTarget}
-        onOpenChange={(open) => !open && setResetTarget(null)}
-        onConfirm={(target) => confirmReset(target).then(() => setResetTarget(null))}
+        onCacheDialogOpenChange={setCacheDialog}
+        onConfirmDelete={(service) => runAction(`delete:${service.name}`, () => removeService(service.name), () => refreshServiceQueries(service.name, service.agent_id)).then(() => setView({ name: "services" }))}
+        onConfirmReset={(target) => confirmReset(target).then(() => setResetTarget(null))}
+        onDeleteDialogOpenChange={(open) => !open && setDeleteTarget(null)}
+        onResetDialogOpenChange={(open) => !open && setResetTarget(null)}
+        onRunToolFromDetail={(state) => {
+          if (!state.onRun) return
+          setToolDialog({ tool: state.tool, sourceLabel: state.sourceLabel, onRun: state.onRun })
+        }}
+        onSettingsDialogOpenChange={setSettingsDialogOpen}
+        onToolDetailOpenChange={(open) => !open && setToolDetail(null)}
+        onToolDialogOpenChange={(open) => !open && setToolDialog(null)}
       />
       <Toaster />
     </TooltipProvider>
