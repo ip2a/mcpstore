@@ -1,6 +1,3 @@
-import { useState, type FormEvent } from "react"
-import { toast } from "sonner"
-
 import { DetailHeader } from "@/components/shared/detail-header"
 import { PanelCard } from "@/components/shared/panel-card"
 import { SectionHeading } from "@/components/shared/section-heading"
@@ -12,40 +9,12 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { getAgentId } from "@/features/agents/model"
-import { addService, parseKvLines, type AgentItem } from "@/lib/api"
+import { useAddServiceForm, type AddServiceScope, type AddServiceTransport } from "@/features/services/use-add-service-form"
+import { type AgentItem } from "@/lib/api"
 
 export function AddServiceView({ agents, onBack, onAdded }: { agents: AgentItem[]; onBack: () => void; onAdded: () => Promise<void> }) {
-  const [scope, setScope] = useState<"store" | "agent">("store")
-  const [transport, setTransport] = useState<"stdio" | "streamable-http" | "sse">("stdio")
-  const [agentId, setAgentId] = useState("")
-  const [submitting, setSubmitting] = useState(false)
   const agentIds = agents.map(getAgentId).filter(Boolean)
-
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const data = new FormData(event.currentTarget)
-    setSubmitting(true)
-    try {
-      await addService({
-        name: String(data.get("name") || "").trim(),
-        scope,
-        agentId: scope === "agent" ? agentId || String(data.get("agentId") || "").trim() : undefined,
-        transport,
-        commandOrUrl: String(data.get("commandOrUrl") || "").trim(),
-        description: String(data.get("description") || "").trim() || undefined,
-        workingDir: String(data.get("workingDir") || "").trim() || undefined,
-        env: parseKvLines(String(data.get("env") || "")),
-        headers: parseKvLines(String(data.get("headers") || "")),
-      })
-      toast.success("Service added")
-      await onAdded()
-      onBack()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Add service failed")
-    } finally {
-      setSubmitting(false)
-    }
-  }
+  const { agentId, onSubmit, scope, setAgentId, setScope, setTransport, submitting, transport } = useAddServiceForm({ onAdded, onBack })
 
   return (
     <>
@@ -61,7 +30,7 @@ export function AddServiceView({ agents, onBack, onAdded }: { agents: AgentItem[
                 </Field>
                 <Field>
                   <FieldLabel>Scope</FieldLabel>
-                  <Select value={scope} onValueChange={(value) => setScope(value as "store" | "agent")}>
+                  <Select value={scope} onValueChange={(value) => setScope(value as AddServiceScope)}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
@@ -92,7 +61,7 @@ export function AddServiceView({ agents, onBack, onAdded }: { agents: AgentItem[
                 </Field>
                 <Field>
                   <FieldLabel>Transport</FieldLabel>
-                  <Select value={transport} onValueChange={(value) => setTransport(value as "stdio" | "streamable-http" | "sse")}>
+                  <Select value={transport} onValueChange={(value) => setTransport(value as AddServiceTransport)}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
