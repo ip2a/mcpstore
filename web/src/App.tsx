@@ -45,7 +45,8 @@ export function App() {
   const [view, setView] = useState<AppView>({ name: "services" })
   const [toolDialog, setToolDialog] = useState<ToolDialogState>(null)
   const [toolDetail, setToolDetail] = useState<ToolDetailState>(null)
-  const [cacheDialog, setCacheDialog] = useState(false)
+  const cacheDialogOpen = useUiStore((state) => state.cacheDialogOpen)
+  const setCacheDialogOpen = useUiStore((state) => state.setCacheDialogOpen)
   const settingsDialogOpen = useUiStore((state) => state.settingsDialogOpen)
   const setSettingsDialogOpen = useUiStore((state) => state.setSettingsDialogOpen)
   const [deleteTarget, setDeleteTarget] = useState<ServiceEntry | null>(null)
@@ -143,7 +144,7 @@ export function App() {
           ) : view.name === "config" ? (
             <ConfigView agents={agents} resetTarget={resetTarget} onResetTarget={setResetTarget} />
           ) : view.name === "cache" ? (
-            <CacheView backend={backend} revision={cacheRevision} onRefreshDashboard={refresh} onSwitch={() => setCacheDialog(true)} />
+            <CacheView backend={backend} revision={cacheRevision} onRefreshDashboard={refresh} onSwitch={() => setCacheDialogOpen(true)} />
           ) : (
             <ServicesView
               services={services}
@@ -169,7 +170,7 @@ export function App() {
 
       <AppDialogs
         backend={backend}
-        cacheDialogOpen={cacheDialog}
+        cacheDialogOpen={cacheDialogOpen}
         deleteTarget={deleteTarget}
         resetTarget={resetTarget}
         settingsDialogOpen={settingsDialogOpen}
@@ -179,7 +180,7 @@ export function App() {
           await refresh()
           await refreshCacheQueries()
         }}
-        onCacheDialogOpenChange={setCacheDialog}
+        onCacheDialogOpenChange={setCacheDialogOpen}
         onConfirmDelete={(service) => runAction(`delete:${service.name}`, () => removeService(service.name), () => refreshServiceQueries(service.name, service.agent_id)).then(() => setView({ name: "services" }))}
         onConfirmReset={(target) => confirmReset(target).then(() => setResetTarget(null))}
         onDeleteDialogOpenChange={(open) => !open && setDeleteTarget(null)}
