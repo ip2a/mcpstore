@@ -1,4 +1,3 @@
-import { useMemo, useState } from "react"
 import { ActivityIcon, DatabaseIcon, RefreshCwIcon } from "lucide-react"
 
 import { HomeHero } from "@/components/home-hero"
@@ -8,8 +7,8 @@ import { SearchBox } from "@/components/shared/search-box"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { getAgentId } from "@/features/agents/model"
 import { ServiceTable } from "@/features/services/service-table"
+import { useServicesList } from "@/features/services/use-services-list"
 import type { AgentItem, CacheBackend, ServiceEntry } from "@/lib/api"
 
 export function ServicesView(props: {
@@ -29,27 +28,11 @@ export function ServicesView(props: {
   onRefresh: () => void
   onRestart: (service: ServiceEntry) => void
 }) {
-  const [agentFilter, setAgentFilter] = useState("store")
-  const [query, setQuery] = useState("")
-  const agentIds = props.agents.map(getAgentId).filter(Boolean)
-  const filteredServices = useMemo(() => {
-    return props.services.filter((service) => {
-      const inAgent = agentFilter === "store" || props.agentMap.get(service.name) === agentFilter
-      const text = `${service.name} ${service.transport || ""} ${service.config?.description || ""}`.toLowerCase()
-      return inAgent && text.includes(query.trim().toLowerCase())
-    })
-  }, [agentFilter, props.agentMap, props.services, query])
-  const totals = useMemo(() => {
-    const count = (status: string) => filteredServices.filter((service) => service.status === status).length
-    return {
-      services: filteredServices.length,
-      tools: filteredServices.reduce((sum, service) => sum + (service.tools?.length || 0), 0),
-      connected: count("Connected"),
-      disconnected: count("Disconnected"),
-      connecting: count("Connecting"),
-      error: count("Error"),
-    }
-  }, [filteredServices])
+  const { agentFilter, agentIds, filteredServices, query, setAgentFilter, setQuery, totals } = useServicesList({
+    agents: props.agents,
+    agentMap: props.agentMap,
+    services: props.services,
+  })
 
   return (
     <>
