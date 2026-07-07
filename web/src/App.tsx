@@ -1,11 +1,11 @@
-import { useState } from "react"
 import { useAppActions } from "@/app/use-app-actions"
+import { useAppConfirmations } from "@/app/use-app-confirmations"
 import { useAppView } from "@/app/use-app-view"
 import { AppDialogs } from "@/components/layout/app-dialogs"
 import { AppHeader } from "@/components/layout/app-header"
 import { AgentsView } from "@/features/agents/agents-view"
 import { CacheView } from "@/features/cache/cache-view"
-import { ConfigView, type ResetTarget } from "@/features/config/config-view"
+import { ConfigView } from "@/features/config/config-view"
 import { AddServiceView } from "@/features/services/add-service-view"
 import { ServiceDetailView } from "@/features/services/service-detail-view"
 import { ServicesView } from "@/features/services/services-view"
@@ -22,11 +22,8 @@ import {
   connectService,
   disconnectService,
   removeService,
-  resetAgentConfig,
-  resetConfig,
   restartService,
   unassignService,
-  type ServiceEntry,
 } from "@/lib/api"
 
 export function App() {
@@ -55,16 +52,7 @@ export function App() {
   const setCacheDialogOpen = useUiStore((state) => state.setCacheDialogOpen)
   const settingsDialogOpen = useUiStore((state) => state.settingsDialogOpen)
   const setSettingsDialogOpen = useUiStore((state) => state.setSettingsDialogOpen)
-  const [deleteTarget, setDeleteTarget] = useState<ServiceEntry | null>(null)
-  const [resetTarget, setResetTarget] = useState<ResetTarget | null>(null)
-
-  async function confirmReset(target: ResetTarget) {
-    if (target.scope === "store") {
-      await runAction("reset:store", resetConfig, () => refreshConfigQueries(target))
-    } else {
-      await runAction(`reset:${target.agentId}`, () => resetAgentConfig(target.agentId), () => refreshConfigQueries(target))
-    }
-  }
+  const { closeDeleteDialog, closeResetDialog, confirmReset, deleteTarget, resetTarget, setDeleteTarget, setResetTarget } = useAppConfirmations({ refreshConfigQueries, runAction })
 
   return (
     <TooltipProvider>
@@ -154,9 +142,9 @@ export function App() {
         }}
         onCacheDialogOpenChange={setCacheDialogOpen}
         onConfirmDelete={(service) => runAction(`delete:${service.name}`, () => removeService(service.name), () => refreshServiceQueries(service.name, service.agent_id)).then(() => setView({ name: "services" }))}
-        onConfirmReset={(target) => confirmReset(target).then(() => setResetTarget(null))}
-        onDeleteDialogOpenChange={(open) => !open && setDeleteTarget(null)}
-        onResetDialogOpenChange={(open) => !open && setResetTarget(null)}
+        onConfirmReset={confirmReset}
+        onDeleteDialogOpenChange={closeDeleteDialog}
+        onResetDialogOpenChange={closeResetDialog}
         onRunToolFromDetail={openToolRunnerFromDetail}
         onSettingsDialogOpenChange={setSettingsDialogOpen}
         onToolDetailOpenChange={(open) => !open && setToolDetail(null)}
