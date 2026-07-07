@@ -9,8 +9,8 @@ import { ConfigView, type ResetTarget } from "@/features/config/config-view"
 import { AddServiceView } from "@/features/services/add-service-view"
 import { ServiceDetailView } from "@/features/services/service-detail-view"
 import { ServicesView } from "@/features/services/services-view"
-import { type ToolDetailState, type ToolDialogState } from "@/features/tools/tool-dialogs"
 import { ToolsView } from "@/features/tools/tools-view"
+import { useToolDialogState } from "@/features/tools/use-tool-dialog-state"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAppQueryRefreshers } from "@/hooks/use-app-query-refreshers"
@@ -18,7 +18,6 @@ import { useDashboard } from "@/hooks/use-dashboard"
 import { useUiStore } from "@/stores/ui-store"
 import {
   assignService,
-  callTool,
   checkServices,
   connectService,
   disconnectService,
@@ -28,7 +27,6 @@ import {
   restartService,
   unassignService,
   type ServiceEntry,
-  type ToolInfo,
 } from "@/lib/api"
 
 export function App() {
@@ -44,8 +42,15 @@ export function App() {
   } = useAppQueryRefreshers()
   const { pageTitle, selectedService, setView, view } = useAppView(services)
   const { busy, runAction } = useAppActions(refresh)
-  const [toolDialog, setToolDialog] = useState<ToolDialogState>(null)
-  const [toolDetail, setToolDetail] = useState<ToolDetailState>(null)
+  const {
+    openServiceToolDetail,
+    openServiceToolRunner,
+    openToolRunnerFromDetail,
+    setToolDetail,
+    setToolDialog,
+    toolDetail,
+    toolDialog,
+  } = useToolDialogState()
   const cacheDialogOpen = useUiStore((state) => state.cacheDialogOpen)
   const setCacheDialogOpen = useUiStore((state) => state.setCacheDialogOpen)
   const settingsDialogOpen = useUiStore((state) => state.settingsDialogOpen)
@@ -59,22 +64,6 @@ export function App() {
     } else {
       await runAction(`reset:${target.agentId}`, () => resetAgentConfig(target.agentId), () => refreshConfigQueries(target))
     }
-  }
-
-  function openServiceToolRunner(service: ServiceEntry, tool: ToolInfo) {
-    setToolDialog({
-      tool,
-      sourceLabel: service.name,
-      onRun: (args) => callTool(service.name, tool.name, args),
-    })
-  }
-
-  function openServiceToolDetail(service: ServiceEntry, tool: ToolInfo) {
-    setToolDetail({
-      tool,
-      sourceLabel: service.name,
-      onRun: (args) => callTool(service.name, tool.name, args),
-    })
   }
 
   return (
@@ -168,10 +157,7 @@ export function App() {
         onConfirmReset={(target) => confirmReset(target).then(() => setResetTarget(null))}
         onDeleteDialogOpenChange={(open) => !open && setDeleteTarget(null)}
         onResetDialogOpenChange={(open) => !open && setResetTarget(null)}
-        onRunToolFromDetail={(state) => {
-          if (!state.onRun) return
-          setToolDialog({ tool: state.tool, sourceLabel: state.sourceLabel, onRun: state.onRun })
-        }}
+        onRunToolFromDetail={openToolRunnerFromDetail}
         onSettingsDialogOpenChange={setSettingsDialogOpen}
         onToolDetailOpenChange={(open) => !open && setToolDetail(null)}
         onToolDialogOpenChange={(open) => !open && setToolDialog(null)}
