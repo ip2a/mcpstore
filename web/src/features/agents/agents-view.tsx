@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
 import { RefreshCwIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -17,8 +16,8 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { listAgentServices, listAgentTools, type AgentItem, type ServiceEntry, type ToolInfo } from "@/lib/api"
-import { queryKeys } from "@/lib/query-keys"
+import { type AgentItem, type ServiceEntry } from "@/lib/api"
+import { useAgentServicesQuery, useAgentToolsQuery } from "@/features/agents/queries"
 import { toolKey } from "@/lib/tool-info"
 import { useUiStore } from "@/stores/ui-store"
 
@@ -38,16 +37,8 @@ export function AgentsView(props: {
   const [typedAgentId, setTypedAgentId] = useState("")
   const [assignTarget, setAssignTarget] = useState(props.services[0]?.name || "")
   const activeAgentId = (typedAgentId.trim() || selectedAgentId || "").trim()
-  const agentServicesQuery = useQuery({
-    enabled: false,
-    queryKey: queryKeys.agentServices(activeAgentId),
-    queryFn: () => listAgentServices(activeAgentId),
-  })
-  const agentToolsQuery = useQuery({
-    enabled: false,
-    queryKey: queryKeys.agentTools(activeAgentId),
-    queryFn: () => listAgentTools(activeAgentId),
-  })
+  const agentServicesQuery = useAgentServicesQuery(activeAgentId)
+  const agentToolsQuery = useAgentToolsQuery(activeAgentId)
   const agentServices = activeAgentId ? agentServicesQuery.data || [] : []
   const agentTools = activeAgentId ? agentToolsQuery.data || [] : []
   const agentServicesError = activeAgentId ? agentServicesQuery.error : null
