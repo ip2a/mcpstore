@@ -9,6 +9,7 @@ import { ConfigView } from "@/features/config/config-view"
 import { AddServiceView } from "@/features/services/add-service-view"
 import { ServiceDetailView } from "@/features/services/service-detail-view"
 import { ServicesView } from "@/features/services/services-view"
+import { useServiceActions } from "@/features/services/use-service-actions"
 import { ToolsView } from "@/features/tools/tools-view"
 import { useToolDialogState } from "@/features/tools/use-tool-dialog-state"
 import { Toaster } from "@/components/ui/sonner"
@@ -18,11 +19,6 @@ import { useDashboard } from "@/hooks/use-dashboard"
 import { useUiStore } from "@/stores/ui-store"
 import {
   assignService,
-  checkServices,
-  connectService,
-  disconnectService,
-  removeService,
-  restartService,
   unassignService,
 } from "@/lib/api"
 
@@ -48,6 +44,13 @@ export function App() {
     toolDetail,
     toolDialog,
   } = useToolDialogState()
+  const {
+    checkAllServices,
+    connectServiceEntry,
+    disconnectServiceEntry,
+    removeServiceEntry,
+    restartServiceEntry,
+  } = useServiceActions({ refreshServiceQueries, runAction })
   const cacheDialogOpen = useUiStore((state) => state.cacheDialogOpen)
   const setCacheDialogOpen = useUiStore((state) => state.setCacheDialogOpen)
   const settingsDialogOpen = useUiStore((state) => state.settingsDialogOpen)
@@ -74,9 +77,9 @@ export function App() {
               onBack={() => setView({ name: "services" })}
               onRunTool={(tool) => openServiceToolRunner(selectedService, tool)}
               onToolDetail={(tool) => openServiceToolDetail(selectedService, tool)}
-              onConnect={() => runAction(`connect:${selectedService.name}`, () => connectService(selectedService.name), () => refreshServiceQueries(selectedService.name, selectedService.agent_id))}
-              onDisconnect={() => runAction(`disconnect:${selectedService.name}`, () => disconnectService(selectedService.name), () => refreshServiceQueries(selectedService.name, selectedService.agent_id))}
-              onRestart={() => runAction(`restart:${selectedService.name}`, () => restartService(selectedService.name), () => refreshServiceQueries(selectedService.name, selectedService.agent_id))}
+              onConnect={() => connectServiceEntry(selectedService)}
+              onDisconnect={() => disconnectServiceEntry(selectedService)}
+              onRestart={() => restartServiceEntry(selectedService)}
               onDelete={() => setDeleteTarget(selectedService)}
             />
           ) : view.name === "agents" ? (
@@ -115,13 +118,13 @@ export function App() {
               error={dashboardError}
               loading={loading}
               onCache={() => setView({ name: "cache" })}
-              onCheck={() => runAction("check:services", checkServices)}
-              onConnect={(service) => runAction(`connect:${service.name}`, () => connectService(service.name), () => refreshServiceQueries(service.name, service.agent_id))}
+              onCheck={checkAllServices}
+              onConnect={connectServiceEntry}
               onDelete={setDeleteTarget}
-              onDisconnect={(service) => runAction(`disconnect:${service.name}`, () => disconnectService(service.name), () => refreshServiceQueries(service.name, service.agent_id))}
+              onDisconnect={disconnectServiceEntry}
               onOpen={(service) => setView({ name: "service", serviceName: service.name })}
               onRefresh={refresh}
-              onRestart={(service) => runAction(`restart:${service.name}`, () => restartService(service.name), () => refreshServiceQueries(service.name, service.agent_id))}
+              onRestart={restartServiceEntry}
             />
           )}
           </main>
@@ -141,7 +144,7 @@ export function App() {
           await refreshCacheQueries()
         }}
         onCacheDialogOpenChange={setCacheDialogOpen}
-        onConfirmDelete={(service) => runAction(`delete:${service.name}`, () => removeService(service.name), () => refreshServiceQueries(service.name, service.agent_id)).then(() => setView({ name: "services" }))}
+        onConfirmDelete={(service) => removeServiceEntry(service).then(() => setView({ name: "services" }))}
         onConfirmReset={confirmReset}
         onDeleteDialogOpenChange={closeDeleteDialog}
         onResetDialogOpenChange={closeResetDialog}
