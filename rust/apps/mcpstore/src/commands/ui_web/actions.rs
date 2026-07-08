@@ -325,6 +325,7 @@ pub(super) async fn action_add_exec(
         transport: Some(resolved_transport.to_string()),
         working_dir: trim_optional(params.get("working_dir")),
         description: trim_optional(params.get("description")),
+        mcpstore: None,
     };
 
     match store.add_service(&name, config).await {

@@ -1,6 +1,7 @@
 //! PyO3 wrapper for the MCPStore Rust runtime surface.
 
-use mcpstore::config::{McpConfig, ServerConfig};
+use mcpstore::config::ServerConfig;
+use mcpstore::config_formats::ConfigFormat;
 use mcpstore::core::perspective::ToolResolution;
 use mcpstore::core::store::{
     BackendKind, CacheHealthReport, EventCapabilityReport, MCPStore, ScopedServiceEntry,
@@ -109,6 +110,13 @@ fn parse_session_scope(scope: Option<&str>) -> PyResult<SessionScope> {
     }
 }
 
+fn parse_config_format(format: Option<&str>) -> PyResult<ConfigFormat> {
+    format
+        .unwrap_or("native")
+        .parse()
+        .map_err(|err: StoreError| pyo3::exceptions::PyValueError::new_err(err.to_string()))
+}
+
 fn session_scope_as_str(scope: &SessionScope) -> &'static str {
     match scope {
         SessionScope::Store => "store",
@@ -133,47 +141,6 @@ fn py_to_server_config(value: &Bound<'_, PyAny>, context: &str) -> PyResult<Serv
     serde_json::from_value(value).map_err(|err| {
         pyo3::exceptions::PyValueError::new_err(format!("{context} conversion failed: {err}"))
     })
-}
-
-fn string_map_to_py<'py>(
-    py: Python<'py>,
-    values: &std::collections::HashMap<String, String>,
-) -> PyResult<Bound<'py, PyDict>> {
-    let dict = PyDict::new(py);
-    for (key, value) in values {
-        dict.set_item(key, value)?;
-    }
-    Ok(dict)
-}
-
-fn server_config_to_py(py: Python<'_>, config: &ServerConfig) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    dict.set_item("url", config.url.as_deref())?;
-    dict.set_item("command", config.command.as_deref())?;
-    dict.set_item("args", string_list_to_py(py, &config.args)?)?;
-    dict.set_item("env", string_map_to_py(py, &config.env)?)?;
-    dict.set_item("headers", string_map_to_py(py, &config.headers)?)?;
-    dict.set_item("transport", config.transport.as_deref())?;
-    dict.set_item("workingDir", config.working_dir.as_deref())?;
-    dict.set_item("description", config.description.as_deref())?;
-    Ok(dict.into_any().unbind())
-}
-
-fn mcp_config_to_py(py: Python<'_>, config: &McpConfig) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    let servers = PyDict::new(py);
-    for (name, server_config) in &config.mcp_servers {
-        servers.set_item(name, server_config_to_py(py, server_config)?)?;
-    }
-    dict.set_item("mcpServers", servers)?;
-    if !config.agents.is_empty() {
-        let agents = PyDict::new(py);
-        for (agent_id, services) in &config.agents {
-            agents.set_item(agent_id, string_list_to_py(py, services)?)?;
-        }
-        dict.set_item("agents", agents)?;
-    }
-    Ok(dict.into_any().unbind())
 }
 
 fn connection_status_as_str(status: ConnectionStatus) -> &'static str {
@@ -2210,17 +2177,28 @@ impl PyMCPStore {
         serde_value_to_py(py, prompt)
     }
 
-    fn show_config(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+    #[pyo3(signature = (format=None))]
+    fn show_config(&self, py: Python<'_>, format: Option<String>) -> PyResult<Py<PyAny>> {
+        let format = parse_config_format(format.as_deref())?;
         let config = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.show_config_entry())
+            .block_on(self.inner.show_config_format(format))
             .map_err(map_store_err)?;
-        mcp_config_to_py(py, &config)
+        serde_value_to_py(py, config)
     }
 
-    #[pyo3(signature = (agent_id=None))]
-    fn show_config_scoped(&self, py: Python<'_>, agent_id: Option<String>) -> PyResult<Py<PyAny>> {
+    #[pyo3(signature = (agent_id=None, format=None))]
+    fn show_config_scoped(
+        &self,
+        py: Python<'_>,
+        agent_id: Option<String>,
+        format: Option<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let format = parse_config_format(format.as_deref())?;
         let config = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.show_config_scoped(agent_id.as_deref()))
+            .block_on(
+                self.inner
+                    .show_config_scoped_format(agent_id.as_deref(), format),
+            )
             .map_err(map_store_err)?;
         serde_value_to_py(py, config)
     }

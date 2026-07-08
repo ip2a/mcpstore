@@ -59,7 +59,33 @@ impl MCPStore {
             next_retry_time: None,
             hard_deadline: None,
             lease_deadline: None,
+            lifecycle_state: ServiceLifecycleState::default(),
         }
+    }
+
+    pub(crate) async fn update_lifecycle_state<F>(
+        &self,
+        name: &str,
+        update: F,
+    ) -> Result<ServiceStatus>
+    where
+        F: FnOnce(&mut ServiceLifecycleState),
+    {
+        let mut status = self.load_or_default_status(name).await?;
+        update(&mut status.lifecycle_state);
+        self.put_service_status_payload(&status).await?;
+        Ok(status)
+    }
+
+    pub(crate) async fn clear_lifecycle_manual_stop(&self, name: &str) -> Result<()> {
+        self.update_lifecycle_state(name, |state| {
+            state.manually_stopped = false;
+            state.manually_stopped_at = None;
+            state.manual_stop_persistent = false;
+            state.restart_attempts = 0;
+        })
+        .await?;
+        Ok(())
     }
 
     pub(crate) fn now_timestamp() -> i64 {

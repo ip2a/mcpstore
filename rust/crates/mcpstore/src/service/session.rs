@@ -17,6 +17,13 @@ impl MCPStore {
             .await;
         self.set_service_status(name, HealthStatus::Disconnected, None, Vec::new())
             .await?;
+        let lifecycle = self.resolved_service_lifecycle(name).await?;
+        self.update_lifecycle_state(name, |state| {
+            state.manually_stopped = true;
+            state.manually_stopped_at = Some(Self::now_timestamp());
+            state.manual_stop_persistent = lifecycle.restart_policy.is_unless_stopped();
+        })
+        .await?;
         self.event_bus
             .publish(
                 Event::new("SERVICE_DISCONNECTED", serde_json::json!({ "name": name })),
@@ -37,7 +44,13 @@ impl MCPStore {
                 .await;
         }
 
-        self.disconnect_service(name).await.ok();
+        self.pool.disconnect(name).await.ok();
+        self.registry
+            .update_status(name, ConnectionStatus::Disconnected)
+            .await;
+        self.set_service_status(name, HealthStatus::Disconnected, None, Vec::new())
+            .await?;
+        self.clear_lifecycle_manual_stop(name).await?;
         self.connect_service(name).await
     }
 }

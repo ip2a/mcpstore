@@ -12,6 +12,7 @@ pub(super) fn default_server_config() -> ServerConfig {
         transport: None,
         working_dir: None,
         description: None,
+        mcpstore: None,
     }
 }
 

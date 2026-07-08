@@ -13,8 +13,12 @@ impl MCPStore {
             .await?;
         let is_openapi_virtual = self.is_openapi_virtual_service(&service_name).await?;
         if is_openapi_virtual {
+            self.ensure_service_auto_start_allowed(&service_name)
+                .await?;
             self.connect_service_internal(&service_name, true).await?;
         } else if !self.pool.is_connected(&service_name).await {
+            self.ensure_service_auto_start_allowed(&service_name)
+                .await?;
             self.connect_service_internal(&service_name, true).await?;
         }
         let event_args = args.clone();

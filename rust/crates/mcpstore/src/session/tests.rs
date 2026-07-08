@@ -23,6 +23,7 @@ fn stdio_config() -> ServerConfig {
         transport: Some("stdio".to_string()),
         working_dir: None,
         description: Some("fixture".to_string()),
+        mcpstore: None,
     }
 }
 
