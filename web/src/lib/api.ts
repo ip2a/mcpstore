@@ -231,12 +231,16 @@ export async function checkServices(): Promise<unknown> {
   return request("/for_store/check_services")
 }
 
-export async function showConfig(): Promise<ConfigReport> {
-  return request("/for_store/show_config")
+export async function showConfig(options: { format?: string } = {}): Promise<ConfigReport> {
+  const format = options.format ?? "native"
+  const query = format === "native" ? "" : `?format=${encodeURIComponent(format)}`
+  return request(`/for_store/show_config${query}`)
 }
 
-export async function showAgentConfig(agentId: string): Promise<ConfigReport> {
-  return request(`/for_agent/${encodeURIComponent(agentId)}/show_config`)
+export async function showAgentConfig(agentId: string, options: { format?: string } = {}): Promise<ConfigReport> {
+  const format = options.format ?? "native"
+  const query = format === "native" ? "" : `?format=${encodeURIComponent(format)}`
+  return request(`/for_agent/${encodeURIComponent(agentId)}/show_config${query}`)
 }
 
 export async function getMeta(): Promise<MetaPayload> {

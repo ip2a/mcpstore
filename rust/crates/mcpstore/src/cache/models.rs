@@ -205,6 +205,20 @@ pub struct ServiceStatus {
     pub next_retry_time: Option<f64>,
     pub hard_deadline: Option<f64>,
     pub lease_deadline: Option<f64>,
+    #[serde(default)]
+    pub lifecycle_state: ServiceLifecycleState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct ServiceLifecycleState {
+    #[serde(default)]
+    pub restart_attempts: i32,
+    #[serde(default)]
+    pub manually_stopped: bool,
+    #[serde(default)]
+    pub manually_stopped_at: Option<i64>,
+    #[serde(default)]
+    pub manual_stop_persistent: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -65,6 +65,7 @@ impl MCPStore {
             state.next_retry_time = None;
             state.hard_deadline = None;
             state.lease_deadline = None;
+            state.lifecycle_state.restart_attempts = 0;
         }
         self.put_service_status_payload(&state).await?;
         Ok(state)
@@ -104,6 +105,7 @@ impl MCPStore {
             payload.next_retry_time = None;
             payload.hard_deadline = None;
             payload.lease_deadline = None;
+            payload.lifecycle_state.restart_attempts = 0;
             if self.pool.is_connected(name).await {
                 self.registry
                     .update_status(name, ConnectionStatus::Connected)

@@ -1,4 +1,4 @@
-use crate::config::AppConfig;
+use crate::config::{AppConfig, ServiceLifecycleDefaults};
 
 #[derive(Clone, Debug)]
 pub(crate) struct StoreRuntimeConfig {
@@ -9,6 +9,7 @@ pub(crate) struct StoreRuntimeConfig {
     pub(crate) reconnect_hard_timeout_secs: i64,
     pub(crate) half_open_lease_secs: i64,
     pub(crate) health_warn_latency_ms: f64,
+    pub(crate) service_lifecycle_defaults: ServiceLifecycleDefaults,
 }
 
 impl StoreRuntimeConfig {
@@ -22,6 +23,7 @@ impl StoreRuntimeConfig {
             reconnect_hard_timeout_secs: ceil_seconds(health.reconnect_hard_timeout, 1),
             half_open_lease_secs: ceil_seconds(health.lease_ttl, 1),
             health_warn_latency_ms: health.latency_p95_warn.max(0.01) * 1000.0,
+            service_lifecycle_defaults: config.service_defaults.lifecycle.clone(),
         }
     }
 }

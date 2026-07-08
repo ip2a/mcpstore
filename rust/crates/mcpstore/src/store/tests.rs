@@ -30,6 +30,7 @@ fn stdio_config() -> ServerConfig {
         transport: Some("stdio".to_string()),
         working_dir: None,
         description: Some("fixture".to_string()),
+        mcpstore: None,
     }
 }
 
@@ -43,6 +44,7 @@ fn broken_stdio_config() -> ServerConfig {
         transport: Some("stdio".to_string()),
         working_dir: None,
         description: Some("broken".to_string()),
+        mcpstore: None,
     }
 }
 
@@ -56,7 +58,33 @@ fn hanging_stdio_config() -> ServerConfig {
         transport: Some("stdio".to_string()),
         working_dir: None,
         description: Some("hanging".to_string()),
+        mcpstore: None,
     }
+}
+
+fn stdio_config_with_lifecycle(
+    startup_policy: Option<crate::config::StartupPolicy>,
+    restart_policy: Option<crate::config::RestartPolicy>,
+) -> ServerConfig {
+    config_with_lifecycle(stdio_config(), startup_policy, restart_policy)
+}
+
+fn config_with_lifecycle(
+    mut config: ServerConfig,
+    startup_policy: Option<crate::config::StartupPolicy>,
+    restart_policy: Option<crate::config::RestartPolicy>,
+) -> ServerConfig {
+    config.mcpstore = Some(crate::config::McpStoreExtension {
+        lifecycle: Some(crate::config::ServiceLifecycleConfig {
+            startup_policy,
+            restart_policy,
+        }),
+    });
+    config
+}
+
+fn broken_stdio_config_with_restart_policy(policy: crate::config::RestartPolicy) -> ServerConfig {
+    config_with_lifecycle(broken_stdio_config(), None, Some(policy))
 }
 
 async fn spawn_openapi_http_fixture() -> String {
@@ -4774,7 +4802,7 @@ async fn tool_preferences_are_rust_backed_and_scoped_to_tool() {
 }
 
 #[tokio::test]
-async fn connect_service_failure_opens_circuit_and_schedules_retry() {
+async fn connect_service_failure_uses_default_no_restart_policy() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
         config_path: Some(path.clone()),
@@ -4802,11 +4830,12 @@ async fn connect_service_failure_opens_circuit_and_schedules_retry() {
     let service = store.find_service("broken").await.unwrap();
 
     assert!(err.contains("Connection failed"));
-    assert_eq!(status.health_status, HealthStatus::CircuitOpen);
+    assert_eq!(status.health_status, HealthStatus::Disconnected);
     assert_eq!(status.connection_attempts, 1);
+    assert_eq!(status.lifecycle_state.restart_attempts, 1);
     assert!(status.current_error.is_some());
-    assert!(status.next_retry_time.is_some());
-    assert_eq!(service.status, ConnectionStatus::Error);
+    assert_eq!(status.next_retry_time, None);
+    assert_eq!(service.status, ConnectionStatus::Disconnected);
 
     std::fs::remove_file(path).ok();
 }
@@ -4828,7 +4857,17 @@ async fn connect_service_times_out_hanging_stdio_startup() {
     })
     .unwrap();
     store
-        .add_service("hanging", hanging_stdio_config())
+        .add_service(
+            "hanging",
+            config_with_lifecycle(
+                hanging_stdio_config(),
+                None,
+                Some(crate::config::RestartPolicy {
+                    kind: crate::config::RestartPolicyKind::OnFailure,
+                    max_retries: None,
+                }),
+            ),
+        )
         .await
         .unwrap();
 
@@ -4864,7 +4903,13 @@ async fn automatic_retry_respects_backoff_and_enters_half_open_when_due() {
     })
     .unwrap();
     store
-        .add_service("broken", broken_stdio_config())
+        .add_service(
+            "broken",
+            broken_stdio_config_with_restart_policy(crate::config::RestartPolicy {
+                kind: crate::config::RestartPolicyKind::OnFailure,
+                max_retries: None,
+            }),
+        )
         .await
         .unwrap();
     store.connect_service("broken").await.unwrap_err();
@@ -4893,6 +4938,89 @@ async fn automatic_retry_respects_backoff_and_enters_half_open_when_due() {
 }
 
 #[tokio::test]
+async fn manual_startup_policy_blocks_implicit_connect() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::OpenKeyvMemory),
+        redis_url: None,
+        namespace: Some("test-manual-startup-policy".to_string()),
+    })
+    .unwrap();
+    store
+        .add_service(
+            "manual",
+            stdio_config_with_lifecycle(Some(crate::config::StartupPolicy::Manual), None),
+        )
+        .await
+        .unwrap();
+
+    let err = store
+        .ensure_service_connected("manual")
+        .await
+        .unwrap_err()
+        .to_string();
+
+    assert!(err.contains("startup_policy=manual"));
+    assert!(!store.pool.is_connected("manual").await);
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
+async fn on_failure_max_retries_caps_lifecycle_restart_attempts() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::OpenKeyvMemory),
+        redis_url: None,
+        namespace: Some("test-on-failure-max-retries".to_string()),
+    })
+    .unwrap();
+    store
+        .add_service(
+            "broken",
+            broken_stdio_config_with_restart_policy(crate::config::RestartPolicy {
+                kind: crate::config::RestartPolicyKind::OnFailure,
+                max_retries: Some(1),
+            }),
+        )
+        .await
+        .unwrap();
+
+    store.connect_service("broken").await.unwrap_err();
+    let first = store
+        .cached_service_status("broken")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.health_status, HealthStatus::CircuitOpen);
+    assert_eq!(first.lifecycle_state.restart_attempts, 1);
+
+    let mut due = first;
+    due.health_status = HealthStatus::HalfOpen;
+    due.next_retry_time = None;
+    store.put_service_status_payload(&due).await.unwrap();
+
+    store
+        .connect_service_internal("broken", true)
+        .await
+        .unwrap_err();
+    let second = store
+        .cached_service_status("broken")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(second.health_status, HealthStatus::Disconnected);
+    assert_eq!(second.lifecycle_state.restart_attempts, 2);
+    assert_eq!(second.next_retry_time, None);
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
 async fn successful_health_check_clears_retry_state() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
@@ -4904,7 +5032,13 @@ async fn successful_health_check_clears_retry_state() {
     })
     .unwrap();
     store
-        .add_service("broken", broken_stdio_config())
+        .add_service(
+            "broken",
+            broken_stdio_config_with_restart_policy(crate::config::RestartPolicy {
+                kind: crate::config::RestartPolicyKind::OnFailure,
+                max_retries: None,
+            }),
+        )
         .await
         .unwrap();
     store.connect_service("broken").await.unwrap_err();
@@ -4916,11 +5050,53 @@ async fn successful_health_check_clears_retry_state() {
 
     assert_eq!(recovered.health_status, HealthStatus::Healthy);
     assert_eq!(recovered.connection_attempts, 0);
+    assert_eq!(recovered.lifecycle_state.restart_attempts, 0);
     assert_eq!(recovered.current_error, None);
     assert_eq!(recovered.next_retry_time, None);
     assert_eq!(recovered.hard_deadline, None);
     assert_eq!(recovered.latency_p95, Some(12.0));
     assert_eq!(recovered.latency_p99, Some(12.0));
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
+async fn show_config_format_projects_third_party_config_without_mcpstore_extension() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::OpenKeyvMemory),
+        redis_url: None,
+        namespace: Some("test-config-format-projection".to_string()),
+    })
+    .unwrap();
+    store
+        .add_service(
+            "svc",
+            stdio_config_with_lifecycle(
+                Some(crate::config::StartupPolicy::OnStoreStart),
+                Some(crate::config::RestartPolicy {
+                    kind: crate::config::RestartPolicyKind::OnFailure,
+                    max_retries: Some(3),
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+
+    let native = store.show_config().await.unwrap();
+    assert!(native["mcpServers"]["svc"].get("_mcpstore").is_some());
+
+    let claude = store
+        .show_config_format(crate::config_formats::ConfigFormat::Claude)
+        .await
+        .unwrap();
+    assert!(claude["mcpServers"]["svc"].get("_mcpstore").is_none());
+    assert_eq!(
+        claude["mcpServers"]["svc"]["command"],
+        serde_json::json!("echo")
+    );
 
     std::fs::remove_file(path).ok();
 }

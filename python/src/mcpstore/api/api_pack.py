@@ -167,9 +167,11 @@ async def store_check_services():
 
 @api_store_router.get("/show_config")
 @timed_response
-async def store_show_config(scope: str = Query("all")):
+async def store_show_config(
+    scope: str = Query("all"), format: str = Query("native")
+):
     context = get_store().for_store()
-    result = await _execute(context, context.show_config_async(scope))
+    result = await _execute(context, context.show_config_async(scope, format))
     return ResponseBuilder.success(message="Config returned", data=result)
 
 
@@ -526,10 +528,12 @@ async def agent_check_services(agent_id: str):
 
 @api_agent_router.get("/{agent_id}/show_config")
 @timed_response
-async def agent_show_config(agent_id: str, scope: str = Query("all")):
+async def agent_show_config(
+    agent_id: str, scope: str = Query("all"), format: str = Query("native")
+):
     validate_agent_id(agent_id)
     context = get_store().for_agent(agent_id)
-    result = await _execute(context, context.show_config_async(scope))
+    result = await _execute(context, context.show_config_async(scope, format))
     return ResponseBuilder.success(message="Agent config returned", data=result)
 
 

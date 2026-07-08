@@ -766,6 +766,7 @@ fn build_server_config(
             transport: Some(resolved_transport),
             working_dir: None,
             description: None,
+            mcpstore: None,
         })
     } else {
         Ok(ServerConfig {
@@ -777,6 +778,7 @@ fn build_server_config(
             transport: Some(resolved_transport),
             working_dir: None,
             description: None,
+            mcpstore: None,
         })
     }
 }

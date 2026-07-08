@@ -10,6 +10,10 @@ impl MCPStore {
                 )
                 .await;
         }
+        if self.registry.find_service(name).await.is_none() {
+            return Err(StoreError::ServiceNotFound(name.to_string()));
+        }
+        self.clear_lifecycle_manual_stop(name).await?;
         self.connect_service_internal(name, false).await
     }
 
@@ -59,6 +63,16 @@ impl MCPStore {
         let now = Self::now_timestamp_f64();
         if automatic_retry {
             if let Some(status) = retry_state.as_ref() {
+                let lifecycle = self.resolved_service_lifecycle(name).await?;
+                if status.current_error.is_some()
+                    && !lifecycle.restart_policy.should_restart_after_failure(
+                        status.lifecycle_state.restart_attempts.max(1),
+                    )
+                {
+                    return Err(StoreError::Other(format!(
+                        "Service automatic restart disabled by restart_policy: {name}"
+                    )));
+                }
                 if Self::retry_exhausted(status, now) {
                     return Err(StoreError::Other(format!(
                         "Service automatic retry exhausted: {name}"

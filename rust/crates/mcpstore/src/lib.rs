@@ -3,6 +3,7 @@
 pub(crate) mod agent;
 pub mod cache;
 pub mod config;
+pub mod config_formats;
 pub(crate) mod control;
 pub mod core;
 pub mod events;

@@ -7,10 +7,12 @@ impl MCPStore {
             return Err(StoreError::ServiceNotFound(service_name.to_string()));
         }
         if self.is_openapi_virtual_service(service_name).await? {
+            self.ensure_service_auto_start_allowed(service_name).await?;
             self.connect_service_internal(service_name, true).await?;
             return Ok(());
         }
         if !self.pool.is_connected(service_name).await {
+            self.ensure_service_auto_start_allowed(service_name).await?;
             self.connect_service_internal(service_name, true).await?;
         }
         Ok(())

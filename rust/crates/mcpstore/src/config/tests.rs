@@ -68,6 +68,9 @@ fn test_default_template_contains_runtime_sections() {
     assert!(template.contains("[server]"));
     assert!(template.contains("[health_check]"));
     assert!(template.contains("[monitoring]"));
+    assert!(template.contains("[service_defaults.lifecycle]"));
+    assert!(template.contains("startup_policy = \"lazy\""));
+    assert!(template.contains("restart_policy = \"no\""));
     assert!(template.contains("[standalone]"));
     assert!(template.contains("[ui]"));
     assert!(template.contains("language = \"zh-cn\""));
@@ -150,6 +153,71 @@ fn test_infer_transport() {
         ..default_server_config()
     };
     assert_eq!(stdio.infer_transport(), "stdio");
+}
+
+#[test]
+fn test_service_lifecycle_extension_roundtrip_and_defaults() {
+    let raw = r#"
+    {
+      "command": "node",
+      "args": ["server.js"],
+      "_mcpstore": {
+        "lifecycle": {
+          "startup_policy": "on-store-start",
+          "restart_policy": "on-failure:3"
+        }
+      }
+    }
+    "#;
+    let config: ServerConfig = serde_json::from_str(raw).unwrap();
+    let lifecycle = config.resolved_lifecycle(&ServiceLifecycleDefaults::default());
+
+    assert_eq!(lifecycle.startup_policy, StartupPolicy::OnStoreStart);
+    assert_eq!(lifecycle.restart_policy.kind, RestartPolicyKind::OnFailure);
+    assert_eq!(lifecycle.restart_policy.max_retries, Some(3));
+
+    let serialized = serde_json::to_value(config).unwrap();
+    assert_eq!(
+        serialized["_mcpstore"]["lifecycle"]["restart_policy"],
+        serde_json::json!("on-failure:3")
+    );
+}
+
+#[test]
+fn test_service_lifecycle_ignores_old_draft_field_names() {
+    let raw = r#"
+    {
+      "command": "node",
+      "startup": "on-store-start",
+      "restart": "always"
+    }
+    "#;
+    let config: ServerConfig = serde_json::from_str(raw).unwrap();
+    let lifecycle = config.resolved_lifecycle(&ServiceLifecycleDefaults::default());
+
+    assert_eq!(lifecycle.startup_policy, StartupPolicy::Lazy);
+    assert_eq!(lifecycle.restart_policy.kind, RestartPolicyKind::No);
+}
+
+#[test]
+fn test_app_config_service_lifecycle_defaults_from_toml() {
+    let config: AppConfig = toml::from_str(
+        r#"
+        [service_defaults.lifecycle]
+        startup_policy = "on-store-start"
+        restart_policy = "unless-stopped"
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        config.service_defaults.lifecycle.startup_policy,
+        StartupPolicy::OnStoreStart
+    );
+    assert_eq!(
+        config.service_defaults.lifecycle.restart_policy.kind,
+        RestartPolicyKind::UnlessStopped
+    );
 }
 
 #[test]

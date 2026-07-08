@@ -2,9 +2,12 @@ use crate::store::prelude::*;
 
 impl MCPStore {
     pub async fn show_config(&self) -> Result<serde_json::Value> {
+        self.show_config_format(ConfigFormat::Native).await
+    }
+
+    pub async fn show_config_format(&self, format: ConfigFormat) -> Result<serde_json::Value> {
         let config = self.show_config_entry().await?;
-        serde_json::to_value(config)
-            .map_err(|e| StoreError::Other(format!("Config serialization failed: {e}")))
+        project_config(&config, format)
     }
 
     pub async fn show_config_entry(&self) -> Result<crate::config::McpConfig> {
@@ -44,10 +47,18 @@ impl MCPStore {
     }
 
     pub async fn show_config_scoped(&self, agent_id: Option<&str>) -> Result<serde_json::Value> {
+        self.show_config_scoped_format(agent_id, ConfigFormat::Native)
+            .await
+    }
+
+    pub async fn show_config_scoped_format(
+        &self,
+        agent_id: Option<&str>,
+        format: ConfigFormat,
+    ) -> Result<serde_json::Value> {
         let mut config = self.show_config_entry().await?;
         let Some(agent_id) = agent_id else {
-            return serde_json::to_value(config)
-                .map_err(|e| StoreError::Other(format!("Config serialization failed: {e}")));
+            return project_config(&config, format);
         };
 
         let service_names = config.agents.get(agent_id).cloned().unwrap_or_default();
@@ -60,8 +71,7 @@ impl MCPStore {
         config.agents.clear();
         config.agents.insert(agent_id.to_string(), service_names);
 
-        serde_json::to_value(config)
-            .map_err(|e| StoreError::Other(format!("Config serialization failed: {e}")))
+        project_config(&config, format)
     }
 
     pub async fn reset_config(&self) -> Result<()> {
@@ -192,10 +202,34 @@ impl MCPStore {
         }
 
         let cfg = self.config_manager.load_or_default();
-        for (name, server_config) in cfg.mcp_servers {
+        let services = cfg.mcp_servers;
+        for (name, server_config) in &services {
             if self.registry.find_service(&name).await.is_none() {
-                self.register_configured_service(&name, server_config)
+                self.register_configured_service(&name, server_config.clone())
                     .await?;
+            }
+        }
+        for (name, server_config) in &services {
+            let lifecycle =
+                server_config.resolved_lifecycle(&self.runtime_config.service_lifecycle_defaults);
+            if lifecycle.startup_policy != StartupPolicy::OnStoreStart {
+                continue;
+            }
+            let manually_stopped = self
+                .cached_service_status(name)
+                .await?
+                .map(|status| status.lifecycle_state.manual_stop_persistent)
+                .unwrap_or(false);
+            if lifecycle.restart_policy.is_unless_stopped() && manually_stopped {
+                continue;
+            }
+            self.clear_lifecycle_manual_stop(name).await?;
+            if let Err(error) = self.connect_service_internal(name, false).await {
+                tracing::warn!(
+                    "[STORE] on-store-start service connection failed: {} ({})",
+                    name,
+                    error
+                );
             }
         }
         let cfg = self.config_manager.load_or_default();
@@ -225,6 +259,39 @@ impl MCPStore {
             return Ok(None);
         };
         Ok(value.get("config").cloned())
+    }
+
+    pub(crate) async fn resolved_service_lifecycle(
+        &self,
+        name: &str,
+    ) -> Result<crate::config::ResolvedServiceLifecycle> {
+        let entry = self
+            .registry
+            .find_service(name)
+            .await
+            .ok_or_else(|| StoreError::ServiceNotFound(name.to_string()))?;
+        let config: ServerConfig = serde_json::from_value(entry.config).map_err(|error| {
+            StoreError::Other(format!(
+                "Service config deserialization failed during lifecycle resolution: {error}"
+            ))
+        })?;
+        Ok(config.resolved_lifecycle(&self.runtime_config.service_lifecycle_defaults))
+    }
+
+    pub(crate) async fn ensure_service_auto_start_allowed(&self, name: &str) -> Result<()> {
+        let Some(entry) = self.registry.find_service(name).await else {
+            return Err(StoreError::ServiceNotFound(name.to_string()));
+        };
+        if entry.status == ConnectionStatus::Connected {
+            return Ok(());
+        }
+        let lifecycle = self.resolved_service_lifecycle(name).await?;
+        if lifecycle.startup_policy == StartupPolicy::Manual {
+            return Err(StoreError::Other(format!(
+                "Service {name} uses startup_policy=manual; start it explicitly before use"
+            )));
+        }
+        Ok(())
     }
 
     async fn register_configured_service(&self, name: &str, config: ServerConfig) -> Result<()> {

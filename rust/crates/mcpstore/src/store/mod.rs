@@ -2,11 +2,11 @@ use std::sync::{atomic::AtomicU64, RwLock as SyncRwLock};
 
 pub(crate) use crate::cache::models::{
     AgentServiceRelation, HealthStatus, OpenApiImportContextState, ServiceEntity,
-    ServiceRelationItem, ServiceStatus, ServiceToolRelation, ToolAvailability, ToolEntity,
-    ToolRelationItem, ToolStatusItem,
+    ServiceLifecycleState, ServiceRelationItem, ServiceStatus, ServiceToolRelation,
+    ToolAvailability, ToolEntity, ToolRelationItem, ToolStatusItem,
 };
 pub(crate) use crate::cache::CacheLayerManager;
-pub(crate) use crate::config::{CacheBackend, ConfigManager, ServerConfig};
+pub(crate) use crate::config::{CacheBackend, ConfigManager, ServerConfig, StartupPolicy};
 pub(crate) use crate::events::{Event, EventBus};
 pub(crate) use crate::registry::{ConnectionStatus, ServiceEntry, ServiceRegistry};
 pub(crate) use crate::transport::client::ConnectionPool;
@@ -41,16 +41,18 @@ pub(crate) const CONTROL_REQUEST_EVENT_TYPE: &str = "control_requests";
 pub(crate) static CONTROL_EVENT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) mod prelude {
+    pub(crate) use crate::config_formats::{project_config, ConfigFormat};
     pub(crate) use crate::store::payload::wrap_cache_item;
     pub(crate) use crate::store::{
         generate_tool_global_name, normalize_service_name, parse_agent_scoped, resolve_tool,
         AgentServiceRelation, AvailableTool, BackendKind, CacheHealthReport, CacheStorage,
         ConnectionStatus, Event, HealthStatus, MCPStore, OpenApiImportContextState, Result,
         ScopedServiceEntry, ScopedServiceHealth, ScopedToolEntry, ServerConfig, ServiceEntity,
-        ServiceEntry, ServiceRelationItem, ServiceStatus, ServiceToolRelation, SourceMode,
-        StoreError, ToolAvailability, ToolChangeServiceResult, ToolChangeSummary, ToolDescription,
-        ToolEntity, ToolRelationItem, ToolResolution, ToolStatusItem, CONTROL_EVENT_SEQUENCE,
-        CONTROL_REQUEST_EVENT_TYPE, GLOBAL_AGENT_STORE,
+        ServiceEntry, ServiceLifecycleState, ServiceRelationItem, ServiceStatus,
+        ServiceToolRelation, SourceMode, StartupPolicy, StoreError, ToolAvailability,
+        ToolChangeServiceResult, ToolChangeSummary, ToolDescription, ToolEntity, ToolRelationItem,
+        ToolResolution, ToolStatusItem, CONTROL_EVENT_SEQUENCE, CONTROL_REQUEST_EVENT_TYPE,
+        GLOBAL_AGENT_STORE,
     };
 }
 

@@ -28,7 +28,7 @@ impl MCPStore {
                 || status
                     .hard_deadline
                     .map(|deadline| now >= deadline)
-                    .unwrap_or(false))
+                    .unwrap_or(true))
     }
 
     pub(crate) fn retry_poll_interval(status: &ServiceStatus) -> std::time::Duration {
@@ -50,9 +50,16 @@ impl MCPStore {
         let mut payload = self.load_or_default_status(name).await?;
         let now = Self::now_timestamp_f64();
         let attempts = payload.connection_attempts.saturating_add(1);
+        let lifecycle = self.resolved_service_lifecycle(name).await?;
+        let restart_attempts = payload.lifecycle_state.restart_attempts.saturating_add(1);
+        payload.lifecycle_state.restart_attempts = restart_attempts;
         let hard_deadline = payload
             .hard_deadline
             .unwrap_or(now + self.runtime_config.reconnect_hard_timeout_secs as f64);
+        let should_restart = !payload.lifecycle_state.manually_stopped
+            && lifecycle
+                .restart_policy
+                .should_restart_after_failure(restart_attempts);
 
         payload.last_health_check = now as i64;
         payload.connection_attempts = attempts;
@@ -64,7 +71,7 @@ impl MCPStore {
         payload.hard_deadline = Some(hard_deadline);
         payload.lease_deadline = None;
 
-        if attempts >= payload.max_connection_attempts || now >= hard_deadline {
+        if !should_restart {
             payload.health_status = HealthStatus::Disconnected;
             payload.next_retry_time = None;
             self.registry
@@ -84,15 +91,15 @@ impl MCPStore {
             return Ok(None);
         };
         let now = Self::now_timestamp_f64();
+        let lifecycle = self.resolved_service_lifecycle(name).await?;
+        let should_restart = !status.lifecycle_state.manually_stopped
+            && lifecycle
+                .restart_policy
+                .should_restart_after_failure(status.lifecycle_state.restart_attempts.max(1));
 
         match status.health_status {
             HealthStatus::CircuitOpen => {
-                if status.connection_attempts >= status.max_connection_attempts
-                    || status
-                        .hard_deadline
-                        .map(|deadline| now >= deadline)
-                        .unwrap_or(false)
-                {
+                if !should_restart {
                     status.health_status = HealthStatus::Disconnected;
                     status.last_health_check = now as i64;
                     status.next_retry_time = None;

@@ -74,6 +74,7 @@ impl MCPStore {
                 return Ok(status);
             }
             if !self.pool.is_connected(name).await {
+                self.ensure_service_auto_start_allowed(name).await?;
                 match self.connect_service_internal(name, true).await {
                     Ok(()) => continue,
                     Err(_) if tokio::time::Instant::now() < deadline => {

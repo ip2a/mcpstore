@@ -1161,8 +1161,8 @@ class RustStoreBackend:
     def resolve_service_name_for_agent(self, agent_id: str, service_name: str) -> str:
         return self._inner.resolve_service_name_for_agent(agent_id, service_name)
 
-    def show_config(self, scope: str = "all") -> Dict[str, Any]:
-        config = _record_value(self._inner.show_config())
+    def show_config(self, scope: str = "all", format: str = "native") -> Dict[str, Any]:
+        config = _record_value(self._inner.show_config(format))
         if scope in (None, "all"):
             return config
         if scope in ("mcp", "mcpServers"):
@@ -1177,10 +1177,11 @@ class RustStoreBackend:
         self,
         agent_id: Optional[str] = None,
         scope: str = "all",
+        format: str = "native",
     ) -> Dict[str, Any]:
         if agent_id is None:
-            return self.show_config(scope)
-        config = _record_value(self._inner.show_config_scoped(agent_id))
+            return self.show_config(scope, format)
+        config = _record_value(self._inner.show_config_scoped(agent_id, format))
         return self._filter_config_scope(config, scope)
 
     def _filter_config_scope(self, config: Dict[str, Any], scope: str = "all") -> Dict[str, Any]:
@@ -4214,13 +4215,15 @@ class RustStoreContext:
                 return preferences[flag]
         return default
 
-    def show_config(self, scope: str = "all") -> Dict[str, Any]:
+    def show_config(self, scope: str = "all", format: str = "native") -> Dict[str, Any]:
         if self._agent_id:
-            return self._backend.show_config_scoped(self._agent_id, scope)
-        return self._backend.show_config(scope)
+            return self._backend.show_config_scoped(self._agent_id, scope, format)
+        return self._backend.show_config(scope, format)
 
-    async def show_config_async(self, scope: str = "all") -> Dict[str, Any]:
-        return self.show_config(scope)
+    async def show_config_async(
+        self, scope: str = "all", format: str = "native"
+    ) -> Dict[str, Any]:
+        return self.show_config(scope, format)
 
     def show_mcpjson(self) -> Dict[str, Any]:
         return self._backend.show_mcpjson()

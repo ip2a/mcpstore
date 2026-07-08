@@ -7,9 +7,9 @@ use axum::{
 };
 use clap::Args;
 use mcpstore::{
-    config::ConfigError, perspective::GLOBAL_AGENT_STORE, AppConfig, CreateSessionRequest,
-    MCPStore, OpenApiBundleOptions, OpenApiImportOptions, OpenApiRefCachePolicy, SessionScope,
-    ToolTransformPatch,
+    config::ConfigError, config_formats::ConfigFormat, perspective::GLOBAL_AGENT_STORE, AppConfig,
+    CreateSessionRequest, MCPStore, OpenApiBundleOptions, OpenApiImportOptions,
+    OpenApiRefCachePolicy, SessionScope, ToolTransformPatch,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -72,6 +72,11 @@ struct SessionFindQuery {
     session_id: String,
     scope: Option<String>,
     agent_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ShowConfigQuery {
+    format: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1207,6 +1212,13 @@ async fn store_remove_service(
     Ok(success("服务删除成功", json!({ "status": "ok" })))
 }
 
+fn parse_config_format(value: Option<&str>) -> Result<ConfigFormat, ApiError> {
+    value
+        .unwrap_or("native")
+        .parse()
+        .map_err(ApiError::from_store)
+}
+
 async fn store_connect_service(
     State(state): State<Arc<ApiState>>,
     Path(service_name): Path<String>,
@@ -1770,10 +1782,14 @@ async fn store_service_status(
     Ok(success("服务状态获取成功", status))
 }
 
-async fn store_show_config(State(state): State<Arc<ApiState>>) -> ApiResult {
+async fn store_show_config(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<ShowConfigQuery>,
+) -> ApiResult {
+    let format = parse_config_format(query.format.as_deref())?;
     let config = state
         .store
-        .show_config()
+        .show_config_format(format)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("配置获取成功", config))
@@ -2124,10 +2140,12 @@ async fn agent_service_status(
 async fn agent_show_config(
     State(state): State<Arc<ApiState>>,
     Path(agent_id): Path<String>,
+    Query(query): Query<ShowConfigQuery>,
 ) -> ApiResult {
+    let format = parse_config_format(query.format.as_deref())?;
     let config = state
         .store
-        .show_config_scoped(Some(&agent_id))
+        .show_config_scoped_format(Some(&agent_id), format)
         .await
         .map_err(ApiError::from_store)?;
     Ok(success("Agent 配置获取成功", config))
@@ -2224,6 +2242,7 @@ mod tests {
             transport: Some("stdio".to_string()),
             working_dir: None,
             description: Some("fixture".to_string()),
+            mcpstore: None,
         }
     }
 
