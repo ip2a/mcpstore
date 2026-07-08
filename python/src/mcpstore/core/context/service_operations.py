@@ -162,8 +162,8 @@ class ServiceOperationsMixin:
         _ = reason
         return self.disconnect_service(name)
 
-    def show_config(self, scope: str = "all"):
-        return self._rust_context().show_config(scope)
+    def show_config(self, scope: str = "all", format: str = "native"):
+        return self._rust_context().show_config(scope, format)
 
     def show_mcpjson(self):
         return self._rust_context().show_mcpjson()
@@ -171,8 +171,8 @@ class ServiceOperationsMixin:
     def show_mcpconfig(self):
         return self.show_mcpjson()
 
-    async def show_config_async(self, scope: str = "all"):
-        return self.show_config(scope)
+    async def show_config_async(self, scope: str = "all", format: str = "native"):
+        return self.show_config(scope, format)
 
     async def show_mcpjson_async(self):
         return self.show_mcpjson()

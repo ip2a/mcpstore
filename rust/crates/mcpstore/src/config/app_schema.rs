@@ -4,6 +4,7 @@ use super::cache_schema::CacheConfig;
 use super::defaults::*;
 use super::health_schema::HealthCheckConfig;
 use super::monitoring_schema::MonitoringConfig;
+use super::service_schema::ServiceLifecycleDefaults;
 use super::standalone_schema::StandaloneConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +26,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub monitoring: MonitoringConfig,
     #[serde(default)]
+    pub service_defaults: ServiceDefaultsConfig,
+    #[serde(default)]
     pub standalone: StandaloneConfig,
     #[serde(default)]
     pub ui: UiConfig,
@@ -41,8 +44,23 @@ impl Default for AppConfig {
             server: ServerSettings::default(),
             health_check: HealthCheckConfig::default(),
             monitoring: MonitoringConfig::default(),
+            service_defaults: ServiceDefaultsConfig::default(),
             standalone: StandaloneConfig::default(),
             ui: UiConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceDefaultsConfig {
+    #[serde(default)]
+    pub lifecycle: ServiceLifecycleDefaults,
+}
+
+impl Default for ServiceDefaultsConfig {
+    fn default() -> Self {
+        Self {
+            lifecycle: ServiceLifecycleDefaults::default(),
         }
     }
 }

@@ -23,13 +23,16 @@ mod standalone_validation;
 mod tests;
 pub mod validator;
 
-pub use app_schema::{AppConfig, ServerSettings, UiConfig};
+pub use app_schema::{AppConfig, ServerSettings, ServiceDefaultsConfig, UiConfig};
 pub use cache_schema::{CacheBackend, CacheConfig};
 pub use health_schema::HealthCheckConfig;
 pub use manager::ConfigManager;
 pub use mcp_schema::McpConfig;
 pub use monitoring_schema::MonitoringConfig;
-pub use service_schema::ServerConfig;
+pub use service_schema::{
+    McpStoreExtension, ResolvedServiceLifecycle, RestartPolicy, RestartPolicyKind, ServerConfig,
+    ServiceLifecycleConfig, ServiceLifecycleDefaults, StartupPolicy,
+};
 pub use standalone_schema::StandaloneConfig;
 
 pub const DEFAULT_SERVER_LOG_LEVEL: &str = "info";

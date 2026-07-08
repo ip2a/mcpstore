@@ -318,6 +318,7 @@ impl MCPStore {
             transport: Some("openapi".to_string()),
             working_dir: None,
             description: result.spec_info.description.clone(),
+            mcpstore: None,
         };
         let config_value = openapi_config_value(&config, options)?;
         let tools = openapi_tool_infos(result);

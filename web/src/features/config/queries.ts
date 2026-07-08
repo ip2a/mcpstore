@@ -4,7 +4,7 @@ import { showAgentConfig, showConfig } from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
 
 export function useStoreConfigQuery() {
-  return useQuery({ enabled: false, queryKey: queryKeys.config, queryFn: showConfig })
+  return useQuery({ enabled: false, queryKey: queryKeys.config, queryFn: () => showConfig() })
 }
 
 export function useAgentConfigQuery(agentId: string) {

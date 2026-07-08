@@ -1839,6 +1839,7 @@ impl TuiApp {
             transport: Some("stdio".to_string()),
             working_dir: trim_optional(&self.add_service.working_dir),
             description: trim_optional(&self.add_service.description),
+            mcpstore: None,
         })
     }
 
@@ -1857,6 +1858,7 @@ impl TuiApp {
             transport: Some("streamable-http".to_string()),
             working_dir: None,
             description: trim_optional(&self.add_service.description),
+            mcpstore: None,
         })
     }
 
