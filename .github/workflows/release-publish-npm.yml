@@ -1,0 +1,72 @@
+name: release-publish-npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: "Run ID of the release-build-cli workflow"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validate release metadata
+        run: python scripts/release_preflight.py
+
+      - name: Download release-build artifacts
+        run: |
+          mkdir -p dist
+          for platform in darwin-arm64 darwin-x64 linux-x64-gnu linux-arm64-gnu win32-x64-msvc; do
+            gh run download "${{ inputs.build_run_id }}" --name "mcpstore-${platform}" --dir "dist/${platform}"
+          done
+
+      - name: Assemble npm platform packages
+        run: python scripts/assemble_npm_packages.py --dist-root dist
+
+      - name: Publish mcpstore-bin-darwin-arm64
+        run: npm publish --access public --provenance
+        working-directory: npm/packages/mcpstore-bin-darwin-arm64
+
+      - name: Publish mcpstore-bin-darwin-x64
+        run: npm publish --access public --provenance
+        working-directory: npm/packages/mcpstore-bin-darwin-x64
+
+      - name: Publish mcpstore-bin-linux-x64-gnu
+        run: npm publish --access public --provenance
+        working-directory: npm/packages/mcpstore-bin-linux-x64-gnu
+
+      - name: Publish mcpstore-bin-linux-arm64-gnu
+        run: npm publish --access public --provenance
+        working-directory: npm/packages/mcpstore-bin-linux-arm64-gnu
+
+      - name: Publish mcpstore-bin-win32-x64-msvc
+        run: npm publish --access public --provenance
+        working-directory: npm/packages/mcpstore-bin-win32-x64-msvc
+
+      - name: Publish npm main package
+        run: npm publish --access public --provenance
+        working-directory: npm/packages/mcpstore

@@ -155,14 +155,8 @@ impl MCPStore {
                 return Err(error.into());
             }
         };
-        let tool_infos: Vec<crate::registry::ToolInfo> = tools
-            .into_iter()
-            .map(|tool| crate::registry::ToolInfo {
-                name: tool.name,
-                description: tool.description,
-                schema: tool.input_schema,
-            })
-            .collect();
+        let tool_infos: Vec<crate::registry::ToolInfo> =
+            tools.into_iter().map(Into::into).collect();
 
         let tool_count = tool_infos.len();
         if let Some(mut entry) = self.registry.find_service(name).await {

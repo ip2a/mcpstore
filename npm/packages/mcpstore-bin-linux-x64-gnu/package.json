@@ -1,0 +1,13 @@
+{
+  "name": "mcpstore-bin-linux-x64-gnu",
+  "version": "1.5.18",
+  "description": "MCPStore CLI platform package for Linux x64 GNU",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ip2a/mcpstore"
+  },
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "files": ["bin", "README.md"]
+}

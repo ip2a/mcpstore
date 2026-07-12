@@ -8,6 +8,8 @@ pub(crate) mod control;
 pub mod core;
 pub mod events;
 pub(crate) mod health;
+#[cfg(feature = "mcp-server")]
+pub mod mcp_server;
 pub mod openapi;
 pub mod openapi_runtime;
 pub mod perspective;
@@ -50,7 +52,10 @@ pub use session::{
 };
 
 // Facade re-exports: transport
-pub use transport::{ContentItem, ToolCallResult, ToolDescription};
+pub use transport::{
+    ContentItem, DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, DiscoveredTool,
+    ToolCallResult,
+};
 
 // Facade re-exports: core store
 pub use core::{Result, StoreError};

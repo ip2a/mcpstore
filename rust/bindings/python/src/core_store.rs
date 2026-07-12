@@ -14,8 +14,7 @@ use mcpstore::{
         SessionStatus, SessionStatusState, SessionToolItem, SessionToolVisibility,
         ToolAvailability, ToolPreferenceState, ToolStatusItem, ToolTransformRule,
     },
-    ConnectionStatus, ContentItem, Event, ServiceEntry, StoreError, ToolCallResult,
-    ToolDescription, ToolInfo,
+    ConnectionStatus, ContentItem, Event, ServiceEntry, StoreError, ToolCallResult, ToolInfo,
 };
 use mcpstore::{
     CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, SessionCleanupReport,
@@ -155,18 +154,31 @@ fn connection_status_as_str(status: ConnectionStatus) -> &'static str {
 fn tool_info_to_py(py: Python<'_>, tool: &ToolInfo) -> PyResult<Py<PyAny>> {
     let dict = PyDict::new(py);
     dict.set_item("name", &tool.name)?;
-    dict.set_item("description", &tool.description)?;
-    dict.set_item("schema", serde_value_to_py(py, tool.schema.clone())?)?;
-    Ok(dict.into_any().unbind())
-}
-
-fn tool_description_to_py(py: Python<'_>, tool: &ToolDescription) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    dict.set_item("name", &tool.name)?;
+    dict.set_item("title", tool.title.as_deref())?;
     dict.set_item("description", &tool.description)?;
     dict.set_item(
         "input_schema",
         serde_value_to_py(py, tool.input_schema.clone())?,
+    )?;
+    dict.set_item(
+        "output_schema",
+        serde_value_to_py(
+            py,
+            tool.output_schema
+                .clone()
+                .unwrap_or(serde_json::Value::Null),
+        )?,
+    )?;
+    dict.set_item(
+        "annotations",
+        serde_value_to_py(
+            py,
+            tool.annotations.clone().unwrap_or(serde_json::Value::Null),
+        )?,
+    )?;
+    dict.set_item(
+        "_meta",
+        serde_value_to_py(py, tool.meta.clone().unwrap_or(serde_json::Value::Null))?,
     )?;
     Ok(dict.into_any().unbind())
 }
@@ -175,11 +187,31 @@ fn scoped_tool_entry_to_py(py: Python<'_>, tool: &ScopedToolEntry) -> PyResult<P
     let dict = PyDict::new(py);
     dict.set_item("name", &tool.name)?;
     dict.set_item("original_name", &tool.original_name)?;
+    dict.set_item("title", tool.title.as_deref())?;
     dict.set_item("description", &tool.description)?;
-    dict.set_item("schema", serde_value_to_py(py, tool.schema.clone())?)?;
     dict.set_item(
         "input_schema",
         serde_value_to_py(py, tool.input_schema.clone())?,
+    )?;
+    dict.set_item(
+        "output_schema",
+        serde_value_to_py(
+            py,
+            tool.output_schema
+                .clone()
+                .unwrap_or(serde_json::Value::Null),
+        )?,
+    )?;
+    dict.set_item(
+        "annotations",
+        serde_value_to_py(
+            py,
+            tool.annotations.clone().unwrap_or(serde_json::Value::Null),
+        )?,
+    )?;
+    dict.set_item(
+        "_meta",
+        serde_value_to_py(py, tool.meta.clone().unwrap_or(serde_json::Value::Null))?,
     )?;
     dict.set_item("service_name", &tool.service_name)?;
     dict.set_item("global_service_name", &tool.global_service_name)?;
@@ -1008,10 +1040,7 @@ impl PyMCPStore {
         let tools = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.list_tools(service_name))
             .map_err(map_store_err)?;
-        tools
-            .iter()
-            .map(|tool| tool_description_to_py(py, tool))
-            .collect()
+        tools.iter().map(|tool| tool_info_to_py(py, tool)).collect()
     }
 
     fn call_tool(
@@ -2002,6 +2031,22 @@ impl PyMCPStore {
             .iter()
             .map(|service| scoped_service_entry_to_py(py, service))
             .collect()
+    }
+
+    #[pyo3(signature = (agent_id, service_name))]
+    fn service_info_scoped(
+        &self,
+        py: Python<'_>,
+        agent_id: Option<String>,
+        service_name: &str,
+    ) -> PyResult<Py<PyAny>> {
+        let service = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(
+                self.inner
+                    .service_info_scoped(agent_id.as_deref(), service_name),
+            )
+            .map_err(map_store_err)?;
+        serde_value_to_py(py, service)
     }
 
     #[pyo3(signature = (agent_id=None, service_name=None, filter="all"))]

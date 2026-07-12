@@ -357,8 +357,6 @@ impl ToolSummary {
                 .to_string(),
             input_schema: value
                 .get("input_schema")
-                .or_else(|| value.get("schema"))
-                .or_else(|| value.get("inputSchema"))
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!({})),
         })
@@ -739,7 +737,12 @@ impl TuiApp {
         namespace: String,
         config_path: String,
     ) -> Self {
-        let initial_status = "[进行中] 正在加载服务列表".to_string();
+        let initial_status = i18n::text_with_args(
+            locale,
+            TextKey::StatusInProgressLoadingServices,
+            &[("what", "services")],
+        )
+        .to_string();
         let mut status_history = VecDeque::new();
         status_history.push_back(format_status_history_entry(&initial_status));
         Self {
@@ -1457,7 +1460,15 @@ impl TuiApp {
             .unwrap_or(0);
         self.add_service.selected_field = 0;
         self.add_service.pane = AddServicePane::Menu;
-        self.status_message = format!("[进行中] 添加服务模式: {}", self.add_service.mode.label());
+        self.status_message = format!(
+            "{} {}",
+            i18n::text(self.locale, TextKey::StatusInProgressPrefix),
+            i18n::text_with_args(
+                self.locale,
+                TextKey::AddingServiceMode,
+                &[("name", self.add_service.mode.label())]
+            )
+        );
     }
 
     fn shift_add_service_section(&mut self, offset: isize) {
@@ -1470,7 +1481,15 @@ impl TuiApp {
         self.add_service.selected_section = next as usize;
         self.add_service.mode = AddServiceMode::MENU[next as usize];
         self.add_service.selected_field = 0;
-        self.status_message = format!("[进行中] 添加服务: {}", self.add_service.mode.menu_label());
+        self.status_message = format!(
+            "{} {}",
+            i18n::text(self.locale, TextKey::StatusInProgressPrefix),
+            i18n::text_with_args(
+                self.locale,
+                TextKey::AddingService,
+                &[("name", self.add_service.mode.menu_label())]
+            )
+        );
     }
 
     fn shift_add_service_field(&mut self, offset: isize) {
@@ -1482,8 +1501,13 @@ impl TuiApp {
         let next = (self.add_service.selected_field as isize + offset).clamp(0, len - 1);
         self.add_service.selected_field = next as usize;
         self.status_message = format!(
-            "[进行中] 添加服务字段: {}",
-            self.add_service.selected_field().label()
+            "{} {}",
+            i18n::text(self.locale, TextKey::StatusInProgressPrefix),
+            i18n::text_with_args(
+                self.locale,
+                TextKey::AddingServiceField,
+                &[("name", self.add_service.selected_field().label())]
+            )
         );
     }
 
@@ -1495,7 +1519,11 @@ impl TuiApp {
         match modal.target {
             EditTarget::Locale => {
                 let Some(locale) = Locale::from_config_value(&modal.value) else {
-                    self.status_message = "[错误] 语种只支持 zh-cn 或 en-us".to_string();
+                    self.status_message = format!(
+                        "{} {}",
+                        i18n::text(self.locale, TextKey::StatusErrorPrefix),
+                        i18n::text(self.locale, TextKey::LocaleUnsupported)
+                    );
                     self.edit_modal = Some(modal);
                     return;
                 };
@@ -1504,7 +1532,15 @@ impl TuiApp {
                 let mut config = match manager.load_app_config_or_default() {
                     Ok(config) => config,
                     Err(error) => {
-                        self.status_message = format!("[错误] 读取配置失败: {error}");
+                        self.status_message = format!(
+                            "{} {}",
+                            i18n::text(self.locale, TextKey::StatusErrorPrefix),
+                            i18n::text_with_args(
+                                self.locale,
+                                TextKey::ReadConfigFailed,
+                                &[("error", &error.to_string())]
+                            )
+                        );
                         self.edit_modal = Some(modal);
                         return;
                     }
@@ -1512,29 +1548,61 @@ impl TuiApp {
                 config.ui.language = locale.as_config_value().to_string();
 
                 if let Err(error) = manager.save_app_config(&config) {
-                    self.status_message = format!("[错误] 保存配置失败: {error}");
+                    self.status_message = format!(
+                        "{} {}",
+                        i18n::text(self.locale, TextKey::StatusErrorPrefix),
+                        i18n::text_with_args(
+                            self.locale,
+                            TextKey::SaveConfigFailed,
+                            &[("error", &error.to_string())]
+                        )
+                    );
                     self.edit_modal = Some(modal);
                     return;
                 }
 
                 self.locale = locale;
-                self.status_message = "[成功] 已保存语种配置".to_string();
+                self.status_message = format!(
+                    "{} {}",
+                    i18n::text(self.locale, TextKey::StatusSuccessPrefix),
+                    i18n::text(self.locale, TextKey::LocaleSaved)
+                );
             }
             EditTarget::AddServiceField(field) => {
                 self.set_add_service_value(field, modal.value);
-                self.status_message = format!("[成功] 已更新字段 {}", field.label());
+                self.status_message = format!(
+                    "{} {}",
+                    i18n::text(self.locale, TextKey::StatusSuccessPrefix),
+                    i18n::text_with_args(
+                        self.locale,
+                        TextKey::FieldUpdated,
+                        &[("name", field.label())]
+                    )
+                );
             }
             EditTarget::ToolTestArgs => {
                 let parsed = match serde_json::from_str::<serde_json::Value>(&modal.value) {
                     Ok(parsed) => parsed,
                     Err(error) => {
-                        self.status_message = format!("[错误] 工具测试参数不是合法 JSON: {error}");
+                        self.status_message = format!(
+                            "{} {}",
+                            i18n::text(self.locale, TextKey::StatusErrorPrefix),
+                            i18n::text_with_args(
+                                self.locale,
+                                TextKey::ToolTestArgsInvalidJson,
+                                &[("error", &error.to_string())]
+                            )
+                        );
                         self.edit_modal = Some(modal);
                         return;
                     }
                 };
                 if !parsed.is_object() {
-                    self.status_message = "[错误] 工具测试参数必须是 JSON object".to_string();
+                    self.status_message = format!(
+                        "{} {}",
+                        i18n::text(self.locale, TextKey::StatusErrorPrefix),
+                        i18n::text(self.locale, TextKey::ToolTestArgsMustBeObject)
+                    );
                     self.edit_modal = Some(modal);
                     return;
                 }
@@ -1542,35 +1610,56 @@ impl TuiApp {
                 self.tool_test_args = modal.value;
                 self.pending_task = Some(PendingTask::ToolTest);
                 self.loading_modal = Some(LoadingModalState {
-                    title: "测试工具".to_string(),
-                    message: "正在调用工具并等待结果...".to_string(),
+                    title: i18n::text(self.locale, TextKey::TestingToolTitle).to_string(),
+                    message: i18n::text(self.locale, TextKey::CallingToolWaiting).to_string(),
                 });
-                self.status_message = "[进行中] 正在测试工具".to_string();
+                self.status_message = format!(
+                    "{} {}",
+                    i18n::text(self.locale, TextKey::StatusInProgressPrefix),
+                    i18n::text(self.locale, TextKey::TestingTool)
+                );
             }
             EditTarget::AgentId => {
                 let agent_id = modal.value.trim();
                 if agent_id.is_empty() {
-                    self.status_message = "[错误] Agent ID 不能为空".to_string();
+                    self.status_message = format!(
+                        "{} {}",
+                        i18n::text(self.locale, TextKey::StatusErrorPrefix),
+                        i18n::text(self.locale, TextKey::AgentIdCannotBeEmpty)
+                    );
                     self.edit_modal = Some(modal);
                     return;
                 }
                 self.ensure_agent_visible(agent_id.to_string());
-                self.status_message = format!("[成功] 已选择 Agent {agent_id}");
+                self.status_message = format!(
+                    "{} {}",
+                    i18n::text(self.locale, TextKey::StatusSuccessPrefix),
+                    i18n::text_with_args(self.locale, TextKey::AgentSelected, &[("id", agent_id)])
+                );
             }
             EditTarget::AgentAssignService => {
                 let service_name = modal.value.trim();
                 if service_name.is_empty() {
-                    self.status_message = "[错误] 服务名称不能为空".to_string();
+                    self.status_message = format!(
+                        "{} {}",
+                        i18n::text(self.locale, TextKey::StatusErrorPrefix),
+                        i18n::text(self.locale, TextKey::ServiceNameCannotBeEmpty)
+                    );
                     self.edit_modal = Some(modal);
                     return;
                 }
                 self.pending_agent_service = service_name.to_string();
                 self.pending_task = Some(PendingTask::AssignAgentService);
                 self.loading_modal = Some(LoadingModalState {
-                    title: "Agent 服务授权".to_string(),
-                    message: "正在更新 Agent 服务授权关系...".to_string(),
+                    title: i18n::text(self.locale, TextKey::AgentServiceAuthorization).to_string(),
+                    message: i18n::text(self.locale, TextKey::UpdatingAgentServiceAuthorization)
+                        .to_string(),
                 });
-                self.status_message = "[进行中] 正在授权服务给 Agent".to_string();
+                self.status_message = format!(
+                    "{} {}",
+                    i18n::text(self.locale, TextKey::StatusInProgressPrefix),
+                    i18n::text(self.locale, TextKey::AuthorizingServiceToAgent)
+                );
             }
         }
     }
@@ -1588,7 +1677,15 @@ impl TuiApp {
             EditTarget::Locale => {}
             EditTarget::AddServiceField(field) => {
                 self.set_add_service_value(field, value);
-                self.status_message = format!("[成功] 已选择字段 {}", field.label());
+                self.status_message = format!(
+                    "{} {}",
+                    i18n::text(self.locale, TextKey::StatusSuccessPrefix),
+                    i18n::text_with_args(
+                        self.locale,
+                        TextKey::FieldSelected,
+                        &[("name", field.label())]
+                    )
+                );
             }
             EditTarget::ToolTestArgs => {}
             EditTarget::AgentId | EditTarget::AgentAssignService => {}
@@ -1652,7 +1749,7 @@ impl TuiApp {
             title: "添加服务".to_string(),
             message: "正在写入配置、连接服务并刷新服务列表...".to_string(),
         });
-        self.status_message = "[进行中] 正在添加服务".to_string();
+        self.status_message = i18n::text(self.locale, TextKey::AddingService).to_string();
     }
 
     pub fn has_pending_task(&self) -> bool {
@@ -2293,7 +2390,7 @@ impl TuiApp {
 
     pub fn connect_selected(&mut self, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
         let Some(name) = self.current_service_name().map(ToString::to_string) else {
-            self.status_message = "[警告] 当前没有可操作的服务".to_string();
+            self.status_message = i18n::text(self.locale, TextKey::NoServiceToOperate).to_string();
             return Ok(());
         };
         rt.block_on(async { self.store.connect_service(&name).await })?;
@@ -2304,7 +2401,7 @@ impl TuiApp {
 
     pub fn disconnect_selected(&mut self, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
         let Some(name) = self.current_service_name().map(ToString::to_string) else {
-            self.status_message = "[警告] 当前没有可操作的服务".to_string();
+            self.status_message = i18n::text(self.locale, TextKey::NoServiceToOperate).to_string();
             return Ok(());
         };
         rt.block_on(async { self.store.disconnect_service(&name).await })?;
@@ -2315,7 +2412,7 @@ impl TuiApp {
 
     pub fn restart_selected(&mut self, rt: &tokio::runtime::Runtime) -> Result<(), BoxErr> {
         let Some(name) = self.current_service_name().map(ToString::to_string) else {
-            self.status_message = "[警告] 当前没有可操作的服务".to_string();
+            self.status_message = i18n::text(self.locale, TextKey::NoServiceToOperate).to_string();
             return Ok(());
         };
         rt.block_on(async { self.store.restart_service(&name).await })?;
@@ -2329,7 +2426,7 @@ impl TuiApp {
             self.pending_action = Some(PendingAction::Remove(name.clone()));
             self.status_message = format!("[警告] 确认删除服务 {name}？按 y 确认，按 n 取消");
         } else {
-            self.status_message = "[警告] 当前没有可操作的服务".to_string();
+            self.status_message = i18n::text(self.locale, TextKey::NoServiceToOperate).to_string();
         }
     }
 
@@ -2344,7 +2441,7 @@ impl TuiApp {
 
     pub fn cancel_pending(&mut self) {
         self.pending_action = None;
-        self.status_message = "[进行中] 已取消当前操作".to_string();
+        self.status_message = i18n::text(self.locale, TextKey::OperationCancelled).to_string();
     }
 }
 
@@ -2396,7 +2493,7 @@ pub fn run(
         config_path,
     );
     app.refresh(&rt, false)?;
-    app.status_message = "[成功] TUI 已就绪，按 q 退出".to_string();
+    app.status_message = i18n::text(app.locale, TextKey::TuiReady).to_string();
 
     let mut stdout = io::stdout();
     let _guard = TerminalGuard::enter(&mut stdout)?;

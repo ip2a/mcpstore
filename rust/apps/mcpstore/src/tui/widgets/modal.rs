@@ -6,6 +6,7 @@ use ratatui::{
 };
 
 use crate::tui::app::{SelectedDetail, ToolSummary};
+use crate::tui::i18n::{self, Locale, TextKey};
 use crate::tui::{layout, theme};
 
 pub fn render_confirm(frame: &mut Frame, title: &str, lines: Vec<Line<'static>>) {
@@ -53,7 +54,13 @@ pub fn render_loading(frame: &mut Frame, title: &str, message: &str) {
     );
 }
 
-pub fn render_select(frame: &mut Frame, title: &str, options: &[String], selected: usize) {
+pub fn render_select(
+    frame: &mut Frame,
+    locale: Locale,
+    title: &str,
+    options: &[String],
+    selected: usize,
+) {
     let mut lines = vec![
         Line::from(Span::styled(title.to_string(), theme::accent_bold())),
         Line::from(""),
@@ -74,7 +81,7 @@ pub fn render_select(frame: &mut Frame, title: &str, options: &[String], selecte
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "j/k 或方向键选择，Enter 确认，Esc 取消",
+        i18n::text(locale, TextKey::SelectModalHint),
         theme::muted(),
     )));
 
@@ -87,22 +94,28 @@ pub fn render_select(frame: &mut Frame, title: &str, options: &[String], selecte
     );
 }
 
-pub fn render_service_detail(frame: &mut Frame, detail: &SelectedDetail) {
+pub fn render_service_detail(frame: &mut Frame, locale: Locale, detail: &SelectedDetail) {
     let mut lines = vec![
         Line::from(Span::styled(detail.title.clone(), theme::accent_bold())),
         Line::from(""),
-        kv_line("Transport", &detail.transport),
-        kv_line("Endpoint", &detail.endpoint),
-        kv_line("Scope", &detail.scope),
-        kv_line("Added", &detail.added_time),
-        kv_line("Connection", &detail.connection_status),
-        kv_line("Health", &detail.health_status),
-        kv_line("Attempts", &detail.attempts),
-        kv_line("Latency", &detail.latency),
-        kv_line("Retry", &detail.retry_time),
-        kv_line("Error", &detail.error_message),
+        kv_line(i18n::text(locale, TextKey::Transport), &detail.transport),
+        kv_line(i18n::text(locale, TextKey::Endpoint), &detail.endpoint),
+        kv_line(i18n::text(locale, TextKey::Scope), &detail.scope),
+        kv_line(i18n::text(locale, TextKey::Added), &detail.added_time),
+        kv_line(
+            i18n::text(locale, TextKey::Connection),
+            &detail.connection_status,
+        ),
+        kv_line(i18n::text(locale, TextKey::Health), &detail.health_status),
+        kv_line(i18n::text(locale, TextKey::Attempts), &detail.attempts),
+        kv_line(i18n::text(locale, TextKey::Latency), &detail.latency),
+        kv_line(i18n::text(locale, TextKey::Retry), &detail.retry_time),
+        kv_line(i18n::text(locale, TextKey::Error), &detail.error_message),
         Line::from(""),
-        Line::from(Span::styled("Tools", theme::field_label())),
+        Line::from(Span::styled(
+            i18n::text(locale, TextKey::Tools),
+            theme::field_label(),
+        )),
     ];
 
     if detail.tools.is_empty() {
@@ -124,15 +137,22 @@ pub fn render_service_detail(frame: &mut Frame, detail: &SelectedDetail) {
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "Enter 或 Esc 关闭",
+        i18n::text(locale, TextKey::ModalCloseHint),
         theme::muted(),
     )));
 
-    render_lines(frame, "服务详情", lines, 72, 62);
+    render_lines(
+        frame,
+        i18n::text(locale, TextKey::ServiceDetail),
+        lines,
+        72,
+        62,
+    );
 }
 
 pub fn render_tool_detail(
     frame: &mut Frame,
+    locale: Locale,
     service_name: &str,
     tool: &ToolSummary,
     test_args: &str,
@@ -141,9 +161,9 @@ pub fn render_tool_detail(
     let mut lines = vec![
         Line::from(Span::styled(tool.name.clone(), theme::accent_bold())),
         Line::from(""),
-        kv_line("Service", service_name),
+        kv_line(i18n::text(locale, TextKey::Service), service_name),
         kv_line(
-            "Description",
+            i18n::text(locale, TextKey::Description),
             if tool.description.trim().is_empty() {
                 "-"
             } else {
@@ -151,7 +171,10 @@ pub fn render_tool_detail(
             },
         ),
         Line::from(""),
-        Line::from(Span::styled("Input schema", theme::field_label())),
+        Line::from(Span::styled(
+            i18n::text(locale, TextKey::InputSchema),
+            theme::field_label(),
+        )),
     ];
 
     let schema =
@@ -164,12 +187,21 @@ pub fn render_tool_detail(
     }
 
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("Test", theme::field_label())));
-    lines.push(kv_line("Args", test_args));
+    lines.push(Line::from(Span::styled(
+        i18n::text(locale, TextKey::Test),
+        theme::field_label(),
+    )));
+    lines.push(kv_line(i18n::text(locale, TextKey::Args), test_args));
     if test_result.is_empty() {
-        lines.push(Line::from(Span::styled("Result: -", theme::muted())));
+        lines.push(Line::from(Span::styled(
+            format!("{}: -", i18n::text(locale, TextKey::Result)),
+            theme::muted(),
+        )));
     } else {
-        lines.push(Line::from(Span::styled("Result:", theme::muted())));
+        lines.push(Line::from(Span::styled(
+            format!("{}:", i18n::text(locale, TextKey::Result)),
+            theme::muted(),
+        )));
         for line in test_result.iter().take(8) {
             lines.push(Line::from(Span::styled(line.clone(), theme::text())));
         }
@@ -183,11 +215,17 @@ pub fn render_tool_detail(
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "t 测试工具，Enter 或 Esc 关闭",
+        i18n::text(locale, TextKey::TestToolKeyHint),
         theme::muted(),
     )));
 
-    render_lines(frame, "工具详情", lines, 78, 72);
+    render_lines(
+        frame,
+        i18n::text(locale, TextKey::ToolDetail),
+        lines,
+        78,
+        72,
+    );
 }
 
 fn kv_line(label: &'static str, value: &str) -> Line<'static> {

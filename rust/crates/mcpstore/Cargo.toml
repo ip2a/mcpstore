@@ -8,7 +8,7 @@ license = "MIT"
 repository = "https://github.com/ip2a/mcpstore"
 description = "MCPStore - unified MCP service management library"
 keywords = ["mcp", "ai", "tools", "registry", "cache"]
-categories = ["command-line-utilities"]
+categories = ["api-bindings", "development-tools"]
 
 [dependencies]
 tokio = { version = "1.40", features = ["rt-multi-thread", "sync", "macros", "time", "process", "io-util", "signal", "net"] }
@@ -24,11 +24,13 @@ uuid = { version = "1.10", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 # MCP protocol
-rmcp = { version = "1.5", features = ["client", "server", "transport-io", "transport-child-process", "transport-streamable-http-client-reqwest", "transport-streamable-http-server", "reqwest"] }
+rmcp = { version = "1.5", features = ["client", "server", "transport-io", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest"] }
 
 # Cache backends
 openkeyv = { version = "0.1.4", default-features = false, features = ["redis"] }
 redis = { workspace = true }
+# HTTP / web (only needed for the optional MCP server runner)
+axum = { version = "0.7", optional = true }
 http = "1"
 iri-string = "0.7.12"
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
@@ -36,6 +38,10 @@ base64 = "0.22"
 regex = "1.11"
 email_address = { version = "0.2.9", default-features = false }
 blake3 = "1"
+
+[features]
+default = ["mcp-server"]
+mcp-server = ["dep:axum", "rmcp/transport-streamable-http-server"]
 
 [dev-dependencies]
 tokio-test = "0.4"

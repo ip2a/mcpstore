@@ -7,7 +7,7 @@ use ratatui::{
 
 use crate::tui::{
     app::{AddServiceField, AddServiceMode, AddServicePane, FocusArea, TuiApp},
-    i18n::{self, TextKey},
+    i18n::{self, Locale, TextKey},
     layout as tui_layout, theme, widgets,
 };
 
@@ -26,7 +26,10 @@ pub fn render_control_bar(frame: &mut Frame, area: Rect, app: &TuiApp) {
         ));
         spans.push(Span::raw("  "));
     }
-    spans.push(Span::styled(" h/l 切换模式  a 提交", theme::text()));
+    spans.push(Span::styled(
+        i18n::text(app.locale, TextKey::AddServiceControlBarHint),
+        theme::text(),
+    ));
 
     widgets::chrome::render_control_bar(frame, area, app, Line::from(spans));
 }
@@ -69,7 +72,10 @@ fn render_menu(frame: &mut Frame, area: Rect, app: &TuiApp) {
         });
 
     let menu = List::new(items)
-        .block(widgets::chrome::panel_block(" 添加方式 ", focused).padding(Padding::horizontal(1)))
+        .block(
+            widgets::chrome::panel_block(i18n::text(app.locale, TextKey::AddMethod), focused)
+                .padding(Padding::horizontal(1)),
+        )
         .style(theme::text());
     frame.render_widget(menu, area);
 }
@@ -94,33 +100,43 @@ fn render_summary(frame: &mut Frame, area: Rect, app: &TuiApp) {
         app.focus_area == FocusArea::ViewTable && app.add_service.pane == AddServicePane::Form;
     let summary = Paragraph::new(vec![
         Line::from(vec![
-            Span::styled("模式: ", theme::muted()),
+            Span::styled(i18n::text(app.locale, TextKey::ModeLabel), theme::muted()),
             Span::styled(app.add_service.mode.label(), theme::field_label()),
             Span::raw("    "),
-            Span::styled("模块: ", theme::muted()),
+            Span::styled(i18n::text(app.locale, TextKey::ModuleLabel), theme::muted()),
             Span::styled(app.add_service.mode.menu_label(), theme::field_label()),
             Span::raw("    "),
             Span::styled(
-                if focused {
-                    "焦点: 右侧表单"
-                } else {
-                    "焦点: 左侧菜单"
-                },
+                format!(
+                    "{}{}",
+                    i18n::text(app.locale, TextKey::FocusLabel),
+                    if focused {
+                        i18n::text(app.locale, TextKey::FocusRightForm)
+                    } else {
+                        i18n::text(app.locale, TextKey::FocusLeftMenu)
+                    }
+                ),
                 theme::text(),
             ),
         ]),
         Line::from(vec![
-            Span::styled("Name: ", theme::muted()),
+            Span::styled(i18n::text(app.locale, TextKey::NameLabel), theme::muted()),
             Span::styled(empty_label(&app.add_service.name), theme::field_value()),
             Span::raw("    "),
-            Span::styled("Scope: ", theme::muted()),
+            Span::styled(i18n::text(app.locale, TextKey::ScopeLabel), theme::muted()),
             Span::styled(&app.add_service.scope, theme::field_value()),
             Span::raw("    "),
-            Span::styled("Connect: ", theme::muted()),
+            Span::styled(
+                i18n::text(app.locale, TextKey::ConnectLabel),
+                theme::muted(),
+            ),
             Span::styled(&app.add_service.connect_after_add, theme::field_value()),
         ]),
     ])
-    .block(widgets::chrome::panel_block(" 概要 ", false).padding(Padding::horizontal(1)))
+    .block(
+        widgets::chrome::panel_block(i18n::text(app.locale, TextKey::Summary), false)
+            .padding(Padding::horizontal(1)),
+    )
     .style(theme::text());
     frame.render_widget(summary, area);
 }
@@ -134,8 +150,14 @@ fn render_fields(frame: &mut Frame, area: Rect, app: &TuiApp) {
         let line = if *field == AddServiceField::Submit {
             Line::from(vec![
                 Span::styled(if selected { "> " } else { "  " }, theme::accent()),
-                Span::styled("Add service", theme::field_label()),
-                Span::styled("    Enter 或 a 提交", theme::text()),
+                Span::styled(
+                    i18n::text(app.locale, TextKey::AddService),
+                    theme::field_label(),
+                ),
+                Span::styled(
+                    i18n::text(app.locale, TextKey::AddServiceSubmitHint),
+                    theme::text(),
+                ),
             ])
         } else {
             Line::from(vec![
@@ -174,11 +196,14 @@ fn render_hint(frame: &mut Frame, area: Rect, app: &TuiApp) {
     let paragraph = Paragraph::new(vec![
         Line::from(Span::styled(hint, theme::text())),
         Line::from(Span::styled(
-            "h/l 切换左右栏，j/k 或方向键切换，Enter 编辑/选择",
+            i18n::text(app.locale, TextKey::AddServiceControlHint),
             theme::muted(),
         )),
     ])
-    .block(widgets::chrome::panel_block(" 操作 ", false).padding(Padding::horizontal(1)))
+    .block(
+        widgets::chrome::panel_block(i18n::text(app.locale, TextKey::Actions), false)
+            .padding(Padding::horizontal(1)),
+    )
     .wrap(Wrap { trim: true });
     frame.render_widget(paragraph, area);
 }
@@ -186,9 +211,13 @@ fn render_hint(frame: &mut Frame, area: Rect, app: &TuiApp) {
 fn selected_hint(app: &TuiApp) -> &'static str {
     let fields = app.add_service.selected_fields();
     if fields == [AddServiceField::Submit] {
-        return "提交后会真实调用 MCPStore::add_service，成功后刷新并返回服务列表。";
+        return i18n::text(app.locale, TextKey::SubmitHint);
     }
-    field_help(app.add_service.mode, app.add_service.selected_field())
+    field_help(
+        app.add_service.mode,
+        app.add_service.selected_field(),
+        app.locale,
+    )
 }
 
 fn field_value(app: &TuiApp, field: AddServiceField) -> String {
@@ -210,26 +239,26 @@ fn field_value(app: &TuiApp, field: AddServiceField) -> String {
     }
 }
 
-fn field_help(mode: AddServiceMode, field: AddServiceField) -> &'static str {
+fn field_help(mode: AddServiceMode, field: AddServiceField, locale: Locale) -> &'static str {
     match field {
-        AddServiceField::Name => "服务名称，写入 mcpServers 的 key。",
-        AddServiceField::Command => "stdio 模式命令。可以填完整命令，TUI 会拆出 command 和 args。",
-        AddServiceField::Args => "额外 stdio 参数，按空格分隔。",
-        AddServiceField::Url => "http 模式 URL。必须以 http:// 或 https:// 开头。",
-        AddServiceField::Description => "可选描述，会保存到 ServerConfig.description。",
-        AddServiceField::WorkingDir => "可选工作目录，会保存到 ServerConfig.workingDir。",
-        AddServiceField::Env => "stdio 环境变量。格式 KEY=VALUE，可用逗号分隔多项。",
-        AddServiceField::Headers => "http 请求头。格式 KEY=VALUE，可用逗号分隔多项。",
-        AddServiceField::Scope => "store 表示全局服务，agent 表示添加并授权到指定 Agent。",
-        AddServiceField::Agent => "Scope 为 agent 时必填。",
-        AddServiceField::ConnectAfterAdd => "yes 会在添加后立即调用 connect_service 并刷新状态。",
+        AddServiceField::Name => i18n::text(locale, TextKey::FieldHelpName),
+        AddServiceField::Command => i18n::text(locale, TextKey::FieldHelpCommand),
+        AddServiceField::Args => i18n::text(locale, TextKey::FieldHelpArgs),
+        AddServiceField::Url => i18n::text(locale, TextKey::FieldHelpUrl),
+        AddServiceField::Description => i18n::text(locale, TextKey::FieldHelpDescription),
+        AddServiceField::WorkingDir => i18n::text(locale, TextKey::FieldHelpWorkingDir),
+        AddServiceField::Env => i18n::text(locale, TextKey::FieldHelpEnv),
+        AddServiceField::Headers => i18n::text(locale, TextKey::FieldHelpHeaders),
+        AddServiceField::Scope => i18n::text(locale, TextKey::FieldHelpScope),
+        AddServiceField::Agent => i18n::text(locale, TextKey::FieldHelpAgent),
+        AddServiceField::ConnectAfterAdd => i18n::text(locale, TextKey::FieldHelpConnectAfterAdd),
         AddServiceField::Json if mode == AddServiceMode::Json => {
-            "ServerConfig JSON，不包含外层 mcpServers。"
+            i18n::text(locale, TextKey::FieldHelpJson)
         }
         AddServiceField::Toml if mode == AddServiceMode::Toml => {
-            "ServerConfig TOML，不包含外层 mcpServers。"
+            i18n::text(locale, TextKey::FieldHelpToml)
         }
-        _ => "当前字段可编辑。",
+        _ => i18n::text(locale, TextKey::FieldHelpDefault),
     }
 }
 

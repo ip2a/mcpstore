@@ -35,8 +35,12 @@ async fn register_tool_service(store: &MCPStore, name: &str, tools: &[&str]) {
         .iter()
         .map(|tool| crate::registry::ToolInfo {
             name: (*tool).to_string(),
+            title: None,
             description: (*tool).to_string(),
-            schema: serde_json::json!({"type": "object"}),
+            input_schema: serde_json::json!({"type": "object"}),
+            output_schema: None,
+            annotations: None,
+            meta: None,
         })
         .collect();
     store.registry.register(service).await;
@@ -899,8 +903,12 @@ async fn bind_and_unbind_service_updates_session_relation() {
             "svc",
             &[crate::registry::ToolInfo {
                 name: "echo".to_string(),
+                title: None,
                 description: "echo".to_string(),
-                schema: serde_json::json!({"type": "object"}),
+                input_schema: serde_json::json!({"type": "object"}),
+                output_schema: None,
+                annotations: None,
+                meta: None,
             }],
         )
         .await
@@ -1062,8 +1070,12 @@ async fn list_tools_in_agent_session_intersects_agent_services() {
         service.status = ConnectionStatus::Connected;
         service.tools = vec![crate::registry::ToolInfo {
             name: "echo".to_string(),
+            title: None,
             description: "echo".to_string(),
-            schema: serde_json::json!({"type": "object"}),
+            input_schema: serde_json::json!({"type": "object"}),
+            output_schema: None,
+            annotations: None,
+            meta: None,
         }];
         store.registry.register(service).await;
     }

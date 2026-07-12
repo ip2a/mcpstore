@@ -19,7 +19,7 @@ impl MCPStore {
                         &original_name,
                         fallback_display_name,
                         tool.description,
-                        tool.schema,
+                        tool.input_schema,
                     )
                     .await?;
                 tools.push(Self::tool_payload_value(
@@ -27,8 +27,12 @@ impl MCPStore {
                     original_name,
                     service.name.clone(),
                     service.name.clone(),
+                    tool.title,
                     transformed.description,
-                    transformed.schema,
+                    transformed.input_schema,
+                    tool.output_schema,
+                    tool.annotations,
+                    tool.meta,
                 )?);
             }
         }
@@ -55,7 +59,7 @@ impl MCPStore {
                         &original_name,
                         fallback_display_name,
                         tool.description,
-                        tool.schema,
+                        tool.input_schema,
                     )
                     .await?;
                 tools.push(Self::scoped_tool_entry(
@@ -63,8 +67,12 @@ impl MCPStore {
                     original_name,
                     service.name.clone(),
                     service.name.clone(),
+                    tool.title,
                     transformed.description,
-                    transformed.schema,
+                    transformed.input_schema,
+                    tool.output_schema,
+                    tool.annotations,
+                    tool.meta,
                 )?);
             }
         }
@@ -104,8 +112,12 @@ impl MCPStore {
                     original_name,
                     local_service_name.clone(),
                     global_service_name.clone(),
+                    tool.title,
                     transformed.description,
-                    transformed.schema,
+                    transformed.input_schema,
+                    tool.output_schema,
+                    tool.annotations,
+                    tool.meta,
                 )?);
             }
         }
@@ -144,8 +156,12 @@ impl MCPStore {
                     original_name,
                     service.original_name.clone(),
                     global_service_name.clone(),
+                    tool.title,
                     transformed.description,
-                    transformed.schema,
+                    transformed.input_schema,
+                    tool.output_schema,
+                    tool.annotations,
+                    tool.meta,
                 )?);
             }
         }

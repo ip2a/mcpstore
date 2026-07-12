@@ -8,11 +8,9 @@ impl MCPStore {
         let mut prompts = Vec::new();
         for (display_service_name, global_service_name) in targets {
             let mut service_prompts = self.list_prompts(&global_service_name).await?;
-            service_prompts.sort_by(|left, right| {
-                Self::value_field(left, "name").cmp(Self::value_field(right, "name"))
-            });
+            service_prompts.sort_by(|left, right| left.name.cmp(&right.name));
             for prompt in service_prompts {
-                let original_name = Self::required_value_field(&prompt, "name")?;
+                let original_name = prompt.name.clone();
                 let display_name = format!("{}_{}", display_service_name, original_name);
                 prompts.push(Self::prompt_payload_value(
                     prompt,
@@ -35,11 +33,9 @@ impl MCPStore {
         let mut prompts = Vec::new();
         for (display_service_name, global_service_name) in targets {
             let mut service_prompts = self.list_prompts(&global_service_name).await?;
-            service_prompts.sort_by(|left, right| {
-                Self::value_field(left, "name").cmp(Self::value_field(right, "name"))
-            });
+            service_prompts.sort_by(|left, right| left.name.cmp(&right.name));
             for prompt in service_prompts {
-                let original_name = Self::required_value_field(&prompt, "name")?;
+                let original_name = prompt.name.clone();
                 let display_name = format!("{}_{}", display_service_name, original_name);
                 prompts.push(Self::prompt_payload_value(
                     prompt,

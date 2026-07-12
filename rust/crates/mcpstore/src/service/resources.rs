@@ -1,7 +1,7 @@
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub async fn list_resources(&self, service_name: &str) -> Result<Vec<serde_json::Value>> {
+    pub async fn list_resources(&self, service_name: &str) -> Result<Vec<DiscoveredResource>> {
         self.ensure_service_connected(service_name).await?;
         if self.is_openapi_virtual_service(service_name).await? {
             let import = self
@@ -10,7 +10,14 @@ impl MCPStore {
                 .ok_or_else(|| {
                     StoreError::Other(format!("OpenAPI import not found: {service_name}"))
                 })?;
-            return Ok(crate::openapi_runtime::list_openapi_resources(&import));
+            return crate::openapi_runtime::list_openapi_resources(&import)
+                .into_iter()
+                .map(|resource| {
+                    serde_json::from_value(resource).map_err(|err| {
+                        StoreError::Other(format!("OpenAPI resource model failed: {err}"))
+                    })
+                })
+                .collect();
         }
         self.pool
             .list_resources(service_name)
@@ -21,7 +28,7 @@ impl MCPStore {
     pub async fn list_resource_templates(
         &self,
         service_name: &str,
-    ) -> Result<Vec<serde_json::Value>> {
+    ) -> Result<Vec<DiscoveredResourceTemplate>> {
         self.ensure_service_connected(service_name).await?;
         if self.is_openapi_virtual_service(service_name).await? {
             let import = self
@@ -30,9 +37,14 @@ impl MCPStore {
                 .ok_or_else(|| {
                     StoreError::Other(format!("OpenAPI import not found: {service_name}"))
                 })?;
-            return Ok(crate::openapi_runtime::list_openapi_resource_templates(
-                &import,
-            ));
+            return crate::openapi_runtime::list_openapi_resource_templates(&import)
+                .into_iter()
+                .map(|template| {
+                    serde_json::from_value(template).map_err(|err| {
+                        StoreError::Other(format!("OpenAPI resource template model failed: {err}"))
+                    })
+                })
+                .collect();
         }
         self.pool
             .list_resource_templates(service_name)

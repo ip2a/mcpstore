@@ -27,8 +27,12 @@ impl MCPStore {
                         original_name,
                         service_name.to_string(),
                         service_name.to_string(),
+                        tool.title,
                         transformed.description,
-                        transformed.schema,
+                        transformed.input_schema,
+                        tool.output_schema,
+                        tool.annotations,
+                        tool.meta,
                     )?);
                 }
                 Ok(payload)
@@ -60,8 +64,12 @@ impl MCPStore {
                         original_name,
                         service.original_name.clone(),
                         global_service_name.clone(),
+                        tool.title,
                         transformed.description,
-                        transformed.schema,
+                        transformed.input_schema,
+                        tool.output_schema,
+                        tool.annotations,
+                        tool.meta,
                     )?);
                 }
                 Ok(payload)
@@ -97,8 +105,12 @@ impl MCPStore {
                         original_name,
                         service_name.to_string(),
                         service_name.to_string(),
+                        tool.title,
                         transformed.description,
-                        transformed.schema,
+                        transformed.input_schema,
+                        tool.output_schema,
+                        tool.annotations,
+                        tool.meta,
                     )?);
                 }
                 Ok(entries)
@@ -131,8 +143,12 @@ impl MCPStore {
                         original_name,
                         service.original_name.clone(),
                         global_service_name.clone(),
+                        tool.title,
                         transformed.description,
-                        transformed.schema,
+                        transformed.input_schema,
+                        tool.output_schema,
+                        tool.annotations,
+                        tool.meta,
                     )?);
                 }
                 Ok(entries)

@@ -13,6 +13,7 @@ use mcpstore::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tower_http::cors::CorsLayer;
 
 use crate::{
     store_args::{build_store, StoreSourceArgs},
@@ -42,7 +43,7 @@ pub struct ApiArgs {
 }
 
 #[derive(Clone)]
-struct ApiState {
+pub struct ApiState {
     store: Arc<MCPStore>,
 }
 
@@ -186,13 +187,7 @@ pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
     store.load_from_source().await?;
 
     let prefix = normalize_prefix(&args.url_prefix);
-    let state = Arc::new(ApiState {
-        store: Arc::new(store),
-    });
-    if !state.store.is_db_source() {
-        spawn_control_request_worker(state.store.clone());
-    }
-    let app = router(state, &prefix);
+    let app = router_for_store(Arc::new(store), &prefix);
 
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -205,6 +200,14 @@ pub async fn run(args: ApiArgs) -> Result<(), BoxErr> {
 
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+pub fn router_for_store(store: Arc<MCPStore>, prefix: &str) -> Router {
+    let state = Arc::new(ApiState { store });
+    if !state.store.is_db_source() {
+        spawn_control_request_worker(state.store.clone());
+    }
+    router(state, prefix)
 }
 
 fn spawn_control_request_worker(store: Arc<MCPStore>) {
@@ -461,9 +464,11 @@ fn router(state: Arc<ApiState>, prefix: &str) -> Router {
         .with_state(state);
 
     if prefix.is_empty() {
-        base
+        base.layer(CorsLayer::permissive())
     } else {
-        Router::new().nest(prefix, base)
+        Router::new()
+            .nest(prefix, base)
+            .layer(CorsLayer::permissive())
     }
 }
 
@@ -2246,8 +2251,26 @@ mod tests {
         }
     }
 
+    fn stdio_config_with_lifecycle() -> ServerConfig {
+        let mut config = stdio_config();
+        config.mcpstore = Some(mcpstore::config::McpStoreExtension {
+            lifecycle: Some(mcpstore::config::ServiceLifecycleConfig {
+                startup_policy: Some(mcpstore::config::StartupPolicy::Lazy),
+                restart_policy: Some(mcpstore::config::RestartPolicy {
+                    kind: mcpstore::config::RestartPolicyKind::OnFailure,
+                    max_retries: Some(3),
+                }),
+            }),
+        });
+        config
+    }
+
     async fn seed_db_service(store: &MCPStore) {
         let config = stdio_config();
+        seed_db_service_config(store, config).await;
+    }
+
+    async fn seed_db_service_config(store: &MCPStore, config: ServerConfig) {
         let cache = store.cache();
         cache
             .put_entity(
@@ -2291,6 +2314,7 @@ mod tests {
                     service_global_name: "demo".to_string(),
                     service_original_name: "demo".to_string(),
                     source_agent: "global_agent_store".to_string(),
+                    title: None,
                     description: "echo tool".to_string(),
                     input_schema: json!({
                         "type": "object",
@@ -2300,6 +2324,9 @@ mod tests {
                         },
                         "required": ["text", "debug"]
                     }),
+                    output_schema: None,
+                    annotations: None,
+                    meta: None,
                     created_time: 111,
                     tool_hash: "fixture".to_string(),
                 })
@@ -2522,6 +2549,50 @@ mod tests {
         assert_eq!(
             closed_set_state_payload["errors"][0]["code"],
             "SESSION_NOT_ACTIVE"
+        );
+
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn show_config_format_query_projects_third_party_config() {
+        let store = MCPStore::setup_with_options(StoreOptions {
+            config_path: None,
+            source_mode: SourceMode::Db,
+            backend: Some(CacheStorage::Memory),
+            redis_url: None,
+            namespace: Some(unique_namespace()),
+        })
+        .unwrap();
+        seed_db_service_config(&store, stdio_config_with_lifecycle()).await;
+        let (addr, handle) = spawn_test_api(store).await;
+        let client = reqwest::Client::new();
+        let base_url = format!("http://{addr}");
+
+        let native = client
+            .get(format!("{base_url}/for_store/show_config"))
+            .send()
+            .await
+            .unwrap();
+        assert!(native.status().is_success());
+        let native_payload = native.json::<Value>().await.unwrap();
+        assert!(native_payload["data"]["mcpServers"]["demo"]
+            .get("_mcpstore")
+            .is_some());
+
+        let claude = client
+            .get(format!("{base_url}/for_store/show_config?format=claude"))
+            .send()
+            .await
+            .unwrap();
+        assert!(claude.status().is_success());
+        let claude_payload = claude.json::<Value>().await.unwrap();
+        assert!(claude_payload["data"]["mcpServers"]["demo"]
+            .get("_mcpstore")
+            .is_none());
+        assert_eq!(
+            claude_payload["data"]["mcpServers"]["demo"]["command"],
+            json!("echo")
         );
 
         handle.abort();

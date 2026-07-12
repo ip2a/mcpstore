@@ -1461,9 +1461,7 @@ impl MCPStore {
             self.session_service_bindings(&session).await?
         {
             let mut service_resources = self.list_resources(&global_service_name).await?;
-            service_resources.sort_by(|left, right| {
-                Self::value_field(left, "uri").cmp(Self::value_field(right, "uri"))
-            });
+            service_resources.sort_by(|left, right| left.uri.cmp(&right.uri));
             for resource in service_resources {
                 resources.push(Self::resource_payload_value(
                     resource,
@@ -1486,9 +1484,7 @@ impl MCPStore {
             self.session_service_bindings(&session).await?
         {
             let mut service_templates = self.list_resource_templates(&global_service_name).await?;
-            service_templates.sort_by(|left, right| {
-                Self::value_field(left, "uriTemplate").cmp(Self::value_field(right, "uriTemplate"))
-            });
+            service_templates.sort_by(|left, right| left.uri_template.cmp(&right.uri_template));
             for template in service_templates {
                 templates.push(Self::resource_template_payload_value(
                     template,
@@ -1525,11 +1521,9 @@ impl MCPStore {
             self.session_service_bindings(&session).await?
         {
             let mut service_prompts = self.list_prompts(&global_service_name).await?;
-            service_prompts.sort_by(|left, right| {
-                Self::value_field(left, "name").cmp(Self::value_field(right, "name"))
-            });
+            service_prompts.sort_by(|left, right| left.name.cmp(&right.name));
             for prompt in service_prompts {
-                let original_name = Self::required_value_field(&prompt, "name")?;
+                let original_name = prompt.name.clone();
                 let display_name = format!("{}_{}", display_service_name, original_name);
                 prompts.push(Self::prompt_payload_value(
                     prompt,
@@ -1622,7 +1616,7 @@ impl MCPStore {
                         &tool.name,
                         fallback_displayed_name,
                         tool.description,
-                        tool.schema,
+                        tool.input_schema,
                     )
                     .await?;
                 entries.push(Self::scoped_tool_entry(
@@ -1630,8 +1624,12 @@ impl MCPStore {
                     tool.name,
                     local_service_name.clone(),
                     service.name.clone(),
+                    tool.title,
                     transformed.description,
-                    transformed.schema,
+                    transformed.input_schema,
+                    tool.output_schema,
+                    tool.annotations,
+                    tool.meta,
                 )?);
             }
         }
@@ -1707,10 +1705,7 @@ impl MCPStore {
             self.session_service_bindings(session).await?
         {
             let resources = self.list_resources(&global_service_name).await?;
-            if resources
-                .iter()
-                .any(|resource| Self::value_field(resource, "uri") == uri)
-            {
+            if resources.iter().any(|resource| resource.uri == uri) {
                 matches.push((display_service_name, global_service_name));
             }
         }
@@ -1747,7 +1742,7 @@ impl MCPStore {
         {
             let prompts = self.list_prompts(&global_service_name).await?;
             for prompt in prompts {
-                let original_name = Self::required_value_field(&prompt, "name")?;
+                let original_name = prompt.name;
                 let display_name = format!("{}_{}", display_service_name, original_name);
                 if prompt_name == original_name || prompt_name == display_name {
                     matches.push((

@@ -68,8 +68,12 @@ impl MCPStore {
                 service_global_name: name.to_string(),
                 service_original_name: service_original_name.clone(),
                 source_agent: source_agent.clone(),
+                title: tool.title.clone(),
                 description: tool.description.clone(),
-                input_schema: tool.schema.clone(),
+                input_schema: tool.input_schema.clone(),
+                output_schema: tool.output_schema.clone(),
+                annotations: tool.annotations.clone(),
+                meta: tool.meta.clone(),
                 created_time: now,
                 tool_hash: Self::tool_content_hash(name, tool),
             };
@@ -147,7 +151,16 @@ impl MCPStore {
         name.hash(&mut hasher);
         tool.name.hash(&mut hasher);
         tool.description.hash(&mut hasher);
-        serde_json::to_string(&tool.schema)
+        serde_json::to_string(&tool.input_schema)
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        serde_json::to_string(&tool.output_schema)
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        serde_json::to_string(&tool.annotations)
+            .unwrap_or_default()
+            .hash(&mut hasher);
+        serde_json::to_string(&tool.meta)
             .unwrap_or_default()
             .hash(&mut hasher);
         format!("{:016x}", hasher.finish())
