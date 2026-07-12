@@ -11,6 +11,7 @@ mod health_schema;
 mod health_validation;
 mod manager;
 mod mcp_schema;
+mod merge;
 pub mod models;
 mod monitoring_schema;
 mod monitoring_validation;
@@ -28,6 +29,7 @@ pub use cache_schema::{CacheBackend, CacheConfig};
 pub use health_schema::HealthCheckConfig;
 pub use manager::ConfigManager;
 pub use mcp_schema::McpConfig;
+pub use merge::merge_config;
 pub use monitoring_schema::MonitoringConfig;
 pub use service_schema::{
     McpStoreExtension, ResolvedServiceLifecycle, RestartPolicy, RestartPolicyKind, ServerConfig,
