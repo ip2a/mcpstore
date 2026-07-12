@@ -8,6 +8,7 @@ pub(crate) mod control;
 pub mod core;
 pub mod events;
 pub(crate) mod health;
+pub mod identity;
 #[cfg(feature = "mcp-server")]
 pub mod mcp_server;
 pub mod openapi;
@@ -36,6 +37,9 @@ pub use openapi::{
 
 // Facade re-exports: event bus
 pub use events::{Event, EventBus};
+
+// Facade re-exports: service instance identity
+pub use identity::{InstanceId, ScopeRef, ServiceInstanceKey};
 
 // Facade re-exports: registry
 pub use registry::{ConnectionStatus, ServiceEntry, ToolInfo};
