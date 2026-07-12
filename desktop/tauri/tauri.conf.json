@@ -1,0 +1,17 @@
+{
+  "$schema": "../.schema/tauri-config-schema.json",
+  "productName": "mcpstore",
+  "version": "1.5.18",
+  "identifier": "com.mcpstore.desktop",
+  "app": {
+    "windows": [],
+    "withGlobalTauri": true,
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg"]
+  }
+}

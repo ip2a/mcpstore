@@ -76,10 +76,7 @@ impl MCPStore {
             self.scoped_service_bindings(agent_id).await?
         {
             let resources = self.list_resources(&global_service_name).await?;
-            if resources
-                .iter()
-                .any(|resource| Self::value_field(resource, "uri") == uri)
-            {
+            if resources.iter().any(|resource| resource.uri == uri) {
                 matches.push((display_service_name, global_service_name));
             }
         }
@@ -116,7 +113,7 @@ impl MCPStore {
         {
             let prompts = self.list_prompts(&global_service_name).await?;
             for prompt in prompts {
-                let original_name = Self::required_value_field(&prompt, "name")?;
+                let original_name = prompt.name;
                 let display_name = format!("{}_{}", display_service_name, original_name);
                 if prompt_name == original_name || prompt_name == display_name {
                     matches.push((

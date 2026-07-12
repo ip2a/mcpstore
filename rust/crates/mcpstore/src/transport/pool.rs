@@ -5,7 +5,10 @@ use tokio::sync::RwLock;
 
 use crate::config::ServerConfig;
 use crate::transport::client::McpConnection;
-use crate::transport::{Result, ToolCallResult, ToolDescription, TransportError};
+use crate::transport::{
+    DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, DiscoveredTool, Result,
+    ToolCallResult, TransportError,
+};
 
 pub struct ConnectionPool {
     connections: Arc<RwLock<HashMap<String, McpConnection>>>,
@@ -57,7 +60,7 @@ impl ConnectionPool {
         }
     }
 
-    pub async fn list_tools(&self, name: &str) -> Result<Vec<ToolDescription>> {
+    pub async fn list_tools(&self, name: &str) -> Result<Vec<DiscoveredTool>> {
         let conns = self.connections.read().await;
         let conn = conns
             .get(name)
@@ -78,7 +81,7 @@ impl ConnectionPool {
         conn.call_tool(tool_name, args).await
     }
 
-    pub async fn list_resources(&self, name: &str) -> Result<Vec<serde_json::Value>> {
+    pub async fn list_resources(&self, name: &str) -> Result<Vec<DiscoveredResource>> {
         let conns = self.connections.read().await;
         let conn = conns
             .get(name)
@@ -86,7 +89,10 @@ impl ConnectionPool {
         conn.list_resources().await
     }
 
-    pub async fn list_resource_templates(&self, name: &str) -> Result<Vec<serde_json::Value>> {
+    pub async fn list_resource_templates(
+        &self,
+        name: &str,
+    ) -> Result<Vec<DiscoveredResourceTemplate>> {
         let conns = self.connections.read().await;
         let conn = conns
             .get(name)
@@ -102,7 +108,7 @@ impl ConnectionPool {
         conn.read_resource(uri).await
     }
 
-    pub async fn list_prompts(&self, name: &str) -> Result<Vec<serde_json::Value>> {
+    pub async fn list_prompts(&self, name: &str) -> Result<Vec<DiscoveredPrompt>> {
         let conns = self.connections.read().await;
         let conn = conns
             .get(name)

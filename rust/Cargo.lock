@@ -1289,6 +1289,7 @@ name = "mcpstore"
 version = "1.5.18"
 dependencies = [
  "async-trait",
+ "axum",
  "base64",
  "blake3",
  "chrono",
@@ -1331,6 +1332,7 @@ dependencies = [
  "tabled",
  "tokio",
  "toml",
+ "tower-http",
  "tracing",
  "tracing-subscriber",
 ]
@@ -1342,6 +1344,7 @@ dependencies = [
  "mcpstore",
  "pyo3",
  "pyo3-async-runtimes",
+ "rmcp",
  "serde",
  "serde_json",
  "tokio",

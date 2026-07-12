@@ -34,7 +34,7 @@ classifiers = [
 "Bug Tracker" = "https://github.com/ip2a/mcpstore/issues"
 
 [project.scripts]
-mcpstore = "mcpstore.cli.main:main"
+mcpstore = "mcpstore.runner.main:main"
 
 [project.optional-dependencies]
 redis = [
@@ -62,3 +62,8 @@ module-name = "mcpstore._rust"
 [[tool.uv.index]]
 url = "https://mirrors.aliyun.com/pypi/simple"
 default = true
+
+[dependency-groups]
+dev = [
+    "maturin>=1.14.1",
+]

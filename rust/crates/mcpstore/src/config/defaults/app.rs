@@ -17,7 +17,7 @@ pub(in crate::config) fn default_created_at() -> String {
 }
 
 pub(in crate::config) fn default_ui_language() -> String {
-    "zh-cn".to_string()
+    "en".to_string()
 }
 
 pub(in crate::config) fn default_backup_dir() -> String {

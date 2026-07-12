@@ -17,10 +17,33 @@ pub fn openapi_tool_infos(import: &OpenApiImportResult) -> Vec<crate::registry::
         .filter(|component| component.component_type == OpenApiComponentType::Tool)
         .map(|component| crate::registry::ToolInfo {
             name: component.name.clone(),
+            title: None,
             description: component.description.clone().unwrap_or_default(),
-            schema: component.input_schema.clone(),
+            input_schema: component.input_schema.clone(),
+            output_schema: tool_output_schema(component),
+            annotations: None,
+            meta: None,
         })
         .collect()
+}
+
+fn tool_output_schema(component: &OpenApiComponent) -> Option<Value> {
+    component
+        .endpoint
+        .responses
+        .get("200")
+        .and_then(|response| response_body_schema_for_status(Some(response), "application/json"))
+        .cloned()
+        .or_else(|| {
+            component
+                .endpoint
+                .responses
+                .get("default")
+                .and_then(|response| {
+                    response_body_schema_for_status(Some(response), "application/json")
+                })
+                .cloned()
+        })
 }
 
 pub fn list_openapi_resources(import: &OpenApiImportResult) -> Vec<Value> {

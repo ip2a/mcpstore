@@ -4,12 +4,14 @@
 //! Exposes:
 //! - MCPStore
 //! - PerspectiveResolver
+//! - start_mcp_server (MCP server runner entry point used by `uvx mcpstore`)
 //!
 //! Built with PyO3 + maturin. Target module name: `mcpstore._rust`
 
 use pyo3::prelude::*;
 
 mod core_store;
+mod mcp_server_runner;
 mod perspective;
 mod py_value;
 
@@ -20,6 +22,7 @@ fn _rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<core_store::PyMCPStore>()?;
     m.add_class::<perspective::PyPerspectiveResolver>()?;
+    mcp_server_runner::register_module(m)?;
 
     Ok(())
 }

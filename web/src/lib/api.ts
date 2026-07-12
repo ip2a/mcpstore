@@ -4,11 +4,57 @@ export type ConnectionStatus = "Connected" | "Disconnected" | "Connecting" | "Er
 
 export type ToolInfo = {
   name: string
+  title?: string | null
   description?: string
-  schema?: unknown
+  input_schema?: unknown
+  output_schema?: unknown
+  annotations?: unknown
+  meta?: unknown
+  _meta?: unknown
   service_name?: string
   service?: string
   agent_id?: string
+  [key: string]: unknown
+}
+
+export type ResourceInfo = {
+  uri: string
+  name: string
+  title?: string
+  description?: string
+  mimeType?: string
+  size?: number
+  annotations?: unknown
+  _meta?: unknown
+  service_name?: string
+  [key: string]: unknown
+}
+
+export type PromptInfo = {
+  name: string
+  title?: string
+  description?: string
+  arguments?: unknown
+  _meta?: unknown
+  service_name?: string
+  [key: string]: unknown
+}
+
+export type ResourceTemplateInfo = {
+  uriTemplate?: string
+  uri_template?: string
+  name: string
+  title?: string
+  description?: string
+  mimeType?: string
+  mime_type?: string
+  annotations?: unknown
+  meta?: unknown
+  _meta?: unknown
+  original_uri_template?: string
+  service_name?: string
+  global_service_name?: string
+  service_global_name?: string
   [key: string]: unknown
 }
 
@@ -24,6 +70,29 @@ export type ServiceEntry = {
   url?: string
   command?: string
   [key: string]: unknown
+}
+
+export type ToolStatusItem = {
+  status?: string
+  tool_global_name?: string
+  tool_original_name?: string
+}
+
+export type ServiceStatusReport = {
+  service_global_name?: string
+  health_status?: string
+  last_health_check?: number
+  connection_attempts?: number
+  max_connection_attempts?: number
+  current_error?: string | null
+  tools?: ToolStatusItem[]
+  window_error_rate?: number | null
+  latency_p95?: number | null
+  latency_p99?: number | null
+  sample_size?: number | null
+  next_retry_time?: number | null
+  hard_deadline?: number | null
+  lease_deadline?: number | null
 }
 
 export type AgentItem = {
@@ -100,6 +169,14 @@ export class ApiError extends Error {
   }
 }
 
+export type ServiceStartupPolicy = "manual" | "lazy" | "on-store-start"
+export type ServiceRestartPolicy = "no" | "on-failure" | `on-failure:${number}` | "always" | "unless-stopped"
+
+export type ServiceLifecycleConfig = {
+  startup_policy?: ServiceStartupPolicy
+  restart_policy?: ServiceRestartPolicy
+}
+
 export type AddServiceInput = {
   name: string
   scope: "store" | "agent"
@@ -110,6 +187,7 @@ export type AddServiceInput = {
   workingDir?: string
   env?: Record<string, string>
   headers?: Record<string, string>
+  lifecycle?: ServiceLifecycleConfig
 }
 
 const API_BASE = import.meta.env.VITE_MCPSTORE_API_BASE || "/api"
@@ -200,6 +278,29 @@ export async function listTools(serviceName?: string): Promise<ToolInfo[]> {
   return data?.tools || []
 }
 
+export async function listResources(serviceName?: string): Promise<ResourceInfo[]> {
+  const suffix = buildQuery({ service_name: serviceName })
+  const data = await request<{ resources?: ResourceInfo[] }>(`/for_store/list_resources${suffix}`)
+  return data?.resources || []
+}
+
+export async function listPrompts(serviceName?: string): Promise<PromptInfo[]> {
+  const suffix = buildQuery({ service_name: serviceName })
+  const data = await request<{ prompts?: PromptInfo[] }>(`/for_store/list_prompts${suffix}`)
+  return data?.prompts || []
+}
+
+export async function listResourceTemplates(serviceName?: string): Promise<ResourceTemplateInfo[]> {
+  const suffix = buildQuery({ service_name: serviceName })
+  const data = await request<{ resource_templates?: ResourceTemplateInfo[] }>(`/for_store/list_resource_templates${suffix}`)
+  return data?.resource_templates || []
+}
+
+export async function readResource(uri: string, serviceName?: string) {
+  const suffix = buildQuery({ uri, service_name: serviceName })
+  return request(`/for_store/read_resource${suffix}`)
+}
+
 export async function listAgentServices(agentId: string): Promise<ServiceEntry[]> {
   const data = await request<{ services?: ServiceEntry[] }>(`/for_agent/${encodeURIComponent(agentId)}/list_services`)
   return data?.services || []
@@ -209,6 +310,14 @@ export async function listAgentTools(agentId: string, serviceName?: string): Pro
   const suffix = buildQuery({ service_name: serviceName })
   const data = await request<{ tools?: ToolInfo[] }>(`/for_agent/${encodeURIComponent(agentId)}/list_tools${suffix}`)
   return data?.tools || []
+}
+
+export async function listAgentResourceTemplates(agentId: string, serviceName?: string): Promise<ResourceTemplateInfo[]> {
+  const suffix = buildQuery({ service_name: serviceName })
+  const data = await request<{ resource_templates?: ResourceTemplateInfo[] }>(
+    `/for_agent/${encodeURIComponent(agentId)}/list_resource_templates${suffix}`,
+  )
+  return data?.resource_templates || []
 }
 
 export async function assignService(agentId: string, serviceName: string) {
@@ -223,7 +332,7 @@ export async function serviceInfo(name: string): Promise<ServiceEntry> {
   return request(`/for_store/service_info/${encodeURIComponent(name)}`)
 }
 
-export async function serviceStatus(name: string): Promise<unknown> {
+export async function serviceStatus(name: string): Promise<ServiceStatusReport> {
   return request(`/for_store/service_status/${encodeURIComponent(name)}`)
 }
 
@@ -315,27 +424,11 @@ export async function callAgentTool(agentId: string, toolName: string, args: Rec
 }
 
 export async function addService(input: AddServiceInput) {
-  const isStdio = input.transport === "stdio"
-  const payload = isStdio
-    ? {
-        name: input.name,
-        command: input.commandOrUrl.split(/\s+/).filter(Boolean)[0],
-        args: input.commandOrUrl.split(/\s+/).filter(Boolean).slice(1),
-        transport: "stdio",
-        env: input.env || {},
-        headers: input.headers || {},
-        working_dir: input.workingDir || undefined,
-        description: input.description || undefined,
-      }
-    : {
-        name: input.name,
-        url: input.commandOrUrl,
-        transport: input.transport,
-        env: input.env || {},
-        headers: input.headers || {},
-        working_dir: input.workingDir || undefined,
-        description: input.description || undefined,
-      }
+  const payload = {
+    name: input.name,
+    ...buildServicePayload(input),
+    ...(input.lifecycle ? { _mcpstore: { lifecycle: input.lifecycle } } : {}),
+  }
 
   if (input.scope === "agent" && input.agentId) {
     return request(`/for_agent/${encodeURIComponent(input.agentId)}/add_service`, {
@@ -363,4 +456,52 @@ export function parseKvLines(value: string) {
       acc[line.slice(0, index).trim()] = line.slice(index + 1).trim()
       return acc
     }, {})
+}
+
+export function formatKvLines(value?: Record<string, unknown>) {
+  if (!value) return ""
+  return Object.entries(value)
+    .map(([key, item]) => `${key}=${String(item ?? "")}`)
+    .join("\n")
+}
+
+export type UpdateServiceInput = {
+  name: string
+  transport: "stdio" | "streamable-http" | "sse"
+  commandOrUrl: string
+  description?: string
+  workingDir?: string
+  env?: Record<string, string>
+  headers?: Record<string, string>
+}
+
+function buildServicePayload(input: Pick<UpdateServiceInput, "transport" | "commandOrUrl" | "description" | "workingDir" | "env" | "headers">) {
+  const isStdio = input.transport === "stdio"
+  if (isStdio) {
+    return {
+      command: input.commandOrUrl.split(/\s+/).filter(Boolean)[0],
+      args: input.commandOrUrl.split(/\s+/).filter(Boolean).slice(1),
+      transport: "stdio",
+      env: input.env || {},
+      headers: input.headers || {},
+      working_dir: input.workingDir || undefined,
+      description: input.description || undefined,
+    }
+  }
+
+  return {
+    url: input.commandOrUrl,
+    transport: input.transport,
+    env: input.env || {},
+    headers: input.headers || {},
+    working_dir: input.workingDir || undefined,
+    description: input.description || undefined,
+  }
+}
+
+export async function updateService(input: UpdateServiceInput) {
+  return request(`/for_store/update_service/${encodeURIComponent(input.name)}`, {
+    method: "POST",
+    body: JSON.stringify(buildServicePayload(input)),
+  })
 }

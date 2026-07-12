@@ -1,15 +1,18 @@
-import { ActivityIcon, DatabaseIcon, RefreshCwIcon } from "lucide-react"
+import { ActivityIcon, DatabaseIcon } from "lucide-react"
 
 import { HomeHero } from "@/components/home-hero"
+import { ActivitySparkline } from "@/components/shared/activity-sparkline"
 import { PageEmpty, PageError, PageSkeleton } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import { ScrollPane } from "@/components/shared/scroll-pane"
 import { SearchBox } from "@/components/shared/search-box"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ServiceTable } from "@/features/services/service-table"
+import { ServicesFilterDialog } from "@/features/services/services-filter-dialog"
+import { ServiceList } from "@/features/services/service-list"
 import { useServicesList } from "@/features/services/use-services-list"
 import type { AgentItem, CacheBackend, ServiceEntry } from "@/lib/api"
+import { useI18n } from "@/lib/i18n-context"
 
 export function ServicesView(props: {
   services: ServiceEntry[]
@@ -28,6 +31,7 @@ export function ServicesView(props: {
   onRefresh: () => void
   onRestart: (service: ServiceEntry) => void
 }) {
+  const { t } = useI18n()
   const { agentFilter, agentIds, filteredServices, query, setAgentFilter, setQuery, totals } = useServicesList({
     agents: props.agents,
     agentMap: props.agentMap,
@@ -35,72 +39,61 @@ export function ServicesView(props: {
   })
 
   return (
-    <>
+    <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden">
       <HomeHero
         backend={props.backend}
         stats={{
           loading: props.loading,
           services: totals.services,
-          connected: totals.connected,
-          disconnected: totals.disconnected,
           connecting: totals.connecting,
-          error: totals.error,
-          tools: totals.tools,
           agents: agentIds.length,
         }}
       />
 
-      <PanelCard>
+      <PanelCard className="min-h-0">
         <SectionHeading
-          title="MCP 服务列表"
+          title={t("serviceList")}
           titleAs="h2"
-          description={`${filteredServices.length} services`}
-          className="border-b-0 pb-0"
-          actions={
-            <Button variant="outline" size="sm" onClick={props.onCache}>
-              <DatabaseIcon data-icon="inline-start" />
-              缓存
-            </Button>
+          titleAddon={
+            <ActivitySparkline
+              className="min-w-[120px] max-w-[280px] flex-1"
+              values={[totals.services, totals.connecting, agentIds.length]}
+              isLoading={props.loading}
+              title={t("storeActivityOverview")}
+            />
           }
+          className="shrink-0 border-b-0 pb-0 md:grid-cols-[auto_minmax(0,1fr)] md:items-center"
+          actions={
+            <>
+              <SearchBox placeholder={t("searchServices")} value={query} onChange={setQuery} />
+              <ServicesFilterDialog agentFilter={agentFilter} agentIds={agentIds} onAgentFilterChange={setAgentFilter} />
+              <Button variant="outline" onClick={props.onCache}>
+                <DatabaseIcon data-icon="inline-start" />
+                {t("cache")}
+              </Button>
+              <Button variant="outline" onClick={props.onCheck} disabled={Boolean(props.busy)}>
+                <ActivityIcon data-icon="inline-start" />
+                {t("inspect")}
+              </Button>
+            </>
+          }
+          actionsProps={{
+            className:
+              "grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 md:justify-end",
+          }}
         />
-        <div className="flex flex-col gap-4">
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_auto_auto]">
-            <SearchBox placeholder="Search services" value={query} onChange={setQuery} />
-            <Select value={agentFilter} onValueChange={setAgentFilter}>
-              <SelectTrigger>
-                <SelectValue placeholder="Agent" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="store">Store</SelectItem>
-                  {agentIds.map((agentId) => (
-                    <SelectItem key={agentId} value={agentId}>
-                      {agentId}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            <Button variant="outline" onClick={props.onRefresh} disabled={props.loading}>
-              <RefreshCwIcon data-icon="inline-start" />
-              刷新
-            </Button>
-            <Button variant="outline" onClick={props.onCheck} disabled={Boolean(props.busy)}>
-              <ActivityIcon data-icon="inline-start" />
-              检查
-            </Button>
-          </div>
+        <ScrollPane className="min-h-0 flex-1">
           {props.error ? (
-            <PageError title="Dashboard failed to load" message={props.error} onRefresh={props.onRefresh} />
+            <PageError title={t("dashboardFailedToLoad")} message={props.error} onRefresh={props.onRefresh} />
           ) : props.loading ? (
             <PageSkeleton />
           ) : filteredServices.length ? (
-            <ServiceTable {...props} services={filteredServices} />
+            <ServiceList {...props} services={filteredServices} />
           ) : (
-            <PageEmpty title="No services" description="No MCP services are available in the current view." onRefresh={props.onRefresh} />
+            <PageEmpty title={t("noServices")} description={t("noServicesInViewDescription")} onRefresh={props.onRefresh} />
           )}
-        </div>
+        </ScrollPane>
       </PanelCard>
-    </>
+    </div>
   )
 }

@@ -7,7 +7,6 @@ import { AgentsView } from "@/features/agents/agents-view"
 import { useAgentActions } from "@/features/agents/use-agent-actions"
 import { CacheView } from "@/features/cache/cache-view"
 import { ConfigView } from "@/features/config/config-view"
-import { AddServiceView } from "@/features/services/add-service-view"
 import { ServiceDetailView } from "@/features/services/service-detail-view"
 import { ServicesView } from "@/features/services/services-view"
 import { useServiceActions } from "@/features/services/use-service-actions"
@@ -18,6 +17,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAppQueryRefreshers } from "@/hooks/use-app-query-refreshers"
 import { useDashboard } from "@/hooks/use-dashboard"
 import { useUiStore } from "@/stores/ui-store"
+import { cn } from "@/lib/utils"
 
 export function App() {
   const { services, agents, agentMap, backend, loading, error: dashboardError, refresh } = useDashboard()
@@ -30,7 +30,7 @@ export function App() {
     refreshServiceRegistryQueries,
     serviceDetailRevision,
   } = useAppQueryRefreshers()
-  const { pageTitle, selectedService, setView, view } = useAppView(services)
+  const { goBack, pageTitle, selectedService, setView, view } = useAppView(services)
   const { busy, runAction } = useAppActions(refresh)
   const {
     closeToolDetail,
@@ -56,27 +56,39 @@ export function App() {
   const settingsDialogOpen = useUiStore((state) => state.settingsDialogOpen)
   const setSettingsDialogOpen = useUiStore((state) => state.setSettingsDialogOpen)
   const { closeDeleteDialog, closeResetDialog, confirmReset, deleteTarget, resetTarget, setDeleteTarget, setResetTarget } = useAppConfirmations({ refreshConfigQueries, runAction })
+  const handleServiceAdded = async () => {
+    await refresh()
+    await refreshServiceRegistryQueries()
+  }
 
   return (
     <TooltipProvider>
       <div className="min-h-dvh bg-background">
-        <div className="mx-auto grid h-dvh w-[min(1280px,calc(100vw-24px))] grid-rows-[auto_minmax(0,1fr)] overflow-hidden pb-4">
-          <AppHeader pageTitle={pageTitle} view={view} onViewChange={setView} onOpenSettings={() => setSettingsDialogOpen(true)} />
+        <div className="mx-auto grid h-dvh w-[min(1280px,calc(100vw-24px))] grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+          <AppHeader
+            agents={agents}
+            pageTitle={pageTitle}
+            view={view}
+            onAdded={handleServiceAdded}
+            onBack={goBack}
+            onViewChange={setView}
+            onOpenSettings={() => setSettingsDialogOpen(true)}
+          />
 
-          <main className="flex min-h-0 flex-col gap-6 overflow-auto py-3">
-          {view.name === "add" ? (
-            <AddServiceView agents={agents} onBack={() => setView({ name: "services" })} onAdded={async () => {
-              await refresh()
-              await refreshServiceRegistryQueries()
-            }} />
-          ) : selectedService ? (
+          <main
+            className={cn(
+              "flex min-h-0 flex-col",
+              selectedService || view.name === "services" || view.name === "agents" || view.name === "cache" || view.name === "config" || view.name === "tools" ? "h-full overflow-hidden gap-3 pt-3" : "gap-6 overflow-auto py-3",
+            )}
+          >
+          {selectedService ? (
             <ServiceDetailView
               service={selectedService}
               busy={busy}
               refreshToken={serviceDetailRevision}
-              onBack={() => setView({ name: "services" })}
-              onRunTool={(tool) => openServiceToolRunner(selectedService, tool)}
-              onToolDetail={(tool) => openServiceToolDetail(selectedService, tool)}
+              onBack={goBack}
+              onRunTool={(tool, args) => openServiceToolRunner(selectedService, tool, args)}
+              onToolDetail={(tool, service, statusReport) => openServiceToolDetail(service, tool, statusReport)}
               onConnect={() => connectServiceEntry(selectedService)}
               onDisconnect={() => disconnectServiceEntry(selectedService)}
               onRestart={() => restartServiceEntry(selectedService)}

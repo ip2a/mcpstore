@@ -14,9 +14,13 @@ pub struct ScopedServiceEntry {
 pub struct ScopedToolEntry {
     pub name: String,
     pub original_name: String,
+    pub title: Option<String>,
     pub description: String,
-    pub schema: serde_json::Value,
     pub input_schema: serde_json::Value,
+    pub output_schema: Option<serde_json::Value>,
+    pub annotations: Option<serde_json::Value>,
+    #[serde(rename = "_meta")]
+    pub meta: Option<serde_json::Value>,
     pub service_name: String,
     pub global_service_name: String,
     pub service_global_name: String,

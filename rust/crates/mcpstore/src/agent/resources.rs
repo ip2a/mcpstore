@@ -12,9 +12,7 @@ impl MCPStore {
                     .resolve_scoped_service_binding(agent_id, service_name)
                     .await?;
                 let mut resources = self.list_resources(&global_service_name).await?;
-                resources.sort_by(|left, right| {
-                    Self::value_field(left, "uri").cmp(Self::value_field(right, "uri"))
-                });
+                resources.sort_by(|left, right| left.uri.cmp(&right.uri));
                 resources
                     .into_iter()
                     .map(|resource| {
@@ -42,10 +40,7 @@ impl MCPStore {
                     .resolve_scoped_service_binding(agent_id, service_name)
                     .await?;
                 let mut templates = self.list_resource_templates(&global_service_name).await?;
-                templates.sort_by(|left, right| {
-                    Self::value_field(left, "uriTemplate")
-                        .cmp(Self::value_field(right, "uriTemplate"))
-                });
+                templates.sort_by(|left, right| left.uri_template.cmp(&right.uri_template));
                 templates
                     .into_iter()
                     .map(|template| {

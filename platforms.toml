@@ -1,0 +1,48 @@
+[meta]
+binary_name = "mcpstore"
+version_source = "rust/Cargo.toml"
+
+[[platforms]]
+id = "darwin-arm64"
+target = "aarch64-apple-darwin"
+os = "darwin"
+cpu = "arm64"
+artifact_binary = "mcpstore"
+npm_package = "mcpstore-bin-darwin-arm64"
+npm_dir = "mcpstore-bin-darwin-arm64"
+
+[[platforms]]
+id = "darwin-x64"
+target = "x86_64-apple-darwin"
+os = "darwin"
+cpu = "x64"
+artifact_binary = "mcpstore"
+npm_package = "mcpstore-bin-darwin-x64"
+npm_dir = "mcpstore-bin-darwin-x64"
+
+[[platforms]]
+id = "linux-x64-gnu"
+target = "x86_64-unknown-linux-gnu"
+os = "linux"
+cpu = "x64"
+artifact_binary = "mcpstore"
+npm_package = "mcpstore-bin-linux-x64-gnu"
+npm_dir = "mcpstore-bin-linux-x64-gnu"
+
+[[platforms]]
+id = "linux-arm64-gnu"
+target = "aarch64-unknown-linux-gnu"
+os = "linux"
+cpu = "arm64"
+artifact_binary = "mcpstore"
+npm_package = "mcpstore-bin-linux-arm64-gnu"
+npm_dir = "mcpstore-bin-linux-arm64-gnu"
+
+[[platforms]]
+id = "win32-x64-msvc"
+target = "x86_64-pc-windows-msvc"
+os = "win32"
+cpu = "x64"
+artifact_binary = "mcpstore.exe"
+npm_package = "mcpstore-bin-win32-x64-msvc"
+npm_dir = "mcpstore-bin-win32-x64-msvc"

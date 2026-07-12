@@ -14,8 +14,12 @@ async fn test_registry_lifecycle() {
         status: ConnectionStatus::Connected,
         tools: vec![ToolInfo {
             name: "tool1".to_string(),
+            title: None,
             description: "desc".to_string(),
-            schema: serde_json::json!({}),
+            input_schema: serde_json::json!({}),
+            output_schema: None,
+            annotations: None,
+            meta: None,
         }],
         config: serde_json::json!({}),
         added_time: 1234567890,

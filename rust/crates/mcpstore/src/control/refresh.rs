@@ -65,22 +65,41 @@ impl MCPStore {
             let mut tools = Vec::with_capacity(relation.tools.len());
             for item in relation.tools {
                 let entity = tool_entities.get(&item.tool_global_name);
-                let (description, schema) = match entity {
-                    Some(value) => {
-                        let entity: ToolEntity =
-                            serde_json::from_value(value.clone()).map_err(|e| {
-                                StoreError::Other(format!(
-                                    "Tool entity deserialization failed: {e}"
-                                ))
-                            })?;
-                        (entity.description, entity.input_schema)
-                    }
-                    None => (String::new(), serde_json::Value::Object(Default::default())),
-                };
+                let (title, description, input_schema, output_schema, annotations, meta) =
+                    match entity {
+                        Some(value) => {
+                            let entity: ToolEntity = serde_json::from_value(value.clone())
+                                .map_err(|e| {
+                                    StoreError::Other(format!(
+                                        "Tool entity deserialization failed: {e}"
+                                    ))
+                                })?;
+                            (
+                                entity.title,
+                                entity.description,
+                                entity.input_schema,
+                                entity.output_schema,
+                                entity.annotations,
+                                entity.meta,
+                            )
+                        }
+                        None => (
+                            None,
+                            String::new(),
+                            serde_json::Value::Object(Default::default()),
+                            None,
+                            None,
+                            None,
+                        ),
+                    };
                 tools.push(crate::registry::ToolInfo {
                     name: item.tool_original_name,
+                    title,
                     description,
-                    schema,
+                    input_schema,
+                    output_schema,
+                    annotations,
+                    meta,
                 });
             }
             entry.tools = tools;

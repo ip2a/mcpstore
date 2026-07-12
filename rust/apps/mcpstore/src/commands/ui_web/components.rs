@@ -72,7 +72,7 @@ pub(super) fn render_tool_card(service_name: &str, tool: &ToolInfo) -> Markup {
     let service_segment = url_component(service_name);
     let tool_segment = url_component(&tool.name);
     let tool_json = serde_json::to_string(tool).unwrap_or_else(|_| "{}".to_string());
-    let summary = schema_summary(&tool.schema);
+    let summary = schema_summary(&tool.input_schema);
     let description = if tool.description.is_empty() {
         "No description".to_string()
     } else {

@@ -720,6 +720,13 @@ class RustStoreBackend:
     ) -> Dict[str, Any]:
         return _record_value(self._inner.service_status_scoped(agent_id, service_name))
 
+    def service_info_scoped(
+        self,
+        agent_id: Optional[str],
+        service_name: str,
+    ) -> Dict[str, Any]:
+        return _record_value(self._inner.service_info_scoped(agent_id, service_name))
+
     def list_resources_scoped(
         self,
         agent_id: Optional[str] = None,
@@ -2091,7 +2098,7 @@ class RustToolProxy:
         return self._cached_info
 
     def tool_schema(self) -> Dict[str, Any]:
-        return self.tool_info().get("inputSchema", {}) or {}
+        return self.tool_info().get("input_schema", {}) or {}
 
     def tool_tags(self) -> List[str]:
         return self.tool_info().get("tags", []) or []
@@ -2126,8 +2133,8 @@ class RustToolProxy:
             name=str(name),
             title=info.get("title") or str(info.get("name") or self._tool_name),
             description=info.get("description"),
-            inputSchema=info.get("inputSchema") or info.get("input_schema") or {},
-            outputSchema=info.get("outputSchema") or info.get("output_schema"),
+            inputSchema=info.get("input_schema") or {},
+            outputSchema=info.get("output_schema"),
             icons=info.get("icons"),
             annotations=info.get("annotations"),
             _meta=meta,
@@ -3477,9 +3484,7 @@ class RustStoreContext:
         return self
 
     def get_service_info(self, name: str) -> Dict[str, Any]:
-        service_name = self._resolve_service_name(name)
-        service = self._backend.find_service(service_name)
-        return _record_value(service or {})
+        return _record_value(self._backend.service_info_scoped(self._agent_id, name))
 
     async def get_service_info_async(self, name: str) -> Dict[str, Any]:
         return self.get_service_info(name)

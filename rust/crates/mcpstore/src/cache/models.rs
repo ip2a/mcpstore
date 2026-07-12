@@ -33,8 +33,16 @@ pub struct ToolEntity {
     pub service_global_name: String,
     pub service_original_name: String,
     pub source_agent: String,
+    #[serde(default)]
+    pub title: Option<String>,
     pub description: String,
     pub input_schema: serde_json::Value,
+    #[serde(default)]
+    pub output_schema: Option<serde_json::Value>,
+    #[serde(default)]
+    pub annotations: Option<serde_json::Value>,
+    #[serde(default)]
+    pub meta: Option<serde_json::Value>,
     pub created_time: i64,
     pub tool_hash: String,
 }

@@ -16,7 +16,7 @@ export function SelectableRowButton({ className, leading, meta, selected = false
     <Button
       type="button"
       variant={selected ? "secondary" : "outline"}
-      className={cn("h-auto min-h-11 justify-start px-3 py-2 text-left", className)}
+      className={cn("h-auto min-h-11 w-full justify-start px-3 py-2 text-left", className)}
       {...props}
     >
       <span className={cn("grid w-full min-w-0 items-center gap-3", leading ? "grid-cols-[auto_minmax(0,1fr)_auto]" : "grid-cols-[minmax(0,1fr)_auto]")}>
