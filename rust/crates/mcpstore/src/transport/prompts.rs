@@ -1,10 +1,10 @@
 use rmcp::model::GetPromptRequestParams;
 
 use crate::transport::client::McpConnection;
-use crate::transport::{Result, TransportError};
+use crate::transport::{DiscoveredPrompt, Result, TransportError};
 
 impl McpConnection {
-    pub async fn list_prompts(&self) -> Result<Vec<serde_json::Value>> {
+    pub async fn list_prompts(&self) -> Result<Vec<DiscoveredPrompt>> {
         let client = self.get_client()?;
         let prompts = client
             .list_all_prompts()
@@ -14,9 +14,11 @@ impl McpConnection {
         prompts
             .into_iter()
             .map(|prompt| {
-                serde_json::to_value(prompt).map_err(|err| {
-                    TransportError::Protocol(format!("prompt serialization failed: {err}"))
-                })
+                serde_json::to_value(prompt)
+                    .and_then(serde_json::from_value)
+                    .map_err(|err| {
+                        TransportError::Protocol(format!("prompt serialization failed: {err}"))
+                    })
             })
             .collect()
     }

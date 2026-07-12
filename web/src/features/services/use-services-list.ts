@@ -18,11 +18,7 @@ export function useServicesList({ agents, agentMap, services }: { agents: AgentI
     const count = (status: string) => filteredServices.filter((service) => service.status === status).length
     return {
       services: filteredServices.length,
-      tools: filteredServices.reduce((sum, service) => sum + (service.tools?.length || 0), 0),
-      connected: count("Connected"),
-      disconnected: count("Disconnected"),
       connecting: count("Connecting"),
-      error: count("Error"),
     }
   }, [filteredServices])
 

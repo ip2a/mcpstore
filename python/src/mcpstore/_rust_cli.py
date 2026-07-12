@@ -63,7 +63,7 @@ def resolve_rust_cli_binary() -> str:
         return str(candidate)
 
     raise RuntimeError(
-        "未找到 Rust CLI 二进制。请先执行 `cargo build -p mcpstore_cli`、"
+        "未找到 Rust CLI 二进制。请先执行 `cargo build -p mcpstore-cli --bin mcpstore`、"
         "使用随 wheel 分发的内置二进制，或设置 MCPSTORE_RUST_BIN 指向可执行的 mcpstore。"
         f" 已检查路径: {checked}"
     )

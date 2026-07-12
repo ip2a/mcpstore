@@ -1,22 +1,41 @@
+import {
+  BotIcon,
+  DatabaseIcon,
+  ServerIcon,
+  SlidersHorizontalIcon,
+  WrenchIcon,
+  type LucideIcon,
+} from "lucide-react"
+import { useI18n } from "@/lib/i18n-context"
+
 export type AppView =
   | { name: "services" }
   | { name: "agents" }
   | { name: "tools" }
   | { name: "config" }
   | { name: "cache" }
-  | { name: "add" }
   | { name: "service"; serviceName: string }
 
-export const navItems: Array<{ view: AppView; label: string }> = [
-  { view: { name: "services" }, label: "服务" },
-  { view: { name: "agents" }, label: "Agent" },
-  { view: { name: "tools" }, label: "工具" },
-  { view: { name: "config" }, label: "配置" },
-  { view: { name: "cache" }, label: "缓存" },
-]
+export type NavItem = {
+  view: Exclude<AppView, { name: "service" }>
+  label: string
+  icon: LucideIcon
+}
 
-export function viewTitle(view: AppView): string {
+export function useNavItems(): NavItem[] {
+  const { t } = useI18n()
+  return [
+    { view: { name: "services" }, label: t("navServices"), icon: ServerIcon },
+    { view: { name: "agents" }, label: t("navAgents"), icon: BotIcon },
+    { view: { name: "tools" }, label: t("navTools"), icon: WrenchIcon },
+    { view: { name: "config" }, label: t("navConfig"), icon: SlidersHorizontalIcon },
+    { view: { name: "cache" }, label: t("navCache"), icon: DatabaseIcon },
+  ]
+}
+
+export function useViewTitle(view: AppView): string {
+  const { t } = useI18n()
   if (view.name === "service") return view.serviceName
-  if (view.name === "add") return "添加服务"
-  return navItems.find((item) => item.view.name === view.name)?.label || "服务"
+  const items = useNavItems()
+  return items.find((item) => item.view.name === view.name)?.label || t("navServices")
 }

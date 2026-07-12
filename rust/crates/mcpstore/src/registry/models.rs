@@ -17,8 +17,12 @@ pub enum ConnectionStatus {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ToolInfo {
     pub name: String,
+    pub title: Option<String>,
     pub description: String,
-    pub schema: serde_json::Value,
+    pub input_schema: serde_json::Value,
+    pub output_schema: Option<serde_json::Value>,
+    pub annotations: Option<serde_json::Value>,
+    pub meta: Option<serde_json::Value>,
 }
 
 /// Service metadata entry.
@@ -62,5 +66,19 @@ impl ServiceRegistry {
 impl Default for ServiceRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl From<crate::transport::DiscoveredTool> for ToolInfo {
+    fn from(tool: crate::transport::DiscoveredTool) -> Self {
+        Self {
+            name: tool.name,
+            title: tool.title,
+            description: tool.description,
+            input_schema: tool.input_schema,
+            output_schema: tool.output_schema,
+            annotations: tool.annotations,
+            meta: tool.meta,
+        }
     }
 }

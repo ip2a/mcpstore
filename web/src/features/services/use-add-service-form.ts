@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from "react"
 import { toast } from "sonner"
 
-import { addService, parseKvLines } from "@/lib/api"
+import { addService, parseKvLines, type ServiceRestartPolicy, type ServiceStartupPolicy } from "@/lib/api"
+import { buildServiceLifecycleConfig } from "@/features/services/service-lifecycle"
 
 export type AddServiceScope = "store" | "agent"
 export type AddServiceTransport = "stdio" | "streamable-http" | "sse"
@@ -10,6 +11,8 @@ export function useAddServiceForm({ onAdded, onBack }: { onAdded: () => Promise<
   const [scope, setScope] = useState<AddServiceScope>("store")
   const [transport, setTransport] = useState<AddServiceTransport>("stdio")
   const [agentId, setAgentId] = useState("")
+  const [startupPolicy, setStartupPolicy] = useState<ServiceStartupPolicy>("lazy")
+  const [restartPolicy, setRestartPolicy] = useState<ServiceRestartPolicy>("no")
   const [submitting, setSubmitting] = useState(false)
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -27,6 +30,7 @@ export function useAddServiceForm({ onAdded, onBack }: { onAdded: () => Promise<
         workingDir: String(data.get("workingDir") || "").trim() || undefined,
         env: parseKvLines(String(data.get("env") || "")),
         headers: parseKvLines(String(data.get("headers") || "")),
+        lifecycle: buildServiceLifecycleConfig({ startupPolicy, restartPolicy }),
       })
       toast.success("Service added")
       await onAdded()
@@ -41,10 +45,14 @@ export function useAddServiceForm({ onAdded, onBack }: { onAdded: () => Promise<
   return {
     agentId,
     onSubmit,
+    restartPolicy,
     scope,
     setAgentId,
+    setRestartPolicy,
     setScope,
+    setStartupPolicy,
     setTransport,
+    startupPolicy,
     submitting,
     transport,
   }

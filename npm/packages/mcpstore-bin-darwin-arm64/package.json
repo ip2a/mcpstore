@@ -1,0 +1,13 @@
+{
+  "name": "mcpstore-bin-darwin-arm64",
+  "version": "1.5.18",
+  "description": "MCPStore CLI platform package for macOS arm64",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ip2a/mcpstore"
+  },
+  "os": ["darwin"],
+  "cpu": ["arm64"],
+  "files": ["bin", "README.md"]
+}

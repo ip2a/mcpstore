@@ -4,6 +4,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useI18n } from "@/lib/i18n-context"
 
 export function PageSkeleton() {
   return (
@@ -16,6 +17,8 @@ export function PageSkeleton() {
 }
 
 export function PageEmpty({ title, description, onRefresh }: { title: string; description: string; onRefresh?: () => void }) {
+  const { t } = useI18n()
+
   return (
     <Empty>
       <EmptyHeader>
@@ -29,7 +32,7 @@ export function PageEmpty({ title, description, onRefresh }: { title: string; de
         <EmptyContent>
           <Button variant="outline" onClick={onRefresh}>
             <RefreshCwIcon data-icon="inline-start" />
-            刷新
+            {t("refresh")}
           </Button>
         </EmptyContent>
       ) : null}
@@ -38,6 +41,8 @@ export function PageEmpty({ title, description, onRefresh }: { title: string; de
 }
 
 export function PageError({ title, message, onRefresh }: { title: string; message: string; onRefresh?: () => void }) {
+  const { t } = useI18n()
+
   return (
     <Alert variant="destructive" className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
@@ -48,7 +53,7 @@ export function PageError({ title, message, onRefresh }: { title: string; messag
         <div>
           <Button variant="outline" onClick={onRefresh}>
             <RefreshCwIcon data-icon="inline-start" />
-            刷新
+            {t("refresh")}
           </Button>
         </div>
       ) : null}

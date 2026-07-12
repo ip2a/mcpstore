@@ -1,10 +1,10 @@
 use rmcp::model::ReadResourceRequestParams;
 
 use crate::transport::client::McpConnection;
-use crate::transport::{Result, TransportError};
+use crate::transport::{DiscoveredResource, DiscoveredResourceTemplate, Result, TransportError};
 
 impl McpConnection {
-    pub async fn list_resources(&self) -> Result<Vec<serde_json::Value>> {
+    pub async fn list_resources(&self) -> Result<Vec<DiscoveredResource>> {
         let client = self.get_client()?;
         let resources = client
             .list_all_resources()
@@ -14,14 +14,16 @@ impl McpConnection {
         resources
             .into_iter()
             .map(|resource| {
-                serde_json::to_value(resource).map_err(|err| {
-                    TransportError::Protocol(format!("resource serialization failed: {err}"))
-                })
+                serde_json::to_value(resource)
+                    .and_then(serde_json::from_value)
+                    .map_err(|err| {
+                        TransportError::Protocol(format!("resource serialization failed: {err}"))
+                    })
             })
             .collect()
     }
 
-    pub async fn list_resource_templates(&self) -> Result<Vec<serde_json::Value>> {
+    pub async fn list_resource_templates(&self) -> Result<Vec<DiscoveredResourceTemplate>> {
         let client = self.get_client()?;
         let templates = client.list_all_resource_templates().await.map_err(|err| {
             TransportError::Protocol(format!("list_resource_templates failed: {err}"))
@@ -30,11 +32,13 @@ impl McpConnection {
         templates
             .into_iter()
             .map(|template| {
-                serde_json::to_value(template).map_err(|err| {
-                    TransportError::Protocol(format!(
-                        "resource template serialization failed: {err}"
-                    ))
-                })
+                serde_json::to_value(template)
+                    .and_then(serde_json::from_value)
+                    .map_err(|err| {
+                        TransportError::Protocol(format!(
+                            "resource template serialization failed: {err}"
+                        ))
+                    })
             })
             .collect()
     }

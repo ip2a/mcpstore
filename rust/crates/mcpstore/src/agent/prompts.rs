@@ -12,9 +12,7 @@ impl MCPStore {
                     .resolve_scoped_service_binding(agent_id, service_name)
                     .await?;
                 let mut prompts = self.list_prompts(&global_service_name).await?;
-                prompts.sort_by(|left, right| {
-                    Self::value_field(left, "name").cmp(Self::value_field(right, "name"))
-                });
+                prompts.sort_by(|left, right| left.name.cmp(&right.name));
                 prompts
                     .into_iter()
                     .map(|prompt| {

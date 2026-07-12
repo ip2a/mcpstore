@@ -1,0 +1,13 @@
+{
+  "name": "mcpstore-bin-win32-x64-msvc",
+  "version": "1.5.18",
+  "description": "MCPStore CLI platform package for Windows x64 MSVC",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ip2a/mcpstore"
+  },
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "files": ["bin", "README.md"]
+}

@@ -1,57 +1,225 @@
-import { useEffect, useState } from "react"
-import { ArrowLeftIcon, LinkIcon, RefreshCwIcon, Trash2Icon, UnlinkIcon } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { ClipboardIcon, EyeIcon, FileIcon, LayoutTemplateIcon, MessageSquareIcon, RefreshCwIcon, WrenchIcon } from "lucide-react"
 import { toast } from "sonner"
 
-import { DetailHeader } from "@/components/shared/detail-header"
 import { JsonBlock } from "@/components/shared/json-block"
-import { MetaLine } from "@/components/shared/meta-line"
 import { MetricGrid, MetricTile } from "@/components/shared/metric-grid"
 import { PageEmpty, PageError } from "@/components/shared/page-states"
 import { PanelCard } from "@/components/shared/panel-card"
+import { ScrollPane } from "@/components/shared/scroll-pane"
+import { SearchBox } from "@/components/shared/search-box"
 import { SectionHeading } from "@/components/shared/section-heading"
-import { ServiceStatusBadge } from "@/components/shared/service-status-badge"
-import { ToolCard } from "@/components/shared/tool-card"
+import { SelectableRowButton } from "@/components/shared/selectable-row-button"
+import { CatalogTabTrigger, CatalogTabsList } from "@/components/shared/catalog-tabs-list"
+import { ToolArgsForm } from "@/components/shared/tool-args-form"
+import {
+  ToolAnnotationsSection,
+  ToolMetaSection,
+  ToolOutputSchemaSection,
+} from "@/components/shared/tool-capability-sections"
+import { ToolDescriptionBlock } from "@/components/shared/tool-description-block"
+import {
+  toolDetailSectionAside,
+  toolDetailSectionGrid,
+  toolDetailSectionLabel,
+  toolDetailSplitSection,
+} from "@/components/shared/tool-detail-section-layout"
+import { TwoPanePage } from "@/components/shared/two-pane-page"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { useServiceDetailQuery, useServiceStatusQuery } from "@/features/services/queries"
-import { formatDateTime } from "@/lib/format"
-import { toolKey } from "@/lib/tool-info"
-import { type ServiceEntry, type ToolInfo } from "@/lib/api"
+import { Tabs, TabsContent } from "@/components/ui/tabs"
+import {
+  useServiceDetailQuery,
+  useServicePromptsQuery,
+  useServiceResourceTemplatesQuery,
+  useServiceResourcesQuery,
+  useServiceStatusQuery,
+} from "@/features/services/queries"
+import { ServiceStatusActionsDialog } from "@/features/services/service-status-actions-dialog"
+import { useToolArgsForm } from "@/features/tools/use-tool-args-form"
+import { serializeToolArgs, type ToolSchema } from "@/lib/tool-args"
+import { getToolSchema, toolKey } from "@/lib/tool-info"
+import {
+  getResourceTemplateAnnotations,
+  getResourceTemplateMeta,
+  hasResourceTemplateAnnotations,
+  hasResourceTemplateMeta,
+  resourceTemplateKey,
+  resourceTemplateMimeType,
+  resourceTemplateUri,
+} from "@/lib/resource-template-info"
+import {
+  readResource,
+  type PromptInfo,
+  type ResourceInfo,
+  type ResourceTemplateInfo,
+  type ServiceEntry,
+  type ServiceStatusReport,
+  type ToolInfo,
+} from "@/lib/api"
+import { formatServiceLaunchLine } from "@/lib/service-info"
+import { useI18n } from "@/lib/i18n-context"
+import { cn } from "@/lib/utils"
+
+type CatalogTab = "tools" | "resources" | "templates" | "prompts"
+type RightPaneView = "service" | "catalog"
+
+function resourceKey(resource: ResourceInfo) {
+  return resource.uri
+}
+
+function promptKey(prompt: PromptInfo) {
+  return prompt.name
+}
+
+function resourceMimeType(resource: ResourceInfo) {
+  return String(resource.mimeType || resource.mime_type || "").trim()
+}
+
+function promptArgCount(prompt: PromptInfo) {
+  const args = prompt.arguments
+  if (!args) return 0
+  if (Array.isArray(args)) return args.length
+  if (typeof args === "object" && args !== null && Array.isArray((args as { properties?: unknown[] }).properties)) {
+    return (args as { properties: unknown[] }).properties.length
+  }
+  return 0
+}
 
 export function ServiceDetailView(props: {
   service: ServiceEntry
   busy: string | null
   refreshToken?: number
   onBack: () => void
-  onRunTool: (tool: ToolInfo) => void
-  onToolDetail: (tool: ToolInfo) => void
+  onRunTool: (tool: ToolInfo, args: Record<string, unknown>) => void
+  onToolDetail: (tool: ToolInfo, service: ServiceEntry, statusReport?: ServiceStatusReport | null) => void
   onConnect: () => void
   onDisconnect: () => void
   onRestart: () => void
   onDelete: () => void
 }) {
+  const { t } = useI18n()
   const [detailError, setDetailError] = useState<string | null>(null)
+  const [rightPaneView, setRightPaneView] = useState<RightPaneView>("service")
+  const [activeTab, setActiveTab] = useState<CatalogTab>("tools")
+  const [selectedToolKey, setSelectedToolKey] = useState<string | null>(null)
+  const [selectedResourceKey, setSelectedResourceKey] = useState<string | null>(null)
+  const [selectedTemplateKey, setSelectedTemplateKey] = useState<string | null>(null)
+  const [selectedPromptKey, setSelectedPromptKey] = useState<string | null>(null)
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false)
+  const [toolSearchQuery, setToolSearchQuery] = useState("")
   const detailQuery = useServiceDetailQuery(props.service.name)
   const statusQuery = useServiceStatusQuery(props.service.name)
+  const resourcesQuery = useServiceResourcesQuery(props.service.name)
+  const resourceTemplatesQuery = useServiceResourceTemplatesQuery(props.service.name)
+  const promptsQuery = useServicePromptsQuery(props.service.name)
   const detail = detailQuery.data
   const statusReport = statusQuery.data
   const error = detailQuery.error || detailError
-  const errorMessage = error instanceof Error ? error.message : error ? String(error) : "服务详情加载失败"
-  const loading = detailQuery.isFetching || statusQuery.isFetching
+  const errorMessage = error instanceof Error ? error.message : error ? String(error) : t("serviceDetailLoadFailed")
+  const loading =
+    detailQuery.isFetching ||
+    statusQuery.isFetching ||
+    resourcesQuery.isFetching ||
+    resourceTemplatesQuery.isFetching ||
+    promptsQuery.isFetching
   const service = detail || props.service
   const endpoint = service.url || service.command || "-"
   const tools = service.tools || []
+  const filteredTools = useMemo(() => {
+    const query = toolSearchQuery.trim().toLowerCase()
+    if (!query) return tools
+    return tools.filter((tool) => `${tool.name} ${tool.description || ""}`.toLowerCase().includes(query))
+  }, [toolSearchQuery, tools])
+  const resources = resourcesQuery.data || []
+  const resourceTemplates = resourceTemplatesQuery.data || []
+  const prompts = promptsQuery.data || []
+  const serviceConfig = service.config as Record<string, unknown> | undefined
+  const transport = String(service.transport || serviceConfig?.transport || "unknown")
+  const launchLine = formatServiceLaunchLine(service)
+  const description = String(serviceConfig?.description || "").trim()
+  const configArgs = Array.isArray(serviceConfig?.args) ? serviceConfig.args.map(String).join(" ") : null
+  const availableToolCount = statusReport?.tools?.filter((item) => item.status === "available").length
+  const selectedTool = useMemo(() => {
+    if (!tools.length) return null
+    return tools.find((tool) => toolKey(tool) === selectedToolKey) || tools[0]
+  }, [selectedToolKey, tools])
+  const selectedResource = useMemo(() => {
+    if (!resources.length) return null
+    return resources.find((resource) => resourceKey(resource) === selectedResourceKey) || resources[0]
+  }, [resources, selectedResourceKey])
+  const selectedTemplate = useMemo(() => {
+    if (!resourceTemplates.length) return null
+    return resourceTemplates.find((template) => resourceTemplateKey(template) === selectedTemplateKey) || resourceTemplates[0]
+  }, [resourceTemplates, selectedTemplateKey])
+  const selectedPrompt = useMemo(() => {
+    if (!prompts.length) return null
+    return prompts.find((prompt) => promptKey(prompt) === selectedPromptKey) || prompts[0]
+  }, [prompts, selectedPromptKey])
+  const { values: toolArgs, setField: setToolArg, schema: toolArgsSchema } = useToolArgsForm(selectedTool)
+
+  useEffect(() => {
+    if (!tools.length) {
+      setSelectedToolKey(null)
+      return
+    }
+    if (!selectedToolKey || !tools.some((tool) => toolKey(tool) === selectedToolKey)) {
+      setSelectedToolKey(toolKey(tools[0]))
+    }
+  }, [selectedToolKey, tools])
+
+  useEffect(() => {
+    if (!resources.length) {
+      setSelectedResourceKey(null)
+      return
+    }
+    if (!selectedResourceKey || !resources.some((resource) => resourceKey(resource) === selectedResourceKey)) {
+      setSelectedResourceKey(resourceKey(resources[0]))
+    }
+  }, [resources, selectedResourceKey])
+
+  useEffect(() => {
+    if (!resourceTemplates.length) {
+      setSelectedTemplateKey(null)
+      return
+    }
+    if (!selectedTemplateKey || !resourceTemplates.some((template) => resourceTemplateKey(template) === selectedTemplateKey)) {
+      setSelectedTemplateKey(resourceTemplateKey(resourceTemplates[0]))
+    }
+  }, [resourceTemplates, selectedTemplateKey])
+
+  useEffect(() => {
+    if (!prompts.length) {
+      setSelectedPromptKey(null)
+      return
+    }
+    if (!selectedPromptKey || !prompts.some((prompt) => promptKey(prompt) === selectedPromptKey)) {
+      setSelectedPromptKey(promptKey(prompts[0]))
+    }
+  }, [prompts, selectedPromptKey])
 
   async function loadDetail() {
     try {
       setDetailError(null)
-      const [nextDetail] = await Promise.all([detailQuery.refetch(), statusQuery.refetch()])
+      const [nextDetail] = await Promise.all([
+        detailQuery.refetch(),
+        statusQuery.refetch(),
+        resourcesQuery.refetch(),
+        resourceTemplatesQuery.refetch(),
+        promptsQuery.refetch(),
+      ])
       if (nextDetail.error) throw nextDetail.error
     } catch (err) {
-      const message = err instanceof Error ? err.message : "服务详情加载失败"
+      const message = err instanceof Error ? err.message : t("serviceDetailLoadFailed")
       if (!detailQuery.error) setDetailError(message)
       toast.error(message)
     }
   }
+
+  useEffect(() => {
+    setRightPaneView("service")
+    setToolSearchQuery("")
+  }, [props.service.name])
 
   useEffect(() => {
     void loadDetail()
@@ -59,96 +227,698 @@ export function ServiceDetailView(props: {
 
   return (
     <>
-      <DetailHeader
-        badges={<ServiceStatusBadge status={service.status} />}
-        eyebrow="服务详情"
-        meta={
-          <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
-            <span>tools · {tools.length}</span>
-            <span>added · {formatDateTime(service.added_time)}</span>
-          </div>
-        }
-        title={service.name}
-        actions={
-          <>
-            <Button variant="outline" onClick={props.onBack}>
-              <ArrowLeftIcon data-icon="inline-start" />
-              Back
-            </Button>
-            <Button variant="outline" onClick={loadDetail} disabled={loading}>
-              <RefreshCwIcon data-icon="inline-start" />
-              刷新
-            </Button>
-            {service.status === "Connected" ? (
-              <Button variant="outline" onClick={props.onDisconnect} disabled={Boolean(props.busy)}>
-                <UnlinkIcon data-icon="inline-start" />
-                Disconnect
-              </Button>
-            ) : (
-              <Button onClick={props.onConnect} disabled={Boolean(props.busy)}>
-                <LinkIcon data-icon="inline-start" />
-                Connect
-              </Button>
-            )}
-            <Button variant="outline" onClick={props.onRestart} disabled={Boolean(props.busy)}>
-              <RefreshCwIcon data-icon="inline-start" />
-              Restart
-            </Button>
-            <Button variant="destructive" onClick={props.onDelete} disabled={Boolean(props.busy)}>
-              <Trash2Icon data-icon="inline-start" />
-              Delete
-            </Button>
-          </>
-        }
-      />
+      <TwoPanePage variant="full" className="h-full min-h-0 flex-1 gap-4">
+        <PanelCard className="@container h-full min-h-0">
+          <section className="flex flex-col gap-3 border-b pb-4">
+            <div className="min-w-0">
+              <p className="font-mono text-xs uppercase text-muted-foreground">{t("service")}</p>
+              <button
+                type="button"
+                onClick={() => setRightPaneView("service")}
+                className={cn(
+                  "mt-1 block max-w-full cursor-pointer truncate border-0 bg-transparent p-0 text-left text-lg font-semibold underline-offset-4 outline-none transition-opacity",
+                  "hover:underline active:opacity-70",
+                )}
+                title={service.name}
+              >
+                {service.name}
+              </button>
+              <p className="mt-1 truncate font-mono text-xs text-muted-foreground" title={launchLine}>
+                {launchLine}
+              </p>
+              {description ? (
+                <p className="mt-2 line-clamp-2 text-sm text-muted-foreground" title={description}>
+                  {description}
+                </p>
+              ) : null}
+            </div>
+          </section>
 
-      <MetricGrid columns="four">
-        <MetricTile variant="compact" label="Name" value={service.name} title={service.name} />
-        <MetricTile variant="compact" label="Endpoint" value={String(endpoint)} title={String(endpoint)} />
-        <MetricTile variant="compact" label="Agent" value={String(service.agent_id || "store")} />
-        <MetricTile variant="compact" label="Tools" value={String(tools.length)} />
-      </MetricGrid>
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => {
+              setActiveTab(value as CatalogTab)
+              setRightPaneView("catalog")
+            }}
+            className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
+          >
+            <CatalogTabsList>
+              <CatalogTabTrigger value="tools" label={t("tools")}>
+                <WrenchIcon />
+              </CatalogTabTrigger>
+              <CatalogTabTrigger value="resources" label={t("resources")}>
+                <FileIcon />
+              </CatalogTabTrigger>
+              <CatalogTabTrigger value="templates" label={t("templates")}>
+                <LayoutTemplateIcon />
+              </CatalogTabTrigger>
+              <CatalogTabTrigger value="prompts" label={t("prompts")}>
+                <MessageSquareIcon />
+              </CatalogTabTrigger>
+            </CatalogTabsList>
 
-      <PanelCard>
-        <SectionHeading title="Service Info" titleAs="h2" className="border-b-0 pb-0" actions={<ServiceStatusBadge status={service.status} />} />
-        <div className="grid gap-4 text-sm md:grid-cols-2">
-          <MetaLine label="Transport" value={String(service.transport || "unknown")} valueClassName="font-mono" />
-          <MetaLine label="Original" value={String(service.original_name || service.name)} valueClassName="font-mono" />
-          <MetaLine label="Added" value={formatDateTime(service.added_time)} valueClassName="font-mono" />
-          <MetaLine label="Command" value={String(service.command || "-")} valueClassName="font-mono" />
-          <MetaLine label="URL" value={String(service.url || "-")} valueClassName="font-mono" />
-        </div>
-      </PanelCard>
+            <TabsContent value="tools" className="mt-0 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+              <SectionHeading title={t("toolList")} titleAs="h2" description={t("itemsCount", { count: filteredTools.length })} descriptionPlacement="inline" className="border-b-0 pb-0" />
+              {tools.length ? (
+                filteredTools.length ? (
+                  <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
+                    {filteredTools.map((tool) => {
+                      const key = toolKey(tool)
+                      const schema = getToolSchema(tool) as { properties?: Record<string, unknown>; required?: string[] }
+                      const paramCount = Object.keys(schema.properties || {}).length
+                      return (
+                        <SelectableRowButton
+                          key={key}
+                          meta={t("paramCount", { count: paramCount })}
+                          onClick={() => {
+                            setSelectedToolKey(key)
+                            setRightPaneView("catalog")
+                          }}
+                          selected={rightPaneView === "catalog" && key === toolKey(selectedTool || tool)}
+                          title={tool.name}
+                          trailing={schema.required?.length ? <Badge variant="outline">{schema.required.length}</Badge> : null}
+                        />
+                      )
+                    })}
+                  </ScrollPane>
+                ) : (
+                  <PageEmpty title={t("noMatchingTools")} description={t("noMatchingToolsDescription")} onRefresh={loadDetail} />
+                )
+              ) : (
+                <PageEmpty title={t("noToolsFound")} description={t("noToolsFoundDescription")} onRefresh={loadDetail} />
+              )}
+            </TabsContent>
 
-      <section className="flex flex-col gap-3">
-        <SectionHeading title="Tool List" titleAs="h2" description={`${tools.length} items`} className="border-b-0 pb-0" />
-        {tools.length ? (
-          <div className="grid gap-4 lg:grid-cols-2">
-            {tools.map((tool) => (
-              <ToolCard
-                key={toolKey(tool)}
-                tool={tool}
-                sourceLabel={service.name}
-                onRun={() => props.onRunTool(tool)}
-                onDetail={() => props.onToolDetail(tool)}
+            <TabsContent value="resources" className="mt-0 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+              <SectionHeading title={t("resourceList")} titleAs="h2" description={t("itemsCount", { count: resources.length })} descriptionPlacement="inline" className="border-b-0 pb-0" />
+              {resources.length ? (
+                <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
+                  {resources.map((resource) => {
+                    const key = resourceKey(resource)
+                    const mimeType = resourceMimeType(resource)
+                    return (
+                      <SelectableRowButton
+                        key={key}
+                        meta={mimeType || resource.uri}
+                        onClick={() => {
+                          setSelectedResourceKey(key)
+                          setRightPaneView("catalog")
+                        }}
+                        selected={rightPaneView === "catalog" && key === resourceKey(selectedResource || resource)}
+                        title={resource.title || resource.name || resource.uri}
+                      />
+                    )
+                  })}
+                </ScrollPane>
+              ) : (
+                <PageEmpty title={t("noResourcesFound")} description={t("noResourcesFoundDescription")} onRefresh={loadDetail} />
+              )}
+            </TabsContent>
+
+            <TabsContent value="templates" className="mt-0 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+              <SectionHeading title={t("templateList")} titleAs="h2" description={t("itemsCount", { count: resourceTemplates.length })} descriptionPlacement="inline" className="border-b-0 pb-0" />
+              {resourceTemplates.length ? (
+                <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
+                  {resourceTemplates.map((template) => {
+                    const key = resourceTemplateKey(template)
+                    const mimeType = resourceTemplateMimeType(template)
+                    const uriTemplate = resourceTemplateUri(template)
+                    return (
+                      <SelectableRowButton
+                        key={key}
+                        meta={mimeType || uriTemplate}
+                        onClick={() => {
+                          setSelectedTemplateKey(key)
+                          setRightPaneView("catalog")
+                        }}
+                        selected={rightPaneView === "catalog" && key === resourceTemplateKey(selectedTemplate || template)}
+                        title={template.title || template.name || uriTemplate}
+                      />
+                    )
+                  })}
+                </ScrollPane>
+              ) : (
+                <PageEmpty title={t("noTemplatesFound")} description={t("noTemplatesFoundDescription")} onRefresh={loadDetail} />
+              )}
+            </TabsContent>
+
+            <TabsContent value="prompts" className="mt-0 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+              <SectionHeading title={t("promptList")} titleAs="h2" description={t("itemsCount", { count: prompts.length })} descriptionPlacement="inline" className="border-b-0 pb-0" />
+              {prompts.length ? (
+                <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
+                  {prompts.map((prompt) => {
+                    const key = promptKey(prompt)
+                    const argCount = promptArgCount(prompt)
+                    return (
+                      <SelectableRowButton
+                        key={key}
+                        meta={prompt.description || (argCount ? t("paramCount", { count: argCount }) : t("noArgs"))}
+                        onClick={() => {
+                          setSelectedPromptKey(key)
+                          setRightPaneView("catalog")
+                        }}
+                        selected={rightPaneView === "catalog" && key === promptKey(selectedPrompt || prompt)}
+                        title={prompt.title || prompt.name}
+                      />
+                    )
+                  })}
+                </ScrollPane>
+              ) : (
+                <PageEmpty title={t("noPromptsFound")} description={t("noPromptsFoundDescription")} onRefresh={loadDetail} />
+              )}
+            </TabsContent>
+          </Tabs>
+        </PanelCard>
+
+        <PanelCard variant="plain" className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
+          <ServicePreviewHeader
+            rightPaneView={rightPaneView}
+            activeTab={activeTab}
+            loading={loading}
+            service={service}
+            selectedTool={selectedTool}
+            selectedResource={selectedResource}
+            selectedTemplate={selectedTemplate}
+            selectedPrompt={selectedPrompt}
+            toolCount={tools.length}
+            resourceCount={resources.length}
+            templateCount={resourceTemplates.length}
+            promptCount={prompts.length}
+            serviceName={service.name}
+            onRefresh={loadDetail}
+            onRun={
+              rightPaneView === "catalog" && activeTab === "tools" && selectedTool
+                ? () => props.onRunTool(selectedTool, serializeToolArgs(toolArgs, toolArgsSchema))
+                : undefined
+            }
+            onDetail={
+              rightPaneView === "catalog" && activeTab === "tools" && selectedTool
+                ? () => props.onToolDetail(selectedTool, service, statusReport)
+                : undefined
+            }
+            toolSearchQuery={toolSearchQuery}
+            onToolSearchQueryChange={setToolSearchQuery}
+          />
+          {rightPaneView === "catalog" && activeTab === "tools" && selectedTool ? (
+            <ServiceToolSummarySection tool={selectedTool} />
+          ) : null}
+          {rightPaneView === "service" ? (
+            <MetricGrid columns="four">
+              <MetricTile
+                variant="compact"
+                label={t("name")}
+                value={service.name}
+                title={service.name}
+                hint={String(service.client_id || service.agent_id || t("globalService")).toLowerCase()}
               />
-            ))}
-          </div>
+              <MetricTile
+                variant="compact"
+                label={t("endpoint")}
+                value={String(endpoint)}
+                title={String(endpoint)}
+                hint={configArgs ? `${transport} · ${configArgs}` : t("transportSuffix", { transport })}
+              />
+              <MetricTile
+                variant="compact"
+                label={t("status")}
+                value={String(service.status || t("unknown"))}
+                title={String(service.status || t("unknown"))}
+                hint={statusReport?.health_status || t("clickToManage")}
+                active={statusDialogOpen}
+                onClick={() => setStatusDialogOpen(true)}
+              />
+              <MetricTile
+                variant="compact"
+                label={t("catalog")}
+                value={String(tools.length + resources.length + resourceTemplates.length + prompts.length)}
+                hint={t("catalogSummary", {
+                  tools: tools.length,
+                  resources: resources.length,
+                  templates: resourceTemplates.length,
+                  prompts: prompts.length,
+                })}
+              />
+            </MetricGrid>
+          ) : null}
+          <ScrollPane className="flex-1">
+            {error ? (
+              <PageError title={t("serviceDetailLoadFailed")} message={errorMessage} onRefresh={loadDetail} />
+            ) : rightPaneView === "service" ? (
+              <ServiceOverviewPane
+                service={service}
+                description={description}
+                transport={transport}
+                launchLine={launchLine}
+                configArgs={configArgs}
+                endpoint={String(endpoint)}
+                availableToolCount={availableToolCount}
+                statusReport={statusReport}
+              />
+            ) : activeTab === "tools" ? (
+              selectedTool ? (
+                <ServiceToolDetailPane
+                  tool={selectedTool}
+                  toolArgs={toolArgs}
+                  toolArgsSchema={toolArgsSchema}
+                  onToolArgChange={setToolArg}
+                />
+              ) : (
+                <PageEmpty title={t("noToolSelected")} description={t("serviceToolDetailsWillAppear")} onRefresh={loadDetail} />
+              )
+            ) : activeTab === "resources" ? (
+              selectedResource ? (
+                <ServiceResourceDetailPane resource={selectedResource} serviceName={service.name} />
+              ) : (
+                <PageEmpty title={t("noResourceSelected")} description={t("noResourceSelectedDescription")} onRefresh={loadDetail} />
+              )
+            ) : activeTab === "templates" ? (
+              selectedTemplate ? (
+                <ServiceResourceTemplateDetailPane template={selectedTemplate} />
+              ) : (
+                <PageEmpty title={t("noTemplateSelected")} description={t("noTemplateSelectedDescription")} onRefresh={loadDetail} />
+              )
+            ) : selectedPrompt ? (
+              <ServicePromptDetailPane prompt={selectedPrompt} />
+            ) : (
+              <PageEmpty title={t("noPromptSelected")} description={t("noPromptSelectedDescription")} onRefresh={loadDetail} />
+            )}
+          </ScrollPane>
+        </PanelCard>
+      </TwoPanePage>
+
+      <ServiceStatusActionsDialog
+        busy={props.busy}
+        open={statusDialogOpen}
+        service={service}
+        serviceStatus={service.status}
+        onConnect={props.onConnect}
+        onDelete={props.onDelete}
+        onDisconnect={props.onDisconnect}
+        onOpenChange={setStatusDialogOpen}
+        onRestart={props.onRestart}
+      />
+    </>
+  )
+}
+
+function ServicePreviewHeader({
+  rightPaneView,
+  activeTab,
+  loading,
+  service,
+  selectedTool,
+  selectedResource,
+  selectedTemplate,
+  selectedPrompt,
+  toolCount,
+  resourceCount,
+  templateCount,
+  promptCount,
+  serviceName,
+  onRefresh,
+  onRun,
+  onDetail,
+  toolSearchQuery,
+  onToolSearchQueryChange,
+}: {
+  rightPaneView: RightPaneView
+  activeTab: CatalogTab
+  loading: boolean
+  service: ServiceEntry
+  selectedTool: ToolInfo | null
+  selectedResource: ResourceInfo | null
+  selectedTemplate: ResourceTemplateInfo | null
+  selectedPrompt: PromptInfo | null
+  toolCount: number
+  resourceCount: number
+  templateCount: number
+  promptCount: number
+  serviceName: string
+  onRefresh: () => void
+  onRun?: () => void
+  onDetail?: () => void
+  toolSearchQuery: string
+  onToolSearchQueryChange: (value: string) => void
+}) {
+  const { t } = useI18n()
+  const title =
+    rightPaneView === "service"
+      ? service.name
+      : activeTab === "tools"
+        ? selectedTool?.name || t("toolsAvailable", { count: toolCount })
+        : activeTab === "resources"
+          ? selectedResource?.title || selectedResource?.name || selectedResource?.uri || t("resourcesAvailable", { count: resourceCount })
+          : activeTab === "templates"
+            ? selectedTemplate?.title || selectedTemplate?.name || (selectedTemplate ? resourceTemplateUri(selectedTemplate) : "") || t("templatesAvailable", { count: templateCount })
+            : selectedPrompt?.title || selectedPrompt?.name || t("promptsAvailable", { count: promptCount })
+
+  const copyPayload =
+    rightPaneView === "service"
+      ? service
+      : activeTab === "tools"
+        ? selectedTool
+        : activeTab === "resources"
+          ? selectedResource
+          : activeTab === "templates"
+            ? selectedTemplate
+            : selectedPrompt
+
+  async function onCopy() {
+    if (!copyPayload) return
+    await navigator.clipboard.writeText(JSON.stringify(copyPayload, null, 2))
+    toast.success(t("copied"))
+  }
+
+  async function onReadResource() {
+    if (!selectedResource) return
+    try {
+      const result = await readResource(selectedResource.uri, serviceName)
+      await navigator.clipboard.writeText(JSON.stringify(result, null, 2))
+      toast.success(t("resourceContentCopied"))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t("readResourceFailed")
+      toast.error(message)
+    }
+  }
+
+  const showToolHeader = rightPaneView === "catalog" && activeTab === "tools" && Boolean(selectedTool)
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 border-b pb-2">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        {showToolHeader ? (
+          <>
+            <h2 className="shrink-0 truncate font-mono text-sm font-medium" title={selectedTool!.name}>
+              {selectedTool!.name}
+            </h2>
+            <SearchBox placeholder={t("searchTools")} value={toolSearchQuery} onChange={onToolSearchQueryChange} />
+          </>
         ) : (
-          <PageEmpty title="No tools found" description="Tool definitions will appear after the service is connected." onRefresh={loadDetail} />
+          <div className="flex min-w-0 flex-col gap-1">
+            <strong className="truncate font-mono text-sm font-medium" title={title}>
+              {title}
+            </strong>
+          </div>
+        )}
+      </div>
+      <div className="flex shrink-0 flex-wrap justify-end gap-2">
+        {rightPaneView === "catalog" && activeTab === "tools" && onRun ? (
+          <Button size="sm" onClick={onRun}>
+            <WrenchIcon data-icon="inline-start" />
+            {t("run")}
+          </Button>
+        ) : null}
+        {rightPaneView === "catalog" && activeTab === "tools" && onDetail ? (
+          <Button size="sm" variant="outline" onClick={onDetail}>
+            <EyeIcon data-icon="inline-start" />
+            {t("details")}
+          </Button>
+        ) : null}
+        {rightPaneView === "catalog" && activeTab === "resources" && selectedResource ? (
+          <Button size="sm" variant="outline" onClick={onReadResource}>
+            <FileIcon data-icon="inline-start" />
+            {t("read")}
+          </Button>
+        ) : null}
+        {copyPayload ? (
+          <Button size="sm" variant="outline" onClick={onCopy}>
+            <ClipboardIcon data-icon="inline-start" />
+            {t("copy")}
+          </Button>
+        ) : null}
+        <Button size="sm" variant="outline" onClick={onRefresh} disabled={loading}>
+          <RefreshCwIcon data-icon="inline-start" />
+          {t("refresh")}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function ServiceOverviewPane({
+  service,
+  description,
+  transport,
+  launchLine,
+  configArgs,
+  endpoint,
+  availableToolCount,
+  statusReport,
+}: {
+  service: ServiceEntry
+  description: string
+  transport: string
+  launchLine: string
+  configArgs: string | null
+  endpoint: string
+  availableToolCount: number | undefined
+  statusReport: ServiceStatusReport | null | undefined
+}) {
+  const { t } = useI18n()
+
+  return (
+    <div className="flex min-w-0 flex-col gap-4">
+      <section className="border-b pb-4">
+        <SectionHeading title={t("service")} titleAs="h2" className="border-b-0 pb-3" />
+        <dl className="grid gap-3 text-sm">
+          <div className="grid gap-1">
+            <dt className="text-muted-foreground">{t("name")}</dt>
+            <dd className="font-mono">{service.name}</dd>
+          </div>
+          {description ? (
+            <div className="grid gap-1">
+              <dt className="text-muted-foreground">{t("description")}</dt>
+              <dd>{description}</dd>
+            </div>
+          ) : null}
+          <div className="grid gap-1">
+            <dt className="text-muted-foreground">{t("launch")}</dt>
+            <dd className="font-mono break-all">{launchLine}</dd>
+          </div>
+          <div className="grid gap-1">
+            <dt className="text-muted-foreground">{t("endpoint")}</dt>
+            <dd className="font-mono break-all">{endpoint}</dd>
+          </div>
+          <div className="grid gap-1">
+            <dt className="text-muted-foreground">{t("transport")}</dt>
+            <dd className="font-mono">{transport}{configArgs ? ` · ${configArgs}` : ""}</dd>
+          </div>
+          {availableToolCount !== undefined ? (
+            <div className="grid gap-1">
+              <dt className="text-muted-foreground">{t("availableTools")}</dt>
+              <dd>{availableToolCount}</dd>
+            </div>
+          ) : null}
+          {statusReport?.health_status ? (
+            <div className="grid gap-1">
+              <dt className="text-muted-foreground">{t("health")}</dt>
+              <dd>{statusReport.health_status}</dd>
+            </div>
+          ) : null}
+        </dl>
+      </section>
+    </div>
+  )
+}
+
+function ServiceToolSummarySection({ tool }: { tool: ToolInfo }) {
+  return (
+    <section className="border-b pb-4">
+      <ToolDescriptionBlock description={tool.description} showLabel={false} className="text-right" />
+    </section>
+  )
+}
+
+function ServiceToolDetailPane({
+  tool,
+  toolArgs,
+  toolArgsSchema,
+  onToolArgChange,
+}: {
+  tool: ToolInfo
+  toolArgs: Record<string, unknown>
+  toolArgsSchema: ToolSchema
+  onToolArgChange: (name: string, value: unknown) => void
+}) {
+  const { t } = useI18n()
+
+  return (
+    <div className="flex min-w-0 flex-col">
+      <section className={toolDetailSplitSection}>
+        <div className={toolDetailSectionGrid}>
+          <div className={toolDetailSectionAside}>
+            <h2 className={toolDetailSectionLabel}>{t("inputParams")}</h2>
+          </div>
+          <ToolArgsForm schema={toolArgsSchema} values={toolArgs} onChange={onToolArgChange} valueAlign="right" />
+        </div>
+      </section>
+
+      <ToolOutputSchemaSection tool={tool} layout="split" />
+      <ToolAnnotationsSection tool={tool} />
+      <ToolMetaSection tool={tool} />
+    </div>
+  )
+}
+
+function ServiceResourceDetailPane({ resource, serviceName }: { resource: ResourceInfo; serviceName: string }) {
+  const { t } = useI18n()
+  const [content, setContent] = useState<unknown>(null)
+  const [reading, setReading] = useState(false)
+  const mimeType = resourceMimeType(resource)
+
+  async function onRead() {
+    setReading(true)
+    try {
+      const result = await readResource(resource.uri, serviceName)
+      setContent(result)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t("readResourceFailed")
+      toast.error(message)
+    } finally {
+      setReading(false)
+    }
+  }
+
+  return (
+    <div className="flex min-w-0 flex-col gap-4">
+      <section className="border-b pb-4">
+        <SectionHeading title={t("resource")} titleAs="h2" className="border-b-0 pb-3" />
+        <dl className="grid gap-3 text-sm">
+          <div className="grid gap-1">
+            <dt className="text-muted-foreground">{t("uri")}</dt>
+            <dd className="font-mono break-all">{resource.uri}</dd>
+          </div>
+          {resource.name ? (
+            <div className="grid gap-1">
+              <dt className="text-muted-foreground">{t("name")}</dt>
+              <dd>{resource.name}</dd>
+            </div>
+          ) : null}
+          {resource.description ? (
+            <div className="grid gap-1">
+              <dt className="text-muted-foreground">{t("description")}</dt>
+              <dd>{resource.description}</dd>
+            </div>
+          ) : null}
+          {mimeType ? (
+            <div className="grid gap-1">
+              <dt className="text-muted-foreground">{t("mimeType")}</dt>
+              <dd className="font-mono">{mimeType}</dd>
+            </div>
+          ) : null}
+        </dl>
+        <div className="mt-4">
+          <Button size="sm" variant="outline" onClick={onRead} disabled={reading}>
+            <FileIcon data-icon="inline-start" />
+            {reading ? t("reading") : t("readResource")}
+          </Button>
+        </div>
+      </section>
+      {content ? (
+        <section className="pb-2">
+          <SectionHeading title={t("content")} titleAs="h2" className="border-b-0 pb-3" />
+          <JsonBlock value={content} />
+        </section>
+      ) : null}
+    </div>
+  )
+}
+
+function ServiceResourceTemplateDetailPane({ template }: { template: ResourceTemplateInfo }) {
+  const { t } = useI18n()
+  const uriTemplate = resourceTemplateUri(template)
+  const mimeType = resourceTemplateMimeType(template)
+  const annotations = getResourceTemplateAnnotations(template)
+  const meta = getResourceTemplateMeta(template)
+
+  return (
+    <div className="flex min-w-0 flex-col gap-4">
+      <section className="border-b pb-4">
+        <SectionHeading title={t("resourceTemplate")} titleAs="h2" className="border-b-0 pb-3" />
+        <dl className="grid gap-3 text-sm">
+          <div className="grid gap-1">
+            <dt className="text-muted-foreground">{t("uriTemplate")}</dt>
+            <dd className="font-mono break-all">{uriTemplate || "-"}</dd>
+          </div>
+          {template.name ? (
+            <div className="grid gap-1">
+              <dt className="text-muted-foreground">{t("name")}</dt>
+              <dd>{template.name}</dd>
+            </div>
+          ) : null}
+          {template.title ? (
+            <div className="grid gap-1">
+              <dt className="text-muted-foreground">{t("titleLabel")}</dt>
+              <dd>{template.title}</dd>
+            </div>
+          ) : null}
+          {template.description ? (
+            <div className="grid gap-1">
+              <dt className="text-muted-foreground">{t("description")}</dt>
+              <dd>{template.description}</dd>
+            </div>
+          ) : null}
+          {mimeType ? (
+            <div className="grid gap-1">
+              <dt className="text-muted-foreground">{t("mimeType")}</dt>
+              <dd className="font-mono">{mimeType}</dd>
+            </div>
+          ) : null}
+        </dl>
+      </section>
+      {hasResourceTemplateAnnotations(template) ? (
+        <section className="border-b pb-4">
+          <SectionHeading title={t("annotations")} titleAs="h2" className="border-b-0 pb-3" />
+          <JsonBlock value={annotations} />
+        </section>
+      ) : null}
+      {hasResourceTemplateMeta(template) ? (
+        <section className="pb-2">
+          <SectionHeading title={t("meta")} titleAs="h2" className="border-b-0 pb-3" />
+          <JsonBlock value={meta} />
+        </section>
+      ) : null}
+    </div>
+  )
+}
+
+function ServicePromptDetailPane({ prompt }: { prompt: PromptInfo }) {
+  const { t } = useI18n()
+  const argCount = promptArgCount(prompt)
+
+  return (
+    <div className="flex min-w-0 flex-col gap-4">
+      <section className="border-b pb-4">
+        <SectionHeading title={t("promptLabel")} titleAs="h2" className="border-b-0 pb-3" />
+        <dl className="grid gap-3 text-sm">
+          <div className="grid gap-1">
+            <dt className="text-muted-foreground">{t("name")}</dt>
+            <dd className="font-mono">{prompt.name}</dd>
+          </div>
+          {prompt.title ? (
+            <div className="grid gap-1">
+              <dt className="text-muted-foreground">{t("titleLabel")}</dt>
+              <dd>{prompt.title}</dd>
+            </div>
+          ) : null}
+          {prompt.description ? (
+            <div className="grid gap-1">
+              <dt className="text-muted-foreground">{t("description")}</dt>
+              <dd>{prompt.description}</dd>
+            </div>
+          ) : null}
+        </dl>
+      </section>
+      <section className="pb-2">
+        <SectionHeading title={t("arguments")} titleAs="h2" badge={argCount || undefined} className="border-b-0 pb-3" />
+        {prompt.arguments ? (
+          <JsonBlock value={prompt.arguments} />
+        ) : (
+          <p className="rounded-lg border border-dashed bg-muted/10 px-3 py-4 text-sm text-muted-foreground">
+            {t("noPromptArguments")}
+          </p>
         )}
       </section>
-
-      <section className="grid gap-4 lg:grid-cols-2">
-        <PanelCard>
-          <SectionHeading title="Status" titleAs="h2" className="border-b-0 pb-0" />
-          {error ? <PageError title="Service status failed to load" message={errorMessage} onRefresh={loadDetail} /> : <JsonBlock value={statusReport || { status: service.status || "Unknown" }} />}
-        </PanelCard>
-        <PanelCard>
-          <SectionHeading title="Raw Detail" titleAs="h2" className="border-b-0 pb-0" />
-          <JsonBlock value={service} />
-        </PanelCard>
-      </section>
-    </>
+    </div>
   )
 }

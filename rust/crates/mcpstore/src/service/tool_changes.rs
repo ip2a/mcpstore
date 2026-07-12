@@ -113,14 +113,7 @@ impl MCPStore {
 
         let old_tools = entry.tools.clone();
         let new_tools = self.pool.list_tools(service_name).await?;
-        let tool_infos = new_tools
-            .into_iter()
-            .map(|tool| crate::registry::ToolInfo {
-                name: tool.name,
-                description: tool.description,
-                schema: tool.input_schema,
-            })
-            .collect::<Vec<_>>();
+        let tool_infos = new_tools.into_iter().map(Into::into).collect::<Vec<_>>();
 
         let diff = Self::diff_tool_infos(&old_tools, &tool_infos);
         entry.tools = tool_infos;
@@ -210,7 +203,8 @@ impl MCPStore {
                 let old_tool = old.get(name)?;
                 let new_tool = new.get(name)?;
                 if old_tool.description != new_tool.description
-                    || old_tool.schema != new_tool.schema
+                    || old_tool.input_schema != new_tool.input_schema
+                    || old_tool.output_schema != new_tool.output_schema
                 {
                     Some(name.clone())
                 } else {

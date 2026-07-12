@@ -47,22 +47,12 @@ impl MCPStore {
         Some(service)
     }
 
-    pub async fn list_tools(&self, service_name: &str) -> Result<Vec<ToolDescription>> {
+    pub async fn list_tools(&self, service_name: &str) -> Result<Vec<crate::registry::ToolInfo>> {
         self.refresh_from_db_if_needed().await?;
         if self.registry.find_service(service_name).await.is_none() {
             return Err(StoreError::ServiceNotFound(service_name.to_string()));
         }
-        Ok(self
-            .registry
-            .list_service_tools(service_name)
-            .await
-            .into_iter()
-            .map(|tool| ToolDescription {
-                name: tool.name,
-                description: tool.description,
-                input_schema: tool.schema,
-            })
-            .collect())
+        Ok(self.registry.list_service_tools(service_name).await)
     }
 
     pub async fn list_all_tools(&self) -> Vec<crate::registry::ToolInfo> {

@@ -363,8 +363,12 @@ impl MCPStore {
                 service_global_name: result.service_name.clone(),
                 service_original_name: result.service_name.clone(),
                 source_agent: GLOBAL_AGENT_STORE.to_string(),
+                title: tool.title.clone(),
                 description: tool.description.clone(),
-                input_schema: tool.schema.clone(),
+                input_schema: tool.input_schema.clone(),
+                output_schema: tool.output_schema.clone(),
+                annotations: tool.annotations.clone(),
+                meta: tool.meta.clone(),
                 created_time: now,
                 tool_hash: openapi_tool_content_hash(&result.service_name, tool),
             };
@@ -1509,7 +1513,7 @@ fn openapi_tool_content_hash(name: &str, tool: &crate::registry::ToolInfo) -> St
     name.hash(&mut hasher);
     tool.name.hash(&mut hasher);
     tool.description.hash(&mut hasher);
-    serde_json::to_string(&tool.schema)
+    serde_json::to_string(&tool.input_schema)
         .unwrap_or_default()
         .hash(&mut hasher);
     format!("{:016x}", hasher.finish())

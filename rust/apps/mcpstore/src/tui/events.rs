@@ -4,6 +4,7 @@ use super::app::{
     AddServicePane, ContentPane, FocusArea, LogsPane, LogsSection, MainView, ServiceListMenu,
     ServiceManagementTab, SettingsPane, SettingsSection, StatusSection, TuiApp,
 };
+use super::i18n::{self, TextKey};
 use crate::BoxErr;
 
 pub fn handle_key(
@@ -98,10 +99,18 @@ pub fn handle_key(
                 app.queue_agent_refresh();
             } else if app.active_view == MainView::Status {
                 app.refresh_status_sources(rt);
-                app.status_message = "[成功] 已刷新状态信息".to_string();
+                app.status_message = format!(
+                    "{} {}",
+                    i18n::text(app.locale, TextKey::StatusSuccessPrefix),
+                    i18n::text(app.locale, TextKey::RefreshedStatusInfo)
+                );
             } else {
                 app.refresh(rt, true)?;
-                app.status_message = "[成功] 已刷新服务列表".to_string();
+                app.status_message = format!(
+                    "{} {}",
+                    i18n::text(app.locale, TextKey::StatusSuccessPrefix),
+                    i18n::text(app.locale, TextKey::RefreshedServiceList)
+                );
             }
         }
         _ => handle_focused_key(app, rt, key)?,
@@ -234,7 +243,11 @@ fn handle_status_content_key(
         }
         KeyCode::Char('r') => {
             app.refresh_status_sources(rt);
-            app.status_message = "[成功] 已刷新状态信息".to_string();
+            app.status_message = format!(
+                "{} {}",
+                i18n::text(app.locale, TextKey::StatusSuccessPrefix),
+                i18n::text(app.locale, TextKey::RefreshedStatusInfo)
+            );
         }
         _ => {}
     }
@@ -426,9 +439,17 @@ fn handle_search_shortcut(app: &mut TuiApp) {
         && app.service_tab == ServiceManagementTab::Services
     {
         app.filter.search_mode = true;
-        app.status_message = "[进行中] 搜索模式".to_string();
+        app.status_message = format!(
+            "{} {}",
+            i18n::text(app.locale, TextKey::StatusInProgressPrefix),
+            i18n::text(app.locale, TextKey::SearchMode)
+        );
     } else {
-        app.status_message = "[进行中] 当前页面暂未接入搜索".to_string();
+        app.status_message = format!(
+            "{} {}",
+            i18n::text(app.locale, TextKey::StatusInProgressPrefix),
+            i18n::text(app.locale, TextKey::PageNotSupportSearch)
+        );
     }
 }
 

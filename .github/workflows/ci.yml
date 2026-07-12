@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check Rust workspace
+        run: cargo check --workspace --manifest-path rust/Cargo.toml
+
+      - name: Test Rust workspace
+        run: cargo test --workspace --manifest-path rust/Cargo.toml
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install maturin
+        run: python -m pip install maturin
+
+      - name: Check Python package metadata
+        run: python -m pip install -e python
+
+      - name: Import Python package
+        run: python -c "import mcpstore; print(mcpstore.__version__)"
+
+  release-metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate release metadata
+        run: python scripts/release_preflight.py
+
+      - name: Validate npm package manifests
+        run: |
+          for package in npm/packages/*/package.json; do
+            node -e "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'))" "$package"
+          done

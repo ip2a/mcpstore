@@ -220,7 +220,7 @@ pub(super) async fn modal_tool_detail(
         None => return Html(modal_notice("Error", "Tool not found").into_string()),
     };
 
-    let schema_json = pretty_json(&tool.schema);
+    let schema_json = pretty_json(&tool.input_schema);
     let body = html! {
         div.modal-stack {
             @if !tool.description.is_empty() {

@@ -4,8 +4,9 @@ use ratatui::{
     Frame,
 };
 
-use super::app::{FocusArea, TuiApp};
-use super::{layout, pages, theme, widgets};
+use crate::tui::app::{FocusArea, TuiApp};
+use crate::tui::i18n::{self, Locale, TextKey};
+use crate::tui::{layout, pages, theme, widgets};
 
 pub fn draw(frame: &mut Frame, app: &mut TuiApp, rt: &tokio::runtime::Runtime) {
     app.sync_status_history();
@@ -14,7 +15,10 @@ pub fn draw(frame: &mut Frame, app: &mut TuiApp, rt: &tokio::runtime::Runtime) {
     }
     if app.active_view == super::app::MainView::Agents {
         if let Err(error) = app.refresh_agents(rt) {
-            app.status_message = format!("[错误] {error}");
+            app.status_message = format!(
+                "{} {error}",
+                i18n::text(app.locale, TextKey::StatusErrorPrefix)
+            );
         }
     }
     if app.active_view == super::app::MainView::Status {
@@ -45,12 +49,12 @@ pub fn draw(frame: &mut Frame, app: &mut TuiApp, rt: &tokio::runtime::Runtime) {
     render_active_view(frame, main_layout[2], app);
 
     if app.pending_action.is_some() {
-        render_confirm_dialog(frame);
+        render_confirm_dialog(frame, app.locale);
     }
 
     if app.show_service_detail {
         if let Some(detail) = app.selected_detail.as_ref() {
-            widgets::modal::render_service_detail(frame, detail);
+            widgets::modal::render_service_detail(frame, app.locale, detail);
         }
     }
 
@@ -60,6 +64,7 @@ pub fn draw(frame: &mut Frame, app: &mut TuiApp, rt: &tokio::runtime::Runtime) {
         {
             widgets::modal::render_tool_detail(
                 frame,
+                app.locale,
                 service,
                 tool,
                 &app.tool_test_args,
@@ -73,7 +78,13 @@ pub fn draw(frame: &mut Frame, app: &mut TuiApp, rt: &tokio::runtime::Runtime) {
     }
 
     if let Some(modal) = app.select_modal.as_ref() {
-        widgets::modal::render_select(frame, &modal.title, &modal.options, modal.selected);
+        widgets::modal::render_select(
+            frame,
+            app.locale,
+            &modal.title,
+            &modal.options,
+            modal.selected,
+        );
     }
 
     if let Some(modal) = app.loading_modal.as_ref() {
@@ -96,15 +107,18 @@ fn render_active_view(frame: &mut Frame, area: Rect, app: &mut TuiApp) {
     pages::render_content(frame, content_layout[2], app);
 }
 
-fn render_confirm_dialog(frame: &mut Frame) {
+fn render_confirm_dialog(frame: &mut Frame, locale: Locale) {
     widgets::modal::render_confirm(
         frame,
-        "危险操作",
+        i18n::text(locale, TextKey::DangerousOperation),
         vec![
-            Line::from(Span::styled("确认删除", theme::danger())),
+            Line::from(Span::styled(
+                i18n::text(locale, TextKey::ConfirmDelete),
+                theme::danger(),
+            )),
             Line::from(""),
-            Line::from("删除会同步修改当前 store 配置与运行态缓存。"),
-            Line::from("按 y 确认删除，按 n 或 Esc 取消。"),
+            Line::from(i18n::text(locale, TextKey::DeleteConfirmDescription)),
+            Line::from(i18n::text(locale, TextKey::DeleteConfirmHint)),
         ],
     );
 }

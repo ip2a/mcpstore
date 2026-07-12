@@ -73,7 +73,7 @@ fn test_default_template_contains_runtime_sections() {
     assert!(template.contains("restart_policy = \"no\""));
     assert!(template.contains("[standalone]"));
     assert!(template.contains("[ui]"));
-    assert!(template.contains("language = \"zh-cn\""));
+    assert!(template.contains("language = \"en\""));
     assert!(template.contains("default_backup_dir = \"./backups\""));
     assert!(template.contains("[ui.logging]"));
     assert!(template.contains("max_size_bytes = 5242880"));

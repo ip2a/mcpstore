@@ -103,7 +103,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 <DialogForm onSubmit={onSubmit}>
                   {section === "general" ? (
                     <section className="flex flex-col gap-5">
-                      <SectionHead title={t("general")} description={t("generalDescription")} />
+                      <SectionHead title={t("general")} />
                       <FieldGroup>
                         <Field orientation="responsive">
                           <FieldContent>
@@ -117,8 +117,8 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                             <SelectContent>
                               <SelectGroup>
                                 <SelectItem value="auto">{t("auto")}</SelectItem>
-                                <SelectItem value="zh">中文</SelectItem>
-                                <SelectItem value="en">English</SelectItem>
+                                <SelectItem value="zh">{t("chinese")}</SelectItem>
+                                <SelectItem value="en">{t("english")}</SelectItem>
                               </SelectGroup>
                             </SelectContent>
                           </Select>
@@ -166,11 +166,11 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                           <InputGroup className="w-32">
                             <InputGroupInput
                               inputMode="numeric"
-                              placeholder="不限"
+                              placeholder={t("unlimitedPlaceholder")}
                               value={draft.logging.retention_days ?? ""}
                               onChange={(event) => patchLogging({ retention_days: event.target.value === "" ? null : Math.max(0, Number(event.target.value)) })}
                             />
-                            <InputGroupAddon align="inline-end">days</InputGroupAddon>
+                            <InputGroupAddon align="inline-end">{t("days")}</InputGroupAddon>
                           </InputGroup>
                         </Field>
                       </FieldGroup>
@@ -193,11 +193,13 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                   ) : null}
 
                   {section === "about" ? (
-                    <section className="flex flex-col gap-4">
+                    <section className="flex flex-col">
                       <SectionHead title={t("about")} description={t("settingsDescription")} />
-                      <ReadonlyValue label={t("version")} value={meta?.version ? `v${meta.version}` : "-"} />
-                      <ReadonlyValue label={t("metaApi")} value="/api/v1/meta" />
-                      <ReadonlyValue label={t("settingsApi")} value="PUT /api/v1/settings" />
+                      <div className="divide-y">
+                        <AboutRow label={t("version")} value={meta?.version ? `v${meta.version}` : "-"} />
+                        <AboutRow label={t("github")} href="https://github.com/ip2a/mcpstore" value="github.com/ip2a/mcpstore" />
+                        <AboutRow label={t("rustCrate")} href="https://crates.io/crates/mcpstore" value="crates.io/crates/mcpstore" />
+                      </div>
                     </section>
                   ) : null}
 
@@ -223,20 +225,26 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   )
 }
 
-function SectionHead({ title, description }: { title: string; description: string }) {
+function SectionHead({ title, description }: { title: string; description?: string }) {
   return (
     <div className="border-b pb-3">
       <h3 className="text-base font-semibold">{title}</h3>
-      <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+      {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
     </div>
   )
 }
 
-function ReadonlyValue({ label, value, path = false }: { label: string; value: string; path?: boolean }) {
+function AboutRow({ href, label, value }: { href?: string; label: string; value: string }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1 rounded-md border p-3">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      {path ? <PathText value={value} tone="default" weight="medium" wrap="all" /> : <code className="truncate text-sm">{value}</code>}
+    <div className="flex min-w-0 items-baseline justify-between gap-4 py-3">
+      <span className="shrink-0 text-sm text-muted-foreground">{label}</span>
+      {href ? (
+        <a href={href} target="_blank" rel="noreferrer" className="min-w-0 truncate text-sm font-medium hover:underline">
+          {value}
+        </a>
+      ) : (
+        <span className="min-w-0 truncate text-sm font-medium">{value}</span>
+      )}
     </div>
   )
 }

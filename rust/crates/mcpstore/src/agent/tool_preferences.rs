@@ -153,7 +153,7 @@ impl MCPStore {
                     &tool.name,
                     generate_tool_global_name(service_global_name, &tool.name)?,
                     tool.description,
-                    tool.schema,
+                    tool.input_schema,
                 )
                 .await?;
             if transformed.display_name == tool_name {

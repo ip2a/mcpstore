@@ -5,3 +5,4 @@ pub mod mcp;
 pub mod mcp_server;
 pub mod ui_web;
 pub mod web;
+pub mod web_assets;

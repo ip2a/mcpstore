@@ -924,8 +924,12 @@ async fn db_source_refreshes_cache_on_scoped_reads() {
                 service_global_name: "svc".to_string(),
                 service_original_name: "svc".to_string(),
                 source_agent: GLOBAL_AGENT_STORE.to_string(),
+                title: None,
                 description: "echo tool".to_string(),
                 input_schema: serde_json::json!({"type": "object"}),
+                output_schema: None,
+                annotations: None,
+                meta: None,
                 created_time: 111,
                 tool_hash: "fixture".to_string(),
             })
@@ -1011,8 +1015,12 @@ async fn db_source_refreshes_public_reads_and_show_config() {
                 service_global_name: "svc".to_string(),
                 service_original_name: "svc".to_string(),
                 source_agent: GLOBAL_AGENT_STORE.to_string(),
+                title: None,
                 description: "echo tool".to_string(),
                 input_schema: serde_json::json!({"type": "object"}),
+                output_schema: None,
+                annotations: None,
+                meta: None,
                 created_time: 111,
                 tool_hash: "fixture".to_string(),
             })
@@ -1476,8 +1484,12 @@ async fn db_source_runtime_use_does_not_write_shared_runtime_state() {
             "svc",
             &[crate::registry::ToolInfo {
                 name: "echo".to_string(),
+                title: None,
                 description: "echo".to_string(),
-                schema: serde_json::json!({"type": "object"}),
+                input_schema: serde_json::json!({"type": "object"}),
+                output_schema: None,
+                annotations: None,
+                meta: None,
             }],
         )
         .await
@@ -1639,10 +1651,7 @@ async fn openapi_import_persists_shared_analysis_result() {
     );
 
     let resources = store.list_resources("inventory").await.unwrap();
-    assert_eq!(
-        resources[0]["uri"],
-        serde_json::json!("openapi://inventory/listItems")
-    );
+    assert_eq!(resources[0].uri, "openapi://inventory/listItems");
     let resource = store
         .read_resource("inventory", "openapi://inventory/listItems")
         .await
@@ -1654,8 +1663,8 @@ async fn openapi_import_persists_shared_analysis_result() {
 
     let templates = store.list_resource_templates("inventory").await.unwrap();
     assert_eq!(
-        templates[0]["uriTemplate"],
-        serde_json::json!("openapi://inventory/get_items_sku/{sku}")
+        templates[0].uri_template,
+        "openapi://inventory/get_items_sku/{sku}"
     );
     let templated = store
         .read_resource("inventory", "openapi://inventory/get_items_sku/sku-1")
@@ -2771,9 +2780,9 @@ async fn openapi_resources_preserve_response_mime_type() {
     let resources = store.list_resources("inventory").await.unwrap();
     let plain = resources
         .iter()
-        .find(|resource| resource["name"] == serde_json::json!("getPlainInventory"))
+        .find(|resource| resource.name == "getPlainInventory")
         .unwrap();
-    assert_eq!(plain["mimeType"], serde_json::json!("text/plain"));
+    assert_eq!(plain.mime_type.as_deref(), Some("text/plain"));
 
     let resource = store
         .read_resource("inventory", "openapi://inventory/getPlainInventory")
@@ -3022,10 +3031,7 @@ async fn openapi_runtime_sends_accept_for_supported_response_media_types() {
         .unwrap();
 
     let resources = store.list_resources("negotiated").await.unwrap();
-    assert_eq!(
-        resources[0]["mimeType"],
-        serde_json::json!("application/json")
-    );
+    assert_eq!(resources[0].mime_type.as_deref(), Some("application/json"));
 
     let resource = store
         .read_resource("negotiated", "openapi://negotiated/getNegotiatedInventory")
@@ -3129,10 +3135,7 @@ async fn openapi_resource_returns_blob_for_binary_response() {
         .unwrap();
 
     let resources = store.list_resources("documents").await.unwrap();
-    assert_eq!(
-        resources[0]["mimeType"],
-        serde_json::json!("application/pdf")
-    );
+    assert_eq!(resources[0].mime_type.as_deref(), Some("application/pdf"));
 
     let resource = store
         .read_resource("documents", "openapi://documents/getDocument")
@@ -4473,8 +4476,9 @@ async fn tool_transform_rules_are_rust_backed_and_affect_scoped_tools() {
     service.status = ConnectionStatus::Connected;
     service.tools = vec![crate::registry::ToolInfo {
         name: "echo".to_string(),
+        title: None,
         description: "Technical echo".to_string(),
-        schema: serde_json::json!({
+        input_schema: serde_json::json!({
             "type": "object",
             "properties": {
                 "text": {"type": "string", "description": "Raw text"},
@@ -4482,6 +4486,9 @@ async fn tool_transform_rules_are_rust_backed_and_affect_scoped_tools() {
             },
             "required": ["text", "debug"]
         }),
+        output_schema: None,
+        annotations: None,
+        meta: None,
     }];
     store.registry.register(service).await;
 
@@ -4534,10 +4541,16 @@ async fn tool_transform_rules_are_rust_backed_and_affect_scoped_tools() {
     assert_eq!(tools[0].name, "say");
     assert_eq!(tools[0].original_name, "echo");
     assert_eq!(tools[0].description, "Say text");
-    assert!(tools[0].schema["properties"].get("debug").is_none());
-    assert!(tools[0].schema["properties"].get("message").is_some());
-    assert_eq!(tools[0].schema["properties"]["message"]["minLength"], 3);
-    assert_eq!(tools[0].schema["required"], serde_json::json!(["message"]));
+    assert!(tools[0].input_schema["properties"].get("debug").is_none());
+    assert!(tools[0].input_schema["properties"].get("message").is_some());
+    assert_eq!(
+        tools[0].input_schema["properties"]["message"]["minLength"],
+        3
+    );
+    assert_eq!(
+        tools[0].input_schema["required"],
+        serde_json::json!(["message"])
+    );
     assert_eq!(
         rule.arguments[0].validation_schema,
         Some(serde_json::json!({"type": "string", "minLength": 3}))
@@ -4569,8 +4582,9 @@ async fn rust_tool_transform_helpers_create_shared_rules() {
     service.status = ConnectionStatus::Connected;
     service.tools = vec![crate::registry::ToolInfo {
         name: "echo".to_string(),
+        title: None,
         description: "Technical echo".to_string(),
-        schema: serde_json::json!({
+        input_schema: serde_json::json!({
             "type": "object",
             "properties": {
                 "text": {"type": "string"},
@@ -4578,6 +4592,9 @@ async fn rust_tool_transform_helpers_create_shared_rules() {
             },
             "required": ["text"]
         }),
+        output_schema: None,
+        annotations: None,
+        meta: None,
     }];
     store.registry.register(service).await;
 
@@ -4657,13 +4674,21 @@ async fn context_tool_visibility_is_rust_backed_and_filters_scoped_tools() {
     service.tools = vec![
         crate::registry::ToolInfo {
             name: "alpha".to_string(),
+            title: None,
             description: "alpha".to_string(),
-            schema: serde_json::json!({"type": "object"}),
+            input_schema: serde_json::json!({"type": "object"}),
+            output_schema: None,
+            annotations: None,
+            meta: None,
         },
         crate::registry::ToolInfo {
             name: "beta".to_string(),
+            title: None,
             description: "beta".to_string(),
-            schema: serde_json::json!({"type": "object"}),
+            input_schema: serde_json::json!({"type": "object"}),
+            output_schema: None,
+            annotations: None,
+            meta: None,
         },
     ];
     store.registry.register(service).await;
@@ -4725,8 +4750,12 @@ async fn tool_preferences_are_rust_backed_and_scoped_to_tool() {
     service.status = ConnectionStatus::Connected;
     service.tools = vec![crate::registry::ToolInfo {
         name: "echo".to_string(),
+        title: None,
         description: "echo".to_string(),
-        schema: serde_json::json!({"type": "object"}),
+        input_schema: serde_json::json!({"type": "object"}),
+        output_schema: None,
+        annotations: None,
+        meta: None,
     }];
     store.registry.register(service).await;
 
@@ -5166,25 +5195,41 @@ async fn tool_change_diff_reports_added_removed_and_updated_tools() {
     let old_tools = vec![
         crate::registry::ToolInfo {
             name: "keep".to_string(),
+            title: None,
             description: "old description".to_string(),
-            schema: serde_json::json!({"type": "object"}),
+            input_schema: serde_json::json!({"type": "object"}),
+            output_schema: None,
+            annotations: None,
+            meta: None,
         },
         crate::registry::ToolInfo {
             name: "remove".to_string(),
+            title: None,
             description: String::new(),
-            schema: serde_json::json!({"type": "object"}),
+            input_schema: serde_json::json!({"type": "object"}),
+            output_schema: None,
+            annotations: None,
+            meta: None,
         },
     ];
     let new_tools = vec![
         crate::registry::ToolInfo {
             name: "add".to_string(),
+            title: None,
             description: String::new(),
-            schema: serde_json::json!({"type": "object"}),
+            input_schema: serde_json::json!({"type": "object"}),
+            output_schema: None,
+            annotations: None,
+            meta: None,
         },
         crate::registry::ToolInfo {
             name: "keep".to_string(),
+            title: None,
             description: "new description".to_string(),
-            schema: serde_json::json!({"type": "object"}),
+            input_schema: serde_json::json!({"type": "object"}),
+            output_schema: None,
+            annotations: None,
+            meta: None,
         },
     ];
 

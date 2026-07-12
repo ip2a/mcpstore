@@ -103,7 +103,7 @@ impl ToolTransformPatch {
 pub(crate) struct AppliedToolTransform {
     pub display_name: String,
     pub description: String,
-    pub schema: serde_json::Value,
+    pub input_schema: serde_json::Value,
 }
 
 impl MCPStore {
@@ -280,7 +280,7 @@ impl MCPStore {
         original_tool_name: &str,
         fallback_display_name: String,
         description: String,
-        schema: serde_json::Value,
+        input_schema: serde_json::Value,
     ) -> Result<AppliedToolTransform> {
         let Some(rule) = self
             .load_enabled_tool_transform(service_global_name, original_tool_name)
@@ -289,13 +289,13 @@ impl MCPStore {
             return Ok(AppliedToolTransform {
                 display_name: fallback_display_name,
                 description,
-                schema,
+                input_schema,
             });
         };
         Ok(AppliedToolTransform {
             display_name: rule.display_name.unwrap_or(fallback_display_name),
             description: rule.description.unwrap_or(description),
-            schema: Self::transform_input_schema(schema, &rule.arguments),
+            input_schema: Self::transform_input_schema(input_schema, &rule.arguments),
         })
     }
 

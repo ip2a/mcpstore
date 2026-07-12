@@ -1,7 +1,7 @@
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub async fn list_prompts(&self, service_name: &str) -> Result<Vec<serde_json::Value>> {
+    pub async fn list_prompts(&self, service_name: &str) -> Result<Vec<DiscoveredPrompt>> {
         self.ensure_service_connected(service_name).await?;
         self.pool
             .list_prompts(service_name)

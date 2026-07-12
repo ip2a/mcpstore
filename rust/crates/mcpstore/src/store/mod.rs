@@ -10,7 +10,9 @@ pub(crate) use crate::config::{CacheBackend, ConfigManager, ServerConfig, Startu
 pub(crate) use crate::events::{Event, EventBus};
 pub(crate) use crate::registry::{ConnectionStatus, ServiceEntry, ServiceRegistry};
 pub(crate) use crate::transport::client::ConnectionPool;
-pub(crate) use crate::transport::ToolDescription;
+pub(crate) use crate::transport::{
+    DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate,
+};
 
 pub(crate) use crate::perspective::{
     generate_tool_global_name, normalize_service_name, parse_agent_scoped, resolve_tool,
@@ -46,13 +48,13 @@ pub(crate) mod prelude {
     pub(crate) use crate::store::{
         generate_tool_global_name, normalize_service_name, parse_agent_scoped, resolve_tool,
         AgentServiceRelation, AvailableTool, BackendKind, CacheHealthReport, CacheStorage,
-        ConnectionStatus, Event, HealthStatus, MCPStore, OpenApiImportContextState, Result,
-        ScopedServiceEntry, ScopedServiceHealth, ScopedToolEntry, ServerConfig, ServiceEntity,
-        ServiceEntry, ServiceLifecycleState, ServiceRelationItem, ServiceStatus,
-        ServiceToolRelation, SourceMode, StartupPolicy, StoreError, ToolAvailability,
-        ToolChangeServiceResult, ToolChangeSummary, ToolDescription, ToolEntity, ToolRelationItem,
-        ToolResolution, ToolStatusItem, CONTROL_EVENT_SEQUENCE, CONTROL_REQUEST_EVENT_TYPE,
-        GLOBAL_AGENT_STORE,
+        ConnectionStatus, DiscoveredPrompt, DiscoveredResource, DiscoveredResourceTemplate, Event,
+        HealthStatus, MCPStore, OpenApiImportContextState, Result, ScopedServiceEntry,
+        ScopedServiceHealth, ScopedToolEntry, ServerConfig, ServiceEntity, ServiceEntry,
+        ServiceLifecycleState, ServiceRelationItem, ServiceStatus, ServiceToolRelation, SourceMode,
+        StartupPolicy, StoreError, ToolAvailability, ToolChangeServiceResult, ToolChangeSummary,
+        ToolEntity, ToolRelationItem, ToolResolution, ToolStatusItem, CONTROL_EVENT_SEQUENCE,
+        CONTROL_REQUEST_EVENT_TYPE, GLOBAL_AGENT_STORE,
     };
 }
 
