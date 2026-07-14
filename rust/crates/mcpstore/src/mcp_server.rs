@@ -123,7 +123,7 @@ const OPENAPI_BUNDLE_ARTIFACT_TOOL: &str = "mcpstore_openapi_bundle_artifact";
 const SERVICE_LIST_TOOL: &str = "mcpstore_scope_instance_list";
 const SERVICE_INFO_TOOL: &str = "mcpstore_service_scope_info";
 const SERVICE_STATUS_TOOL: &str = "mcpstore_instance_status";
-const SERVICE_CHECK_TOOL: &str = "mcpstore_scope_instance_check";
+const SERVICE_CHECK_TOOL: &str = "mcpstore_instance_check";
 const SERVICE_ADD_TOOL: &str = "mcpstore_service_definition_add";
 const SERVICE_PATCH_TOOL: &str = "mcpstore_service_scope_set";
 const SERVICE_REMOVE_TOOL: &str = "mcpstore_service_scope_remove";
@@ -1202,8 +1202,8 @@ fn build_service_tools() -> HashMap<String, Tool> {
         ),
         service_tool(
             SERVICE_CHECK_TOOL,
-            "Run health checks for all service instances in the server scope from Rust core.",
-            empty_object_schema(),
+            "Run a health check for one MCPStore service instance from Rust core.",
+            instance_id_schema(),
             true,
         ),
         service_tool(
@@ -1557,18 +1557,12 @@ async fn call_service_tool(
             serde_json::json!({"status": status})
         }
         SERVICE_CHECK_TOOL => {
-            let instance_ids = store
-                .list_scope_instances(server_scope)
-                .await
-                .map_err(map_store_error)?
-                .into_iter()
-                .map(|instance| instance.instance_id)
-                .collect::<Vec<_>>();
-            let checks = store
-                .check_instances(&instance_ids)
+            let instance_id = required_instance_id_argument(&arguments)?;
+            let check = store
+                .health_check(instance_id)
                 .await
                 .map_err(map_store_error)?;
-            serde_json::json!({"checks": checks})
+            serde_json::json!({"check": check})
         }
         SERVICE_ADD_TOOL => {
             let service_name = required_argument_string(&arguments, "service_name")?.to_string();
@@ -2375,6 +2369,15 @@ mod tests {
             assert!(schema["properties"].get("name").is_none());
             assert!(schema["properties"].get("service_name").is_none());
         }
+
+        let service_tools = build_service_tools();
+        let check_tool = service_tools
+            .get(SERVICE_CHECK_TOOL)
+            .expect("instance check tool");
+        assert_eq!(
+            check_tool.input_schema.get("required"),
+            Some(&serde_json::json!(["instance_id"]))
+        );
     }
 
     #[test]

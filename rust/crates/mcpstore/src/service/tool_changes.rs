@@ -3,27 +3,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::store::prelude::*;
 
 impl MCPStore {
-    pub async fn list_changed_tools_scoped(
+    pub async fn list_changed_tools(
         &self,
-        instance_id: Option<InstanceId>,
+        instance_id: InstanceId,
         force_refresh: bool,
     ) -> Result<ToolChangeSummary> {
         self.refresh_from_db_if_needed().await?;
-        let instance_ids = match instance_id {
-            Some(instance_id) => {
-                if self.registry.find_instance(instance_id).await.is_none() {
-                    return Err(StoreError::ServiceNotFound(instance_id.to_string()));
-                }
-                vec![instance_id]
-            }
-            None => self
-                .registry
-                .list_instances()
-                .await
-                .into_iter()
-                .map(|instance| instance.instance_id)
-                .collect(),
-        };
+        if self.registry.find_instance(instance_id).await.is_none() {
+            return Err(StoreError::ServiceNotFound(instance_id.to_string()));
+        }
+        let instance_ids = [instance_id];
 
         if self.source_mode == SourceMode::Db {
             for instance_id in &instance_ids {

@@ -394,7 +394,7 @@ impl<'a> SessionContext<'a> {
     pub async fn read_resource(
         &self,
         uri: &str,
-        instance_id: Option<InstanceId>,
+        instance_id: InstanceId,
     ) -> Result<serde_json::Value> {
         self.store
             .read_resource_in_session(&self.session_key, uri, instance_id)
@@ -409,7 +409,7 @@ impl<'a> SessionContext<'a> {
         &self,
         prompt_name: &str,
         arguments: serde_json::Value,
-        instance_id: Option<InstanceId>,
+        instance_id: InstanceId,
     ) -> Result<serde_json::Value> {
         self.store
             .get_prompt_in_session(&self.session_key, prompt_name, arguments, instance_id)
@@ -1534,12 +1534,11 @@ impl MCPStore {
         &self,
         session_key: &str,
         uri: &str,
-        instance_id: Option<InstanceId>,
+        instance_id: InstanceId,
     ) -> Result<serde_json::Value> {
         self.ensure_session_active(session_key).await?;
         let session = self.require_session(session_key).await?;
-        let instance_id = self
-            .resolve_session_resource_instance(&session, uri, instance_id)
+        self.require_bound_session_instance(&session, instance_id)
             .await?;
         self.read_resource(instance_id, uri).await
     }
@@ -1579,12 +1578,11 @@ impl MCPStore {
         session_key: &str,
         prompt_name: &str,
         arguments: serde_json::Value,
-        instance_id: Option<InstanceId>,
+        instance_id: InstanceId,
     ) -> Result<serde_json::Value> {
         self.ensure_session_active(session_key).await?;
         let session = self.require_session(session_key).await?;
-        let instance_id = self
-            .resolve_session_prompt_instance(&session, prompt_name, instance_id)
+        self.require_bound_session_instance(&session, instance_id)
             .await?;
         self.get_prompt(instance_id, prompt_name, arguments).await
     }
@@ -1663,64 +1661,6 @@ impl MCPStore {
             }
         }
         Ok(entries)
-    }
-
-    async fn resolve_session_resource_instance(
-        &self,
-        session: &SessionEntity,
-        uri: &str,
-        instance_id: Option<InstanceId>,
-    ) -> Result<InstanceId> {
-        if let Some(instance_id) = instance_id {
-            self.require_bound_session_instance(session, instance_id)
-                .await?;
-            return Ok(instance_id);
-        }
-
-        let mut matches = Vec::new();
-        for instance in self.session_service_instances(session).await? {
-            let resources = self.list_resources(instance.instance_id).await?;
-            if resources.iter().any(|resource| resource.uri == uri) {
-                matches.push(instance.instance_id);
-            }
-        }
-
-        match matches.len() {
-            0 => Err(StoreError::Other(format!("未找到资源: {uri}"))),
-            1 => Ok(matches.remove(0)),
-            _ => Err(StoreError::Other(format!(
-                "资源 URI 存在歧义，请显式提供 instance_id: {uri}"
-            ))),
-        }
-    }
-
-    async fn resolve_session_prompt_instance(
-        &self,
-        session: &SessionEntity,
-        prompt_name: &str,
-        instance_id: Option<InstanceId>,
-    ) -> Result<InstanceId> {
-        if let Some(instance_id) = instance_id {
-            self.require_bound_session_instance(session, instance_id)
-                .await?;
-            return Ok(instance_id);
-        }
-
-        let mut matches = Vec::new();
-        for instance in self.session_service_instances(session).await? {
-            let prompts = self.list_prompts(instance.instance_id).await?;
-            if prompts.iter().any(|prompt| prompt.name == prompt_name) {
-                matches.push(instance.instance_id);
-            }
-        }
-
-        match matches.len() {
-            0 => Err(StoreError::Other(format!("未找到 prompt: {prompt_name}"))),
-            1 => Ok(matches.remove(0)),
-            _ => Err(StoreError::Other(format!(
-                "prompt 名称存在歧义，请显式提供 instance_id: {prompt_name}"
-            ))),
-        }
     }
 
     async fn session_service_instances(

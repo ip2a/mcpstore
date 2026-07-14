@@ -27,11 +27,6 @@ impl MCPStore {
         Ok(statuses)
     }
 
-    pub async fn check_agent_instances(&self, agent_id: &str) -> Result<Vec<InstanceStatus>> {
-        let instance_ids = self.registry.list_agent_instance_ids(agent_id).await;
-        self.check_instances(&instance_ids).await
-    }
-
     pub async fn wait_instance_ready(
         &self,
         instance_id: InstanceId,

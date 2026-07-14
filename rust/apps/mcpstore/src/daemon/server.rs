@@ -373,35 +373,15 @@ async fn handle_call_tool(store: &MCPStore, params: Value) -> DaemonResponse {
 }
 
 async fn handle_check_service(store: &MCPStore, params: Value) -> DaemonResponse {
-    let instance_id = params.get("instance_id").and_then(Value::as_str);
-    if let Some(instance_id) = instance_id {
-        let instance_id = match instance_id.parse() {
-            Ok(instance_id) => instance_id,
-            Err(e) => return DaemonResponse::err(format!("Invalid instance_id: {e}")),
-        };
-        match store.instance_status_entry(instance_id).await {
-            Ok(status) => DaemonResponse::ok(Some(
-                json!({"instance_id": instance_id, "health_status": format!("{:?}", status.health_status)}),
-            )),
-            Err(e) => DaemonResponse::err(e.to_string()),
-        }
-    } else {
-        let services = store.list_instances().await;
-        let mut results = serde_json::Map::new();
-        for svc in services {
-            match store.instance_status_entry(svc.instance_id).await {
-                Ok(status) => {
-                    results.insert(
-                        svc.instance_id.to_string(),
-                        json!(format!("{:?}", status.health_status)),
-                    );
-                }
-                Err(_) => {
-                    results.insert(svc.instance_id.to_string(), json!("unknown"));
-                }
-            }
-        }
-        DaemonResponse::ok(Some(Value::Object(results)))
+    let instance_id = match get_instance_id(&params) {
+        Ok(instance_id) => instance_id,
+        Err(response) => return response,
+    };
+    match store.instance_status_entry(instance_id).await {
+        Ok(status) => DaemonResponse::ok(Some(
+            json!({"instance_id": instance_id, "health_status": format!("{:?}", status.health_status)}),
+        )),
+        Err(e) => DaemonResponse::err(e.to_string()),
     }
 }
 

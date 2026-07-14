@@ -1297,7 +1297,7 @@ async fn read_resource_in_session_rejects_unbound_service_before_transport() {
         .unwrap();
 
     let err = store
-        .read_resource_in_session(&session.session_key, "file:///secret", Some(beta))
+        .read_resource_in_session(&session.session_key, "file:///secret", beta)
         .await
         .unwrap_err()
         .to_string();
@@ -1327,7 +1327,7 @@ async fn get_prompt_in_session_rejects_unbound_service_before_transport() {
             &session.session_key,
             "summarize",
             serde_json::json!({}),
-            Some(beta),
+            beta,
         )
         .await
         .unwrap_err()
