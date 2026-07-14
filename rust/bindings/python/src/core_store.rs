@@ -331,12 +331,16 @@ fn content_item_to_py(py: Python<'_>, item: &ContentItem) -> PyResult<Py<PyAny>>
             data,
             mime_type,
             annotations,
+            meta,
         } => {
             dict.set_item("type", "audio")?;
             dict.set_item("data", data)?;
             dict.set_item("mime_type", mime_type)?;
             if let Some(value) = annotations {
                 dict.set_item("annotations", serde_value_to_py(py, value.clone())?)?;
+            }
+            if let Some(value) = meta {
+                dict.set_item("_meta", serde_value_to_py(py, value.clone())?)?;
             }
         }
         ContentItem::Resource {

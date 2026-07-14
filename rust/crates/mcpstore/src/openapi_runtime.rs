@@ -2176,6 +2176,7 @@ fn response_content_item(uri: String, mime_type: String, body: OpenApiResponseBo
                 data: base64::engine::general_purpose::STANDARD.encode(bytes),
                 mime_type,
                 annotations: None,
+                meta: None,
             }
         }
         OpenApiResponseBody::Bytes(bytes) => ContentItem::Resource {
