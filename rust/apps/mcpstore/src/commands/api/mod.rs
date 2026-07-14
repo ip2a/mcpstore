@@ -1793,6 +1793,7 @@ mod tests {
             args: vec!["fixture".to_string()],
             env: HashMap::new(),
             headers: HashMap::new(),
+            auth: Default::default(),
             transport: Some("stdio".to_string()),
             working_dir: None,
             description: Some("fixture".to_string()),

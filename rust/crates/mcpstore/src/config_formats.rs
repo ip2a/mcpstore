@@ -63,6 +63,7 @@ mod tests {
             args: vec!["server.js".to_string()],
             env: HashMap::new(),
             headers: HashMap::new(),
+            auth: Default::default(),
             transport: Some("stdio".to_string()),
             working_dir: None,
             description: None,

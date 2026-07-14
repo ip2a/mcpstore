@@ -157,6 +157,7 @@ impl MCPStore {
             .await
             .remove(&instance_id);
         self.registry.unregister_instance(instance_id).await;
+        self.auth_coordinator.remove_status(instance_id).await;
         self.sync_definition_projection(service_name, &server, chrono::Utc::now().timestamp())
             .await?;
         self.cache_instance_removed(instance_id).await?;

@@ -13,6 +13,8 @@ mod tools;
 
 #[derive(Error, Debug)]
 pub enum TransportError {
+    #[error("{0}")]
+    AuthRequired(crate::auth::AuthRequired),
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
     #[error("Not connected: {0}")]

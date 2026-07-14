@@ -38,6 +38,8 @@ base64 = "0.22"
 regex = "1.11"
 email_address = { version = "0.2.9", default-features = false }
 blake3 = "1"
+keyring = { version = "=3.6.3", default-features = false, features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-rust", "vendored"] }
+zeroize = { version = "1", features = ["derive"] }
 
 [features]
 default = ["mcp-server"]

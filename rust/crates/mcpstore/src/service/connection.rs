@@ -165,13 +165,27 @@ impl MCPStore {
                 ))),
             };
         if let Err(error) = connect_result {
-            let message = format!("Connection failed: {error}");
             self.pool.disconnect(instance_id).await.ok();
-            self.registry
-                .update_status(instance_id, ConnectionStatus::Error)
-                .await;
-            self.mark_instance_retryable_failure(instance_id, message)
-                .await?;
+            match &error {
+                StoreError::Transport(transport_error) => {
+                    self.record_transport_failure(
+                        instance_id,
+                        transport_error,
+                        "Connection failed",
+                    )
+                    .await?;
+                }
+                _ => {
+                    self.registry
+                        .update_status(instance_id, ConnectionStatus::Error)
+                        .await;
+                    self.mark_instance_retryable_failure(
+                        instance_id,
+                        format!("Connection failed: {error}"),
+                    )
+                    .await?;
+                }
+            }
             return Err(error);
         }
         self.registry
@@ -181,12 +195,8 @@ impl MCPStore {
         let tools = match self.pool.list_tools(instance_id).await {
             Ok(tools) => tools,
             Err(error) => {
-                let message = format!("Tool discovery failed: {error}");
                 self.pool.disconnect(instance_id).await.ok();
-                self.registry
-                    .update_status(instance_id, ConnectionStatus::Error)
-                    .await;
-                self.mark_instance_retryable_failure(instance_id, message)
+                self.record_transport_failure(instance_id, &error, "Tool discovery failed")
                     .await?;
                 return Err(error.into());
             }

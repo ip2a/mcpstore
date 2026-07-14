@@ -54,6 +54,7 @@ pub(crate) mod prelude {
 }
 
 pub struct MCPStore {
+    pub(crate) auth_coordinator: crate::auth::AuthCoordinator,
     pub(crate) config_manager: ConfigManager,
     pub(crate) source_mode: SourceMode,
     pub(crate) runtime_config: StoreRuntimeConfig,
@@ -106,6 +107,7 @@ impl MCPStore {
         let cache_store = Self::build_cache_store(&cache_storage, &redis_url, &namespace)?;
 
         Ok(Self {
+            auth_coordinator: crate::auth::AuthCoordinator::new()?,
             config_manager,
             source_mode: options.source_mode,
             runtime_config,
