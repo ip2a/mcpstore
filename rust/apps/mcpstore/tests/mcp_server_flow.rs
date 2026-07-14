@@ -5,8 +5,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rmcp::{
     model::{
-        CallToolRequestParams, GetPromptRequestParams, PromptMessageContent,
-        ReadResourceRequestParams, ResourceContents,
+        CallToolRequestParams, ContentBlock, GetPromptRequestParams, ReadResourceRequestParams,
+        ResourceContents,
     },
     transport::{
         streamable_http_client::StreamableHttpClientTransportConfig, ConfigureCommandExt,
@@ -191,8 +191,8 @@ async fn mcp_server_command_exposes_store_tools_over_stdio_inner() -> TestResult
         .await?;
     assert_eq!(prompt.messages.len(), 1);
     match &prompt.messages[0].content {
-        PromptMessageContent::Text { text } => {
-            assert_eq!(text, "Explain stdio via fixture prompt.");
+        ContentBlock::Text(text) => {
+            assert_eq!(text.text, "Explain stdio via fixture prompt.");
         }
         other => panic!("unexpected prompt content: {other:?}"),
     }
@@ -206,7 +206,7 @@ async fn mcp_server_command_exposes_store_tools_over_stdio_inner() -> TestResult
     let text = result
         .content
         .first()
-        .and_then(|content| content.raw.as_text())
+        .and_then(ContentBlock::as_text)
         .map(|text| text.text.as_str())
         .expect("expected text result");
     assert_eq!(text, "Hello, World!");
@@ -318,8 +318,8 @@ async fn mcp_server_command_exposes_agent_scope_over_stdio_inner() -> TestResult
         .await?;
     assert_eq!(prompt.messages.len(), 1);
     match &prompt.messages[0].content {
-        PromptMessageContent::Text { text } => {
-            assert_eq!(text, "Explain agent via fixture prompt.");
+        ContentBlock::Text(text) => {
+            assert_eq!(text.text, "Explain agent via fixture prompt.");
         }
         other => panic!("unexpected prompt content: {other:?}"),
     }
@@ -446,8 +446,8 @@ async fn mcp_server_command_exposes_store_tools_over_streamable_http_inner() -> 
         .await?;
     assert_eq!(prompt.messages.len(), 1);
     match &prompt.messages[0].content {
-        PromptMessageContent::Text { text } => {
-            assert_eq!(text, "Explain http via fixture prompt.");
+        ContentBlock::Text(text) => {
+            assert_eq!(text.text, "Explain http via fixture prompt.");
         }
         other => panic!("unexpected prompt content: {other:?}"),
     }
@@ -460,7 +460,7 @@ async fn mcp_server_command_exposes_store_tools_over_streamable_http_inner() -> 
     let text = result
         .content
         .first()
-        .and_then(|content| content.raw.as_text())
+        .and_then(ContentBlock::as_text)
         .map(|text| text.text.as_str())
         .expect("expected text result");
     assert_eq!(text, "Hello, Rust!");
