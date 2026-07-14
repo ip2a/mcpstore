@@ -1210,10 +1210,7 @@ async fn db_source_queues_tool_refresh_by_instance_without_writing_tools() {
     .unwrap();
     copy_cache_snapshot(&source, &db).await;
 
-    let summary = db
-        .list_changed_tools_scoped(Some(instance_id), true)
-        .await
-        .unwrap();
+    let summary = db.list_changed_tools(instance_id, true).await.unwrap();
 
     assert!(!summary.changed);
     assert_eq!(summary.trigger, "queued_manual_force");
@@ -4625,7 +4622,7 @@ async fn context_tool_visibility_filters_tools_per_instance() {
     .await;
 
     let state = store
-        .set_context_tool_visibility(&store_scope(), instance_id, vec!["alpha".to_string()])
+        .set_context_tool_visibility(instance_id, vec!["alpha".to_string()])
         .await
         .unwrap();
     assert_eq!(state.instance_id, instance_id);
@@ -4635,37 +4632,25 @@ async fn context_tool_visibility_filters_tools_per_instance() {
     assert_eq!(state.tools[0].tool_name, "alpha");
 
     let available = store
-        .list_tool_entries_scoped_with_filter(
-            &store_scope(),
-            Some(instance_id),
-            ToolVisibilityFilter::Available,
-        )
+        .list_tool_entries_for_instance_with_filter(instance_id, ToolVisibilityFilter::Available)
         .await
         .unwrap();
     assert_eq!(available.len(), 1);
     assert_eq!(available[0].tool_name, "alpha");
 
     let removed = store
-        .list_tool_entries_scoped_with_filter(
-            &store_scope(),
-            Some(instance_id),
-            ToolVisibilityFilter::Removed,
-        )
+        .list_tool_entries_for_instance_with_filter(instance_id, ToolVisibilityFilter::Removed)
         .await
         .unwrap();
     assert_eq!(removed.len(), 1);
     assert_eq!(removed[0].tool_name, "beta");
 
     store
-        .clear_context_tool_visibility(&store_scope(), instance_id)
+        .clear_context_tool_visibility(instance_id)
         .await
         .unwrap();
     let restored = store
-        .list_tool_entries_scoped_with_filter(
-            &store_scope(),
-            Some(instance_id),
-            ToolVisibilityFilter::Available,
-        )
+        .list_tool_entries_for_instance_with_filter(instance_id, ToolVisibilityFilter::Available)
         .await
         .unwrap();
     assert_eq!(restored.len(), 2);
@@ -4674,7 +4659,7 @@ async fn context_tool_visibility_filters_tools_per_instance() {
 }
 
 #[tokio::test]
-async fn tool_preferences_are_stored_by_scope_instance_and_tool() {
+async fn tool_preferences_are_stored_by_instance_and_tool() {
     let path = temp_config_path();
     let store = MCPStore::setup(Some(&path)).unwrap();
     store.add_service("svc", stdio_config()).await.unwrap();
@@ -4683,7 +4668,6 @@ async fn tool_preferences_are_stored_by_scope_instance_and_tool() {
 
     let state = store
         .set_tool_preference(
-            &store_scope(),
             instance_id,
             "echo",
             "return_direct",
@@ -4706,14 +4690,13 @@ async fn tool_preferences_are_stored_by_scope_instance_and_tool() {
 
     assert_eq!(
         store
-            .get_tool_preference(&store_scope(), instance_id, "echo", "return_direct",)
+            .get_tool_preference(instance_id, "echo", "return_direct")
             .await
             .unwrap(),
         Some(serde_json::json!(true))
     );
     store
         .set_tool_preference(
-            &store_scope(),
             instance_id,
             "echo",
             "adapter",
@@ -4722,7 +4705,7 @@ async fn tool_preferences_are_stored_by_scope_instance_and_tool() {
         .await
         .unwrap();
     let remaining = store
-        .clear_tool_preference(&store_scope(), instance_id, "echo", "return_direct")
+        .clear_tool_preference(instance_id, "echo", "return_direct")
         .await
         .unwrap()
         .unwrap();
@@ -4730,12 +4713,12 @@ async fn tool_preferences_are_stored_by_scope_instance_and_tool() {
     assert_eq!(remaining.preferences["adapter"], "langchain");
 
     assert!(store
-        .clear_tool_preference(&store_scope(), instance_id, "echo", "adapter")
+        .clear_tool_preference(instance_id, "echo", "adapter")
         .await
         .unwrap()
         .is_none());
     assert!(store
-        .get_tool_preferences(&store_scope(), instance_id, "echo")
+        .get_tool_preferences(instance_id, "echo")
         .await
         .unwrap()
         .is_none());
@@ -5409,6 +5392,121 @@ mod scoped_contract {
     }
 
     #[tokio::test]
+    async fn instance_ids_ignore_config_changes_and_agent_declaration_order() {
+        let first_path = temp_config_path();
+        let second_path = temp_config_path();
+
+        let mut first_agents = HashMap::new();
+        first_agents.insert(
+            "agent-1".to_string(),
+            descriptor(json!({"env": {"AGENT": "one"}})),
+        );
+        first_agents.insert(
+            "agent-2".to_string(),
+            descriptor(json!({"env": {"AGENT": "two"}})),
+        );
+        let mut first_config = native_config(ScopeDeclarations {
+            store: Some(ScopeDescriptor::default()),
+            agents: first_agents,
+        });
+        first_config.command = Some("first-command".to_string());
+
+        let mut second_agents = HashMap::new();
+        second_agents.insert(
+            "agent-2".to_string(),
+            descriptor(json!({"env": {"AGENT": "changed-two"}})),
+        );
+        second_agents.insert(
+            "agent-1".to_string(),
+            descriptor(json!({"env": {"AGENT": "changed-one"}})),
+        );
+        let mut second_config = native_config(ScopeDeclarations {
+            store: Some(descriptor(json!({"args": ["--store-changed"]}))),
+            agents: second_agents,
+        });
+        second_config.command = Some("second-command".to_string());
+
+        let first = MCPStore::setup_with_options(store_options(Some(first_path.clone()))).unwrap();
+        first.add_service("svc", first_config).await.unwrap();
+        let second =
+            MCPStore::setup_with_options(store_options(Some(second_path.clone()))).unwrap();
+        second.add_service("svc", second_config).await.unwrap();
+
+        let mut first_ids = first
+            .list_instances()
+            .await
+            .into_iter()
+            .map(|instance| instance.instance_id)
+            .collect::<Vec<_>>();
+        let mut second_ids = second
+            .list_instances()
+            .await
+            .into_iter()
+            .map(|instance| instance.instance_id)
+            .collect::<Vec<_>>();
+        first_ids.sort();
+        second_ids.sort();
+        assert_eq!(first_ids, second_ids);
+        let mut expected_ids = vec![
+            instance_id("svc", store_scope()),
+            instance_id("svc", agent_scope("agent-1")),
+            instance_id("svc", agent_scope("agent-2")),
+        ];
+        expected_ids.sort();
+        assert_eq!(first_ids, expected_ids);
+
+        std::fs::remove_file(first_path).ok();
+        std::fs::remove_file(second_path).ok();
+    }
+
+    #[tokio::test]
+    async fn retry_state_is_isolated_between_sibling_instances() {
+        let path = temp_config_path();
+        let scopes = ScopeDeclarations {
+            store: Some(ScopeDescriptor::default()),
+            agents: HashMap::from([("agent-1".to_string(), ScopeDescriptor::default())]),
+        };
+        let mut config = native_config(scopes);
+        config.command = Some("__mcpstore_missing_binary__".to_string());
+        config.args.clear();
+        config.mcpstore.as_mut().unwrap().lifecycle = Some(crate::config::ServiceLifecycleConfig {
+            startup_policy: None,
+            restart_policy: Some(crate::config::RestartPolicy {
+                kind: crate::config::RestartPolicyKind::OnFailure,
+                max_retries: None,
+            }),
+        });
+        let store = MCPStore::setup_with_options(store_options(Some(path.clone()))).unwrap();
+        store.add_service("svc", config).await.unwrap();
+
+        let store_id = instance_id("svc", store_scope());
+        let agent_id = instance_id("svc", agent_scope("agent-1"));
+        store.connect_service(store_id).await.unwrap_err();
+
+        let failed = store
+            .cached_instance_status(store_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(failed.connection_attempts > 0);
+        assert!(failed.lifecycle_state.restart_attempts > 0);
+        assert!(failed.next_retry_time.is_some());
+
+        let sibling = store
+            .cached_instance_status(agent_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(sibling.health_status, HealthStatus::Init);
+        assert_eq!(sibling.connection_attempts, 0);
+        assert_eq!(sibling.lifecycle_state.restart_attempts, 0);
+        assert!(sibling.next_retry_time.is_none());
+        assert!(sibling.current_error.is_none());
+
+        std::fs::remove_file(path).ok();
+    }
+
+    #[tokio::test]
     async fn scope_override_recursively_merges_and_null_deletes_inherited_fields() {
         let path = temp_config_path();
         let agent = agent_scope("agent-1");
@@ -5884,7 +5982,7 @@ mod scoped_contract {
     }
 
     #[tokio::test]
-    async fn call_tool_applies_transform_only_to_the_addressed_instance() {
+    async fn tool_transform_and_disconnect_are_isolated_between_sibling_instances() {
         let base_url = spawn_openapi_auth_fixture().await;
         let store = MCPStore::setup_with_options(store_options(None)).unwrap();
         let spec = json!({
@@ -5987,6 +6085,29 @@ mod scoped_contract {
             .await
             .unwrap();
         assert!(!untouched.is_error);
+
+        store.disconnect_service(agent_1_id).await.unwrap();
+        assert_eq!(
+            store.find_instance(agent_1_id).await.unwrap().status,
+            ConnectionStatus::Disconnected
+        );
+        assert_eq!(
+            store.find_instance(agent_2_id).await.unwrap().status,
+            ConnectionStatus::Connected
+        );
+        let sibling_status = store
+            .cached_instance_status(agent_2_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(sibling_status.health_status, HealthStatus::Healthy);
+        assert!(!sibling_status.lifecycle_state.manually_stopped);
+
+        let sibling_call = store
+            .call_tool(agent_2_id, "echo", json!({"body": {"text": "hello"}}))
+            .await
+            .unwrap();
+        assert!(!sibling_call.is_error, "{sibling_call:?}");
     }
 
     #[tokio::test]
@@ -6044,21 +6165,11 @@ mod scoped_contract {
             .await
             .unwrap();
         store
-            .set_context_tool_visibility(
-                &agent_1_scope,
-                agent_1_id,
-                vec!["agent-1-tool".to_string()],
-            )
+            .set_context_tool_visibility(agent_1_id, vec!["agent-1-tool".to_string()])
             .await
             .unwrap();
         store
-            .set_tool_preference(
-                &agent_1_scope,
-                agent_1_id,
-                "agent-1-tool",
-                "return_direct",
-                json!(true),
-            )
+            .set_tool_preference(agent_1_id, "agent-1-tool", "return_direct", json!(true))
             .await
             .unwrap();
         store
@@ -6070,7 +6181,6 @@ mod scoped_contract {
             .await
             .unwrap();
 
-        let agent_2_scope = agent_scope("agent-2");
         let agent_2_session = store
             .create_session(CreateSessionRequest::agent("agent-2-session", "agent-2"))
             .await
@@ -6090,21 +6200,11 @@ mod scoped_contract {
             .await
             .unwrap();
         store
-            .set_context_tool_visibility(
-                &agent_2_scope,
-                agent_2_id,
-                vec!["agent-2-tool".to_string()],
-            )
+            .set_context_tool_visibility(agent_2_id, vec!["agent-2-tool".to_string()])
             .await
             .unwrap();
         store
-            .set_tool_preference(
-                &agent_2_scope,
-                agent_2_id,
-                "agent-2-tool",
-                "return_direct",
-                json!(true),
-            )
+            .set_tool_preference(agent_2_id, "agent-2-tool", "return_direct", json!(true))
             .await
             .unwrap();
         store
@@ -6461,7 +6561,7 @@ mod scoped_contract {
     }
 
     #[tokio::test]
-    async fn runtime_apis_reject_an_instance_id_from_another_scope() {
+    async fn instance_owned_policy_apis_derive_scope_from_instance_id() {
         let path = temp_config_path();
         let scopes = ScopeDeclarations {
             store: Some(ScopeDescriptor::default()),
@@ -6474,12 +6574,61 @@ mod scoped_contract {
             .unwrap();
 
         let store_id = instance_id("svc", store_scope());
-        let agent = agent_scope("agent-1");
-        let error = store
-            .set_context_tool_visibility(&agent, store_id, Vec::new())
+        let agent_id = instance_id("svc", agent_scope("agent-1"));
+        install_tool(&store, store_id, tool("echo")).await;
+        install_tool(&store, agent_id, tool("echo")).await;
+
+        let store_visibility = store
+            .set_context_tool_visibility(store_id, vec!["echo".to_string()])
             .await
-            .unwrap_err();
-        assert!(error.to_string().contains("does not belong to scope"));
+            .unwrap();
+        let agent_visibility = store
+            .set_context_tool_visibility(agent_id, Vec::new())
+            .await
+            .unwrap();
+        assert_eq!(store_visibility.context_key, "store");
+        assert_eq!(store_visibility.scope, store_scope());
+        assert_eq!(agent_visibility.context_key, "agent:agent-1");
+        assert_eq!(agent_visibility.scope, agent_scope("agent-1"));
+        assert_eq!(
+            store
+                .list_tool_entries_for_instance_with_filter(
+                    store_id,
+                    ToolVisibilityFilter::Available,
+                )
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(store
+            .list_tool_entries_for_instance_with_filter(agent_id, ToolVisibilityFilter::Available,)
+            .await
+            .unwrap()
+            .is_empty());
+
+        store
+            .set_tool_preference(store_id, "echo", "return_direct", json!(true))
+            .await
+            .unwrap();
+        store
+            .set_tool_preference(agent_id, "echo", "return_direct", json!(false))
+            .await
+            .unwrap();
+        assert_eq!(
+            store
+                .get_tool_preference(store_id, "echo", "return_direct")
+                .await
+                .unwrap(),
+            Some(json!(true))
+        );
+        assert_eq!(
+            store
+                .get_tool_preference(agent_id, "echo", "return_direct")
+                .await
+                .unwrap(),
+            Some(json!(false))
+        );
 
         std::fs::remove_file(path).ok();
     }

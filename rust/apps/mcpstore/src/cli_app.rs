@@ -202,6 +202,22 @@ mod tests {
     }
 
     #[test]
+    fn parses_check_with_instance_id() {
+        let instance_id = "127ce370-1ed6-5b00-9713-e88d01b3010d";
+        let cli = Cli::try_parse_from(["mcpstore", "check", instance_id]).unwrap();
+
+        match cli.command {
+            Commands::Check(args) => assert_eq!(args.instance_id, instance_id),
+            _ => panic!("Expected to parse as check command"),
+        }
+    }
+
+    #[test]
+    fn rejects_check_without_instance_id() {
+        assert!(Cli::try_parse_from(["mcpstore", "check"]).is_err());
+    }
+
+    #[test]
     fn parses_call_command() {
         let cli = Cli::try_parse_from([
             "mcpstore",

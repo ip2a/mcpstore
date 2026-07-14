@@ -416,19 +416,15 @@ pub async fn restart(a: RestartArgs) -> std::result::Result<(), BoxErr> {
 
 #[derive(Args)]
 pub struct CheckArgs {
-    #[arg(help = "Service instance ID; check all instances if omitted")]
-    pub instance_id: Option<String>,
+    #[arg(help = "Service instance ID")]
+    pub instance_id: String,
     #[command(flatten)]
     pub store: StoreSourceArgs,
 }
 
 pub async fn check(a: CheckArgs) -> std::result::Result<(), BoxErr> {
     if crate::daemon::client::daemon_socket_exists() {
-        let params = if let Some(ref instance_id) = a.instance_id {
-            serde_json::json!({"instance_id": instance_id})
-        } else {
-            serde_json::json!({})
-        };
+        let params = serde_json::json!({"instance_id": a.instance_id});
         let result = crate::daemon::client::call_daemon("check_service", params).await?;
         if let Some(obj) = result.as_object() {
             for (k, v) in obj {
@@ -440,19 +436,9 @@ pub async fn check(a: CheckArgs) -> std::result::Result<(), BoxErr> {
     let store = build_store(&a.store)?;
     store.load_from_source().await?;
 
-    if let Some(instance_id) = a.instance_id {
-        let instance_id = parse_instance_id(&instance_id)?;
-        let status = store.instance_status_entry(instance_id).await?;
-        println!("[Check] {} => {:?}", instance_id, status.health_status);
-    } else {
-        for instance in store.list_instances().await {
-            let status = store.instance_status_entry(instance.instance_id).await?;
-            println!(
-                "[Check] {} ({}/{:?}) => {:?}",
-                instance.instance_id, instance.service_name, instance.scope, status.health_status
-            );
-        }
-    }
+    let instance_id = parse_instance_id(&a.instance_id)?;
+    let status = store.instance_status_entry(instance_id).await?;
+    println!("[Check] {} => {:?}", instance_id, status.health_status);
     Ok(())
 }
 

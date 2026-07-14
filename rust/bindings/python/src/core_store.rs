@@ -1501,14 +1501,8 @@ impl PyMCPStore {
         instance_id: &str,
     ) -> PyResult<Py<PyAny>> {
         let instance_id = parse_instance_id(instance_id)?;
-        let instance = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.find_instance(instance_id))
-            .ok_or_else(|| map_store_err(StoreError::ServiceNotFound(instance_id.to_string())))?;
         let visibility = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .get_context_tool_visibility(&instance.scope, instance_id),
-            )
+            .block_on(self.inner.get_context_tool_visibility(instance_id))
             .map_err(map_store_err)?;
         match visibility {
             Some(visibility) => context_tool_visibility_to_py(py, &visibility),
@@ -1523,29 +1517,19 @@ impl PyMCPStore {
         tool_names: Vec<String>,
     ) -> PyResult<Py<PyAny>> {
         let instance_id = parse_instance_id(instance_id)?;
-        let instance = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.find_instance(instance_id))
-            .ok_or_else(|| map_store_err(StoreError::ServiceNotFound(instance_id.to_string())))?;
         let visibility = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.set_context_tool_visibility(
-                &instance.scope,
-                instance_id,
-                tool_names,
-            ))
+            .block_on(
+                self.inner
+                    .set_context_tool_visibility(instance_id, tool_names),
+            )
             .map_err(map_store_err)?;
         context_tool_visibility_to_py(py, &visibility)
     }
 
     fn clear_context_tool_visibility(&self, instance_id: &str) -> PyResult<()> {
         let instance_id = parse_instance_id(instance_id)?;
-        let instance = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.find_instance(instance_id))
-            .ok_or_else(|| map_store_err(StoreError::ServiceNotFound(instance_id.to_string())))?;
         pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .clear_context_tool_visibility(&instance.scope, instance_id),
-            )
+            .block_on(self.inner.clear_context_tool_visibility(instance_id))
             .map_err(map_store_err)
     }
 
@@ -1556,14 +1540,8 @@ impl PyMCPStore {
         tool_name: &str,
     ) -> PyResult<Py<PyAny>> {
         let instance_id = parse_instance_id(instance_id)?;
-        let instance = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.find_instance(instance_id))
-            .ok_or_else(|| map_store_err(StoreError::ServiceNotFound(instance_id.to_string())))?;
         let state = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .get_tool_preferences(&instance.scope, instance_id, tool_name),
-            )
+            .block_on(self.inner.get_tool_preferences(instance_id, tool_name))
             .map_err(map_store_err)?;
         match state {
             Some(state) => tool_preference_state_to_py(py, &state),
@@ -1581,14 +1559,8 @@ impl PyMCPStore {
         default_value: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
         let instance_id = parse_instance_id(instance_id)?;
-        let instance = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.find_instance(instance_id))
-            .ok_or_else(|| map_store_err(StoreError::ServiceNotFound(instance_id.to_string())))?;
         let value = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .get_tool_preference(&instance.scope, instance_id, tool_name, key),
-            )
+            .block_on(self.inner.get_tool_preference(instance_id, tool_name, key))
             .map_err(map_store_err)?;
         match value {
             Some(value) => serde_value_to_py(py, value),
@@ -1609,18 +1581,12 @@ impl PyMCPStore {
         value: &Bound<'_, PyAny>,
     ) -> PyResult<Py<PyAny>> {
         let instance_id = parse_instance_id(instance_id)?;
-        let instance = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.find_instance(instance_id))
-            .ok_or_else(|| map_store_err(StoreError::ServiceNotFound(instance_id.to_string())))?;
         let value = py_to_serde_value(value, "Tool preference value")?;
         let state = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.set_tool_preference(
-                &instance.scope,
-                instance_id,
-                tool_name,
-                key,
-                value,
-            ))
+            .block_on(
+                self.inner
+                    .set_tool_preference(instance_id, tool_name, key, value),
+            )
             .map_err(map_store_err)?;
         tool_preference_state_to_py(py, &state)
     }
@@ -1634,16 +1600,11 @@ impl PyMCPStore {
         key: &str,
     ) -> PyResult<Py<PyAny>> {
         let instance_id = parse_instance_id(instance_id)?;
-        let instance = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.find_instance(instance_id))
-            .ok_or_else(|| map_store_err(StoreError::ServiceNotFound(instance_id.to_string())))?;
         let state = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.clear_tool_preference(
-                &instance.scope,
-                instance_id,
-                tool_name,
-                key,
-            ))
+            .block_on(
+                self.inner
+                    .clear_tool_preference(instance_id, tool_name, key),
+            )
             .map_err(map_store_err)?;
         match state {
             Some(state) => tool_preference_state_to_py(py, &state),
@@ -1926,7 +1887,7 @@ impl PyMCPStore {
             .allow_threads(|| {
                 pyo3_async_runtimes::tokio::get_runtime().block_on(
                     self.inner
-                        .read_resource_in_session(session_key, uri, Some(instance_id)),
+                        .read_resource_in_session(session_key, uri, instance_id),
                 )
             })
             .map_err(map_store_err)?;
@@ -1967,7 +1928,7 @@ impl PyMCPStore {
                         session_key,
                         prompt_name,
                         arguments,
-                        Some(instance_id),
+                        instance_id,
                     ),
                 )
             })
@@ -2006,16 +1967,12 @@ impl PyMCPStore {
         filter: Option<&str>,
     ) -> PyResult<Vec<Py<PyAny>>> {
         let instance_id = parse_instance_id(instance_id)?;
-        let instance = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.find_instance(instance_id))
-            .ok_or_else(|| map_store_err(StoreError::ServiceNotFound(instance_id.to_string())))?;
         let filter = parse_tool_visibility_filter(filter)?;
         let tools = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.list_tool_entries_scoped_with_filter(
-                &instance.scope,
-                Some(instance_id),
-                filter,
-            ))
+            .block_on(
+                self.inner
+                    .list_tool_entries_for_instance_with_filter(instance_id, filter),
+            )
             .map_err(map_store_err)?;
         tools
             .iter()
@@ -2032,10 +1989,7 @@ impl PyMCPStore {
     ) -> PyResult<Py<PyAny>> {
         let instance_id = parse_instance_id(instance_id)?;
         let changes = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .list_changed_tools_scoped(Some(instance_id), force_refresh),
-            )
+            .block_on(self.inner.list_changed_tools(instance_id, force_refresh))
             .map_err(map_store_err)?;
         serde_value_to_py(
             py,

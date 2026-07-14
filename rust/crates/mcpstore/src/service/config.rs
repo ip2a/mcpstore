@@ -98,13 +98,6 @@ impl MCPStore {
         Ok(())
     }
 
-    pub async fn reset_agent_config(&self, agent_id: &str) -> Result<()> {
-        self.reset_scope(&ScopeRef::Agent {
-            agent_id: agent_id.to_string(),
-        })
-        .await
-    }
-
     pub async fn reset_scope(&self, scope: &ScopeRef) -> Result<()> {
         if self.source_mode == SourceMode::Db {
             return self
@@ -141,20 +134,25 @@ impl MCPStore {
         }
         self.config_manager.save(&config)?;
 
+        let instance_ids = removed
+            .into_iter()
+            .map(|key| key.instance_id())
+            .collect::<Vec<_>>();
+        for instance_id in &instance_ids {
+            self.pool.remove(*instance_id).await.ok();
+            self.applied_openapi_configs
+                .write()
+                .await
+                .remove(instance_id);
+            self.registry.unregister_instance(*instance_id).await;
+        }
+
         let now = chrono::Utc::now().timestamp();
         for (service_name, server) in changed_definitions {
             self.sync_definition_projection(&service_name, &server, now)
                 .await?;
         }
-
-        for key in removed {
-            let instance_id = key.instance_id();
-            self.pool.remove(instance_id).await.ok();
-            self.applied_openapi_configs
-                .write()
-                .await
-                .remove(&instance_id);
-            self.registry.unregister_instance(instance_id).await;
+        for instance_id in instance_ids {
             self.cache_instance_removed(instance_id).await?;
         }
         Ok(())

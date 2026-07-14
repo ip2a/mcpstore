@@ -11,18 +11,4 @@ impl MCPStore {
             .await
             .ok_or_else(|| StoreError::ServiceNotFound(instance_id.to_string()))
     }
-
-    pub(in crate::agent) async fn require_instance_in_scope(
-        &self,
-        instance_id: InstanceId,
-        scope: &ScopeRef,
-    ) -> Result<ServiceInstance> {
-        let instance = self.require_instance(instance_id).await?;
-        if &instance.scope != scope {
-            return Err(StoreError::Other(format!(
-                "Service instance {instance_id} does not belong to scope {scope:?}"
-            )));
-        }
-        Ok(instance)
-    }
 }

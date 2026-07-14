@@ -18,24 +18,21 @@ pub enum ToolVisibilityFilter {
 impl MCPStore {
     pub async fn get_context_tool_visibility(
         &self,
-        scope: &ScopeRef,
         instance_id: InstanceId,
     ) -> Result<Option<ContextToolVisibilityState>> {
-        self.require_instance_in_scope(instance_id, scope).await?;
-        let context_key = Self::build_tool_visibility_context_key(scope)?;
+        let instance = self.require_instance(instance_id).await?;
+        let context_key = Self::build_tool_visibility_context_key(&instance.scope)?;
         self.load_context_tool_visibility(&context_key, instance_id)
             .await
     }
 
     pub async fn set_context_tool_visibility(
         &self,
-        scope: &ScopeRef,
         instance_id: InstanceId,
         tool_names: Vec<String>,
     ) -> Result<ContextToolVisibilityState> {
-        self.require_instance_in_scope(instance_id, scope).await?;
-        let context_key = Self::build_tool_visibility_context_key(scope)?;
-        let instance = self.require_instance_in_scope(instance_id, scope).await?;
+        let instance = self.require_instance(instance_id).await?;
+        let context_key = Self::build_tool_visibility_context_key(&instance.scope)?;
         let all_tools = self.list_tool_entries_for_instance(instance_id).await?;
         let allowlist: HashSet<String> = tool_names.into_iter().collect();
         let mut selected = all_tools
@@ -56,13 +53,9 @@ impl MCPStore {
         .await
     }
 
-    pub async fn clear_context_tool_visibility(
-        &self,
-        scope: &ScopeRef,
-        instance_id: InstanceId,
-    ) -> Result<()> {
-        self.require_instance_in_scope(instance_id, scope).await?;
-        let context_key = Self::build_tool_visibility_context_key(scope)?;
+    pub async fn clear_context_tool_visibility(&self, instance_id: InstanceId) -> Result<()> {
+        let instance = self.require_instance(instance_id).await?;
+        let context_key = Self::build_tool_visibility_context_key(&instance.scope)?;
         let state_key = Self::context_tool_visibility_state_key(&context_key, instance_id);
         self.cache
             .delete_state(CONTEXT_TOOL_VISIBILITY_STATE_TYPE, &state_key)
@@ -70,20 +63,14 @@ impl MCPStore {
             .map_err(Into::into)
     }
 
-    pub async fn list_tool_entries_scoped_with_filter(
+    pub async fn list_tool_entries_for_instance_with_filter(
         &self,
-        scope: &ScopeRef,
-        instance_id: Option<InstanceId>,
+        instance_id: InstanceId,
         filter: ToolVisibilityFilter,
     ) -> Result<Vec<ScopedToolEntry>> {
-        let tools = match instance_id {
-            Some(instance_id) => {
-                self.require_instance_in_scope(instance_id, scope).await?;
-                self.list_tool_entries_for_instance(instance_id).await?
-            }
-            None => self.list_tool_entries_scoped(scope).await?,
-        };
-        self.apply_context_tool_visibility(scope, tools, filter)
+        let instance = self.require_instance(instance_id).await?;
+        let tools = self.list_tool_entries_for_instance(instance_id).await?;
+        self.apply_context_tool_visibility(&instance.scope, tools, filter)
             .await
     }
 
