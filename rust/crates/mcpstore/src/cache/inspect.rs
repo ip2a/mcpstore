@@ -136,7 +136,7 @@ impl MCPStore {
         Ok(serde_json::json!({
             "backend": self.current_cache_storage().await.as_str(),
             "namespace": namespace,
-            "scope": "global",
+            "scope": "store",
             "request_metrics": self.cache.request_metrics_snapshot(),
             "counts": {
                 "entities": entity_counts,

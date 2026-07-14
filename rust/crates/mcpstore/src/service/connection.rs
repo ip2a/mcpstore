@@ -49,7 +49,9 @@ impl MCPStore {
                 .await
                 .insert(instance_id, instance.effective_config.clone());
             self.registry.register_instance(updated).await;
-            self.registry.mark_applied(instance_id).await;
+            self.mark_instance_applied(instance_id).await?;
+            let tools = self.registry.list_instance_tools(instance_id).await;
+            self.cache_instance_connected(instance_id, &tools).await?;
             self.event_bus
                 .publish(
                     Event::new(
@@ -197,7 +199,7 @@ impl MCPStore {
         updated.tools = tool_infos;
         updated.status = ConnectionStatus::Connected;
         self.registry.register_instance(updated).await;
-        self.registry.mark_applied(instance_id).await;
+        self.mark_instance_applied(instance_id).await?;
 
         let tools = self.registry.list_instance_tools(instance_id).await;
         self.cache_instance_connected(instance_id, &tools).await?;

@@ -1275,10 +1275,41 @@ async fn openapi_import_persists_shared_analysis_result() {
         .import_openapi_service_from_spec("inventory", "memory://inventory", spec)
         .await
         .unwrap();
-    store
-        .connect_service(store_instance_id("inventory"))
+    let instance_id = store_instance_id("inventory");
+    let pending = store.find_instance(instance_id).await.unwrap();
+    assert_eq!(pending.status, ConnectionStatus::Disconnected);
+    assert_eq!(pending.applied_config_revision, None);
+    assert!(pending.tools.is_empty());
+    assert!(store
+        .applied_openapi_configs
+        .read()
         .await
+        .get(&instance_id)
+        .is_none());
+    let pending_entity = store
+        .cache()
+        .get_entity("service_instances", &instance_id.to_string())
+        .await
+        .unwrap()
         .unwrap();
+    assert!(pending_entity["applied_config_revision"].is_null());
+    assert_eq!(
+        store
+            .cached_instance_status(instance_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .health_status,
+        HealthStatus::Disconnected
+    );
+    assert!(store
+        .cache()
+        .get_relation("instance_tools", &instance_id.to_string())
+        .await
+        .unwrap()
+        .is_none());
+
+    store.connect_service(instance_id).await.unwrap();
 
     assert_eq!(result.service_name, "inventory");
     assert_eq!(result.total_endpoints, 3);
@@ -1287,17 +1318,25 @@ async fn openapi_import_persists_shared_analysis_result() {
     assert_eq!(result.component_types.resource_templates, 1);
     assert!(result.runtime_executable);
 
-    let service = store
-        .find_instance(store_instance_id("inventory"))
-        .await
-        .unwrap();
+    let service = store.find_instance(instance_id).await.unwrap();
     assert_eq!(service.transport, "openapi");
     assert_eq!(service.status, ConnectionStatus::Connected);
-
-    let tools = store
-        .list_tools(store_instance_id("inventory"))
+    assert_eq!(
+        service.applied_config_revision,
+        Some(service.config_revision)
+    );
+    let applied_entity = store
+        .cache()
+        .get_entity("service_instances", &instance_id.to_string())
         .await
+        .unwrap()
         .unwrap();
+    assert_eq!(
+        applied_entity["applied_config_revision"],
+        serde_json::to_value(service.config_revision).unwrap()
+    );
+
+    let tools = store.list_tools(instance_id).await.unwrap();
     assert_eq!(tools.len(), 1);
     assert_eq!(tools[0].name, "createItem");
 
@@ -1459,19 +1498,14 @@ async fn openapi_last_import_tracks_latest_successful_import() {
 
 #[tokio::test]
 async fn removing_openapi_service_clears_import_state() {
-    let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
-        config_path: Some(path.clone()),
+        config_path: None,
         source_mode: SourceMode::Local,
         backend: Some(CacheStorage::Memory),
         redis_url: None,
         namespace: Some(format!("openapi-remove-import-{}", uuid::Uuid::new_v4())),
     })
     .unwrap();
-    store
-        .add_service("inventory", stdio_config())
-        .await
-        .unwrap();
     let spec = serde_json::json!({
         "openapi": "3.0.0",
         "info": {"title": "Inventory", "version": "1.0"},
@@ -1501,6 +1535,135 @@ async fn removing_openapi_service_clears_import_state() {
         .unwrap()
         .is_none());
     assert!(store.last_openapi_import().await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn openapi_import_rejects_existing_definition_without_mutating_sibling_scopes() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::Memory),
+        redis_url: None,
+        namespace: Some(format!("openapi-duplicate-{}", uuid::Uuid::new_v4())),
+    })
+    .unwrap();
+    let mut config = stdio_config();
+    config.mcpstore = Some(McpStoreExtension {
+        scopes: ScopeDeclarations {
+            store: Some(ScopeDescriptor::default()),
+            agents: HashMap::from([
+                ("agent-1".to_string(), ScopeDescriptor::default()),
+                ("agent-2".to_string(), ScopeDescriptor::default()),
+            ]),
+        },
+        lifecycle: None,
+        revision: 1,
+        extra: Map::new(),
+    });
+    store.add_service("inventory", config).await.unwrap();
+
+    let definition_before = store.registry.find_definition("inventory").await.unwrap();
+    let instances_before = store
+        .registry
+        .list_instances()
+        .await
+        .into_iter()
+        .map(|instance| (instance.instance_id, instance))
+        .collect::<HashMap<_, _>>();
+    let definition_cache_before = store
+        .cache()
+        .get_entity("service_definitions", "inventory")
+        .await
+        .unwrap()
+        .unwrap();
+    let mut instance_cache_before = HashMap::new();
+    let mut connectivity_before = HashMap::new();
+    for instance_id in instances_before.keys().copied() {
+        instance_cache_before.insert(
+            instance_id,
+            store
+                .cache()
+                .get_entity("service_instances", &instance_id.to_string())
+                .await
+                .unwrap()
+                .unwrap(),
+        );
+        connectivity_before.insert(instance_id, store.pool.is_connected(instance_id).await);
+    }
+    let config_before = store.show_config().await.unwrap();
+
+    let error = store
+        .import_openapi_service_from_spec(
+            "inventory",
+            "memory://inventory",
+            serde_json::json!({
+                "openapi": "3.0.0",
+                "info": {"title": "Duplicate Inventory", "version": "1.0"},
+                "paths": {
+                    "/items": {
+                        "get": {"operationId": "listItems"}
+                    }
+                }
+            }),
+        )
+        .await
+        .unwrap_err();
+
+    assert!(error
+        .to_string()
+        .contains("Service definition already exists: inventory"));
+    assert_eq!(
+        store.registry.find_definition("inventory").await.unwrap(),
+        definition_before
+    );
+    assert_eq!(
+        store
+            .registry
+            .list_instances()
+            .await
+            .into_iter()
+            .map(|instance| (instance.instance_id, instance))
+            .collect::<HashMap<_, _>>(),
+        instances_before
+    );
+    assert_eq!(
+        store
+            .cache()
+            .get_entity("service_definitions", "inventory")
+            .await
+            .unwrap()
+            .unwrap(),
+        definition_cache_before
+    );
+    for (instance_id, cached_before) in instance_cache_before {
+        assert_eq!(
+            store
+                .cache()
+                .get_entity("service_instances", &instance_id.to_string())
+                .await
+                .unwrap()
+                .unwrap(),
+            cached_before
+        );
+        assert_eq!(
+            store.pool.is_connected(instance_id).await,
+            connectivity_before[&instance_id]
+        );
+    }
+    assert_eq!(store.show_config().await.unwrap(), config_before);
+    assert!(store
+        .get_openapi_import("inventory")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(store.last_openapi_import().await.unwrap().is_none());
+    assert!(store
+        .cache()
+        .get_all_events_async("openapi_imports")
+        .await
+        .unwrap()
+        .is_empty());
 
     std::fs::remove_file(path).ok();
 }
@@ -4021,7 +4184,7 @@ async fn cache_inspect_includes_session_collections() {
         namespace: Some("inspect-sessions".to_string()),
     })
     .unwrap();
-    let session_key = "store:global:s1";
+    let session_key = "store:s1";
 
     store
         .cache()
@@ -4092,7 +4255,7 @@ async fn cache_inspect_includes_session_collections() {
         .cache()
         .put_event(
             "session_events",
-            "store:global:s1:0001",
+            "store:s1:0001",
             serde_json::json!({
                 "session_key": session_key,
                 "event_type": "create",
@@ -4528,7 +4691,7 @@ async fn tool_preferences_are_stored_by_scope_instance_and_tool() {
         )
         .await
         .unwrap();
-    assert_eq!(state.context_key, "store:global");
+    assert_eq!(state.context_key, "store");
     assert_eq!(state.instance_id, instance_id);
     assert_eq!(state.service_name, "svc");
     assert_eq!(state.scope, store_scope());
@@ -4536,10 +4699,7 @@ async fn tool_preferences_are_stored_by_scope_instance_and_tool() {
     assert_eq!(state.preferences["return_direct"], true);
     assert!(store
         .cache()
-        .get_state(
-            "tool_preferences",
-            &format!("store:global:{instance_id}:echo"),
-        )
+        .get_state("tool_preferences", &format!("store:{instance_id}:echo"),)
         .await
         .unwrap()
         .is_some());
@@ -4621,6 +4781,17 @@ async fn connect_service_failure_uses_default_no_restart_policy() {
     assert!(status.current_error.is_some());
     assert_eq!(status.next_retry_time, None);
     assert_eq!(service.status, ConnectionStatus::Disconnected);
+    assert_eq!(service.applied_config_revision, None);
+    assert!(store
+        .cache()
+        .get_entity(
+            "service_instances",
+            &store_instance_id("broken").to_string(),
+        )
+        .await
+        .unwrap()
+        .unwrap()["applied_config_revision"]
+        .is_null());
 
     std::fs::remove_file(path).ok();
 }
@@ -5013,12 +5184,13 @@ mod scoped_contract {
     use tokio::net::TcpListener;
 
     use crate::cache::models::{
-        HealthStatus, ServiceLifecycleState, ToolAvailability, ToolStatusItem,
+        HealthStatus, ServiceDefinitionEntity, ServiceLifecycleState, ToolAvailability,
+        ToolStatusItem,
     };
     use crate::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor};
     use crate::identity::{InstanceId, ScopeRef, ServiceInstanceKey};
     use crate::registry::{ConfigRevision, ConnectionStatus, ToolInfo};
-    use crate::ToolTransformPatch;
+    use crate::{CreateSessionRequest, SessionToolSelection, ToolTransformPatch};
 
     fn temp_config_path() -> String {
         std::env::temp_dir()
@@ -5590,6 +5762,20 @@ mod scoped_contract {
 
         let instance_id = instance_id("secure", store_scope());
         store.restart_service(instance_id).await.unwrap();
+        let connected = store.find_instance(instance_id).await.unwrap();
+        assert_eq!(
+            connected.applied_config_revision,
+            Some(connected.config_revision)
+        );
+        assert_eq!(
+            store
+                .cache()
+                .get_entity("service_instances", &instance_id.to_string())
+                .await
+                .unwrap()
+                .unwrap()["applied_config_revision"],
+            serde_json::to_value(connected.config_revision).unwrap()
+        );
         let applied_before = store
             .applied_openapi_configs
             .read()
@@ -5634,6 +5820,15 @@ mod scoped_contract {
         assert_eq!(pending.status, ConnectionStatus::Connected);
         assert!(pending.restart_required());
         assert_eq!(
+            store
+                .cache()
+                .get_entity("service_instances", &instance_id.to_string())
+                .await
+                .unwrap()
+                .unwrap()["applied_config_revision"],
+            serde_json::to_value(pending.applied_config_revision.unwrap()).unwrap()
+        );
+        assert_eq!(
             store.applied_openapi_configs.read().await.get(&instance_id),
             Some(&applied_before)
         );
@@ -5650,6 +5845,20 @@ mod scoped_contract {
         );
 
         store.restart_service(instance_id).await.unwrap();
+        let restarted = store.find_instance(instance_id).await.unwrap();
+        assert_eq!(
+            restarted.applied_config_revision,
+            Some(restarted.config_revision)
+        );
+        assert_eq!(
+            store
+                .cache()
+                .get_entity("service_instances", &instance_id.to_string())
+                .await
+                .unwrap()
+                .unwrap()["applied_config_revision"],
+            serde_json::to_value(restarted.config_revision).unwrap()
+        );
         let applied_after = store
             .applied_openapi_configs
             .read()
@@ -5816,6 +6025,97 @@ mod scoped_contract {
             .await
             .unwrap();
 
+        let agent_1_session = store
+            .create_session(CreateSessionRequest::agent("agent-1-session", "agent-1"))
+            .await
+            .unwrap();
+        store
+            .bind_service_to_session(&agent_1_session.session_key, agent_1_id)
+            .await
+            .unwrap();
+        store
+            .set_session_tool_visibility(
+                &agent_1_session.session_key,
+                vec![SessionToolSelection {
+                    instance_id: agent_1_id,
+                    tool_name: "agent-1-tool".to_string(),
+                }],
+            )
+            .await
+            .unwrap();
+        store
+            .set_context_tool_visibility(
+                &agent_1_scope,
+                agent_1_id,
+                vec!["agent-1-tool".to_string()],
+            )
+            .await
+            .unwrap();
+        store
+            .set_tool_preference(
+                &agent_1_scope,
+                agent_1_id,
+                "agent-1-tool",
+                "return_direct",
+                json!(true),
+            )
+            .await
+            .unwrap();
+        store
+            .set_tool_transform(
+                agent_1_id,
+                "agent-1-tool",
+                ToolTransformPatch::default().with_display_name("agent-1-renamed"),
+            )
+            .await
+            .unwrap();
+
+        let agent_2_scope = agent_scope("agent-2");
+        let agent_2_session = store
+            .create_session(CreateSessionRequest::agent("agent-2-session", "agent-2"))
+            .await
+            .unwrap();
+        store
+            .bind_service_to_session(&agent_2_session.session_key, agent_2_id)
+            .await
+            .unwrap();
+        store
+            .set_session_tool_visibility(
+                &agent_2_session.session_key,
+                vec![SessionToolSelection {
+                    instance_id: agent_2_id,
+                    tool_name: "agent-2-tool".to_string(),
+                }],
+            )
+            .await
+            .unwrap();
+        store
+            .set_context_tool_visibility(
+                &agent_2_scope,
+                agent_2_id,
+                vec!["agent-2-tool".to_string()],
+            )
+            .await
+            .unwrap();
+        store
+            .set_tool_preference(
+                &agent_2_scope,
+                agent_2_id,
+                "agent-2-tool",
+                "return_direct",
+                json!(true),
+            )
+            .await
+            .unwrap();
+        store
+            .set_tool_transform(
+                agent_2_id,
+                "agent-2-tool",
+                ToolTransformPatch::default().with_display_name("agent-2-renamed"),
+            )
+            .await
+            .unwrap();
+
         store
             .remove_service_scope("svc", &agent_1_scope)
             .await
@@ -5848,11 +6148,239 @@ mod scoped_contract {
             .await
             .unwrap()
             .is_some());
+        assert!(store
+            .list_session_services(&agent_1_session.session_key)
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(store
+            .list_session_tools(&agent_1_session.session_key)
+            .await
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            store
+                .list_session_services(&agent_2_session.session_key)
+                .await
+                .unwrap()[0]
+                .instance_id,
+            agent_2_id
+        );
+        assert_eq!(
+            store
+                .list_session_tools(&agent_2_session.session_key)
+                .await
+                .unwrap()[0]
+                .instance_id,
+            agent_2_id
+        );
+        for (state_type, state_key) in [
+            (
+                "context_tool_visibility",
+                format!("agent:agent-1:{agent_1_id}"),
+            ),
+            (
+                "tool_preferences",
+                format!("agent:agent-1:{agent_1_id}:agent-1-tool"),
+            ),
+            ("tool_transforms", format!("{agent_1_id}:agent-1-tool")),
+        ] {
+            assert!(store
+                .cache()
+                .get_state(state_type, &state_key)
+                .await
+                .unwrap()
+                .is_none());
+        }
+        for (state_type, state_key) in [
+            (
+                "context_tool_visibility",
+                format!("agent:agent-2:{agent_2_id}"),
+            ),
+            (
+                "tool_preferences",
+                format!("agent:agent-2:{agent_2_id}:agent-2-tool"),
+            ),
+            ("tool_transforms", format!("{agent_2_id}:agent-2-tool")),
+        ] {
+            assert!(store
+                .cache()
+                .get_state(state_type, &state_key)
+                .await
+                .unwrap()
+                .is_some());
+        }
 
         let definition = store.registry.find_definition("svc").await.unwrap();
         assert!(definition.scopes.store.is_some());
         assert!(!definition.scopes.agents.contains_key("agent-1"));
         assert!(definition.scopes.agents.contains_key("agent-2"));
+        let config = store.config_manager.load_or_empty().unwrap();
+        let config_scopes = config.mcp_servers["svc"].scopes();
+        assert!(config_scopes.store.is_some());
+        assert!(!config_scopes.agents.contains_key("agent-1"));
+        assert!(config_scopes.agents.contains_key("agent-2"));
+        let cached_definition: ServiceDefinitionEntity = serde_json::from_value(
+            store
+                .cache()
+                .get_entity("service_definitions", "svc")
+                .await
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(cached_definition.scopes, definition.scopes);
+
+        let db = MCPStore::setup_with_options(StoreOptions {
+            config_path: None,
+            source_mode: SourceMode::Db,
+            backend: Some(CacheStorage::Memory),
+            redis_url: None,
+            namespace: Some(format!("scope-remove-db-{}", uuid::Uuid::new_v4())),
+        })
+        .unwrap();
+        copy_cache_snapshot(&store, &db).await;
+        db.load_from_db().await.unwrap();
+        let db_definition = db.registry.find_definition("svc").await.unwrap();
+        assert!(db_definition.scopes.store.is_some());
+        assert!(!db_definition.scopes.agents.contains_key("agent-1"));
+        assert!(db_definition.scopes.agents.contains_key("agent-2"));
+        assert!(db.find_instance(agent_1_id).await.is_none());
+        assert!(db.find_instance(store_id).await.is_some());
+        assert!(db.find_instance(agent_2_id).await.is_some());
+
+        let restored_id = store
+            .declare_service_scope("svc", &agent_1_scope, ScopeDescriptor::default())
+            .await
+            .unwrap();
+        assert_eq!(restored_id, agent_1_id);
+        assert!(store
+            .list_session_services(&agent_1_session.session_key)
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(store
+            .list_session_tools(&agent_1_session.session_key)
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(store
+            .cache()
+            .get_state(
+                "context_tool_visibility",
+                &format!("agent:agent-1:{agent_1_id}"),
+            )
+            .await
+            .unwrap()
+            .is_none());
+        assert!(store
+            .cache()
+            .get_state(
+                "tool_preferences",
+                &format!("agent:agent-1:{agent_1_id}:agent-1-tool"),
+            )
+            .await
+            .unwrap()
+            .is_none());
+        assert!(store
+            .cache()
+            .get_state("tool_transforms", &format!("{agent_1_id}:agent-1-tool"))
+            .await
+            .unwrap()
+            .is_none());
+
+        std::fs::remove_file(path).ok();
+    }
+
+    #[tokio::test]
+    async fn reset_scope_updates_all_definition_projections() {
+        let path = temp_config_path();
+        let scopes = ScopeDeclarations {
+            store: Some(ScopeDescriptor::default()),
+            agents: HashMap::from([
+                ("agent-1".to_string(), ScopeDescriptor::default()),
+                ("agent-2".to_string(), ScopeDescriptor::default()),
+            ]),
+        };
+        let store = MCPStore::setup_with_options(store_options(Some(path.clone()))).unwrap();
+        store
+            .add_service("alpha", native_config(scopes.clone()))
+            .await
+            .unwrap();
+        store
+            .add_service("beta", native_config(scopes))
+            .await
+            .unwrap();
+
+        let agent_1_scope = agent_scope("agent-1");
+        store.reset_scope(&agent_1_scope).await.unwrap();
+
+        let saved = store.config_manager.load_or_empty().unwrap();
+        for service_name in ["alpha", "beta"] {
+            let config_scopes = saved.mcp_servers[service_name].scopes();
+            assert!(config_scopes.store.is_some());
+            assert!(!config_scopes.agents.contains_key("agent-1"));
+            assert!(config_scopes.agents.contains_key("agent-2"));
+
+            let definition = store.registry.find_definition(service_name).await.unwrap();
+            assert_eq!(definition.scopes, config_scopes);
+            let cached: ServiceDefinitionEntity = serde_json::from_value(
+                store
+                    .cache()
+                    .get_entity("service_definitions", service_name)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(cached.scopes, config_scopes);
+
+            assert!(store
+                .find_instance(instance_id(service_name, agent_1_scope.clone()))
+                .await
+                .is_none());
+            assert!(store
+                .find_instance(instance_id(service_name, store_scope()))
+                .await
+                .is_some());
+            assert!(store
+                .find_instance(instance_id(service_name, agent_scope("agent-2")))
+                .await
+                .is_some());
+        }
+
+        let db = MCPStore::setup_with_options(StoreOptions {
+            config_path: None,
+            source_mode: SourceMode::Db,
+            backend: Some(CacheStorage::Memory),
+            redis_url: None,
+            namespace: Some(format!("scope-reset-db-{}", uuid::Uuid::new_v4())),
+        })
+        .unwrap();
+        copy_cache_snapshot(&store, &db).await;
+        db.load_from_db().await.unwrap();
+        assert!(db
+            .list_scope_instances(&agent_1_scope)
+            .await
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            db.list_scope_instances(&store_scope()).await.unwrap().len(),
+            2
+        );
+        assert_eq!(
+            db.list_scope_instances(&agent_scope("agent-2"))
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+        for service_name in ["alpha", "beta"] {
+            let definition = db.registry.find_definition(service_name).await.unwrap();
+            assert!(definition.scopes.store.is_some());
+            assert!(!definition.scopes.agents.contains_key("agent-1"));
+            assert!(definition.scopes.agents.contains_key("agent-2"));
+        }
 
         std::fs::remove_file(path).ok();
     }

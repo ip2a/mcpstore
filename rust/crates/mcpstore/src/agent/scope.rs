@@ -107,8 +107,8 @@ impl MCPStore {
                 .unwrap_or(now),
         };
         self.registry.register_instance(instance).await;
-        self.update_registered_definition(service_name, &server, now)
-            .await;
+        self.sync_definition_projection(service_name, &server, now)
+            .await?;
         self.cache_instance_added(instance_id).await?;
         Ok(instance_id)
     }
@@ -157,8 +157,8 @@ impl MCPStore {
             .await
             .remove(&instance_id);
         self.registry.unregister_instance(instance_id).await;
-        self.update_registered_definition(service_name, &server, chrono::Utc::now().timestamp())
-            .await;
+        self.sync_definition_projection(service_name, &server, chrono::Utc::now().timestamp())
+            .await?;
         self.cache_instance_removed(instance_id).await?;
         Ok(())
     }
@@ -197,33 +197,5 @@ impl MCPStore {
                     "Scope {scope:?} is not declared for service '{service_name}'"
                 ))
             })
-    }
-
-    async fn update_registered_definition(
-        &self,
-        service_name: &str,
-        server: &ServerConfig,
-        now: i64,
-    ) {
-        let extension = server.mcpstore.as_ref();
-        let added_time = self
-            .registry
-            .find_definition(service_name)
-            .await
-            .map(|definition| definition.added_time)
-            .unwrap_or(now);
-        self.registry
-            .register_definition(ServiceDefinition {
-                service_name: service_name.to_string(),
-                base_config: server.base_config(),
-                scopes: server.scopes(),
-                lifecycle: extension.and_then(|value| value.lifecycle.clone()),
-                base_revision: server.definition_revision(),
-                metadata: extension
-                    .map(|value| value.extra.clone())
-                    .unwrap_or_default(),
-                added_time,
-            })
-            .await;
     }
 }
