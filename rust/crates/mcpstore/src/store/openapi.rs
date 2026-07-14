@@ -1,21 +1,14 @@
+use crate::config::ScopeDeclarations;
 use crate::openapi::{
     analyze_openapi_spec, parse_openapi_spec_text, resolve_openapi_local_refs,
     OpenApiBundleArtifact, OpenApiBundleDependency, OpenApiBundleDiagnostic, OpenApiBundleDocument,
     OpenApiBundleOptions, OpenApiImportOptions, OpenApiImportResult, OpenApiRefCachePolicy,
 };
-use crate::openapi_runtime::openapi_tool_infos;
 use crate::store::prelude::*;
 use crate::store::CacheLayerManager;
-use crate::{
-    cache::models::{
-        InstanceStatus, InstanceToolRelation, ServiceDefinitionEntity, ServiceInstanceEntity,
-    },
-    config::ScopeDeclarations,
-};
 use reqwest::header::{ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED};
 use std::collections::HashMap;
 use std::future::Future;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Mutex;
@@ -111,6 +104,12 @@ impl MCPStore {
         spec: serde_json::Value,
         options: OpenApiImportOptions,
     ) -> Result<OpenApiImportResult> {
+        if self.registry.find_definition(name).await.is_some() {
+            return Err(StoreError::Other(format!(
+                "Service definition already exists: {name}"
+            )));
+        }
+
         let client = openapi_http_client(options.fetch_timeout_millis)?;
         let bundle_options = OpenApiBundleOptions {
             ref_cache: options.ref_cache.clone(),
@@ -328,7 +327,6 @@ impl MCPStore {
             extra: serde_json::Map::new(),
         };
         let config_value = openapi_config_value(&config, options)?;
-        let tools = openapi_tool_infos(result);
         let base_config = config_value.as_object().cloned().ok_or_else(|| {
             StoreError::Other("OpenAPI service config must serialize as an object".to_string())
         })?;
@@ -355,140 +353,17 @@ impl MCPStore {
             transport: "openapi".to_string(),
             url: config.url.clone(),
             command: None,
-            status: ConnectionStatus::Connected,
-            tools: tools.clone(),
+            status: ConnectionStatus::Disconnected,
+            tools: Vec::new(),
             effective_config: base_config.clone(),
             config_revision: revision,
-            applied_config_revision: Some(revision),
+            applied_config_revision: None,
             added_time: now,
         };
-        self.registry.register_definition(definition.clone()).await;
-        self.registry.register_instance(instance.clone()).await;
-        self.applied_openapi_configs
-            .write()
-            .await
-            .insert(instance_id, base_config.clone());
-
-        self.cache
-            .put_entity(
-                "service_definitions",
-                &result.service_name,
-                serde_json::to_value(ServiceDefinitionEntity::from(&definition))
-                    .unwrap_or_default(),
-            )
-            .await?;
-        self.cache
-            .put_entity(
-                "service_instances",
-                &instance_id.to_string(),
-                serde_json::to_value(ServiceInstanceEntity {
-                    instance_id,
-                    service_name: instance.service_name.clone(),
-                    scope: instance.scope.clone(),
-                    transport: instance.transport.clone(),
-                    url: instance.url.clone(),
-                    command: instance.command.clone(),
-                    effective_config: instance.effective_config.clone(),
-                    config_revision: instance.config_revision,
-                    applied_config_revision: instance.applied_config_revision,
-                    added_time: instance.added_time,
-                })
-                .unwrap_or_default(),
-            )
-            .await?;
-
-        if let Some(value) = self
-            .cache
-            .get_relation("instance_tools", &instance_id.to_string())
-            .await?
-        {
-            let previous: InstanceToolRelation =
-                serde_json::from_value(value).map_err(|error| {
-                    StoreError::Other(format!(
-                        "Instance tool relation deserialization failed: {error}"
-                    ))
-                })?;
-            for tool_name in previous.tools {
-                self.cache
-                    .delete_entity("tools", &format!("{instance_id}:{tool_name}"))
-                    .await?;
-            }
-        }
-
-        let mut relation_tools = Vec::with_capacity(tools.len());
-        let mut status_tools = Vec::with_capacity(tools.len());
-        for tool in &tools {
-            let entity = ToolEntity {
-                instance_id,
-                service_name: result.service_name.clone(),
-                scope: ScopeRef::Store,
-                tool_name: tool.name.clone(),
-                title: tool.title.clone(),
-                description: tool.description.clone(),
-                input_schema: tool.input_schema.clone(),
-                output_schema: tool.output_schema.clone(),
-                annotations: tool.annotations.clone(),
-                meta: tool.meta.clone(),
-                created_time: now,
-                tool_hash: openapi_tool_content_hash(instance_id, tool),
-            };
-            self.cache
-                .put_entity(
-                    "tools",
-                    &format!("{instance_id}:{}", tool.name),
-                    serde_json::to_value(entity).unwrap_or_default(),
-                )
-                .await?;
-            relation_tools.push(tool.name.clone());
-            status_tools.push(ToolStatusItem {
-                tool_name: tool.name.clone(),
-                status: ToolAvailability::Available,
-            });
-        }
-
-        self.cache
-            .put_relation(
-                "instance_tools",
-                &instance_id.to_string(),
-                serde_json::to_value(InstanceToolRelation {
-                    instance_id,
-                    service_name: result.service_name.clone(),
-                    scope: ScopeRef::Store,
-                    tools: relation_tools,
-                })
-                .unwrap_or_default(),
-            )
-            .await?;
-        let lifecycle_state = self
-            .cached_instance_status(instance_id)
-            .await?
-            .map(|status| status.lifecycle_state)
-            .unwrap_or_else(ServiceLifecycleState::default);
-        let status = InstanceStatus {
-            instance_id,
-            service_name: result.service_name.clone(),
-            scope: ScopeRef::Store,
-            health_status: HealthStatus::Healthy,
-            last_health_check: now,
-            connection_attempts: 0,
-            max_connection_attempts: self.runtime_config.max_connection_attempts,
-            current_error: None,
-            tools: status_tools,
-            window_error_rate: None,
-            latency_p95: None,
-            latency_p99: None,
-            sample_size: None,
-            next_retry_time: None,
-            hard_deadline: None,
-            lease_deadline: None,
-            lifecycle_state,
-        };
-        self.cache
-            .put_state(
-                "instance_status",
-                &instance_id.to_string(),
-                serde_json::to_value(status).unwrap_or_default(),
-            )
+        self.registry.register_definition(definition).await;
+        self.registry.register_instance(instance).await;
+        self.cache_instance_added(instance_id).await?;
+        self.set_instance_status(instance_id, HealthStatus::Disconnected, None, Vec::new())
             .await?;
         Ok(())
     }
@@ -1591,15 +1466,4 @@ fn openapi_config_value(
         );
     }
     Ok(value)
-}
-
-fn openapi_tool_content_hash(instance_id: InstanceId, tool: &crate::registry::ToolInfo) -> String {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    instance_id.hash(&mut hasher);
-    tool.name.hash(&mut hasher);
-    tool.description.hash(&mut hasher);
-    serde_json::to_string(&tool.input_schema)
-        .unwrap_or_default()
-        .hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
 }

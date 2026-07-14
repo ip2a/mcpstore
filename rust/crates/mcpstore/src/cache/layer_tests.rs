@@ -49,7 +49,7 @@ async fn test_cache_layer_manager_session_entity() {
     let mgr = CacheLayerManager::new(store, "test");
 
     let session = SessionEntity {
-        session_key: "store:global:s1".to_string(),
+        session_key: "store:s1".to_string(),
         session_id: "s1".to_string(),
         scope: SessionScope::Store,
         agent_id: None,
@@ -71,7 +71,7 @@ async fn test_cache_layer_manager_session_entity() {
     .unwrap();
 
     let value = mgr
-        .get_entity("sessions", "store:global:s1")
+        .get_entity("sessions", "store:s1")
         .await
         .unwrap()
         .unwrap();
@@ -300,7 +300,7 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
     let first = memory_cache_store();
     let second = memory_cache_store();
     let mgr = CacheLayerManager::new(first, "test");
-    let session_key = "store:global:s1";
+    let session_key = "store:s1";
     let instance_id = store_instance_id();
 
     mgr.put_entity(
@@ -376,9 +376,9 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
     .unwrap();
     mgr.put_state(
         "session_context",
-        "store:global",
+        "store",
         serde_json::to_value(SessionContextState {
-            context_key: "store:global".to_string(),
+            context_key: "store".to_string(),
             active_session_key: Some(session_key.to_string()),
             auto_session_key: None,
             updated_at: 100,
@@ -390,9 +390,9 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
     .unwrap();
     mgr.put_state(
         "context_tool_visibility",
-        &format!("store:global:{instance_id}"),
+        &format!("store:{instance_id}"),
         serde_json::to_value(ContextToolVisibilityState {
-            context_key: "store:global".to_string(),
+            context_key: "store".to_string(),
             instance_id,
             service_name: "svc".to_string(),
             scope: ScopeRef::Store,
@@ -412,9 +412,9 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
     .unwrap();
     mgr.put_state(
         "tool_preferences",
-        &format!("store:global:{instance_id}:echo"),
+        &format!("store:{instance_id}:echo"),
         serde_json::to_value(ToolPreferenceState {
-            context_key: "store:global".to_string(),
+            context_key: "store".to_string(),
             instance_id,
             service_name: "svc".to_string(),
             scope: ScopeRef::Store,
@@ -444,7 +444,7 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
     .unwrap();
     mgr.put_event(
         "session_events",
-        "store:global:s1:0001",
+        "store:s1:0001",
         serde_json::to_value(SessionEvent {
             session_key: session_key.to_string(),
             event_type: SessionEventType::Create,
@@ -491,18 +491,12 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
         .unwrap()
         .is_some());
     assert!(mgr
-        .get_state(
-            "context_tool_visibility",
-            &format!("store:global:{instance_id}")
-        )
+        .get_state("context_tool_visibility", &format!("store:{instance_id}"))
         .await
         .unwrap()
         .is_some());
     assert!(mgr
-        .get_state(
-            "tool_preferences",
-            &format!("store:global:{instance_id}:echo")
-        )
+        .get_state("tool_preferences", &format!("store:{instance_id}:echo"))
         .await
         .unwrap()
         .is_some());
@@ -512,7 +506,7 @@ async fn test_replace_store_with_snapshot_migrates_session_layers() {
         .unwrap()
         .is_some());
     assert!(mgr
-        .get_event("session_events", "store:global:s1:0001")
+        .get_event("session_events", "store:s1:0001")
         .await
         .unwrap()
         .is_some());
@@ -523,8 +517,8 @@ async fn test_create_agent() {
     let store = memory_cache_store();
     let mgr = CacheLayerManager::new(store, "test");
 
-    mgr.create_agent("a1", 1234567890, false).await.unwrap();
+    mgr.create_agent("a1", 1234567890).await.unwrap();
     let agent = mgr.get_agent("a1").await.unwrap().unwrap();
     assert_eq!(agent["agent_id"], "a1");
-    assert_eq!(agent["is_global"], false);
+    assert!(agent.get("is_global").is_none());
 }

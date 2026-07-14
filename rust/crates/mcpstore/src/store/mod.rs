@@ -2,8 +2,7 @@ use std::collections::HashMap;
 use std::sync::{atomic::AtomicU64, RwLock as SyncRwLock};
 
 pub(crate) use crate::cache::models::{
-    HealthStatus, OpenApiImportContextState, ServiceLifecycleState, ToolAvailability, ToolEntity,
-    ToolStatusItem,
+    HealthStatus, OpenApiImportContextState, ServiceLifecycleState, ToolAvailability,
 };
 pub(crate) use crate::cache::CacheLayerManager;
 pub(crate) use crate::config::{CacheBackend, ConfigManager, ServerConfig, StartupPolicy};
@@ -50,7 +49,7 @@ pub(crate) mod prelude {
         MCPStore, OpenApiImportContextState, Result, ScopedServiceEntry, ScopedToolEntry,
         ServerConfig, ServiceDefinition, ServiceInstance, ServiceLifecycleState, SourceMode,
         StartupPolicy, StoreError, ToolAvailability, ToolChangeServiceResult, ToolChangeSummary,
-        ToolEntity, ToolStatusItem, CONTROL_EVENT_SEQUENCE, CONTROL_REQUEST_EVENT_TYPE,
+        CONTROL_EVENT_SEQUENCE, CONTROL_REQUEST_EVENT_TYPE,
     };
 }
 

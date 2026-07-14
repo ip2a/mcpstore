@@ -92,8 +92,6 @@ pub struct AgentEntity {
     pub agent_id: String,
     pub created_time: i64,
     pub last_active: i64,
-    #[serde(default)]
-    pub is_global: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
