@@ -107,6 +107,14 @@ impl MCPStore {
         let cache_store = Self::build_cache_store(&cache_storage, &redis_url, &namespace)?;
         let auth_coordinator = crate::auth::AuthCoordinator::new()?;
 
+        let registry = ServiceRegistry::new();
+        let event_bus = EventBus::with_history(1000);
+        let pool = ConnectionPool::new(
+            auth_coordinator.clone(),
+            registry.clone(),
+            event_bus.clone(),
+        );
+
         Ok(Self {
             auth_coordinator: auth_coordinator.clone(),
             config_manager,
@@ -115,10 +123,10 @@ impl MCPStore {
             cache_storage: tokio::sync::RwLock::new(cache_storage),
             redis_url: tokio::sync::RwLock::new(Some(redis_url)),
             namespace: SyncRwLock::new(namespace.clone()),
-            registry: ServiceRegistry::new(),
-            pool: ConnectionPool::new(auth_coordinator),
+            registry,
+            pool,
             applied_openapi_configs: tokio::sync::RwLock::new(HashMap::new()),
-            event_bus: EventBus::with_history(1000),
+            event_bus,
             cache: CacheLayerManager::new(cache_store, namespace),
         })
     }

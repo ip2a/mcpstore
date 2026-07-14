@@ -1,6 +1,9 @@
 use crate::auth::{AuthCoordinator, AuthStatus};
 use crate::config::ServerConfig;
+use crate::events::EventBus;
 use crate::identity::InstanceId;
+use crate::registry::ServiceRegistry;
+use crate::transport::handler::McpStoreClientHandler;
 use crate::transport::{http as http_transport, stdio as stdio_transport};
 use crate::transport::{Result, TransportError};
 
@@ -8,7 +11,7 @@ pub use crate::transport::pool::ConnectionPool;
 
 use rmcp::service::{RoleClient, RunningService};
 
-pub(super) type McpClient = RunningService<RoleClient, ()>;
+pub(super) type McpClient = RunningService<RoleClient, McpStoreClientHandler>;
 
 enum ActiveClient {
     Stdio(McpClient),
@@ -21,6 +24,7 @@ pub struct McpConnection {
     config: ServerConfig,
     client: Option<ActiveClient>,
     auth_coordinator: AuthCoordinator,
+    handler: McpStoreClientHandler,
 }
 
 impl McpConnection {
@@ -29,6 +33,8 @@ impl McpConnection {
         name: String,
         config: ServerConfig,
         auth_coordinator: AuthCoordinator,
+        registry: ServiceRegistry,
+        event_bus: EventBus,
     ) -> Self {
         Self {
             instance_id,
@@ -36,6 +42,7 @@ impl McpConnection {
             config,
             client: None,
             auth_coordinator,
+            handler: McpStoreClientHandler::new(instance_id, registry, event_bus),
         }
     }
 
@@ -62,7 +69,8 @@ impl McpConnection {
     }
 
     async fn connect_stdio(&mut self) -> Result<()> {
-        let client = stdio_transport::connect(&self.name, &self.config).await?;
+        let client =
+            stdio_transport::connect(&self.name, &self.config, self.handler.clone()).await?;
         tracing::info!("[TRANSPORT] stdio connected: {}", self.name);
         self.client = Some(ActiveClient::Stdio(client));
         Ok(())
@@ -74,6 +82,7 @@ impl McpConnection {
             &self.name,
             &self.config,
             &self.auth_coordinator,
+            self.handler.clone(),
         )
         .await?;
         tracing::info!("[TRANSPORT] HTTP connected: {}", self.name);
@@ -88,6 +97,7 @@ impl McpConnection {
                 ActiveClient::Http(c) => c,
             };
             inner.cancel().await.ok();
+            self.handler.shutdown().await;
             tracing::info!("[TRANSPORT] Disconnected: {}", self.name);
         }
         Ok(())

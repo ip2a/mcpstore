@@ -2,6 +2,7 @@ use crate::auth::{AuthCoordinator, AuthError};
 use crate::config::ServerConfig;
 use crate::identity::InstanceId;
 use crate::transport::client::McpClient;
+use crate::transport::handler::McpStoreClientHandler;
 use crate::transport::oauth::McpStoreOAuthClient;
 use crate::transport::{Result, TransportError};
 
@@ -13,6 +14,7 @@ pub(super) async fn connect(
     name: &str,
     server_config: &ServerConfig,
     auth_coordinator: &AuthCoordinator,
+    handler: McpStoreClientHandler,
 ) -> Result<McpClient> {
     let config = server_config;
     let url = config.url.as_deref().ok_or_else(|| {
@@ -35,7 +37,7 @@ pub(super) async fn connect(
 
     if server_config.auth.is_none() {
         let transport = StreamableHttpClientTransport::from_config(transport_config);
-        return rmcp::service::serve_client((), transport)
+        return rmcp::service::serve_client(handler, transport)
             .await
             .map_err(|err| {
                 TransportError::ConnectionFailed(format!("HTTP MCP handshake failed: {err}"))
@@ -64,7 +66,7 @@ pub(super) async fn connect(
     );
     let transport = StreamableHttpClientTransport::with_client(oauth_client, transport_config);
 
-    match rmcp::service::serve_client((), transport).await {
+    match rmcp::service::serve_client(handler, transport).await {
         Ok(client) => Ok(client),
         Err(error) => match auth_coordinator.status(instance_id).await {
             crate::auth::AuthStatus::Unauthenticated => Err(TransportError::AuthRequired(
@@ -145,6 +147,14 @@ mod tests {
         next.run(request).await
     }
 
+    fn test_handler(instance_id: InstanceId) -> McpStoreClientHandler {
+        McpStoreClientHandler::new(
+            instance_id,
+            crate::registry::ServiceRegistry::new(),
+            crate::events::EventBus::new(),
+        )
+    }
+
     #[tokio::test]
     async fn oauth_disabled_streamable_http_preserves_static_api_key_and_bearer_headers() {
         let accepted_requests = Arc::new(AtomicUsize::new(0));
@@ -184,6 +194,7 @@ mod tests {
             "static-header-service",
             &config,
             &coordinator,
+            test_handler("00000000-0000-0000-0000-000000000001".parse().unwrap()),
         )
         .await
         .unwrap();
@@ -466,9 +477,15 @@ mod tests {
             auth,
             ..ServerConfig::default()
         };
-        let client = connect(instance_id, "protected-service", &config, &coordinator)
-            .await
-            .unwrap();
+        let client = connect(
+            instance_id,
+            "protected-service",
+            &config,
+            &coordinator,
+            test_handler(instance_id),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(fixture.token_requests.load(Ordering::SeqCst), 2);
         assert_eq!(
@@ -486,9 +503,15 @@ mod tests {
         let instance_id = "00000000-0000-0000-0000-000000000011".parse().unwrap();
         let (coordinator, config) = protected_coordinator(&fixture, instance_id).await;
 
-        let client = connect(instance_id, "protected-service", &config, &coordinator)
-            .await
-            .unwrap();
+        let client = connect(
+            instance_id,
+            "protected-service",
+            &config,
+            &coordinator,
+            test_handler(instance_id),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(fixture.token_requests.load(Ordering::SeqCst), 2);
         assert_eq!(
@@ -506,9 +529,15 @@ mod tests {
         let instance_id = "00000000-0000-0000-0000-000000000012".parse().unwrap();
         let (coordinator, config) = protected_coordinator(&fixture, instance_id).await;
 
-        let error = connect(instance_id, "protected-service", &config, &coordinator)
-            .await
-            .unwrap_err();
+        let error = connect(
+            instance_id,
+            "protected-service",
+            &config,
+            &coordinator,
+            test_handler(instance_id),
+        )
+        .await
+        .unwrap_err();
 
         assert!(matches!(error, TransportError::AuthRequired(_)));
         assert_eq!(fixture.token_requests.load(Ordering::SeqCst), 2);
@@ -525,9 +554,15 @@ mod tests {
         let instance_id = "00000000-0000-0000-0000-000000000014".parse().unwrap();
         let (coordinator, config) = protected_coordinator(&fixture, instance_id).await;
 
-        let error = connect(instance_id, "protected-service", &config, &coordinator)
-            .await
-            .unwrap_err();
+        let error = connect(
+            instance_id,
+            "protected-service",
+            &config,
+            &coordinator,
+            test_handler(instance_id),
+        )
+        .await
+        .unwrap_err();
 
         assert!(matches!(error, TransportError::AuthRequired(_)));
         assert_eq!(fixture.token_requests.load(Ordering::SeqCst), 2);
@@ -544,9 +579,15 @@ mod tests {
         let instance_id = "00000000-0000-0000-0000-000000000013".parse().unwrap();
         let (coordinator, config) = protected_coordinator(&fixture, instance_id).await;
 
-        let error = connect(instance_id, "protected-service", &config, &coordinator)
-            .await
-            .unwrap_err();
+        let error = connect(
+            instance_id,
+            "protected-service",
+            &config,
+            &coordinator,
+            test_handler(instance_id),
+        )
+        .await
+        .unwrap_err();
 
         assert!(matches!(
             error,
