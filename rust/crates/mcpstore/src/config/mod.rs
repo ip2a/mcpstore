@@ -24,6 +24,10 @@ mod standalone_validation;
 mod tests;
 pub mod validator;
 
+pub use crate::auth::{
+    AuthConfig, AuthorizationCodeClientAuthMethod, ClientCredentialsAuthMethod,
+    OAuthAuthorizationCodeConfig, OAuthClientCredentialsConfig,
+};
 pub use app_schema::{AppConfig, ServerSettings, ServiceDefaultsConfig, UiConfig};
 pub use cache_schema::{CacheBackend, CacheConfig};
 pub use health_schema::HealthCheckConfig;

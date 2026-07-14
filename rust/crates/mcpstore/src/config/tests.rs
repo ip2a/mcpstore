@@ -36,6 +36,83 @@ fn test_load_save_roundtrip() {
 }
 
 #[test]
+fn oauth_config_roundtrip_contains_only_declarative_fields() {
+    let dir = std::env::temp_dir().join(format!("mcpstore_oauth_config_{}", uuid::Uuid::new_v4()));
+    let path = dir.join("mcp.json");
+    let manager = ConfigManager::with_path(&path);
+    let config: McpConfig = serde_json::from_value(json!({
+        "mcpServers": {
+            "protected": {
+                "url": "https://mcp.example/mcp",
+                "auth": {
+                    "type": "oauth_authorization_code",
+                    "client_id": "client-1",
+                    "redirect_uri": "http://127.0.0.1:8787/oauth/callback",
+                    "scopes": ["tools.read"],
+                    "resource": "https://mcp.example/resource",
+                    "credential_profile": "alice"
+                }
+            }
+        }
+    }))
+    .unwrap();
+
+    manager.save(&config).unwrap();
+    let raw = std::fs::read_to_string(&path).unwrap();
+    let loaded = manager.load().unwrap();
+    assert!(matches!(
+        loaded.mcp_servers["protected"].auth,
+        AuthConfig::OAuthAuthorizationCode(_)
+    ));
+    for secret_key in [
+        "access_token",
+        "refresh_token",
+        "client_secret",
+        "pkce_verifier",
+        "oauth_state",
+    ] {
+        assert!(!raw.contains(secret_key));
+    }
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn scoped_effective_config_rejects_oauth_secret_injection() {
+    let config: McpConfig = serde_json::from_value(json!({
+        "mcpServers": {
+            "protected": {
+                "url": "https://mcp.example/mcp",
+                "auth": {
+                    "type": "oauth_authorization_code",
+                    "client_id": "client-1",
+                    "redirect_uri": "http://127.0.0.1:8787/oauth/callback"
+                },
+                "_mcpstore": {
+                    "scopes": {
+                        "store": {
+                            "config": {
+                                "auth": {
+                                    "client_secret": "must-not-enter-effective-config"
+                                }
+                            }
+                        },
+                        "agents": {}
+                    }
+                }
+            }
+        }
+    }))
+    .unwrap();
+
+    let error = config.mcp_servers["protected"]
+        .effective_config(&ScopeRef::Store)
+        .unwrap_err();
+    assert!(error.contains("effective config cannot be decoded"));
+    assert!(!error.contains("must-not-enter-effective-config"));
+}
+
+#[test]
 fn third_party_service_without_extension_has_store_scope() {
     let config: McpConfig = serde_json::from_value(json!({
         "mcpServers": {

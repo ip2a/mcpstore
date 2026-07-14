@@ -108,13 +108,9 @@ impl MCPStore {
                 Ok(result)
             }
             Err(error) => {
-                let message = format!("Tool call failed: {error}");
                 let latency_ms = started_at.elapsed().as_secs_f64() * 1000.0;
                 self.pool.disconnect(instance_id).await.ok();
-                self.registry
-                    .update_status(instance_id, ConnectionStatus::Error)
-                    .await;
-                self.mark_instance_retryable_failure(instance_id, message)
+                self.record_transport_failure(instance_id, &error, "Tool call failed")
                     .await?;
                 self.event_bus
                     .publish(

@@ -1,6 +1,7 @@
 #![recursion_limit = "256"]
 
 pub(crate) mod agent;
+pub mod auth;
 pub mod cache;
 pub mod config;
 pub mod config_formats;
@@ -22,6 +23,12 @@ pub mod tool_transform;
 pub mod transport;
 
 // Facade re-exports: configuration
+pub use auth::{
+    AuthConfig, AuthCredentialKey, AuthError, AuthFlow, AuthRequired, AuthStatus,
+    AuthorizationCodeClientAuthMethod, ClientCredentialsAuthMethod, ClientSecret,
+    KeyringClientSecretStore, KeyringCredentialStore, KeyringStateStore,
+    OAuthAuthorizationCodeConfig, OAuthClientCredentialsConfig,
+};
 pub use config::{AppConfig, CacheBackend, CacheConfig, ConfigManager, McpConfig, ServerConfig};
 
 // Facade re-exports: cache layer

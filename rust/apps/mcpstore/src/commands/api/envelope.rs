@@ -103,6 +103,27 @@ impl ApiError {
 
     pub(super) fn from_store(error: StoreError) -> Self {
         match error {
+            StoreError::Auth(mcpstore::AuthError::Required(required)) => Self::new(
+                StatusCode::UNAUTHORIZED,
+                "AUTH_REQUIRED",
+                required.to_string(),
+                None,
+                serde_json::to_value(required).ok(),
+            ),
+            StoreError::Auth(mcpstore::AuthError::InvalidConfig(message)) => Self::new(
+                StatusCode::BAD_REQUEST,
+                "AUTH_CONFIG_INVALID",
+                message,
+                None,
+                None,
+            ),
+            StoreError::Auth(error) => Self::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "AUTHENTICATION_ERROR",
+                error.to_string(),
+                None,
+                Some(json!({ "error_type": "AuthError" })),
+            ),
             StoreError::ServiceNotFound(name) => Self::new(
                 StatusCode::NOT_FOUND,
                 "SERVICE_NOT_FOUND",

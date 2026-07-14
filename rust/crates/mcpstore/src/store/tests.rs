@@ -49,12 +49,29 @@ fn stdio_config() -> ServerConfig {
         args: vec!["fixture".to_string()],
         env: HashMap::new(),
         headers: HashMap::new(),
+        auth: Default::default(),
         transport: Some("stdio".to_string()),
         working_dir: None,
         description: Some("fixture".to_string()),
         mcpstore: None,
         extra: Map::new(),
     }
+}
+
+fn oauth_http_config() -> ServerConfig {
+    let mut config = stdio_config();
+    config.command = None;
+    config.args.clear();
+    config.url = Some("https://mcp.example/protected".to_string());
+    config.transport = Some("streamable-http".to_string());
+    config.auth = serde_json::from_value(serde_json::json!({
+        "type": "oauth_authorization_code",
+        "client_id": "client-1",
+        "redirect_uri": "http://127.0.0.1:8787/oauth/callback",
+        "scopes": ["tools.read"]
+    }))
+    .unwrap();
+    config
 }
 
 fn broken_stdio_config() -> ServerConfig {
@@ -64,6 +81,7 @@ fn broken_stdio_config() -> ServerConfig {
         args: Vec::new(),
         env: HashMap::new(),
         headers: HashMap::new(),
+        auth: Default::default(),
         transport: Some("stdio".to_string()),
         working_dir: None,
         description: Some("broken".to_string()),
@@ -79,6 +97,7 @@ fn hanging_stdio_config() -> ServerConfig {
         args: vec!["-c".to_string(), "sleep 60".to_string()],
         env: HashMap::new(),
         headers: HashMap::new(),
+        auth: Default::default(),
         transport: Some("stdio".to_string()),
         working_dir: None,
         description: Some("hanging".to_string()),
@@ -4974,6 +4993,102 @@ async fn on_failure_max_retries_caps_lifecycle_restart_attempts() {
 }
 
 #[tokio::test]
+async fn oauth_service_status_and_api_projection_do_not_expose_secrets() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::OpenKeyvMemory),
+        redis_url: None,
+        namespace: Some("test-oauth-status-projection".to_string()),
+    })
+    .unwrap();
+    store
+        .add_service("protected", oauth_http_config())
+        .await
+        .unwrap();
+    let instance_id = store_instance_id("protected");
+
+    assert_eq!(
+        store.auth_status(instance_id).await,
+        crate::auth::AuthStatus::Unauthenticated
+    );
+    let response = store.service_info_scoped(instance_id).await.unwrap();
+    let response = serde_json::to_string(&response).unwrap();
+    for secret in [
+        "access-secret-value",
+        "refresh-secret-value",
+        "client-secret-value",
+        "pkce-secret-value",
+        "csrf-secret-value",
+    ] {
+        assert!(!response.contains(secret));
+    }
+
+    store
+        .auth_coordinator
+        .set_status(instance_id, crate::auth::AuthStatus::Authenticated)
+        .await;
+    store.remove_service("protected").await.unwrap();
+    assert_eq!(
+        store.auth_status(instance_id).await,
+        crate::auth::AuthStatus::NotRequired
+    );
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
+async fn auth_required_does_not_enter_retry_or_circuit_breaker_state() {
+    let path = temp_config_path();
+    let store = MCPStore::setup_with_options(StoreOptions {
+        config_path: Some(path.clone()),
+        source_mode: SourceMode::Local,
+        backend: Some(CacheStorage::OpenKeyvMemory),
+        redis_url: None,
+        namespace: Some("test-auth-required-lifecycle".to_string()),
+    })
+    .unwrap();
+    store
+        .add_service("protected", stdio_config())
+        .await
+        .unwrap();
+    let instance_id = store_instance_id("protected");
+    let error = crate::transport::TransportError::AuthRequired(crate::auth::AuthRequired {
+        instance_id,
+        flow: crate::auth::AuthFlow::AuthorizationCode,
+        scopes: vec!["tools.read".to_string()],
+    });
+
+    store
+        .record_transport_failure(instance_id, &error, "Connection failed")
+        .await
+        .unwrap();
+
+    let status = store
+        .cached_instance_status(instance_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(status.health_status, HealthStatus::Disconnected);
+    assert_eq!(status.connection_attempts, 0);
+    assert_eq!(status.lifecycle_state.restart_attempts, 0);
+    assert_eq!(status.current_error, None);
+    assert_eq!(status.next_retry_time, None);
+    assert_eq!(status.hard_deadline, None);
+    assert_eq!(
+        store.auth_status(instance_id).await,
+        crate::auth::AuthStatus::Unauthenticated
+    );
+    assert_eq!(
+        store.find_instance(instance_id).await.unwrap().status,
+        ConnectionStatus::Disconnected
+    );
+
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
 async fn successful_health_check_clears_retry_state() {
     let path = temp_config_path();
     let store = MCPStore::setup_with_options(StoreOptions {
@@ -5227,6 +5342,7 @@ mod scoped_contract {
                 ("x-shared".to_string(), "base".to_string()),
                 ("x-remove".to_string(), "base".to_string()),
             ]),
+            auth: Default::default(),
             transport: Some("stdio".to_string()),
             working_dir: Some("/base".to_string()),
             description: Some("base definition".to_string()),

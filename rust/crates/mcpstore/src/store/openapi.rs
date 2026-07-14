@@ -320,6 +320,7 @@ impl MCPStore {
             args: Vec::new(),
             env: HashMap::new(),
             headers: options.headers.clone(),
+            auth: Default::default(),
             transport: Some("openapi".to_string()),
             working_dir: None,
             description: result.spec_info.description.clone(),
