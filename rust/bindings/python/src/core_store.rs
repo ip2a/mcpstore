@@ -1,20 +1,21 @@
 //! PyO3 wrapper for the MCPStore Rust runtime surface.
 
+use mcpstore::config::ScopeDescriptor;
 use mcpstore::config::ServerConfig;
 use mcpstore::config_formats::ConfigFormat;
-use mcpstore::core::perspective::ToolResolution;
 use mcpstore::core::store::{
     BackendKind, CacheHealthReport, EventCapabilityReport, MCPStore, ScopedServiceEntry,
-    ScopedServiceHealth, ScopedToolEntry, SourceMode, StoreOptions,
+    ScopedToolEntry, SourceMode, StoreOptions,
 };
 use mcpstore::{
     cache::models::{
-        ContextToolVisibilityState, HealthStatus, ServiceStatus, SessionContextState,
-        SessionEntity, SessionScope, SessionServiceItem, SessionServiceRelation, SessionStateData,
-        SessionStatus, SessionStatusState, SessionToolItem, SessionToolVisibility,
-        ToolAvailability, ToolPreferenceState, ToolStatusItem, ToolTransformRule,
+        ContextToolVisibilityState, SessionContextState, SessionEntity, SessionScope,
+        SessionServiceItem, SessionServiceRelation, SessionStateData, SessionStatus,
+        SessionStatusState, SessionToolItem, SessionToolVisibility, ToolPreferenceState,
+        ToolTransformRule,
     },
-    ConnectionStatus, ContentItem, Event, ServiceEntry, StoreError, ToolCallResult, ToolInfo,
+    ConnectionStatus, ContentItem, Event, InstanceId, ScopeRef, ServiceInstance, StoreError,
+    ToolCallResult, ToolInfo,
 };
 use mcpstore::{
     CreateSessionRequest, OpenApiBundleOptions, OpenApiImportOptions, SessionCleanupReport,
@@ -23,6 +24,7 @@ use mcpstore::{
 };
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use std::str::FromStr;
 
 use crate::py_value::{py_to_serde_value, serde_value_to_py};
 
@@ -142,6 +144,36 @@ fn py_to_server_config(value: &Bound<'_, PyAny>, context: &str) -> PyResult<Serv
     })
 }
 
+fn py_to_scope_ref(value: &Bound<'_, PyAny>) -> PyResult<ScopeRef> {
+    let value = py_to_serde_value(value, "scope")?;
+    serde_json::from_value(value)
+        .map_err(|err| pyo3::exceptions::PyValueError::new_err(format!("Invalid scope: {err}")))
+}
+
+fn py_to_scope_descriptor(value: &Bound<'_, PyAny>) -> PyResult<ScopeDescriptor> {
+    let value = py_to_serde_value(value, "scope descriptor")?;
+    serde_json::from_value(value).map_err(|err| {
+        pyo3::exceptions::PyValueError::new_err(format!("Invalid scope descriptor: {err}"))
+    })
+}
+
+fn parse_instance_id(value: &str) -> PyResult<InstanceId> {
+    InstanceId::from_str(value).map_err(|err| {
+        pyo3::exceptions::PyValueError::new_err(format!("Invalid instance_id '{value}': {err}"))
+    })
+}
+
+fn serializable_to_py<T: serde::Serialize>(
+    py: Python<'_>,
+    value: &T,
+    context: &str,
+) -> PyResult<Py<PyAny>> {
+    let value = serde_json::to_value(value).map_err(|err| {
+        pyo3::exceptions::PyRuntimeError::new_err(format!("{context} conversion failed: {err}"))
+    })?;
+    serde_value_to_py(py, value)
+}
+
 fn connection_status_as_str(status: ConnectionStatus) -> &'static str {
     match status {
         ConnectionStatus::Connecting => "connecting",
@@ -184,46 +216,12 @@ fn tool_info_to_py(py: Python<'_>, tool: &ToolInfo) -> PyResult<Py<PyAny>> {
 }
 
 fn scoped_tool_entry_to_py(py: Python<'_>, tool: &ScopedToolEntry) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    dict.set_item("name", &tool.name)?;
-    dict.set_item("original_name", &tool.original_name)?;
-    dict.set_item("title", tool.title.as_deref())?;
-    dict.set_item("description", &tool.description)?;
-    dict.set_item(
-        "input_schema",
-        serde_value_to_py(py, tool.input_schema.clone())?,
-    )?;
-    dict.set_item(
-        "output_schema",
-        serde_value_to_py(
-            py,
-            tool.output_schema
-                .clone()
-                .unwrap_or(serde_json::Value::Null),
-        )?,
-    )?;
-    dict.set_item(
-        "annotations",
-        serde_value_to_py(
-            py,
-            tool.annotations.clone().unwrap_or(serde_json::Value::Null),
-        )?,
-    )?;
-    dict.set_item(
-        "_meta",
-        serde_value_to_py(py, tool.meta.clone().unwrap_or(serde_json::Value::Null))?,
-    )?;
-    dict.set_item("service_name", &tool.service_name)?;
-    dict.set_item("global_service_name", &tool.global_service_name)?;
-    dict.set_item("service_global_name", &tool.service_global_name)?;
-    dict.set_item("global_tool_name", &tool.global_tool_name)?;
-    dict.set_item("client_id", &tool.client_id)?;
-    Ok(dict.into_any().unbind())
+    serializable_to_py(py, tool, "Scoped tool")
 }
 
 fn service_entry_dict<'py>(
     py: Python<'py>,
-    service: &ServiceEntry,
+    service: &ServiceInstance,
 ) -> PyResult<Bound<'py, PyDict>> {
     let dict = PyDict::new(py);
     let tools = PyList::empty(py);
@@ -231,32 +229,46 @@ fn service_entry_dict<'py>(
         tools.append(tool_info_to_py(py, tool)?)?;
     }
 
-    dict.set_item("name", &service.name)?;
-    dict.set_item("original_name", &service.original_name)?;
-    dict.set_item("agent_id", &service.agent_id)?;
-    dict.set_item("client_id", &service.name)?;
+    dict.set_item("instance_id", service.instance_id.to_string())?;
+    dict.set_item("service_name", &service.service_name)?;
+    dict.set_item("scope", serializable_to_py(py, &service.scope, "Scope")?)?;
     dict.set_item("transport", &service.transport)?;
     dict.set_item("url", service.url.as_deref())?;
     dict.set_item("command", service.command.as_deref())?;
     dict.set_item("status", connection_status_as_str(service.status))?;
     dict.set_item("tools", tools)?;
-    dict.set_item("config", serde_value_to_py(py, service.config.clone())?)?;
+    dict.set_item(
+        "effective_config",
+        serde_value_to_py(
+            py,
+            serde_json::Value::Object(service.effective_config.clone()),
+        )?,
+    )?;
+    dict.set_item(
+        "config_revision",
+        serializable_to_py(py, &service.config_revision, "Config revision")?,
+    )?;
+    dict.set_item(
+        "applied_config_revision",
+        serializable_to_py(
+            py,
+            &service.applied_config_revision,
+            "Applied config revision",
+        )?,
+    )?;
+    dict.set_item("restart_required", service.restart_required())?;
     dict.set_item("added_time", service.added_time)?;
     Ok(dict)
 }
 
-fn service_entry_to_py(py: Python<'_>, service: &ServiceEntry) -> PyResult<Py<PyAny>> {
+fn service_entry_to_py(py: Python<'_>, service: &ServiceInstance) -> PyResult<Py<PyAny>> {
     let dict = service_entry_dict(py, service)?;
     Ok(dict.into_any().unbind())
 }
 
 fn scoped_service_entry_to_py(py: Python<'_>, entry: &ScopedServiceEntry) -> PyResult<Py<PyAny>> {
-    let dict = service_entry_dict(py, &entry.service)?;
+    let dict = service_entry_dict(py, &entry.instance)?;
     dict.set_item("tool_count", entry.tool_count)?;
-    dict.set_item("client_id", &entry.client_id)?;
-    if let Some(global_name) = &entry.global_name {
-        dict.set_item("global_name", global_name)?;
-    }
     Ok(dict.into_any().unbind())
 }
 
@@ -279,19 +291,6 @@ fn event_capability_report_to_py(
     dict.set_item("history", report.history)?;
     dict.set_item("history_capacity", report.history_capacity)?;
     dict.set_item("cache_event_layer", report.cache_event_layer)?;
-    Ok(dict.into_any().unbind())
-}
-
-fn tool_resolution_to_py(py: Python<'_>, resolution: &ToolResolution) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    dict.set_item("agent_id", &resolution.agent_id)?;
-    dict.set_item("local_service_name", &resolution.local_service_name)?;
-    dict.set_item("global_service_name", &resolution.global_service_name)?;
-    dict.set_item("local_tool_name", &resolution.local_tool_name)?;
-    dict.set_item("global_tool_name", &resolution.global_tool_name)?;
-    dict.set_item("canonical_tool_name", &resolution.canonical_tool_name)?;
-    dict.set_item("resolution_method", &resolution.resolution_method)?;
-    dict.set_item("original_input", &resolution.original_input)?;
     Ok(dict.into_any().unbind())
 }
 
@@ -380,58 +379,6 @@ fn tool_call_result_to_py(py: Python<'_>, result: &ToolCallResult) -> PyResult<P
     Ok(dict.into_any().unbind())
 }
 
-fn health_status_as_str(status: &HealthStatus) -> &'static str {
-    match status {
-        HealthStatus::Init => "init",
-        HealthStatus::Startup => "startup",
-        HealthStatus::Ready => "ready",
-        HealthStatus::Healthy => "healthy",
-        HealthStatus::Degraded => "degraded",
-        HealthStatus::CircuitOpen => "circuit_open",
-        HealthStatus::HalfOpen => "half_open",
-        HealthStatus::Disconnected => "disconnected",
-    }
-}
-
-fn tool_availability_as_str(status: &ToolAvailability) -> &'static str {
-    match status {
-        ToolAvailability::Available => "available",
-        ToolAvailability::Unavailable => "unavailable",
-    }
-}
-
-fn tool_status_item_to_py(py: Python<'_>, item: &ToolStatusItem) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    dict.set_item("tool_global_name", &item.tool_global_name)?;
-    dict.set_item("tool_original_name", &item.tool_original_name)?;
-    dict.set_item("status", tool_availability_as_str(&item.status))?;
-    Ok(dict.into_any().unbind())
-}
-
-fn service_status_to_py(py: Python<'_>, status: &ServiceStatus) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    let tools = PyList::empty(py);
-    for tool in &status.tools {
-        tools.append(tool_status_item_to_py(py, tool)?)?;
-    }
-
-    dict.set_item("service_global_name", &status.service_global_name)?;
-    dict.set_item("health_status", health_status_as_str(&status.health_status))?;
-    dict.set_item("last_health_check", status.last_health_check)?;
-    dict.set_item("connection_attempts", status.connection_attempts)?;
-    dict.set_item("max_connection_attempts", status.max_connection_attempts)?;
-    dict.set_item("current_error", status.current_error.as_deref())?;
-    dict.set_item("tools", tools)?;
-    dict.set_item("window_error_rate", status.window_error_rate)?;
-    dict.set_item("latency_p95", status.latency_p95)?;
-    dict.set_item("latency_p99", status.latency_p99)?;
-    dict.set_item("sample_size", status.sample_size)?;
-    dict.set_item("next_retry_time", status.next_retry_time)?;
-    dict.set_item("hard_deadline", status.hard_deadline)?;
-    dict.set_item("lease_deadline", status.lease_deadline)?;
-    Ok(dict.into_any().unbind())
-}
-
 fn string_list_to_py(py: Python<'_>, values: &[String]) -> PyResult<Py<PyAny>> {
     let list = PyList::empty(py);
     for value in values {
@@ -448,20 +395,6 @@ fn cache_health_report_to_py(py: Python<'_>, report: &CacheHealthReport) -> PyRe
     dict.set_item("relations", string_list_to_py(py, &report.relations)?)?;
     dict.set_item("states", string_list_to_py(py, &report.states)?)?;
     dict.set_item("events", string_list_to_py(py, &report.events)?)?;
-    Ok(dict.into_any().unbind())
-}
-
-fn scoped_service_health_to_py(
-    py: Python<'_>,
-    statuses: &[ScopedServiceHealth],
-) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    for status in statuses {
-        dict.set_item(
-            &status.service_name,
-            health_status_as_str(&status.health_status),
-        )?;
-    }
     Ok(dict.into_any().unbind())
 }
 
@@ -529,21 +462,11 @@ fn session_restart_report_to_py(
     py: Python<'_>,
     report: &SessionRestartReport,
 ) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    dict.set_item(
-        "restarted_services",
-        string_list_to_py(py, &report.restarted_services)?,
-    )?;
-    Ok(dict.into_any().unbind())
+    serializable_to_py(py, report, "Session restart report")
 }
 
 fn session_service_item_to_py(py: Python<'_>, service: &SessionServiceItem) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    dict.set_item("service_global_name", &service.service_global_name)?;
-    dict.set_item("service_original_name", &service.service_original_name)?;
-    dict.set_item("source_agent", &service.source_agent)?;
-    dict.set_item("bound_at", service.bound_at)?;
-    Ok(dict.into_any().unbind())
+    serializable_to_py(py, service, "Session service")
 }
 
 fn session_service_relation_to_py(
@@ -563,11 +486,7 @@ fn session_service_relation_to_py(
 }
 
 fn session_tool_item_to_py(py: Python<'_>, tool: &SessionToolItem) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    dict.set_item("service_global_name", &tool.service_global_name)?;
-    dict.set_item("tool_global_name", &tool.tool_global_name)?;
-    dict.set_item("tool_original_name", &tool.tool_original_name)?;
-    Ok(dict.into_any().unbind())
+    serializable_to_py(py, tool, "Session tool")
 }
 
 fn session_tool_visibility_to_py(
@@ -597,7 +516,9 @@ fn context_tool_visibility_to_py(
         tools.append(session_tool_item_to_py(py, tool)?)?;
     }
     dict.set_item("context_key", &visibility.context_key)?;
-    dict.set_item("service_global_name", &visibility.service_global_name)?;
+    dict.set_item("instance_id", visibility.instance_id.to_string())?;
+    dict.set_item("service_name", &visibility.service_name)?;
+    dict.set_item("scope", serializable_to_py(py, &visibility.scope, "Scope")?)?;
     dict.set_item("mode", "allowlist")?;
     dict.set_item("tools", tools)?;
     dict.set_item("updated_at", visibility.updated_at)?;
@@ -666,57 +587,76 @@ impl PyMCPStore {
         backend_as_str(&backend).to_string()
     }
 
-    fn add_service(&self, name: &str, config: &Bound<'_, PyAny>) -> PyResult<()> {
+    /// Add a service definition. Native configs declare scopes in `_mcpstore.scopes`.
+    fn add_service(&self, service_name: &str, config: &Bound<'_, PyAny>) -> PyResult<()> {
         let config = py_to_server_config(config, "Service config")?;
         pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.add_service(name, config))
+            .block_on(self.inner.add_service(service_name, config))
             .map_err(map_store_err)
     }
 
-    fn add_service_for_agent(
+    /// Declare or replace one scope descriptor for an existing service definition.
+    fn declare_service_scope(
         &self,
-        agent_id: &str,
-        local_name: &str,
-        config: &Bound<'_, PyAny>,
+        service_name: &str,
+        scope: &Bound<'_, PyAny>,
+        descriptor: &Bound<'_, PyAny>,
     ) -> PyResult<String> {
-        let config = py_to_server_config(config, "Agent service config")?;
-        pyo3_async_runtimes::tokio::get_runtime()
+        let scope = py_to_scope_ref(scope)?;
+        let descriptor = py_to_scope_descriptor(descriptor)?;
+        let instance_id = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(
                 self.inner
-                    .add_service_for_agent(agent_id, local_name, config),
+                    .declare_service_scope(service_name, &scope, descriptor),
             )
+            .map_err(map_store_err)?;
+        Ok(instance_id.to_string())
+    }
+
+    /// Remove exactly one service scope and its runtime instance.
+    fn remove_service_scope(&self, service_name: &str, scope: &Bound<'_, PyAny>) -> PyResult<()> {
+        let scope = py_to_scope_ref(scope)?;
+        pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.remove_service_scope(service_name, &scope))
             .map_err(map_store_err)
     }
 
-    fn patch_service(&self, name: &str, updates: &Bound<'_, PyAny>) -> PyResult<()> {
-        let updates = py_to_serde_value(updates, "Service config patch")?;
+    /// Patch only base MCP fields; `_mcpstore` must be changed through scope APIs.
+    fn patch_service(&self, service_name: &str, base_updates: &Bound<'_, PyAny>) -> PyResult<()> {
+        let base_updates = py_to_serde_value(base_updates, "Service base config patch")?;
         pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.patch_service(name, updates))
+            .block_on(self.inner.patch_service(service_name, base_updates))
             .map_err(map_store_err)
     }
 
-    fn update_service(&self, name: &str, config: &Bound<'_, PyAny>) -> PyResult<()> {
-        let config = py_to_server_config(config, "Service config update")?;
+    /// Replace only base MCP fields while preserving definition metadata and scopes.
+    ///
+    /// Configs containing `_mcpstore` are rejected. Use `declare_service_scope`
+    /// or `remove_service_scope` for scope changes.
+    fn update_service(&self, service_name: &str, base_config: &Bound<'_, PyAny>) -> PyResult<()> {
+        let base_config = py_to_server_config(base_config, "Service base config update")?;
         pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.update_service(name, config))
+            .block_on(self.inner.update_service(service_name, base_config))
             .map_err(map_store_err)
     }
 
-    fn remove_service(&self, name: &str) -> PyResult<()> {
+    fn remove_service(&self, service_name: &str) -> PyResult<()> {
         pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.remove_service(name))
+            .block_on(self.inner.remove_service(service_name))
             .map_err(map_store_err)
     }
 
-    fn connect_service(&self, name: &str) -> PyResult<()> {
+    fn connect_service(&self, instance_id: &str) -> PyResult<()> {
+        let instance_id = parse_instance_id(instance_id)?;
         pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.connect_service(name))
+            .block_on(self.inner.connect_service(instance_id))
             .map_err(map_store_err)
     }
 
-    fn disconnect_service(&self, name: &str) -> PyResult<()> {
+    fn disconnect_service(&self, instance_id: &str) -> PyResult<()> {
+        let instance_id = parse_instance_id(instance_id)?;
         pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.disconnect_service(name))
+            .block_on(self.inner.disconnect_service(instance_id))
             .map_err(map_store_err)
     }
 
@@ -732,9 +672,10 @@ impl PyMCPStore {
         event_capability_report_to_py(py, &report)
     }
 
-    fn restart_service(&self, name: &str) -> PyResult<()> {
+    fn restart_service(&self, instance_id: &str) -> PyResult<()> {
+        let instance_id = parse_instance_id(instance_id)?;
         pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.restart_service(name))
+            .block_on(self.inner.restart_service(instance_id))
             .map_err(map_store_err)
     }
 
@@ -999,27 +940,47 @@ impl PyMCPStore {
             .transpose()
     }
 
-    fn find_service(&self, py: Python<'_>, name: &str) -> PyResult<Option<Py<PyAny>>> {
-        let service =
-            pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.find_service(name));
+    fn find_instance(&self, py: Python<'_>, instance_id: &str) -> PyResult<Option<Py<PyAny>>> {
+        let instance_id = parse_instance_id(instance_id)?;
+        let service = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.find_instance(instance_id));
         service
             .as_ref()
             .map(|entry| service_entry_to_py(py, entry))
             .transpose()
     }
 
-    fn get_service_config(&self, py: Python<'_>, name: &str) -> PyResult<Option<Py<PyAny>>> {
+    fn get_definition_config(
+        &self,
+        py: Python<'_>,
+        service_name: &str,
+    ) -> PyResult<Option<Py<PyAny>>> {
         let config = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.get_service_config(name))
+            .block_on(self.inner.get_definition_config(service_name))
             .map_err(map_store_err)?;
         config
             .map(|config| serde_value_to_py(py, config))
             .transpose()
     }
 
-    fn list_services(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+    fn get_effective_config(
+        &self,
+        py: Python<'_>,
+        service_name: &str,
+        scope: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        let scope = py_to_scope_ref(scope)?;
+        let config = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.get_effective_config(service_name, &scope))
+            .map_err(map_store_err)?;
+        config
+            .map(|config| serde_value_to_py(py, config))
+            .transpose()
+    }
+
+    fn list_instances(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         let services =
-            pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.list_services());
+            pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.list_instances());
         services
             .iter()
             .map(|entry| service_entry_to_py(py, entry))
@@ -1036,9 +997,10 @@ impl PyMCPStore {
             .collect()
     }
 
-    fn list_tools(&self, py: Python<'_>, service_name: &str) -> PyResult<Vec<Py<PyAny>>> {
+    fn list_tools(&self, py: Python<'_>, instance_id: &str) -> PyResult<Vec<Py<PyAny>>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let tools = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.list_tools(service_name))
+            .block_on(self.inner.list_tools(instance_id))
             .map_err(map_store_err)?;
         tools.iter().map(|tool| tool_info_to_py(py, tool)).collect()
     }
@@ -1046,15 +1008,16 @@ impl PyMCPStore {
     fn call_tool(
         &self,
         py: Python<'_>,
-        service_name: &str,
+        instance_id: &str,
         tool_name: &str,
         args: &Bound<'_, PyAny>,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let args = py_to_serde_value(args, "Tool arguments")?;
         let result = py
             .allow_threads(|| {
                 pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.call_tool(
-                    service_name,
+                    instance_id,
                     tool_name,
                     args,
                 ))
@@ -1066,10 +1029,11 @@ impl PyMCPStore {
     fn set_tool_transform(
         &self,
         py: Python<'_>,
-        service_name: &str,
+        instance_id: &str,
         tool_name: &str,
         transform: &Bound<'_, PyAny>,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let value = py_to_serde_value(transform, "Tool transform")?;
         let patch: ToolTransformPatch = serde_json::from_value(value).map_err(|err| {
             pyo3::exceptions::PyValueError::new_err(format!(
@@ -1077,28 +1041,26 @@ impl PyMCPStore {
             ))
         })?;
         let rule = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .set_tool_transform(service_name, tool_name, patch),
-            )
+            .block_on(self.inner.set_tool_transform(instance_id, tool_name, patch))
             .map_err(map_store_err)?;
         tool_transform_rule_to_py(py, &rule)
     }
 
-    #[pyo3(signature = (service_name, tool_name, friendly_name=None, description=None, hide_technical_params=true, add_safety_policy=true))]
+    #[pyo3(signature = (instance_id, tool_name, friendly_name=None, description=None, hide_technical_params=true, add_safety_policy=true))]
     fn create_llm_friendly_tool_transform(
         &self,
         py: Python<'_>,
-        service_name: &str,
+        instance_id: &str,
         tool_name: &str,
         friendly_name: Option<&str>,
         description: Option<&str>,
         hide_technical_params: bool,
         add_safety_policy: bool,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let rule = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.create_llm_friendly_tool_transform(
-                service_name,
+                instance_id,
                 tool_name,
                 friendly_name,
                 description,
@@ -1109,15 +1071,16 @@ impl PyMCPStore {
         tool_transform_rule_to_py(py, &rule)
     }
 
-    #[pyo3(signature = (service_name, tool_name, parameter_mapping, new_tool_name=None))]
+    #[pyo3(signature = (instance_id, tool_name, parameter_mapping, new_tool_name=None))]
     fn create_parameter_renamed_tool_transform(
         &self,
         py: Python<'_>,
-        service_name: &str,
+        instance_id: &str,
         tool_name: &str,
         parameter_mapping: &Bound<'_, PyAny>,
         new_tool_name: Option<&str>,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let value = py_to_serde_value(parameter_mapping, "Parameter mapping")?;
         let mapping = value.as_object().ok_or_else(|| {
             pyo3::exceptions::PyValueError::new_err("Parameter mapping must be a dictionary")
@@ -1133,7 +1096,7 @@ impl PyMCPStore {
         }
         let rule = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.create_parameter_renamed_tool_transform(
-                service_name,
+                instance_id,
                 tool_name,
                 new_tool_name,
                 &pairs,
@@ -1142,15 +1105,16 @@ impl PyMCPStore {
         tool_transform_rule_to_py(py, &rule)
     }
 
-    #[pyo3(signature = (service_name, tool_name, validation_rules, new_tool_name=None))]
+    #[pyo3(signature = (instance_id, tool_name, validation_rules, new_tool_name=None))]
     fn create_validated_tool_transform(
         &self,
         py: Python<'_>,
-        service_name: &str,
+        instance_id: &str,
         tool_name: &str,
         validation_rules: &Bound<'_, PyAny>,
         new_tool_name: Option<&str>,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let value = py_to_serde_value(validation_rules, "Validation rules")?;
         let rules = value.as_object().ok_or_else(|| {
             pyo3::exceptions::PyValueError::new_err("Validation rules must be a dictionary")
@@ -1161,7 +1125,7 @@ impl PyMCPStore {
             .collect();
         let rule = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.create_validated_tool_transform(
-                service_name,
+                instance_id,
                 tool_name,
                 new_tool_name,
                 &pairs,
@@ -1173,11 +1137,12 @@ impl PyMCPStore {
     fn get_tool_transform(
         &self,
         py: Python<'_>,
-        service_name: &str,
+        instance_id: &str,
         tool_name: &str,
     ) -> PyResult<Option<Py<PyAny>>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let rule = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.get_tool_transform(service_name, tool_name))
+            .block_on(self.inner.get_tool_transform(instance_id, tool_name))
             .map_err(map_store_err)?;
         rule.as_ref()
             .map(|rule| tool_transform_rule_to_py(py, rule))
@@ -1194,9 +1159,10 @@ impl PyMCPStore {
             .collect()
     }
 
-    fn delete_tool_transform(&self, service_name: &str, tool_name: &str) -> PyResult<()> {
+    fn delete_tool_transform(&self, instance_id: &str, tool_name: &str) -> PyResult<()> {
+        let instance_id = parse_instance_id(instance_id)?;
         pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.delete_tool_transform(service_name, tool_name))
+            .block_on(self.inner.delete_tool_transform(instance_id, tool_name))
             .map_err(map_store_err)
     }
 
@@ -1420,31 +1386,30 @@ impl PyMCPStore {
         &self,
         py: Python<'_>,
         session_key: &str,
-        service_name: &str,
+        instance_id: &str,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let relation = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .bind_service_to_session(session_key, service_name),
-            )
+            .block_on(self.inner.bind_service_to_session(session_key, instance_id))
             .map_err(map_store_err)?;
         session_service_relation_to_py(py, &relation)
     }
 
-    #[pyo3(signature = (session_key, service_name, max_attempts=3, delay_millis=0))]
+    #[pyo3(signature = (session_key, instance_id, max_attempts=3, delay_millis=0))]
     fn bind_service_to_session_with_retry(
         &self,
         py: Python<'_>,
         session_key: &str,
-        service_name: &str,
+        instance_id: &str,
         max_attempts: usize,
         delay_millis: u64,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let policy = SessionRetryPolicy::new(max_attempts).delay_millis(delay_millis);
         let relation = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.bind_service_to_session_with_retry(
                 session_key,
-                service_name,
+                instance_id,
                 policy,
             ))
             .map_err(map_store_err)?;
@@ -1455,31 +1420,33 @@ impl PyMCPStore {
         &self,
         py: Python<'_>,
         session_key: &str,
-        service_name: &str,
+        instance_id: &str,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let relation = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(
                 self.inner
-                    .unbind_service_from_session(session_key, service_name),
+                    .unbind_service_from_session(session_key, instance_id),
             )
             .map_err(map_store_err)?;
         session_service_relation_to_py(py, &relation)
     }
 
-    #[pyo3(signature = (session_key, service_name, max_attempts=3, delay_millis=0))]
+    #[pyo3(signature = (session_key, instance_id, max_attempts=3, delay_millis=0))]
     fn unbind_service_from_session_with_retry(
         &self,
         py: Python<'_>,
         session_key: &str,
-        service_name: &str,
+        instance_id: &str,
         max_attempts: usize,
         delay_millis: u64,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let policy = SessionRetryPolicy::new(max_attempts).delay_millis(delay_millis);
         let relation = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.unbind_service_from_session_with_retry(
                 session_key,
-                service_name,
+                instance_id,
                 policy,
             ))
             .map_err(map_store_err)?;
@@ -1528,17 +1495,19 @@ impl PyMCPStore {
             .collect()
     }
 
-    #[pyo3(signature = (agent_id, service_name))]
     fn get_context_tool_visibility(
         &self,
         py: Python<'_>,
-        agent_id: Option<String>,
-        service_name: &str,
+        instance_id: &str,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
+        let instance = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.find_instance(instance_id))
+            .ok_or_else(|| map_store_err(StoreError::ServiceNotFound(instance_id.to_string())))?;
         let visibility = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(
                 self.inner
-                    .get_context_tool_visibility(agent_id.as_deref(), service_name),
+                    .get_context_tool_visibility(&instance.scope, instance_id),
             )
             .map_err(map_store_err)?;
         match visibility {
@@ -1547,50 +1516,53 @@ impl PyMCPStore {
         }
     }
 
-    #[pyo3(signature = (agent_id, service_name, tool_names))]
     fn set_context_tool_visibility(
         &self,
         py: Python<'_>,
-        agent_id: Option<String>,
-        service_name: &str,
+        instance_id: &str,
         tool_names: Vec<String>,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
+        let instance = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.find_instance(instance_id))
+            .ok_or_else(|| map_store_err(StoreError::ServiceNotFound(instance_id.to_string())))?;
         let visibility = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.set_context_tool_visibility(
-                agent_id.as_deref(),
-                service_name,
+                &instance.scope,
+                instance_id,
                 tool_names,
             ))
             .map_err(map_store_err)?;
         context_tool_visibility_to_py(py, &visibility)
     }
 
-    #[pyo3(signature = (agent_id, service_name))]
-    fn clear_context_tool_visibility(
-        &self,
-        agent_id: Option<String>,
-        service_name: &str,
-    ) -> PyResult<()> {
+    fn clear_context_tool_visibility(&self, instance_id: &str) -> PyResult<()> {
+        let instance_id = parse_instance_id(instance_id)?;
+        let instance = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.find_instance(instance_id))
+            .ok_or_else(|| map_store_err(StoreError::ServiceNotFound(instance_id.to_string())))?;
         pyo3_async_runtimes::tokio::get_runtime()
             .block_on(
                 self.inner
-                    .clear_context_tool_visibility(agent_id.as_deref(), service_name),
+                    .clear_context_tool_visibility(&instance.scope, instance_id),
             )
             .map_err(map_store_err)
     }
 
-    #[pyo3(signature = (agent_id, service_name, tool_name))]
     fn get_tool_preferences(
         &self,
         py: Python<'_>,
-        agent_id: Option<String>,
-        service_name: &str,
+        instance_id: &str,
         tool_name: &str,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
+        let instance = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.find_instance(instance_id))
+            .ok_or_else(|| map_store_err(StoreError::ServiceNotFound(instance_id.to_string())))?;
         let state = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(
                 self.inner
-                    .get_tool_preferences(agent_id.as_deref(), service_name, tool_name),
+                    .get_tool_preferences(&instance.scope, instance_id, tool_name),
             )
             .map_err(map_store_err)?;
         match state {
@@ -1599,23 +1571,24 @@ impl PyMCPStore {
         }
     }
 
-    #[pyo3(signature = (agent_id, service_name, tool_name, key, default_value=None))]
+    #[pyo3(signature = (instance_id, tool_name, key, default_value=None))]
     fn get_tool_preference(
         &self,
         py: Python<'_>,
-        agent_id: Option<String>,
-        service_name: &str,
+        instance_id: &str,
         tool_name: &str,
         key: &str,
         default_value: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
+        let instance = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.find_instance(instance_id))
+            .ok_or_else(|| map_store_err(StoreError::ServiceNotFound(instance_id.to_string())))?;
         let value = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.get_tool_preference(
-                agent_id.as_deref(),
-                service_name,
-                tool_name,
-                key,
-            ))
+            .block_on(
+                self.inner
+                    .get_tool_preference(&instance.scope, instance_id, tool_name, key),
+            )
             .map_err(map_store_err)?;
         match value {
             Some(value) => serde_value_to_py(py, value),
@@ -1626,21 +1599,24 @@ impl PyMCPStore {
         }
     }
 
-    #[pyo3(signature = (agent_id, service_name, tool_name, key, value))]
+    #[pyo3(signature = (instance_id, tool_name, key, value))]
     fn set_tool_preference(
         &self,
         py: Python<'_>,
-        agent_id: Option<String>,
-        service_name: &str,
+        instance_id: &str,
         tool_name: &str,
         key: &str,
         value: &Bound<'_, PyAny>,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
+        let instance = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.find_instance(instance_id))
+            .ok_or_else(|| map_store_err(StoreError::ServiceNotFound(instance_id.to_string())))?;
         let value = py_to_serde_value(value, "Tool preference value")?;
         let state = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.set_tool_preference(
-                agent_id.as_deref(),
-                service_name,
+                &instance.scope,
+                instance_id,
                 tool_name,
                 key,
                 value,
@@ -1649,19 +1625,22 @@ impl PyMCPStore {
         tool_preference_state_to_py(py, &state)
     }
 
-    #[pyo3(signature = (agent_id, service_name, tool_name, key))]
+    #[pyo3(signature = (instance_id, tool_name, key))]
     fn clear_tool_preference(
         &self,
         py: Python<'_>,
-        agent_id: Option<String>,
-        service_name: &str,
+        instance_id: &str,
         tool_name: &str,
         key: &str,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
+        let instance = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.find_instance(instance_id))
+            .ok_or_else(|| map_store_err(StoreError::ServiceNotFound(instance_id.to_string())))?;
         let state = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.clear_tool_preference(
-                agent_id.as_deref(),
-                service_name,
+                &instance.scope,
+                instance_id,
                 tool_name,
                 key,
             ))
@@ -1882,14 +1861,17 @@ impl PyMCPStore {
         &self,
         py: Python<'_>,
         session_key: &str,
+        instance_id: &str,
         tool_name: &str,
         args: &Bound<'_, PyAny>,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let args = py_to_serde_value(args, "Tool arguments")?;
         let result = py
             .allow_threads(|| {
                 pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.call_tool_in_session(
                     session_key,
+                    instance_id,
                     tool_name,
                     args,
                 ))
@@ -1932,19 +1914,19 @@ impl PyMCPStore {
             .collect()
     }
 
-    #[pyo3(signature = (session_key, uri, service_name=None))]
     fn read_resource_in_session(
         &self,
         py: Python<'_>,
         session_key: &str,
         uri: &str,
-        service_name: Option<String>,
+        instance_id: &str,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let resource = py
             .allow_threads(|| {
                 pyo3_async_runtimes::tokio::get_runtime().block_on(
                     self.inner
-                        .read_resource_in_session(session_key, uri, service_name.as_deref()),
+                        .read_resource_in_session(session_key, uri, Some(instance_id)),
                 )
             })
             .map_err(map_store_err)?;
@@ -1968,15 +1950,15 @@ impl PyMCPStore {
             .collect()
     }
 
-    #[pyo3(signature = (session_key, prompt_name, arguments, service_name=None))]
     fn get_prompt_in_session(
         &self,
         py: Python<'_>,
         session_key: &str,
+        instance_id: &str,
         prompt_name: &str,
         arguments: &Bound<'_, PyAny>,
-        service_name: Option<String>,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let arguments = py_to_serde_value(arguments, "Prompt arguments")?;
         let prompt = py
             .allow_threads(|| {
@@ -1985,7 +1967,7 @@ impl PyMCPStore {
                         session_key,
                         prompt_name,
                         arguments,
-                        service_name.as_deref(),
+                        Some(instance_id),
                     ),
                 )
             })
@@ -1993,39 +1975,14 @@ impl PyMCPStore {
         serde_value_to_py(py, prompt)
     }
 
-    fn resolve_tool_for_agent(
+    fn list_instances_scoped(
         &self,
         py: Python<'_>,
-        agent_id: &str,
-        user_input: &str,
-    ) -> PyResult<Py<PyAny>> {
-        let resolution = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.resolve_tool_for_agent(agent_id, user_input))
-            .map_err(map_store_err)?;
-        tool_resolution_to_py(py, &resolution)
-    }
-
-    fn resolve_service_name_for_agent(
-        &self,
-        agent_id: &str,
-        service_name: &str,
-    ) -> PyResult<String> {
-        pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .resolve_service_name_for_agent(agent_id, service_name),
-            )
-            .map_err(map_store_err)
-    }
-
-    #[pyo3(signature = (agent_id=None))]
-    fn list_services_scoped(
-        &self,
-        py: Python<'_>,
-        agent_id: Option<String>,
+        scope: &Bound<'_, PyAny>,
     ) -> PyResult<Vec<Py<PyAny>>> {
+        let scope = py_to_scope_ref(scope)?;
         let services = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.list_service_entries_scoped(agent_id.as_deref()))
+            .block_on(self.inner.list_service_entries_scoped(&scope))
             .map_err(map_store_err)?;
         services
             .iter()
@@ -2033,35 +1990,30 @@ impl PyMCPStore {
             .collect()
     }
 
-    #[pyo3(signature = (agent_id, service_name))]
-    fn service_info_scoped(
-        &self,
-        py: Python<'_>,
-        agent_id: Option<String>,
-        service_name: &str,
-    ) -> PyResult<Py<PyAny>> {
+    fn instance_info(&self, py: Python<'_>, instance_id: &str) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let service = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .service_info_scoped(agent_id.as_deref(), service_name),
-            )
+            .block_on(self.inner.service_info_scoped(instance_id))
             .map_err(map_store_err)?;
         serde_value_to_py(py, service)
     }
 
-    #[pyo3(signature = (agent_id=None, service_name=None, filter="all"))]
-    fn list_tools_scoped(
+    #[pyo3(signature = (instance_id, filter="all"))]
+    fn list_tool_entries(
         &self,
         py: Python<'_>,
-        agent_id: Option<String>,
-        service_name: Option<String>,
+        instance_id: &str,
         filter: Option<&str>,
     ) -> PyResult<Vec<Py<PyAny>>> {
+        let instance_id = parse_instance_id(instance_id)?;
+        let instance = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.find_instance(instance_id))
+            .ok_or_else(|| map_store_err(StoreError::ServiceNotFound(instance_id.to_string())))?;
         let filter = parse_tool_visibility_filter(filter)?;
         let tools = pyo3_async_runtimes::tokio::get_runtime()
             .block_on(self.inner.list_tool_entries_scoped_with_filter(
-                agent_id.as_deref(),
-                service_name.as_deref(),
+                &instance.scope,
+                Some(instance_id),
                 filter,
             ))
             .map_err(map_store_err)?;
@@ -2071,20 +2023,19 @@ impl PyMCPStore {
             .collect()
     }
 
-    #[pyo3(signature = (agent_id=None, service_name=None, force_refresh=false))]
-    fn list_changed_tools_scoped(
+    #[pyo3(signature = (instance_id, force_refresh=false))]
+    fn list_changed_tools(
         &self,
         py: Python<'_>,
-        agent_id: Option<String>,
-        service_name: Option<String>,
+        instance_id: &str,
         force_refresh: bool,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let changes = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.list_changed_tools_scoped(
-                agent_id.as_deref(),
-                service_name.as_deref(),
-                force_refresh,
-            ))
+            .block_on(
+                self.inner
+                    .list_changed_tools_scoped(Some(instance_id), force_refresh),
+            )
             .map_err(map_store_err)?;
         serde_value_to_py(
             py,
@@ -2096,46 +2047,29 @@ impl PyMCPStore {
         )
     }
 
-    #[pyo3(signature = (agent_id=None))]
-    fn check_services_scoped(
-        &self,
-        py: Python<'_>,
-        agent_id: Option<String>,
-    ) -> PyResult<Py<PyAny>> {
+    fn check_instances(&self, py: Python<'_>, instance_ids: Vec<String>) -> PyResult<Py<PyAny>> {
+        let instance_ids = instance_ids
+            .iter()
+            .map(|value| parse_instance_id(value))
+            .collect::<PyResult<Vec<_>>>()?;
         let status = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.check_service_health_scoped(agent_id.as_deref()))
+            .block_on(self.inner.check_instances(&instance_ids))
             .map_err(map_store_err)?;
-        scoped_service_health_to_py(py, &status)
+        serializable_to_py(py, &status, "Instance health")
     }
 
-    #[pyo3(signature = (agent_id, service_name))]
-    fn service_status_scoped(
-        &self,
-        py: Python<'_>,
-        agent_id: Option<String>,
-        service_name: &str,
-    ) -> PyResult<Py<PyAny>> {
+    fn instance_status(&self, py: Python<'_>, instance_id: &str) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let status = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .service_status_entry_scoped(agent_id.as_deref(), service_name),
-            )
+            .block_on(self.inner.instance_status_entry(instance_id))
             .map_err(map_store_err)?;
-        service_status_to_py(py, &status)
+        serializable_to_py(py, &status, "Instance status")
     }
 
-    #[pyo3(signature = (agent_id=None, service_name=None))]
-    fn list_resources_scoped(
-        &self,
-        py: Python<'_>,
-        agent_id: Option<String>,
-        service_name: Option<String>,
-    ) -> PyResult<Vec<Py<PyAny>>> {
+    fn list_resources(&self, py: Python<'_>, instance_id: &str) -> PyResult<Vec<Py<PyAny>>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let resources = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .list_resources_scoped(agent_id.as_deref(), service_name.as_deref()),
-            )
+            .block_on(self.inner.list_resources_for_instance(instance_id))
             .map_err(map_store_err)?;
         resources
             .into_iter()
@@ -2143,18 +2077,14 @@ impl PyMCPStore {
             .collect()
     }
 
-    #[pyo3(signature = (agent_id=None, service_name=None))]
-    fn list_resource_templates_scoped(
+    fn list_resource_templates(
         &self,
         py: Python<'_>,
-        agent_id: Option<String>,
-        service_name: Option<String>,
+        instance_id: &str,
     ) -> PyResult<Vec<Py<PyAny>>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let templates = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .list_resource_templates_scoped(agent_id.as_deref(), service_name.as_deref()),
-            )
+            .block_on(self.inner.list_resource_templates_for_instance(instance_id))
             .map_err(map_store_err)?;
         templates
             .into_iter()
@@ -2162,38 +2092,21 @@ impl PyMCPStore {
             .collect()
     }
 
-    #[pyo3(signature = (agent_id, uri, service_name=None))]
-    fn read_resource_scoped(
-        &self,
-        py: Python<'_>,
-        agent_id: Option<String>,
-        uri: &str,
-        service_name: Option<String>,
-    ) -> PyResult<Py<PyAny>> {
+    fn read_resource(&self, py: Python<'_>, instance_id: &str, uri: &str) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let resource = py
             .allow_threads(|| {
-                pyo3_async_runtimes::tokio::get_runtime().block_on(self.inner.read_resource_scoped(
-                    agent_id.as_deref(),
-                    uri,
-                    service_name.as_deref(),
-                ))
+                pyo3_async_runtimes::tokio::get_runtime()
+                    .block_on(self.inner.read_resource_scoped(instance_id, uri))
             })
             .map_err(map_store_err)?;
         serde_value_to_py(py, resource)
     }
 
-    #[pyo3(signature = (agent_id=None, service_name=None))]
-    fn list_prompts_scoped(
-        &self,
-        py: Python<'_>,
-        agent_id: Option<String>,
-        service_name: Option<String>,
-    ) -> PyResult<Vec<Py<PyAny>>> {
+    fn list_prompts(&self, py: Python<'_>, instance_id: &str) -> PyResult<Vec<Py<PyAny>>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let prompts = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .list_prompts_scoped(agent_id.as_deref(), service_name.as_deref()),
-            )
+            .block_on(self.inner.list_prompts_for_instance(instance_id))
             .map_err(map_store_err)?;
         prompts
             .into_iter()
@@ -2201,49 +2114,50 @@ impl PyMCPStore {
             .collect()
     }
 
-    #[pyo3(signature = (agent_id, prompt_name, arguments, service_name=None))]
-    fn get_prompt_scoped(
+    fn get_prompt(
         &self,
         py: Python<'_>,
-        agent_id: Option<String>,
+        instance_id: &str,
         prompt_name: &str,
         arguments: &Bound<'_, PyAny>,
-        service_name: Option<String>,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let arguments = py_to_serde_value(arguments, "Prompt arguments")?;
         let prompt = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.get_prompt_scoped(
-                agent_id.as_deref(),
-                prompt_name,
-                arguments,
-                service_name.as_deref(),
-            ))
+            .block_on(
+                self.inner
+                    .get_prompt_scoped(instance_id, prompt_name, arguments),
+            )
             .map_err(map_store_err)?;
         serde_value_to_py(py, prompt)
     }
 
-    #[pyo3(signature = (format=None))]
-    fn show_config(&self, py: Python<'_>, format: Option<String>) -> PyResult<Py<PyAny>> {
-        let format = parse_config_format(format.as_deref())?;
+    fn show_config(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let config = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.show_config_format(format))
+            .block_on(self.inner.show_config())
             .map_err(map_store_err)?;
         serde_value_to_py(py, config)
     }
 
-    #[pyo3(signature = (agent_id=None, format=None))]
-    fn show_config_scoped(
+    fn show_scope_config(&self, py: Python<'_>, scope: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let scope = py_to_scope_ref(scope)?;
+        let config = pyo3_async_runtimes::tokio::get_runtime()
+            .block_on(self.inner.show_scope_config(&scope))
+            .map_err(map_store_err)?;
+        serde_value_to_py(py, config)
+    }
+
+    #[pyo3(signature = (instance_id, format=None))]
+    fn export_instance_config(
         &self,
         py: Python<'_>,
-        agent_id: Option<String>,
+        instance_id: &str,
         format: Option<String>,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let format = parse_config_format(format.as_deref())?;
         let config = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(
-                self.inner
-                    .show_config_scoped_format(agent_id.as_deref(), format),
-            )
+            .block_on(self.inner.export_instance_config(instance_id, format))
             .map_err(map_store_err)?;
         serde_value_to_py(py, config)
     }
@@ -2326,30 +2240,25 @@ impl PyMCPStore {
             .map_err(map_store_err)
     }
 
-    fn reset_agent_config(&self, agent_id: &str) -> PyResult<()> {
+    fn reset_scope(&self, scope: &Bound<'_, PyAny>) -> PyResult<()> {
+        let scope = py_to_scope_ref(scope)?;
         pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.reset_agent_config(agent_id))
+            .block_on(self.inner.reset_scope(&scope))
             .map_err(map_store_err)
     }
 
-    #[pyo3(signature = (scope=None))]
-    fn reset_mcp_json_scope(&self, scope: Option<String>) -> PyResult<()> {
-        pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.reset_mcp_json_scope(scope.as_deref()))
-            .map_err(map_store_err)
-    }
-
-    #[pyo3(signature = (name, timeout_secs=10))]
-    fn wait_service_ready(
+    #[pyo3(signature = (instance_id, timeout_secs=10))]
+    fn wait_instance_ready(
         &self,
         py: Python<'_>,
-        name: &str,
+        instance_id: &str,
         timeout_secs: u64,
     ) -> PyResult<Py<PyAny>> {
+        let instance_id = parse_instance_id(instance_id)?;
         let status = pyo3_async_runtimes::tokio::get_runtime()
-            .block_on(self.inner.wait_service_ready(name, timeout_secs))
+            .block_on(self.inner.wait_instance_ready(instance_id, timeout_secs))
             .map_err(map_store_err)?;
-        service_status_to_py(py, &status)
+        serializable_to_py(py, &status, "Instance status")
     }
 
     fn __repr__(&self) -> String {
