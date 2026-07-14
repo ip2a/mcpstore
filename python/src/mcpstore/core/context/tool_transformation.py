@@ -1,4 +1,4 @@
-"""Rust-backed compatibility helpers for tool transformation rules."""
+"""Instance-owned tool transformation models and facade helpers."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ class ArgumentTransform:
 
 @dataclass
 class ToolTransformConfig:
-    original_tool_name: str
+    tool_name: str
     new_tool_name: Optional[str] = None
     new_description: Optional[str] = None
     argument_transforms: Dict[str, ArgumentTransform] = field(default_factory=dict)
@@ -73,58 +73,53 @@ class ToolTransformConfig:
 
 
 class ToolTransformer:
-    def __init__(self, context: Any = None, service_name: Optional[str] = None):
+    def __init__(self, context: Any = None, instance_id: Optional[str] = None):
         self._context = context
-        self._service_name = service_name
+        self._instance_id = instance_id
 
-    def bind(self, context: Any, service_name: Optional[str] = None) -> "ToolTransformer":
+    def bind(self, context: Any, instance_id: Optional[str] = None) -> "ToolTransformer":
         self._context = context
-        self._service_name = service_name
+        self._instance_id = instance_id
         return self
 
     def register_transformation(
         self,
         config: ToolTransformConfig,
-        service_name: Optional[str] = None,
+        instance_id: Optional[str] = None,
     ) -> str:
         context = self._require_context()
-        resolved_service = service_name or self._service_name
-        if not resolved_service:
-            raise ValueError("Tool transformation registration requires service_name")
+        resolved_instance = instance_id or self._instance_id
+        if not resolved_instance:
+            raise ValueError("Tool transformation registration requires instance_id")
         rule = context.set_tool_transform(
-            resolved_service,
-            config.original_tool_name,
-            display_name=config.new_tool_name,
-            description=config.new_description,
-            arguments=[item.to_rust_payload() for item in config.argument_transforms.values()],
-            safety_policy=config.safety_policy,
-            tags=config.tags,
-            enabled=config.enabled,
+            resolved_instance,
+            config.tool_name,
+            config.to_rust_payload(),
         )
-        return str(rule.get("display_name") or config.new_tool_name or config.original_tool_name)
+        return str(rule.get("display_name") or config.new_tool_name or config.tool_name)
 
     def create_llm_friendly_tool(
         self,
-        original_tool_name: str,
+        tool_name: str,
         friendly_name: Optional[str] = None,
         simplified_description: Optional[str] = None,
         hide_technical_params: bool = True,
         add_safety_checks: bool = True,
-        service_name: Optional[str] = None,
+        instance_id: Optional[str] = None,
     ) -> str:
         context = self._require_context()
-        resolved_service = service_name or self._service_name
-        if not resolved_service:
-            raise ValueError("Tool transformation registration requires service_name")
+        resolved_instance = instance_id or self._instance_id
+        if not resolved_instance:
+            raise ValueError("Tool transformation registration requires instance_id")
         rule = context.create_llm_friendly_tool_transform(
-            resolved_service,
-            original_tool_name,
+            resolved_instance,
+            tool_name,
             friendly_name=friendly_name,
             description=simplified_description,
             hide_technical_params=hide_technical_params,
             add_safety_policy=add_safety_checks,
         )
-        return str(rule.get("display_name") or friendly_name or f"{original_tool_name}_simple")
+        return str(rule.get("display_name") or friendly_name or f"{tool_name}_simple")
 
     @staticmethod
     def _default_safety_policy() -> Dict[str, Any]:
@@ -142,29 +137,29 @@ class ToolTransformer:
 
     def create_parameter_renamed_tool(
         self,
-        original_tool_name: str,
+        tool_name: str,
         parameter_mapping: Dict[str, str],
         new_tool_name: Optional[str] = None,
-        service_name: Optional[str] = None,
+        instance_id: Optional[str] = None,
     ) -> str:
         context = self._require_context()
-        resolved_service = service_name or self._service_name
-        if not resolved_service:
-            raise ValueError("Tool transformation registration requires service_name")
+        resolved_instance = instance_id or self._instance_id
+        if not resolved_instance:
+            raise ValueError("Tool transformation registration requires instance_id")
         rule = context.create_parameter_renamed_tool_transform(
-            resolved_service,
-            original_tool_name,
+            resolved_instance,
+            tool_name,
             parameter_mapping,
             new_tool_name=new_tool_name,
         )
-        return str(rule.get("display_name") or new_tool_name or f"{original_tool_name}_renamed")
+        return str(rule.get("display_name") or new_tool_name or f"{tool_name}_renamed")
 
     def create_validated_tool(
         self,
-        original_tool_name: str,
+        tool_name: str,
         validation_rules: Dict[str, Any],
         new_tool_name: Optional[str] = None,
-        service_name: Optional[str] = None,
+        instance_id: Optional[str] = None,
     ) -> str:
         for param_name, validation_rule in validation_rules.items():
             if callable(validation_rule):
@@ -175,31 +170,34 @@ class ToolTransformer:
             if not isinstance(validation_rule, dict):
                 raise TypeError("Tool validation rules must be JSON-schema dictionaries")
         context = self._require_context()
-        resolved_service = service_name or self._service_name
-        if not resolved_service:
-            raise ValueError("Tool transformation registration requires service_name")
+        resolved_instance = instance_id or self._instance_id
+        if not resolved_instance:
+            raise ValueError("Tool transformation registration requires instance_id")
         rule = context.create_validated_tool_transform(
-            resolved_service,
-            original_tool_name,
+            resolved_instance,
+            tool_name,
             validation_rules,
             new_tool_name=new_tool_name,
         )
-        return str(rule.get("display_name") or new_tool_name or f"{original_tool_name}_validated")
+        return str(rule.get("display_name") or new_tool_name or f"{tool_name}_validated")
 
     def get_transformation_config(
         self,
         tool_name: str,
-        service_name: Optional[str] = None,
+        instance_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         context = self._require_context()
-        resolved_service = service_name or self._service_name
-        if not resolved_service:
-            raise ValueError("Tool transformation lookup requires service_name")
-        return context.get_tool_transform(resolved_service, tool_name)
+        resolved_instance = instance_id or self._instance_id
+        if not resolved_instance:
+            raise ValueError("Tool transformation lookup requires instance_id")
+        return context.get_tool_transform(resolved_instance, tool_name)
 
     def list_transformed_tools(self) -> List[str]:
         context = self._require_context()
-        return [str(rule.get("display_name") or rule.get("original_tool_name")) for rule in context.list_tool_transforms()]
+        return [
+            str(rule.get("display_name") or rule.get("tool_name"))
+            for rule in context.list_tool_transforms()
+        ]
 
     def _require_context(self) -> Any:
         if self._context is None:
@@ -220,28 +218,28 @@ class ToolTransformer:
 
 
 class ToolTransformationManager:
-    def __init__(self, context: Any = None, service_name: Optional[str] = None):
-        self.transformer = ToolTransformer(context, service_name)
+    def __init__(self, context: Any = None, instance_id: Optional[str] = None):
+        self.transformer = ToolTransformer(context, instance_id)
 
-    def bind(self, context: Any, service_name: Optional[str] = None) -> "ToolTransformationManager":
-        self.transformer.bind(context, service_name)
+    def bind(self, context: Any, instance_id: Optional[str] = None) -> "ToolTransformationManager":
+        self.transformer.bind(context, instance_id)
         return self
 
-    def create_simple_weather_tool(self, original_tool_name: str, service_name: Optional[str] = None) -> str:
+    def create_simple_weather_tool(self, tool_name: str, instance_id: Optional[str] = None) -> str:
         return self.transformer.create_llm_friendly_tool(
-            original_tool_name=original_tool_name,
+            tool_name=tool_name,
             friendly_name="get_weather",
             simplified_description="Get current weather for a city. Just provide the city name.",
             hide_technical_params=True,
             add_safety_checks=False,
-            service_name=service_name,
+            instance_id=instance_id,
         )
 
     def create_user_friendly_api_tool(
         self,
-        original_tool_name: str,
+        tool_name: str,
         api_type: str,
-        service_name: Optional[str] = None,
+        instance_id: Optional[str] = None,
     ) -> str:
         friendly_names = {
             "weather": "check_weather",
@@ -251,34 +249,36 @@ class ToolTransformationManager:
             "image": "process_image",
         }
         return self.transformer.create_llm_friendly_tool(
-            original_tool_name=original_tool_name,
+            tool_name=tool_name,
             friendly_name=friendly_names.get(api_type, f"use_{api_type}"),
             simplified_description=f"Easy-to-use {api_type} tool with simplified parameters.",
             hide_technical_params=True,
             add_safety_checks=False,
-            service_name=service_name,
+            instance_id=instance_id,
         )
 
     def enable_transformation(
         self,
-        service_name: str,
+        instance_id: str,
         tool_name: str,
         enabled: bool = True,
     ) -> Dict[str, Any]:
-        existing = self.transformer.get_transformation_config(tool_name, service_name) or {}
+        existing = self.transformer.get_transformation_config(tool_name, instance_id) or {}
         return self.transformer._require_context().set_tool_transform(
-            service_name,
+            instance_id,
             tool_name,
-            display_name=existing.get("display_name"),
-            description=existing.get("description"),
-            arguments=existing.get("arguments") or [],
-            safety_policy=existing.get("safety_policy"),
-            tags=existing.get("tags") or [],
-            enabled=enabled,
+            {
+                "display_name": existing.get("display_name"),
+                "description": existing.get("description"),
+                "arguments": existing.get("arguments") or [],
+                "safety_policy": existing.get("safety_policy"),
+                "tags": existing.get("tags") or [],
+                "enabled": enabled,
+            },
         )
 
-    def is_transformation_enabled(self, service_name: str, tool_name: str) -> bool:
-        existing = self.transformer.get_transformation_config(tool_name, service_name)
+    def is_transformation_enabled(self, instance_id: str, tool_name: str) -> bool:
+        existing = self.transformer.get_transformation_config(tool_name, instance_id)
         return bool(existing.get("enabled", True)) if existing else False
 
     def get_transformation_summary(self) -> Dict[str, Any]:
@@ -287,7 +287,9 @@ class ToolTransformationManager:
         return {
             "total_transformations": len(rules),
             "enabled_transformations": sum(1 for rule in rules if rule.get("enabled")),
-            "available_tools": [rule.get("display_name") or rule.get("original_tool_name") for rule in rules],
+            "available_tools": [
+                rule.get("display_name") or rule.get("tool_name") for rule in rules
+            ],
             "transformation_types": ["llm-friendly", "parameter-renamed", "simplified"],
         }
 

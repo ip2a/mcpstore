@@ -20,6 +20,7 @@ from .common import (
     enhance_description,
     is_nullable,
     tool_input_schema,
+    tool_instance_id,
     tool_name,
 )
 
@@ -29,19 +30,20 @@ class OpenAIAdapter:
     兼容 langchain-openai 的 bind_tools 方法和直接 OpenAI API。
     """
 
-    def __init__(self, context: Any):
+    def __init__(self, context: Any, instance_id: str):
         self._context = context
+        self._instance_id = instance_id
 
     def list_tools(self) -> List[Dict[str, Any]]:
         """获取所有 MCPStore 工具并转换为 OpenAI function 格式（同步版本）。"""
         return [
             self._convert_to_openai_format(tool_info)
-            for tool_info in self._context.list_tools()
+            for tool_info in self._context.list_tools(self._instance_id)
         ]
 
     async def list_tools_async(self) -> List[Dict[str, Any]]:
         """获取所有 MCPStore 工具并转换为 OpenAI function 格式（异步版本）。"""
-        mcp_tools_info = await self._context.list_tools_async()
+        mcp_tools_info = await self._context.list_tools_async(self._instance_id)
         openai_tools = []
 
         for tool_info in mcp_tools_info:
@@ -173,15 +175,26 @@ class OpenAIAdapter:
             包含 'tool'（OpenAI 格式）和 'callable'（执行函数）的字典列表
         """
         callable_tools = []
-        for tool_info in self._context.list_tools():
+        for tool_info in self._context.list_tools(self._instance_id):
             openai_tool = self._convert_to_openai_format(tool_info)
             args_schema = create_args_schema(tool_info)
             name = tool_name(tool_info)
+            instance_id = tool_instance_id(tool_info)
             callable_tools.append(
                 {
                     "tool": openai_tool,
-                    "callable": build_sync_executor(self._context, name, args_schema),
-                    "async_callable": build_async_executor(self._context, name, args_schema),
+                    "callable": build_sync_executor(
+                        self._context,
+                        instance_id,
+                        name,
+                        args_schema,
+                    ),
+                    "async_callable": build_async_executor(
+                        self._context,
+                        instance_id,
+                        name,
+                        args_schema,
+                    ),
                     "name": name,
                     "schema": args_schema,
                 }
@@ -191,15 +204,26 @@ class OpenAIAdapter:
     async def get_callable_tools_async(self) -> List[Dict[str, Any]]:
         """获取带可调用函数的工具（异步版本）。"""
         callable_tools = []
-        for tool_info in await self._context.list_tools_async():
+        for tool_info in await self._context.list_tools_async(self._instance_id):
             openai_tool = self._convert_to_openai_format(tool_info)
             args_schema = create_args_schema(tool_info)
             name = tool_name(tool_info)
+            instance_id = tool_instance_id(tool_info)
             callable_tools.append(
                 {
                     "tool": openai_tool,
-                    "callable": build_sync_executor(self._context, name, args_schema),
-                    "async_callable": build_async_executor(self._context, name, args_schema),
+                    "callable": build_sync_executor(
+                        self._context,
+                        instance_id,
+                        name,
+                        args_schema,
+                    ),
+                    "async_callable": build_async_executor(
+                        self._context,
+                        instance_id,
+                        name,
+                        args_schema,
+                    ),
                     "name": name,
                     "schema": args_schema,
                 }
@@ -244,7 +268,7 @@ class OpenAIAdapter:
         tool_name = None
         try:
             tool_name, arguments = self._parse_tool_call(tool_call)
-            result = self._context.call_tool(tool_name, arguments)
+            result = self._context.call_tool(self._instance_id, tool_name, arguments)
             return self._format_tool_result(tool_name, arguments, result)
         except Exception as e:
             return f"Tool '{tool_name}' execution failed: {str(e)}"
@@ -282,7 +306,11 @@ class OpenAIAdapter:
         tool_name = None
         try:
             tool_name, arguments = self._parse_tool_call(tool_call)
-            result = await self._context.call_tool_async(tool_name, arguments)
+            result = await self._context.call_tool_async(
+                self._instance_id,
+                tool_name,
+                arguments,
+            )
             return self._format_tool_result(tool_name, arguments, result)
         except Exception as e:
             return f"Tool '{tool_name}' execution failed: {str(e)}"

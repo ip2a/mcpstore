@@ -14,7 +14,7 @@ import inspect
 import json
 import keyword
 import warnings
-from typing import Callable, Any, Type, List, Dict, Optional, Tuple
+from typing import Callable, Any, Type, List, Dict, Optional
 
 from pydantic import BaseModel, create_model, Field, ConfigDict
 
@@ -22,7 +22,6 @@ __all__ = [
     # 公共工具函数
     'is_nullable',
     'process_tool_args',
-    'get_tool_override',
     'enhance_description',
     'create_args_schema',
     'call_tool_response_helper',
@@ -30,6 +29,7 @@ __all__ = [
     'service_name',
     'service_status_value',
     'tool_name',
+    'tool_instance_id',
     'tool_service_name',
     'tool_input_schema',
     # 执行器构建
@@ -73,7 +73,7 @@ def _read_field(data: Any, *names: str, default: Any = None) -> Any:
 
 def service_name(service_info: Any) -> str:
     """Read the service name from mapping or object-shaped SDK records."""
-    value = _read_field(service_info, "name", default="")
+    value = _read_field(service_info, "service_name", default="")
     return value if isinstance(value, str) else str(value or "")
 
 
@@ -97,29 +97,23 @@ def tool_name(tool_info: Any) -> str:
 
 def tool_service_name(tool_info: Any) -> str:
     """读取工具所属服务名。"""
-    value = _read_field(tool_info, "service_name", "serviceName", default="")
+    value = _read_field(tool_info, "service_name", default="")
     return value if isinstance(value, str) else str(value or "")
+
+
+def tool_instance_id(tool_info: Any) -> str:
+    """Read the required owning instance ID from a tool record."""
+    value = _read_field(tool_info, "instance_id", default="")
+    instance_id = value if isinstance(value, str) else str(value or "")
+    if not instance_id:
+        raise ValueError("Tool record is missing instance_id")
+    return instance_id
 
 
 def tool_input_schema(tool_info: Any) -> Dict[str, Any]:
     """读取工具输入 schema。"""
     schema = _read_field(tool_info, "inputSchema", "input_schema", default={}) or {}
     return schema if isinstance(schema, dict) else {}
-
-
-def get_tool_override(
-    context: Any,
-    service_name_value: str,
-    tool_name_value: str,
-    flag: str,
-    default: Any = None,
-) -> Any:
-    """读取工具覆盖配置，优先使用公开接口。"""
-    getter = getattr(context, "get_tool_override", None)
-    if callable(getter):
-        return getter(service_name_value, tool_name_value, flag, default)
-
-    return default
 
 
 # ============================================================================
@@ -420,9 +414,8 @@ def create_args_schema(tool_info: Any) -> Type[BaseModel]:
     """
     input_schema = tool_input_schema(tool_info)
     props = input_schema.get("properties", {})
-    required = input_schema.get("required", [])
 
-    fields: Dict[str, Tuple[type, Any]] = {}
+    fields: Dict[str, Any] = {}
     has_invalid_field = False
 
     for original_name, prop in props.items():
@@ -508,6 +501,7 @@ def create_args_schema(tool_info: Any) -> Type[BaseModel]:
 
 def build_sync_executor(
     context: Any,
+    instance_id: str,
     tool_name: str,
     args_schema: Type[BaseModel]
 ) -> Callable[..., Any]:
@@ -526,7 +520,7 @@ def build_sync_executor(
         tool_input = {}
         try:
             tool_input = dict(kwargs)
-            result = context.call_tool(tool_name, tool_input)
+            result = context.call_tool(instance_id, tool_name, tool_input)
             view = call_tool_response_helper(result)
             if view.is_error:
                 payload = build_tool_error_payload(
@@ -552,6 +546,7 @@ def build_sync_executor(
 
 def build_async_executor(
     context: Any,
+    instance_id: str,
     tool_name: str,
     args_schema: Type[BaseModel]
 ) -> Callable[..., Any]:
@@ -570,7 +565,7 @@ def build_async_executor(
         tool_input = {}
         try:
             tool_input = dict(kwargs)
-            result = await context.call_tool_async(tool_name, tool_input)
+            result = await context.call_tool_async(instance_id, tool_name, tool_input)
             view = call_tool_response_helper(result)
             if view.is_error:
                 payload = build_tool_error_payload(
