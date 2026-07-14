@@ -4,27 +4,47 @@
 //! the MCP server directly from the Rust core without requiring an external
 //! `mcpstore` CLI binary.
 
+use std::str::FromStr;
+
 use pyo3::prelude::*;
 
-fn parse_scope(scope: &str) -> mcpstore::mcp_server::Scope {
-    match scope.to_lowercase().as_str() {
-        "agent" => mcpstore::mcp_server::Scope::Agent,
-        "project" => mcpstore::mcp_server::Scope::Project,
-        _ => mcpstore::mcp_server::Scope::Store,
-    }
+use crate::py_value::py_to_serde_value;
+
+fn parse_scope(scope: &Bound<'_, PyAny>) -> PyResult<mcpstore::ScopeRef> {
+    let scope = py_to_serde_value(scope, "scope")?;
+    serde_json::from_value(scope)
+        .map_err(|err| pyo3::exceptions::PyValueError::new_err(format!("Invalid scope: {err}")))
 }
 
-fn parse_transport(transport: &str) -> mcpstore::mcp_server::McpServerTransport {
+fn parse_instance_id(instance_id: Option<&str>) -> PyResult<Option<mcpstore::InstanceId>> {
+    instance_id
+        .map(|value| {
+            mcpstore::InstanceId::from_str(value).map_err(|err| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "Invalid instance_id '{value}': {err}"
+                ))
+            })
+        })
+        .transpose()
+}
+
+fn parse_transport(transport: &str) -> PyResult<mcpstore::mcp_server::McpServerTransport> {
     match transport {
-        "streamable-http" | "http" => mcpstore::mcp_server::McpServerTransport::StreamableHttp,
-        _ => mcpstore::mcp_server::McpServerTransport::Stdio,
+        "stdio" => Ok(mcpstore::mcp_server::McpServerTransport::Stdio),
+        "streamable-http" => Ok(mcpstore::mcp_server::McpServerTransport::StreamableHttp),
+        other => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Unsupported MCP server transport: {other}"
+        ))),
     }
 }
 
-fn parse_source(source: &str) -> mcpstore::SourceMode {
+fn parse_source(source: &str) -> PyResult<mcpstore::SourceMode> {
     match source {
-        "db" => mcpstore::SourceMode::Db,
-        _ => mcpstore::SourceMode::Local,
+        "local" => Ok(mcpstore::SourceMode::Local),
+        "db" => Ok(mcpstore::SourceMode::Db),
+        other => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Unsupported source mode: {other}"
+        ))),
     }
 }
 
@@ -45,9 +65,8 @@ fn parse_backend(backend: Option<&str>) -> PyResult<Option<mcpstore::CacheStorag
 
 fn build_options(
     transport: String,
-    scope: String,
-    agent: Option<String>,
-    service: Option<String>,
+    scope: mcpstore::ScopeRef,
+    instance_id: Option<mcpstore::InstanceId>,
     host: String,
     port: u16,
     path: String,
@@ -66,14 +85,13 @@ fn build_options(
 ) -> PyResult<mcpstore::mcp_server::McpServerOptions> {
     Ok(mcpstore::mcp_server::McpServerOptions {
         config_path,
-        source_mode: parse_source(&source),
+        source_mode: parse_source(&source)?,
         backend: parse_backend(backend.as_deref())?,
         redis_url,
         namespace,
-        scope: parse_scope(&scope),
-        agent,
-        service,
-        transport: parse_transport(&transport),
+        scope,
+        instance_id,
+        transport: parse_transport(&transport)?,
         host,
         port,
         path,
@@ -96,8 +114,7 @@ fn build_options(
 #[pyo3(signature = (
     transport,
     scope,
-    agent=None,
-    service=None,
+    instance_id=None,
     host="127.0.0.1",
     port=18300,
     path="/mcp",
@@ -116,9 +133,8 @@ fn build_options(
 ))]
 fn start_mcp_server(
     transport: String,
-    scope: String,
-    agent: Option<String>,
-    service: Option<String>,
+    scope: &Bound<'_, PyAny>,
+    instance_id: Option<String>,
     host: &str,
     port: u16,
     path: &str,
@@ -137,9 +153,8 @@ fn start_mcp_server(
 ) -> PyResult<()> {
     let options = build_options(
         transport,
-        scope,
-        agent,
-        service,
+        parse_scope(scope)?,
+        parse_instance_id(instance_id.as_deref())?,
         host.to_string(),
         port,
         path.to_string(),
