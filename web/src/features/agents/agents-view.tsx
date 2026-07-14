@@ -22,8 +22,9 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent } from "@/components/ui/tabs"
-import { type AgentItem, type ServiceEntry, type ToolInfo } from "@/lib/api"
-import { getAgentId, getAgentServices } from "@/features/agents/model"
+import { type AgentItem, type ServiceInstance } from "@/lib/api"
+import { getAgentId } from "@/features/agents/model"
+import type { InstanceTool } from "@/features/tools/queries"
 import { useAgentScope } from "@/features/agents/use-agent-scope"
 import { useI18n } from "@/lib/i18n-context"
 import { toolKey } from "@/lib/tool-info"
@@ -33,17 +34,17 @@ type AgentCatalogTab = "services" | "tools"
 
 export function AgentsView(props: {
   agents: AgentItem[]
-  services: ServiceEntry[]
+  services: ServiceInstance[]
   loading: boolean
   busy: string | null
-  onAssign: (agentId: string, serviceName: string) => void
-  onOpenService: (serviceName: string) => void
+  onDeclareScope: (agentId: string, serviceName: string) => void
+  onOpenService: (instanceId: string) => void
   onRefresh: () => void
-  onUnassign: (agentId: string, serviceName: string) => void
+  onRemoveScope: (agentId: string, serviceName: string) => void
 }) {
   const { t } = useI18n()
   const [activeTab, setActiveTab] = useState<AgentCatalogTab>("services")
-  const [selectedServiceName, setSelectedServiceName] = useState<string | null>(null)
+  const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null)
   const [selectedToolKeyState, setSelectedToolKey] = useState<string | null>(null)
   const {
     activeAgentId,
@@ -54,12 +55,13 @@ export function AgentsView(props: {
     agentTools,
     agentToolsError,
     agentToolsErrorMessage,
-    assignTarget,
     loadAgentScope,
     loadingAgentServices,
     loadingAgentTools,
     selectedAgentId,
-    setAssignTarget,
+    scopeServiceName,
+    serviceNames,
+    setScopeServiceName,
     setSelectedAgentId,
     setTypedAgentId,
     typedAgentId,
@@ -72,12 +74,12 @@ export function AgentsView(props: {
 
   const selectedService = useMemo(() => {
     if (!agentServices.length) return null
-    return agentServices.find((service) => service.name === selectedServiceName) || agentServices[0]
-  }, [agentServices, selectedServiceName])
+    return agentServices.find((service) => service.instance_id === selectedInstanceId) || agentServices[0]
+  }, [agentServices, selectedInstanceId])
 
   const selectedTool = useMemo(() => {
     if (!agentTools.length) return null
-    return agentTools.find((tool) => toolKey(tool) === selectedToolKeyState) || agentTools[0]
+    return agentTools.find(({ instance, tool }) => toolKey(instance.instance_id, tool) === selectedToolKeyState) || agentTools[0]
   }, [agentTools, selectedToolKeyState])
 
   const loadingScope = loadingAgentServices || loadingAgentTools
@@ -86,21 +88,21 @@ export function AgentsView(props: {
 
   useEffect(() => {
     if (!agentServices.length) {
-      setSelectedServiceName(null)
+      setSelectedInstanceId(null)
       return
     }
-    if (!selectedServiceName || !agentServices.some((service) => service.name === selectedServiceName)) {
-      setSelectedServiceName(agentServices[0].name)
+    if (!selectedInstanceId || !agentServices.some((service) => service.instance_id === selectedInstanceId)) {
+      setSelectedInstanceId(agentServices[0].instance_id)
     }
-  }, [agentServices, selectedServiceName])
+  }, [agentServices, selectedInstanceId])
 
   useEffect(() => {
     if (!agentTools.length) {
       setSelectedToolKey(null)
       return
     }
-    if (!selectedToolKeyState || !agentTools.some((tool) => toolKey(tool) === selectedToolKeyState)) {
-      setSelectedToolKey(toolKey(agentTools[0]))
+    if (!selectedToolKeyState || !agentTools.some(({ instance, tool }) => toolKey(instance.instance_id, tool) === selectedToolKeyState)) {
+      setSelectedToolKey(toolKey(agentTools[0].instance.instance_id, agentTools[0].tool))
     }
   }, [agentTools, selectedToolKeyState])
 
@@ -131,13 +133,12 @@ export function AgentsView(props: {
             <ScrollPane className="max-h-44 shrink-0" innerClassName="flex flex-col gap-2">
               {props.agents.map((agent) => {
                 const agentId = getAgentId(agent)
-                const serviceNames = getAgentServices(agent)
                 return (
                   <SelectableRowButton
                     key={agentId || JSON.stringify(agent)}
                     disabled={!agentId}
                     meta={t("agentServicesToolsCount", {
-                      services: serviceNames.length,
+                      services: agent.instance_ids.length,
                       tools: agentId === activeAgentId ? agentTools.length : 0,
                     })}
                     onClick={() => setSelectedAgentId(agentId || null)}
@@ -195,11 +196,11 @@ export function AgentsView(props: {
                 <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
                   {agentServices.map((service) => (
                     <SelectableRowButton
-                      key={service.name}
-                      meta={String(service.status || t("unknown"))}
-                      onClick={() => setSelectedServiceName(service.name)}
-                      selected={service.name === selectedService?.name}
-                      title={service.name}
+                      key={service.instance_id}
+                      meta={service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`}
+                      onClick={() => setSelectedInstanceId(service.instance_id)}
+                      selected={service.instance_id === selectedService?.instance_id}
+                      title={service.service_name}
                       trailing={<ServiceStatusBadge status={service.status} />}
                     />
                   ))}
@@ -236,15 +237,18 @@ export function AgentsView(props: {
                 <PageSkeleton />
               ) : agentTools.length ? (
                 <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
-                  {agentTools.map((tool) => (
-                    <SelectableRowButton
-                      key={toolKey(tool)}
-                      meta={tool.description || t("noDescription")}
-                      onClick={() => setSelectedToolKey(toolKey(tool))}
-                      selected={toolKey(tool) === toolKey(selectedTool || tool)}
-                      title={tool.name}
-                    />
-                  ))}
+                  {agentTools.map(({ instance, tool }) => {
+                    const key = toolKey(instance.instance_id, tool)
+                    return (
+                      <SelectableRowButton
+                        key={key}
+                        meta={`${instance.service_name} · ${tool.description || t("noDescription")}`}
+                        onClick={() => setSelectedToolKey(key)}
+                        selected={key === selectedToolKeyState}
+                        title={tool.name}
+                      />
+                    )
+                  })}
                 </ScrollPane>
               ) : (
                 <PageEmpty
@@ -296,10 +300,10 @@ export function AgentsView(props: {
               />
             </Field>
             <Field>
-              <FieldLabel>{t("assignService")}</FieldLabel>
+              <FieldLabel>{t("service")} · {t("scope")}</FieldLabel>
               <Select
-                value={assignTarget || "none"}
-                onValueChange={(value) => setAssignTarget(value === "none" ? "" : value)}
+                value={scopeServiceName || "none"}
+                onValueChange={(value) => setScopeServiceName(value === "none" ? "" : value)}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -307,9 +311,9 @@ export function AgentsView(props: {
                 <SelectContent>
                   <SelectGroup>
                     <SelectItem value="none">{t("none")}</SelectItem>
-                    {props.services.map((service) => (
-                      <SelectItem key={service.name} value={service.name}>
-                        {service.name}
+                    {serviceNames.map((serviceName) => (
+                      <SelectItem key={serviceName} value={serviceName}>
+                        {serviceName}
                       </SelectItem>
                     ))}
                   </SelectGroup>
@@ -317,10 +321,10 @@ export function AgentsView(props: {
               </Select>
             </Field>
             <Button
-              disabled={!activeAgentId || !assignTarget || Boolean(props.busy)}
-              onClick={() => props.onAssign(activeAgentId, assignTarget)}
+              disabled={!activeAgentId || !scopeServiceName || Boolean(props.busy)}
+              onClick={() => props.onDeclareScope(activeAgentId, scopeServiceName)}
             >
-              {t("assign")}
+              {t("add")}
             </Button>
           </FieldGroup>
         </section>
@@ -339,16 +343,16 @@ export function AgentsView(props: {
             void props.onRefresh()
             void loadAgentScope()
           }}
-          onOpenService={selectedService ? () => props.onOpenService(selectedService.name) : undefined}
-          onUnassign={
+          onOpenService={selectedService ? () => props.onOpenService(selectedService.instance_id) : undefined}
+          onRemoveScope={
             activeAgentId && selectedService
-              ? () => props.onUnassign(activeAgentId, selectedService.name)
+              ? () => props.onRemoveScope(activeAgentId, selectedService.service_name)
               : undefined
           }
           busy={Boolean(props.busy)}
         />
 
-        {activeAgentId ? <AgentSummarySection agentId={activeAgentId} assignedServices={getAgentServices(selectedAgent || {})} /> : null}
+        {activeAgentId ? <AgentSummarySection agentId={activeAgentId} services={agentServices} /> : null}
 
         <MetricGrid columns="four">
           <MetricTile
@@ -356,7 +360,7 @@ export function AgentsView(props: {
             label={t("agent")}
             value={activeAgentId || "-"}
             title={activeAgentId || "-"}
-            hint={selectedAgent ? t("assignedCount", { count: getAgentServices(selectedAgent).length }) : t("selectOrTypeAgentId")}
+            hint={selectedAgent ? t("inScope", { count: selectedAgent.instance_ids.length }) : t("selectOrTypeAgentId")}
           />
           <MetricTile
             variant="compact"
@@ -374,7 +378,7 @@ export function AgentsView(props: {
             variant="compact"
             label={t("catalog")}
             value={String(props.services.length)}
-            hint={assignTarget ? t("assignTarget", { target: assignTarget }) : t("pickServiceToAssign")}
+            hint={scopeServiceName || t("none")}
           />
         </MetricGrid>
 
@@ -396,12 +400,12 @@ export function AgentsView(props: {
             ) : (
               <PageEmpty
                 title={t("noServiceSelected")}
-                description={t("assignedServicesWillAppear")}
+                description={t("noServicesDescription")}
                 onRefresh={loadAgentScope}
               />
             )
           ) : selectedTool ? (
-            <AgentToolDetailPane tool={selectedTool} />
+              <AgentToolDetailPane item={selectedTool} />
           ) : (
             <PageEmpty
               title={t("noToolSelected")}
@@ -422,7 +426,7 @@ function AgentPreviewHeader({
   loading,
   onOpenService,
   onRefresh,
-  onUnassign,
+  onRemoveScope,
   selectedService,
   selectedTool,
   serviceCount,
@@ -434,17 +438,17 @@ function AgentPreviewHeader({
   loading: boolean
   onOpenService?: () => void
   onRefresh: () => void
-  onUnassign?: () => void
-  selectedService: ServiceEntry | null
-  selectedTool: ToolInfo | null
+  onRemoveScope?: () => void
+  selectedService: ServiceInstance | null
+  selectedTool: InstanceTool | null
   serviceCount: number
   toolCount: number
 }) {
   const { t } = useI18n()
   const title =
     activeTab === "services"
-      ? selectedService?.name || (activeAgentId ? t("servicesAvailable", { count: serviceCount }) : t("noAgentSelected"))
-      : selectedTool?.name || (activeAgentId ? t("toolsAvailable", { count: toolCount }) : t("noAgentSelected"))
+      ? selectedService?.service_name || (activeAgentId ? t("servicesAvailable", { count: serviceCount }) : t("noAgentSelected"))
+      : selectedTool?.tool.name || (activeAgentId ? t("toolsAvailable", { count: toolCount }) : t("noAgentSelected"))
 
   const hideTitle = activeTab === "tools" && Boolean(selectedTool)
 
@@ -464,10 +468,10 @@ function AgentPreviewHeader({
             {t("view")}
           </Button>
         ) : null}
-        {activeTab === "services" && onUnassign ? (
-          <Button size="sm" variant="outline" onClick={onUnassign} disabled={busy}>
+        {activeTab === "services" && onRemoveScope ? (
+          <Button size="sm" variant="outline" onClick={onRemoveScope} disabled={busy}>
             <UnlinkIcon data-icon="inline-start" />
-            {t("unassign")}
+            {t("delete")} {t("scope")}
           </Button>
         ) : null}
         <Button size="sm" variant="outline" onClick={onRefresh} disabled={loading}>
@@ -479,7 +483,7 @@ function AgentPreviewHeader({
   )
 }
 
-function AgentSummarySection({ agentId, assignedServices }: { agentId: string; assignedServices: string[] }) {
+function AgentSummarySection({ agentId, services }: { agentId: string; services: ServiceInstance[] }) {
   const { t } = useI18n()
 
   return (
@@ -491,19 +495,17 @@ function AgentSummarySection({ agentId, assignedServices }: { agentId: string; a
           </h2>
         </div>
         <p className="text-right text-sm text-muted-foreground">
-          {assignedServices.length ? assignedServices.join(" · ") : t("noServicesAssignedYet")}
+          {services.length ? services.map((service) => service.service_name).join(" · ") : t("noServices")}
         </p>
       </div>
     </section>
   )
 }
 
-function AgentServiceDetailPane({ service }: { service: ServiceEntry }) {
+function AgentServiceDetailPane({ service }: { service: ServiceInstance }) {
   const { t } = useI18n()
   const endpoint = service.url || service.command || "-"
-  const transport = String(
-    service.transport || (service.config as Record<string, unknown> | undefined)?.transport || t("unknown"),
-  )
+  const scope = service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -512,7 +514,15 @@ function AgentServiceDetailPane({ service }: { service: ServiceEntry }) {
         <dl className="grid gap-3 text-sm">
           <div className="grid gap-1">
             <dt className="text-muted-foreground">{t("name")}</dt>
-            <dd className="font-mono">{service.name}</dd>
+            <dd className="font-mono">{service.service_name}</dd>
+          </div>
+          <div className="grid gap-1">
+            <dt className="text-muted-foreground">Instance ID</dt>
+            <dd className="break-all font-mono">{service.instance_id}</dd>
+          </div>
+          <div className="grid gap-1">
+            <dt className="text-muted-foreground">{t("scope")}</dt>
+            <dd className="font-mono">{scope}</dd>
           </div>
           <div className="grid gap-1">
             <dt className="text-muted-foreground">{t("status")}</dt>
@@ -526,7 +536,7 @@ function AgentServiceDetailPane({ service }: { service: ServiceEntry }) {
           </div>
           <div className="grid gap-1">
             <dt className="text-muted-foreground">{t("transport")}</dt>
-            <dd className="font-mono">{transport}</dd>
+            <dd className="font-mono">{service.transport}</dd>
           </div>
         </dl>
       </section>
@@ -534,7 +544,11 @@ function AgentServiceDetailPane({ service }: { service: ServiceEntry }) {
   )
 }
 
-function AgentToolDetailPane({ tool }: { tool: ToolInfo }) {
+function AgentToolDetailPane({ item }: { item: InstanceTool }) {
+  const { t } = useI18n()
+  const { instance, tool } = item
+  const scope = instance.scope.type === "store" ? t("store") : `${t("agent")} ${instance.scope.agent_id}`
+
   return (
     <div className="flex min-w-0 flex-col">
       <section className="border-b pb-4">
@@ -545,6 +559,20 @@ function AgentToolDetailPane({ tool }: { tool: ToolInfo }) {
             </h2>
           </div>
           <ToolDescriptionBlock description={tool.description} showLabel={false} className="text-right" />
+        </div>
+      </section>
+      <section className="grid gap-3 pt-4 text-sm sm:grid-cols-2">
+        <div>
+          <p className="text-muted-foreground">{t("service")}</p>
+          <p className="font-mono">{instance.service_name}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground">{t("scope")}</p>
+          <p className="font-mono">{scope}</p>
+        </div>
+        <div className="sm:col-span-2">
+          <p className="text-muted-foreground">Instance ID</p>
+          <p className="break-all font-mono">{instance.instance_id}</p>
         </div>
       </section>
     </div>

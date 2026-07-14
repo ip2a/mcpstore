@@ -1,4 +1,4 @@
-import { assignService, unassignService } from "@/lib/api"
+import { declareAgentServiceScope, removeServiceScope } from "@/lib/api"
 
 type RunAction = (
   label: string,
@@ -8,27 +8,35 @@ type RunAction = (
 
 export function useAgentActions({
   refreshAgentQueries,
-  refreshServiceQueries,
+  refreshServiceRegistryQueries,
   runAction,
 }: {
   refreshAgentQueries: (agentId: string) => Promise<void>
-  refreshServiceQueries: (serviceName: string, agentId?: string) => Promise<void>
+  refreshServiceRegistryQueries: () => Promise<void>
   runAction: RunAction
 }) {
-  function assignServiceToAgent(agentId: string, serviceName: string) {
-    return runAction(`assign:${agentId}:${serviceName}`, () => assignService(agentId, serviceName), async () => {
-      await Promise.all([refreshAgentQueries(agentId), refreshServiceQueries(serviceName, agentId)])
-    })
+  function declareServiceScope(agentId: string, serviceName: string) {
+    return runAction(
+      `declare-scope:${agentId}:${serviceName}`,
+      () => declareAgentServiceScope(agentId, serviceName),
+      async () => {
+        await Promise.all([refreshAgentQueries(agentId), refreshServiceRegistryQueries()])
+      },
+    )
   }
 
-  function unassignServiceFromAgent(agentId: string, serviceName: string) {
-    return runAction(`unassign:${agentId}:${serviceName}`, () => unassignService(agentId, serviceName), async () => {
-      await Promise.all([refreshAgentQueries(agentId), refreshServiceQueries(serviceName, agentId)])
-    })
+  function removeAgentServiceScope(agentId: string, serviceName: string) {
+    return runAction(
+      `remove-scope:${agentId}:${serviceName}`,
+      () => removeServiceScope(serviceName, { type: "agent", agent_id: agentId }),
+      async () => {
+        await Promise.all([refreshAgentQueries(agentId), refreshServiceRegistryQueries()])
+      },
+    )
   }
 
   return {
-    assignServiceToAgent,
-    unassignServiceFromAgent,
+    declareServiceScope,
+    removeAgentServiceScope,
   }
 }

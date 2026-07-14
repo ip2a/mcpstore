@@ -1,10 +1,10 @@
 import { useMemo, useState, type FormEvent } from "react"
 import { toast } from "sonner"
 
-import { parseKvLines, updateService } from "@/lib/api"
+import { parseKvLines, updateServiceScope } from "@/lib/api"
 import { getServiceEditValues } from "@/lib/service-info"
 import type { AddServiceTransport } from "@/features/services/use-add-service-form"
-import type { ServiceEntry } from "@/lib/api"
+import type { ServiceInstance } from "@/lib/api"
 
 export function useEditServiceForm({
   onCancel,
@@ -13,7 +13,7 @@ export function useEditServiceForm({
 }: {
   onCancel: () => void
   onUpdated: () => Promise<void>
-  service: ServiceEntry
+  service: ServiceInstance
 }) {
   const defaults = useMemo(() => getServiceEditValues(service), [service])
   const [transport, setTransport] = useState<AddServiceTransport>(defaults.transport)
@@ -24,8 +24,9 @@ export function useEditServiceForm({
     const data = new FormData(event.currentTarget)
     setSubmitting(true)
     try {
-      await updateService({
-        name: service.name,
+      await updateServiceScope({
+        serviceName: service.service_name,
+        scope: service.scope,
         transport,
         commandOrUrl: String(data.get("commandOrUrl") || "").trim(),
         description: String(data.get("description") || "").trim() || undefined,

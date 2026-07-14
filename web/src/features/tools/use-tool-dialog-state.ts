@@ -1,34 +1,39 @@
 import { useState } from "react"
 
 import { type ToolDetailState, type ToolDialogState } from "@/features/tools/tool-dialogs"
-import { callTool, type ServiceEntry, type ServiceStatusReport, type ToolInfo } from "@/lib/api"
+import { callInstanceTool, type ServiceInstance, type InstanceStatus, type ToolInfo } from "@/lib/api"
 
 export function useToolDialogState() {
   const [toolDialog, setToolDialog] = useState<ToolDialogState>(null)
   const [toolDetail, setToolDetail] = useState<ToolDetailState>(null)
 
-  function openServiceToolRunner(service: ServiceEntry, tool: ToolInfo, initialArgs?: Record<string, unknown>) {
+  function openServiceToolRunner(service: ServiceInstance, tool: ToolInfo, initialArgs?: Record<string, unknown>) {
     setToolDialog({
       tool,
-      sourceLabel: service.name,
+      service,
+      sourceLabel: service.scope.type === "store"
+        ? `${service.service_name} · store`
+        : `${service.service_name} · agent ${service.scope.agent_id}`,
       initialArgs,
-      onRun: (args) => callTool(service.name, tool.name, args),
+      onRun: (args) => callInstanceTool(service.instance_id, tool.name, args),
     })
   }
 
-  function openServiceToolDetail(service: ServiceEntry, tool: ToolInfo, statusReport?: ServiceStatusReport | null) {
+  function openServiceToolDetail(service: ServiceInstance, tool: ToolInfo, statusReport?: InstanceStatus | null) {
     setToolDetail({
       tool,
-      sourceLabel: service.name,
+      sourceLabel: service.scope.type === "store"
+        ? `${service.service_name} · store`
+        : `${service.service_name} · agent ${service.scope.agent_id}`,
       service,
       statusReport,
-      onRun: (args) => callTool(service.name, tool.name, args),
+      onRun: (args) => callInstanceTool(service.instance_id, tool.name, args),
     })
   }
 
   function openToolRunnerFromDetail(state: NonNullable<ToolDetailState>) {
     if (!state.onRun) return
-    setToolDialog({ tool: state.tool, sourceLabel: state.sourceLabel, onRun: state.onRun })
+    setToolDialog({ tool: state.tool, service: state.service, sourceLabel: state.sourceLabel, onRun: state.onRun })
   }
 
   function closeToolDetail(open: boolean) {

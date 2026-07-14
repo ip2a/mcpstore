@@ -6,15 +6,15 @@ export function resourceTemplateKey(template: ResourceTemplateInfo) {
 }
 
 export function resourceTemplateUri(template: ResourceTemplateInfo) {
-  return String(template.uriTemplate || template.uri_template || "").trim()
+  return template.uriTemplate.trim()
 }
 
 export function resourceTemplateMimeType(template: ResourceTemplateInfo) {
-  return String(template.mimeType || template.mime_type || "").trim()
+  return String(template.mimeType || "").trim()
 }
 
 export function getResourceTemplateMeta(template: ResourceTemplateInfo) {
-  return template.meta ?? template._meta ?? null
+  return template._meta ?? null
 }
 
 export function getResourceTemplateAnnotations(template: ResourceTemplateInfo) {

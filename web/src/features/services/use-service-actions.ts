@@ -1,10 +1,10 @@
 import {
-  checkServices,
-  connectService,
-  disconnectService,
-  removeService,
-  restartService,
-  type ServiceEntry,
+  checkInstance,
+  connectInstance,
+  disconnectInstance,
+  removeServiceScope,
+  restartInstance,
+  type ServiceInstance,
 } from "@/lib/api"
 
 type RunAction = (
@@ -14,30 +14,48 @@ type RunAction = (
 ) => Promise<void>
 
 export function useServiceActions({
-  refreshServiceQueries,
+  refreshInstanceQueries,
   runAction,
+  services,
 }: {
-  refreshServiceQueries: (serviceName: string, agentId?: string) => Promise<void>
+  refreshInstanceQueries: (instanceId: string, scope: ServiceInstance["scope"]) => Promise<void>
   runAction: RunAction
+  services: ServiceInstance[]
 }) {
   function checkAllServices() {
-    return runAction("check:services", checkServices)
+    return runAction("check:instances", () => Promise.all(services.map((service) => checkInstance(service.instance_id))))
   }
 
-  function connectServiceEntry(service: ServiceEntry) {
-    return runAction(`connect:${service.name}`, () => connectService(service.name), () => refreshServiceQueries(service.name, service.agent_id))
+  function connectServiceEntry(service: ServiceInstance) {
+    return runAction(
+      `connect:${service.instance_id}`,
+      () => connectInstance(service.instance_id),
+      () => refreshInstanceQueries(service.instance_id, service.scope),
+    )
   }
 
-  function disconnectServiceEntry(service: ServiceEntry) {
-    return runAction(`disconnect:${service.name}`, () => disconnectService(service.name), () => refreshServiceQueries(service.name, service.agent_id))
+  function disconnectServiceEntry(service: ServiceInstance) {
+    return runAction(
+      `disconnect:${service.instance_id}`,
+      () => disconnectInstance(service.instance_id),
+      () => refreshInstanceQueries(service.instance_id, service.scope),
+    )
   }
 
-  function restartServiceEntry(service: ServiceEntry) {
-    return runAction(`restart:${service.name}`, () => restartService(service.name), () => refreshServiceQueries(service.name, service.agent_id))
+  function restartServiceEntry(service: ServiceInstance) {
+    return runAction(
+      `restart:${service.instance_id}`,
+      () => restartInstance(service.instance_id),
+      () => refreshInstanceQueries(service.instance_id, service.scope),
+    )
   }
 
-  function removeServiceEntry(service: ServiceEntry) {
-    return runAction(`delete:${service.name}`, () => removeService(service.name), () => refreshServiceQueries(service.name, service.agent_id))
+  function removeServiceEntry(service: ServiceInstance) {
+    return runAction(
+      `delete:${service.instance_id}`,
+      () => removeServiceScope(service.service_name, service.scope),
+      () => refreshInstanceQueries(service.instance_id, service.scope),
+    )
   }
 
   return {

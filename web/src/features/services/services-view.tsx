@@ -8,35 +8,30 @@ import { ScrollPane } from "@/components/shared/scroll-pane"
 import { SearchBox } from "@/components/shared/search-box"
 import { SectionHeading } from "@/components/shared/section-heading"
 import { Button } from "@/components/ui/button"
-import { ServicesFilterDialog } from "@/features/services/services-filter-dialog"
 import { ServiceList } from "@/features/services/service-list"
 import { useServicesList } from "@/features/services/use-services-list"
-import type { AgentItem, CacheBackend, ServiceEntry } from "@/lib/api"
+import type { AgentItem, CacheBackend, ServiceInstance } from "@/lib/api"
 import { useI18n } from "@/lib/i18n-context"
 
 export function ServicesView(props: {
-  services: ServiceEntry[]
+  services: ServiceInstance[]
   agents: AgentItem[]
-  agentMap: Map<string, string>
   backend?: CacheBackend
   busy: string | null
   error: string | null
   loading: boolean
   onCache: () => void
   onCheck: () => void
-  onConnect: (service: ServiceEntry) => void
-  onDelete: (service: ServiceEntry) => void
-  onDisconnect: (service: ServiceEntry) => void
-  onOpen: (service: ServiceEntry) => void
+  onConnect: (service: ServiceInstance) => void
+  onDelete: (service: ServiceInstance) => void
+  onDisconnect: (service: ServiceInstance) => void
+  onOpen: (service: ServiceInstance) => void
   onRefresh: () => void
-  onRestart: (service: ServiceEntry) => void
+  onRestart: (service: ServiceInstance) => void
 }) {
   const { t } = useI18n()
-  const { agentFilter, agentIds, filteredServices, query, setAgentFilter, setQuery, totals } = useServicesList({
-    agents: props.agents,
-    agentMap: props.agentMap,
-    services: props.services,
-  })
+  const { filteredServices, query, setQuery, totals } = useServicesList(props.services)
+  const agentIds = props.agents.map((agent) => agent.agent_id)
 
   return (
     <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden">
@@ -66,7 +61,6 @@ export function ServicesView(props: {
           actions={
             <>
               <SearchBox placeholder={t("searchServices")} value={query} onChange={setQuery} />
-              <ServicesFilterDialog agentFilter={agentFilter} agentIds={agentIds} onAgentFilterChange={setAgentFilter} />
               <Button variant="outline" onClick={props.onCache}>
                 <DatabaseIcon data-icon="inline-start" />
                 {t("cache")}
@@ -79,7 +73,7 @@ export function ServicesView(props: {
           }
           actionsProps={{
             className:
-              "grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 md:justify-end",
+                "grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 md:justify-end",
           }}
         />
         <ScrollPane className="min-h-0 flex-1">

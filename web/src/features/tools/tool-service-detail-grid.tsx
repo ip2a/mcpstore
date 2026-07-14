@@ -2,7 +2,7 @@ import { MetaLine } from "@/components/shared/meta-line"
 import { useI18n } from "@/lib/i18n-context"
 import { formatDateTime } from "@/lib/format"
 import { findToolStatus, getToolOutputSchema, getToolSchema } from "@/lib/tool-info"
-import type { ServiceEntry, ServiceStatusReport, ToolInfo } from "@/lib/api"
+import type { ServiceInstance, InstanceStatus, ToolInfo } from "@/lib/api"
 
 export function ToolServiceDetailGrid({
   tool,
@@ -11,8 +11,8 @@ export function ToolServiceDetailGrid({
   sourceLabel,
 }: {
   tool: ToolInfo
-  service: ServiceEntry
-  statusReport?: ServiceStatusReport | null
+  service: ServiceInstance
+  statusReport?: InstanceStatus | null
   sourceLabel: string
 }) {
   const { t } = useI18n()
@@ -21,8 +21,9 @@ export function ToolServiceDetailGrid({
   const paramCount = Object.keys(schema.properties || {}).length
   const outputParamCount = Object.keys(outputSchema.properties || {}).length
   const toolStatus = findToolStatus(tool.name, statusReport)
-  const config = service.config as Record<string, unknown> | undefined
-  const configArgs = Array.isArray(config?.args) ? config.args.map(String).join(" ") : null
+  const config = service.effective_config
+  const configArgs = Array.isArray(config.args) ? config.args.map(String).join(" ") : null
+  const scopeLabel = service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`
 
   return (
     <div className="flex flex-col gap-4">
@@ -35,20 +36,19 @@ export function ToolServiceDetailGrid({
           <>
             <MetaLine label={t("health")} value={t("healthServiceRuntime", { status: statusReport.health_status || "-" })} valueClassName="font-mono capitalize" />
             <MetaLine label={t("toolStatusLabel")} value={t("toolStatusAvailability", { status: toolStatus?.status || t("unknown") })} valueClassName="font-mono capitalize" />
-            <MetaLine label={t("globalName")} value={`${toolStatus?.tool_global_name || tool.name} · ${t("registeredId")}`} valueClassName="font-mono" />
+            <MetaLine label={t("tool")} value={toolStatus?.tool_name || tool.name} valueClassName="font-mono" />
           </>
         ) : null}
-        <MetaLine label={t("name")} value={service.name} valueClassName="font-mono" />
-        <MetaLine label={t("original")} value={service.original_name || service.name} valueClassName="font-mono" />
-        <MetaLine label={t("status")} value={service.status || "-"} valueClassName="font-mono" />
-        <MetaLine label={t("transport")} value={String(service.transport || config?.transport || "-")} valueClassName="font-mono" />
-        <MetaLine label={t("command")} value={String(service.command || config?.command || "-")} valueClassName="font-mono" />
+        <MetaLine label="Instance ID" value={service.instance_id} valueClassName="font-mono" />
+        <MetaLine label={t("service")} value={service.service_name} valueClassName="font-mono" />
+        <MetaLine label={t("scope")} value={scopeLabel} valueClassName="font-mono" />
+        <MetaLine label={t("status")} value={service.status} valueClassName="font-mono" />
+        <MetaLine label={t("transport")} value={service.transport} valueClassName="font-mono" />
+        <MetaLine label={t("command")} value={service.command || "-"} valueClassName="font-mono" />
         {configArgs ? <MetaLine label={t("args")} value={configArgs} valueClassName="font-mono" /> : null}
         <MetaLine label={t("endpoint")} value={String(service.url || service.command || "-")} valueClassName="font-mono" />
-        <MetaLine label={t("agent")} value={String(service.agent_id || t("store"))} valueClassName="font-mono" />
         <MetaLine label={t("added")} value={formatDateTime(service.added_time)} valueClassName="font-mono" />
-        <MetaLine label={t("toolCount")} value={String(service.tool_count ?? service.tools?.length ?? "-")} valueClassName="font-mono" />
-        <MetaLine label={t("clientId")} value={String(service.client_id || "-")} valueClassName="font-mono" />
+        <MetaLine label={t("toolCount")} value={String(service.tools.length)} valueClassName="font-mono" />
       </div>
 
       {statusReport ? (
@@ -65,9 +65,7 @@ export function ToolServiceDetailGrid({
             <MetaLine label={t("errorRate")} value={statusReport.window_error_rate ?? "-"} valueClassName="font-mono" />
             <MetaLine label={t("latencyP95")} value={statusReport.latency_p95 ?? "-"} valueClassName="font-mono" />
             <MetaLine label={t("latencyP99")} value={statusReport.latency_p99 ?? "-"} valueClassName="font-mono" />
-            {toolStatus ? (
-              <MetaLine label={t("toolGlobal")} value={toolStatus.tool_global_name || "-"} valueClassName="font-mono" />
-            ) : null}
+            {toolStatus ? <MetaLine label={t("tool")} value={toolStatus.tool_name} valueClassName="font-mono" /> : null}
             {statusReport.current_error ? (
               <MetaLine label={t("currentError")} value={statusReport.current_error} destructive valueClassName="font-mono" />
             ) : null}
