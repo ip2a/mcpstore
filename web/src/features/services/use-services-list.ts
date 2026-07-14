@@ -1,34 +1,25 @@
 import { useMemo, useState } from "react"
 
-import { getAgentId } from "@/features/agents/model"
-import type { AgentItem, ServiceEntry } from "@/lib/api"
+import type { ServiceInstance } from "@/lib/api"
 
-export function useServicesList({ agents, agentMap, services }: { agents: AgentItem[]; agentMap: Map<string, string>; services: ServiceEntry[] }) {
-  const [agentFilter, setAgentFilter] = useState("store")
+export function useServicesList(services: ServiceInstance[]) {
   const [query, setQuery] = useState("")
-  const agentIds = agents.map(getAgentId).filter(Boolean)
   const filteredServices = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
     return services.filter((service) => {
-      const inAgent = agentFilter === "store" || agentMap.get(service.name) === agentFilter
-      const text = `${service.name} ${service.transport || ""} ${service.config?.description || ""}`.toLowerCase()
-      return inAgent && text.includes(query.trim().toLowerCase())
+      const description = String(service.effective_config.description || "")
+      const scope = service.scope.type === "store" ? "store" : `agent ${service.scope.agent_id}`
+      return `${service.service_name} ${service.instance_id} ${scope} ${service.transport} ${description}`
+        .toLowerCase()
+        .includes(normalizedQuery)
     })
-  }, [agentFilter, agentMap, services, query])
+  }, [services, query])
   const totals = useMemo(() => {
-    const count = (status: string) => filteredServices.filter((service) => service.status === status).length
     return {
       services: filteredServices.length,
-      connecting: count("Connecting"),
+      connecting: filteredServices.filter((service) => service.status === "connecting").length,
     }
   }, [filteredServices])
 
-  return {
-    agentFilter,
-    agentIds,
-    filteredServices,
-    query,
-    setAgentFilter,
-    setQuery,
-    totals,
-  }
+  return { filteredServices, query, setQuery, totals }
 }

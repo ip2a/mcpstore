@@ -15,7 +15,7 @@ import {
 } from "@/features/services/service-connection-button"
 import { EditServiceDialog } from "@/features/services/edit-service-dialog"
 import { useI18n } from "@/lib/i18n-context"
-import type { ServiceEntry } from "@/lib/api"
+import type { ServiceInstance } from "@/lib/api"
 
 function ServiceMoreActionsDialog({
   busy,
@@ -27,17 +27,17 @@ function ServiceMoreActionsDialog({
   service,
 }: {
   busy: string | null
-  onConnect: (service: ServiceEntry) => void
-  onDelete: (service: ServiceEntry) => void
-  onDisconnect: (service: ServiceEntry) => void
+  onConnect: (service: ServiceInstance) => void
+  onDelete: (service: ServiceInstance) => void
+  onDisconnect: (service: ServiceInstance) => void
   onOpenChange: (open: boolean) => void
-  onRestart: (service: ServiceEntry) => void
-  service: ServiceEntry | null
+  onRestart: (service: ServiceInstance) => void
+  service: ServiceInstance | null
 }) {
   const { t } = useI18n()
   const connected = service ? isServiceConnected(service.status) : false
-  const connecting = service ? isServiceConnecting(service.status, busy, service.name) : false
-  const disconnecting = service ? isServiceDisconnecting(busy, service.name) : false
+  const connecting = service ? isServiceConnecting(service.status, busy, service.instance_id) : false
+  const disconnecting = service ? isServiceDisconnecting(busy, service.instance_id) : false
 
   return (
     <Dialog open={Boolean(service)} onOpenChange={onOpenChange}>
@@ -45,7 +45,7 @@ function ServiceMoreActionsDialog({
         <DialogHeader>
           <DialogTitle>{t("serviceListMoreActions")}</DialogTitle>
           <DialogDescription>
-            {service ? t("serviceListMoreActionsDescription", { name: service.name }) : null}
+            {service ? t("serviceListMoreActionsDescription", { name: service.service_name }) : null}
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-2">
@@ -125,7 +125,6 @@ function ServiceMoreActionsDialog({
 }
 
 function ServiceRow({
-  agentMap,
   busy,
   onConnect,
   onDisconnect,
@@ -134,17 +133,16 @@ function ServiceRow({
   onOpen,
   service,
 }: {
-  agentMap: Map<string, string>
   busy: string | null
-  onConnect: (service: ServiceEntry) => void
-  onDisconnect: (service: ServiceEntry) => void
-  onEdit: (service: ServiceEntry) => void
-  onMore: (service: ServiceEntry) => void
-  onOpen: (service: ServiceEntry) => void
-  service: ServiceEntry
+  onConnect: (service: ServiceInstance) => void
+  onDisconnect: (service: ServiceInstance) => void
+  onEdit: (service: ServiceInstance) => void
+  onMore: (service: ServiceInstance) => void
+  onOpen: (service: ServiceInstance) => void
+  service: ServiceInstance
 }) {
   const { t } = useI18n()
-  const agent = agentMap.get(service.name) || service.agent_id || "store"
+  const scope = service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`
   const transport = service.transport || "-"
   const toolCount = service.tools?.length || 0
 
@@ -170,7 +168,7 @@ function ServiceRow({
             {t("edit")}
           </Button>
           <ServiceConnectionButtonForEntry busy={busy} service={service} onConnect={onConnect} onDisconnect={onDisconnect} />
-          <Button variant="outline" size="sm" aria-label={t("serviceListMoreActionsFor", { name: service.name })} onClick={() => onMore(service)}>
+          <Button variant="outline" size="sm" aria-label={t("serviceListMoreActionsFor", { name: service.service_name })} onClick={() => onMore(service)}>
             {t("more")}
           </Button>
         </>
@@ -179,11 +177,11 @@ function ServiceRow({
     >
       <div className="min-w-0">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
-          <span className="min-w-0 truncate font-semibold">{service.name}</span>
+          <span className="min-w-0 truncate font-semibold">{service.service_name}</span>
         </div>
         <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground">
           <Badge variant="outline" className="max-w-full font-mono">
-            <span className="truncate">{agent}</span>
+            <span className="truncate">{scope}</span>
           </Badge>
           <span className="shrink-0">{transport}</span>
           <ServiceStatusBadge status={service.status} />
@@ -195,26 +193,24 @@ function ServiceRow({
 }
 
 export function ServiceList(props: {
-  services: ServiceEntry[]
-  agentMap: Map<string, string>
+  services: ServiceInstance[]
   busy: string | null
-  onConnect: (service: ServiceEntry) => void
-  onDelete: (service: ServiceEntry) => void
-  onDisconnect: (service: ServiceEntry) => void
-  onOpen: (service: ServiceEntry) => void
+  onConnect: (service: ServiceInstance) => void
+  onDelete: (service: ServiceInstance) => void
+  onDisconnect: (service: ServiceInstance) => void
+  onOpen: (service: ServiceInstance) => void
   onRefresh: () => void
-  onRestart: (service: ServiceEntry) => void
+  onRestart: (service: ServiceInstance) => void
 }) {
-  const [moreService, setMoreService] = useState<ServiceEntry | null>(null)
-  const [editService, setEditService] = useState<ServiceEntry | null>(null)
+  const [moreService, setMoreService] = useState<ServiceInstance | null>(null)
+  const [editService, setEditService] = useState<ServiceInstance | null>(null)
 
   return (
     <>
       <div className="border-t">
         {props.services.map((service) => (
           <ServiceRow
-            key={service.name}
-            agentMap={props.agentMap}
+            key={service.instance_id}
             busy={props.busy}
             onConnect={props.onConnect}
             onDisconnect={props.onDisconnect}

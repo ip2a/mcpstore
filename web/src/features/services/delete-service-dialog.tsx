@@ -12,10 +12,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { useI18n } from "@/lib/i18n-context"
-import type { ServiceEntry } from "@/lib/api"
+import type { ServiceInstance } from "@/lib/api"
 
-export function DeleteServiceDialog({ service, onOpenChange, onConfirm }: { service: ServiceEntry | null; onOpenChange: (open: boolean) => void; onConfirm: (service: ServiceEntry) => void }) {
+export function DeleteServiceDialog({ service, onOpenChange, onConfirm }: { service: ServiceInstance | null; onOpenChange: (open: boolean) => void; onConfirm: (service: ServiceInstance) => void }) {
   const { t } = useI18n()
+  const serviceLabel = service
+    ? `${service.service_name} · ${service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`}`
+    : null
 
   return (
     <AlertDialog open={Boolean(service)} onOpenChange={onOpenChange}>
@@ -25,7 +28,7 @@ export function DeleteServiceDialog({ service, onOpenChange, onConfirm }: { serv
             <Trash2Icon />
           </AlertDialogMedia>
           <AlertDialogTitle>{t("deleteServiceTitle")}</AlertDialogTitle>
-          <AlertDialogDescription>{service ? t("deleteServiceDescription", { name: service.name }) : null}</AlertDialogDescription>
+          <AlertDialogDescription>{serviceLabel ? t("deleteServiceDescription", { name: serviceLabel }) : null}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>

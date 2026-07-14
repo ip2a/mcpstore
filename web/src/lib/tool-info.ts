@@ -9,7 +9,7 @@ export function getToolOutputSchema(tool: ToolInfo) {
 }
 
 export function getToolMeta(tool: ToolInfo) {
-  return tool.meta ?? tool._meta ?? null
+  return tool.meta ?? null
 }
 
 export function getToolAnnotations(tool: ToolInfo) {
@@ -43,16 +43,12 @@ export function parseToolDescription(description: string) {
   return { summary, sections }
 }
 
-export function getToolServiceName(tool: ToolInfo) {
-  return String(tool.service_name || tool.service || tool.server_name || "") || undefined
+export function toolKey(instanceId: string, tool: ToolInfo) {
+  return `${instanceId}:${tool.name}`
 }
 
-export function toolKey(tool: ToolInfo) {
-  return `${getToolServiceName(tool) || "tool"}:${tool.name}`
-}
-
-export function findToolStatus(toolName: string, statusReport?: { tools?: Array<{ tool_original_name?: string; status?: string; tool_global_name?: string }> } | null) {
-  return statusReport?.tools?.find((item) => item.tool_original_name === toolName)
+export function findToolStatus(toolName: string, statusReport?: { tools?: Array<{ tool_name: string; status: string }> } | null) {
+  return statusReport?.tools?.find((item) => item.tool_name === toolName)
 }
 
 type SchemaField = Record<string, unknown>

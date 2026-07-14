@@ -1,7 +1,7 @@
 import { useState } from "react"
 
 import type { ResetTarget } from "@/features/config/config-view"
-import { resetAgentConfig, resetConfig, type ServiceEntry } from "@/lib/api"
+import { resetAgentConfig, resetConfig, type ServiceInstance } from "@/lib/api"
 
 type RunAction = (
   label: string,
@@ -16,7 +16,7 @@ export function useAppConfirmations({
   refreshConfigQueries: (target: ResetTarget) => Promise<void>
   runAction: RunAction
 }) {
-  const [deleteTarget, setDeleteTarget] = useState<ServiceEntry | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<ServiceInstance | null>(null)
   const [resetTarget, setResetTarget] = useState<ResetTarget | null>(null)
 
   async function confirmReset(target: ResetTarget) {

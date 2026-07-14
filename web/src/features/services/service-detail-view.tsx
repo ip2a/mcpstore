@@ -49,12 +49,12 @@ import {
   resourceTemplateUri,
 } from "@/lib/resource-template-info"
 import {
-  readResource,
+  readInstanceResource,
   type PromptInfo,
   type ResourceInfo,
   type ResourceTemplateInfo,
-  type ServiceEntry,
-  type ServiceStatusReport,
+  type ServiceInstance,
+  type InstanceStatus,
   type ToolInfo,
 } from "@/lib/api"
 import { formatServiceLaunchLine } from "@/lib/service-info"
@@ -73,7 +73,7 @@ function promptKey(prompt: PromptInfo) {
 }
 
 function resourceMimeType(resource: ResourceInfo) {
-  return String(resource.mimeType || resource.mime_type || "").trim()
+  return String(resource.mimeType || "").trim()
 }
 
 function promptArgCount(prompt: PromptInfo) {
@@ -87,12 +87,12 @@ function promptArgCount(prompt: PromptInfo) {
 }
 
 export function ServiceDetailView(props: {
-  service: ServiceEntry
+  service: ServiceInstance
   busy: string | null
   refreshToken?: number
   onBack: () => void
   onRunTool: (tool: ToolInfo, args: Record<string, unknown>) => void
-  onToolDetail: (tool: ToolInfo, service: ServiceEntry, statusReport?: ServiceStatusReport | null) => void
+  onToolDetail: (tool: ToolInfo, service: ServiceInstance, statusReport?: InstanceStatus | null) => void
   onConnect: () => void
   onDisconnect: () => void
   onRestart: () => void
@@ -108,11 +108,11 @@ export function ServiceDetailView(props: {
   const [selectedPromptKey, setSelectedPromptKey] = useState<string | null>(null)
   const [statusDialogOpen, setStatusDialogOpen] = useState(false)
   const [toolSearchQuery, setToolSearchQuery] = useState("")
-  const detailQuery = useServiceDetailQuery(props.service.name)
-  const statusQuery = useServiceStatusQuery(props.service.name)
-  const resourcesQuery = useServiceResourcesQuery(props.service.name)
-  const resourceTemplatesQuery = useServiceResourceTemplatesQuery(props.service.name)
-  const promptsQuery = useServicePromptsQuery(props.service.name)
+  const detailQuery = useServiceDetailQuery(props.service.instance_id)
+  const statusQuery = useServiceStatusQuery(props.service.instance_id)
+  const resourcesQuery = useServiceResourcesQuery(props.service.instance_id)
+  const resourceTemplatesQuery = useServiceResourceTemplatesQuery(props.service.instance_id)
+  const promptsQuery = useServicePromptsQuery(props.service.instance_id)
   const detail = detailQuery.data
   const statusReport = statusQuery.data
   const error = detailQuery.error || detailError
@@ -134,16 +134,16 @@ export function ServiceDetailView(props: {
   const resources = resourcesQuery.data || []
   const resourceTemplates = resourceTemplatesQuery.data || []
   const prompts = promptsQuery.data || []
-  const serviceConfig = service.config as Record<string, unknown> | undefined
-  const transport = String(service.transport || serviceConfig?.transport || "unknown")
+  const serviceConfig = service.effective_config
+  const transport = service.transport
   const launchLine = formatServiceLaunchLine(service)
   const description = String(serviceConfig?.description || "").trim()
   const configArgs = Array.isArray(serviceConfig?.args) ? serviceConfig.args.map(String).join(" ") : null
   const availableToolCount = statusReport?.tools?.filter((item) => item.status === "available").length
   const selectedTool = useMemo(() => {
     if (!tools.length) return null
-    return tools.find((tool) => toolKey(tool) === selectedToolKey) || tools[0]
-  }, [selectedToolKey, tools])
+    return tools.find((tool) => toolKey(service.instance_id, tool) === selectedToolKey) || tools[0]
+  }, [selectedToolKey, service.instance_id, tools])
   const selectedResource = useMemo(() => {
     if (!resources.length) return null
     return resources.find((resource) => resourceKey(resource) === selectedResourceKey) || resources[0]
@@ -163,10 +163,10 @@ export function ServiceDetailView(props: {
       setSelectedToolKey(null)
       return
     }
-    if (!selectedToolKey || !tools.some((tool) => toolKey(tool) === selectedToolKey)) {
-      setSelectedToolKey(toolKey(tools[0]))
+    if (!selectedToolKey || !tools.some((tool) => toolKey(service.instance_id, tool) === selectedToolKey)) {
+      setSelectedToolKey(toolKey(service.instance_id, tools[0]))
     }
-  }, [selectedToolKey, tools])
+  }, [selectedToolKey, service.instance_id, tools])
 
   useEffect(() => {
     if (!resources.length) {
@@ -219,11 +219,11 @@ export function ServiceDetailView(props: {
   useEffect(() => {
     setRightPaneView("service")
     setToolSearchQuery("")
-  }, [props.service.name])
+  }, [props.service.instance_id])
 
   useEffect(() => {
     void loadDetail()
-  }, [props.refreshToken, props.service.name])
+  }, [props.refreshToken, props.service.instance_id])
 
   return (
     <>
@@ -239,9 +239,9 @@ export function ServiceDetailView(props: {
                   "mt-1 block max-w-full cursor-pointer truncate border-0 bg-transparent p-0 text-left text-lg font-semibold underline-offset-4 outline-none transition-opacity",
                   "hover:underline active:opacity-70",
                 )}
-                title={service.name}
+                title={service.service_name}
               >
-                {service.name}
+                {service.service_name}
               </button>
               <p className="mt-1 truncate font-mono text-xs text-muted-foreground" title={launchLine}>
                 {launchLine}
@@ -283,7 +283,7 @@ export function ServiceDetailView(props: {
                 filteredTools.length ? (
                   <ScrollPane className="flex-1" innerClassName="flex flex-col gap-2">
                     {filteredTools.map((tool) => {
-                      const key = toolKey(tool)
+                      const key = toolKey(service.instance_id, tool)
                       const schema = getToolSchema(tool) as { properties?: Record<string, unknown>; required?: string[] }
                       const paramCount = Object.keys(schema.properties || {}).length
                       return (
@@ -294,7 +294,7 @@ export function ServiceDetailView(props: {
                             setSelectedToolKey(key)
                             setRightPaneView("catalog")
                           }}
-                          selected={rightPaneView === "catalog" && key === toolKey(selectedTool || tool)}
+                          selected={rightPaneView === "catalog" && key === toolKey(service.instance_id, selectedTool || tool)}
                           title={tool.name}
                           trailing={schema.required?.length ? <Badge variant="outline">{schema.required.length}</Badge> : null}
                         />
@@ -404,7 +404,7 @@ export function ServiceDetailView(props: {
             resourceCount={resources.length}
             templateCount={resourceTemplates.length}
             promptCount={prompts.length}
-            serviceName={service.name}
+            instanceId={service.instance_id}
             onRefresh={loadDetail}
             onRun={
               rightPaneView === "catalog" && activeTab === "tools" && selectedTool
@@ -427,9 +427,9 @@ export function ServiceDetailView(props: {
               <MetricTile
                 variant="compact"
                 label={t("name")}
-                value={service.name}
-                title={service.name}
-                hint={String(service.client_id || service.agent_id || t("globalService")).toLowerCase()}
+                value={service.service_name}
+                title={service.service_name}
+                hint={service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`}
               />
               <MetricTile
                 variant="compact"
@@ -487,7 +487,7 @@ export function ServiceDetailView(props: {
               )
             ) : activeTab === "resources" ? (
               selectedResource ? (
-                <ServiceResourceDetailPane resource={selectedResource} serviceName={service.name} />
+                <ServiceResourceDetailPane resource={selectedResource} instanceId={service.instance_id} />
               ) : (
                 <PageEmpty title={t("noResourceSelected")} description={t("noResourceSelectedDescription")} onRefresh={loadDetail} />
               )
@@ -534,7 +534,7 @@ function ServicePreviewHeader({
   resourceCount,
   templateCount,
   promptCount,
-  serviceName,
+  instanceId,
   onRefresh,
   onRun,
   onDetail,
@@ -544,7 +544,7 @@ function ServicePreviewHeader({
   rightPaneView: RightPaneView
   activeTab: CatalogTab
   loading: boolean
-  service: ServiceEntry
+  service: ServiceInstance
   selectedTool: ToolInfo | null
   selectedResource: ResourceInfo | null
   selectedTemplate: ResourceTemplateInfo | null
@@ -553,7 +553,7 @@ function ServicePreviewHeader({
   resourceCount: number
   templateCount: number
   promptCount: number
-  serviceName: string
+  instanceId: string
   onRefresh: () => void
   onRun?: () => void
   onDetail?: () => void
@@ -563,7 +563,7 @@ function ServicePreviewHeader({
   const { t } = useI18n()
   const title =
     rightPaneView === "service"
-      ? service.name
+      ? service.service_name
       : activeTab === "tools"
         ? selectedTool?.name || t("toolsAvailable", { count: toolCount })
         : activeTab === "resources"
@@ -592,7 +592,7 @@ function ServicePreviewHeader({
   async function onReadResource() {
     if (!selectedResource) return
     try {
-      const result = await readResource(selectedResource.uri, serviceName)
+      const result = await readInstanceResource(instanceId, selectedResource.uri)
       await navigator.clipboard.writeText(JSON.stringify(result, null, 2))
       toast.success(t("resourceContentCopied"))
     } catch (err) {
@@ -665,14 +665,14 @@ function ServiceOverviewPane({
   availableToolCount,
   statusReport,
 }: {
-  service: ServiceEntry
+  service: ServiceInstance
   description: string
   transport: string
   launchLine: string
   configArgs: string | null
   endpoint: string
   availableToolCount: number | undefined
-  statusReport: ServiceStatusReport | null | undefined
+  statusReport: InstanceStatus | null | undefined
 }) {
   const { t } = useI18n()
 
@@ -683,7 +683,17 @@ function ServiceOverviewPane({
         <dl className="grid gap-3 text-sm">
           <div className="grid gap-1">
             <dt className="text-muted-foreground">{t("name")}</dt>
-            <dd className="font-mono">{service.name}</dd>
+            <dd className="font-mono">{service.service_name}</dd>
+          </div>
+          <div className="grid gap-1">
+            <dt className="text-muted-foreground">Instance ID</dt>
+            <dd className="break-all font-mono">{service.instance_id}</dd>
+          </div>
+          <div className="grid gap-1">
+            <dt className="text-muted-foreground">{t("agentScope")}</dt>
+            <dd className="font-mono">
+              {service.scope.type === "store" ? t("store") : `${t("agent")} ${service.scope.agent_id}`}
+            </dd>
           </div>
           {description ? (
             <div className="grid gap-1">
@@ -760,7 +770,7 @@ function ServiceToolDetailPane({
   )
 }
 
-function ServiceResourceDetailPane({ resource, serviceName }: { resource: ResourceInfo; serviceName: string }) {
+function ServiceResourceDetailPane({ resource, instanceId }: { resource: ResourceInfo; instanceId: string }) {
   const { t } = useI18n()
   const [content, setContent] = useState<unknown>(null)
   const [reading, setReading] = useState(false)
@@ -769,7 +779,7 @@ function ServiceResourceDetailPane({ resource, serviceName }: { resource: Resour
   async function onRead() {
     setReading(true)
     try {
-      const result = await readResource(resource.uri, serviceName)
+      const result = await readInstanceResource(instanceId, resource.uri)
       setContent(result)
     } catch (err) {
       const message = err instanceof Error ? err.message : t("readResourceFailed")

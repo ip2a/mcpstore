@@ -3,23 +3,23 @@ import { LinkIcon, UnlinkIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { useI18n } from "@/lib/i18n-context"
-import type { ConnectionStatus, ServiceEntry } from "@/lib/api"
+import type { ConnectionStatus, ServiceInstance } from "@/lib/api"
 
 export function isServiceConnected(status?: ConnectionStatus) {
   return status?.toLowerCase() === "connected"
 }
 
-export function isServiceConnecting(status?: ConnectionStatus, busy?: string | null, serviceName?: string) {
-  return status?.toLowerCase() === "connecting" || Boolean(serviceName && busy === `connect:${serviceName}`)
+export function isServiceConnecting(status?: ConnectionStatus, busy?: string | null, instanceId?: string) {
+  return status === "connecting" || Boolean(instanceId && busy === `connect:${instanceId}`)
 }
 
-export function isServiceDisconnecting(busy?: string | null, serviceName?: string) {
-  return Boolean(serviceName && busy === `disconnect:${serviceName}`)
+export function isServiceDisconnecting(busy?: string | null, instanceId?: string) {
+  return Boolean(instanceId && busy === `disconnect:${instanceId}`)
 }
 
 export function ServiceConnectionButton({
   busy,
-  serviceName,
+  instanceId,
   status,
   onConnect,
   onDisconnect,
@@ -27,7 +27,7 @@ export function ServiceConnectionButton({
   variant = "outline",
 }: {
   busy: string | null
-  serviceName: string
+  instanceId: string
   status?: ConnectionStatus
   onConnect: () => void
   onDisconnect: () => void
@@ -36,8 +36,8 @@ export function ServiceConnectionButton({
 }) {
   const { t } = useI18n()
   const connected = isServiceConnected(status)
-  const connecting = isServiceConnecting(status, busy, serviceName)
-  const disconnecting = isServiceDisconnecting(busy, serviceName)
+  const connecting = isServiceConnecting(status, busy, instanceId)
+  const disconnecting = isServiceDisconnecting(busy, instanceId)
 
   if (connected) {
     return (
@@ -74,16 +74,16 @@ export function ServiceConnectionButtonForEntry({
   variant = "outline",
 }: {
   busy: string | null
-  service: ServiceEntry
-  onConnect: (service: ServiceEntry) => void
-  onDisconnect: (service: ServiceEntry) => void
+  service: ServiceInstance
+  onConnect: (service: ServiceInstance) => void
+  onDisconnect: (service: ServiceInstance) => void
   size?: "default" | "sm" | "lg" | "icon"
   variant?: "default" | "outline" | "destructive" | "secondary" | "ghost" | "link"
 }) {
   return (
     <ServiceConnectionButton
       busy={busy}
-      serviceName={service.name}
+      instanceId={service.instance_id}
       status={service.status}
       onConnect={() => onConnect(service)}
       onDisconnect={() => onDisconnect(service)}

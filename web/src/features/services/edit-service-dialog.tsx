@@ -3,16 +3,19 @@ import { useState } from "react"
 import { EditServiceForm } from "@/features/services/edit-service-form"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useI18n } from "@/lib/i18n-context"
-import type { ServiceEntry } from "@/lib/api"
+import type { ServiceInstance } from "@/lib/api"
 
 export function EditServiceDialog(props: {
   onOpenChange: (open: boolean) => void
   onUpdated: () => Promise<void>
   open: boolean
-  service: ServiceEntry | null
+  service: ServiceInstance | null
 }) {
   const { t } = useI18n()
   const [session, setSession] = useState(0)
+  const serviceLabel = props.service
+    ? `${props.service.service_name} · ${props.service.scope.type === "store" ? t("store") : `${t("agent")} ${props.service.scope.agent_id}`}`
+    : null
 
   function onOpenChange(next: boolean) {
     props.onOpenChange(next)
@@ -24,12 +27,12 @@ export function EditServiceDialog(props: {
       <DialogContent className="flex max-h-[min(90vh,48rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
         <DialogHeader className="border-b px-6 py-4">
           <DialogTitle>{t("editService")}</DialogTitle>
-          <DialogDescription>{props.service ? t("editServiceDescription", { name: props.service.name }) : null}</DialogDescription>
+          <DialogDescription>{serviceLabel ? t("editServiceDescription", { name: serviceLabel }) : null}</DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
           {props.service ? (
             <EditServiceForm
-              key={`${props.service.name}:${session}`}
+              key={`${props.service.instance_id}:${session}`}
               service={props.service}
               onUpdated={props.onUpdated}
               onCancel={() => props.onOpenChange(false)}

@@ -14,10 +14,10 @@ export type AppView =
   | { name: "tools" }
   | { name: "config" }
   | { name: "cache" }
-  | { name: "service"; serviceName: string }
+  | { name: "instance"; instanceId: string }
 
 export type NavItem = {
-  view: Exclude<AppView, { name: "service" }>
+  view: Exclude<AppView, { name: "instance" }>
   label: string
   icon: LucideIcon
 }
@@ -35,7 +35,7 @@ export function useNavItems(): NavItem[] {
 
 export function useViewTitle(view: AppView): string {
   const { t } = useI18n()
-  if (view.name === "service") return view.serviceName
   const items = useNavItems()
+  if (view.name === "instance") return view.instanceId
   return items.find((item) => item.view.name === view.name)?.label || t("navServices")
 }
