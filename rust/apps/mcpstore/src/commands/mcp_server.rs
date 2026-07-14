@@ -1,9 +1,8 @@
 use clap::{Args, ValueEnum};
 use mcpstore::mcp_server::{
     McpServerOptions as CoreMcpServerOptions, McpServerTransport as CoreMcpServerTransport,
-    Scope as CoreScope,
 };
-use mcpstore::{CacheStorage, SourceMode};
+use mcpstore::{CacheStorage, InstanceId, ScopeRef, SourceMode};
 
 use crate::{
     commands::mcp::Scope,
@@ -35,11 +34,8 @@ pub struct McpServerArgs {
     pub scope: Scope,
     #[arg(long, help = "Agent ID, only used with --scope agent")]
     pub agent: Option<String>,
-    #[arg(
-        long,
-        help = "Optional service name to expose within the selected store or agent scope"
-    )]
-    pub service: Option<String>,
+    #[arg(long, help = "Optional service instance ID to expose")]
+    pub instance_id: Option<InstanceId>,
     #[arg(
         long,
         value_enum,
@@ -119,11 +115,15 @@ impl McpServerArgs {
             redis_url: self.store.redis_url.clone(),
             namespace: self.store.namespace.clone(),
             scope: match self.scope {
-                Scope::Store | Scope::Project => CoreScope::Store,
-                Scope::Agent => CoreScope::Agent,
+                Scope::Store => ScopeRef::Store,
+                Scope::Agent => ScopeRef::Agent {
+                    agent_id: self
+                        .agent
+                        .clone()
+                        .expect("--agent is required when using --scope agent"),
+                },
             },
-            agent: self.agent.clone(),
-            service: self.service.clone(),
+            instance_id: self.instance_id,
             transport: self.transport.to_core(),
             host: self.host.clone(),
             port: self.port,

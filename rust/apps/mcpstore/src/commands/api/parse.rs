@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use mcpstore::{config::ServerConfig, CacheStorage};
+use mcpstore::CacheStorage;
 use serde_json::{json, Value};
 
 use super::envelope::{ApiError, ApiResult};
@@ -24,45 +24,6 @@ pub(super) fn normalize_prefix(prefix: &str) -> String {
 
 pub(super) fn cache_storage_label(cache_storage: CacheStorage) -> &'static str {
     cache_storage.as_str()
-}
-
-pub(super) fn parse_named_service_payload(
-    payload: Value,
-) -> ApiResult<Vec<(String, ServerConfig)>> {
-    let object = payload
-        .as_object()
-        .ok_or_else(|| ApiError::invalid_request("服务配置必须是 JSON 对象"))?;
-
-    if let Some(servers) = object.get("mcpServers") {
-        let servers = servers.as_object().ok_or_else(|| {
-            ApiError::invalid_parameter("mcpServers 必须是对象", Some("mcpServers"))
-        })?;
-        let mut items = Vec::with_capacity(servers.len());
-        for (name, config_value) in servers {
-            let config: ServerConfig =
-                serde_json::from_value(config_value.clone()).map_err(|error| {
-                    ApiError::invalid_parameter(
-                        format!("服务配置解析失败: {error}"),
-                        Some(name.as_str()),
-                    )
-                })?;
-            items.push((name.clone(), config));
-        }
-        return Ok(items);
-    }
-
-    let name = object
-        .get("name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| ApiError::missing_parameter("name"))?;
-
-    let mut config_object = object.clone();
-    config_object.remove("name");
-    let config: ServerConfig =
-        serde_json::from_value(Value::Object(config_object)).map_err(|error| {
-            ApiError::invalid_parameter(format!("服务配置解析失败: {error}"), Some("name"))
-        })?;
-    Ok(vec![(name.to_string(), config)])
 }
 
 pub(super) fn extract_tool_name(payload: &Value) -> ApiResult<String> {
@@ -120,17 +81,6 @@ pub(super) fn extract_prompt_args(payload: &Value) -> ApiResult<Value> {
     }
 }
 
-pub(super) fn ensure_json_object(payload: Value, field: &'static str) -> ApiResult<Value> {
-    if payload.is_object() {
-        Ok(payload)
-    } else {
-        Err(ApiError::invalid_parameter(
-            "payload 必须是 JSON 对象",
-            Some(field),
-        ))
-    }
-}
-
 pub(super) fn parse_positive_u64(value: &str) -> ApiResult<u64> {
     value
         .parse::<u64>()
@@ -170,48 +120,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_single_service_payload() {
-        let payload = json!({
-            "name": "svc",
-            "command": "echo",
-            "args": ["ok"],
-            "transport": "stdio",
-        });
-
-        let services = parse_named_service_payload(payload).unwrap();
-        assert_eq!(services.len(), 1);
-        assert_eq!(services[0].0, "svc");
-        assert_eq!(services[0].1.command.as_deref(), Some("echo"));
-    }
-
-    #[test]
-    fn parse_batch_service_payload() {
-        let payload = json!({
-            "mcpServers": {
-                "svc-a": {
-                    "command": "echo",
-                    "args": ["a"],
-                    "transport": "stdio"
-                },
-                "svc-b": {
-                    "url": "https://example.com/mcp",
-                    "transport": "http"
-                }
-            }
-        });
-
-        let mut services = parse_named_service_payload(payload).unwrap();
-        services.sort_by(|left, right| left.0.cmp(&right.0));
-        assert_eq!(services.len(), 2);
-        assert_eq!(services[0].0, "svc-a");
-        assert_eq!(services[1].0, "svc-b");
-        assert_eq!(
-            services[1].1.url.as_deref(),
-            Some("https://example.com/mcp")
-        );
-    }
-
-    #[test]
     fn extract_tool_args_requires_object() {
         let error = extract_tool_args(&json!({ "args": [] })).unwrap_err();
         assert_eq!(error.status, StatusCode::BAD_REQUEST);
@@ -229,13 +137,6 @@ mod tests {
             CacheStorage::OpenKeyvRedis
         ));
         assert!(parse_cache_storage("unknown").is_err());
-    }
-
-    #[test]
-    fn ensure_json_object_rejects_non_objects() {
-        assert!(ensure_json_object(json!({"ok": true}), "payload").is_ok());
-        let error = ensure_json_object(json!(["bad"]), "payload").unwrap_err();
-        assert_eq!(error.status, StatusCode::BAD_REQUEST);
     }
 
     #[test]

@@ -3,8 +3,8 @@ use axum::{
     response::{Html, IntoResponse, Redirect},
 };
 use maud::html;
-use mcpstore::config::ServerConfig;
-use mcpstore::{CacheStorage, MCPStore};
+use mcpstore::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig};
+use mcpstore::{CacheStorage, InstanceId, MCPStore, ScopeRef};
 use std::{collections::HashMap, sync::Arc};
 
 use super::{
@@ -15,9 +15,9 @@ use super::{
 
 pub(super) async fn action_connect(
     State(store): State<Arc<MCPStore>>,
-    Path(name): Path<String>,
+    Path(instance_id): Path<InstanceId>,
 ) -> impl IntoResponse {
-    match store.connect_service(&name).await {
+    match store.connect_service(instance_id).await {
         Ok(_) => Redirect::to("/").into_response(),
         Err(e) => Html(layout("mcpstore - Error", error_markup(&e.to_string())).into_string())
             .into_response(),
@@ -26,9 +26,9 @@ pub(super) async fn action_connect(
 
 pub(super) async fn action_disconnect(
     State(store): State<Arc<MCPStore>>,
-    Path(name): Path<String>,
+    Path(instance_id): Path<InstanceId>,
 ) -> impl IntoResponse {
-    match store.disconnect_service(&name).await {
+    match store.disconnect_service(instance_id).await {
         Ok(_) => Redirect::to("/").into_response(),
         Err(e) => Html(layout("mcpstore - Error", error_markup(&e.to_string())).into_string())
             .into_response(),
@@ -37,9 +37,9 @@ pub(super) async fn action_disconnect(
 
 pub(super) async fn action_restart(
     State(store): State<Arc<MCPStore>>,
-    Path(name): Path<String>,
+    Path(instance_id): Path<InstanceId>,
 ) -> impl IntoResponse {
-    match store.restart_service(&name).await {
+    match store.restart_service(instance_id).await {
         Ok(_) => Redirect::to("/").into_response(),
         Err(e) => Html(layout("mcpstore - Error", error_markup(&e.to_string())).into_string())
             .into_response(),
@@ -48,9 +48,22 @@ pub(super) async fn action_restart(
 
 pub(super) async fn action_remove(
     State(store): State<Arc<MCPStore>>,
-    Path(name): Path<String>,
+    Path(instance_id): Path<InstanceId>,
 ) -> impl IntoResponse {
-    match store.remove_service(&name).await {
+    let Some(instance) = store.find_instance(instance_id).await else {
+        return Html(
+            layout(
+                "mcpstore - Error",
+                error_markup("Service instance not found"),
+            )
+            .into_string(),
+        )
+        .into_response();
+    };
+    match store
+        .remove_service_scope(&instance.service_name, &instance.scope)
+        .await
+    {
         Ok(_) => Redirect::to("/").into_response(),
         Err(e) => Html(layout("mcpstore - Error", error_markup(&e.to_string())).into_string())
             .into_response(),
@@ -129,12 +142,12 @@ pub(super) async fn modal_switch_cache_storage(
 }
 
 pub(super) async fn modal_call_tool_form(
-    Path((service_name, tool_name)): Path<(String, String)>,
+    Path((instance_id, tool_name)): Path<(InstanceId, String)>,
 ) -> impl IntoResponse {
-    let service_segment = url_component(&service_name);
+    let instance_segment = instance_id.to_string();
     let tool_segment = url_component(&tool_name);
     let body = html! {
-        form.modal-form method="get" action=(format!("/modal/call-tool/{service_segment}/{tool_segment}/exec")) {
+        form.modal-form method="get" action=(format!("/modal/call-tool/{instance_segment}/{tool_segment}/exec")) {
             div.field {
                 label for="field-args" { "Args JSON" }
                 textarea id="field-args" name="args" placeholder="{}" { "{}" }
@@ -149,7 +162,7 @@ pub(super) async fn modal_call_tool_form(
     Html(
         modal_frame(
             &format!("Run tool: {tool_name}"),
-            Some(&format!("Service: {service_name}")),
+            Some(&format!("Instance: {instance_id}")),
             body,
             None,
         )
@@ -159,7 +172,7 @@ pub(super) async fn modal_call_tool_form(
 
 pub(super) async fn modal_call_tool_exec(
     State(store): State<Arc<MCPStore>>,
-    Path((service_name, tool_name)): Path<(String, String)>,
+    Path((instance_id, tool_name)): Path<(InstanceId, String)>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let args_str = params
@@ -182,7 +195,7 @@ pub(super) async fn modal_call_tool_exec(
         }
     };
 
-    match store.call_tool(&service_name, &tool_name, args).await {
+    match store.call_tool(instance_id, &tool_name, args).await {
         Ok(result) => {
             let result_json = pretty_json(&result);
             let body = html! {
@@ -193,7 +206,7 @@ pub(super) async fn modal_call_tool_exec(
             Html(
                 modal_frame(
                     "Result",
-                    Some(&format!("{service_name}.{tool_name}")),
+                    Some(&format!("{instance_id}.{tool_name}")),
                     body,
                     Some(html! { button.button.button-primary type="button" onclick="closeModal()" { "Close" } }),
                 )
@@ -209,9 +222,9 @@ pub(super) async fn modal_call_tool_exec(
 
 pub(super) async fn modal_tool_detail(
     State(store): State<Arc<MCPStore>>,
-    Path((service_name, tool_name)): Path<(String, String)>,
+    Path((instance_id, tool_name)): Path<(InstanceId, String)>,
 ) -> impl IntoResponse {
-    let svc = match store.find_service(&service_name).await {
+    let svc = match store.find_instance(instance_id).await {
         Some(s) => s,
         None => return Html(modal_notice("Error", "Service not found").into_string()),
     };
@@ -238,7 +251,7 @@ pub(super) async fn modal_tool_detail(
     Html(
         modal_frame(
             &tool.name,
-            Some(&format!("{service_name}.{tool_name}")),
+            Some(&format!("{}.{tool_name}", svc.service_name)),
             body,
             Some(html! { button.button.button-primary type="button" onclick="closeModal()" { "Close" } }),
         )
@@ -312,7 +325,7 @@ pub(super) async fn action_add_exec(
         (None, Vec::new())
     };
 
-    let config = ServerConfig {
+    let mut config = ServerConfig {
         url: if is_stdio {
             None
         } else {
@@ -326,21 +339,62 @@ pub(super) async fn action_add_exec(
         working_dir: trim_optional(params.get("working_dir")),
         description: trim_optional(params.get("description")),
         mcpstore: None,
+        extra: Default::default(),
     };
 
-    match store.add_service(&name, config).await {
-        Ok(_) => {}
-        Err(e) => {
-            return Html(layout("mcpstore - Error", error_markup(&e.to_string())).into_string())
-                .into_response();
+    let target_scope = match agent {
+        Some(agent_id) => ScopeRef::Agent { agent_id },
+        None => ScopeRef::Store,
+    };
+    let definitions = match store.show_config_entry().await {
+        Ok(config) => config.mcp_servers,
+        Err(error) => {
+            return Html(
+                layout("mcpstore - Error", error_markup(&error.to_string())).into_string(),
+            )
+            .into_response();
         }
-    }
+    };
 
-    if let Some(agent_id) = agent {
-        if let Err(e) = assign_service_to_agent_scope(&store, &agent_id, &name).await {
-            return Html(layout("mcpstore - Error", error_markup(&e)).into_string())
-                .into_response();
+    let result = if definitions.contains_key(&name) {
+        let mut override_config = match serde_json::to_value(&config) {
+            Ok(serde_json::Value::Object(config)) => config,
+            Ok(_) => return form_error("Service config must be a JSON object"),
+            Err(error) => return form_error(&error.to_string()),
+        };
+        override_config.remove("_mcpstore");
+        store
+            .declare_service_scope(
+                &name,
+                &target_scope,
+                ScopeDescriptor {
+                    config: override_config,
+                    lifecycle: None,
+                    revision: 0,
+                },
+            )
+            .await
+            .map(|_| ())
+    } else {
+        let mut scopes = ScopeDeclarations::default();
+        match &target_scope {
+            ScopeRef::Store => scopes.store = Some(ScopeDescriptor::default()),
+            ScopeRef::Agent { agent_id } => {
+                scopes
+                    .agents
+                    .insert(agent_id.clone(), ScopeDescriptor::default());
+            }
         }
+        config.mcpstore = Some(McpStoreExtension {
+            scopes,
+            ..McpStoreExtension::default()
+        });
+        store.add_service(&name, config).await
+    };
+
+    if let Err(error) = result {
+        return Html(layout("mcpstore - Error", error_markup(&error.to_string())).into_string())
+            .into_response();
     }
 
     Redirect::to("/").into_response()
@@ -348,26 +402,4 @@ pub(super) async fn action_add_exec(
 
 fn form_error(msg: &str) -> axum::response::Response {
     Html(layout("mcpstore - Error", error_markup(msg)).into_string()).into_response()
-}
-
-async fn assign_service_to_agent_scope(
-    store: &MCPStore,
-    agent_id: &str,
-    service_name: &str,
-) -> Result<(), String> {
-    store
-        .assign_service_to_agent(agent_id, service_name)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if store.is_db_source() {
-        return Ok(());
-    }
-
-    let mut cfg = store.config_manager().load_or_default();
-    let services = cfg.agents.entry(agent_id.to_string()).or_default();
-    if !services.iter().any(|name| name == service_name) {
-        services.push(service_name.to_string());
-    }
-    store.config_manager().save(&cfg).map_err(|e| e.to_string())
 }

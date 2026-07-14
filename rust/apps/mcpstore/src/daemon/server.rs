@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use mcpstore::config::ServerConfig;
-use mcpstore::MCPStore;
+use mcpstore::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig};
+use mcpstore::{InstanceId, MCPStore, ScopeRef};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
@@ -129,7 +129,8 @@ async fn dispatch(
 ) -> DaemonResponse {
     match req.method.as_str() {
         "add_service" => handle_add_service(&store, req.params).await,
-        "remove_service" => handle_remove_service(&store, req.params).await,
+        "remove_service_scope" => handle_remove_service_scope(&store, req.params).await,
+        "declare_service_scope" => handle_declare_service_scope(&store, req.params).await,
         "connect_service" => handle_connect_service(&store, req.params).await,
         "disconnect_service" => handle_disconnect_service(&store, req.params).await,
         "restart_service" => handle_restart_service(&store, req.params).await,
@@ -139,8 +140,6 @@ async fn dispatch(
         "call_tool" => handle_call_tool(&store, req.params).await,
         "check_service" => handle_check_service(&store, req.params).await,
         "wait_service" => handle_wait_service(&store, req.params).await,
-        "assign_service" => handle_assign_service(&store, req.params).await,
-        "unassign_service" => handle_unassign_service(&store, req.params).await,
         "list_agents" => handle_list_agents(&store, req.params).await,
         "show_config" => handle_show_config(&store, req.params).await,
         "reset_config" => handle_reset_config(&store, req.params).await,
@@ -157,31 +156,114 @@ async fn dispatch(
 
 async fn handle_add_service(store: &MCPStore, params: Value) -> DaemonResponse {
     let name = get_str(&params, "name");
-    let config: ServerConfig = match serde_json::from_value(get_field(&params, "config")) {
+    let mut config: ServerConfig = match serde_json::from_value(get_field(&params, "config")) {
         Ok(c) => c,
         Err(e) => return DaemonResponse::err(format!("Invalid config: {}", e)),
     };
-    match store.add_service(&name, config).await {
-        Ok(()) => DaemonResponse::ok(Some(json!({"name": name}))),
+    let scope: ScopeRef = match serde_json::from_value(get_field(&params, "scope")) {
+        Ok(scope) => scope,
+        Err(e) => return DaemonResponse::err(format!("Invalid scope: {e}")),
+    };
+    if let ScopeRef::Agent { agent_id } = &scope {
+        let previous = config.mcpstore.take();
+        let mut scopes = ScopeDeclarations::default();
+        scopes
+            .agents
+            .insert(agent_id.clone(), ScopeDescriptor::default());
+        config.mcpstore = Some(McpStoreExtension {
+            scopes,
+            lifecycle: previous
+                .as_ref()
+                .and_then(|extension| extension.lifecycle.clone()),
+            revision: previous
+                .as_ref()
+                .map(|extension| extension.revision)
+                .unwrap_or(1)
+                .max(1),
+            extra: previous
+                .map(|extension| extension.extra)
+                .unwrap_or_default(),
+        });
+    }
+    let definition_exists = match store.get_definition_config(&name).await {
+        Ok(config) => config.is_some(),
+        Err(error) => return DaemonResponse::err(error.to_string()),
+    };
+    let result = if definition_exists {
+        let lifecycle = config
+            .mcpstore
+            .as_ref()
+            .and_then(|extension| extension.lifecycle.clone());
+        store
+            .declare_service_scope(
+                &name,
+                &scope,
+                ScopeDescriptor {
+                    config: config.base_config(),
+                    lifecycle,
+                    revision: 0,
+                },
+            )
+            .await
+            .map(|_| ())
+    } else {
+        store.add_service(&name, config).await
+    };
+    match result {
+        Ok(()) => DaemonResponse::ok(Some(json!({"service_name": name, "scope": scope}))),
+        Err(error) => DaemonResponse::err(error.to_string()),
+    }
+}
+
+async fn handle_remove_service_scope(store: &MCPStore, params: Value) -> DaemonResponse {
+    let service_name = get_str(&params, "service_name");
+    let scope: ScopeRef = match serde_json::from_value(get_field(&params, "scope")) {
+        Ok(scope) => scope,
+        Err(e) => return DaemonResponse::err(format!("Invalid scope: {e}")),
+    };
+    match store.remove_service_scope(&service_name, &scope).await {
+        Ok(()) => DaemonResponse::ok(Some(json!({
+            "service_name": service_name,
+            "scope": scope,
+        }))),
         Err(e) => DaemonResponse::err(e.to_string()),
     }
 }
 
-async fn handle_remove_service(store: &MCPStore, params: Value) -> DaemonResponse {
-    let name = get_str(&params, "name");
-    match store.remove_service(&name).await {
-        Ok(()) => DaemonResponse::ok(Some(json!({"name": name}))),
+async fn handle_declare_service_scope(store: &MCPStore, params: Value) -> DaemonResponse {
+    let service_name = get_str(&params, "service_name");
+    let scope: ScopeRef = match serde_json::from_value(get_field(&params, "scope")) {
+        Ok(scope) => scope,
+        Err(e) => return DaemonResponse::err(format!("Invalid scope: {e}")),
+    };
+    let descriptor: ScopeDescriptor = match serde_json::from_value(get_field(&params, "descriptor"))
+    {
+        Ok(descriptor) => descriptor,
+        Err(e) => return DaemonResponse::err(format!("Invalid scope descriptor: {e}")),
+    };
+    match store
+        .declare_service_scope(&service_name, &scope, descriptor)
+        .await
+    {
+        Ok(instance_id) => DaemonResponse::ok(Some(json!({
+            "instance_id": instance_id,
+            "service_name": service_name,
+            "scope": scope,
+        }))),
         Err(e) => DaemonResponse::err(e.to_string()),
     }
 }
 
 async fn handle_connect_service(store: &MCPStore, params: Value) -> DaemonResponse {
-    let name = get_str(&params, "name");
-    match store.connect_service(&name).await {
+    let instance_id = match get_instance_id(&params) {
+        Ok(instance_id) => instance_id,
+        Err(response) => return response,
+    };
+    match store.connect_service(instance_id).await {
         Ok(()) => {
-            let tools = store.list_tools(&name).await.unwrap_or_default();
+            let tools = store.list_tools(instance_id).await.unwrap_or_default();
             DaemonResponse::ok(Some(json!({
-                "name": name,
+                "instance_id": instance_id,
                 "tools_count": tools.len(),
                 "tools": tools.iter().map(|t| json!({"name": t.name, "description": t.description})).collect::<Vec<_>>()
             })))
@@ -191,29 +273,43 @@ async fn handle_connect_service(store: &MCPStore, params: Value) -> DaemonRespon
 }
 
 async fn handle_disconnect_service(store: &MCPStore, params: Value) -> DaemonResponse {
-    let name = get_str(&params, "name");
-    match store.disconnect_service(&name).await {
-        Ok(()) => DaemonResponse::ok(Some(json!({"name": name}))),
+    let instance_id = match get_instance_id(&params) {
+        Ok(instance_id) => instance_id,
+        Err(response) => return response,
+    };
+    match store.disconnect_service(instance_id).await {
+        Ok(()) => DaemonResponse::ok(Some(json!({"instance_id": instance_id}))),
         Err(e) => DaemonResponse::err(e.to_string()),
     }
 }
 
 async fn handle_restart_service(store: &MCPStore, params: Value) -> DaemonResponse {
-    let name = get_str(&params, "name");
-    match store.restart_service(&name).await {
-        Ok(()) => DaemonResponse::ok(Some(json!({"name": name}))),
+    let instance_id = match get_instance_id(&params) {
+        Ok(instance_id) => instance_id,
+        Err(response) => return response,
+    };
+    match store.restart_service(instance_id).await {
+        Ok(()) => DaemonResponse::ok(Some(json!({"instance_id": instance_id}))),
         Err(e) => DaemonResponse::err(e.to_string()),
     }
 }
 
-async fn handle_list_services(store: &MCPStore, _params: Value) -> DaemonResponse {
-    let services = store.list_services().await;
+async fn handle_list_services(store: &MCPStore, params: Value) -> DaemonResponse {
+    let scope: ScopeRef = match serde_json::from_value(get_field(&params, "scope")) {
+        Ok(scope) => scope,
+        Err(e) => return DaemonResponse::err(format!("Invalid scope: {e}")),
+    };
+    let services = match store.list_scope_instances(&scope).await {
+        Ok(services) => services,
+        Err(e) => return DaemonResponse::err(e.to_string()),
+    };
     let data: Vec<Value> = services
         .iter()
         .map(|s| {
             json!({
-                "name": s.name,
-                "original_name": s.original_name,
+                "instance_id": s.instance_id,
+                "service_name": s.service_name,
+                "scope": s.scope,
                 "transport": s.transport,
                 "status": format!("{:?}", s.status),
                 "tools_count": s.tools.len(),
@@ -224,22 +320,29 @@ async fn handle_list_services(store: &MCPStore, _params: Value) -> DaemonRespons
 }
 
 async fn handle_get_service(store: &MCPStore, params: Value) -> DaemonResponse {
-    let name = get_str(&params, "name");
-    match store.find_service(&name).await {
+    let instance_id = match get_instance_id(&params) {
+        Ok(instance_id) => instance_id,
+        Err(response) => return response,
+    };
+    match store.find_instance(instance_id).await {
         Some(s) => DaemonResponse::ok(Some(json!({
-            "name": s.name,
-            "original_name": s.original_name,
+            "instance_id": s.instance_id,
+            "service_name": s.service_name,
+            "scope": s.scope,
             "transport": s.transport,
             "status": format!("{:?}", s.status),
             "tools": s.tools.iter().map(|t| json!({"name": t.name, "description": t.description})).collect::<Vec<_>>(),
         }))),
-        None => DaemonResponse::err(format!("Service not found: {}", name)),
+        None => DaemonResponse::err(format!("Service instance not found: {}", instance_id)),
     }
 }
 
 async fn handle_list_tools(store: &MCPStore, params: Value) -> DaemonResponse {
-    let service_name = get_str(&params, "service_name");
-    match store.list_tools(&service_name).await {
+    let instance_id = match get_instance_id(&params) {
+        Ok(instance_id) => instance_id,
+        Err(response) => return response,
+    };
+    match store.list_tools(instance_id).await {
         Ok(tools) => {
             let data: Vec<Value> = tools
                 .iter()
@@ -252,10 +355,13 @@ async fn handle_list_tools(store: &MCPStore, params: Value) -> DaemonResponse {
 }
 
 async fn handle_call_tool(store: &MCPStore, params: Value) -> DaemonResponse {
-    let service_name = get_str(&params, "service_name");
+    let instance_id = match get_instance_id(&params) {
+        Ok(instance_id) => instance_id,
+        Err(response) => return response,
+    };
     let tool_name = get_str(&params, "tool_name");
     let args = params.get("args").cloned().unwrap_or_else(|| json!({}));
-    match store.call_tool(&service_name, &tool_name, args).await {
+    match store.call_tool(instance_id, &tool_name, args).await {
         Ok(result) => DaemonResponse::ok(Some(json!({
             "content": result.content.iter()
                 .map(|c| serde_json::to_value(c).unwrap_or_else(|_| json!({"type": "error"})))
@@ -267,27 +373,31 @@ async fn handle_call_tool(store: &MCPStore, params: Value) -> DaemonResponse {
 }
 
 async fn handle_check_service(store: &MCPStore, params: Value) -> DaemonResponse {
-    let name = params.get("name").and_then(Value::as_str);
-    if let Some(name) = name {
-        match store.health_check(name).await {
+    let instance_id = params.get("instance_id").and_then(Value::as_str);
+    if let Some(instance_id) = instance_id {
+        let instance_id = match instance_id.parse() {
+            Ok(instance_id) => instance_id,
+            Err(e) => return DaemonResponse::err(format!("Invalid instance_id: {e}")),
+        };
+        match store.instance_status_entry(instance_id).await {
             Ok(status) => DaemonResponse::ok(Some(
-                json!({"name": name, "health_status": format!("{:?}", status.health_status)}),
+                json!({"instance_id": instance_id, "health_status": format!("{:?}", status.health_status)}),
             )),
             Err(e) => DaemonResponse::err(e.to_string()),
         }
     } else {
-        let services = store.list_services().await;
+        let services = store.list_instances().await;
         let mut results = serde_json::Map::new();
         for svc in services {
-            match store.health_check(&svc.name).await {
+            match store.instance_status_entry(svc.instance_id).await {
                 Ok(status) => {
                     results.insert(
-                        svc.name.clone(),
+                        svc.instance_id.to_string(),
                         json!(format!("{:?}", status.health_status)),
                     );
                 }
                 Err(_) => {
-                    results.insert(svc.name.clone(), json!("unknown"));
+                    results.insert(svc.instance_id.to_string(), json!("unknown"));
                 }
             }
         }
@@ -296,41 +406,16 @@ async fn handle_check_service(store: &MCPStore, params: Value) -> DaemonResponse
 }
 
 async fn handle_wait_service(store: &MCPStore, params: Value) -> DaemonResponse {
-    let name = get_str(&params, "name");
+    let instance_id = match get_instance_id(&params) {
+        Ok(instance_id) => instance_id,
+        Err(response) => return response,
+    };
     let timeout = params.get("timeout").and_then(Value::as_u64).unwrap_or(30);
-    match store.wait_service_ready(&name, timeout).await {
+    match store.wait_instance_ready(instance_id, timeout).await {
         Ok(status) => DaemonResponse::ok(Some(json!({
-            "name": name,
+            "instance_id": instance_id,
             "health_status": format!("{:?}", status.health_status),
         }))),
-        Err(e) => DaemonResponse::err(e.to_string()),
-    }
-}
-
-async fn handle_assign_service(store: &MCPStore, params: Value) -> DaemonResponse {
-    let agent_id = get_str(&params, "agent_id");
-    let service_name = get_str(&params, "service_name");
-    match store
-        .assign_service_to_agent(&agent_id, &service_name)
-        .await
-    {
-        Ok(()) => DaemonResponse::ok(Some(
-            json!({"agent_id": agent_id, "service_name": service_name}),
-        )),
-        Err(e) => DaemonResponse::err(e.to_string()),
-    }
-}
-
-async fn handle_unassign_service(store: &MCPStore, params: Value) -> DaemonResponse {
-    let agent_id = get_str(&params, "agent_id");
-    let service_name = get_str(&params, "service_name");
-    match store
-        .unassign_service_from_agent(&agent_id, &service_name)
-        .await
-    {
-        Ok(()) => DaemonResponse::ok(Some(
-            json!({"agent_id": agent_id, "service_name": service_name}),
-        )),
         Err(e) => DaemonResponse::err(e.to_string()),
     }
 }
@@ -368,4 +453,10 @@ fn get_str(params: &Value, key: &str) -> String {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string()
+}
+
+fn get_instance_id(params: &Value) -> Result<InstanceId, DaemonResponse> {
+    get_str(params, "instance_id")
+        .parse()
+        .map_err(|error| DaemonResponse::err(format!("Invalid instance_id: {error}")))
 }

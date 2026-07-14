@@ -1,8 +1,9 @@
 use clap::{Args, ValueEnum};
-use mcpstore::config::ServerConfig;
+use mcpstore::config::{McpStoreExtension, ScopeDeclarations, ScopeDescriptor, ServerConfig};
 use std::collections::HashMap;
+use std::str::FromStr;
 
-use mcpstore::MCPStore;
+use mcpstore::{InstanceId, ScopeRef};
 
 use crate::{
     store_args::{build_store, CacheStorageArg, StoreSourceArgs},
@@ -14,7 +15,20 @@ pub enum Scope {
     #[default]
     Store,
     Agent,
-    Project,
+}
+
+impl Scope {
+    pub fn to_ref(&self, agent: Option<&str>) -> std::result::Result<ScopeRef, BoxErr> {
+        match self {
+            Self::Store => {
+                validate_agent_flag(self, agent)?;
+                Ok(ScopeRef::Store)
+            }
+            Self::Agent => Ok(ScopeRef::Agent {
+                agent_id: require_agent(agent)?.to_string(),
+            }),
+        }
+    }
 }
 
 #[derive(Args)]
@@ -53,7 +67,7 @@ pub async fn add(a: AddArgs) -> std::result::Result<(), BoxErr> {
 
     let env_map = parse_env(&a.env)?;
     let header_map = parse_headers(&a.header)?;
-    let config = build_server_config(
+    let mut config = build_server_config(
         a.command_or_url.as_deref(),
         &a.args,
         a.transport.as_deref(),
@@ -61,21 +75,36 @@ pub async fn add(a: AddArgs) -> std::result::Result<(), BoxErr> {
         &header_map,
     )?;
     let transport = config.infer_transport().to_string();
+    let scope = a.scope.to_ref(a.agent.as_deref())?;
+    if let ScopeRef::Agent { agent_id } = &scope {
+        let previous = config.mcpstore.take();
+        let mut scopes = ScopeDeclarations::default();
+        scopes
+            .agents
+            .insert(agent_id.clone(), ScopeDescriptor::default());
+        config.mcpstore = Some(McpStoreExtension {
+            scopes,
+            lifecycle: previous
+                .as_ref()
+                .and_then(|extension| extension.lifecycle.clone()),
+            revision: previous
+                .as_ref()
+                .map(|extension| extension.revision)
+                .unwrap_or(1)
+                .max(1),
+            extra: previous
+                .map(|extension| extension.extra)
+                .unwrap_or_default(),
+        });
+    }
 
     if crate::daemon::client::daemon_socket_exists() {
         let params = serde_json::json!({
             "name": a.name,
             "config": config,
+            "scope": scope,
         });
         crate::daemon::client::call_daemon("add_service", params).await?;
-        if a.scope == Scope::Agent {
-            let agent_id = require_agent(a.agent.as_deref())?;
-            let assign_params = serde_json::json!({
-                "agent_id": agent_id,
-                "service_name": a.name,
-            });
-            crate::daemon::client::call_daemon("assign_service", assign_params).await?;
-        }
         println!(
             "[Success] Service added: {} (transport={})",
             a.name, transport
@@ -84,8 +113,27 @@ pub async fn add(a: AddArgs) -> std::result::Result<(), BoxErr> {
     }
 
     let store = build_store(&a.store)?;
-    store.add_service(&a.name, config).await?;
-    apply_scope_after_service_write(&store, &a.scope, a.agent.as_deref(), &a.name).await?;
+    store.load_from_source().await?;
+    let definition_exists = store.get_definition_config(&a.name).await?.is_some();
+    if definition_exists {
+        let lifecycle = config
+            .mcpstore
+            .as_ref()
+            .and_then(|extension| extension.lifecycle.clone());
+        store
+            .declare_service_scope(
+                &a.name,
+                &scope,
+                ScopeDescriptor {
+                    config: config.base_config(),
+                    lifecycle,
+                    revision: 0,
+                },
+            )
+            .await?;
+    } else {
+        store.add_service(&a.name, config).await?;
+    }
     println!(
         "[Success] Service added: {} (transport={})",
         a.name, transport
@@ -109,11 +157,52 @@ pub struct AddJsonArgs {
 
 pub async fn add_json(a: AddJsonArgs) -> std::result::Result<(), BoxErr> {
     let store = build_store(&a.store)?;
+    store.load_from_source().await?;
     validate_scope_target(&a.scope, a.agent.as_deref())?;
-    let config: ServerConfig = serde_json::from_str(&a.json)?;
+    let mut config: ServerConfig = serde_json::from_str(&a.json)?;
     let transport = config.infer_transport().to_string();
-    store.add_service(&a.name, config).await?;
-    apply_scope_after_service_write(&store, &a.scope, a.agent.as_deref(), &a.name).await?;
+    let scope = a.scope.to_ref(a.agent.as_deref())?;
+    if let ScopeRef::Agent { agent_id } = &scope {
+        let previous = config.mcpstore.take();
+        let mut scopes = ScopeDeclarations::default();
+        scopes
+            .agents
+            .insert(agent_id.clone(), ScopeDescriptor::default());
+        config.mcpstore = Some(McpStoreExtension {
+            scopes,
+            lifecycle: previous
+                .as_ref()
+                .and_then(|extension| extension.lifecycle.clone()),
+            revision: previous
+                .as_ref()
+                .map(|extension| extension.revision)
+                .unwrap_or(1)
+                .max(1),
+            extra: previous
+                .map(|extension| extension.extra)
+                .unwrap_or_default(),
+        });
+    }
+    let definition_exists = store.get_definition_config(&a.name).await?.is_some();
+    if definition_exists {
+        let lifecycle = config
+            .mcpstore
+            .as_ref()
+            .and_then(|extension| extension.lifecycle.clone());
+        store
+            .declare_service_scope(
+                &a.name,
+                &scope,
+                ScopeDescriptor {
+                    config: config.base_config(),
+                    lifecycle,
+                    revision: 0,
+                },
+            )
+            .await?;
+    } else {
+        store.add_service(&a.name, config).await?;
+    }
     println!(
         "[Success] Service added: {} (transport={})",
         a.name, transport
@@ -132,27 +221,14 @@ pub struct ListArgs {
 }
 
 pub async fn list(a: ListArgs) -> std::result::Result<(), BoxErr> {
-    validate_agent_flag(&a.scope, a.agent.as_deref())?;
+    let scope = a.scope.to_ref(a.agent.as_deref())?;
 
     if crate::daemon::client::daemon_socket_exists() {
-        if a.scope == Scope::Agent {
-            let agent_id = require_agent(a.agent.as_deref())?;
-            let result =
-                crate::daemon::client::call_daemon("list_agents", serde_json::json!({})).await?;
-            println!(
-                "[Agent] {} service_count={}",
-                agent_id,
-                result.as_array().map(|v| v.len()).unwrap_or(0)
-            );
-            if let Some(arr) = result.as_array() {
-                for item in arr {
-                    println!("- {}", item);
-                }
-            }
-            return Ok(());
-        }
-        let result =
-            crate::daemon::client::call_daemon("list_services", serde_json::json!({})).await?;
+        let result = crate::daemon::client::call_daemon(
+            "list_services",
+            serde_json::json!({"scope": scope}),
+        )
+        .await?;
         let services = result
             .get("services")
             .and_then(|v| v.as_array())
@@ -164,13 +240,20 @@ pub async fn list(a: ListArgs) -> std::result::Result<(), BoxErr> {
             return Ok(());
         }
         for svc in services {
-            let name = svc.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+            let name = svc
+                .get("service_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+            let instance_id = svc
+                .get("instance_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
             let transport = svc.get("transport").and_then(|v| v.as_str()).unwrap_or("?");
             let status = svc.get("status").and_then(|v| v.as_str()).unwrap_or("?");
             let tools_count = svc.get("tools_count").and_then(|v| v.as_u64()).unwrap_or(0);
             println!(
-                "- {}  transport={}  status={}  tools={}",
-                name, transport, status, tools_count
+                "- {}  instance={}  transport={}  status={}  tools={}",
+                name, instance_id, transport, status, tools_count
             );
         }
         return Ok(());
@@ -179,12 +262,7 @@ pub async fn list(a: ListArgs) -> std::result::Result<(), BoxErr> {
     let store = build_store(&a.store)?;
     store.load_from_source().await?;
 
-    if a.scope == Scope::Agent {
-        let agent_id = require_agent(a.agent.as_deref())?;
-        return list_agent_services(&store, agent_id).await;
-    }
-
-    let services = store.list_services().await;
+    let services = store.list_scope_instances(&scope).await?;
     println!("[List] service_count={}", services.len());
 
     if services.is_empty() {
@@ -194,8 +272,9 @@ pub async fn list(a: ListArgs) -> std::result::Result<(), BoxErr> {
 
     for svc in &services {
         println!(
-            "- {}  transport={}  status={:?}  tools={}",
-            svc.name,
+            "- {}  instance={}  transport={}  status={:?}  tools={}",
+            svc.service_name,
+            svc.instance_id,
             svc.transport,
             svc.status,
             svc.tools.len()
@@ -206,28 +285,18 @@ pub async fn list(a: ListArgs) -> std::result::Result<(), BoxErr> {
 
 #[derive(Args)]
 pub struct GetArgs {
-    #[arg(help = "Service name")]
-    pub name: String,
+    #[arg(help = "Service instance ID")]
+    pub instance_id: String,
     #[command(flatten)]
     pub store: StoreSourceArgs,
-    #[arg(long, value_enum, default_value_t = Scope::Store, help = "Operation scope")]
-    pub scope: Scope,
-    #[arg(long, help = "Agent ID, only used with --scope agent")]
-    pub agent: Option<String>,
 }
 
 pub async fn get(a: GetArgs) -> std::result::Result<(), BoxErr> {
     let store = build_store(&a.store)?;
     store.load_from_source().await?;
-    validate_scope_target(&a.scope, a.agent.as_deref())?;
-
-    let payload = match a.scope {
-        Scope::Agent => {
-            let agent_id = require_agent(a.agent.as_deref())?;
-            store.service_info_scoped(Some(agent_id), &a.name).await?
-        }
-        Scope::Store | Scope::Project => store.service_info_scoped(None, &a.name).await?,
-    };
+    let payload = store
+        .service_info_scoped(parse_instance_id(&a.instance_id)?)
+        .await?;
     let json = serde_json::to_string_pretty(&payload)?;
     println!("{json}");
     Ok(())
@@ -246,65 +315,53 @@ pub struct RemoveArgs {
 }
 
 pub async fn remove(a: RemoveArgs) -> std::result::Result<(), BoxErr> {
-    validate_agent_flag(&a.scope, a.agent.as_deref())?;
-    if a.scope == Scope::Agent {
-        let agent_id = require_agent(a.agent.as_deref())?;
-        if crate::daemon::client::daemon_socket_exists() {
-            let params = serde_json::json!({"agent_id": agent_id, "service_name": a.name});
-            crate::daemon::client::call_daemon("unassign_service", params).await?;
-            println!(
-                "[Success] Removed service authorization from Agent: agent={} service={}",
-                agent_id, a.name
-            );
-            return Ok(());
-        }
-        let store = build_store(&a.store)?;
-        store.load_from_source().await?;
-        unassign_service(&store, agent_id, &a.name).await?;
-        println!(
-            "[Success] Removed service authorization from Agent: agent={} service={}",
-            agent_id, a.name
-        );
-        return Ok(());
-    }
+    let scope = a.scope.to_ref(a.agent.as_deref())?;
     if crate::daemon::client::daemon_socket_exists() {
-        let params = serde_json::json!({"name": a.name});
-        crate::daemon::client::call_daemon("remove_service", params).await?;
-        println!("[Success] Service removed: {}", a.name);
+        let params = serde_json::json!({"service_name": a.name, "scope": scope});
+        crate::daemon::client::call_daemon("remove_service_scope", params).await?;
+        println!("[Success] Service scope removed: {}", a.name);
         return Ok(());
     }
     let store = build_store(&a.store)?;
     store.load_from_source().await?;
-    store.remove_service(&a.name).await?;
-    println!("[Success] Service removed: {}", a.name);
+    store.remove_service_scope(&a.name, &scope).await?;
+    println!("[Success] Service scope removed: {}", a.name);
     Ok(())
 }
 
 #[derive(Args)]
 pub struct ConnectArgs {
-    #[arg(help = "Service name")]
-    pub name: String,
+    #[arg(help = "Service instance ID")]
+    pub instance_id: String,
     #[command(flatten)]
     pub store: StoreSourceArgs,
 }
 
 pub async fn connect(a: ConnectArgs) -> std::result::Result<(), BoxErr> {
     if crate::daemon::client::daemon_socket_exists() {
-        let params = serde_json::json!({"name": a.name});
+        let params = serde_json::json!({"instance_id": a.instance_id});
         let result = crate::daemon::client::call_daemon("connect_service", params).await?;
         let tools_count = result
             .get("tools_count")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
-        println!("[Success] Connected: {} (tools={})", a.name, tools_count);
+        println!(
+            "[Success] Connected: {} (tools={})",
+            a.instance_id, tools_count
+        );
         return Ok(());
     }
     let store = build_store(&a.store)?;
     store.load_from_source().await?;
-    store.connect_service(&a.name).await?;
+    let instance_id = parse_instance_id(&a.instance_id)?;
+    store.connect_service(instance_id).await?;
 
-    let tools = store.list_tools(&a.name).await.unwrap_or_default();
-    println!("[Success] Connected: {} (tools={})", a.name, tools.len());
+    let tools = store.list_tools(instance_id).await.unwrap_or_default();
+    println!(
+        "[Success] Connected: {} (tools={})",
+        instance_id,
+        tools.len()
+    );
     for t in &tools {
         println!("  - {}: {}", t.name, t.description);
     }
@@ -313,73 +370,69 @@ pub async fn connect(a: ConnectArgs) -> std::result::Result<(), BoxErr> {
 
 #[derive(Args)]
 pub struct DisconnectArgs {
-    #[arg(help = "Service name")]
-    pub name: String,
+    #[arg(help = "Service instance ID")]
+    pub instance_id: String,
     #[command(flatten)]
     pub store: StoreSourceArgs,
 }
 
 pub async fn disconnect(a: DisconnectArgs) -> std::result::Result<(), BoxErr> {
     if crate::daemon::client::daemon_socket_exists() {
-        let params = serde_json::json!({"name": a.name});
+        let params = serde_json::json!({"instance_id": a.instance_id});
         crate::daemon::client::call_daemon("disconnect_service", params).await?;
-        println!("[Success] Disconnected: {}", a.name);
+        println!("[Success] Disconnected: {}", a.instance_id);
         return Ok(());
     }
     let store = build_store(&a.store)?;
     store.load_from_source().await?;
-    store.disconnect_service(&a.name).await?;
-    println!("[Success] Disconnected: {}", a.name);
+    let instance_id = parse_instance_id(&a.instance_id)?;
+    store.disconnect_service(instance_id).await?;
+    println!("[Success] Disconnected: {}", instance_id);
     Ok(())
 }
 
 #[derive(Args)]
 pub struct RestartArgs {
-    #[arg(help = "Service name")]
-    pub name: String,
+    #[arg(help = "Service instance ID")]
+    pub instance_id: String,
     #[command(flatten)]
     pub store: StoreSourceArgs,
 }
 
 pub async fn restart(a: RestartArgs) -> std::result::Result<(), BoxErr> {
     if crate::daemon::client::daemon_socket_exists() {
-        let params = serde_json::json!({"name": a.name});
+        let params = serde_json::json!({"instance_id": a.instance_id});
         crate::daemon::client::call_daemon("restart_service", params).await?;
-        println!("[Success] Restarted: {}", a.name);
+        println!("[Success] Restarted: {}", a.instance_id);
         return Ok(());
     }
     let store = build_store(&a.store)?;
     store.load_from_source().await?;
-    store.restart_service(&a.name).await?;
-    println!("[Success] Restarted: {}", a.name);
+    let instance_id = parse_instance_id(&a.instance_id)?;
+    store.restart_service(instance_id).await?;
+    println!("[Success] Restarted: {}", instance_id);
     Ok(())
 }
 
 #[derive(Args)]
 pub struct CheckArgs {
-    #[arg(help = "Service name; check all services if omitted")]
-    pub name: Option<String>,
+    #[arg(help = "Service instance ID; check all instances if omitted")]
+    pub instance_id: Option<String>,
     #[command(flatten)]
     pub store: StoreSourceArgs,
 }
 
 pub async fn check(a: CheckArgs) -> std::result::Result<(), BoxErr> {
     if crate::daemon::client::daemon_socket_exists() {
-        let params = if let Some(ref name) = a.name {
-            serde_json::json!({"name": name})
+        let params = if let Some(ref instance_id) = a.instance_id {
+            serde_json::json!({"instance_id": instance_id})
         } else {
             serde_json::json!({})
         };
         let result = crate::daemon::client::call_daemon("check_service", params).await?;
         if let Some(obj) = result.as_object() {
-            if obj.len() == 1 && a.name.is_some() {
-                for (k, v) in obj {
-                    println!("[Check] {} => {}", k, v.as_str().unwrap_or("?"));
-                }
-            } else {
-                for (k, v) in obj {
-                    println!("[Check] {} => {}", k, v.as_str().unwrap_or("?"));
-                }
+            for (k, v) in obj {
+                println!("[Check] {} => {}", k, v.as_str().unwrap_or("?"));
             }
         }
         return Ok(());
@@ -387,19 +440,17 @@ pub async fn check(a: CheckArgs) -> std::result::Result<(), BoxErr> {
     let store = build_store(&a.store)?;
     store.load_from_source().await?;
 
-    if let Some(name) = a.name {
-        let status = store
-            .cached_service_status(&name)
-            .await?
-            .unwrap_or(store.health_check(&name).await?);
-        println!("[Check] {} => {:?}", name, status.health_status);
+    if let Some(instance_id) = a.instance_id {
+        let instance_id = parse_instance_id(&instance_id)?;
+        let status = store.instance_status_entry(instance_id).await?;
+        println!("[Check] {} => {:?}", instance_id, status.health_status);
     } else {
-        for svc in store.list_services().await {
-            let status = store
-                .cached_service_status(&svc.name)
-                .await?
-                .unwrap_or(store.health_check(&svc.name).await?);
-            println!("[Check] {} => {:?}", svc.name, status.health_status);
+        for instance in store.list_instances().await {
+            let status = store.instance_status_entry(instance.instance_id).await?;
+            println!(
+                "[Check] {} ({}/{:?}) => {:?}",
+                instance.instance_id, instance.service_name, instance.scope, status.health_status
+            );
         }
     }
     Ok(())
@@ -407,8 +458,8 @@ pub async fn check(a: CheckArgs) -> std::result::Result<(), BoxErr> {
 
 #[derive(Args)]
 pub struct WaitArgs {
-    #[arg(help = "Service name")]
-    pub name: String,
+    #[arg(help = "Service instance ID")]
+    pub instance_id: String,
     #[arg(long, default_value_t = 30, help = "Wait timeout in seconds")]
     pub timeout: u64,
     #[command(flatten)]
@@ -417,22 +468,23 @@ pub struct WaitArgs {
 
 pub async fn wait(a: WaitArgs) -> std::result::Result<(), BoxErr> {
     if crate::daemon::client::daemon_socket_exists() {
-        let params = serde_json::json!({"name": a.name, "timeout": a.timeout});
+        let params = serde_json::json!({"instance_id": a.instance_id, "timeout": a.timeout});
         let result = crate::daemon::client::call_daemon("wait_service", params).await?;
         let status = result
             .get("health_status")
             .and_then(|v| v.as_str())
             .unwrap_or("?");
-        println!("[Success] Service ready: {} ({})", a.name, status);
+        println!("[Success] Service ready: {} ({})", a.instance_id, status);
         return Ok(());
     }
     let store = build_store(&a.store)?;
     store.load_from_source().await?;
-    store.connect_service(&a.name).await?;
-    let status = store.wait_service_ready(&a.name, a.timeout).await?;
+    let instance_id = parse_instance_id(&a.instance_id)?;
+    store.connect_service(instance_id).await?;
+    let status = store.wait_instance_ready(instance_id, a.timeout).await?;
     println!(
         "[Success] Service ready: {} ({:?})",
-        a.name, status.health_status
+        instance_id, status.health_status
     );
     Ok(())
 }
@@ -481,31 +533,44 @@ pub async fn update(a: UpdateArgs) -> std::result::Result<(), BoxErr> {
         &env_map,
         &header_map,
     )?;
-    store.remove_service(&a.name).await.ok();
-    store.add_service(&a.name, config).await?;
-    apply_scope_after_service_write(&store, &a.scope, a.agent.as_deref(), &a.name).await?;
+    match a.scope.to_ref(a.agent.as_deref())? {
+        ScopeRef::Store => store.update_service(&a.name, config).await?,
+        scope @ ScopeRef::Agent { .. } => {
+            store
+                .declare_service_scope(
+                    &a.name,
+                    &scope,
+                    ScopeDescriptor {
+                        config: config.base_config(),
+                        lifecycle: None,
+                        revision: 0,
+                    },
+                )
+                .await?;
+        }
+    }
     println!("[Success] Service updated: {}", a.name);
     Ok(())
 }
 
 #[derive(Args)]
 pub struct ToolsArgs {
-    #[arg(help = "Service name")]
-    pub service_name: String,
+    #[arg(help = "Service instance ID")]
+    pub instance_id: String,
     #[command(flatten)]
     pub store: StoreSourceArgs,
 }
 
 pub async fn tools(a: ToolsArgs) -> std::result::Result<(), BoxErr> {
     if crate::daemon::client::daemon_socket_exists() {
-        let params = serde_json::json!({"service_name": a.service_name});
+        let params = serde_json::json!({"instance_id": a.instance_id});
         let result = crate::daemon::client::call_daemon("list_tools", params).await?;
         let tools = result
             .get("tools")
             .and_then(|v| v.as_array())
             .cloned()
             .unwrap_or_default();
-        println!("[Tools] service={} count={}", a.service_name, tools.len());
+        println!("[Tools] instance={} count={}", a.instance_id, tools.len());
         for t in tools {
             let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("?");
             let desc = t.get("description").and_then(|v| v.as_str()).unwrap_or("");
@@ -515,10 +580,11 @@ pub async fn tools(a: ToolsArgs) -> std::result::Result<(), BoxErr> {
     }
     let store = build_store(&a.store)?;
     store.load_from_source().await?;
-    store.connect_service(&a.service_name).await?;
+    let instance_id = parse_instance_id(&a.instance_id)?;
+    store.connect_service(instance_id).await?;
 
-    let tools = store.list_tools(&a.service_name).await?;
-    println!("[Tools] service={} count={}", a.service_name, tools.len());
+    let tools = store.list_tools(instance_id).await?;
+    println!("[Tools] instance={} count={}", instance_id, tools.len());
     for t in &tools {
         println!("  - {}: {}", t.name, t.description);
     }
@@ -527,8 +593,8 @@ pub async fn tools(a: ToolsArgs) -> std::result::Result<(), BoxErr> {
 
 #[derive(Args)]
 pub struct CallToolArgs {
-    #[arg(help = "Service name")]
-    pub service_name: String,
+    #[arg(help = "Service instance ID")]
+    pub instance_id: String,
     #[arg(help = "Tool name")]
     pub tool_name: String,
     #[arg(long, default_value = "{}", help = "Tool call arguments JSON string")]
@@ -558,7 +624,7 @@ pub async fn call_tool(a: CallToolArgs) -> std::result::Result<(), BoxErr> {
     let args: serde_json::Value = serde_json::from_str(&a.arguments)?;
     if crate::daemon::client::daemon_socket_exists() {
         let params = serde_json::json!({
-            "service_name": a.service_name,
+            "instance_id": a.instance_id,
             "tool_name": a.tool_name,
             "args": args,
         });
@@ -596,9 +662,10 @@ pub async fn call_tool(a: CallToolArgs) -> std::result::Result<(), BoxErr> {
     }
     let store = build_store(&a.store)?;
     store.load_from_source().await?;
-    store.connect_service(&a.service_name).await?;
+    let instance_id = parse_instance_id(&a.instance_id)?;
+    store.connect_service(instance_id).await?;
 
-    let result = store.call_tool(&a.service_name, &a.tool_name, args).await?;
+    let result = store.call_tool(instance_id, &a.tool_name, args).await?;
 
     if result.is_error {
         eprintln!("[Error] Tool call returned error");
@@ -664,9 +731,16 @@ pub struct UnassignArgs {
 }
 
 pub async fn assign(a: AssignArgs) -> std::result::Result<(), BoxErr> {
+    let scope = ScopeRef::Agent {
+        agent_id: a.agent.clone(),
+    };
     if crate::daemon::client::daemon_socket_exists() {
-        let params = serde_json::json!({"agent_id": a.agent, "service_name": a.service_name});
-        crate::daemon::client::call_daemon("assign_service", params).await?;
+        let params = serde_json::json!({
+            "service_name": a.service_name,
+            "scope": scope,
+            "descriptor": ScopeDescriptor::default(),
+        });
+        crate::daemon::client::call_daemon("declare_service_scope", params).await?;
         println!(
             "[Success] Service authorized to Agent: agent={} service={}",
             a.agent, a.service_name
@@ -675,7 +749,9 @@ pub async fn assign(a: AssignArgs) -> std::result::Result<(), BoxErr> {
     }
     let store = build_store(&a.store)?;
     store.load_from_source().await?;
-    assign_service(&store, &a.agent, &a.service_name).await?;
+    store
+        .declare_service_scope(&a.service_name, &scope, ScopeDescriptor::default())
+        .await?;
     println!(
         "[Success] Service authorized to Agent: agent={} service={}",
         a.agent, a.service_name
@@ -684,9 +760,12 @@ pub async fn assign(a: AssignArgs) -> std::result::Result<(), BoxErr> {
 }
 
 pub async fn unassign(a: UnassignArgs) -> std::result::Result<(), BoxErr> {
+    let scope = ScopeRef::Agent {
+        agent_id: a.agent.clone(),
+    };
     if crate::daemon::client::daemon_socket_exists() {
-        let params = serde_json::json!({"agent_id": a.agent, "service_name": a.service_name});
-        crate::daemon::client::call_daemon("unassign_service", params).await?;
+        let params = serde_json::json!({"service_name": a.service_name, "scope": scope});
+        crate::daemon::client::call_daemon("remove_service_scope", params).await?;
         println!(
             "[Success] Removed Agent service authorization: agent={} service={}",
             a.agent, a.service_name
@@ -695,7 +774,7 @@ pub async fn unassign(a: UnassignArgs) -> std::result::Result<(), BoxErr> {
     }
     let store = build_store(&a.store)?;
     store.load_from_source().await?;
-    unassign_service(&store, &a.agent, &a.service_name).await?;
+    store.remove_service_scope(&a.service_name, &scope).await?;
     println!(
         "[Success] Removed Agent service authorization: agent={} service={}",
         a.agent, a.service_name
@@ -767,6 +846,7 @@ fn build_server_config(
             working_dir: None,
             description: None,
             mcpstore: None,
+            extra: Default::default(),
         })
     } else {
         Ok(ServerConfig {
@@ -779,72 +859,13 @@ fn build_server_config(
             working_dir: None,
             description: None,
             mcpstore: None,
+            extra: Default::default(),
         })
     }
 }
 
-async fn apply_scope_after_service_write(
-    store: &MCPStore,
-    scope: &Scope,
-    agent: Option<&str>,
-    service_name: &str,
-) -> std::result::Result<(), BoxErr> {
-    match scope {
-        Scope::Store | Scope::Project => validate_agent_flag(scope, agent),
-        Scope::Agent => assign_service(store, require_agent(agent)?, service_name).await,
-    }
-}
-
-async fn assign_service(
-    store: &MCPStore,
-    agent_id: &str,
-    service_name: &str,
-) -> std::result::Result<(), BoxErr> {
-    store
-        .assign_service_to_agent(agent_id, service_name)
-        .await?;
-    if store.is_db_source() {
-        return Ok(());
-    }
-    let mut cfg = store.config_manager().load_or_default();
-    let services = cfg.agents.entry(agent_id.to_string()).or_default();
-    if !services.iter().any(|name| name == service_name) {
-        services.push(service_name.to_string());
-    }
-    store.config_manager().save(&cfg)?;
-    Ok(())
-}
-
-async fn unassign_service(
-    store: &MCPStore,
-    agent_id: &str,
-    service_name: &str,
-) -> std::result::Result<(), BoxErr> {
-    store
-        .unassign_service_from_agent(agent_id, service_name)
-        .await?;
-    if store.is_db_source() {
-        return Ok(());
-    }
-    let mut cfg = store.config_manager().load_or_default();
-    if let Some(services) = cfg.agents.get_mut(agent_id) {
-        services.retain(|name| name != service_name);
-    }
-    store.config_manager().save(&cfg)?;
-    Ok(())
-}
-
-async fn list_agent_services(store: &MCPStore, agent_id: &str) -> std::result::Result<(), BoxErr> {
-    let mut services = store.list_agent_service_names(agent_id).await?;
-    if services.is_empty() && !store.is_db_source() {
-        let cfg = store.config_manager().load_or_default();
-        services = cfg.agents.get(agent_id).cloned().unwrap_or_default();
-    }
-    println!("[Agent] {} service_count={}", agent_id, services.len());
-    for service in services {
-        println!("- {service}");
-    }
-    Ok(())
+fn parse_instance_id(value: &str) -> std::result::Result<InstanceId, BoxErr> {
+    Ok(InstanceId::from_str(value)?)
 }
 
 fn require_agent(agent: Option<&str>) -> std::result::Result<&str, BoxErr> {
