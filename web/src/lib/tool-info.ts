@@ -43,6 +43,72 @@ export function parseToolDescription(description: string) {
   return { summary, sections }
 }
 
+const STRUCTURED_DESCRIPTION_SECTIONS = new Set(["args", "parameters", "returns", "return", "raises"])
+
+export function parseDescriptionParamDocs(content: string): Record<string, string> {
+  const docs: Record<string, string> = {}
+
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim().replace(/^[-*]\s+/, "")
+    if (!trimmed) continue
+
+    const match = trimmed.match(/^([A-Za-z_][\w.-]*)\s*:\s*(.+)$/)
+    if (match) {
+      docs[match[1]] = match[2].trim()
+    }
+  }
+
+  return docs
+}
+
+export function extractToolDescriptionDocs(description: string) {
+  const { summary, sections } = parseToolDescription(description)
+  const proseInputParams: Record<string, string> = {}
+  const proseOutputParams: Record<string, string> = {}
+  let proseReturnSummary = ""
+  let proseRaisesSummary = ""
+  const otherSections: Array<{ label: string; content: string }> = []
+
+  for (const section of sections) {
+    const label = section.label.toLowerCase()
+
+    if (label === "args" || label === "parameters") {
+      Object.assign(proseInputParams, parseDescriptionParamDocs(section.content))
+      continue
+    }
+
+    if (label === "returns" || label === "return") {
+      const parsed = parseDescriptionParamDocs(section.content)
+      if (Object.keys(parsed).length > 0) {
+        Object.assign(proseOutputParams, parsed)
+      } else {
+        proseReturnSummary = section.content
+      }
+      continue
+    }
+
+    if (label === "raises") {
+      proseRaisesSummary = section.content
+      continue
+    }
+
+    otherSections.push(section)
+  }
+
+  return {
+    summary,
+    proseInputParams,
+    proseOutputParams,
+    proseReturnSummary,
+    proseRaisesSummary,
+    otherSections,
+  }
+}
+
+export function isStructuredDescriptionSection(label: string) {
+  return STRUCTURED_DESCRIPTION_SECTIONS.has(label.toLowerCase())
+}
+
 export function toolKey(instanceId: string, tool: ToolInfo) {
   return `${instanceId}:${tool.name}`
 }
@@ -89,10 +155,36 @@ export function formatSchemaDefaultValue(value: unknown): string {
   return JSON.stringify(value)
 }
 
-export function getSchemaFieldSubtitle(field: SchemaField): string | null {
-  const title = typeof field.title === "string" ? field.title.trim() : ""
-  if (title) return title
-
+export function getSchemaFieldDescription(field: SchemaField): string | null {
   const description = typeof field.description === "string" ? field.description.trim() : ""
   return description || null
+}
+
+export function getSchemaFieldTitle(field: SchemaField): string | null {
+  const title = typeof field.title === "string" ? field.title.trim() : ""
+  return title || null
+}
+
+/** Short label for compact UI: title first, then schema description. */
+export function getSchemaFieldSubtitle(field: SchemaField): string | null {
+  return getSchemaFieldTitle(field) || getSchemaFieldDescription(field)
+}
+
+/**
+ * MCP 工具参数说明有两个常见来源，按参数各自独立取值：
+ * 1. input_schema.properties[name].description — JSON Schema 结构化说明
+ * 2. tool.description 里 Args/Parameters 段的 `name: text` — docstring 风格说明
+ *
+ * 对单个参数：有 schema 说明就用 schema；没有再看 prose。不是“降级”，而是服务端可能只写其中一处。
+ */
+export function resolveParameterDoc(
+  name: string,
+  field: SchemaField,
+  proseParamDocs: Record<string, string>,
+): string | null {
+  const schemaDoc = getSchemaFieldDescription(field)
+  if (schemaDoc) return schemaDoc
+
+  const proseDoc = proseParamDocs[name]?.trim()
+  return proseDoc || null
 }

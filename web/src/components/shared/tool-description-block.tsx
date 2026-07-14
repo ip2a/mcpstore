@@ -1,4 +1,4 @@
-import { parseToolDescription } from "@/lib/tool-info"
+import { extractToolDescriptionDocs, parseToolDescription } from "@/lib/tool-info"
 import { useI18n } from "@/lib/i18n-context"
 import { cn } from "@/lib/utils"
 
@@ -13,15 +13,19 @@ const sectionLabelKeys: Record<string, string> = {
 export function ToolDescriptionBlock({
   className,
   description,
+  omitStructuredSections = false,
   showLabel = true,
 }: {
   className?: string
   description?: string
+  omitStructuredSections?: boolean
   showLabel?: boolean
 }) {
   const { t } = useI18n()
   const text = description?.trim() || ""
-  const { summary, sections } = parseToolDescription(text || t("noDescription"))
+  const fallback = text || t("noDescription")
+  const parsed = extractToolDescriptionDocs(fallback)
+  const sections = omitStructuredSections ? parsed.otherSections : parseToolDescription(fallback).sections
 
   return (
     <div className={cn("text-sm", className)}>
@@ -30,7 +34,7 @@ export function ToolDescriptionBlock({
           <span className="pt-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("description")}</span>
         ) : null}
         <div className="min-w-0 space-y-3">
-          <p className="leading-relaxed text-foreground">{summary}</p>
+          <p className="leading-relaxed text-foreground">{parsed.summary || t("noDescription")}</p>
           {sections.map((section, index) => (
             <div key={`${section.label}-${index}`} className="border-t pt-3">
               {section.label ? (
